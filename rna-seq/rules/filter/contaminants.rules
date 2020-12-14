@@ -1,0 +1,117 @@
+#-*- mode:snakemake -*-
+"""
+NOTES:
+Need to build index per run as the contaminants fasta is config dependent.
+"""
+from os.path import join
+
+CONT_DIR = join(EXT_DIR, 'contaminants')
+
+
+def get_spikein_fastq(wildcards):
+   q = config['filter']['spikein']['quantifier']
+   R1 = join(FILTER_INTERIM, '{merge}', 'spikein', q, '{sample}_R1.fastq')
+   if PE:
+      if q == 'bowtie':
+         R1 = join(FILTER_INTERIM, '{merge}', 'spikein', q, '{sample}_1.fq'),
+         R2 = join(FILTER_INTERIM, '{merge}', 'spikein', q, '{sample}_2.fq')
+      else:
+         R1 = join(FILTER_INTERIM, '{merge}', 'spikein', q, '{sample}_R1.fastq'),
+         R2 = join(FILTER_INTERIM, '{merge}', 'spikein', q, '{sample}_R2.fastq')
+      return {'R1': R1, 'R2': R2}
+   return {'R1': R1}
+    
+def contaminants_get_fasta(*args, **kw):
+   ref = config['filter']['contaminants']['ref'].split(',')
+   out = []
+   for r in ref:
+      if r.lower() == 'univec':
+         out.append(join(EXT_DIR, 'univec', 'fasta', 'univec.fa'))
+      if r.lower() == 'univec_core':
+         out.append(join(EXT_DIR, 'univec_core', 'fasta', 'univec_core.fa'))
+      if r.lower() == 'emvec':
+         out.append(join(EXT_DIR, 'emvec', 'fasta', 'emvec.fa'))
+      if r.lower() == 'common_bacterial_euk':
+         out.append(join(EXT_DIR, 'JGI', 'fasta', 'fusedEPmasked2.fa'))
+      if r.lower() == 'common_bacterial_prok':
+         out.append(join(EXT_DIR, 'JGI', 'fasta', 'fusedEPmasked2.fa'))
+                       
+   return out
+
+rule contaminants_fasta:
+    input:
+        contaminants_get_fasta
+    output:
+        join(INTERIM_DIR, 'contaminants', 'fasta', 'contaminants.fa')
+    shell:
+        'cat {input} > {output}'
+
+
+if PE:      
+   rule contaminants_filter_bowtie2:
+       input:
+           unpack(get_spikein_fastq),
+           index = join(INTERIM_DIR, 'contaminants', 'index', 'contaminants', 'bowtie2', 'contaminants.1.bt2')
+       output:
+           R1 = temp(join(FILTER_INTERIM, '{merge}', 'contaminants', 'bowtie2', '{sample}_R1.fastq')),
+           R2 = temp(join(FILTER_INTERIM, '{merge}', 'contaminants', 'bowtie2', '{sample}_R2.fastq')),
+           counts = join(FILTER_INTERIM, '{merge}', 'contaminants', 'bowtie2', '{sample}.counts')
+       singularity:
+           'docker://' + config['docker']['bowtie2_samtools']
+       params:
+           args = '-D 15 -R 2 -N 0 -i S,1,0 --norc',
+           index = join(INTERIM_DIR, 'contaminants', 'index', 'contaminants', 'bowtie2', 'contaminants'),
+           prefix = join(FILTER_INTERIM, '{merge}', 'contaminants', 'bowtie2', '{sample}_R%.fastq')
+       threads:
+           2
+       log:
+           bowtie2 = join(FILTER_INTERIM, '{merge}', 'contaminants', 'bowtie2', '{sample}.contaminants.bowtie2.log'),
+           error = join(FILTER_INTERIM, '{merge}', 'contaminants', 'bowtie2', '{sample}.contaminants.bowtie2.error')
+       shell:
+           'bowtie2 '
+           '-1 {input.R1} '
+           '-2 {input.R2} '
+           '--un-conc {params.prefix} '
+           '-x {params.index} '
+           '-p {threads} '
+           '{params.args} '
+           '2>> {log.bowtie2} '
+           '| samtools view -S -q5 - | cut -f3 | sort | uniq -c  > {output.counts} '
+           '2>> {log.error} '
+
+else:   
+   rule contaminants_filter_bowtie2:
+       input:
+           unpack(get_spikein_fastq),
+           index = join(INTERIM_DIR, 'contaminants', 'index', 'contaminants', 'bowtie2', 'contaminants.1.bt2')
+       output:
+           R1 = temp(join(FILTER_INTERIM, '{merge}', 'contaminants', 'bowtie2', '{sample}_R1.fastq')),
+           counts = join(FILTER_INTERIM, '{merge}', 'contaminants', 'bowtie2', '{sample}.counts')
+       singularity:
+           'docker://' + config['docker']['bowtie2_samtools']
+       params:
+           args = '-D 15 -R 2 -N 0 -i S,1,0 --norc',
+           index = join(INTERIM_DIR, 'contaminants', 'index', 'contaminants', 'bowtie2', 'contaminants')
+       threads:
+           2
+       log:
+           bowtie2 = join(FILTER_INTERIM, '{merge}', 'contaminants', 'bowtie2', '{sample}.contaminants.bowtie2.log'),
+           error = join(FILTER_INTERIM, '{merge}', 'contaminants', 'bowtie2', '{sample}.contaminants.bowtie2.error')
+       shell:
+           'bowtie2 '
+           '-U {input.R1} '
+           '--un {output.R1} '
+           '-x {params.index} '
+           '-p {threads} '
+           '{params.args} '
+           '2>> {log.bowtie2} '
+           '| samtools view -S -q5 - | cut -f3 | sort | uniq -c  > {output.counts} '
+           '2>> {log.error} '
+           
+rule contaminants_filter_skip:
+    input:
+        R1 = join(FILTER_INTERIM, '{merge}', 'spikein', config['filter']['spikein']['quantifier'], '{sample}_R{readnum}.fastq')
+    output:
+        R1 = temp(join(FILTER_INTERIM, '{merge}', 'contaminants', 'skip', '{sample}_R{readnum}.fastq'))
+    shell:
+        'cp -f {input} {output} '

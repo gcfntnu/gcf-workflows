@@ -1,0 +1,5 @@
+Sample_ID	R1	paired_end	External_ID	Project_ID	Organism	Sample_Biosource	Sample_Group	Customer_Comment	Unnamed: 17	Project ID
+S67	smallrna_testdata/GCF-2018-568/S67_R1.fastq.gz	0	136880	GCF-2018-568	mus musculus	Spermatozooa cauda/vas	2,5/3/F2/B/Bl6	RNA is NOT Dnase treated/miRNeasy Mini Kit used (Trizol based - clean up not performed)	Not performed due to low RNA abundance	136880.0
+S76	smallrna_testdata/GCF-2018-568/S76_R1.fastq.gz	0	136151	GCF-2018-568	mus musculus	Spermatozooa cauda/vas	2,5/3/F2/B/Bl6	RNA is NOT Dnase treated/miRNeasy Mini Kit used (Trizol based - clean up not performed)	Not performed due to low RNA abundance	136151.0
+L25	smallrna_testdata/GCF-2018-568/L25_R1.fastq.gz	0	132600	GCF-2018-568	mus musculus	Liver Tissue	100/3/F2/A/CBA	RNA is NOT Dnase treated/miRNeasy Mini Kit used (Trizol based - clean up not performed)	1.61	132600.0
+L57	smallrna_testdata/GCF-2018-568/L57_R1.fastq.gz	0	135758	GCF-2018-568	mus musculus	Liver Tissue	CTRL/F2/Bl6	RNA is NOT Dnase treated/miRNeasy Mini Kit used (Trizol based - clean up not performed)	1.81	135758.0

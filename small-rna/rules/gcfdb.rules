@@ -1,0 +1,21 @@
+#-*- mode:snakemake -*-
+extra_conf_fn = srcdir('gcfdb.config')
+if os.path.exists(extra_conf_fn):
+    with open(extra_conf_fn) as fh:
+        c  = yaml.load(fh) or {}
+        update_config2(config, c)
+
+if not 'GCFDB_DIR' in locals():
+    GCFDB_DIR = config.get('gcfdb_dir', '../gcfdb')
+
+include:
+    join(GCFDB_DIR, 'reference_db.db')
+include:
+    join(GCFDB_DIR, 'spikein.db')
+include:
+    join(GCFDB_DIR, 'smallrna_calibrators.db')
+include:
+    join(GCFDB_DIR, 'contaminants.db')
+include:
+    join(GCFDB_DIR, 'rrna.db')
+

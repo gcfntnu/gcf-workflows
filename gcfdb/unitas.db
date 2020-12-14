@@ -1,0 +1,61 @@
+#-*- mode:snakemake -*-
+"""Extra reference sequences for unitas.
+
+Additional files that contain reference sequeces in FASTA format. FASTA headers should have the following format: >ncRNA_type|ncRNA_name 
+
+This will be added to ncRNA.fas
+"""
+include:
+    'contaminants.db'
+
+CALIBRATORS_EXTEND = config['filter'].get('calibrators_extend', False)
+UNITAS_REFSEQ = []
+
+_unitas_map = {'homo_sapiens': 'Human',
+              'human': 'Human',
+               'hsa': 'Human',
+               'mus_musculus': 'Mouse',
+               'mouse': 'Mouse',
+               'mmu': 'Mouse',
+               'rattus_norvegicus': 'Rat',
+               'rat': 'Rat',
+               'rno': 'Rat'}
+UNITAS_ORG = _unitas_map[config['organism']]
+
+rule unitas_dummy_input:
+    output:
+        temp(touch('.unitas_dummy.txt'))
+
+rule contaminants_unitas:
+    input:
+        join(EXT_DIR, 'univec_core', 'fasta', 'univec_core.fa')
+    params:
+        script = srcdir('scripts/contaminants_unitas.py')
+    output:
+        temp(join(INTERIM_DIR, '_contaminants_unitas_formatted.fa'))
+    shell:
+        'python {params.script} {input} > {output}'
+
+
+rule unitas_db:
+    output:
+        db = directory(join(EXT_DIR, 'unitas', 'UNITAS_refdump_{}'.format(ORG))),
+        seqmap_exe = join(EXT_DIR, 'unitas', 'seqmap.exe'),
+    params:
+        refdir = join(EXT_DIR, 'unitas'),
+        script = srcdir('scripts/format_unitas_dblog.py')
+    log:
+        join(EXT_DIR, 'unitas', 'UNITAS_refdump_{}'.format(ORG), 'logs', 'unitas.log')
+    singularity:
+        'docker://' + config['docker']['unitas'] 
+    shell:
+        """
+        mkdir -p {params.refdir}
+        cd {params.refdir}
+        unitas.pl -latest_ref -species {ORG} -input {input}
+        python {params.script} {output.db} > {log}
+        """
+
+rule unitas_db_all:
+    input:
+        rules.unitas_db.output

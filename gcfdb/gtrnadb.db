@@ -1,0 +1,73 @@
+#-*- mode:snakemake -*-
+ORG = config.get('organism', 'homo_sapiens')
+
+GTRNADB_VER = {'homo_sapiens': '19',
+               'human': '19',
+               'mus_musculus': '10',
+               'mouse': '10',
+               'rattus_norvegicus': '5',
+               'rat': '5'}
+GTRNADB_ORG = {'homo_sapiens': 'hg',
+               'human': 'hg',
+               'mus_musculus': 'mm',
+               'mouse': 'mm',
+               'rattus_norvegicus': 'rn',
+               'rat': 'rn'}
+GTRNADB_NAME = {'homo_sapiens': 'Hsapi',
+                'human': 'Hsapi',
+                'mus_musculus': 'Mmusc',
+                'mouse': 'Mmusc',
+                'rattus_norvegicus': 'Rnorv',
+                'rat': 'Rnorv'}
+
+GTRNADB_CONF = config['db'].get('gtrnadb')
+if GTRNADB_CONF is None:
+    GTRNADB_CONF = config['db']['gtrnadb'] = {}
+GTRNADB_VERSION = config['db']['gtrnadb'].get('version')
+if GTRNADB_VERSION is None:
+    GTRNADB_VERSION = config['db']['gtrnadb']['version'] = GTRNADB_VER[ORG]
+
+
+def gtrnadb_url(wildcards):
+    org = GTRNADB_ORG[ORG]
+    name = GTRNADB_NAME[ORG]
+    ver = GTRNADB_VER[ORG]
+    url = 'http://gtrnadb.ucsc.edu/genomes/eukaryota/{}{}/{}{}-tRNAs.fa'.format(name, ver, org, ver)
+    return url
+
+rule gtrnadb_trna:
+    params:
+        url = gtrnadb_url,
+        date = datetime.now().strftime("%d-%m-%Y"),
+        version = GTRNADB_VER[ORG]
+    output:
+        join(EXT_DIR, 'gtrnadb', ORG, 'release-{}'.format(GTRNADB_VER[ORG]), 'tRNAs.fa')
+    log:
+        join(EXT_DIR, 'gtrnadb', ORG, 'release-{}'.format(GTRNADB_VER[ORG]), 'logs', 'gtrnadb.log')
+    shell:
+        """
+        wget -O {output} {params.url}
+        echo "GtRNAdb,{params.version},{params.url},{params.date}" > {log}
+        """
+
+def gtrnadb2_url(wildcards):
+    org = GTRNADB_ORG[ORG]
+    name = GTRNADB_NAME[ORG]
+    ver = GTRNADB_VER[ORG]
+    url = 'http://gtrnadb.ucsc.edu/GtRNAdb2/genomes/eukaryota/{}{}/{}{}-tRNAs.fa'.format(name, ver, org, ver)
+    return url
+
+rule gtrnadb2_trna:
+    params:
+        url = gtrnadb2_url,
+        date = datetime.now().strftime("%d-%m-%Y"),
+        version = GTRNADB_VER[ORG]
+    output:
+        join(EXT_DIR, 'gtrnadb2', ORG, 'release-{}'.format(GTRNADB_VER[ORG]), 'tRNAs.fa')
+    log:
+        join(EXT_DIR, 'gtrnadb2', ORG, 'release-{}'.format(GTRNADB_VER[ORG]), 'logs', 'gtrnadb.log')
+    shell:
+        """
+        wget -O {output} {params.url}
+        echo "GtRNAdb2,{params.version},{params.url},{params.date}" > {log}
+        """

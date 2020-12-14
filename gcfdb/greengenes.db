@@ -1,0 +1,53 @@
+#-*- mode:snakemake -*-
+"""Greengenes 16S OTU database
+ftp://greengenes.microbio.me/greengenes_release/gg_13_5/gg_13_8_otus.tar.gz
+ftp://greengenes.microbio.me/greengenes_release/gg_13_5/gg_13_5_otus.tar.gz
+ftp://greengenes.microbio.me/greengenes_release/gg_12_10/gg_12_10_otus.tar.gz
+"""
+from os.path import join
+
+#GG_VER = config['db']['greengenes']['release']
+GG_VER = '13_8'
+GG_VER = GG_VER.replace('.', '_')
+if not GG_VER in ['13_5', '13_8']:
+    raise ValueError('Only 13_5 and 13_8 is supported greengenes releases')
+
+URL = 'ftp://greengenes.microbio.me/greengenes_release/gg_13_5/gg_{}_otus.tar.gz'.format(GG_VER)
+
+LEVELS = [61, 64, 67, 70, 73, 76, 79, 82, 85, 88, 91, 94, 97, 99]
+
+rule greengenes_db:
+    params:
+        url = URL,
+        outdir = join(EXT_DIR, 'greengenes', GG_VER)
+    output:
+        expand(join(EXT_DIR, 'greengenes', GG_VER, 'trees', '{level}_otus.tree'), level=LEVELS),
+        expand(join(EXT_DIR, 'greengenes', GG_VER, 'trees', '{level}_otus_unannotated.tree'), level=LEVELS),
+        expand(join(EXT_DIR, 'greengenes', GG_VER, 'taxonomy', '{level}_otu_taxonomy.txt'), level=LEVELS),
+        expand(join(EXT_DIR, 'greengenes', GG_VER, 'rep_set_aligned', '{level}_otus.fasta'), level=LEVELS),
+        expand(join(EXT_DIR, 'greengenes', GG_VER, 'rep_set', '{level}_otus.fasta'), level=LEVELS),
+        expand(join(EXT_DIR, 'greengenes', GG_VER, 'otus', '{level}_otu_map.txt'), level=LEVELS)
+    shell:
+        'wget {params.url} -O- | tar xvz --strip-components 1 -C {params.outdir} '
+
+rule greengenes_db_symlink:
+    input:
+        ref = join(EXT_DIR, 'greengenes', GG_VER, 'rep_set', '{level}_otus.fasta'),
+        taxa = join(EXT_DIR, 'greengenes', GG_VER, 'taxonomy', '{level}_otu_taxonomy.txt'),
+        tre = join(EXT_DIR, 'greengenes', GG_VER, 'trees', '{level}_otus.tree')
+    output:
+        ref = join(EXT_DIR, 'greengenes', GG_VER, 'fasta', '{level}', 'otus.fa'),
+        taxa = join(EXT_DIR, 'greengenes', GG_VER, 'anno', '{level}', 'otus_taxonomy.txt'),
+        tre = join(EXT_DIR, 'greengenes', GG_VER, 'anno', '{level}', 'otus.tree')
+    shell:
+        """
+        ln -sr {input.ref} {output.ref}
+        ln -sr {input.taxa} {output.taxa}
+        ln -sr {input.tre} {output.tre}
+        """
+
+rule greengenes_db_all:
+    input:
+        expand(join(EXT_DIR, 'greengenes', GG_VER, 'fasta', '{level}', 'otus.fa'), level=LEVELS),
+        expand(join(EXT_DIR, 'greengenes', GG_VER, 'anno', '{level}', 'otus_taxonomy.txt'), level=LEVELS),
+        expand(join(EXT_DIR, 'greengenes', GG_VER, 'anno', '{level}', 'otus.tree'), level=LEVELS)

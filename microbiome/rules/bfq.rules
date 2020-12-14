@@ -1,0 +1,15 @@
+BFQ_INTERIM = join(INTERIM_DIR, 'microbiome', 'bfq')
+
+include:
+    'bfq/bfq_level2.rules'
+#NOT IMPLEMENTED
+#include:
+#    'bfq/bfq_level3.rules'
+    
+rule bfq_all:
+    input:
+        rules.bfq_level2_exprs.output,
+        rules.bfq_level2_taxonomy_log.output,
+        rules.bfq_level2_dada2_log.output,
+        rules.bfq_level2_rpca_log.output,
+        rules.bfq_level2_qiime2_data.output       

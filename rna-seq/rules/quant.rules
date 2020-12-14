@@ -1,0 +1,31 @@
+#-*- mode: snakemake -*-
+"""Snakemake rules for alignment free transcript and gene expression modelling using salmon.
+
+
+Dependencies
+------------
+SALMON, https://combine-lab.github.io/salmon/
+
+Install:
+conda install -c bioconda salmon
+
+"""
+
+from os.path import join
+
+extra_conf_fn = srcdir('quant.config')
+if os.path.exists(extra_conf_fn):
+    with open(extra_conf_fn) as fh:
+        c  = yaml.load(fh) or {}
+        update_config2(config, c)
+        
+QUANT_INTERIM = join(INTERIM_DIR, 'rnaseq', 'quant')
+
+include:
+    'filter.rules'
+include:
+    'quant/salmon.rules'
+include:
+    'quant/featurecounts.rules'
+include:
+    'quant/tximport.rules'

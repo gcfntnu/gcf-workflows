@@ -1,0 +1,50 @@
+
+ORG_MAP = {'homo_sapiens': 'hsa', 'mus_musculus': 'mmu', 'rattus_norvegicus': 'rnor'}
+
+MIRTRACE_DIR = join(INTERIM_DIR, 'smallrna', 'qc', 'mirtrace')
+
+rule mirtrace_config:
+    output:
+        'mirtrace.conf'
+    params:
+        adapter = LIBPREP['filter']['adapter']
+    run:
+        with open(output[0], 'w') as fh:
+            for name, info in config['samples'].items():
+                filename = join(config['fastq_dir'], info['R1'])
+                line = ','.join([os.path.abspath(filename), name])
+                fh.write(line + '\n')
+            
+
+def mirtrace_input(*args):
+    os.makedirs(MIRTRACE_DIR, exist_ok=True)
+    out = []
+    for k, v in config['samples'].items():
+        filename = os.path.abspath(join(config['fastq_dir'], v['R1']))  
+        out.append(filename)
+    return out
+
+rule mirtrace_qc:
+    input:
+        mirtrace_input()
+    params:
+        org = ORG_MAP[config['organism']],
+        adapter = LIBPREP['filter']['adapter'],
+        protocol = 'qiaseq',
+        outdir = MIRTRACE_DIR
+    singularity:
+        'docker://' + config['docker']['mirtrace']
+    output:
+        qc = join(MIRTRACE_DIR, 'mirtrace-results.json'),
+        length = join(MIRTRACE_DIR, 'mirtrace-stats-length.tsv')
+    shell:
+        'mirtrace qc '
+        '--species {params.org} '
+        '--adapter {params.adapter} '
+        '--protocol {params.protocol} '
+        '--output-dir {params.outdir} '
+        '--force '
+        '{input} '
+        
+    
+rule 

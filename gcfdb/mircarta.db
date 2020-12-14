@@ -1,0 +1,73 @@
+#-*- mode:snakemake -*-
+
+# config
+extra_conf_fn = srcdir('mircarta.config')
+if os.path.exists(extra_conf_fn):
+    with open(extra_conf_fn) as fh:
+        c  = yaml.load(fh, Loader=Loader) or {}
+        update_config2(config, c)
+        
+MIRCARTA_RELEASE = str(config['db']['mircarta'].get('release', '1.1'))
+config['db']['mircarta']['release'] = MIRCARTA_RELEASE
+ORG = config.get('organism', 'homo_sapiens')
+MIR_ORG = {'homo_sapiens': 'hsa',
+           'human': 'hsa',
+           'hsa': 'hsa',
+           'mus_musculus': 'mmu',
+           'mouse': 'mmu',
+           'mmu': 'mmu',
+           'rattus_norvegicus': 'rno',
+           'rat': 'rno',
+           'rno': 'rno'}
+
+MIRCARTA_URL = 'https://mircarta.cs.uni-saarland.de/mircarta/static/downloads/{}'.format(MIRCARTA_RELEASE)
+MIRCARTA_EXT = join(EXT_DIR, 'mircarta', ORG, 'release-{}'.format(MIRCARTA_RELEASE))
+
+
+rule mircarta_hairpin_fasta:
+    params:
+        url = join(MIRCARTA_URL, '{}_precursors.fa'.format(MIR_ORG[ORG])),
+        date = datetime.now().strftime("%d-%m-%Y")
+    output:
+        join(MIRCARTA_EXT, 'fasta', 'hairpin.fa')
+    log:
+        join(MIRCARTA_EXT, 'logs', 'hairpin.log')
+    shell:
+        """
+        wget {params.url} -O- | sed 's/U/T/g' > {output}
+        echo "Mircarta hairpin,{MIRCARTA_RELEASE},{params.url},{params.date}" > {log}
+        """
+        
+rule mircarta_mature_fasta:
+    params:
+        url = join(MIRCARTA_URL, '{}_mirnas.fa'.format(MIR_ORG[ORG])),
+        date = datetime.now().strftime("%d-%m-%Y")
+    output:
+        join(MIRCARTA_EXT, 'fasta', 'mature.fa')
+    log:
+        join(MIRCARTA_EXT, 'logs', 'mature.log')        
+    shell:
+        """
+        wget {params.url}  -O- | sed 's/U/T/g' > {output}
+        echo "Mircarta mature,{MIRCARTA_RELEASE},{params.url},{params.date}" > {log}
+        """
+        
+rule mircarta_gff:        
+    params:
+        url = join(MIRCARTA_URL, '{}.gff3'.format(MIR_ORG[ORG])),
+        date = datetime.now().strftime("%d-%m-%Y")
+    output:
+        join(MIRCARTA_EXT, 'genes', 'genes.gff3')
+    log:
+        join(MIRCARTA_EXT, 'logs', 'gff.log')         
+    shell:
+        """
+        wget -O- {params.url} > {output}
+        echo "Mircarta gff,{MIRCARTA_RELEASE},{params.url},{params.date}" > {log}
+        """
+
+rule mircarta_db_all:
+    input:
+        join(MIRCARTA_EXT, 'fasta', 'hairpin.fa'),
+        join(MIRCARTA_EXT, 'fasta', 'mature.fa'),
+        join(MIRCARTA_EXT, 'genes', 'genes.gff3')

@@ -1,0 +1,71 @@
+#-*- mode: snakemake -*-
+"""
+This is a part of the pipeline utilities at Genomics Core Facility (GCF),  Trondheim
+
+microbiome-seq
+===================================
+microbiome-seq Analysis Pipeline.
+
+Documentation: https://github.com/gcfntnu/microbiome
+Authors:
+Arnar Flatberg / flatberg <arnar.flatberg@ntnu.no>
+"""
+
+
+from os import environ
+from os.path import abspath, join
+
+
+GCFDB_DIR = config.get('gcfdb_dir', '../gcfdb')
+GCFDB_DIR = abspath(GCFDB_DIR)
+include:
+    join(GCFDB_DIR, 'common/utils.py')
+include:
+    join(GCFDB_DIR, 'common/common.rules')
+    
+extra_conf_fn = srcdir('microbiome-seq.config')
+if os.path.exists(extra_conf_fn):
+    with open(extra_conf_fn) as fh:
+        c  = yaml.load(fh, Loader=Loader) or {}
+        # original config will override extra config on shared items
+        update_config2(config, c)
+
+if os.path.exists('models.yaml'):
+    with open('models.yaml') as fh:
+        m  = yaml.load(fh, Loader=Loader) or {}
+        config['models'] = m
+
+if not 'SAMPLES' in locals():
+    SAMPLES = list(config.get('samples', {}).keys())
+
+include:
+    'rules/reference_db.rules'
+include:
+    'rules/filter.rules'
+include:
+    'rules/quant.rules'
+include:
+    'rules/analysis.rules'
+include:
+    'rules/bfq.rules'
+
+
+onsuccess:
+    # write config
+    from datetime import datetime
+    import copy
+    import yaml
+    
+    dt = datetime.now()
+    final_conf_fn = 'rna-seq_{}_{}_{}.success.config'.format(dt.year, dt.month, dt.day)
+    if os.path.exists(final_conf_fn):
+        base_fn = copy.copy(final_conf_fn)
+        for i in range(999):
+            final_conf_fn = 'rna-seq_{}_{}_{}_#{}.success.config'.format(dt.year, dt.month, dt.day, i)
+            if not os.path.exists(final_conf_fn):
+                break
+    if os.path.exists(final_conf_fn):
+        raise ValueError('this is just too many runs on the same day')
+    
+    #with open(final_conf_fn, 'w') as fh:
+    #    yaml.dump(config, fh, default_flow_style=False)

@@ -1,0 +1,279 @@
+#-*-mode:snakemake-*-
+"""Gencode external data and reference/index builds
+
+Gencode is for human/mouse/rat only.
+
+www.gencodegenes.org
+
+"""
+import os
+from os.path import join
+import yaml
+from datetime import datetime
+
+from snakemake.logging import logger
+
+
+# config
+extra_conf_fn = srcdir('gencode.config')
+if os.path.exists(extra_conf_fn):
+    with open(extra_conf_fn) as fh:
+        c  = yaml.load(fh, Loader=Loader) or {}
+        update_config2(config, c)
+
+GC_ORG_MAP = {'homo_sapiens':  'human',
+              'mus_musculus': 'mouse'}
+
+ORG = config.get('organism', 'homo_sapiens')
+if '__' in ORG:
+    raise ValueError('Multispecies genome is not supported for Gencode')
+if not ORG in GC_ORG_MAP:
+    raise ValueError('Only human, and mouse genomes are supported by Gencode')
+if config.get('strain'):
+    raise ValueError('Specifc strain genomes are not supported by Gencode')
+GENCODE_ORG = GC_ORG_MAP[ORG]
+DB_CONF = config['db']['gencode']
+GENCODE_RELEASE = DB_CONF.get('release', '34')
+if ORG == 'homo_sapiens':
+    GENCODE_ASSEMBLY = 'GRCh37' if int(GENCODE_RELEASE) <= 19 else 'GRCh38'
+else:
+    GENCODE_ASSEMBLY = 'NCBIM37' if GENCODE_RELEASE == 'M1' else 'GRCm38'
+config['db']['assembly'] = DB_CONF['assembly'] = GENCODE_ASSEMBLY
+TRANSCRIPTOME_TYPE = DB_CONF.get('transcriptome_type', 'pc_') #['pc_','']
+ERCC = DB_CONF.get('add_ercc', False)
+
+config['db']['gencode'] = DB_CONF
+OUTDIR = join(EXT_DIR, 'gencode', ORG, 'release-{}'.format(GENCODE_RELEASE), GENCODE_ASSEMBLY)
+
+# includes
+if ERCC:
+    include:
+        'ercc.db'
+include:
+    'convert.rules'
+include:
+    'indexes.rules'
+
+# GENCODE URLS
+GENCODE_GENOME = 'http://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_{}/release_{}/{}.primary_assembly.genome.fa.gz'
+GENCODE_GENOME = GENCODE_GENOME.format(GENCODE_ORG, GENCODE_RELEASE, GENCODE_ASSEMBLY)
+GENCODE_GTF = 'http://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_{}/release_{}/gencode.v{}.primary_assembly.annotation.gtf.gz'
+GENCODE_GTF = GENCODE_GTF.format(GENCODE_ORG, GENCODE_RELEASE, GENCODE_RELEASE)
+    
+GENCODE_TRANSCRIPTOME = 'http://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_{}/release_{:}/gencode.v{:}.{}transcripts.fa.gz'
+GENCODE_TRANSCRIPTOME = GENCODE_TRANSCRIPTOME.format(GENCODE_ORG, GENCODE_RELEASE, GENCODE_RELEASE, TRANSCRIPTOME_TYPE)
+GENCODE_LNC = 'http://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_{}/release_{}/gencode.v{}.lncRNA_transcripts.fa.gz'
+GENCODE_LNC = GENCODE_LNC.format(GENCODE_ORG, GENCODE_RELEASE, GENCODE_RELEASE)
+
+GENCODE_LNC_GTF = 'http://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_{}/release_{:}/gencode.v{:}.long_noncoding_RNAs.gtf.gz'
+GENCODE_LNC_GTF = GENCODE_LNC_GTF.format(GENCODE_ORG, GENCODE_RELEASE, GENCODE_RELEASE)
+GENCODE_PREDTRNA_GTF = 'http://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_{}/release_{:}/gencode.v{:}.tRNAs.gtf.gz'
+GENCODE_PREDTRNA_GTF = GENCODE_PREDTRNA_GTF.format(GENCODE_ORG, GENCODE_RELEASE, GENCODE_RELEASE)
+GENCODE_POLYA_GTF = 'http://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_{}/release_{:}/gencode.v{:}.polyAs.gtf.gz'
+GENCODE_POLYA_GTF = GENCODE_POLYA_GTF.format(GENCODE_ORG, GENCODE_RELEASE, GENCODE_RELEASE)
+
+
+rule gencode_dna:
+    params:
+        url = GENCODE_GENOME,
+        date = datetime.now().strftime("%d-%m-%Y")
+    output:
+        join(OUTDIR, GENCODE_GENOME.replace('http://', '').split('.gz')[0])
+    threads: 
+        8
+    log:
+        join(OUTDIR, 'logs', 'gencode.dna.log')
+    shell: 
+        """
+        wget -O- {params.url} | gunzip -c  > {output}
+        echo 'Gencode DNA,{GENCODE_GENOME},{params.date}' > {log}
+        """
+        
+rule gencode_cdna:
+    params: 
+        date = datetime.now().strftime("%d-%m-%Y"),
+        url = GENCODE_TRANSCRIPTOME
+    output:
+        join(OUTDIR, GENCODE_TRANSCRIPTOME.replace('http://', '').split('.gz')[0])
+    threads: 
+        8
+    log:
+        join(OUTDIR, 'logs', 'gencode.cdna.log')
+    shell: 
+        """
+        wget {params.url} -O- | gunzip -c  > {output}
+        echo "Gencode CDNA,{GENCODE_TRANSCRIPTOME},{params.date}" > {log}
+        """
+
+rule gencode_noncoding:
+    params:
+        url = GENCODE_LNC,
+        date = datetime.now().strftime("%d-%m-%Y")
+    output:
+        join(OUTDIR, GENCODE_LNC.replace('http://', '').split('.gz')[0])
+    threads: 
+        8
+    log:
+        join(OUTDIR, 'logs', 'gencode.noncoding.log')
+    shell: 
+        """
+        wget {params.url} -O- | gunzip -c  > {output}
+        echo 'Gencode NCDNA,{GENCODE_LNC},{params.date}' > {log}
+        """
+
+rule gencode_gtf:
+    params:
+        url = GENCODE_GTF,
+        date = datetime.now().strftime("%d-%m-%Y")
+    output:
+        join(OUTDIR, GENCODE_GTF.replace('http://', '').split('.gz')[0])
+    threads: 
+        8
+    log:
+        join(OUTDIR, 'logs', 'gencode.gtf.log')
+    singularity:
+        'docker://' + config['docker']['default']
+    shell: 
+        """
+        wget {params.url} -O- | gunzip -c > {output}
+        echo 'Gencode GTF,{GENCODE_GTF},{params.date}' > {log}
+        """
+        
+rule gencode_trna_gtf:
+    params:
+        url = GENCODE_PREDTRNA_GTF,
+        date = datetime.now().strftime("%d-%m-%Y")
+    output:
+        join(OUTDIR, GENCODE_PREDTRNA_GTF.replace('http://', '').split('.gz')[0])
+    threads: 
+        8
+    log:
+        join(OUTDIR, 'logs', 'gencode.trna.gtf.log')
+    shell: 
+        """
+        wget {params.url} -O- | gunzip -c > {output}
+        echo 'Gencode GTF,{GENCODE_PREDTRNA_GTF},{params.date}' > {log}
+        """
+
+rule gencode_addercc2genome:
+    input:
+        rules.gencode_dna.output,
+        join(EXT_DIR, 'ERCC', 'ERCC92.fa')
+    output:
+        rules.gencode_dna.output[0].split('.fa')[0] + '.ERCC92.fa'
+    shell:
+        'cat {input} > {output}'
+
+rule gencode_add_ercc2cdna:
+    input:
+        rules.gencode_cdna.output,
+        join(EXT_DIR, 'ERCC', 'ERCC92.fa')
+    output:
+        rules.gencode_cdna.output[0].split('.fa')[0] + '.ERCC92.fa'
+    shell:
+        'cat {input} > {output}'
+
+rule gencode_add_ercc2noncoding:
+    input:
+        rules.gencode_noncoding.output,
+        join(EXT_DIR, 'ERCC', 'ERCC92.fa')
+    output:
+        rules.gencode_noncoding.output[0].split('.fa')[0] + '.ERCC92.fa'
+    shell:
+        'cat {input} > {output}'
+
+rule gencode_add_ercc2gtf:
+    input:
+        rules.gencode_gtf.output,
+        join(EXT_DIR, 'ERCC', 'ERCC92.gtf')
+    output:
+        rules.gencode_gtf.output[0].split('.gtf')[0] + '.ERCC92.gtf'
+    shell:
+        'cat {input} > {output}'
+
+rule gencode_index_genome:
+    input:
+        rules.gencode_add_ercc2genome.output if ERCC else rules.gencode_dna.output
+    output:
+        rules.gencode_add_ercc2genome.output[0] + '.fai' if ERCC else rules.gencode_dna.output[0] + '.fai'
+    singularity:
+        'docker://' + config['docker']['samtools']
+    shell:
+        'samtools faidx {input}'
+
+rule gencode_cdna_gtf:
+    input:
+        dna = rules.gencode_add_ercc2genome.output if ERCC else rules.gencode_dna.output,
+        gtf = rules.gencode_add_ercc2gtf.output if ERCC else rules.gencode_gtf.output,
+        dna_index = rules.gencode_index_genome.output
+    output:
+        join(OUTDIR, ORG.capitalize() + '.' + GENCODE_ASSEMBLY + '.cdna.gtf.fa')
+    singularity:
+        'docker://' + config['docker']['gffread']
+    shell:
+        'gffread -w {output} -G -E -g {input.dna} {input.gtf} '
+
+rule gencode_add_ercc2cdna_gtf:
+    input:
+        rules.gencode_cdna_gtf.output,
+        join(EXT_DIR, 'ERCC', 'ERCC92.fa')
+    output:
+        rules.gencode_cdna.output[0].split('.fa')[0] + '.ERCC92.fa'
+    shell:
+        'cat {input} > {output}'
+
+rule gencode_trna:
+    input:
+        gtf = rules.gencode_trna_gtf.output,
+        genome = rules.gencode_dna.output
+    params:
+        base = join(OUTDIR, 'fasta', 'gtf.trna')
+    singularity:
+        'docker://' + config['docker']['rsem']
+    output:
+         join(OUTDIR, 'fasta', 'gtf.trna.transcripts.fa')
+    shell:
+        'rsem-prepare-reference --gtf {input.gtf} {input.genome} {params.base}'
+        
+rule gencode_db_downloads:
+    input:
+        genome = rules.gencode_add_ercc2genome.output if ERCC else rules.gencode_dna.output,
+        cdna = rules.gencode_add_ercc2cdna.output if ERCC else rules.gencode_cdna.output,
+        noncoding = rules.gencode_noncoding.output,
+        gtf = rules.gencode_add_ercc2gtf.output if ERCC else rules.gencode_gtf.output,
+        genome_index = rules.gencode_index_genome.output,
+        transcriptome = rules.gencode_cdna_gtf.output
+    output:
+        genome = join(OUTDIR, 'fasta', 'genome.fa'),
+        cdna = join(OUTDIR, 'fasta', 'cdna.fa'),
+        gtf = join(OUTDIR, 'genes', 'genes.gtf'),
+        noncoding = join(OUTDIR, 'fasta', 'ncdna.fa'),
+        genome_index = join(OUTDIR, 'fasta', 'genome.fa.fai'),
+        transcriptome = join(OUTDIR, 'fasta', 'transcriptome.fa')
+    shell:
+        """
+        ln -sr {input.genome} {output.genome}
+        ln -sr {input.cdna} {output.cdna}
+        ln -sr {input.gtf} {output.gtf}
+        ln -sr {input.noncoding} {output.noncoding}
+        ln -sr {input.genome_index} {output.genome_index}
+        ln -sr {input.transcriptome} {output.transcriptome}
+        """
+
+rule gencode_db_all:
+    input:
+        join(OUTDIR, 'fasta', 'genome.fa'),
+        join(OUTDIR, 'fasta', 'cdna.fa'),
+        join(OUTDIR, 'genes', 'genes.gtf'),
+        join(OUTDIR, 'fasta', 'ncdna.fa'),
+        join(OUTDIR, 'fasta', 'genome.fa.fai'),    
+        join(OUTDIR, 'genes', 'genes.tsv'),
+        join(OUTDIR, 'genes', 'transcripts.tsv'),
+        join(OUTDIR, 'genes', 'tx2gene.tsv'),
+        join(OUTDIR, 'fasta', 'genome.dict'),
+        join(OUTDIR, 'genes', 'genes.bed12'),
+        join(OUTDIR, 'genes', 'genes.refflat.gz'),
+        join(OUTDIR, 'fasta', 'transcriptome.fa'),
+        join(OUTDIR, 'index', 'transcriptome', 'salmon', 'info.json'),
+        join(OUTDIR, 'index', 'gentrome', 'salmon', 'info.json'),
+        join(OUTDIR, 'index', 'genome', 'star', 'r_99', 'SA')

@@ -1,0 +1,44 @@
+#-*- mode:snakemake -*-
+"""UNITE Fungal ribosomal RNA database https://unite.ut.ee/repository.php
+"""
+
+
+from os.path import join
+
+#UNITE_VER = config['db']['unite']['release']
+UNITE_VER = '8_2'
+if not UNITE_VER in ['8_2']:
+    raise ValueError('Only 8.2 is supported UNITE releases')
+
+URLS = {'8_2': 'https://files.plutof.ut.ee/public/orig/98/AE/98AE96C6593FC9C52D1C46B96C2D9064291F4DBA625EF189FEC1CCAFCF4A1691.gz'}
+
+LEVELS = ['97', '99', 'dynamic']
+
+rule unite_db:
+    params:
+        url = URLS[UNITE_VER],
+        outdir = join(EXT_DIR, 'unite', UNITE_VER),
+        tmpdir = '/tmp' # fixme
+    output:
+        expand(join(EXT_DIR, 'unite', UNITE_VER, 'sh_refs_qiime_ver8_{level}_04.02.2020.fasta'), level=LEVELS),
+        expand(join(EXT_DIR, 'unite', UNITE_VER, 'sh_taxonomy_qiime_ver8_{level}_04.02.2020.txt'), level=LEVELS)
+    shell:
+        'wget {params.url} -O- | tar xvz --strip-components 1 -C {params.outdir}'
+
+rule unite_db_symlink:
+    input:
+        ref = join(EXT_DIR, 'unite', UNITE_VER, 'sh_refs_qiime_ver8_{level}_04.02.2020.fasta'),
+        taxa = join(EXT_DIR, 'unite', UNITE_VER, 'sh_taxonomy_qiime_ver8_{level}_04.02.2020.txt')
+    output:
+        ref = join(EXT_DIR, 'unite', UNITE_VER, 'fasta', '{level}', 'otus.fa'),
+        taxa = join(EXT_DIR, 'unite', UNITE_VER, 'anno', '{level}', 'otus_taxonomy.txt')
+    shell:
+        """
+        ln -sr {input.ref} {output.ref}
+        ln -sr {input.taxa} {output.taxa}
+        """
+
+rule unite_db_all:
+    input:
+        expand(join(EXT_DIR, 'unite', UNITE_VER, 'fasta', '{level}', 'otus.fa'), level=LEVELS),
+        expand(join(EXT_DIR, 'unite', UNITE_VER, 'anno', '{level}', 'otus_taxonomy.txt'), level=LEVELS)

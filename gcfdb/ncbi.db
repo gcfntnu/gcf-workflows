@@ -1,0 +1,48 @@
+#-*- mode:snakemake -*-
+"""NCBI data mainly fetched using efetch
+"""
+
+rule ncbi_homo_sapiens_rrna:
+    params:
+        url_cru = 'https://www.ncbi.nlm.nih.gov/nuccore/555853',
+        url_5S = 'https://www.ncbi.nlm.nih.gov/nuccore/23898',
+        date = datetime.now().strftime("%d-%m-%Y")
+    output:
+        fasta = join(EXT_DIR, 'ncbi', 'homo_sapiens', 'fasta', 'rrna.fa')
+    log:
+        join(EXT_DIR, 'ncbi', 'homo_sapiens', 'logs', 'rrna.log')
+    singularity:
+        'docker://' + config['docker']['entrez-direct']
+    shell:
+        """
+        efetch -db nuccore -id U13369.1 -format fasta > {output.fasta}
+        efetch -db nuccore -id X12811.1 -format fasta >> {output.fasta}
+        echo "ncbi nucore,U13369.1|X12811.1,{params.url_cru}|{params.url_5S},{params.date}" > {log}
+        """
+
+rule ncbi_mus_musculus_rrna:
+    params:
+        url_cru = 'https://www.ncbi.nlm.nih.gov/nuccore/bk000964.3',
+        url_5S = 'https://www.ncbi.nlm.nih.gov/nuccore/NR_030686.1',
+        date = datetime.now().strftime("%d-%m-%Y")
+    output:
+        join(EXT_DIR, 'ncbi', 'mus_musculus', 'fasta', 'rrna.fa')
+    log:
+        join(EXT_DIR, 'ncbi', 'mus_musculus', 'logs', 'rrna.log')
+    singularity:
+        'docker://' + config['docker']['entrez-direct']
+    shell:
+        """
+        efetch -db nuccore -id bk000964.3 -format fasta > {output}
+        efetch -db nuccore -id NR_030686.1 -format fasta >> {output}
+        echo "ncbi nucore,bk000964.3,{params.url_cru}|{params.url_5S},{params.date}" > {log}
+        """
+
+rule ncbi_db_all:
+    input:
+        join(EXT_DIR, 'ncbi', 'homo_sapiens', 'fasta', 'rrna.fa'),
+        join(EXT_DIR, 'ncbi', 'mus_musculus', 'fasta', 'rrna.fa'),
+        join(EXT_DIR, 'ncbi', 'homo_sapiens', 'index', 'rrna', 'bowtie', 'rrna.1.ebwt'),
+        join(EXT_DIR, 'ncbi', 'mus_musculus', 'index', 'rrna', 'bowtie', 'rrna.1.ebwt'),
+        join(EXT_DIR, 'ncbi', 'homo_sapiens', 'index', 'rrna', 'bowtie2', 'rrna.1.bt2'),
+        join(EXT_DIR, 'ncbi', 'mus_musculus', 'index', 'rrna', 'bowtie2', 'rrna.1.bt2')

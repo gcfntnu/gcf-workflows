@@ -1,0 +1,14 @@
+BFQ_INTERIM = join(INTERIM_DIR, 'singlecell', 'bfq')
+
+include:
+    'bfq/bfq_level2.rules'
+include:
+    'bfq/bfq_level3.rules'
+
+
+rule bfq_all:
+    input:
+        rules.bfq_level2_exprs.output,
+        rules.bfq_level2_logs.output,
+        rules.bfq_level2_aligned.output,
+        join(BFQ_INTERIM, 'figs', 'star', 'umap_all_samples_mqc.png')

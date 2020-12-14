@@ -1,0 +1,97 @@
+#-*- mode:snakemake -*-
+import subprocess
+
+PE = len(config['read_geometry']) > 1
+
+        
+rule fastp_interleave_fastq:
+    input:
+        unpack(get_raw_fastq)
+    output:
+        join(FILTER_INTERIM, 'interleaved_fastq', '{sample}.fastq')
+    params:
+        script = srcdir('scripts/interleave_fastq.sh')
+    priority:
+        10
+    version:
+        lambda wildcards: subprocess.check_output('fastp --version', shell=True)
+    shell:
+        '{params.script} <(zcat {input.R1}) <(zcat {input.R2}) > {output}'
+
+if PE:
+    rule fastp_join:
+        input:
+            rules.fastp_interleave_fastq.output
+        output:
+            R1 = join(FILTER_INTERIM, 'merged_fastq', 'trimmed', 'fastp', '{sample}_R1.fastq'),
+            R2 = join(FILTER_INTERIM, 'merged_fastq', 'trimmed', 'fastp', '{sample}_R2.fastq'),
+            log_html = join(FILTER_INTERIM, 'merged_fastq', 'trimmed', 'fastp', 'qc', '{sample}.html'),
+            log_json = join(FILTER_INTERIM, 'merged_fastq', 'trimmed', 'fastp', 'qc', '{sample}.json')
+        threads:
+            3
+        params:
+            args = '--overrepresentation_analysis --overrepresentation_sampling 1000 --n_base_limit 0 -A -Q -L '
+        singularity:
+            'docker://' + config['docker']['fastp']
+        shell:
+            'cat {input} | fastp --stdin --interleaved_in -o {output.R1} -O {output.R2} -j {output.log_json} -h {output.log_html} --thread {threads} {params} '
+
+    rule fastp:
+        input:
+            unpack(get_raw_fastq)
+        output:
+            R1 = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', '{sample}_R1.fastq'),
+            R2 = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', '{sample}_R2.fastq'),
+            log_html = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', 'qc', '{sample}.html'),
+            log_json = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', 'qc', '{sample}.json')
+        params:
+            args = '--overrepresentation_analysis --overrepresentation_sampling 1000 --n_base_limit 0 -A -Q -L '
+        threads:
+            3
+        singularity:
+            'docker://' + config['docker']['fastp']
+        shell:
+            'fastp -i {input.R1} -I {input.R2} -o {output.R1} -O {output.R2} -j {output.log_json} -h {output.log_html} --thread {threads} {params} '
+
+
+else:
+    rule fastp_join:
+        input:
+            unpack(get_raw_fastq)
+        output:
+            R1 = join(FILTER_INTERIM, 'merged_fastq', 'trimmed', 'fastp', '{sample}_R1.fastq'),
+            log_html = join(FILTER_INTERIM, 'merged_fastq', 'trimmed', 'fastp', 'qc', '{sample}.html'),
+            log_json = join(FILTER_INTERIM, 'merged_fastq', 'trimmed', 'fastp', 'qc', '{sample}.json')           
+        threads:
+            3        
+        params:
+            args = '--overrepresentation_analysis --overrepresentation_sampling 1000 --n_base_limit 0 -A -Q -L '
+        singularity:
+            'docker://' + config['docker']['fastp']
+        shell:
+            ' zcat {input} | fastp --stdin -o {output.R1} -j {output.log_json} -h {output.log_html} --thread {threads} {params}'
+
+    rule fastp:
+        input:
+            unpack(get_raw_fastq)
+        output:
+            R1 = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', '{sample}_R1.fastq'),
+            log_html = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', 'qc', '{sample}.html'),
+            log_json = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', 'qc', '{sample}.json')
+        threads:
+            3
+        params:
+            args = '--overrepresentation_analysis --overrepresentation_sampling 1000 --n_base_limit 0 -A -Q -L '
+        singularity:
+            'docker://' + config['docker']['fastp']
+        shell:
+            'fastp -i {input.R1} -o {output.R1} -j {output.log_json} -h {output.log_html} --thread {threads} {params} '
+
+rule fastp_all:
+    input:
+        R1 = expand(join(FILTER_INTERIM, 'merged_fastq', 'trimmed', 'fastp', '{sample}_R1.fastq'), sample=SAMPLES),
+        R2 = expand(join(FILTER_INTERIM, 'merged_fastq', 'trimmed', 'fastp', '{sample}_R2.fastq'), sample=SAMPLES)
+
+rule fastp_test:
+    input:
+        expand(join(FILTER_INTERIM, 'interleaved_fastq', '{sample}.fastq'), sample=SAMPLES)

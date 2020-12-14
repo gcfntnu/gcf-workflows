@@ -1,0 +1,115 @@
+#-*-mode:snakemake-*-
+
+# config
+# config
+extra_conf_fn = srcdir('rnacentral.config')
+if os.path.exists(extra_conf_fn):
+    with open(extra_conf_fn) as fh:
+        c  = yaml.load(fh, Loader=Loader) or {}
+        update_config2(config, c)
+
+
+RNACENTRAL_ORG = config['organism'] + '.' + config['db']['assembly']
+RNACENTRAL_RELEASE = config['db']['rnacentral']['release']
+
+
+## RNACENTRAL
+RNACENTRAL_GFF = 'ftp://ftp.ebi.ac.uk/pub/databases/RNAcentral/releases/{}/genome_coordinates/{}.gff.gz'
+RNACENTRAL_GFF = RNACENTRAL_GFF.format(RNACENTRAL_RELEASE, RNACENTRAL_ORG) 
+RNACENTRAL_BED = 'ftp://ftp.ebi.ac.uk/pub/databases/RNAcentral/releases/{}/genome_coordinates/{}.bed.gz'
+RNACENTRAL_BED = RNACENTRAL_BED.format(RNACENTRAL_RELEASE, RNACENTRAL_ORG)
+RNACENTRAL_FASTA = 'ftp://ftp.ebi.ac.uk/pub/databases/RNAcentral/releases/{}/sequences/rnacentral_active.fasta.gz'
+RNACENTRAL_FASTQ = RNACENTRAL_FASTA.format(RNACENTRAL_RELEASE)
+RNACENTRAL_MAP = 'ftp://ftp.ebi.ac.uk/pub/databases/RNAcentral/releases/{}/id_mapping/id_mapping.tsv.gz'
+RNACENTRAL_MAP = RNACENTRAL_MAP.format(RNACENTRAL_RELEASE)
+RNACENTRAL_DBMAP = 'ftp://ftp.ebi.ac.uk/pub/databases/RNAcentral/releases/{}/id_mapping/database_mappings'
+RNACENTRAL_DBMAP = RNACENTRAL_DBMAP.format(RNACENTRAL_RELEASE)
+
+RNACENTRAL_DIR = join(EXT_DIR, 'rnacentral', config['organism'], config['db']['assembly'])
+
+rule rnacentral_gff:
+    params:
+        url = RNACENTRAL_GFF,
+        date = datetime.now().strftime("%d-%m-%Y")
+    output:
+        join(RNACENTRAL_DIR, 'genes', RNACENTRAL_ORG + '.gff')
+    log:
+        join(RNACENTRAL_DIR, 'logs', 'gff.log')
+    shell:
+        """
+        wget -O - {params.url} | gunzip -c > {output}
+        echo "RNAcentral gff,{RNACENTRAL_RELEASE},{params.url},{params.date}" > {log}
+        """
+
+rule rnacentral_bed:
+    params:
+        url = RNACENTRAL_BED,
+        date = datetime.now().strftime("%d-%m-%Y")
+    output:
+        join(RNACENTRAL_DIR, 'genes', RNACENTRAL_ORG + '.bed')
+    log:
+        join(RNACENTRAL_DIR, 'logs', 'bed.log')    
+    shell:
+        """
+        wget -O - {params.url} | gunzip -c > {output}
+        echo "RNAcentral bed,{RNACENTRAL_RELEASE},{params.url},{params.date}" > {log}
+        """
+
+rule rnacentral_gtf:
+    input:
+        rules.rnacentral_gff.output
+    output:
+        join(RNACENTRAL_DIR, 'genes', RNACENTRAL_ORG + '.gtf')
+    singularity:
+        'docker://' + config['docker']['gffread']
+    log:
+        rules.rnacentral_gff.log
+    shell:
+        'gffread {input} -T -o {output}'
+
+rule rnacentral_fasta:
+    params:
+        url = RNACENTRAL_FASTA,
+        date = datetime.now().strftime("%d-%m-%Y")
+    output:
+        join(RNACENTRAL_DIR, 'fasta', 'rnacentral_active.fa')
+    log:
+        join(RNACENTRAL_DIR, 'logs', 'fasta.log')          
+    shell:
+        """
+        wget -O - {params.url} | gunzip -c > {output}
+        echo "RNAcentral fasta,{RNACENTRAL_RELEASE},{params.url},{params.date}" > {log}
+        """
+        
+rule rnacentral_ids:
+    params:
+        url = RNACENTRAL_MAP,
+        date = datetime.now().strftime("%d-%m-%Y")
+    output:
+        join(RNACENTRAL_DIR, 'id_mapping.tsv')
+    log:
+        join(RNACENTRAL_DIR, 'logs', 'id-mapping.log')  
+    shell:
+        """
+        wget -O - {params.url} | gunzip -c > {output}
+        echo "RNAcentral id_mapping,{RNACENTRAL_RELEASE},{params.url},{params.date}" > {log}
+        """
+
+# example of a specific db id-mapping
+rule rnacentral_mapping:
+    params:
+        url = join(RNACENTRAL_DBMAP, '{db}.tsv'),
+        date = datetime.now().strftime("%d-%m-%Y")
+    output:
+        join(RNACENTRAL_DIR, 'rnacentral_{db}.tsv')
+    log:
+        join(RNACENTRAL_DIR, 'logs', '{db}-mapping.log') 
+    shell:
+        """
+        wget -O - {params.url} > {output}
+        echo "RNAcentral {wildcards.db}_mapping,{RNACENTRAL_RELEASE},{params.url},{params.date}" > {log}
+        """
+
+rule rnacentral_ensembl:
+    input:
+        join(RNACENTRAL_DIR, 'rnacentral_ensembl.tsv')

@@ -1,0 +1,38 @@
+#-*- mode:snakemake -*-
+
+QUANT_INTERIM = join(INTERIM_DIR, 'smallrna', 'quant')
+
+extra_conf_fn = srcdir('quant.config')
+if os.path.exists(extra_conf_fn):
+    with open(extra_conf_fn) as fh:
+        c  = yaml.load(fh) or {}
+        # original config will override extra config on shared items
+        # c=config, config=overwrite_config
+        update_config2(config, c)
+
+include:
+    'quant/quickmirseq.rules'
+include:
+    'quant/mirge.rules'
+include:
+    'quant/unitas.rules'
+include:
+    'quant/featurecounts.rules'  
+
+def quant_all(wildcards):
+    methods = config['quant']['method'].split(',')
+    out = []
+    for m in methods:
+        if m == 'unitas':
+            out.extend(rules.unitas_all.input)
+        elif m == 'mirge':
+            out.extend(rules.mirge_all.output)
+        elif m == 'quickmirseq':
+            out.extend(rules.quickmirseq_all.output)
+        else:
+            pass
+    return out
+
+rule quant_all:
+    input:
+        quant_all

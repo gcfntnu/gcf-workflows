@@ -1,0 +1,39 @@
+#-*- mode:snakemake -*-
+include:
+  'ercc.db'
+include:
+  'smallrna_calibrators.db'
+include:
+    'indexes.rules'
+
+FILTER_CONF = config.get('filter')
+if FILTER_CONF is None:
+   config['filter'] = FILTER_CONF = {}
+SPIKE_CONF = FILTER_CONF.get('spikein')
+if SPIKE_CONF is None:
+   config['filter']['spikein'] = SPIKE_CONF = {}
+
+rule spikein_merged_fasta:
+    input:
+        join(EXT_DIR, 'spikein', 'fasta', 'ERCC92.fa'),
+        join(EXT_DIR, 'spikein', 'fasta', 'smallrna_calibrators.fa')
+    output:
+        join(EXT_DIR, 'spikein', 'fasta', 'merged_spikein.fa')
+    params:
+        ercc_log = rules.ercc_files.log,
+        cal_log = rules.calibrators_fasta.log
+    log:
+        join(EXT_DIR, 'spikein', 'logs', 'merged_spikein.log')
+    shell:
+        """
+        cat {input} > {output}
+        cat {params} > {log}
+        """
+        
+
+rule spikein_db_all:
+    input:
+        rules.calibrators_db_all.input,
+        rules.ercc_db_all.input,
+        join(EXT_DIR, 'spikein', 'index', 'merged_spikein', 'bowtie', 'merged_spikein.1.ebwt'),
+        join(EXT_DIR, 'spikein', 'index', 'merged_spikein', 'bowtie2', 'merged_spikein.1.bt2')

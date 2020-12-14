@@ -1,0 +1,76 @@
+#-*- mode:snakemake -*-
+"""Kraken taxonomic sequence classification system
+
+https://ccb.jhu.edu/software/kraken/
+https://github.com/DerrickWood/kraken2
+
+kraken2 download:
+archaea: RefSeq complete archaeal genomes/proteins
+bacteria: RefSeq complete bacterial genomes/proteins
+plasmid: RefSeq plasmid nucleotide/protein sequences
+viral: RefSeq complete viral genomes/proteins
+human: GRCh38 human genome/proteins
+fungi: RefSeq complete fungal genomes/proteins
+plant: RefSeq complete plant genomes/proteins
+protozoa: RefSeq complete protozoan genomes/proteins
+nr: NCBI non-redundant protein database
+nt: NCBI non-redundant nucleotide database
+env_nr: NCBI non-redundant protein database with sequences from large environmental sequencing projects
+env_nt: NCBI non-redundant nucleotide database with sequences from large environmental sequencing projects
+UniVec: NCBI-supplied database of vector, adapter, linker, and primer sequences that may be contaminating sequencing projects and/or assemblies
+UniVec_Core: A subset of UniVec chosen to minimize false positive hits to the vector database
+
+"""
+from os.path import join
+
+_KRAKEN_CONFIG = config['rop']['kraken']
+
+def get_kraken_db():
+    if str(_KRAKEN_CONFIG['version']) == '1':
+        if _KRAKEN_CONFIG['db'] == 'minikraken_8GB':
+            return rules.minikraken_8gb.output
+        elif _KRAKEN_CONFIG['db'] == 'minikraken_4GB':
+            return rules.minikraken_4gb.output
+        elif _KRAKEN_CONFIG['db'] == 'custom-bac-k25':
+            return rules.custom_k25.output
+        elif os.path.exists(_KRAKEN_CONFIG['db']):
+            return _KRAKEN_CONFIG['db']
+        else:
+            raise NotImplementedError
+    else:
+        raise NotImplementedError
+        
+rule minikraken_8gb:
+    output:
+        join(EXT_DIR, 'kraken', 'minikraken_8GB', 'database.idx')
+    params:
+        db = join(EXT_DIR, 'minikraken_8GB'),
+        url = 'https://ccb.jhu.edu/software/kraken/dl/minikraken_20171019_8GB.tgz'
+    shell:
+        'curl {params.url} | tar xz -C {params.db} --strip-components=1'
+        
+rule minikraken_4gb:
+    output:
+        join(EXT_DIR, 'kraken', 'minikraken_4GB', 'database.idx')
+    params:
+        db = join(EXT_DIR, 'minikraken_4GB'),
+        url = 'https://ccb.jhu.edu/software/kraken/dl/minikraken_20171019_4GB.tgz'
+    shell:
+        'curl {params.url} | tar xz -C {params.db} --strip-components=1'
+
+rule custom_k25:
+    output:
+        
+rule kraken2_taxonomy:
+    output:
+        join(EXT_DIR, 'kraken2', 'db', 'taxonomy', 'names.dmp')
+    params:
+        db = join(EXT_DIR, 'kraken2', 'db')
+    shell:
+        'kraken2-build --download-taxonomy --db {params.db}'
+
+rule kraken2_reference_library:
+    output:
+        join(EXT_DIR, 'kraken2', 'db', '{kraken_ref}')
+    shell:
+        'kraken2-build --download {kraken_ref}  --db {output}'

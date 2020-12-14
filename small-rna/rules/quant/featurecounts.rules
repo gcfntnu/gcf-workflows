@@ -1,0 +1,63 @@
+#-*- mode: snakemake -*-
+
+"""
+Snakemake rules for counting gene expression values from aligned data using featurecounts
+"""
+
+extra_conf_fn = srcdir('featurecounts.config')
+if os.path.exists(extra_conf_fn):
+    with open(extra_conf_fn) as fh:
+        c  = yaml.load(fh) or {}
+        update_config2(config, c)
+
+FC_INTERIM = join(QUANT_INTERIM, config['align']['method'], 'featurecounts')
+
+
+def featurecounts_strand(wildcards, **kw):
+    read_orientation = config.get('read_orientation')
+    read_orientation = 'fr'
+    STRAND = '0' if read_orientation == 'u' else '-s 1' if read_orientation == 'fr' else '-s 2'
+    return STRAND
+
+rule featurecounts:
+    input:
+        bam = get_namesorted_bam,
+        gtf = join(REF_DIR, 'genes', 'genes.gtf')
+    params:
+        strand = featurecounts_strand,
+        smallrna_args = '-M --fraction -O --largestOverlap --minOverlap 1 '
+    threads:
+        16
+    singularity:
+        'docker://' + config['docker']['subread']
+    output:
+        counts = join(FC_INTERIM, '{sample}', 'counts.txt'),
+        log = join(FC_INTERIM, '{sample}', 'counts.txt.summary')
+    shell:
+        'featureCounts '
+        '-a {input.gtf} '
+        '-o {output.counts} '
+        '-T {threads} '
+        '{params.strand} '
+        '{params.smallrna_args} '
+        '{input.bam} '
+
+rule featurecounts_quant:
+    input:
+        counts = expand(rules.featurecounts.output.counts, sample=SAMPLES),
+        gene_info = join(REF_DIR, 'genes', 'genes.tsv')
+    params:
+        output = join(FC_INTERIM, 'featurecounts'),
+        script = srcdir('scripts/gene_quant.R')
+    singularity:
+        'docker://' + config['docker']['tximport']
+    output:
+        gene_counts = join(FC_INTERIM, 'featurecounts.gene.quant'),
+        gene_info = join(FC_INTERIM, 'featurecounts.gene_info.tsv')
+    shell:
+        'Rscript {params.script} '
+        '{input.counts} '
+        '-o {params.output} '
+        '-t featurecounts '
+        '--gene-info {input.gene_info} '
+        '-v'

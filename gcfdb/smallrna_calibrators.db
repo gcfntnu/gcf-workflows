@@ -1,0 +1,72 @@
+#-*- mode:snakemake -*-
+"""Custom set of synthetic smallrna calibrators.
+"""
+
+from os.path import join
+from snakemake.workflow import srcdir
+
+CAL_DIR = join(EXT_DIR, 'spikein')
+    
+rule calibrators_fasta:
+    output:
+        join(CAL_DIR, 'fasta', '_smallrna_calibrators.fa')
+    log:
+       join(CAL_DIR, 'logs', 'smallrna_calibrators.log')
+    params:
+        date = datetime.now().strftime("%d-%m-%Y")
+    shell:
+        """
+        echo ">spikeIn|Cal01 spikeIn 01" >> {output}
+        echo GUCCCACUCCGUAGAUCUGUUC >> {output}
+        echo ">spikeIn|Cal02 spikeIn 2" >> {output}
+        echo GAUGUAACGAGUUGGAAUGCAA >> {output}
+        echo ">spikeIn|Cal03 spikeIn 3" >> {output}
+        echo UAGCAUAUCGAGCCUGAGAACA >> {output}
+        echo ">spikeIn|Cal04 spikeIn 4" >> {output}
+        echo CAUCGGUCGAACUUAUGUGAAA >> {output}
+        echo ">spikeIn|Cal05 spikeIn 5" >> {output}
+        echo GAAGCACAUUCGCACAUCAUAU >> {output}
+        echo ">spikeIn|Cal06 spikeIn 6" >> {output}
+        echo UCUUAACCCGGACCAGAAACUA >> {output}
+        echo ">spikeIn|Cal07 spikeIn 7" >> {output}
+        echo AGGUUCCGGAUAAGUAAGAGCC >> {output}
+        echo ">spikeIn|Cal08 spikeIn 8" >> {output}
+        echo UAACUCCUUAAGCGAAUCUCGC >> {output}
+        echo ">spikeIn|Cal09 spikeIn 9" >> {output}
+        echo AAAGUAGCAUCCGAAAUACGGA >> {output}
+        echo ">spikeIn|Cal10 spikeIn 10" >> {output}
+        echo UGAUACGGAUGUUAUACGCAGC >> {output}
+        
+        echo "SmallRNA Calibrators,NA,NA,{params.date}"
+        """
+        
+rule calibrators_to_dna:
+    input:
+        rules.calibrators_fasta.output
+    output:
+        join(CAL_DIR, 'fasta', 'smallrna_calibrators.fa')
+    message:
+        'Converting RNA alphabet to DNA for calibrators'
+    shell:
+        """
+        cat {input} | sed 's/U/T/g'> {output}
+        """
+
+rule calibrators_extend:
+    input:
+        rules.calibrators_to_dna.output
+    output:
+        join(CAL_DIR, 'fasta', 'smallrna_calibrators.extended.fa')
+    params:
+        script = srcdir('scripts/extend_calibrators.py')
+    shell:
+        'python {params.script} {input} {output}'
+
+rule calibrators_db_all:
+    input:
+       join(CAL_DIR, 'fasta', 'smallrna_calibrators.fa'),
+       join(CAL_DIR, 'fasta', 'smallrna_calibrators.extended.fa'),
+       join(CAL_DIR, 'index', 'smallrna_calibrators', 'bowtie', 'smallrna_calibrators.1.ebwt'),
+       join(CAL_DIR, 'index', 'smallrna_calibrators', 'bowtie2', 'smallrna_calibrators.1.bt2'),
+       join(CAL_DIR, 'index', 'smallrna_calibrators.extended', 'bowtie', 'smallrna_calibrators.extended.1.ebwt'),
+       join(CAL_DIR, 'index', 'smallrna_calibrators.extended', 'bowtie2', 'smallrna_calibrators.extended.1.bt2')

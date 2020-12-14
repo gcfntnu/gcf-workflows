@@ -1,0 +1,189 @@
+#-*- mode:snakemake -*-
+"""Indexes from fasta
+"""
+
+include:
+    'convert.rules'
+        
+rule star_genome_index_gtf:
+    input: 
+        genome = join('{ref_dir}', 'fasta', '{prefix}.fa'),
+        gtf = join('{ref_dir}', 'genes', 'genes.gtf')
+    output:
+        index = join('{ref_dir}', 'index', '{prefix}', 'star', 'r_{sjdbOverhang}', 'SA')
+    params:
+        index_dir =  join('{ref_dir}', 'index', '{prefix}', 'star', 'r_{sjdbOverhang}'),
+        sjdbOverhang = '{sjdbOverhang}'
+    threads:
+        48
+    singularity:
+        'docker://' + config['docker']['star']
+    shell:
+        'STAR '
+        '--runThreadN {threads} '
+        '--runMode genomeGenerate '
+        '--genomeDir {params.index_dir} '
+        '--genomeFastaFiles {input.genome} '
+        '--sjdbGTFfile {input.gtf} '
+        '--sjdbOverhang {params.sjdbOverhang} '
+
+rule star_genome_index:
+    input: 
+        genome = join('{ref_dir}', 'fasta', '{prefix}.fa')
+    output:
+        index = join('{ref_dir}', 'index', '{prefix}', 'star', 'SA')
+    params:
+        index_dir =  join('{ref_dir}', 'index', '{prefix}', 'star'),
+        sjdbOverhang = '{sjdbOverhang}'
+    threads:
+        48
+    singularity:
+        'docker://' + config['docker']['star']
+    shell:
+        'STAR '
+        '--runThreadN {threads} '
+        '--runMode genomeGenerate '
+        '--genomeDir {params.index_dir} '
+        '--genomeFastaFiles {input.genome} '
+        
+rule hisat2_genome_index:
+    input:
+        genome = join('{ref_dir}', 'fasta', '{prefix}.fa')
+    params:
+        index_dir =  join('{ref_dir}', 'index', 'hisat2'),
+        prefix = join('{ref_dir}', 'index', '{prefix}', 'hisat2', '{prefix}')
+    output:
+         join('{ref_dir}', 'index', '{prefix}', 'hisat2', '{prefix}'+'.1.ht2')
+    threads:
+        48
+    log:
+        join('{ref_dir}', 'logs', 'HISAT2.{prefix}.index.log')
+    singularity:
+        'docker://' + config['docker']['hisat2']
+    shell:
+        'hisat2-build '
+        '-f '
+        '-p {threads} '
+        '{input.genome} '
+        '{params.prefix} '
+
+rule hisat2_splicesites:
+    input:
+        gtf = join('{ref_dir}', 'genes', 'genes.gtf')
+    output:
+        join('{ref_dir}', 'genes', 'splicesites.txt')
+    singularity:
+       'docker://' + config['docker']['hisat2'] 
+    shell:
+        'hisat2_extract_splice_sites.py {input.gtf} > {output}'
+
+rule bowtie_index:
+    input:
+        join('{ref_dir}', 'fasta', '{prefix}.fa')
+    output:
+        join('{ref_dir}', 'index', '{prefix}', 'bowtie', '{prefix}.1.ebwt'),
+        join('{ref_dir}', 'index', '{prefix}', 'bowtie', '{prefix}.2.ebwt'),
+        join('{ref_dir}', 'index', '{prefix}', 'bowtie', '{prefix}.3.ebwt'),
+        join('{ref_dir}', 'index', '{prefix}', 'bowtie', '{prefix}.4.ebwt'),
+        join('{ref_dir}', 'index', '{prefix}', 'bowtie', '{prefix}.rev.1.ebwt'),
+        join('{ref_dir}', 'index', '{prefix}', 'bowtie', '{prefix}.rev.2.ebwt')
+    params:
+        index = join('{ref_dir}', 'index', '{prefix}', 'bowtie', '{prefix}')
+    singularity:
+        'docker://' + config['docker']['bowtie']
+    shell:
+        'bowtie-build {input} {params.index}'
+
+rule bowtie2_index:
+    input:
+        join('{ref_dir}', 'fasta', '{prefix}.fa')
+    output:
+        join('{ref_dir}', 'index', '{prefix}', 'bowtie2', '{prefix}.1.bt2'),
+        join('{ref_dir}', 'index', '{prefix}', 'bowtie2', '{prefix}.2.bt2'),
+        join('{ref_dir}', 'index', '{prefix}', 'bowtie2', '{prefix}.3.bt2'),
+        join('{ref_dir}', 'index', '{prefix}', 'bowtie2', '{prefix}.4.bt2'),
+        join('{ref_dir}', 'index', '{prefix}', 'bowtie2', '{prefix}.rev.1.bt2'),
+        join('{ref_dir}', 'index', '{prefix}', 'bowtie2', '{prefix}.rev.2.bt2')
+    params:
+        index = join('{ref_dir}', 'index', '{prefix}', 'bowtie2', '{prefix}')
+    threads:
+        48
+    singularity:
+        'docker://' + config['docker']['bowtie2']
+    shell:
+        'bowtie2-build --threads {threads} {input} {params.index}'
+
+rule bbmap_index:
+    input:
+         join('{ref_dir}', 'fasta', '{prefix}.fa')
+    output:
+        join('{ref_dir}', 'index', '{prefix}', 'bbmap', 'ref', '{prefix}', '1', 'info.txt')
+    params:
+        index = join('{ref_dir}', 'index', '{prefix}', 'bbmap')
+    singularity:
+        'docker://' + config['docker']['bbmap']
+    shell:
+        'bbmap.sh ref={input} path={params.index}'
+
+
+rule salmon_selective_decoy:
+    input:
+        join('{ref_dir}', 'fasta', 'genome.fa')
+    output:
+        temp(join('{ref_dir}', 'decoys.txt'))
+    shell:
+        """
+        grep "^>" {input} | cut -d " " -f1 > {output}
+        sed -i -e 's/>//g' {output}
+        """
+
+rule salmon_selective_fasta:
+    input:
+        join('{ref_dir}', 'fasta', 'transcriptome.fa'),
+        join('{ref_dir}', 'fasta', 'genome.fa')
+    output:
+        temp(join('{ref_dir}', 'fasta', 'gentrome.fa'))
+    shell:
+        'cat {input} > {output}'
+        
+ruleorder: salmon_index_selective > salmon_index
+
+
+rule salmon_index_selective:
+    input:
+        fasta = rules.salmon_selective_fasta.output,
+        decoy = join('{ref_dir}', 'decoys.txt')
+    output:
+        join('{ref_dir}', 'index', 'gentrome', 'salmon', 'info.json')
+    params:
+        out = join('{ref_dir}', 'index', 'gentrome', 'salmon')     
+    threads:
+        16
+    priority:
+        1
+    singularity:
+        'docker://' + config['docker']['salmon']
+    shell:
+        'salmon index '
+        '-d {input.decoy} '
+        '--threads {threads} '
+        '--index {params.out} '
+        '--transcripts {input.fasta}'
+        
+rule salmon_index:
+    input:
+        join('{ref_dir}', 'fasta', '{prefix}.fa')
+    output:
+        join('{ref_dir}', 'index', '{prefix}', 'salmon', 'info.json')
+    params:
+        out = join('{ref_dir}', 'index', '{prefix}', 'salmon')
+    threads:
+        16
+    singularity:
+        'docker://' + config['docker']['salmon']
+    shell:
+        'salmon index '
+        '--threads {threads} '
+        '--index {params.out} '
+        '--transcripts {input}'
+

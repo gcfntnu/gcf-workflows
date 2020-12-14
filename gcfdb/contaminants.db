@@ -1,0 +1,13 @@
+#-*- mode:snakemake -*-
+include:	    
+  'JGI.db'
+include:
+  'emvec.db'
+include:
+  'univec.db'
+
+rule contaminants_db_all:
+    input:
+        rules.univec_db_all.input,
+        rules.emvec_db_all.input,
+        rules.jgi_db_all.input

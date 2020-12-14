@@ -1,0 +1,122 @@
+#-*- mode:snakemake -*-
+"""Converters between common fileformats
+"""
+
+rule pyensembl_version:
+    output:
+        'pyensembl.version'
+    singularity:
+        'docker://' + config['docker']['pyensembl']
+    params:
+        script = srcdir('scripts/pyensembl_version.py'),
+        docker = config['docker']['pyensembl']
+    shell:
+        'python {params.script} {params.docker} > {output}'
+
+rule convert_gtf2gene_csv:
+    input:
+        gtf = join('{ref_dir}', 'genes', 'genes.gtf')
+    params:
+        script = srcdir('scripts/gtf2genes.py'),
+    output:
+        tsv = join('{ref_dir}', 'genes', 'genes.tsv')
+    singularity:
+        'docker://' + config['docker']['pyensembl']
+    shell:
+        """
+        python {params.script} {input.gtf} > {output.tsv}
+        """
+        
+rule convert_gtf2transcript_csv:
+    input:
+        join('{ref_dir}', 'genes', 'genes.gtf')
+    params:
+        script = srcdir('scripts/gtf2tx.py')
+    output:
+        join('{ref_dir}', 'genes', 'transcripts.tsv')
+    singularity:
+        'docker://' + config['docker']['pyensembl']
+    shell:
+        'python {params.script} {input} > {output}'    
+
+rule convert_gtf2txg:
+    input:
+        rules.convert_gtf2gene_csv.output
+    output:
+        join('{ref_dir}', 'genes', 'tx2gene.tsv')
+    shell:
+        'cut -f1,10 {input} > {output}'
+        
+rule convert_fasta2sequence_dict:
+    input:
+        join('{ref_dir}', 'fasta', 'genome.fa')
+    output:
+        join('{ref_dir}', 'fasta', 'genome.dict')
+    singularity:
+        'docker://' + config['docker']['picard_gatk']
+    shell:
+        'picard CreateSequenceDictionary R={input} O={output}'
+        
+rule convert_gtf2bed12:
+    input:
+        join('{ref_dir}', 'genes', 'genes.gtf')
+    output:
+        join('{ref_dir}', 'genes', 'genes.bed12')
+    params:
+        tmpfile = join(TMPDIR, 'gene.genepred')
+    singularity:
+        'docker://' + config['docker']['ucsc-scripts']
+    shell:
+        """
+        gtfToGenePred -genePredExt -geneNameAsName2 {input} {params}
+        genePredToBed {params} {output}
+        rm {params.tmpfile}
+        """
+        
+rule convert_gtf2intervals:
+    input:
+        join('{ref_dir}', 'genes', 'genes.gtf')
+    output:
+        join('{ref_dir}', 'genes', 'genes.intervals')
+        
+rule convert_gtf2refflat:
+    input:
+        join('{ref_dir}', 'genes', 'genes.gtf')
+    output:
+         join('{ref_dir}', 'genes', 'genes.refflat.gz')
+    params:
+        tmpfile = join(TMPDIR, 'refflat.tmp')
+    singularity:
+        'docker://' + config['docker']['ucsc-scripts']
+    shell:
+        """
+        gtfToGenePred -genePredExt -geneNameAsName2 {input} {params}
+        paste <(cut -f 12 {params}) <(cut -f 1-10 {params}) > refFlat.txt
+        rm {params.tmpfile}
+        gzip refFlat.txt
+        mv refFlat.txt.gz {output}
+        """
+        
+rule convert_gtf_transcriptome_gffread:
+    input:
+        gtf = join('{ref_dir}', 'genes', 'genes.gtf'),
+        genome = join('{ref_dir}', 'fasta', 'genome.fa')
+    output:
+        join('{ref_dir}', 'fasta', 'gtf.gffread.transcripts.fa')
+    singularity:
+        'docker://' + config['docker']['ucsc-scripts']
+    shell:
+        'gffread -w {output} -g {input.genome} {input.gtf}'
+        
+rule convert_gtf_transcriptome_rsem:
+    input:
+        gtf = join('{ref_dir}', 'genes', 'genes.gtf'),
+        genome = join('{ref_dir}', 'fasta', 'genome.fa')
+    params:
+        base = join('{ref_dir}', 'fasta', 'gtf.rsem')
+    singularity:
+        'docker://' + config['docker']['rsem']
+    output:
+        join('{ref_dir}', 'fasta', 'gtf.rsem.transcripts.fa')
+    shell:
+        'rsem-prepare-reference --gtf {input.gtf} {input.genome} {params.base}'

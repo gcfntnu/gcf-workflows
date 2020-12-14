@@ -1,0 +1,40 @@
+#-*- mode:snakemake -*-
+"""EMVec - A sequencing vector database based on the EMBL Sequence database
+
+EMVec is a sequence collection that contains complete and fragmented sequences
+of vectors present in the EMBL database at the time of a major release. The 
+main use of this library is to provide support to sequencing teams with the 
+process of removing vector sequences from their data prior to submission to 
+the EMBL, GenBank or DDBJ databanks.
+"""
+
+rule contaminants_emvec_fasta:
+    """emvec processing from centrifuge code
+    """
+    params:
+        url = 'http://ftp.ebi.ac.uk/pub/databases/emvec/emvec.dat.gz',
+        date = datetime.now().strftime("%d-%m-%Y")
+    output:
+        join(EXT_DIR, 'emvec', 'fasta', 'emvec.fa')
+    log:
+       join(EXT_DIR, 'emvec', 'logs', 'emvec.log') 
+    shell:
+        """
+        wget {params.url} -O- | gunzip -c | grep -E '^DE|^ ' | awk '/^DE/ {{ sub(/DE */,">"); gsub(/[ |]/,"_") }}; {{ print }}' | awk '/^ / {{ gsub(/ /,""); sub(/[0-9]*$/,"") }}; {{ print}}' > {output}
+        echo "EMVec,NA,{params.url},{params.date}" > {log}
+        """
+
+rule contaminants_emvec_anno:
+    input:
+        rules.contaminants_emvec_fasta.output
+    output:
+        join(EXT_DIR, 'emvec', 'anno.tsv')
+    shell:
+        """
+        grep '>' {input} | sed 's/ /\t/' > {output}
+        """
+        
+rule emvec_db_all:
+    input:
+        join(EXT_DIR, 'emvec', 'index', 'emvec', 'bowtie', 'emvec.1.ebwt'),
+        join(EXT_DIR, 'emvec', 'index', 'emvec', 'bowtie2', 'emvec.1.bt2'),

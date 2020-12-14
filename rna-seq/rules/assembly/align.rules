@@ -1,0 +1,125 @@
+#-*- mode: snakemake -*-
+"""
+Alignment to reference genome for transcriptome assembly
+"""
+
+ASBY_ALIGNER = config['assembly']['transcriptome']['aligner']
+ASBY_ALIGN_INTERIM = join(INTERIM_DIR, 'rnaseq', 'assembly', 'align')   
+
+def assembly_star_input_params(wildcards):
+    """Multiple fastq files per sample workaround.
+
+    STAR uses comma separated input when defining a read with mutiple fastq files.
+    A comma separated string is not a valid input file in snakemake.
+    A work around in snakemake is to build the comma separated input string as a params.fastq
+    
+    """
+    fastq = get_processed_fastq(wildcards)
+    R1 = fastq['R1']
+    R2 = fastq.get('R2', [])
+    R1 = ','.join(sorted(set(R1)))
+    R2 = ','.join(sorted(set(R2)))
+    input_string = ' '.join([R1, R2])
+    return input_string
+
+def assembly_star_genome_dir():
+    max_rlen = int(max(config['read_geometry'])) - 1
+    return join(BASE_REF_DIR, 'index', 'genome', 'star', 'r_{}'.format(max_rlen))
+
+rule assembly_star_align:
+    input:
+        unpack(get_processed_fastq),
+        genome = join(assembly_star_genome_dir(), 'SA')
+    params:
+        fastq = assembly_star_input_params,
+        prefix = lambda wildcards, output: output.bam.split('Aligned.sortedByCoord.out.bam')[0],
+        genome_dir = assembly_star_genome_dir(),
+        args = '--twopassMode Basic --outSAMtype BAM SortedByCoordinate --outMultimapperOrder Random --outSAMstrandField intronMotif --outSAMmultNmax 20 --outFilterType BySJout --limitBAMsortRAM 20000000000 --alignSJoverhangMin 8 --alignSJDBoverhangMin 1 --outFilterMismatchNmax 999 --outFilterMismatchNoverReadLmax 0.04 --alignIntronMin 20 --alignIntronMax 1000000 --alignMatesGapMax 1000000 --outSAMattrIHstart 0'
+    output:
+        bam = temp(join(ASBY_ALIGN_INTERIM, 'star', '{sample}.Aligned.sortedByCoord.out.bam'))
+    threads:
+        48
+    singularity:
+        'docker://' + config['docker']['star']
+    shell: 
+        'STAR '
+        '--runThreadN {threads} '
+        '--genomeDir {params.genome_dir} '
+        '--outFileNamePrefix {params.prefix} '
+        '--readFilesIn {params.fastq} '
+        '{params.args} '
+
+rule assembly_star_sorted_bam:
+    input:
+        rules.assembly_star_align.output.bam
+    output:
+        join(ASBY_ALIGN_INTERIM, 'star', '{sample}.sorted.bam')
+    shell:
+        'cp {input} {output}'
+
+def assembly_hisat2_input(wildcards):
+    fastq = get_processed_fastq(wildcards)
+    sample = config['samples'][wildcards.sample]
+    PE = sample.get('paired_end') or len(config['read_geometry']) > 1
+    R1 = fastq['R1']
+    R2 = fastq.get('R2', [])
+    if PE:
+        input_string = '-1 ' + ','.join(R1)
+        R2 = fastq.get('R2', [])
+        input_string += ' -2 ' + ','.join(R2)
+    else:
+        input_string = '-U ' + ','.join(R1)
+    return input_string
+
+def assembly_hisat2_strand():
+    PE = len(config['read_geometry']) > 1
+    KIT_STRAND = LIBPREP.get('strand', 'reverse')
+    if PE:
+        if KIT_STRAND == 'forward':
+            HISAT_STRAND = 'FR'
+        else :
+            HISAT_STRAND = 'RF'
+    else:
+        if KIT_STRAND == 'forward':
+            HISAT_STRAND = 'F'
+        else :
+            HISAT_STRAND = 'R'
+    return HISAT_STRAND
+
+rule assembly_hisat2_align:
+    input:
+        unpack(get_processed_fastq),
+        index = join(BASE_REF_DIR, 'index', 'genome', 'hisat2', 'genome' + '.1.ht2')
+    params:
+        input = assembly_hisat2_input,
+        index = lambda wildcards,input: input.index.split('.1.ht2')[0],
+        strand = assembly_hisat2_strand()
+    output:
+        sam = temp(join(ASBY_ALIGN_INTERIM, 'hisat2', '{sample}.out.sam'))
+    threads:
+        24
+    singularity:
+        'docker://' + config['docker']['hisat2']
+    shell:
+        'hisat2 '
+        '--rna-strandness {params.strand} '
+        '-x {params.index} '
+        '{params.input} '
+        '--dta --mm '
+        '-S {output.sam} '
+
+rule assembly_hisat2_sorted_bam:
+    input:
+        sam = rules.assembly_hisat2_align.output.sam
+    output:
+        bam = temp(join(ASBY_ALIGN_INTERIM, 'hisat2', '{sample}.sorted.bam'))
+    threads:
+        4
+    singularity:
+        'docker://' + config['docker']['sambamba']
+    shell:
+         'cat {input.sam} | sambamba view -S -f bam /dev/stdin | sambamba sort -m 24G -t {threads} -o {output.bam} /dev/stdin '
+
+
+def assembly_sorted_bam(wildcards):
+    return join(ASBY_ALIGN_INTERIM, ASBY_ALIGNER, wildcards.sample + '.sorted.bam')

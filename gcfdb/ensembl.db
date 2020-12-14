@@ -1,0 +1,317 @@
+#-*- mode:snakemake -*-
+"""Cached ENSEMBL genome for human, mouse, rat ++
+
+Two versions with and without added spikein sequences
+
+"""
+import string
+from datetime import datetime
+
+# config
+extra_conf_fn = srcdir('ensembl.config')
+if os.path.exists(extra_conf_fn):
+    with open(extra_conf_fn) as fh:
+        c  = yaml.load(fh, Loader=Loader) or {}
+        update_config2(config, c)
+        
+def _ens_species_rest(grch37=False):
+    """Ask ensembl rest api for species info
+    """
+    import requests, sys, pickle,os
+    cache_fn = os.path.join(TMPDIR, 'ensembl-98.cache')    
+    use_cache = os.path.exists(cache_fn)
+    if use_cache:
+        with open(cache_fn, 'rb') as fh:
+            res = pickle.load(fh)
+        return res
+    server = 'https://grch37.rest.ensembl.org' if grch37 else 'https://rest.ensembl.org'
+    ext = '/info/species?'
+    r = requests.get(server+ext, headers={ 'Content-Type' : 'application/json'}) 
+    if not r.ok:
+        r.raise_for_status()
+        return None
+    res = r.json()['species']
+    if not use_cache:
+        with open(cache_fn, 'wb') as fh:
+            pickle.dump(res, fh)
+    return res
+
+def _search_names(S, org, strain=None, assembly=None):
+    if assembly is not None:
+        for species in S:
+            if species['assembly'] == assembly:
+                if strain is not None:
+                    assert(species['strain'] == strain)
+                assert(species['name'] == org.lower())
+            return species
+    for species in S:
+        if species['name'].startswith(org.lower()):
+            if species['strain'] == strain or (strain is None and 'reference' in species['strain']):
+                return species # we have a hit
+    for species in S: # search aliases if there is no hit `name`
+        aliases = species['aliases']
+        aliases.append(species['taxon_id'])
+        aliases.append(species['common_name'])
+        aliases.append(species['display_name'].lower())
+        aliases.append(species['assembly'].lower())
+            
+        if org.lower() in aliases:
+            if species['strain'] == strain or (strain is None and 'reference' in species['strain']):
+                return species
+            hit = _search_names(S, species['name'], strain)
+            if hit is not None:
+                return hit
+    
+    logger.info('Failed to identify organism ({}), strain ({}) in Ensembl. Available options:\n'.format(str(org), str(strain)))
+    logger.info('Organism    Strain')
+    info = sorted([(s['name'], s['strain']) for s in S])
+    for species in info:
+        logger.info('{}    {}'.format(species[0], species[1]))
+    sys.exit()
+
+def ensembl_search(org, strain=None, assembly=None):
+    """Search species by ORG and strain
+    """
+    if assembly is not None and assembly.lower() in ['grch37', 'hg19']:
+        grch37 = True
+        org = 'homo_sapiens'
+    else:
+        grch37 = False
+    S = _ens_species_rest(grch37)
+    hit = _search_names(S, org, strain)
+    return hit
+
+DB_CONF = config['db']['ensembl']
+ORG = config.get('organism', 'homo_sapiens')
+STRAIN = config.get('strain', DB_CONF.get('strain'))
+ASSEMBLY = DB_CONF.get('assembly')
+if '__' in ORG:
+    raise ValueError('Multispecies genome is not supported for Ensembl!')
+
+SPECIES = ensembl_search(ORG, STRAIN, ASSEMBLY)
+if ORG != SPECIES['name']:
+    config['organism'] = ORG = SPECIES['name']
+if STRAIN != SPECIES['strain']:
+    STRAIN = config['strain'] = DB_CONF['strain'] = SPECIES['strain']
+ENS_RELEASE = str(DB_CONF.get('release', SPECIES['release']))
+
+ENS_ASSEMBLY =  config['db'].get('assembly', DB_CONF.get('assembly', SPECIES['assembly']))   
+DB_CONF['assembly'] = config['db']['assembly'] = ENS_ASSEMBLY
+
+if ORG == 'homo_sapiens':
+    ENS_NAME = '' if ENS_ASSEMBLY == 'GRCh38' else '/grch37'
+    ENS_RELEASE = ENS_RELEASE if ENS_ASSEMBLY == 'GRCh38' else '87'
+    DB_CONF['release'] = ENS_RELEASE
+else:
+    ENS_NAME = ''
+
+ERCC = DB_CONF.get('add_ercc', False)
+DB_CONF['add_ercc'] = ERCC
+
+
+config['db']['ensembl'] = DB_CONF
+OUTDIR = join(EXT_DIR, 'ensembl', ORG, 'release-{}'.format(ENS_RELEASE), ENS_ASSEMBLY)
+
+# includes
+if ERCC:
+    include:
+        'ercc.db'
+include:
+    'convert.rules'
+
+PROTOCOL = 'ftp://'
+
+if ORG in ['homo_sapiens', 'mus_musculus']:
+    _genome = 'ftp.ensembl.org/pub{}/release-{}/fasta/{}/dna/{}.{}.dna.primary_assembly.fa.gz'
+else:
+    _genome = 'ftp.ensembl.org/pub{}/release-{}/fasta/{}/dna/{}.{}.dna.toplevel.fa.gz'
+
+_gtf = 'ftp.ensembl.org/pub{}/release-{}/gtf/{}/{}.{}.{}.gtf.gz'
+_ncdna = 'ftp.ensembl.org/pub{}/release-{}/fasta/{}/ncrna/{}.{}.ncrna.fa.gz'
+_transcriptome = 'ftp.ensembl.org/pub{}/release-{}/fasta/{}/cdna/{}.{}.cdna.all.fa.gz'
+
+
+# ENSEMBL URLS 
+ENS_GENOME = _genome.format(ENS_NAME, ENS_RELEASE, ORG, string.capwords(ORG), ENS_ASSEMBLY)
+ENS_GTF = _gtf.format(ENS_NAME, ENS_RELEASE, ORG, string.capwords(ORG), ENS_ASSEMBLY, ENS_RELEASE)
+ENS_TRANSCRIPTOME = _transcriptome.format(ENS_NAME, ENS_RELEASE, ORG, string.capwords(ORG), ENS_ASSEMBLY)
+ENS_NONCODING = _ncdna.format(ENS_NAME, ENS_RELEASE, ORG, string.capwords(ORG), ENS_ASSEMBLY)
+
+rule ensembl_dna:
+    params:
+        url = PROTOCOL + ENS_GENOME,
+        date = datetime.now().strftime("%d-%m-%Y")
+    output:
+        join(OUTDIR, ENS_GENOME.split('.gz')[0])
+    threads: 
+        8
+    log:
+        join(OUTDIR, 'logs', 'ensembl.dna.log')
+    shell: 
+        """
+        wget -O- {params.url} | gunzip -c > {output}
+        echo 'Ensembl DNA,{ENS_RELEASE},{ENS_GENOME},{params.date}' > {log}
+        """
+        
+rule ensembl_cdna:
+    params:
+        url = PROTOCOL + ENS_TRANSCRIPTOME,
+        date = datetime.now().strftime("%d-%m-%Y")
+    output:
+        join(OUTDIR, ENS_TRANSCRIPTOME.split('.gz')[0])
+    threads: 
+        8
+    log:
+        join(OUTDIR, 'logs', 'ensembl.cdna.log')
+    shell: 
+        """
+        wget -O- {params.url} | gunzip -c > {output}
+        echo 'Ensembl CDNA,ENS_RELEASE,{ENS_TRANSCRIPTOME},{params.date}' > {log}
+        """
+        
+rule ensembl_noncoding:
+    params:
+        url = PROTOCOL + ENS_NONCODING,
+        date = datetime.now().strftime("%d-%m-%Y")
+    output:
+        join(OUTDIR, ENS_NONCODING.split('.gz')[0])
+    threads: 
+        8
+    log:
+        join(OUTDIR, 'logs', 'ensembl.noncoding.log')
+    shell: 
+        """
+        wget -O- {params.url} | gunzip -c  > {output}
+        echo 'Ensembl NCDNA,ENS_RELEASE,{ENS_NONCODING},{params.date}' > {log}
+        """
+
+rule ensembl_gtf:
+    params:
+        url = PROTOCOL + ENS_GTF,
+        date = datetime.now().strftime("%d-%m-%Y")
+    output:
+        gtf = join(OUTDIR, ENS_GTF.split('.gz')[0])
+    threads: 
+        8
+    log:
+        join(OUTDIR, 'logs', 'ensembl.gtf.log')
+    singularity:
+        'docker://' + config['docker']['default']
+    shell: 
+        """
+        wget {params.url} -O- | gunzip -c > {output.gtf}
+        echo 'Ensembl GTF,ENS_RELEASE,{ENS_GTF},{params.date}' > {log}
+        """
+   
+rule ensembl_add_ercc2genome:
+    input:
+        rules.ensembl_dna.output,
+        join(EXT_DIR, 'ERCC', 'fasta', 'ERCC92.fa')
+    output:
+        rules.ensembl_dna.output[0].split('.fa')[0] + '.ERCC92.fa'
+    shell:
+        'cat {input} > {output}'
+
+rule ensembl_add_ercc2cdna:
+    input:
+        rules.ensembl_cdna.output,
+        join(EXT_DIR, 'ERCC', 'fasta', 'ERCC92.fa')
+    output:
+        rules.ensembl_cdna.output[0].split('.fa')[0] + '.ERCC92.fa'
+    shell:
+        'cat {input} > {output}'
+
+rule ensembl_add_ercc2noncoding:
+    input:
+        rules.ensembl_noncoding.output,
+        join(EXT_DIR, 'ERCC', 'fasta', 'ERCC92.fa')
+    output:
+        rules.ensembl_noncoding.output[0].split('.fa')[0] + '.ERCC92.fa'
+    shell:
+        'cat {input} > {output}'
+
+rule ensembl_add_ercc2gtf:
+    input:
+        rules.ensembl_gtf.output,
+        join(EXT_DIR, 'ERCC', 'genes', 'ERCC92.gtf')
+    output:
+        rules.ensembl_gtf.output[0].split('.gtf')[0] + '.ERCC92.gtf'
+    shell:
+        'cat {input} > {output}'
+
+rule ensembl_index_genome:
+    input:
+        rules.ensembl_add_ercc2genome.output if ERCC else rules.ensembl_dna.output
+    output:
+        rules.ensembl_add_ercc2genome.output[0] + '.fai' if ERCC else rules.ensembl_dna.output[0] + '.fai'
+    singularity:
+        'docker://' + config['docker']['samtools']
+    shell:
+        'samtools faidx {input}'
+
+rule ensembl_cdna_gtf:
+    input:
+        dna = rules.ensembl_add_ercc2genome.output if ERCC else rules.ensembl_dna.output,
+        gtf = rules.ensembl_add_ercc2gtf.output if ERCC else rules.ensembl_gtf.output,
+        dna_index = rules.ensembl_index_genome.output
+    output:
+        join(OUTDIR, ORG.capitalize() + '.' + ENS_ASSEMBLY + '.cdna.gtf.fa')
+    singularity:
+        'docker://' + config['docker']['gffread']
+    shell:
+        'gffread -w {output} -g {input.dna} {input.gtf} '
+
+rule ensembl_add_ercc2cdna_gtf:
+    input:
+        rules.ensembl_cdna_gtf.output,
+        join(EXT_DIR, 'ERCC', 'fasta', 'ERCC92.fa')
+    output:
+        rules.ensembl_cdna.output[0].split('.fa')[0] + '.ERCC92.fa'
+    shell:
+        'cat {input} > {output}'
+        
+rule ensembl_db_downloads:
+    input:
+        genome = rules.ensembl_add_ercc2genome.output if ERCC else rules.ensembl_dna.output,
+        cdna = rules.ensembl_add_ercc2cdna.output if ERCC else rules.ensembl_cdna.output,
+        noncoding = rules.ensembl_noncoding.output,
+        gtf = rules.ensembl_add_ercc2gtf.output if ERCC else rules.ensembl_gtf.output,
+        genome_index = rules.ensembl_index_genome.output,
+        transcriptome = rules.ensembl_cdna_gtf.output
+    output:
+        genome = join(OUTDIR, 'fasta', 'genome.fa'),
+        cdna = join(OUTDIR, 'fasta', 'cdna.fa'),
+        gtf = join(OUTDIR, 'genes', 'genes.gtf'),
+        noncoding = join(OUTDIR, 'fasta', 'ncdna.fa'),
+        genome_index = join(OUTDIR, 'fasta', 'genome.fa.fai'),
+        transcriptome = join(OUTDIR, 'fasta', 'transcriptome.fa')
+    shell:
+        """
+        ln -sr {input.genome} {output.genome}
+        ln -sr {input.cdna} {output.cdna}
+        ln -sr {input.gtf} {output.gtf}
+        ln -sr {input.noncoding} {output.noncoding}
+        ln -sr {input.genome_index} {output.genome_index}
+        ln -sr {input.transcriptome} {output.transcriptome}
+        """
+
+include:
+    'indexes.rules'
+        
+rule ensembl_db_all:
+    input:
+        join(OUTDIR, 'fasta', 'genome.fa'),
+        join(OUTDIR, 'fasta', 'cdna.fa'),
+        join(OUTDIR, 'genes', 'genes.gtf'),
+        join(OUTDIR, 'fasta', 'ncdna.fa'),
+        join(OUTDIR, 'fasta', 'genome.fa.fai'),    
+        join(OUTDIR, 'genes', 'genes.tsv'),
+        join(OUTDIR, 'genes', 'transcripts.tsv'),
+        join(OUTDIR, 'genes', 'tx2gene.tsv'),
+        join(OUTDIR, 'fasta', 'genome.dict'),
+        join(OUTDIR, 'genes', 'genes.bed12'),
+        join(OUTDIR, 'genes', 'genes.refflat.gz'),
+        join(OUTDIR, 'fasta', 'transcriptome.fa'),
+        join(OUTDIR, 'index', 'genome', 'star', 'r_99', 'SA'),
+        join(OUTDIR, 'index', 'transcriptome', 'salmon', 'info.json'),
+        join(OUTDIR, 'index', 'gentrome', 'salmon', 'info.json')

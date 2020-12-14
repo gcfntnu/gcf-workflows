@@ -1,0 +1,108 @@
+project_id:
+- GCF-2018-568
+organism: mus_musculus
+libprepkit: Bioo Scientific NEXTflex Small RNA-Seq Kit v3
+read_geometry:
+- 51
+machine: ''
+quant:
+  batch:
+    method: skip
+fastq_dir: data/raw/fastq
+samples:
+  S67:
+    R1: smallrna_testdata/GCF-2018-568/S67_R1.fastq.gz
+    R2: ''
+    paired_end: 0
+    Sample_ID: S67
+    External_ID: 136880
+    Project_ID: GCF-2018-568
+    Organism: mus musculus
+    Sample_Biosource: Spermatozooa cauda/vas
+    Index1_p7 (If dual indexed libraries are submitted indicate what index sequence is used P7): ''
+    Index2_p5 (If libraries are submitted  indicate what index sequence is used P75): ''
+    Sample_Group: 2,5/3/F2/B/Bl6
+    Customer_Comment: RNA is NOT Dnase treated/miRNeasy Mini Kit used (Trizol based
+      - clean up not performed)
+    'Unnamed: 17': Not performed due to low RNA abundance
+    Project ID: 136880.0
+    RIN: ''
+    SpikeIn: ''
+    Fragment_Length: ''
+    Fragment_SD: ''
+    Concentration: ''
+    260/280: ''
+    260/230: ''
+    Lab_Comment: ''
+  S76:
+    R1: smallrna_testdata/GCF-2018-568/S76_R1.fastq.gz
+    R2: ''
+    paired_end: 0
+    Sample_ID: S76
+    External_ID: 136151
+    Project_ID: GCF-2018-568
+    Organism: mus musculus
+    Sample_Biosource: Spermatozooa cauda/vas
+    Index1_p7 (If dual indexed libraries are submitted indicate what index sequence is used P7): ''
+    Index2_p5 (If libraries are submitted  indicate what index sequence is used P75): ''
+    Sample_Group: 2,5/3/F2/B/Bl6
+    Customer_Comment: RNA is NOT Dnase treated/miRNeasy Mini Kit used (Trizol based
+      - clean up not performed)
+    'Unnamed: 17': Not performed due to low RNA abundance
+    Project ID: 136151.0
+    RIN: ''
+    SpikeIn: ''
+    Fragment_Length: ''
+    Fragment_SD: ''
+    Concentration: ''
+    260/280: ''
+    260/230: ''
+    Lab_Comment: ''
+  L25:
+    R1: smallrna_testdata/GCF-2018-568/L25_R1.fastq.gz
+    R2: ''
+    paired_end: 0
+    Sample_ID: L25
+    External_ID: 132600
+    Project_ID: GCF-2018-568
+    Organism: mus musculus
+    Sample_Biosource: Liver Tissue
+    Index1_p7 (If dual indexed libraries are submitted indicate what index sequence is used P7): ''
+    Index2_p5 (If libraries are submitted  indicate what index sequence is used P75): ''
+    Sample_Group: 100/3/F2/A/CBA
+    Customer_Comment: RNA is NOT Dnase treated/miRNeasy Mini Kit used (Trizol based
+      - clean up not performed)
+    'Unnamed: 17': 1.61
+    Project ID: 132600.0
+    RIN: ''
+    SpikeIn: ''
+    Fragment_Length: ''
+    Fragment_SD: ''
+    Concentration: ''
+    260/280: ''
+    260/230: ''
+    Lab_Comment: ''
+  L57:
+    R1: smallrna_testdata/GCF-2018-568/L57_R1.fastq.gz
+    R2: ''
+    paired_end: 0
+    Sample_ID: L57
+    External_ID: 135758
+    Project_ID: GCF-2018-568
+    Organism: mus musculus
+    Sample_Biosource: Liver Tissue
+    Index1_p7 (If dual indexed libraries are submitted indicate what index sequence is used P7): ''
+    Index2_p5 (If libraries are submitted  indicate what index sequence is used P75): ''
+    Sample_Group: CTRL/F2/Bl6
+    Customer_Comment: RNA is NOT Dnase treated/miRNeasy Mini Kit used (Trizol based
+      - clean up not performed)
+    'Unnamed: 17': 1.81
+    Project ID: 135758.0
+    RIN: ''
+    SpikeIn: ''
+    Fragment_Length: ''
+    Fragment_SD: ''
+    Concentration: ''
+    260/280: ''
+    260/230: ''
+    Lab_Comment: ''

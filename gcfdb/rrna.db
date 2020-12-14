@@ -1,0 +1,7 @@
+#-*- mode:snakemake -*-
+include:
+    'ncbi.db'
+include:
+    'JGI.db'
+include:
+    'sortmerna.db'

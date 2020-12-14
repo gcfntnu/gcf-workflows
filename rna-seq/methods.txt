@@ -1,0 +1,11 @@
+FASTQ files were filtered and trimmed (fastp v0.20.0) and transcript
+counts were generated using quasi alignment (Salmon v1.3.0) to the
+transcriptome reference sequence (Ensembl, GRCh38 release
+92). Transcript sequences were imported into the R statistical
+software and aggregated to gene counts using the tximport (v1.14.0)
+bioconductor package.Gene counts were normalized and analyzed for
+differential expression using the DESeq2 bioconductor package. DESeq2
+is a specialized software for analysis of rna-seq data and builds a
+generalized linear model under the assumption of negative binomial
+distributed values and uses the Wald statistic for significance
+testing.

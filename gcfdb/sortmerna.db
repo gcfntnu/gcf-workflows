@@ -1,0 +1,54 @@
+#-*-mode:snakemake-*-
+from os import environ
+from os.path import join
+
+SORTMERNA_TMP = os.path.join(TMPDIR, 'sortmerna')
+
+# config
+extra_conf_fn = srcdir('sortmerna.config')
+if os.path.exists(extra_conf_fn):
+    with open(extra_conf_fn) as fh:
+        c  = yaml.load(fh, Loader=Loader) or {}
+        update_config2(config, c)
+
+SMDB = config['db']['sortmerna']['db'].split(',')
+
+rule sortmerna_db:
+    params:
+        out = join(EXT_DIR, 'sortmerna', 'fasta'),
+        github = 'https://github.com/biocore/sortmerna.git/trunk/rRNA_databases',
+        date = datetime.now().strftime("%d-%m-%Y")
+    output:
+        join(EXT_DIR, 'sortmerna', 'fasta', 'silva-arc-16s-id95.fasta'),
+        join(EXT_DIR, 'sortmerna', 'fasta', 'silva-arc-23s-id98.fasta'),
+        join(EXT_DIR, 'sortmerna', 'fasta', 'silva-bac-16s-id90.fasta'),
+        join(EXT_DIR, 'sortmerna', 'fasta', 'silva-bac-23s-id98.fasta'),
+        join(EXT_DIR, 'sortmerna', 'fasta', 'silva-euk-18s-id95.fasta'),
+        join(EXT_DIR, 'sortmerna', 'fasta', 'silva-euk-28s-id98.fasta'),
+        join(EXT_DIR, 'sortmerna', 'fasta', 'rfam-5.8s-database-id98.fasta'),
+        join(EXT_DIR, 'sortmerna', 'fasta', 'rfam-5s-database-id98.fasta')
+    singularity:
+        'docker://' + config['docker']['default']
+    log:
+        join(EXT_DIR, 'sortmerna', 'logs', 'sortmerna.log')
+    shell:
+        """
+        svn co {params.github} {SORTMERNA_TMP}
+        mv {SORTMERNA_TMP}/*.fasta {params.out}/
+        echo "SortMeRNA,NA,{params.github},{params.date}" > {log}
+        """
+rule sortmerna_index:
+    input:
+        fasta = join(EXT_DIR, 'sortmerna', 'fasta', '{db}.fasta')
+    params:
+        index = join(EXT_DIR, 'sortmerna', 'index', '{db}')
+    output:
+        join(EXT_DIR, 'sortmerna', 'index', '{db}.stats')
+    singularity:
+        'docker://' + config['docker']['sortmerna']
+    shell:
+        'indexdb_rna --ref {input.fasta},{params.index}'
+    
+rule sortmerna_db_all:
+    input:
+        expand(rules.sortmerna_index.output, db=SMDB)

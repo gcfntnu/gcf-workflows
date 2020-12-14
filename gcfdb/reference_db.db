@@ -1,0 +1,40 @@
+#-*- mode: snakemake -*-
+
+extra_conf_fn = srcdir('reference_db.config')
+if os.path.exists(extra_conf_fn):
+    with open(extra_conf_fn) as fh:
+        c  = yaml.load(fh, Loader=Loader) or {}
+        update_config2(config, c)
+
+ORG = config['organism']
+
+if 'REF_DIR' in locals() and REF_DIR is not None:
+    pass
+elif environ.get('GCF_REFDIR') is not None:
+    REF_DIR = environ.get('GCF_REFDIR')
+elif 'ref_dir' in config:
+    REF_DIR = config['ref_dir']
+elif 'reference_db' in config['db']:
+    ref = config['db']['reference_db']
+    if ref == 'ensembl':
+        include: 'ensembl.db'
+    if ref == 'gencode':
+        include: 'gencode.db'
+    if ref == '10xgenomics':
+        include: '10xgenomics.db'
+
+    DB_CONF = config['db'][ref]
+    REF_DIR = join(EXT_DIR, ref, ORG, 'release-{}'.format(DB_CONF['release']), DB_CONF['assembly'])
+else:
+    logger.error('Reference dir missing. Check config or other ways for ref dir setup')
+    raise ValueError
+config['base_ref_dir'] = REF_DIR
+
+if not 'ref' in locals():
+    ref = os.path.dirname(REF_DIR)
+    config['db']['reference_db'] = ref
+    config['db'][ref] = {}
+include:
+    'indexes.rules'
+include:
+    'convert.rules'

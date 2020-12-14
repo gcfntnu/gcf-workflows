@@ -1,0 +1,131 @@
+
+#-*- mode:snakemake -*-
+from datetime import datetime
+
+# config
+extra_conf_fn = srcdir('mirbase.config')
+if os.path.exists(extra_conf_fn):
+    with open(extra_conf_fn) as fh:
+        c  = yaml.load(fh, Loader=Loader) or {}
+        update_config2(config, c)
+        
+MIRBASE_RELEASE = str(config['db']['mirbase'].get('release', '22'))
+config['db']['mirbase']['release'] = MIRBASE_RELEASE
+ORG = config.get('organism', 'homo_sapiens')
+MIR_ORG = {'homo_sapiens': 'hsa',
+           'human': 'hsa',
+           'hsa': 'hsa',
+           'mus_musculus': 'mmu',
+           'mouse': 'mmu',
+           'mmu': 'mmu',
+           'rattus_norvegicus': 'rno',
+           'rat': 'rno',
+           'rno': 'rno'}
+
+MIRBASE_EXT = join(EXT_DIR, 'mirbase', ORG, 'release-{}'.format(MIRBASE_RELEASE))
+
+URLS = {'hairpin': 'ftp://mirbase.org/pub/mirbase/{}/hairpin.fa.gz'.format(MIRBASE_RELEASE),
+        'mature': 'ftp://mirbase.org/pub/mirbase/{}/mature.fa.gz'.format(MIRBASE_RELEASE),
+        'gff': 'ftp://mirbase.org/pub/mirbase/{}/genomes'.format(MIRBASE_RELEASE),
+        'mirna_str': 'ftp://mirbase.org/pub/mirbase/{}/miRNA.str.gz'.format(MIRBASE_RELEASE)
+}
+
+rule mirbase_hairpin_fasta:
+    params:
+        url = URLS['hairpin'],
+        mirbase_org = MIR_ORG[ORG],
+        date = datetime.now().strftime("%d-%m-%Y")
+    output:
+        fasta = join(MIRBASE_EXT, 'fasta', 'hairpin.fa')
+    log:
+        join(MIRBASE_EXT, 'logs', 'hairpin.log')
+    singularity:
+        'docker://' + config['docker']['default']
+    shell:
+        """
+        wget {params.url} -O- | gunzip -c | grep -A 1 "^>{params.mirbase_org}" | grep -v "^-" | sed 's/U/T/g' > {output.fasta}
+        echo "Mirbase hairpin,{MIRBASE_RELEASE},{params.url},{params.date}" > {log}
+        """
+
+rule mirbase_mature_fasta:
+    params:
+        url = URLS['mature'],
+        mirbase_org = MIR_ORG[ORG],
+        date = datetime.now().strftime("%d-%m-%Y")
+    output:
+        fasta = join(MIRBASE_EXT, 'fasta', 'mature.fa')
+    log:
+        join(MIRBASE_EXT, 'logs', 'mature.log')
+    singularity:
+        'docker://' + config['docker']['default']
+    shell:
+        """
+        wget {params.url} -O- | gunzip -c | grep -A 1 "^>{params.mirbase_org}" | grep -v "^-" | sed 's/U/T/g' > {output}
+        echo "Mirbase mature,{MIRBASE_RELEASE},{params.url},{params.date}" > {log}
+        """
+
+rule mirbase_gff:        
+    params:
+        url = URLS['gff'],
+        mirbase_org = MIR_ORG[ORG],
+        date = datetime.now().strftime("%d-%m-%Y")
+    output:
+        join(MIRBASE_EXT, 'genes', 'genes.gff3')
+    log:
+       join(MIRBASE_EXT, 'logs', 'gff.log')
+    singularity:
+        'docker://' + config['docker']['default']
+    shell:
+        """
+        wget -O - {params.url}/{params.mirbase_org}.gff3 > {output}
+        echo "Mirbase gff,{MIRBASE_RELEASE},{params.url},{params.date}" > {log}
+        """
+
+rule mirbase_genes:
+    input:
+        rules.mirbase_gff.output
+    params:
+        script = srcdir('scripts/mirbase_gff2genes.py')
+    output:
+        join(MIRBASE_EXT, 'genes', 'genes.tsv')
+    singularity:
+        'docker://' + config['docker']['default']
+    shell:
+        'python {params.script} {input} > {output}'
+        
+rule mirbase_mirna_str:
+    params:
+        url = URLS['mirna_str'],
+        mirbase_org = MIR_ORG[ORG],
+        date = datetime.now().strftime("%d-%m-%Y")
+    output:
+        fasta = join(MIRBASE_EXT, 'genes', 'miRNA.str')
+    log:
+        join(MIRBASE_EXT, 'logs', 'mature.log')
+    singularity:
+        'docker://' + config['docker']['default']
+    shell:
+        """
+        wget {params.url} -O- | gunzip -c > {output}
+        echo "Mirbase mirna_str,{MIRBASE_RELEASE},{params.url},{params.date}" > {log}
+        """
+
+rule seqbuster_db:
+    input:
+        rules.mirbase_hairpin_fasta.output,
+        rules.mirbase_mirna_str.output
+    output:
+        outdir = directory(join(MIRBASE_EXT, 'seqbuster'))
+    run:
+        for fn in input:
+            shell('mkdir -p {output.outdir}')
+            shell('ln -sr {fn} -t {output.outdir}')
+            
+rule mirbase_db_all:
+    input:
+        join(MIRBASE_EXT, 'fasta', 'hairpin.fa'),
+        join(MIRBASE_EXT, 'fasta', 'mature.fa'),
+        join(MIRBASE_EXT, 'genes', 'genes.gff3'),
+        join(MIRBASE_EXT, 'genes', 'miRNA.str'),
+        join(MIRBASE_EXT, 'seqbuster')
+                

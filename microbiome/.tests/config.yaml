@@ -1,0 +1,109 @@
+project_id:
+- GCF-2020-747
+organism: N/A
+libprepkit: QIAseq 16S ITS Region Panels
+read_geometry:
+- 276
+- 276
+machine: MiSeq StOlav
+quant:
+  batch:
+    method: skip
+fastq_dir: data/raw/fastq
+samples:
+  '96':
+    R1: 201019_M03942_0354_000000000-CVF53/GCF-2020-747/96_R1.fastq.gz
+    R2: 201019_M03942_0354_000000000-CVF53/GCF-2020-747/96_R2.fastq.gz
+    paired_end: 1
+    Sample_ID: '96'
+    External_ID: 371_MPM_0m_20161026
+    Project_ID: GCF-2020-747
+    Organism: microbes
+    Sample_Biosource: fecal sample (human)
+    Sequence1_p7: CTGAAGCT
+    Sequence2_p5: TATAGCCT
+    Sample_Group: test_group_1
+    Customer_Comment: ''
+    Sample_Name: ''
+    Project ID: GCF-2020-747
+    KIT: ''
+    RIN: ''
+    ERCC: ''
+    Fragment_Length: 601
+    Fragment_SD: ''
+    Concentration: ''
+    260/280: ''
+    260/230: ''
+    Lab_Comment: ''
+  '116':
+    R1: 201019_M03942_0354_000000000-CVF53/GCF-2020-747/116_R1.fastq.gz
+    R2: 201019_M03942_0354_000000000-CVF53/GCF-2020-747/116_R2.fastq.gz
+    paired_end: 1
+    Sample_ID: '116'
+    External_ID: 205_STS_0m_20150615
+    Project_ID: GCF-2020-747
+    Organism: microbes
+    Sample_Biosource: fecal sample (human)
+    Sequence1_p7: CGCTCATT
+    Sequence2_p5: CCTATCCT
+    Sample_Group: test_group_1
+    Customer_Comment: ''
+    Sample_Name: ''
+    Project ID: GCF-2020-747
+    KIT: ''
+    RIN: ''
+    ERCC: ''
+    Fragment_Length: 601
+    Fragment_SD: ''
+    Concentration: ''
+    260/280: ''
+    260/230: ''
+    Lab_Comment: ''
+  '120':
+    R1: 201019_M03942_0354_000000000-CVF53/GCF-2020-747/120_R1.fastq.gz
+    R2: 201019_M03942_0354_000000000-CVF53/GCF-2020-747/120_R2.fastq.gz
+    paired_end: 1
+    Sample_ID: '120'
+    External_ID: 245_EGJ_0m_20151028
+    Project_ID: GCF-2020-747
+    Organism: microbes
+    Sample_Biosource: fecal sample (human)
+    Sequence1_p7: CTGAAGCT
+    Sequence2_p5: CCTATCCT
+    Sample_Group: test_group_2
+    Customer_Comment: ''
+    Sample_Name: ''
+    Project ID: GCF-2020-747
+    KIT: ''
+    RIN: ''
+    ERCC: ''
+    Fragment_Length: 601
+    Fragment_SD: ''
+    Concentration: ''
+    260/280: ''
+    260/230: ''
+    Lab_Comment: ''
+  '152':
+    R1: 201019_M03942_0354_000000000-CVF53/GCF-2020-747/152_R1.fastq.gz
+    R2: 201019_M03942_0354_000000000-CVF53/GCF-2020-747/152_R2.fastq.gz
+    paired_end: 1
+    Sample_ID: '152'
+    External_ID: 584_0m_20161116
+    Project_ID: GCF-2020-747
+    Organism: microbes
+    Sample_Biosource: fecal sample (human)
+    Sequence1_p7: CGCTCATT
+    Sequence2_p5: TAATCTTA
+    Sample_Group: test_group_2
+    Customer_Comment: ''
+    Sample_Name: ''
+    Project ID: GCF-2020-747
+    KIT: ''
+    RIN: ''
+    ERCC: ''
+    Fragment_Length: 601
+    Fragment_SD: ''
+    Concentration: ''
+    260/280: ''
+    260/230: ''
+    Lab_Comment: ''

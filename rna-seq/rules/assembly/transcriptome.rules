@@ -1,0 +1,214 @@
+#-*- mode:snakemake -*-
+extra_conf_fn = srcdir('transcriptome.config')
+if os.path.exists(extra_conf_fn):
+    with open(extra_conf_fn) as fh:
+        c  = yaml.load(fh) or {}
+        update_config2(config, c)
+
+TACO_ORG_MAP = {'homo_sapiens': 'human', 'mus_musculus': 'mouse'}
+ASSEMBLY_METHOD = config['assembly']['transcriptome'].get('assembler', 'skip')
+
+if config['assembly']['transcriptome']['merge']['type'] == 'bam':
+    for k, v in config['samples'].items():
+        pass
+
+
+def get_merge_bam(wildcards):
+    pass
+
+
+rule stringtie:
+    input:
+        gtf = join(BASE_REF_DIR, 'genes', 'genes.gtf'),
+        bam = assembly_sorted_bam
+    output:
+        gtf = join(ASSEMBLY_INTERIM, 'stringtie', '{sample}.gtf')
+    params:
+        lib_type = '--fr' if LIBPREP['strand'] == 'reverse' else '--rf' if LIBPREP['strand'] == 'forward' else ''
+    threads:
+        8
+    singularity:
+        'docker://' + config['docker']['stringtie']
+    shell:
+        'stringtie '
+        '-p {threads} '
+        '-G {input.gtf} '
+        '-l {wildcards.sample} '
+        '-o {output} '
+        '{params.lib_type} '
+        '{input.bam} '
+        
+rule stringtie_gtf_list:
+    input:
+        expand(rules.stringtie.output, sample=SAMPLES)
+    output:
+        temp(join(ASSEMBLY_INTERIM, 'tmp', 'stringtie', 'assembled_gtfs.txt'))
+    shell:
+        'ls {input} > {output} '
+
+def scallop_library():
+    if LIBPREP['strand'] == 'reverse':
+        arg = '--library_type first '
+    elif LIBPREP['strand'] == 'forward':
+        arg = '--library_type second '
+    elif LIBPREP['strand'] == 'unstranded':
+        arg = '--library_type unstranded '
+    else:
+        arg = '' #empty
+    return arg
+
+rule scallop:
+    input:
+        bam = assembly_sorted_bam
+    output:
+        gtf = join(ASSEMBLY_INTERIM, 'scallop', '{sample}', 'assembly.gtf')
+    params:
+        lib = scallop_library(),
+        args = '--verbose 0 '
+    singularity:
+        'docker://' + config['docker']['scallop']
+    shell:
+        'scallop -i {input} -o {output} {params.lib} {params.args} '
+
+rule scallop_gtf_list:
+    input:
+        expand(rules.scallop.output, sample=SAMPLES)
+    output:
+        temp(join(ASSEMBLY_INTERIM, 'tmp', 'scallop', 'assembled_gtfs.txt'))
+    shell:
+        'ls {input} > {output} '
+
+
+rule taco_merge:
+    input:
+        assembled_gtfs = join(ASSEMBLY_INTERIM, 'tmp', '{assembler}', 'assembled_gtfs.txt'),
+        gtf = join(BASE_REF_DIR, 'genes', 'genes.gtf'),
+        genome = join(BASE_REF_DIR, 'fasta', 'genome.fa')
+    output:
+        gtf = join(ASSEMBLY_INTERIM, 'taco', '{assembler}', 'assembly.gtf')
+    params:
+        args = '--isoform-frac 0.05 --filter-min-expr 0.5 --guided-strand --guided-ends --guided-assembly ',
+        outdir = join(ASSEMBLY_INTERIM, 'taco', '{assembler}'),
+        expr_attr = '--gtf-expr-attr RPKM ' if ASSEMBLY_METHOD.startswith('scallop') else ''
+    threads:
+        24
+    singularity:
+        'docker://' + config['docker']['taco']
+    shell:
+        'rm -rf {params.outdir} && '
+        'taco_run '
+        '-o {params.outdir} '
+        '-p {threads} '
+        '--ref-gtf {input.gtf} '
+        '--ref-genome-fasta {input.genome} '
+        '{params.args} '
+        '{params.expr_attr} '
+        '{input.assembled_gtfs} '
+
+
+rule stringtie_merge:
+    input:
+        assembled_gtfs = ASSEMBLY_INTERIM +'/tmp/{assembler}assembled_gtfs.txt',
+        gtf = join(BASE_REF_DIR, 'genes', 'genes.gtf'),
+        genome = join(BASE_REF_DIR, 'fasta', 'genome.fa')
+    output:
+        gtf = join(ASSEMBLY_INTERIM,  'stringtie_merge', '{assembler}' 'assembly.refcomp.gtf')
+    params:
+        args = '-f 0.05 -F 0.5 -m 200 '
+    threads:
+        16
+    singularity:
+        'docker://' + config['docker']['stringtie']
+    shell:
+        'stringtie --merge '
+        '-p {threads} '
+        '-o {output.gtf} '
+        '-G {input.gtf} '
+        '{params.args} '
+        '{input.assembled_gtfs} '
+        
+rule taco_refcomp:
+    input:
+        gtf_ref = join(BASE_REF_DIR, 'genes', 'genes.gtf'),
+        gtf = join(ASSEMBLY_INTERIM, 'taco', '{assembler}', 'assembly.gtf'),
+        genome = join(BASE_REF_DIR, 'fasta', 'genome.fa')
+    params:
+        species = TACO_ORG_MAP[config['organism']],
+        outdir = join(ASSEMBLY_INTERIM, 'taco', '{assembler}')
+    output:
+        gtf = join(ASSEMBLY_INTERIM, 'taco', '{assembler}', 'assembly.refcomp.gtf'),
+        meta = join(ASSEMBLY_INTERIM, 'taco', '{assembler}', 'assembly.metadata.tsv')
+    threads:
+        16
+    singularity:
+        'docker://' + config['docker']['taco']
+    shell:
+        'taco_refcomp '
+        '-r {input.gtf_ref} '
+        '-t {input.gtf} '
+        '-p {threads} '
+        '-o {params.outdir} '
+        '--cpat-species {params.species} '
+        '--cpat-genome {input.genome} '
+        '--cpat '
+        
+rule assembly_gffcompare:
+    input:
+        gtf = join(ASSEMBLY_INTERIM, '{merger}', '{assembler}', 'assembly.refcomp.gtf'),
+        ref_gtf = join(BASE_REF_DIR, 'genes', 'genes.gtf'),
+        genome = join(BASE_REF_DIR, 'fasta', 'genome.fa')
+    output:
+        tmap = join(ASSEMBLY_INTERIM, '{merger}', '{assembler}', 'gff.assembly.refcomp.gtf.tmap')
+    params:
+        prefix = join(ASSEMBLY_INTERIM, '{merger}', '{assembler}', 'gff')
+    singularity:
+        'docker://' + config['docker']['gffcompare']
+    shell:
+        'gffcompare -o {params.prefix} -s {input.genome} -r {input.ref_gtf} {input.gtf}'
+
+rule assembly_uniq:
+    input:
+        gtf = join(ASSEMBLY_INTERIM, '{merger}', '{assembler}', 'assembly.refcomp.gtf'),
+        ref_gtf = join(BASE_REF_DIR, 'genes', 'genes.gtf'),
+        tmap = join(ASSEMBLY_INTERIM, '{merger}', '{assembler}', 'gff.assembly.refcomp.gtf.tmap')
+    output:
+         join(ASSEMBLY_INTERIM, '{merger}', '{assembler}', 'unique.gtf')
+    singularity:
+        'docker://' + config['docker']['scallop']
+    shell:
+        'gtfcuff puniq {input.tmap} {input.gtf} {input.ref_gtf} {output} '
+
+rule assembly_uniq_fasta:
+    input:
+        gtf = join(ASSEMBLY_INTERIM, '{merger}', '{assembler}', 'unique.gtf'),
+        genome = join(BASE_REF_DIR, 'fasta', 'genome.fa')
+    output:
+        join(ASSEMBLY_INTERIM, '{merger}', '{assembler}', 'uniq_transcripts.fa')
+    singularity:
+        'docker://' + config['docker']['gffread']
+    shell:
+        'gffread {input.gtf} -g {input.genome} -w {output}'
+
+rule assembly_transcriptome:
+    input:
+        ref = join(BASE_REF_DIR, 'fasta', 'transcriptome.fa'),
+        extra = join(ASSEMBLY_INTERIM, '{merger}', '{assembler}', 'uniq_transcripts.fa')
+    output:
+        join(ASSEMBLY_INTERIM, '{merger}', '{assembler}', 'transcriptome.fa')
+    shell:
+        'cat {input} > {output}'
+
+
+rule psiclass:
+    input:
+        expand(join(ASBY_ALIGN_INTERIM , ASBY_ALIGNER, '{sample}.sorted.bam'), sample=SAMPLES)
+    output:
+        join(ASSEMBLY_INTERIM, 'psiclass', 'psiclass_sample_0.gtf')
+    params:
+        bam = lambda wildcards, input: ','.join(input) + ' ',
+        prefix = join(ASSEMBLY_INTERIM, 'psiclass', 'psiclass')
+    singularity:
+        'docker://gcfntnu/psiclass:0.1'
+    shell:
+        'psiclass -b {params.bam} '
+        '-o {params.prefix} '

@@ -1,0 +1,101 @@
+project_id:
+- GCF-2020-751
+organism: homo_sapiens
+libprepkit: Lexogen SENSE Total RNA-Seq Library Prep Kit (w/RiboCop rRNA Depletion
+  Kit V1.2)
+read_geometry:
+- 86
+machine: NextSeq 500
+quant:
+  batch:
+    method: skip
+fastq_dir: data/raw/fastq
+samples:
+  K12H_1:
+    R1: 201109_NB501038_0241_AH2JYJBGXG/GCF-2020-751/K12H_1_R1.fastq.gz
+    R2: ''
+    paired_end: 0
+    Sample_ID: K12H_1
+    External_ID: K12H_1
+    Project_ID: ''
+    Organism: Human
+    Sample_Biosource: HaCaT cells
+    Sample_Group: K12H
+    Customer_Comment: ''
+    Sample_Name: K12H_1
+    Project ID: GCF-2020-751
+    KIT: Lexogen Corall total RNA
+    RIN: ''
+    ERCC: ''
+    Fragment_Length: 200
+    Fragment_SD: ''
+    Concentration: 302.5
+    260/280: 1.93
+    260/230: 0.68
+    Lab_Comment: ''
+  K2H_2:
+    R1: 201109_NB501038_0241_AH2JYJBGXG/GCF-2020-751/K2H_2_R1.fastq.gz
+    R2: ''
+    paired_end: 0
+    Sample_ID: K2H_2
+    External_ID: K2H_2
+    Project_ID: ''
+    Organism: Human
+    Sample_Biosource: HaCaT cells
+    Sample_Group: K2H
+    Customer_Comment: ''
+    Sample_Name: K2H_2
+    Project ID: GCF-2020-751
+    KIT: Lexogen Corall total RNA
+    RIN: ''
+    ERCC: ''
+    Fragment_Length: 200
+    Fragment_SD: ''
+    Concentration: 22.54
+    260/280: 1.97
+    260/230: 1.3
+    Lab_Comment: ''
+  K2A_2:
+    R1: 201109_NB501038_0241_AH2JYJBGXG/GCF-2020-751/K2A_2_R1.fastq.gz
+    R2: ''
+    paired_end: 0
+    Sample_ID: K2A_2
+    External_ID: K2A_2
+    Project_ID: ''
+    Organism: Human
+    Sample_Biosource: A549 cells
+    Sample_Group: K2A
+    Customer_Comment: ''
+    Sample_Name: K2A_2
+    Project ID: GCF-2020-751
+    KIT: Lexogen Corall total RNA
+    RIN: ''
+    ERCC: ''
+    Fragment_Length: 200
+    Fragment_SD: ''
+    Concentration: 29.74
+    260/280: 2.02
+    260/230: 0.66
+    Lab_Comment: ''
+  P12A_2:
+    R1: 201109_NB501038_0241_AH2JYJBGXG/GCF-2020-751/P12A_2_R1.fastq.gz
+    R2: ''
+    paired_end: 0
+    Sample_ID: P12A_2
+    External_ID: P12A_2
+    Project_ID: ''
+    Organism: Human
+    Sample_Biosource: A549 cells
+    Sample_Group: P12A
+    Customer_Comment: ''
+    Sample_Name: P12A_2
+    Project ID: GCF-2020-751
+    KIT: Lexogen Corall total RNA
+    RIN: ''
+    ERCC: ''
+    Fragment_Length: 200
+    Fragment_SD: ''
+    Concentration: 36.03
+    260/280: 1.95
+    260/230: 1.28
+    Lab_Comment: ''

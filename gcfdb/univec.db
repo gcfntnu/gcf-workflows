@@ -1,0 +1,87 @@
+#-*- mode:snakemake -*-
+"""
+UniVec is a non-redundant database of sequences commonly attached to
+cDNA or genomic DNA during the cloning process.  It was developed by
+staff at the National Center for Biotechnology Information, part of
+the National Library of Medicine at the National Institutes of
+Health. UniVec_Core is a subset of the full UniVec database.
+
+UniVec primarily consists of the unique segments from a large number
+of vectors but also includes many linker, adapter and primer
+sequences. Redundant sub-sequences have been eliminated from the
+database to make searches more efficient and to simplify
+interpretation of the results.
+
+A detailed description of UniVec is available on the web:
+  http://www.ncbi.nlm.nih.gov/VecScreen/UniVec.html
+
+UniVec_Core
+-----------
+UniVec_Core is designed for use in applications where the hits will be
+automatically processed without any human review. The sequences in
+UniVec_Core are a subset of those from the full UniVec database chosen
+to minimize the number of false positive hits.
+
+UniVec_Core includes only oligonucleotides and vectors consisting of
+bacterial, phage, viral, yeast or synthetic sequences. Vectors that
+include sequences of mammalian origin are excluded. Consequently, some
+vector contamination that could be detected using the full UniVec
+database may be missed when UniVec_Core is used.
+"""
+include:
+    'indexes.rules'
+
+rule contaminants_univec_fasta:
+    params:
+        url = 'http://ftp.ncbi.nlm.nih.gov/pub/UniVec/UniVec',
+        date = datetime.now().strftime("%d-%m-%Y")
+    output:
+        join(EXT_DIR, 'univec', 'fasta', 'univec.fa')
+    log:
+        join(EXT_DIR, 'univec', 'logs', 'univec.log')
+    shell:
+        """
+        wget {params.url} -O- > {output}
+        echo "UniVec,NA,{params.url},{params.date}" > {log}
+        """
+
+rule univec_anno:
+    input:
+        rules.contaminants_univec_fasta.output
+    output:
+        join(EXT_DIR, 'univec', 'anno.tsv')
+    shell:
+        """
+        grep '>' {input} | sed 's/ /\t/' > {output}
+        """
+        
+rule contaminants_univec_core_fasta:
+    params:
+        url_core = 'http://ftp.ncbi.nlm.nih.gov/pub/UniVec/UniVec_Core',
+        date = datetime.now().strftime("%d-%m-%Y")
+    output:
+        join(EXT_DIR, 'univec_core', 'fasta', 'univec_core.fa')
+    log:
+        join(EXT_DIR, 'univec_core', 'logs', 'univec_core.log')
+    shell:
+        """
+        wget {params.url_core} -O- > {output}
+        echo "UniVec core,NA,{params.url_core},{params.date}" > {log}
+        """
+
+rule univec_core_anno:
+    input:
+        rules.contaminants_univec_core_fasta.output
+    output:
+        join(EXT_DIR, 'univec_core', 'anno.tsv')
+    shell:
+        """
+        grep '>' {input} | sed 's/ /\t/' > {output}
+        """
+
+rule univec_db_all:
+    input:
+        join(EXT_DIR, 'univec', 'index', 'univec', 'bowtie', 'univec.1.ebwt'),
+        join(EXT_DIR, 'univec', 'index', 'univec', 'bowtie2', 'univec.1.bt2'),  
+        join(EXT_DIR, 'univec_core', 'index', 'univec_core', 'bowtie', 'univec_core.1.ebwt'),
+        join(EXT_DIR, 'univec_core', 'index', 'univec_core', 'bowtie2', 'univec_core.1.bt2')

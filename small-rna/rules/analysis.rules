@@ -1,0 +1,1 @@
+ANALYSIS_INTERIM = join(INTERIM_DIR, 'smallrna', 'analysis')

@@ -1,0 +1,14 @@
+#-*- mode: snakemake -*-
+"""
+Snakemake rules for quality control of small-rna.
+"""
+
+QC_INTERIM = join(INTERIM_DIR, 'smallrna', 'qc')
+
+extra_conf_fn = srcdir('qc.config')
+if os.path.exists(extra_conf_fn):
+    with open(extra_conf_fn) as fh:
+        c  = yaml.load(fh) or {}
+        update_config2(config, c)      
+include:
+    'qc/fastq.rules'

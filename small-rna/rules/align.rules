@@ -1,0 +1,44 @@
+#-*- mode: snakemake -*-
+"""
+Snakemake rules for aligning rna-seq fastq files to genome.
+
+STAR, https://github.com/alexdobin/STAR
+HISAT2
+
+
+"""
+
+
+ALIGN_INTERIM = join(INTERIM_DIR, 'smallrna', 'align')
+
+extra_conf_fn = srcdir('align.config')
+if os.path.exists(extra_conf_fn):
+    with open(extra_conf_fn) as fh:
+        c  = yaml.load(fh) or {}
+        update_config2(config, c)
+
+ALIGNER = config.get('align', {}).get('method', 'star')
+        
+def get_sorted_bam(wildcards):
+    return join(ALIGN_INTERIM, ALIGNER, wildcards.sample + '.sorted.bam')
+
+def get_namesorted_bam(wildcards):
+    return join(ALIGN_INTERIM, ALIGNER, wildcards.sample + '.namesorted.bam')
+
+include:
+    'align/bowtie2.rules'
+include:
+    'align/star.rules'
+include:
+    'align/utils.rules'
+
+
+rule _align:
+    input:
+        get_sorted_bam
+    output:
+        temp(touch('.{sample}.aligned'))
+
+rule align_all:
+    input:
+        expand(rules._align.output, sample=SAMPLES)

@@ -1,0 +1,112 @@
+#-*- mode: snakemake -*-
+"""Fastqc rules on trimmed fastq files
+"""
+
+rule qc_fastq_fastqc:
+    input:
+        fastq = get_processed_fastq
+    output:
+        join(FILTER_INTERIM, 'logs', '{sample}_R1_fastqc.zip')
+    params:
+        out = join(FILTER_INTERIM, 'logs')
+    threads:
+        1
+    singularity:
+        'docker://' + config['docker']['fastqc']
+    shell:
+        """
+        mkdir -p {params.out}
+        fastqc -t {threads} -o {params.out} {input.fastq}'
+        """
+
+rule qc_fastq_fastqscreen_config:
+    input:
+        human = join(EXT_DIR, 'ensembl', 'homo_sapiens', 'release-{}'.format(DB_CONF['release']), 'GRCh38', 'index', 'genome', 'bowtie2', 'genome.1.bt2'),
+        mouse = join(EXT_DIR, 'ensembl', 'mus_musculus', 'release-{}'.format(DB_CONF['release']), 'GRCm38', 'index', 'genome', 'bowtie2', 'genome.1.bt2'),
+        rat = join(EXT_DIR, 'ensembl', 'rattus_norvegicus', 'release-{}'.format(DB_CONF['release']), 'Rnor_6.0', 'index', 'genome', 'bowtie2', 'genome.1.bt2'),
+        univec = join(EXT_DIR, 'univec_core', 'index', 'univec_core', 'bowtie2', 'univec_core.1.bt2')
+    output:
+        temp('fastq_screen.config')
+    params:
+        human = join(EXT_DIR, 'ensembl', 'homo_sapiens', 'release-{}'.format(DB_CONF['release']), 'GRCh38', 'index', 'genome', 'bowtie2', 'genome'),
+        mouse = join(EXT_DIR, 'ensembl', 'mus_musculus', 'release-{}'.format(DB_CONF['release']), 'GRCm38', 'index', 'genome', 'bowtie2', 'genome'),
+        rat = join(EXT_DIR, 'ensembl', 'rattus_norvegicus', 'release-{}'.format(DB_CONF['release']), 'Rnor_6.0', 'index', 'genome', 'bowtie2', 'genome'),
+        univec = join(EXT_DIR, 'univec_core', 'index', 'univec_core', 'bowtie2', 'univec_core')  
+    shell:
+        """
+        echo DATABASE Human {params.human} > {output}
+        echo DATABASE Mouse {params.mouse} >> {output}
+        echo DATABASE Rat {params.rat}  >> {output}
+        echo DATABASE UniVec {params.univec} >> {output}
+        """
+
+rule qc_fastq_fastqscreen:
+    input:
+        fastq = get_processed_fastq,
+        config = 'fastq_screen.config'
+    output:
+        join(QC_INTERIM, 'fastqscreen', '{sample}', '{sample}_R1_screen.txt')
+    params:
+        args = '-q --force',
+        subset = 400000,
+        top = '10000 ',
+        outdir = join(QC_INTERIM, 'fastqscreen', '{sample}')
+    threads:
+        4
+    singularity:
+        'docker://' + config['docker']['fastq-screen']
+    shell:
+        'fastq_screen '
+        '--aligner bowtie2 '
+        '--threads {threads} '
+        '--top {params.top} '
+        '--conf {input.config} '
+        '--outdir {params.outdir} '
+        '{params.args} '
+        '{input.fastq} '
+
+
+ORG_MAP = {'homo_sapiens': 'hsa', 'mus_musculus': 'mmu', 'rattus_norvegicus': 'rnor'}
+MIRTRACE_DIR = join(INTERIM_DIR, 'smallrna', 'qc', 'mirtrace')
+
+rule qc_fastq_mirtrace_config:
+    output:
+        'mirtrace.conf'
+    params:
+        adapter = LIBPREP['filter']['adapter']
+    run:
+        with open(output[0], 'w') as fh:
+            for name, info in config['samples'].items():
+                filename = join(FASTQ_DIR, info['R1'])
+                line = ','.join([os.path.abspath(filename), name])
+                fh.write(line + '\n')
+
+def mirtrace_input(*args):
+    os.makedirs(MIRTRACE_DIR, exist_ok=True)
+    out = []
+    for k, v in config['samples'].items():
+        filename = os.path.abspath(join(FASTQ_DIR, v['R1']))  
+        out.append(filename)
+    return out
+
+rule qc_fastq_mirtrace:
+    input:
+        mirtrace_input()
+    params:
+        org = ORG_MAP[config['organism']],
+        adapter = LIBPREP['filter']['adapter'],
+        protocol = 'qiaseq',
+        outdir = MIRTRACE_DIR
+    singularity:
+        'docker://' + config['docker']['mirtrace']
+    output:
+        qc = join(MIRTRACE_DIR, 'mirtrace-results.json'),
+        length = join(MIRTRACE_DIR, 'mirtrace-stats-length.tsv')
+    shell:
+        'mirtrace qc '
+        '--species {params.org} '
+        '--adapter {params.adapter} '
+        '--protocol {params.protocol} '
+        '--output-dir {params.outdir} '
+        '--force '
+        '{input} '

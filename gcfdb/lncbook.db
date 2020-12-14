@@ -1,0 +1,160 @@
+#-*- mode:snakemake -*-
+"""LncBook a curated knowledgebase of human long non-coding RNAs
+
+ftp://download.big.ac.cn/lncbook
+
+README.txt
+==========
+#updated in SEPTEMBER 2019#
+
+LncBook provides a comprehensive collection of lncRNAs, adundant multi-omics data, and systematic curation of functional information and disease association. All the results and data are downloadable. Detailed information of each file is outlined below.
+
+####### 1-LncRNAs(GRCh37|38) ################
+The LncRNAs folder contains five files, viz., genome annotation files in gtf format, and sequence file of lncRNA transcripts in fasta format. 
+
+1.lncRNA_LncBook_GRCh37.gtf.gz
+This annotation file contains all lncRNA gene/transcript annotations curated by LncBook.
+GTF file contains several tab and semicolon separated entries per line:
+#reference genome: hg19/GRCh37
+	column 1: chromosome name {1,2,3...22,X,Y,M}
+	column 2: source 
+	column 3: feature type {gene,transcript,exon}
+	column 4: genomic start location
+	column 5: genomic end location
+	column 6: score (this item is only for the novel lncRNA assemblies and is caculated by Stringtie)
+	column 7: genomic strand {-,.,+} (. means unknown)
+	column 8: genomic phase (not used)
+	column 9: additional information (see below) 
+gene_id: gene's accession number assigned by LncBook
+transcript_id: transcript's accession number assigned by LncBook
+transcript_alias_(1,2..): transcript ids of lncRNAs that are considered to be the same entries in other lncRNA databases (GENCODE, NONCODE, LNCipedia, RefSeq, ensembl, and MiTranscriptome beta)
+type: lncRNA source {Existing, Novel, Validated} ("Existing" represents lncRNAs that are integrated from the existing databases, "Novel" represents novel lncRNAs identified based on HPA RNA-Seq data analysis, and "Validated" represents the experimentally validated lncRNAs in LncRNAWiki.)
+
+2.lncRNA_LncBook_GRCh38.gtf.gz
+This annotation file contains all lncRNA gene/transcript annotations curated by LncBook.
+GTF file contains several tab and semicolon separated entries per line:
+#reference genome: GRCh38
+	column 1: chromosome name {1,2,3...22,X,Y,M}
+	column 2: source 
+	column 3: feature type {gene,transcript,exon}
+	column 4: genomic start location
+	column 5: genomic end location
+	column 6: score (this item is only for the novel lncRNA assemblies and is caculated by Stringtie)
+	column 7: genomic strand {-,.,+} (. means unknown)
+	column 8: genomic phase (not used)
+	column 9: additional information (see below) 
+gene_id: gene's accession number assigned by LncBook
+transcript_id: transcript's accession number assigned by LncBook
+transcript_alias_(1,2..): transcript ids of lncRNAs that are considered to be the same entries in other lncRNA databases (GENCODE, NONCODE, LNCipedia, RefSeq, ensembl, and MiTranscriptome beta)
+type: lncRNA source {Existing, Novel, Validated} ("Existing" represents lncRNAs that are integrated from the existing databases, "Novel" represents novel lncRNAs identified based on HPA RNA-Seq data analysis, and "Validated" represents the experimentally validated lncRNAs in LncRNAWiki.)
+
+3.LncBook_GENCODE_GRCh37.gtf.gz
+This file contains lncRNA genes' annotations derived from LncBook and other types of RNA genes' annotations derived from GENCODE v31. This annotation file enables overall investigation of various types of RNAs during RNA-seq analysis. 
+GTF file contains several tab and semicolon separated entries per line:
+#reference genome: hg19/GRCh37
+	column 1: chromosome name {1,2,3...22,X,Y,M}
+	column 2: source 
+	column 3: feature type {gene,transcript,exon}
+	column 4: genomic start location
+	column 5: genomic end location
+	column 6: score (this item is only for the novel lncRNA assemblies and is caculated by Stringtie)
+	column 7: genomic strand {-,.,+} (. means unknown)
+	column 8: genomic phase (not used)
+	column 9: additional information (see below) 
+gene_id: gene's accession number assigned by LncBook or GENCODE
+transcript_id: transcript's accession number assigned by LncBook or GENCODE
+transcript_alias_(1,2..): transcript ids of lncRNAs that are considered to be the same entries in other lncRNA databases (GENCODE, NONCODE, LNCipedia, RefSeq, ensembl, and MiTranscriptome beta)
+gene/transcript type: For lncRNAs, all the annotations are derived from LncBook, and they are labeled "lncRNA". For other types of RNAs, the labels are obtained from GENCODE. 
+
+4.LncBook_GENCODE_GRCh38.gtf.gz
+This file contains lncRNA genes' annotations derived from LncBook and other types of RNA genes' annotations derived from GENCODE v31. This annotation file enables overall investigation of various types of RNAs during RNA-seq analysis. 
+GTF file contains several tab and semicolon separated entries per line:
+#reference genome: GRCh38
+	column 1: chromosome name {1,2,3...22,X,Y,M}
+	column 2: source 
+	column 3: feature type {gene,transcript,exon}
+	column 4: genomic start location
+	column 5: genomic end location
+	column 6: score (this item is only for the novel lncRNA assemblies and is caculated by Stringtie)
+	column 7: genomic strand {-,.,+} (. means unknown)
+	column 8: genomic phase (not used)
+	column 9: additional information (see below) 
+gene_id: gene's accession number assigned by LncBook or GENCODE
+transcript_id: transcript's accession number assigned by LncBook or GENCODE
+transcript_alias_(1,2..): transcript ids of lncRNAs that are considered to be the same entries in other lncRNA databases (GENCODE, NONCODE, LNCipedia, RefSeq, ensembl, and MiTranscriptome beta)
+gene/transcript type: For lncRNAs, all the annotations are derived from LncBook, and they are labeled "lncRNA". For other types of RNAs, the labels are obtained from GENCODE. 
+
+5.lncRNA_LncBook_GRCh37.fa.gz
+Gffread utility in the Cufflinks package was used to obtain lncRNA transcript sequences.
+This file contains all the fasta sequences of the lncRNA transcripts in LncBook.
+
+########## 2-Featured-LncRNAs #######
+Featured-LncRNAs file contains all the experimentally validated lncRNAs from LncRNAWiki.
+The 1,867 featured lncRNAs were curated about their functional mechanisms and biological processes, and were accordingly linked to different publications. 
+
+################ 3-Function ########
+Function file contains curated function annotation of the experimentally validated lncRNAs (featured lncRNAs).
+Each row represents a lncRNA-function association, and is annotated with the following information: Transcript ID, Gene ID, Gene Symbol, Alias, Functional Mechanism, Biological Process, Description, PMID.
+
+################ 4-Disease ###########
+Disease file contains curated lncRNA-disease associations of the experimentally validated lncRNAs (featured lncRNAs).
+Each row represents a lncRNA-disease association, and is annotated with the following information: Transcript ID, Gene ID, Gene Symbol, Alias, Disease, Dysfunction Type, Description, PMID, Source, Mesh Ontology.
+
+########## 5-Expression ############
+The Expression file contains 4 files.
+
+1. hpa_expression.txt.gz and gtex_expression.txt.gz
+To profile expression levels for lncRNAs, two RNA-Seq datasets were used: HPA (the Human Protein Atlas, 32 normal human tissues are covered) and GTEx (the Genotype-Tissue Expression, 53 normal human tissues are covered).
+We caculated expression values for all the 268,848 lncRNAs using RNA-Seq data of HAP. The GTEx file contains expression values of GENCODE lncRNAs and this file was downloaded from GTEx. 
+To provide high-confidence expression profile, we filtered out lncRNAs whose highest expression values are lower than 0.5 TPM/FPKM. 
+hpa_expression.txt and gtex_expression.txt.gz provide expression levels of lncRNA transcripts across HPA samples and GTEx samples respectively. 
+
+2. hpa_HK_TS.txt.gz and gtex_HK_TS.txt.gz
+The two files provide the expression characteristics (average median, max_value, min_value, CV, tau_vaule, tissue_breadth) of lncRNAs, and these items could be used to identify HK(housekeeping) and TS (tissue-specific) lncRNAs. 
+In LncBook, tau-value and cv (coefficient of variance) value were used to determine HK lncRNAs (tau-value <= 0.5 and cv <= 0.5) and TS lncRNAs (tau-value >= 0.95).
+
+########## 6-Methylation ############
+The methylation data of promoter and body regions of lncRNAs are stored in the corresponding folders. 
+In each file, the row name represents the lncRNA ID and the column name represents the sample information.
+For example, "087ec4fb_case" represents a tumor sample, whose entity id starts with "087ec4fb" in TCGA; "db538fac_normal" represents a normal sample, whose entity id starts with "db538fac".
+
+########## 7-Variation ###############
+The SNP file contains basic information (dbSNP ID, Transcript ID, Strand, Locus, Ref, Alt), MAF (Minor allele frequency) values based on 1,000 Genomes Project, and pathogenic information in ClinVar (version 2017.9.05) and COSMIC (version 85).
+
+######### 8-Interaction ##########
+LncRNA-miRNA interactions supported by both TargetScan and miRanda predictions are displayed in the file. 
+In the "experiment" column, "1" indicates experimentally validated interactions obtained from starBase v2.0, and "0" indicates no experimental evidence.
+
+
+"""
+# config
+extra_conf_fn = srcdir('lncbook.config')
+if os.path.exists(extra_conf_fn):
+    with open(extra_conf_fn) as fh:
+        c  = yaml.load(fh, Loader=Loader) or {}
+        update_config2(config, c)
+
+        
+ASSEMBLY = config['db']['assembly']
+URL = 'ftp://download.big.ac.cn/lncbook'
+LNCB_RELEASE = config['db']['lncbook']['release']
+LNCB_GTF = join(URL, '1-LncRNAs(GRCh37%7C38)/', 'lncRNA_LncBook_{}_{}.gtf.gz'.format(ASSEMBLY, LNCB_RELEASE))
+
+
+rule lncbook_gencode_gtf:
+    params:
+        url = LNCB_GTF,
+        date = datetime.now().strftime("%d-%m-%Y")
+    output:
+        join(EXT_DIR, 'lncbook', 'genes', 'lncbook.gtf')
+    log:
+        join(EXT_DIR, 'lncbook', 'logs', 'gtf.log')
+    shell:
+        """
+        wget -O- '{params.url}' | gunzip -c > {output}
+        echo 'LNCbook GTF,{LNCB_RELEASE},{LNCB_GTF},{params.date}' > {log}
+        """
+
+rule lncbook_featured:
+    
+

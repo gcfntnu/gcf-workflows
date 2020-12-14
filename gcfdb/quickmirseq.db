@@ -1,0 +1,117 @@
+#-*- mode:snakemake -*-
+
+import os
+from os.path import join
+
+include:
+    'mirbase.db'
+include:
+    'gtrnadb.db'
+include:
+    'ensembl.db'
+
+QMSQ_EXT = join(EXT_DIR, 'quickmirseq', ORG)
+
+rule quickmirseq_mirbase_index:
+    input:
+        mature = rules.mirbase_mature_fasta.output,
+        hairpin = rules.mirbase_hairpin_fasta.output
+    params:
+        args = '--cutoff 0 --library stranded --extension5 4 --extension3 5',
+        mature_log = rules.mirbase_mature_fasta.log,
+        hairpin_log = rules.mirbase_hairpin_fasta.log
+    singularity:
+        'docker://' + config['docker']['quickmirseq']
+    output:
+        join(QMSQ_EXT, 'mirna_0_0.fa')
+    log:
+       build_log = join(QMSQ_EXT, 'logs', 'QuickMIRSeq-build.txt'),
+       db = join(QMSQ_EXT, 'logs', 'quickmirseq_mirbase.log')
+    shell:
+        """
+        perl $QuickMIRSeq/QuickMIRSeq-build.pl --target {QMSQ_EXT} --mirna {input.mature} --hairpin {input.hairpin} {params.args}
+        cat {params.mature_log} {params.hairpin_log} > {log.db}
+        mv {QMSQ_EXT}/QuickMIRSeq-build.log {log.build_log} 
+        """
+
+rule quickmirseq_smallrna_index:
+    input:
+        trna = rules.gtrnadb_trna.output,
+        non_coding = rules.ensembl_db_downloads.output.noncoding
+    params:
+        trna_log = rules.gtrnadb_trna.log,
+        noncoding_log = rules.ensembl_noncoding.log
+    output:
+        join(QMSQ_EXT, 'smallRNA.fa'),
+        join(QMSQ_EXT, 'smallRNA.1.ebwt'),
+        join(QMSQ_EXT, 'smallRNA.2.ebwt'),
+        join(QMSQ_EXT, 'smallRNA.3.ebwt'),
+        join(QMSQ_EXT, 'smallRNA.4.ebwt'),
+        join(QMSQ_EXT, 'smallRNA.rev.1.ebwt'),
+        join(QMSQ_EXT, 'smallRNA.rev.2.ebwt')
+    singularity:
+        'docker://' + config['docker']['quickmirseq']
+    log:
+        join(QMSQ_EXT, 'logs', 'quickmirseq_smallrna.log')
+    shell:
+        # merge creates a fasta file one entry per biotype 
+        """
+        perl $QuickMIRSeq/merge_tRNA.pl {input.trna} > {output[0]}
+        perl $QuickMIRSeq/merge_smallRNA.pl {input.non_coding} >> {output[0]}
+        bowtie-build {output[0]} {QMSQ_EXT}/smallRNA
+        cat {params.trna_log} {params.noncoding_log} > {log}
+        """
+
+rule quickmirseq_mrna_index:
+    input:
+        cdna = rules.ensembl_db_downloads.output.cdna
+    params:
+        cdna_log = rules.ensembl_noncoding.log
+    output:
+        join(QMSQ_EXT, 'mrna.fa'),
+        join(QMSQ_EXT, 'mrna.1.ebwt'),
+        join(QMSQ_EXT, 'mrna.2.ebwt'),
+        join(QMSQ_EXT, 'mrna.rev.1.ebwt'),
+        join(QMSQ_EXT, 'mrna.rev.2.ebwt')
+    log:
+        join(QMSQ_EXT, 'logs', 'quickmirseq_cdna.log')
+    singularity:
+        'docker://' + config['docker']['bowtie_samtools']
+    shell:
+        """
+        bowtie-build {input.cdna} {QMSQ_EXT}/mrna
+        cp {input.cdna} {output[0]}
+        cp {params.cdna_log} {log}
+        """
+        
+rule quickmirseq_genome_index:
+    input:
+        genome = rules.ensembl_db_downloads.output.genome
+    params:
+        index_base = join(QMSQ_EXT, 'genome'),
+        genome_log = rules.ensembl_dna.log
+    output:
+        join(QMSQ_EXT, 'genome.fa'),
+        join(QMSQ_EXT, 'genome.1.ebwt'),
+        join(QMSQ_EXT, 'genome.2.ebwt'),
+        join(QMSQ_EXT, 'genome.rev.1.ebwt'),
+        join(QMSQ_EXT, 'genome.rev.2.ebwt')
+    log:
+        join(QMSQ_EXT, 'logs', 'quickmirseq_dna.log')   
+    singularity:
+        'docker://' + config['docker']['bowtie_samtools']
+    shell:
+        """
+        bowtie-build {input.genome} {params.index_base} 
+        cp {input.noncoding} {output[0]} 
+        cp {params.genome_log} {log}
+        """
+        
+rule quickmirseq_db_all:
+    input:
+        join(QMSQ_EXT, 'mirna_0_0.fa'),
+        join(QMSQ_EXT, 'smallRNA.fa'),
+        join(QMSQ_EXT, 'mrna.fa')
+        #join(QMSQ_EXT, 'genome.fa')
+    output:
+        touch(join(EXT_DIR, 'quickmirseq', config['organism'], '.done'))

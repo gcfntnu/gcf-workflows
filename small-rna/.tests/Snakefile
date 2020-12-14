@@ -1,0 +1,11 @@
+from snakemake.utils import validate, min_version
+
+configfile:
+    'config.yaml'
+
+include:
+    '../small-rna.sm'
+
+include:
+    '../rules/bfq.rules'
+    

@@ -1,0 +1,75 @@
+import glob
+import os
+
+
+rule bfq_level2_exprs:
+    input:
+        aggr_h5ad = expand(rules.velocyto_merge_aggr.output, quant=['star'], aggr_id=AGGR_IDS),
+        sample_h5ad = expand(rules.velocyto_merge.output, quant=['star'], sample=SAMPLES),
+        mtx = expand(rules.starsolo_quant.output.mtx, sample=SAMPLES),
+        features = expand(rules.starsolo_quant.output.genes, sample=SAMPLES),
+        cells = expand(rules.starsolo_quant.output.barcodes, sample=SAMPLES),
+    output:
+        expand(join(BFQ_INTERIM, 'exprs', '{quant}', '{aggr_id}_aggr.h5ad'), quant=['star'], aggr_id=AGGR_IDS),
+        expand(join(BFQ_INTERIM, 'exprs', '{quant}', '{sample}.h5ad'), quant=['star'], sample=SAMPLES),
+        expand(join(BFQ_INTERIM, 'exprs', '{quant}', '{sample}_matrix.mtx'), quant=['star'], sample=SAMPLES),
+        expand(join(BFQ_INTERIM, 'exprs', '{quant}', '{sample}_features.tsv'), quant=['star'], sample=SAMPLES),
+        expand(join(BFQ_INTERIM, 'exprs', '{quant}', '{sample}_barcodes.tsv'), quant=['star'], sample=SAMPLES),
+    run:
+        for src, dst  in zip(input, output):
+            shell('ln -sr {src} {dst}')
+
+rule bfq_level2_logs:
+    input:
+        summary = expand(rules.starsolo_quant.output.gene_summary, sample=SAMPLES),
+        gene_stats = expand(rules.starsolo_quant.output.gene_stats, sample=SAMPLES),
+        cell_stats = expand(rules.starsolo_quant.log.barcodes, sample=SAMPLES),
+        star = expand(rules.starsolo_quant.log.star, sample=SAMPLES),
+        umi_cell = expand(rules.starsolo_quant.log.umi_cell, sample=SAMPLES),
+        picard_star = expand(rules.picard_rnametrics_star.log.metrics, sample=SAMPLES),
+    output:
+        expand(join(BFQ_INTERIM, 'logs', '{quant}', '{sample}_Summary.csv'), quant=['star'], sample=SAMPLES),
+        expand(join(BFQ_INTERIM, 'logs', '{quant}', '{sample}_Features.stat'), quant=['star'], sample=SAMPLES),
+        expand(join(BFQ_INTERIM, 'logs', '{quant}', '{sample}_Barcodes.stat'), quant=['star'], sample=SAMPLES),
+        expand(join(BFQ_INTERIM, 'logs', '{quant}', '{sample}_Log.final.out'), quant=['star'], sample=SAMPLES),
+        expand(join(BFQ_INTERIM, 'logs', '{quant}', '{sample}_UMIperCellSorted.txt'), quant=['star'], sample=SAMPLES),
+        expand(join(BFQ_INTERIM, 'logs', '{quant}', '{sample}.rnaseq.metrics'), quant=['star'], sample=SAMPLES)
+    run:
+        for src, dst  in zip(input, output):
+            shell('ln -sr {src} {dst}')
+
+rule bfq_level2_aligned:
+    input:
+        bam = expand(rules.starsolo_quant.output.bam, sample=SAMPLES)
+    output:
+        bam = expand(join(BFQ_INTERIM, '{sample}_Aligned.sortedByCoord.out.bam'), sample=SAMPLES)
+    run:
+        for src, dst  in zip(input, output):
+            shell('ln -sr {src} {dst}')
+
+
+rule bfq_level2_umap_png:
+    input:
+        join(QUANT_INTERIM, 'aggregate', '{quant}', '{aggr_id}_aggr.h5ad')
+    output:
+        join(BFQ_INTERIM, 'figs', '{quant}', 'umap_{aggr_id}_mqc.png')
+    params:
+        script = srcdir('scripts/plotpca.py')
+    singularity:
+        'docker://' + config['docker']['scanpy']
+    shell:
+        'python {params.script} {input} -o {output}'
+            
+rule bfq_level2_umap_yaml:
+    input:
+        join(QUANT_INTERIM, 'aggregate', '{quant}', '{aggr_id}_aggr.h5ad')
+    output:
+        join(BFQ_INTERIM, 'figs', '{quant}', '{aggr_id}_mqc.yaml')
+    params:
+        script = srcdir('scripts/plotpca.py')
+    singularity:
+        'docker://' + config['docker']['scanpy']
+    shell:
+        'python {params.script} {input} -o {output}'
+
+

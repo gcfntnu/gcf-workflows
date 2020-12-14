@@ -1,0 +1,169 @@
+#-*- mode:snakemake -*-
+
+extra_conf_fn = srcdir('alevin.config')
+if os.path.exists(extra_conf_fn):
+    with open(extra_conf_fn) as fh:
+        c  = yaml.load(fh, Loader=Loader) or {}
+        update_config2(config, c)
+
+#config
+ORG = config.get('organism', 'homo_sapiens')
+AVN_INTERIM = join(QUANT_INTERIM, 'alevin')
+
+
+rule alevin_tx2gene:
+    input:
+        join(REF_DIR, 'genes', 'transcripts.tsv')
+    output:
+        temp('tx2gene.tsv')
+    shell:
+        'cut -f1,10 {input} | sed 1d > {output}'
+
+rule alevin_index:
+    input:
+        transcriptome = join(REF_DIR, 'fasta', 'gtf.rsem.transcripts.fa')
+    output:
+        join(REF_DIR, 'salmon', 'refInfo.json')
+    params:
+        out = join(REF_DIR, 'salmon')
+    threads:
+        16
+    singularity:
+        'docker://' + config['docker']['salmon']
+    shell:
+        'salmon index '
+        '--perfectHash '
+        '--threads {threads} '
+        '--index {params.out} '
+        '--transcripts {input.transcriptome}'
+
+rule alevin_1pass:
+    input:
+        R1 = get_filtered_fastq_R1,
+        R2 = get_filtered_fastq_R2,
+        ref = join(REF_DIR, 'salmon', 'refInfo.json'),
+        t2g = 'tx2gene.tsv'   
+    threads:
+        16
+    params:
+        args = '--dumpFeatures --noQuant -l ISR ' + '--{} '.format(LIBPREP['alevin']['chemistry']),
+        out = join(AVN_INTERIM, '1pass', '{sample}'),
+        ref = join(REF_DIR, 'salmon')
+    output:
+        join(AVN_INTERIM, '1pass', '{sample}', 'alevin', 'raw_cb_frequency.txt')
+    singularity:
+        'docker://' + config['docker']['salmon']
+    shell:
+        'salmon alevin '
+        '{params.args} '
+        '-i {params.ref} '
+        '--tgMap {input.t2g} '
+        '-1 {input.R1} '
+        '-2 {input.R2} '
+        '-p {threads} '
+        '-o {params.out}'
+
+rule alevin_mito_genes:
+    input:
+        join(REF_DIR, 'genes', 'genes.tsv')
+    output:
+        join(AVN_INTERIM, 'mito_genes.tsv')
+    shell:
+        """cut -f1,12 {input} | sed 1d | grep -i  "mt-" | cut -f1 > {output}"""
+
+rule alevin_rrna_genes:
+    input:
+        join(REF_DIR, 'genes', 'genes.tsv')
+    output:
+        join(AVN_INTERIM, 'rrna_genes.tsv')
+    shell:
+        'cut -f1,14 {input} | sed 1d | grep rRNA | cut -f1 | uniq > {output}'
+        
+rule alevin_quant:
+    input:
+        R1 = get_filtered_fastq_R1,
+        R2 = get_filtered_fastq_R2,
+        mrna = rules.alevin_mito_genes.output,
+        rrna = rules.alevin_rrna_genes.output,
+        ref = join(REF_DIR, 'salmon', 'refInfo.json'),
+        t2g = 'tx2gene.tsv'
+    params:
+        args = '-l ISR --dumpCsvCounts --dumpFeatures ' + '--{} '.format(LIBPREP['alevin']['chemistry']),
+        output = join(AVN_INTERIM, '{sample}'),
+        ref = join(REF_DIR, 'salmon')
+    threads:
+        16
+    singularity:
+        'docker://' + config['docker']['salmon']
+    output:
+        quant = join(AVN_INTERIM, '{sample}', 'alevin', 'quants_mat.gz'),
+        csv = join(AVN_INTERIM, '{sample}', 'alevin', 'quants_mat.csv')
+    shell:
+        'salmon alevin '
+        '{params.args} '
+        '-i {params.ref} '
+        '--tgMap {input.t2g} '
+        '--mrna {input.mrna} '
+        '--rrna {input.rrna} '
+        '-1 {input.R1} '
+        '-2 {input.R2} '
+        '-p {threads} '
+        '-o {params.output} '
+
+rule alevin_scanpy_convert:
+    input:
+        join(AVN_INTERIM, '{sample}', 'alevin', 'quants_mat.gz')
+    params:
+        script = srcdir('scripts/convert_scanpy.py')
+    output:
+        join(AVN_INTERIM, '{sample}', 'scanpy', 'adata.h5ad')
+    singularity:
+        'docker://' + config['docker']['scanpy']
+    shell:
+        'python {params.script} {input} -v -f alevin -o {output} '
+
+rule alevin_scanpy_aggr:
+    input:
+        mat = expand(rules.alevin_quant.output.csv, sample=SAMPLES)
+    params:
+        script = srcdir('scripts/convert_scanpy.py'),
+        norm = config['quant']['aggregate']['norm']
+    output:
+        join(QUANT_INTERIM, 'aggregate', 'alevin', 'scanpy', 'scanpy_aggr.h5ad')
+    singularity:
+        'docker://' + config['docker']['scanpy'] 
+    shell:
+        'python {params.script} '
+        '{input.mat} '
+        '-o {output} '
+        '-f alevin '
+        '--normalize {params.norm} '
+        '-v '
+
+rule alevin_qc:
+    input:
+        rules.alevin_quant.output
+    params:
+        input_dir = rules.alevin_quant.params.output,
+        script = srcdir('scripts/alevinQC.R')
+    output:
+        html = join(AVN_INTERIM, '{sample}', 'alevinqc', 'qc_report.html')
+    singularity:
+        'docker://gcfntnu/alevinqc:0.1.1'
+    shell:
+        'Rscript {params.script} '
+        '--input {params.input_dir} '
+        '--output {output}'
+
+rule alevin_seurat:
+    input:
+        rules.alevin_quant.output.csv
+    params:
+        script = srcdir('scripts/alevin_seurat.R'),
+        input_dir = join(AVN_INTERIM, '{sample}')
+    output:
+        join(AVN_INTERIM, 'seurat', '{sample}', '{sample}.rds')
+    singularity:
+        'docker://' + config['docker']['seurat']
+    shell:
+        'Rscript {params.script} --input {params.input_dir} --output {output}'

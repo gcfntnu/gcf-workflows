@@ -1,0 +1,21 @@
+
+extra_conf_fn = srcdir('quant.config')
+if os.path.exists(extra_conf_fn):
+    with open(extra_conf_fn) as fh:
+        c  = yaml.load(fh, Loader=Loader) or {}
+        update_config2(config, c)
+
+QUANT_INTERIM = join(INTERIM_DIR, 'microbiome', 'quant')
+
+include:
+    'quant/qiime2_py.rules'
+include:
+    'quant/qiime2_diversity.rules'
+include:
+    'quant/qiime2_filter.rules'
+include:
+    'quant/qiime2_picrust.rules'
+
+rule qiime2_quant_all:
+    input:
+        join(QUANT_INTERIM, 'qiime2', config['db']['reference_db'].lower(), 'physeq.rds')

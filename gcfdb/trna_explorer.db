@@ -1,0 +1,10 @@
+#-*- mode:snakemake -*-
+"""
+"""
+
+rule trna_bed:
+    input:
+        bed = join(EXT_DIR, 'ucsc', ORG, 'genes', 'trna_ensembl.bed')
+        fasta = join(EXT_DIR, 'ensembl', 'fasta', 'genome.fa')
+    output:
+        join(EXT_DIR, 'trna-explorer', ORG, ''

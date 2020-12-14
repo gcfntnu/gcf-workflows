@@ -1,0 +1,57 @@
+project_id:
+- GCF-2020-739
+organism: mus_musculus
+libprepkit: 10X Genomics Chromium Single Cell 3p GEM Library & Gel Bead Kit v3
+read_geometry:
+- 28
+- 56
+machine: NextSeq 500
+quant:
+  batch:
+    method: skip
+fastq_dir: data/raw/fastq
+samples:
+  LPX2:
+    R1: 201022_NB501038_0238_AHKWNTBGXG/GCF-2020-739/LPX2/LPX2_S2_L001_R1_001.fastq.gz,201022_NB501038_0238_AHKWNTBGXG/GCF-2020-739/LPX2/LPX2_S2_L002_R1_001.fastq.gz,201022_NB501038_0238_AHKWNTBGXG/GCF-2020-739/LPX2/LPX2_S2_L003_R1_001.fastq.gz,201022_NB501038_0238_AHKWNTBGXG/GCF-2020-739/LPX2/LPX2_S2_L004_R1_001.fastq.gz
+    R2: 201022_NB501038_0238_AHKWNTBGXG/GCF-2020-739/LPX2/LPX2_S2_L001_R2_001.fastq.gz,201022_NB501038_0238_AHKWNTBGXG/GCF-2020-739/LPX2/LPX2_S2_L002_R2_001.fastq.gz,201022_NB501038_0238_AHKWNTBGXG/GCF-2020-739/LPX2/LPX2_S2_L003_R2_001.fastq.gz,201022_NB501038_0238_AHKWNTBGXG/GCF-2020-739/LPX2/LPX2_S2_L004_R2_001.fastq.gz
+    paired_end: 1
+    Sample_ID: LPX2
+    External_ID: F2
+    Project_ID: GCF-2020-739
+    Organism: Mouse
+    Sample_Biosource: Tissue/monocytes
+    Sample_Group: cFLIP
+    Customer_Comment: "700 cells/\xB5l"
+    Sample_Name: ''
+    Project ID: GCF-2020-739
+    KIT: ''
+    RIN: ''
+    ERCC: ''
+    Fragment_Length: ''
+    Fragment_SD: ''
+    Concentration: ''
+    260/280: ''
+    260/230: ''
+    Lab_Comment: ''
+  LPX4:
+    R1: 201022_NB501038_0238_AHKWNTBGXG/GCF-2020-739/LPX4/LPX4_S4_L001_R1_001.fastq.gz,201022_NB501038_0238_AHKWNTBGXG/GCF-2020-739/LPX4/LPX4_S4_L002_R1_001.fastq.gz,201022_NB501038_0238_AHKWNTBGXG/GCF-2020-739/LPX4/LPX4_S4_L003_R1_001.fastq.gz,201022_NB501038_0238_AHKWNTBGXG/GCF-2020-739/LPX4/LPX4_S4_L004_R1_001.fastq.gz
+    R2: 201022_NB501038_0238_AHKWNTBGXG/GCF-2020-739/LPX4/LPX4_S4_L001_R2_001.fastq.gz,201022_NB501038_0238_AHKWNTBGXG/GCF-2020-739/LPX4/LPX4_S4_L002_R2_001.fastq.gz,201022_NB501038_0238_AHKWNTBGXG/GCF-2020-739/LPX4/LPX4_S4_L003_R2_001.fastq.gz,201022_NB501038_0238_AHKWNTBGXG/GCF-2020-739/LPX4/LPX4_S4_L004_R2_001.fastq.gz
+    paired_end: 1
+    Sample_ID: LPX4
+    External_ID: G3
+    Project_ID: GCF-2020-739
+    Organism: Mouse
+    Sample_Biosource: Tissue/monocytes
+    Sample_Group: GFP
+    Customer_Comment: "700 cells/\xB5l"
+    Sample_Name: ''
+    Project ID: GCF-2020-739
+    KIT: ''
+    RIN: ''
+    ERCC: ''
+    Fragment_Length: ''
+    Fragment_SD: ''
+    Concentration: ''
+    260/280: ''
+    260/230: ''
+    Lab_Comment: ''

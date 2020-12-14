@@ -1,0 +1,186 @@
+#-*- mode:snakemake -*-
+"""SILVA Ribosomal RNA database
+
+https://www.arb-silva.de/fileadmin/silva_databases/qiime/Silva_132_release.zip
+
+Citation:
+If you use RESCRIPt or any RESCRIPt-processed data in your research, please cite the following pre-print:
+
+Michael S Robeson II, Devon R O’Rourke, Benjamin D Kaehler, Michal
+Ziemski, Matthew R Dillon, Jeffrey T Foster, Nicholas A
+Bokulich. RESCRIPt: Reproducible sequence taxonomy reference database
+management for the masses. bioRxiv 2020.10.05.326504; doi:
+https://doi.org/10.1101/2020.10.05.326504
+
+"""
+from os.path import join
+
+
+SILVA_VER = config['db'].get('silva', {}).get('version', '132')
+
+if not SILVA_VER in ['128', '132', '138', '138.1']:
+    raise ValueError('Only 132 is supported SILVA releases')
+
+URL = 'https://www.arb-silva.de/fileadmin/silva_databases/qiime/Silva_132_release.zip'
+
+LEVELS = [90, 94, 97, 99]
+EVIDENCE = ['consensus', 'majority']
+
+libprep_conf_fn = srcdir('libprep.config')
+if os.path.exists(libprep_conf_fn):
+    with open(libprep_conf_fn) as fh:
+        ALL_LIBPREP  = yaml.load(fh, Loader=Loader) or {}
+QIASEQ_16S = []
+QIASEQ_ITS = []
+for k, v in ALL_LIBPREP['QIAseq 16S ITS Region Panels']['primers'].items():
+    if k.startswith('V'):
+        QIASEQ_16S.append(v)
+    else:
+        QIASEQ_ITS.append(v) 
+
+
+def silva_target(wildcards):
+    level = str(wildcards.level)
+    return 'SSURef_NR{}'.format(level)
+    
+rule silva_rescript_db:
+    params:
+        version = '{release}',
+        outdir = join(EXT_DIR, 'silva', '{release}'),
+        target = silva_target
+    singularity:
+        'docker://' + config['docker']['qiime2']
+    output:
+        seqs = join(EXT_DIR, 'silva', '{release}', 'fasta', '{level}', 'allseqs.qza'),
+        taxa = join(EXT_DIR, 'silva', '{release}', 'anno', '{level}', 'alltaxa.qza')
+    shell:
+        'qiime rescript get-silva-data ' 
+        '--p-version {params.version} ' 
+        '--p-target {params.target} '
+        '--p-include-species-labels '
+        '--o-silva-sequences {output.seqs} '
+        '--o-silva-taxonomy {output.taxa} '
+        
+rule silva_rescript_cull:
+    input:
+        rules.silva_rescript_db.output.seqs
+    output:
+        seqs = join(EXT_DIR, 'silva', '{release}', 'fasta', '{level}', 'cleaned-seqs.qza')
+    singularity:
+        'docker://' + config['docker']['qiime2']
+    shell:
+        'qiime rescript cull-seqs '
+        '--i-sequences {input} '
+        '--o-clean-sequences {output.seqs} '
+
+rule silva_rescript_filter_seq:
+    input:
+        seqs = rules.silva_rescript_cull.output.seqs,
+        taxa = rules.silva_rescript_db.output.taxa
+    output:
+        seqs = join(EXT_DIR, 'silva', '{release}', 'fasta', '{level}', 'filtered-seqs.qza'),
+        discarded = join(EXT_DIR, 'silva', '{release}', 'fasta', '{level}', 'discarded-seqs.qza')
+    singularity:
+        'docker://' + config['docker']['qiime2']
+    shell:
+        'qiime rescript filter-seqs-length-by-taxon '
+        '--i-sequences {input.seqs} '
+        '--i-taxonomy {input.taxa} '
+        '--p-labels Archaea Bacteria Eukaryota '
+        '--p-min-lens 900 1200 1400 '
+        '--o-filtered-seqs {output.seqs} '
+        '--o-discarded-seqs {output.discarded} '
+
+
+rule silva_rescript_derep_seqs:
+    input:
+        seqs = rules.silva_rescript_filter_seq.output.seqs,
+        taxa = rules.silva_rescript_db.output.taxa
+    output:
+        seqs = join(EXT_DIR, 'silva', '{release}', 'fasta', '{level}', 'dedup-seqs.qza'),
+        taxa = join(EXT_DIR, 'silva', '{release}', 'anno', '{level}', 'dedup-taxa.qza')
+    params:
+        """--p-rank-handles 'silva' --p-mode 'uniq' """
+    singularity:
+        'docker://' + config['docker']['qiime2']
+    shell:
+        'qiime rescript dereplicate '
+        '--i-sequences  {input.seqs} '
+        '--i-taxa  {input.taxa} '
+        '--o-dereplicated-sequences {output.seqs} '
+        '--o-dereplicated-taxa  {output.taxa} '
+        '{params} '
+
+rule silva_rescript_extract_regions:
+    input:
+        seqs = join(EXT_DIR, 'silva', '{release}', 'fasta', '{level}', 'dedup-seqs.qza')
+    output:
+        seqs = join(EXT_DIR, 'silva', '{release}', 'fasta', '{level}', '{region}', 'region-seqs.qza')
+    params:
+        fwd_primer = lambda wildcards: wildcards.region.split('-')[0],
+        rev_primer = lambda wildcards: wildcards.region.split('-')[1],
+        args = '--p-read-orientation forward '
+    singularity:
+        'docker://' + config['docker']['qiime2']
+    threads:
+        2
+    shell:
+        'qiime feature-classifier extract-reads '
+        '--i-sequences {input.seqs} '
+        '--p-f-primer {params.fwd_primer} '
+        '--p-r-primer {params.rev_primer} '
+        '--p-n-jobs {threads} '
+        '--o-reads {output.seqs} '
+        '{params.args} '
+        
+rule silva_rescript_derep_region:
+    input:
+        seqs = join(EXT_DIR, 'silva', '{release}', 'fasta', '{level}', '{region}', 'region-seqs.qza'),
+        taxa = join(EXT_DIR, 'silva', '{release}', 'anno', '{level}', 'dedup-taxa.qza')
+    output:
+        seqs = join(EXT_DIR, 'silva', '{release}', 'fasta', '{level}', '{region}', 'region-uniq-seqs.qza'),
+        taxa = join(EXT_DIR, 'silva', '{release}', 'anno', '{level}', '{region}', 'region-dedup-taxa.qza')
+    params:
+        args = '--p-rank-handles silva  --p-mode uniq '
+    singularity:
+        'docker://' + config['docker']['qiime2']
+    shell:
+        'qiime rescript dereplicate '
+        '--i-sequences {input.seqs} '
+        '--i-taxa {input.taxa} '
+        '--o-dereplicated-sequences {output.seqs} '
+        '--o-dereplicated-taxa  {output.taxa} '
+        '{params.args} '
+
+rule silva_rescript_classfifier:
+    input:
+        seqs = join(EXT_DIR, 'silva', '{release}', 'fasta', '{level}', '{region}', 'region-uniq-seqs.qza'),
+        taxa = join(EXT_DIR, 'silva', '{release}', 'anno', '{level}', '{region}', 'region-dedup-taxa.qza')
+    output:
+        join(EXT_DIR, 'silva', '{release}', 'qiime2', 'classifiers', '{level}_{region}.qza')
+    singularity:
+        'docker://' + config['docker']['qiime2']
+    threads:
+        48
+    shell:
+        'qiime feature-classifier fit-classifier-naive-bayes '
+        '--i-reference-reads {input.seqs} '
+        '--i-reference-taxonomy {input.taxa} '
+        '--o-classifier {output} '
+
+rule silva_classifier_export:
+    input:
+        join(EXT_DIR, 'silva', '{release}', 'qiime2', 'classifiers', '{level}_{region}.qza')
+    output:
+        join(EXT_DIR, 'silva', '{release}', 'qiime2', 'classifiers', 'export', '{level}_{region}', 'sklearn_pipeline.tar')
+    params:
+        outdir = join(EXT_DIR, 'silva', '{release}', 'qiime2', 'classifiers', 'export', '{level}_{region}')
+    singularity:
+        'docker://' + config['docker']['qiime2']
+    shell:
+        'qiime tools export --input-path {input} --output-path {params.outdir}'
+        
+
+rule silva_rescript_all:
+    input:
+        expand(join(EXT_DIR, 'silva', '{release}', 'qiime2', 'classifiers', 'export', '{level}_{region}', 'sklearn_pipeline.tar'), release=[SILVA_VER], level=['99'], region=QIASEQ_16S)

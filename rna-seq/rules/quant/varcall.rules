@@ -1,0 +1,108 @@
+# -*- mode: snakemake -*-
+
+VARCALL_INTERIM = join(ALIGN_INTERIM, ALIGNER, 'varcall')
+    
+
+rule gene_intervals:
+    input:
+        bed = join(REF_DIR, 'genes', 'genes.bed'),
+        genome = join(REF_DIR, 'fasta', 'genome.dict')
+    output:
+        join(REF_DIR, 'genes', 'genes.intervals')
+    singularity:
+        'docker://' + config['docker']['picard_gatk']
+    shell:
+        'gatk BedToIntervalList '
+        '-I={input.genome} '
+        '-O={output} '
+        '-SD={input.genome} '
+
+rule picard_add_rg:
+    input:
+        bam = get_sorted_bam
+    params:
+        machine = config.get('machine', 'nextseq500')
+    output:
+        bam = join(VARCALL_INTERIM, '{sample}_RG.bam')
+    singularity:
+        'docker://' + config['docker']['picard_gatk']
+    shell:
+        'picard AddOrReplaceReadGroups '
+        'INPUT={input.bam} '
+        'OUTPUT={output.bam} '
+        'RGID={wildcards.sample} '
+        'RGLB={wildcards.sample} '
+        'RGPL=illumina '
+        'RGPU={params.machine} '
+        'RGSM={wildcards.sample} '
+    
+
+rule gatk_split_and_trim:
+    input:
+        bam = join(VARCALL_INTERIM, '{sample}_RG.bam'),
+        genome = join(REF_DIR, 'fasta', 'genome.fa')
+    output:
+        bam = join(VARCALL_INTERIM, '{sample}.bam.split')
+    params:
+        '-RF ReassignOneMappingQuality -RMQF 255 -RMQT 60 '
+    singularity:
+        'docker://' + config['docker']['picard_gatk']
+    threads:
+        4
+    shell:
+        'gatk SplitNCigarReads '
+        '-R {input.genome} '
+        '-I {input.bam} '
+        '-O {output.bam} '
+
+rule gatk_varcall:
+    input:
+        bam = join(VARCALL_INTERIM, '{sample}.bam.split'),
+        genome = join(REF_DIR, 'fasta', 'genome.fa')
+    output:
+        vcf = join(VARCALL_INTERIM, '{sample}_all.vcf'),
+        bam = join(VARCALL_INTERIM, '{sample}.bam')
+    params:
+        '-stand-call-conf 10.0 '
+    singularity:
+        'docker://' + config['docker']['picard_gatk']
+    threads:
+        48
+    shell:
+        'gatk HaplotypeCaller '
+        '--native-pair-hmm-threads {threads} '
+        '-R {input.genome} '
+        '-I {input.bam} '
+        '-O {output.vcf} '
+        '-bamout {output.bam} '
+
+        
+rule gatk_var_filter:
+    input:
+        vcf = join(VARCALL_INTERIM, '{sample}_all.vcf'),
+        genome = join(REF_DIR, 'fasta', 'genome.fa')
+    output:
+        vcf = join(VARCALL_INTERIM, '{sample}.filtered.vcf')
+    singularity:
+        'docker://' + config['docker']['picard_gatk']
+    shell:
+        """
+        gatk VariantFiltration --R {input.genome} --V {input.vcf} --window 35 --cluster 3 --filter-name "FS" --filter "FS > 30.0" --filter-name "QD" --filter "QD < 2.0" -O {output.vcf}
+        """
+
+
+rule gatk_varcall_all:
+    input:
+        expand(join(VARCALL_INTERIM, '{sample}.filtered.vcf'), sample=SAMPLES)
+    output:
+        vcf = join(VARCALL_INTERIM, 'merged.vcf')
+    params:
+        vcfs = lambda wildcards, input : '--INPUT ' + ' --INPUT  '.join(input)
+    singularity:
+        'docker://' + config['docker']['picard_gatk']
+    shell:
+        'gatk MergeVcfs '
+        '{params.vcfs} '
+        '--OUTPUT {output} '
+        
+        
