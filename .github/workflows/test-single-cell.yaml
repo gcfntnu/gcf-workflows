@@ -1,6 +1,6 @@
 # This workflow will install snakemake and test rule bfq_all
 
-name: Test pipeline
+name: Test single-cell
 
 on: [push, pull_request]
 
