@@ -13,8 +13,7 @@ Arnar Flatberg / flatberg <arnar.flatberg@gmail.com>
 from os import environ
 from os.path import abspath, join
 
-GCFDB_DIR = config.get('gcfdb_dir', '../gcfdb')
-GCFDB_DIR = abspath(GCFDB_DIR)
+GCFDB_DIR = srcdir("../gcfdb") 
 
 include:
     join(GCFDB_DIR, 'common/utils.py')
