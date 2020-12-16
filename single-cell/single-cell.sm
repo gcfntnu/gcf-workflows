@@ -14,21 +14,10 @@ Arnar Flatberg / flatberg <arnar.flatberg@ntnu.no>
 from os import environ
 from os.path import abspath, join
 
-GCFDB_DIR = srcdir("../gcfdb")
-
 include:
-    join(GCFDB_DIR, 'common', 'utils.py')
+    srcdir('../utils.py')
 include:
-    join(GCFDB_DIR, 'common', 'common.rules')
-
-    
-extra_conf_fn = srcdir('single-cell.config')
-if os.path.exists(extra_conf_fn):
-    with open(extra_conf_fn) as fh:
-        c  = yaml.load(fh, Loader=Loader) or {}
-        # original config will override extra config on shared items
-        update_config2(config, c)
-
+    srcdir('../common.rules')
         
 if not 'SAMPLES' in locals():
     SAMPLES = list(config.get('samples', {}).keys())

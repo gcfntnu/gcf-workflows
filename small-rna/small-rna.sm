@@ -13,19 +13,10 @@ Arnar Flatberg / flatberg <arnar.flatberg@gmail.com>
 from os import environ
 from os.path import abspath, join
 
-GCFDB_DIR = srcdir("../gcfdb") 
-
 include:
-    join(GCFDB_DIR, 'common/utils.py')
+    srcdir('../utils.py')
 include:
-    join(GCFDB_DIR, 'common/common.rules')
-
-extra_conf_fn = srcdir('small-rna.config')
-if os.path.exists(extra_conf_fn):
-    with open(extra_conf_fn) as fh:
-        c  = yaml.load(fh) or {}
-        # original config will override extra config on shared items
-        update_config2(config, c)
+    srcdir('../common.rules')
         
 kit = config.get('libprepkit', 'default-smallrna')
 if kit.startswith('Lexogen'):

@@ -23,6 +23,7 @@ makedirs(INTERIM_DIR, exist_ok=True)
 EXT_DIR = environ.get('GCF_EXT') or config.get('ext_dir', 'data/ext')
 FASTQ_DIR =  environ.get('GCF_FASTQ') or config.get('fastq_dir','data/raw/fastq')
 makedirs(FASTQ_DIR, exist_ok=True)
+GCFDB_DIR = srcdir('gcfdb')
 
 if not 'db' in config:
     config['db'] = {}

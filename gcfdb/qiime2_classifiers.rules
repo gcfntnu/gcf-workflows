@@ -6,7 +6,7 @@
 from os.path import join
 # libprep
 
-libprep_conf_fn = srcdir('libprep.config')
+libprep_conf_fn = srcdir('../libprep.config')
 if os.path.exists(libprep_conf_fn):
     with open(libprep_conf_fn) as fh:
         ALL_LIBPREP  = yaml.load(fh, Loader=Loader) or {}
