@@ -88,3 +88,8 @@ docker_fn = srcdir('docker.config')
 with open(docker_fn) as fh:
     dck = yaml.load(fh, Loader=Loader) or {}
     update_config2(config, dck)
+
+main_fn = srcdir('main.config')
+with open(main_fn) as fh:
+    main = yaml.load(fh, Loader=Loader) or {}
+    update_config2(config, main)
