@@ -4,13 +4,7 @@
 Snakemake rules for counting gene expression values from aligned data using featurecounts
 """
 
-extra_conf_fn = srcdir('featurecounts.config')
-if os.path.exists(extra_conf_fn):
-    with open(extra_conf_fn) as fh:
-        c  = yaml.load(fh) or {}
-        update_config2(config, c)
-
-FC_INTERIM = join(QUANT_INTERIM, config['align']['method'], 'featurecounts')
+FC_INTERIM = join(QUANT_INTERIM, config['align']['genome']['aligner'], 'featurecounts')
 
 
 def featurecounts_strand(wildcards, **kw):
