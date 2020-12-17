@@ -123,7 +123,7 @@ else:
 
 rule rrna_filter_skip:
     input:
-        R1 = join(FILTER_INTERIM, '{merge}', 'contaminants', config['filter']['contaminants']['method'], '{sample}_R{readnum}.fastq')
+        R1 = join(FILTER_INTERIM, '{merge}', 'contaminants', config['filter']['contaminants']['quantifier'], '{sample}_R{readnum}.fastq')
     output:
         R1 = temp(join(FILTER_INTERIM, '{merge}', 'rrna', 'skip', '{sample}_R{readnum}.fastq'))
     shell:

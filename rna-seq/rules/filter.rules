@@ -13,15 +13,6 @@ Filter steps:
 4. Contaminant filter [optional] (_get_contaminant_clean_R1)
 
 """
-import os
-from os.path import join, basename
-import yaml
-
-extra_conf_fn = srcdir('filter.config')
-if os.path.exists(extra_conf_fn):
-    with open(extra_conf_fn) as fh:
-        c  = yaml.load(fh) or {}
-        update_config2(config, c)
 
 FILTER_INTERIM = join(INTERIM_DIR, 'rnaseq', 'filter')
 

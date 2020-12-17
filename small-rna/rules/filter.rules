@@ -1,14 +1,6 @@
 #-*- mode:snakemake -*-
-import os
 
-FILTER_INTERIM = join(INTERIM_DIR, 'smallrna', 'filtered')
-
-extra_conf_fn = srcdir('filter.config')
-if os.path.exists(extra_conf_fn):
-    with open(extra_conf_fn) as fh:
-        c  = yaml.load(fh) or {}
-        update_config2(config, c)
-
+FILTER_INTERIM = join(INTERIM_DIR, 'smallrna', 'filter')
 
 def _get_raw_fastq(wildcards):
     """Returns fastq files per sample.
