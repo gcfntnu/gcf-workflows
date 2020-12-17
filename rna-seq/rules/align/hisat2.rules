@@ -4,15 +4,6 @@ Snakemake rules for aligning rna-seq fastq files to genome using the
 HISAT2 aligner.
 """
 
-import os
-from os.path import join
-
-extra_conf_fn = srcdir('hisat2.config')
-if os.path.exists(extra_conf_fn):
-    with open(extra_conf_fn) as fh:
-        c  = yaml.load(fh) or {}
-        update_config2(config, c)
-
 HISAT_INTERIM = join(ALIGN_INTERIM, 'hisat2')
 
 PE = len(config['read_geometry']) > 1
