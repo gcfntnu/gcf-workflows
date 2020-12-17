@@ -5,11 +5,6 @@ Snakemake rules for quality control of rna-seq.
 
 QC_INTERIM = join(INTERIM_DIR, 'rnaseq', 'qc')
 
-extra_conf_fn = srcdir('qc.config')
-if os.path.exists(extra_conf_fn):
-    with open(extra_conf_fn) as fh:
-        c  = yaml.load(fh) or {}
-        update_config2(config, c)      
 include:
     'qc/fastq.rules'
 include:
