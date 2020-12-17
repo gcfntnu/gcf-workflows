@@ -49,7 +49,12 @@ def update_config2(config, extra_config):
                 d[key] = _update(d.get(key, {}), value)
             else:
                 if not key in d:
-                    d[key] = value
+                    try:
+                        d[key] = value
+                    except:
+                        print("MMMM")
+                        print(key)
+                        print(d)
         return d
     return _update(config, extra_config)
 
