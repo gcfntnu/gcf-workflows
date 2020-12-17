@@ -1,9 +1,5 @@
 # -*- mode:snakemake -*-
-extra_conf_fn = srcdir("db.config")
-if os.path.exists(extra_conf_fn):
-    with open(extra_conf_fn) as fh:
-        c = yaml.load(fh, Loader=Loader) or {}
-        update_config2(config, c)
+
 if 'REF_DIR' in locals() and REF_DIR is not None:
     pass
 elif environ.get('GCF_REFDIR') is not None:
