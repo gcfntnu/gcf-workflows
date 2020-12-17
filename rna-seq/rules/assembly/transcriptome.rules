@@ -1,9 +1,4 @@
 #-*- mode:snakemake -*-
-extra_conf_fn = srcdir('transcriptome.config')
-if os.path.exists(extra_conf_fn):
-    with open(extra_conf_fn) as fh:
-        c  = yaml.load(fh) or {}
-        update_config2(config, c)
 
 TACO_ORG_MAP = {'homo_sapiens': 'human', 'mus_musculus': 'mouse'}
 ASSEMBLY_METHOD = config['assembly']['transcriptome'].get('assembler', 'skip')

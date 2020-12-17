@@ -1,9 +1,4 @@
 #-*- mode:snakemake -*-
-extra_conf_fn = srcdir('assembly.config')
-if os.path.exists(extra_conf_fn):
-    with open(extra_conf_fn) as fh:
-        c  = yaml.load(fh) or {}
-        update_config2(config, c)
 
 ASSEMBLY_INTERIM = join(INTERIM_DIR, 'rnaseq', 'assembly')
 
@@ -29,7 +24,6 @@ if config['assembly']['transcriptome']['assembler'] != 'skip' or config['assembl
         'assembly/transcriptome.rules'
     include:
         'assembly/genome.rules'
-
 
 
     def get_tx_assembly(*args):

@@ -7,16 +7,11 @@ Dependencies
 SALMON, https://combine-lab.github.io/salmon/
 
 """
+
+SALMON_INTERIM = join(QUANT_INTERIM, 'salmon')
+
 include:
     'tximport.rules'
-
-extra_conf_fn = srcdir('salmon.config')
-if os.path.exists(extra_conf_fn):
-    with open(extra_conf_fn) as fh:
-        c  = yaml.load(fh) or {}
-        update_config2(config, c)
-        
-SALMON_INTERIM = join(QUANT_INTERIM, 'salmon')
 
 if not 'REF_DIR' in locals():
    raise ValueError

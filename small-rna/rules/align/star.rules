@@ -16,15 +16,6 @@ SAMBAMBA,
 
 """
 
-import os
-from os.path import join
-
-extra_conf_fn = srcdir('star.config')
-if os.path.exists(extra_conf_fn):
-    with open(extra_conf_fn) as fh:
-        c  = yaml.load(fh) or {}
-        update_config2(config, c)
-
 STAR_INTERIM = join(ALIGN_INTERIM, 'star')
 
 def star_input_params(wildcards):
