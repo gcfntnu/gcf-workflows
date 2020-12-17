@@ -10,17 +10,18 @@ Documentation: https://github.com/gcfntnu/single-cell
 Authors:
 Arnar Flatberg / flatberg <arnar.flatberg@ntnu.no>
 """
-
-from os import environ
-from os.path import abspath, join
-
 include:
     srcdir('../utils.py')
 include:
-    srcdir('../common.rules')
-        
+    srcdir('../common.rules')  
 if not 'SAMPLES' in locals():
     SAMPLES = list(config.get('samples', {}).keys())
+
+extra_conf_fn = srcdir('single-cell.config')
+if os.path.exists(extra_conf_fn):
+    with open(extra_conf_fn) as fh:
+        c  = yaml.load(fh, Loader=Loader) or {}
+        update_config2(config, c)
 
 include:
     'rules/gcfdb.rules'

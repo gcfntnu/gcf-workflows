@@ -21,10 +21,12 @@ include:
 include:
     srcdir('../common.rules')
 
-if os.path.exists('models.yaml'):
-    with open('models.yaml') as fh:
-        m  = yaml.load(fh, Loader=Loader) or {}
-        config['models'] = m
+extra_conf_fn = srcdir('microbiome-seq.config')
+if os.path.exists(extra_conf_fn):
+    with open(extra_conf_fn) as fh:
+        c  = yaml.load(fh, Loader=Loader) or {}
+        update_config2(config, c)
+
 
 if not 'SAMPLES' in locals():
     SAMPLES = list(config.get('samples', {}).keys())

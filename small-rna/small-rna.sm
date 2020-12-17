@@ -10,13 +10,17 @@ Documentation: https://github.com/small-rna
 Authors:
 Arnar Flatberg / flatberg <arnar.flatberg@gmail.com>
 """
-from os import environ
-from os.path import abspath, join
 
 include:
     srcdir('../utils.py')
 include:
     srcdir('../common.rules')
+
+extra_conf_fn = srcdir('small-rna.config')
+if os.path.exists(extra_conf_fn):
+    with open(extra_conf_fn) as fh:
+        c  = yaml.load(fh, Loader=Loader) or {}
+        update_config2(config, c)
         
 kit = config.get('libprepkit', 'default-smallrna')
 if kit.startswith('Lexogen'):

@@ -19,6 +19,12 @@ include:
 include:
     srcdir('../common.rules')
 
+extra_conf_fn = srcdir('rna-seq.config')
+if os.path.exists(extra_conf_fn):
+    with open(extra_conf_fn) as fh:
+        c  = yaml.load(fh, Loader=Loader) or {}
+        update_config2(config, c)
+
 
 #fixme: move this part 
 if LIBPREP['name'].startswith('Lexogen'):
