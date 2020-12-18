@@ -27,7 +27,7 @@ if os.path.exists(extra_conf_fn):
 
 
 #fixme: move this part 
-if LIBPREP['name'].startswith('Lexogen'):
+if config['libprep_name'].startswith('Lexogen'):
     # we cut start/end random seqs on lexogen kits
     read_geometry = config.get('read_geometry')
     if read_geometry:

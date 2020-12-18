@@ -25,15 +25,15 @@ checkpoint qiime2_run_regions:
         R2 = expand(join(FILTER_INTERIM, 'merged_fastq', 'trimmed', 'fastp', '{sample}_R2.fastq'), sample=SAMPLES)
     params:
         script = srcdir('scripts/run_qiime2.py'),
-        libprep = LIBPREP['name'],
-        regions = config['db'].get('regions'),
+        libprep = config['libprep_name'],
+        regions = list(config['db']['primers'].keys()),
         taxonomy_db = config['db']['reference_db'],
         classifier_dir = CLASSIFIER_DIR,
-        classifier_level = LIBPREP.get('classifier_level','99'),
+        classifier_level = config['db'].get('classifier_level','99'),
         filter_region_count = 500,
         min_confidence = 0.8,
         output_dir = join(QIIME2_INTERIM),
-        libprep_conf = join(GCFDB_DIR, 'libprep.config')
+        libprep_conf = srcdir('../libprep.config')
     threads:
         48
     singularity:

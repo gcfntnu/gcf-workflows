@@ -54,8 +54,8 @@ rule trim_fastp:
     output:
         fastq = temp(join(FILTER_INTERIM, 'fastp_trimmed', '{sample}.fastq'))
     params:
-        args = LIBPREP['filter']['fastp']['trim_args'],
-        adapter = '' if not LIBPREP['filter'].get('adapter') else '-a {} '.format(LIBPREP['filter'].get('adapter'))
+        args = config['filter']['trim']['fastp']['trim_args'],
+        adapter = '' if not config.get('adapter') else '-a {} '.format(config.get('adapter'))
     threads:
         4
     singularity:
@@ -73,8 +73,8 @@ rule filter_fastp:
     output:
         fastq = temp(join(FILTER_INTERIM, 'fastp', '{sample}.fastq'))
     params:
-        args = LIBPREP['filter']['fastp']['args'],
-        adapter = LIBPREP['filter']['adapter']
+        args = config['filter']['trim']['fastp']['params'],
+        adapter = config['adapter']
     threads:
         4
     singularity:
@@ -96,7 +96,7 @@ rule filter_mirtrace_config:
     output:
         temp('.filter_mirtrace.conf')
     params:
-        adapter = LIBPREP['filter']['adapter']
+        adapter = config['adapter']
     run:
         with open(output[0], 'w') as fh:
             for k, v in config['samples'].items():
@@ -118,7 +118,7 @@ rule filter_mirtrace:
         samples = expand(join(FILTER_INTERIM, 'merged_fastq', '{sample}.fastq'), sample=SAMPLES)
     params:
         outdir = join(FILTER_INTERIM, 'mirtrace'),
-        protocol = LIBPREP['filter']['mirtrace']['protocol'],
+        protocol = config['filter']['mirtrace']['protocol'],
         species = mirtrace_species(),
         title = config.get('project_id', 'GCF-0000-00'),
         args = '--write-fasta --comment Created by GCF. -f '
@@ -147,9 +147,9 @@ rule rename_mirtrace:
         'ln -s {input} {output}'
 
 def _filter_get_trimmed(wildcards):
-    if LIBPREP['filter']['trim']['quantifier'] == 'skip':
+    if config['filter']['trim']['quantifier'] == 'skip':
         return join(FILTER_INTERIM, 'merged_fastq', '{sample}.fastq')
-    elif LIBPREP['filter']['trim']['quantifier'] == 'fastp':
+    elif config['filter']['trim']['quantifier'] == 'fastp':
         return join(FILTER_INTERIM, 'fastp', '{sample}.fastq')
     else:
         return join(FILTER_INTERIM, 'mirtrace', '{sample}.fasta')

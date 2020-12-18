@@ -11,7 +11,7 @@ rule umitools_whitelist:
     input:
         R1 = get_filtered_fastq_R1
     params:
-        bc_pattern = LIBPREP['umi_tools']['chemistry'],
+        bc_pattern = config['quant']['umi_tools']['chemistry'],
         extra_args = '--plot-prefix ' + UMI_INTERIM + '/{sample}/{sample}'
     output:
         join(UMI_INTERIM, '{sample}','whitelist.txt')
@@ -31,7 +31,7 @@ rule umitools_extract:
         R2 = get_filtered_fastq_R2,
         whitelist = rules.umitools_whitelist.output
     params:
-        '--bc-pattern={} --filter-cell-barcode '.format(LIBPREP['umi_tools']['chemistry'])
+        '--bc-pattern={} --filter-cell-barcode '.format(config['quant']['umi_tools']['chemistry'])
     output:
         R1 = join(UMI_INTERIM, '{sample}', '{sample}_R1.fastq.gz'),
         R2 = join(UMI_INTERIM, '{sample}', '{sample}_R2.fastq.gz')

@@ -32,7 +32,7 @@ if os.path.exists(libprep_conf_fn):
         ALL_LIBPREP  = yaml.load(fh, Loader=Loader) or {}
 QIASEQ_16S = []
 QIASEQ_ITS = []
-for k, v in ALL_LIBPREP['QIAseq 16S ITS Region Panels']['primers'].items():
+for k, v in ALL_LIBPREP['QIAseq 16S ITS Region Panels PE']['db']['primers'].items():
     if k.startswith('V'):
         QIASEQ_16S.append(v)
     else:

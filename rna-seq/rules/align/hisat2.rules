@@ -7,7 +7,7 @@ HISAT2 aligner.
 HISAT_INTERIM = join(ALIGN_INTERIM, 'hisat2')
 
 PE = len(config['read_geometry']) > 1
-KIT_STRAND = LIBPREP.get('strand', 'reverse')
+KIT_STRAND = config['read_geometry']
 if PE:
     if KIT_STRAND == 'forward':
         HISAT_STRAND = 'FR'
@@ -18,7 +18,6 @@ else:
         HISAT_STRAND = 'F'
     else :
         HISAT_STRAND = 'R'
-
 
 def hisat2_input(wildcards):
     fastq = get_processed_fastq(wildcards)
@@ -33,8 +32,6 @@ def hisat2_input(wildcards):
     else:
         input = '-U ' + ','.join(R1)
     return input
-
-
 
 rule hisat2_align:
     input:

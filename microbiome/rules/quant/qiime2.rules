@@ -9,7 +9,7 @@ QIIME2_INTERIM = join(QUANT_INTERIM, 'qiime2')
 PE = len(config['read_geometry']) > 1
 
 include:
-    '../db/qiime2.db'
+    join(GCFDB_DIR, 'qiime2.db')
 
 rule qiime2_librep_primers:
     output:
@@ -19,7 +19,7 @@ rule qiime2_librep_primers:
         with open(output.fwd, 'w') as fwd, open(output.rev, 'w') as rev:
             fwd.write('region\tseq\n')
             rev.write('region\tseq\n')
-            for region, primers in LIBPREP['primers'].items():
+            for region, primers in config['db']['primers'].items():
                 fwd.write('{}\t{}\n'.format(region, primers['forward']))
                 rev.write('{}\t{}\n'.format(region, primers['forward']))
 

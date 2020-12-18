@@ -27,9 +27,6 @@ while FASTQ_DIR.endswith(os.path.sep):
 makedirs(FASTQ_DIR, exist_ok=True)
 GCFDB_DIR = srcdir('gcfdb')
 
-if not 'db' in config:
-    config['db'] = {}
-
 def update_config2(config, extra_config):
     """Recursively update dictionary config with overwrite_config.
 
@@ -61,10 +58,44 @@ def update_config2(config, extra_config):
     return _update(config, extra_config)
 
 
-default_config_sections = ['db', 'quant', 'filter', 'analysis', 'samples']
+default_config_sections = ['db', 'quant', 'filter', 'analysis', 'qc', 'bfq', 'samples']
 for section in default_config_sections:
     if section not in config:
         config[section] = {}
+
+# default config
+main_fn = srcdir('main.config')
+with open(main_fn) as fh:
+    CONF = yaml.load(fh, Loader=Loader) or {}
+
+# library preparation kit specific configuration
+libprep_fn = srcdir('libprep.config')
+with open(libprep_fn) as fh:
+    LIBPREP_CONF  = yaml.load(fh, Loader=Loader) or {}
+kit = config.get('libprepkit')
+if len(config['read_geometry']) > 1:
+    kit += ' PE'
+else:
+   kit += ' SE' 
+if kit in LIBPREP_CONF:
+    # overwrite default config
+    update_config(CONF, LIBPREP_CONF[kit])
+else:
+    if kit is None:
+        logger.warning('Running without LIBREPKIT defined!')
+    else:
+        logger.warning('`{}` is not a valid librepkit name'.format(kit))
+        sys.exit()
+        
+# update config (config.yaml). Does not update if key exists     
+update_config2(config, CONF)
+        
+# docker images
+docker_fn = srcdir('docker.config')
+with open(docker_fn) as fh:
+    DOCKER_CONF = yaml.load(fh, Loader=Loader) or {}
+    update_config2(config, DOCKER_CONF)
+
 
 # load function for statistical models
 def load_model(model_yaml_file):
@@ -72,31 +103,3 @@ def load_model(model_yaml_file):
         MODELS  = yaml.load(fh, Loader=Loader) or {}
         config['models'] = MODELS
         config['model_names'] = list(MODELS.keys())
-
-# library preparation kit specific configuration
-libprep_fn = srcdir('libprep.config')
-with open(libprep_fn) as fh:
-    LIBPREP_CONF  = yaml.load(fh, Loader=Loader) or {}
-kit = config.get('libprepkit')
-if kit in LIBPREP_CONF:
-    LIBPREP = LIBPREP_CONF[kit]
-    if 'reference_db' in LIBPREP:
-        config['db']['reference_db'] = LIBPREP['reference_db']
-else:
-    if kit is None:
-        logger.warning('Running without LIBREPKIT defined!')
-    else:
-        logger.warning('`{}` is not a valid librepkit name'.format(kit))
-        sys.exit()
-    
-
-# docker images
-docker_fn = srcdir('docker.config')
-with open(docker_fn) as fh:
-    dck = yaml.load(fh, Loader=Loader) or {}
-    update_config2(config, dck)
-
-main_fn = srcdir('main.config')
-with open(main_fn) as fh:
-    main = yaml.load(fh, Loader=Loader) or {}
-    update_config2(config, main)

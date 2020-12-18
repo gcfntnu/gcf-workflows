@@ -9,7 +9,8 @@ FC_INTERIM = join(QUANT_INTERIM, config['align']['genome']['aligner'], 'featurec
 
 def featurecounts_strand(wildcards, **kw):
     read_orientation = config.get('read_orientation')
-    STRAND = '0' if read_orientation == 'u' else '-s 1' if read_orientation == 'fr' else '-s 2'
+    STRAND = '0'
+    STRAND = '-s 1' if read_orientation == 'forward' else '-s 2'
     return STRAND
 
 def featurecounts_paired_end(wildcards):

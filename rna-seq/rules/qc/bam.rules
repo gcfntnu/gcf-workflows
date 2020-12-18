@@ -141,7 +141,7 @@ rule qorts:
         se = '--singleEnded' if len(config['read_geometry']) == 1 else '',
         max_len = '--maxReadLength {}'.format(int(config['read_geometry'][0])),
         stranded = '--stranded',
-        read_strand = '--fr_secondStrand ' if LIBPREP['strand'] == 'forward' else '',
+        read_strand = '--fr_secondStrand ' if config['read_geometry'] == 'forward' else '',
         outdir = lambda wildcards, output: os.path.dirname(output.log)
     output:
         log = join(QORT_QCDIR, '{sample}', 'QC.summary.txt')
@@ -249,7 +249,7 @@ rule picard_insertsize:
         """
 
 def qualimap_strand():
-    strand = LIBPREP.get('strand', 'reverse')
+    strand = config['read_geometry']
     if strand == 'reverse':
         return 'strand-specific-reverse'
     elif strand == 'forward':
