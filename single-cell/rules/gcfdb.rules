@@ -1,9 +1,4 @@
 #-*- mode:snakemake -*-
-extra_conf_fn = srcdir('gcfdb.config')
-if os.path.exists(extra_conf_fn):
-    with open(extra_conf_fn) as fh:
-        c  = yaml.load(fh, Loader=Loader) or {}
-        update_config2(config, c)
 
 include:
     join(GCFDB_DIR, 'reference_db.db')

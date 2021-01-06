@@ -2,22 +2,12 @@
 
 QUANT_INTERIM = join(INTERIM_DIR, 'smallrna', 'quant')
 
-extra_conf_fn = srcdir('quant.config')
-if os.path.exists(extra_conf_fn):
-    with open(extra_conf_fn) as fh:
-        c  = yaml.load(fh) or {}
-        # original config will override extra config on shared items
-        # c=config, config=overwrite_config
-        update_config2(config, c)
-
 include:
     'quant/quickmirseq.rules'
 include:
     'quant/mirge.rules'
 include:
     'quant/unitas.rules'
-include:
-    'quant/featurecounts.rules'  
 
 def quant_all(wildcards):
     methods = config['quant']['method'].split(',')

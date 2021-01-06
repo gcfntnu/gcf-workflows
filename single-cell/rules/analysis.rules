@@ -1,11 +1,5 @@
 #-*- mode:snakemake -*-
-from os.path import join
-extra_conf_fn_a = srcdir('analysis.config')
-if os.path.exists(extra_conf_fn_a):
-    with open(extra_conf_fn_a) as fh:
-        c  = yaml.load(fh, Loader=Loader) or {}
-        update_config2(config, c)
-        
+
 ANALYSIS_INTERIM = join(INTERIM_DIR, 'singlecell', 'analysis')
 
 

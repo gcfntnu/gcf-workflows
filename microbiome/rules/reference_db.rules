@@ -1,9 +1,5 @@
 # -*- mode:snakemake -*-
-extra_conf_fn = srcdir("db.config")
-if os.path.exists(extra_conf_fn):
-    with open(extra_conf_fn) as fh:
-        c = yaml.load(fh, Loader=Loader) or {}
-        update_config2(config, c)
+
 if 'REF_DIR' in locals() and REF_DIR is not None:
     pass
 elif environ.get('GCF_REFDIR') is not None:
@@ -20,7 +16,7 @@ elif 'reference_db' in config['db']:
         include: join(GCFDB_DIR, 'unite.db')
 
     DB_CONF = config['db'][ref]
-    REF_DIR = join(EXT_DIR, ref, DB_CONF['version'])
+    REF_DIR = join(EXT_DIR, ref, DB_CONF['release'])
 else:
     logger.error('Reference dir missing. Check config or other ways for ref dir setup')
     raise ValueError

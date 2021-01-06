@@ -1,9 +1,4 @@
 #-*- mode:snakemake -*-
-extra_conf_fn = srcdir('transcriptome.config')
-if os.path.exists(extra_conf_fn):
-    with open(extra_conf_fn) as fh:
-        c  = yaml.load(fh) or {}
-        update_config2(config, c)
 
 TACO_ORG_MAP = {'homo_sapiens': 'human', 'mus_musculus': 'mouse'}
 ASSEMBLY_METHOD = config['assembly']['transcriptome'].get('assembler', 'skip')
@@ -24,7 +19,7 @@ rule stringtie:
     output:
         gtf = join(ASSEMBLY_INTERIM, 'stringtie', '{sample}.gtf')
     params:
-        lib_type = '--fr' if LIBPREP['strand'] == 'reverse' else '--rf' if LIBPREP['strand'] == 'forward' else ''
+        lib_type = '--fr' if config['read_geometry'] == 'reverse' else '--rf' if config['read_geometry'] == 'forward' else ''
     threads:
         8
     singularity:
@@ -47,11 +42,11 @@ rule stringtie_gtf_list:
         'ls {input} > {output} '
 
 def scallop_library():
-    if LIBPREP['strand'] == 'reverse':
+    if config['read_geometry'] == 'reverse':
         arg = '--library_type first '
-    elif LIBPREP['strand'] == 'forward':
+    elif config['read_geometry'] == 'forward':
         arg = '--library_type second '
-    elif LIBPREP['strand'] == 'unstranded':
+    elif config['read_geometry'] == 'unstranded':
         arg = '--library_type unstranded '
     else:
         arg = '' #empty

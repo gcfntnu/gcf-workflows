@@ -32,10 +32,10 @@ def available_primers(libprep_conf):
     with open(libprep_conf) as fh:
         c = yaml.load(fh, Loader=Loader)
     for libprepkit, conf in c.items():
-        if 'primers' in conf:
-            libprep_name = conf['name']
+        if 'primers' in conf.get('db', {}):
+            libprep_name = conf['libprep_name']
             primers[libprep_name] = {}
-            for region, seq in conf['primers'].items():
+            for region, seq in conf['db']['primers'].items():
                 primers[libprep_name][region] = seq
     return primers
 
@@ -197,8 +197,16 @@ def sequence_counts(adata, min_count=200000):
     for k, v in adata.items():
         print('summarizing counts for region: {}'.format(k))
         s = demux.visualizers.summarize(v)
-        fn = glob.glob(str(s.visualization._archiver.path) + '/*/data/per-sample-fastq-counts.csv')[0]
-        df = pd.read_csv(fn)
+        try:
+            fn = glob.glob(str(s.visualization._archiver.path) + '/*/data/per-sample-fastq-counts.csv')[0]
+            df = pd.read_csv(fn)
+        except Exception as e:
+            #qiime 2019.10 -> 2020.8 hotfix
+            print(e)
+            print("Assuming qiime2 2020.8 formatting. Try with per-sample-fastq-counts.csv -> per-sample-fastq-counts.tsv ")
+            fn = glob.glob(str(s.visualization._archiver.path) + '/*/data/per-sample-fastq-counts.tsv')[0]
+            df = pd.read_csv(fn, sep='\t')
+            df.rename(columns={"sample ID": "Sample name", "forward sequence count": "Sequence count"}, inplace=True)
         keep_region = df['Sequence count'].sum() > min_count
         if keep_region:
             counts[k] = df

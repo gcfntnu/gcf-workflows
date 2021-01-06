@@ -7,4 +7,4 @@ rule trna_bed:
         bed = join(EXT_DIR, 'ucsc', ORG, 'genes', 'trna_ensembl.bed')
         fasta = join(EXT_DIR, 'ensembl', 'fasta', 'genome.fa')
     output:
-        join(EXT_DIR, 'trna-explorer', ORG, ''
+        join(EXT_DIR, 'trna-explorer', ORG, '')

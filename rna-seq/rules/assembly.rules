@@ -1,14 +1,6 @@
 #-*- mode:snakemake -*-
-extra_conf_fn = srcdir('assembly.config')
-if os.path.exists(extra_conf_fn):
-    with open(extra_conf_fn) as fh:
-        c  = yaml.load(fh) or {}
-        update_config2(config, c)
 
 ASSEMBLY_INTERIM = join(INTERIM_DIR, 'rnaseq', 'assembly')
-
-if not 'GCFDB_DIR' in locals():
-    GCFDB_DIR = environ.get('GCF_DB') or config.get('gcfdb_dir', '../../gcfdb')
 
 include:
     join(GCFDB_DIR, 'reference_db.db')
@@ -29,7 +21,6 @@ if config['assembly']['transcriptome']['assembler'] != 'skip' or config['assembl
         'assembly/transcriptome.rules'
     include:
         'assembly/genome.rules'
-
 
 
     def get_tx_assembly(*args):

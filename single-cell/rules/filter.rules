@@ -1,11 +1,4 @@
 #-*- mode:snakemake -*-
-from os.path import join
-
-extra_conf_fn = srcdir('filter.config')
-if os.path.exists(extra_conf_fn):
-    with open(extra_conf_fn) as fh:
-        c  = yaml.load(fh, Loader=Loader) or {}
-        update_config2(config, c)
 
 FILTER_INTERIM = join(INTERIM_DIR, 'singlecell', 'filter')
 
@@ -37,11 +30,11 @@ include:
     'filter/fastp.rules'
     
 def get_filtered_fastq_R2(wildcards):
-    if config['filter']['skip']:
+    if config['filter']['trim']['quantifier'] == 'skip':
         return _filter_get_raw_R2(wildcards)
     return [join(FILTER_INTERIM, 'fastp_10x', '{}_S1_L000_R2_001.fastq.gz'.format(wildcards.sample))]
 
 def get_filtered_fastq_R1(wildcards):
-    if config['filter']['skip']:
+    if config['filter']['trim']['quantifier'] == 'skip':
         return _filter_get_raw_R1(wildcards)
     return [join(FILTER_INTERIM, 'fastp_10x', '{}_S1_L000_R1_001.fastq.gz'.format(wildcards.sample))]

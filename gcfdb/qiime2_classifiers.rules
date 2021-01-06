@@ -6,11 +6,11 @@
 from os.path import join
 # libprep
 
-libprep_conf_fn = srcdir('libprep.config')
+libprep_conf_fn = srcdir('../libprep.config')
 if os.path.exists(libprep_conf_fn):
     with open(libprep_conf_fn) as fh:
         ALL_LIBPREP  = yaml.load(fh, Loader=Loader) or {}
-LIBPREPS_16S = ['16S Metagenomic Sequencing Library Prep', 'QIAseq 16S ITS Region Panels']
+LIBPREPS_16S = ['16S Metagenomic Sequencing Library Prep PE', 'QIAseq 16S ITS Region Panels PE']
 
 DB = ['silva']
 GG_RELEASES = ['13_8']
@@ -21,7 +21,7 @@ UNITE_LEVELS = ['dynamic']
 
 QIASEQ_16S = []
 QIASEQ_ITS = []
-for k, v in ALL_LIBPREP['QIAseq 16S ITS Region Panels']['primers'].items():
+for k, v in ALL_LIBPREP['QIAseq 16S ITS Region Panels PE']['db']['primers'].items():
     if k.startswith('V'):
         QIASEQ_16S.append(v)
     else:
@@ -29,8 +29,8 @@ for k, v in ALL_LIBPREP['QIAseq 16S ITS Region Panels']['primers'].items():
         
 QIASEQ_16S.append('universal')
 #ILMN_16S = ['V4']
-ILMN_16S = list(ALL_LIBPREP['16S Metagenomic Sequencing Library Prep']['primers'].values())
-ILMN_ITS = list(ALL_LIBPREP['ITS Low Input GCF Custom']['primers'].values())
+ILMN_16S = list(ALL_LIBPREP['16S Metagenomic Sequencing Library Prep PE']['db']['primers'].values())
+ILMN_ITS = list(ALL_LIBPREP['ITS Low Input GCF Custom PE']['db']['primers'].values())
 
 ruleorder: prebuild_classifiers > build_q2_classifer
 

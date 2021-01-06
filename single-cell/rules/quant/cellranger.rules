@@ -1,19 +1,8 @@
 #-*- mode:snakemake -*-
-
-import os
-import re
 import six
 from collections import defaultdict
 
-from snakemake import logger
-
 CR_INTERIM = join(QUANT_INTERIM, 'cellranger')
-
-extra_conf_fn = srcdir('cellranger.config')
-if os.path.exists(extra_conf_fn):
-    with open(extra_conf_fn) as fh:
-        c  = yaml.load(fh, Loader=Loader) or {}
-        update_config2(config, c)
 
 #config
 ORG = config.get('organism', 'homo_sapiens')
@@ -83,7 +72,7 @@ rule cellranger_quant_:
         sample = '{sample}',
         genome_dir = CR_REF_DIR,
         ncells = config['quant']['cellranger'].get('ncells', 5000),
-        chemistry = LIBPREP['cellranger']['chemistry'],
+        chemistry = config['quant']['cellranger']['chemistry'],
         extra_args = '--nopreflight --disable-ui '
     threads:
         48
