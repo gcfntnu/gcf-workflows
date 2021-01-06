@@ -26,14 +26,15 @@ checkpoint qiime2_run_regions:
     params:
         script = srcdir('scripts/run_qiime2.py'),
         libprep = config['libprep_name'],
-        regions = list(config['db']['primers'].keys()),
+	#regions = ','.join(list(config['db']['primers'].keys())),
+        regions = 'None',
         taxonomy_db = config['db']['reference_db'],
         classifier_dir = CLASSIFIER_DIR,
         classifier_level = config['db'].get('classifier_level','99'),
         filter_region_count = 500,
         min_confidence = 0.8,
         output_dir = join(QIIME2_INTERIM),
-        libprep_conf = srcdir('../libprep.config')
+        libprep_conf = srcdir('../../../libprep.config')
     threads:
         48
     singularity:
