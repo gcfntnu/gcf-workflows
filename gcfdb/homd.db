@@ -1,0 +1,125 @@
+#-*- mode:snakemake -*-
+"""Human Oral Microbiome Database (eHOMD)
+
+
+http://www.homd.org/ftp/16S_rRNA_refseq/HOMD_16S_rRNA_RefSeq/V15.2/
+Citation:
+https://microbiomejournal.biomedcentral.com/articles/10.1186/s40168-020-00841-w
+"""
+from os.path import join
+EXT_DIR = "/mnt/archive/ext_cache/ext/"
+HOMDB_VER = '15.2'
+
+URL = "http://www.homd.org/ftp/16S_rRNA_refseq/HOMD_16S_rRNA_RefSeq"
+
+QIASEQ_16S = ['AGRGTTTGATYMTGGCTC-CTGCTGCCTYCCGTA', 'GGCGNACGGGTGAGTAA-WTTACCGCGGCTGCTGG', 'CCTACGGGNGGCWGCAG-GACTACHVGGGTATCTAATCC', 'GTGYCAGCMGCCGCGGTAA-CCGYCAATTYMTTTRAGTTT', 'GGATTAGATACCCBRGTAGTC-ACGTCRTCCCCDCCTTCCTC', 'YAACGAGCGMRACCC-TACGGYTACCTTGTTAYGACTT']
+    
+rule homdb_db:
+    params:
+        aligned = join(URL, 'V{release}', 'HOMD_16S_rRNA_RefSeq_V{release}.aligned.fasta'),
+        fasta = join(URL, 'V{release}', 'HOMD_16S_rRNA_RefSeq_V{release}.fasta'),
+        taxa = join(URL, 'V{release}', 'HOMD_16S_rRNA_RefSeq_V{release}.qiime.taxonomy'),
+        tree = join(URL, 'V{release}', 'HOMD_16S_rRNA_RefSeq_V{release}.reroot.order.tre')
+    output:
+        aligned = join(EXT_DIR, 'homdb', '{release}', 'fasta', 'aligned.fa'),
+        fasta = join(EXT_DIR, 'homdb', '{release}', 'fasta', 'repseq.fa'),
+        taxa = join(EXT_DIR, 'homdb', '{release}', 'anno', 'qiime.taxa'),
+        tree = join(EXT_DIR, 'homdb', '{release}', 'anno', 'tree.tre')
+    shell:
+        """
+        wget {params.aligned} -O {output.aligned}
+        wget {params.fasta} -O {output.fasta}
+        wget {params.taxa} -O {output.taxa}
+        wget {params.tree} -O {output.tree}
+        """
+
+rule homdb_seq_import:
+    input:
+        rules.homdb_db.output.fasta
+    output:
+        join(EXT_DIR, 'homdb', '{release}', 'fasta', 'allseqs.qza')
+    singularity:
+        'docker://' + 'gcfntnu/qiime2:2020.8'
+    shell:
+        'qiime tools import '
+        '--type FeatureData[Sequence] '
+        '--input-path {input} '
+        '--output-path {output} '
+
+rule homdb_taxa_import:
+    input:
+        rules.homdb_db.output.taxa
+    output:
+        join(EXT_DIR, 'homdb', '{release}', 'anno', 'taxa.qza')
+    singularity:
+        'docker://' + 'gcfntnu/qiime2:2020.8'
+    shell:
+        'qiime tools import '
+        '--type FeatureData[Taxonomy] '
+        '--input-format HeaderlessTSVTaxonomyFormat '
+        '--input-path {input} '
+        '--output-path {output} '
+
+rule homdb_import_all:
+    input:
+        expand(join(EXT_DIR, 'homdb', '{release}', 'fasta', 'allseqs.qza'), release=[HOMDB_VER])
+
+rule homdb_extract_regions:
+    input:
+        seqs = join(EXT_DIR, 'homdb', '{release}', 'fasta', 'allseqs.qza')
+    output:
+        seqs = join(EXT_DIR, 'homdb', '{release}', 'regions', '{region}', 'region-seqs.qza')
+    params:
+        fwd_primer = lambda wildcards: wildcards.region.split('-')[0],
+        rev_primer = lambda wildcards: wildcards.region.split('-')[1],
+        args = '--p-read-orientation forward '
+    singularity:
+        'docker://' + 'gcfntnu/qiime2:2020.8'
+    threads:
+        2
+    shell:
+        'qiime feature-classifier extract-reads '
+        '--i-sequences {input.seqs} '
+        '--p-f-primer {params.fwd_primer} '
+        '--p-r-primer {params.rev_primer} '
+        '--p-n-jobs {threads} '
+        '--o-reads {output.seqs} '
+        '{params.args} '
+
+rule test_extract:
+    input:
+        join(EXT_DIR, 'homdb', '15.2', 'regions', 'GGCGNACGGGTGAGTAA-WTTACCGCGGCTGCTGG', 'region-seqs.qza')
+
+        
+rule homdb_rescript_classfifier:
+    input:
+        seqs = join(EXT_DIR, 'homdb', '{release}', 'regions', '{region}', 'region-seqs.qza'),
+        taxa = join(EXT_DIR, 'homdb', '{release}', 'anno', 'taxa.qza')
+    output:
+        join(EXT_DIR, 'homdb', '{release}', 'qiime2', 'classifiers', '{region}.qza')
+    singularity:
+        'docker://' + 'gcfntnu/qiime2:2020.8'
+    threads:
+        48
+    shell:
+        'qiime feature-classifier fit-classifier-naive-bayes '
+        '--i-reference-reads {input.seqs} '
+        '--i-reference-taxonomy {input.taxa} '
+        '--o-classifier {output} '
+
+rule homdb_classifier_export:
+    input:
+        join(EXT_DIR, 'homdb', '{release}', 'qiime2', 'classifiers', '{region}.qza'),
+    output:
+        join(EXT_DIR, 'homdb', '{release}', 'qiime2', 'classifiers', 'export', '{region}', 'sklearn_pipeline.tar')
+    params:
+        outdir = join(EXT_DIR, 'homdb', '{release}', 'qiime2', 'classifiers', 'export', '{region}')
+    singularity:
+        'docker://' + 'gcfntnu/qiime2:2020.8'
+    shell:
+        'qiime tools export --input-path {input} --output-path {params.outdir}'
+        
+
+rule homdb_db_all:
+    input:
+        expand(join(EXT_DIR, 'homdb', '{release}', 'qiime2', 'classifiers', 'export', '{region}', 'sklearn_pipeline.tar'), release=[HOMDB_VER], region=QIASEQ_16S)
