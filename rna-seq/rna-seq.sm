@@ -14,23 +14,20 @@ Arnar Flatberg / flatberg <arnar.flatberg@ntnu.no>
 from os import environ
 from os.path import abspath, join
 
-GCFDB_DIR = srcdir("../gcfdb")
+include:
+    srcdir('../utils.py')
+include:
+    srcdir('../common.rules')
 
-include:
-    join(GCFDB_DIR, 'common/utils.py')
-include:
-    join(GCFDB_DIR, 'common/common.rules')
-    
 extra_conf_fn = srcdir('rna-seq.config')
 if os.path.exists(extra_conf_fn):
     with open(extra_conf_fn) as fh:
-        c  = yaml.load(fh) or {}
-        # original config will override extra config on shared items
+        c  = yaml.load(fh, Loader=Loader) or {}
         update_config2(config, c)
 
 
 #fixme: move this part 
-if LIBPREP['name'].startswith('Lexogen'):
+if config['libprep_name'].startswith('Lexogen'):
     # we cut start/end random seqs on lexogen kits
     read_geometry = config.get('read_geometry')
     if read_geometry:

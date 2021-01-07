@@ -7,30 +7,27 @@ Dependencies
 SALMON, https://combine-lab.github.io/salmon/
 
 """
-include:
-    'tximport.rules'
 
-extra_conf_fn = srcdir('salmon.config')
-if os.path.exists(extra_conf_fn):
-    with open(extra_conf_fn) as fh:
-        c  = yaml.load(fh) or {}
-        update_config2(config, c)
-        
 SALMON_INTERIM = join(QUANT_INTERIM, 'salmon')
 
+include:
+    'tximport.rules'
+    
 if not 'REF_DIR' in locals():
    raise ValueError
 
-## config params
-read_orientation = LIBPREP.get('strand')
-if read_orientation is None:
-    LIB_TYPE = 'A'
+if config['read_orientation'] is None:
+   LIB_TYPE = 'A'
 else:
-    read_orientation = read_orientation.lower()
-    PE = len(config['read_geometry']) > 1
-    stranded = 'U' if read_orientation == 'both' else 'S'
-    orientation = 'R'
-    LIB_TYPE = 'I' + stranded + orientation if PE else stranded + orientation
+   PE = len(config['read_geometry']) > 1
+   stranded = 'U' if config['read_orientation'] == 'unstranded' else 'S'
+   if config['read_orientation'] == 'reverse':
+      orientation = 'R'
+   elif config['read_orientation'] == 'forward':
+      orientation = 'F'
+   else:
+      raise ValueError('read_orientation configuration not valid')
+   LIB_TYPE = 'I' + stranded + orientation if PE else stranded + orientation
 
 
 def get_fragment_length(wildcards):

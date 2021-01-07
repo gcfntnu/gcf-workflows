@@ -20,14 +20,6 @@ _ASSEMBLY = {'homo_sapiens': 'GRCh38',
              'homo_sapiens__mus_musculus': 'GRCh38_GRCm38'
 }
 
-from os.path import join
-
-extra_conf_fn = srcdir('10xgenomics.config')
-if os.path.exists(extra_conf_fn):
-    with open(extra_conf_fn) as fh:
-        c  = yaml.load(fh, Loader=Loader) or {}
-        update_config2(config, c)
-
 # config
 ORG = config.get('organism', 'homo_sapiens')
 if ORG not in ['homo_sapiens', 'mus_musculus', 'homo_sapiens__mus_musculus']:

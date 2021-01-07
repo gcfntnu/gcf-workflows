@@ -1,14 +1,5 @@
 #-*- mode:snakemake -*-
-import shutil
-from os.path import join, abspath
 
-# config
-extra_conf_fn = srcdir('mirge.config')
-if os.path.exists(extra_conf_fn):
-    with open(extra_conf_fn) as fh:
-        c  = yaml.load(fh) or {}
-        update_config2(config, c)
-        
 include:
     join(GCFDB_DIR, 'mirge.db')
 

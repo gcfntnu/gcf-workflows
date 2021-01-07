@@ -7,7 +7,7 @@ rule mirtrace_config:
     output:
         'mirtrace.conf'
     params:
-        adapter = LIBPREP['filter']['adapter']
+        adapter = config['adapter']
     run:
         with open(output[0], 'w') as fh:
             for name, info in config['samples'].items():
@@ -29,7 +29,7 @@ rule mirtrace_qc:
         mirtrace_input()
     params:
         org = ORG_MAP[config['organism']],
-        adapter = LIBPREP['filter']['adapter'],
+        adapter = config['adapter'],
         protocol = 'qiaseq',
         outdir = MIRTRACE_DIR
     singularity:

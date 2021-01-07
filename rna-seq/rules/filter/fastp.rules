@@ -1,9 +1,8 @@
 #-*- mode:snakemake -*-
 
-ADAPTER = config.get('adapter') or LIBPREP['single_end'].get('adapter')
-ADAPTER2 = config.get('adapter2') or LIBPREP['paired_end'].get('adapter2')
+ADAPTER = config['adapter']
+ADAPTER2 = config.get('adapter2')
 PE = len(config['read_geometry']) > 1
-
 
 rule fastp_interleave_fastq:
     input:
@@ -31,7 +30,7 @@ if PE:
         params:
             args = '--low_complexity_filter --overrepresentation_analysis --overrepresentation_sampling 1000 ',
             adapter_arg = '--adapter_sequence {} --adapter_sequence_r2 {} '.format(ADAPTER, ADAPTER2) if ADAPTER else '--detect_adapter_for_pe ',
-            kit_args = LIBPREP.get('paired_end',{}).get('fastp', {}).get('params') or ''
+            kit_args = config['filter']['trim'].get('fastp', {}).get('params', '')
         log:
             json = 'logs/{sample}/{sample}.fastp.json'
         singularity:
@@ -50,7 +49,7 @@ if PE:
         params:
             args = '--low_complexity_filter --overrepresentation_analysis --overrepresentation_sampling 10000 ',
             adapter_arg = '--adapter_sequence {} --adapter_sequence_r2 {} '.format(ADAPTER, ADAPTER2) if ADAPTER else '--detect_adapter_for_pe ',
-            kit_args = LIBPREP.get('paired_end',{}).get('fastp', {}).get('params') or ''
+            kit_args = config['filter']['trim'].get('fastp', {}).get('params', '')
         threads:
             1
         log:
@@ -112,7 +111,7 @@ else:
         params:
             args = '--low_complexity_filter --overrepresentation_analysis --overrepresentation_sampling 10000 ',
             adapter_arg = '--adapter_sequence {}'.format(ADAPTER) if ADAPTER else '',
-            kit_args = LIBPREP.get('single_end',{}).get('fastp', {}).get('params') or ''
+            kit_args = config['filter']['trim'].get('fastp', {}).get('params', '')
         log:
             json = 'logs/{sample}/{sample}.fastp.json'
         singularity:
@@ -132,7 +131,7 @@ else:
         params:
             args = '--low_complexity_filter --overrepresentation_analysis --overrepresentation_sampling 10000 ',
             adapter_arg = '--adapter_sequence {}'.format(ADAPTER) if ADAPTER else '',
-            kit_args = LIBPREP.get('single_end',{}).get('fastp', {}).get('params') or ''
+            kit_args = config['filter']['trim'].get('fastp', {}).get('params', '')
         log:
             json = 'logs/{sample}/{sample}.fastp.json'
         singularity:

@@ -3,21 +3,10 @@
 Snakemake rules for aligning rna-seq fastq files to genome.
 
 STAR, https://github.com/alexdobin/STAR
-HISAT2
-
 
 """
-
-
 ALIGN_INTERIM = join(INTERIM_DIR, 'rnaseq', 'align')
-
-extra_conf_fn = srcdir('align.config')
-if os.path.exists(extra_conf_fn):
-    with open(extra_conf_fn) as fh:
-        c  = yaml.load(fh) or {}
-        update_config2(config, c)
-
-ALIGNER = config.get('align', {}).get('method', 'star')
+ALIGNER = config['align']['genome']['aligner']
         
 def get_sorted_bam(wildcards):
     return join(ALIGN_INTERIM, ALIGNER, wildcards.sample + '.sorted.bam')
@@ -25,8 +14,6 @@ def get_sorted_bam(wildcards):
 def get_namesorted_bam(wildcards):
     return join(ALIGN_INTERIM, ALIGNER, wildcards.sample + '.namesorted.bam')
 
-include:
-    'filter.rules'
 include:
     'align/star.rules'
 include:

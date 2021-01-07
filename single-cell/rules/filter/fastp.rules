@@ -1,10 +1,4 @@
 #-*- mode:snakemake -*-
-extra_conf_fn = srcdir('fastp.config')
-if os.path.exists(extra_conf_fn):
-    with open(extra_conf_fn) as fh:
-        c  = yaml.load(fh, Loader=Loader) or {}
-        update_config2(config, c)
-
 
 rule fastp_interleave_fastq:
     input:
@@ -23,7 +17,7 @@ rule fastp_se:
     output:
         join(FILTER_INTERIM, 'fastp_se', '{sample}_R1.fastq.gz')
     params:
-        config['filter']['fastp']['params']
+        config['filter']['trim']['fastp']['params']
     log:
         json = 'logs/{sample}/fastp.json',
         html = 'logs/{sample}/fastp.html'
@@ -43,7 +37,7 @@ rule fastp_pe:
     singularity:
         'docker://' + config['docker']['fastp']
     params:
-        config['filter']['fastp']['params']
+        config['filter']['trim']['fastp']['params']
     log:
         json = 'logs/{sample}/fastp.json',
         html = 'logs/{sample}/fastp.html'        
@@ -66,7 +60,7 @@ rule fastp_10x_R2:
     singularity:
         'docker://' + config['docker']['fastp']
     params:
-        config['filter']['fastp']['params']
+        config['filter']['trim']['fastp']['params']
     log:
         json = 'logs/{sample}/fastp.json',
         html = 'logs/{sample}/fastp.html' 

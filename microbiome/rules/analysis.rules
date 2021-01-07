@@ -1,10 +1,4 @@
-import glob
-
-extra_conf_fn = srcdir('analysis.config')
-if os.path.exists(extra_conf_fn):
-    with open(extra_conf_fn) as fh:
-        c  = yaml.load(fh, Loader=Loader) or {}
-        update_config2(config, c)
+#-*- mode:snakemake -*-
 
 ANALYSIS_INTERIM = join(INTERIM_DIR, 'microbiome', 'analysis')
 MODELS = list(config.get('models', {}).keys())

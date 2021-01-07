@@ -9,12 +9,6 @@ https://lncipedia.org/downloads/lncipedia_5_2/lncipedia_5_2_ensembl_92_genes.txt
 
 """
 
-# config
-extra_conf_fn = srcdir('lncipedia.config')
-if os.path.exists(extra_conf_fn):
-    with open(extra_conf_fn) as fh:
-        c  = yaml.load(fh, Loader=Loader) or {}
-        update_config2(config, c)
 
 RELEASE = config['db']['lincipedia']['release']
 try:
@@ -64,4 +58,6 @@ rule lincipedia_gtf:
         echo 'LNCipedia GTF,{LNC_RELEASE},{LNC_GTF},{params.date}' > {log}
         """
 
-                 
+
+rule lincipedia_db_all:
+    

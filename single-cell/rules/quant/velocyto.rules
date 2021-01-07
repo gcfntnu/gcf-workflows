@@ -1,16 +1,10 @@
 #-*- mode:snakemake -*-
 
-extra_conf_fn = srcdir('velocyto.config')
-if os.path.exists(extra_conf_fn):
-    with open(extra_conf_fn) as fh:
-        c  = yaml.load(fh, Loader=Loader) or {}
-        update_config2(config, c)
-
-#config
-ORG = config.get('organism', 'homo_sapiens')
 VELOCYTO_INTERIM = join(QUANT_INTERIM, 'velocyto')
 VELOCYTO_CONF = config['quant'].get('velocyto', {})
 
+#config
+ORG = config.get('organism', 'homo_sapiens')
 
 include:
     join(GCFDB_DIR, 'ucsc.db')

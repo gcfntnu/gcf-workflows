@@ -73,7 +73,7 @@ def assembly_hisat2_input(wildcards):
 
 def assembly_hisat2_strand():
     PE = len(config['read_geometry']) > 1
-    KIT_STRAND = LIBPREP.get('strand', 'reverse')
+    KIT_STRAND = config.get('read_orientation', 'reverse')
     if PE:
         if KIT_STRAND == 'forward':
             HISAT_STRAND = 'FR'

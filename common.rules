@@ -1,4 +1,3 @@
-FASTQ_DIR = config.get('fastq_dir', 'data/raw/fastq')
 
 rule sample_info:
     output:
