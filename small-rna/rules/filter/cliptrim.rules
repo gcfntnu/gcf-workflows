@@ -54,7 +54,7 @@ rule trim_fastp:
     output:
         fastq = temp(join(FILTER_INTERIM, 'fastp_trimmed', '{sample}.fastq'))
     params:
-        args = config['filter']['trim']['fastp']['trim_args'],
+        args = config['filter']['fastp']['trim_args'],
         adapter = '' if not config.get('adapter') else '-a {} '.format(config.get('adapter'))
     threads:
         4
@@ -73,7 +73,7 @@ rule filter_fastp:
     output:
         fastq = temp(join(FILTER_INTERIM, 'fastp', '{sample}.fastq'))
     params:
-        args = config['filter']['trim']['fastp']['params'],
+        args = config['filter']['fastp']['args'],
         adapter = config['adapter']
     threads:
         4
