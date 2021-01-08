@@ -7,7 +7,7 @@ Fastp is round in two rounds in order to
 
 rule filter_merge_fastq:
     input:
-        R1 = _get_raw_fastq
+        unpack(get_raw_fastq)
     output:
         R1 = temp(join(FILTER_INTERIM, 'merged_fastq', '{sample}.fastq'))
     shell:
