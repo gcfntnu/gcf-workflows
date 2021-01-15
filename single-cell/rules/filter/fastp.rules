@@ -2,8 +2,7 @@
 
 rule fastp_interleave_fastq:
     input:
-        R1 = _filter_get_raw_R1,
-        R2 = _filter_get_raw_R2,
+        unpack(get_raw_fastq)
     output:
         pipe(join(FILTER_INTERIM, 'interleaved_fastq', '{sample}.fastq'))
     params:
@@ -13,7 +12,7 @@ rule fastp_interleave_fastq:
 
 rule fastp_se:
     input:
-        _filter_get_raw_R1
+        unpack(get_raw_fastq)
     output:
         join(FILTER_INTERIM, 'fastp_se', '{sample}_R1.fastq.gz')
     params:
@@ -24,7 +23,7 @@ rule fastp_se:
     singularity:
         'docker://' + config['docker']['fastp']
     shell:
-        ' zcat {input} | fastp --stdin -o {output.R1} -j {logs.json} -h {log.html} {params}'
+        ' zcat {input.R1} | fastp --stdin -o {output.R1} -j {logs.json} -h {log.html} {params}'
 
 rule fastp_pe:
     input:
@@ -46,15 +45,15 @@ rule fastp_pe:
 
 rule fastp_10x_R1:
     input:
-        _filter_get_raw_R1
+        unpack(get_raw_fastq)
     output:
         temp(join(FILTER_INTERIM, 'fastp_10x', '{sample}_R1.fastq'))
     shell:
-        ' zcat {input} > {output}'
+        ' zcat {input.R1} > {output}'
         
 rule fastp_10x_R2:
     input:
-        _filter_get_raw_R2
+        unpack(get_raw_fastq)
     output:
         temp(join(FILTER_INTERIM, 'fastp_10x', '{sample}_R2.trimmed.fastq'))
     singularity:
@@ -65,7 +64,7 @@ rule fastp_10x_R2:
         json = 'logs/{sample}/fastp.json',
         html = 'logs/{sample}/fastp.html' 
     shell:
-        'zcat {input} | fastp --stdin -o {output} -j {log.json} -h {log.html} {params}'
+        'zcat {input.R2} | fastp --stdin -o {output} -j {log.json} -h {log.html} {params}'
 
 rule fastp_10x_repair:
     input:

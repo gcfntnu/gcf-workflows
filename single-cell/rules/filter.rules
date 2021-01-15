@@ -1,40 +1,17 @@
 #-*- mode:snakemake -*-
 
 FILTER_INTERIM = join(INTERIM_DIR, 'singlecell', 'filter')
-
-def _filter_get_raw_R1(wildcards):    
-    sscol = config.get('merge', {}).get('sscol', 'Sample_ID')
-    skip = config.get('merge', {}).get('skip', True)
-    if sscol == 'Sample_ID' or skip:
-        fastq_files = config['samples'][wildcards.sample]['R1'].split(',')
-    else:
-        fastq_files = []
-        for sample, values in config['samples'].items():
-            if values[sscol] == wildcards.sample:
-                fastq_files.extend(values['R1'].split(','))
-    return [os.path.join(FASTQ_DIR, i) for i in fastq_files]
-
-def _filter_get_raw_R2(wildcards):
-    sscol = config.get('merge', {}).get('sscol', 'Sample_ID')
-    skip = config.get('merge', {}).get('skip', True)
-    if sscol == 'Sample_ID' or skip:
-        fastq_files = config['samples'][wildcards.sample]['R2'].split(',')
-    else:
-        fastq_files = []
-        for sample, values in config['samples'].items():
-            if values[sscol] == wildcards.sample:
-                fastq_files.extend(values['R1'].split(','))
-    return [os.path.join(FASTQ_DIR, i) for i in fastq_files]
     
 include:
     'filter/fastp.rules'
-    
-def get_filtered_fastq_R2(wildcards):
-    if config['filter']['trim']['quantifier'] == 'skip':
-        return _filter_get_raw_R2(wildcards)
-    return [join(FILTER_INTERIM, 'fastp_10x', '{}_S1_L000_R2_001.fastq.gz'.format(wildcards.sample))]
+
 
 def get_filtered_fastq_R1(wildcards):
     if config['filter']['trim']['quantifier'] == 'skip':
-        return _filter_get_raw_R1(wildcards)
+        return get_raw_fastq(wildcards)['R1']
     return [join(FILTER_INTERIM, 'fastp_10x', '{}_S1_L000_R1_001.fastq.gz'.format(wildcards.sample))]
+
+def get_filtered_fastq_R2(wildcards):
+    if config['filter']['trim']['quantifier'] == 'skip':
+        return get_raw_fastq(wildcards)['R2']
+    return [join(FILTER_INTERIM, 'fastp_10x', '{}_S1_L000_R2_001.fastq.gz'.format(wildcards.sample))]
