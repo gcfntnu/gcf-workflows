@@ -16,9 +16,9 @@ rule filtered_fastq:
     input:
         _filter_clean_fastq
     output:
-        fastq = join(FILTER_INTERIM, 'cleaned', '{sample}_R1.fastq')
+        fastq = join(FILTER_INTERIM, 'cleaned', '{sample}_R{readnum}.fastq')
     shell:
-        'cp -L {input} {output}'
+        'cp -Lf {input} {output}'
         
 def get_processed_fastq(wildcards):
     return join(FILTER_INTERIM, 'cleaned', '{sample}_R1.fastq')

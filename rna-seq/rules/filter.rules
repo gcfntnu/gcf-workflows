@@ -24,37 +24,42 @@ include:
     'filter/contaminants.rules'
 include:
     'filter/rrna.rules'
+
+rule clean_fastq:
+    input:
+        join(FILTER_INTERIM, 'merged_fastq', 'rrna', config['filter']['ribosomal']['quantifier'], '{sample}_R{readnum}.fastq')
+    output:
+        join(FILTER_INTERIM, 'cleaned', '{sample}_R{readnum}.fastq')
+    shell:
+        'cp -fL {input} {output} '
+
+rule clean_fastq_compress:
+    input:
+        rules.clean_fastq.output
+    output:
+        join(FILTER_INTERIM, 'cleaned', '{sample}_R{readnum}.fastq.gz')
+    shell:
+        'gzip {input}'
     
 def get_processed_fastq(wildcards):
-    ZIP_FILTERED_FASTQ = False #FIXME: options
-    DST_PTH = join(FILTER_INTERIM, '{}', 'rrna', config['filter']['ribosomal']['quantifier'])
+    COMPRESS = config['filter'].get('compress_filtered_fastq', False)
+    DST_PTH = join(FILTER_INTERIM, 'cleaned')
     fastq = get_raw_fastq(wildcards)
     R1 = [i.split(FASTQ_DIR)[-1][1:] for i in fastq['R1']]
-    if not ZIP_FILTERED_FASTQ:
+    if not COMPRESS:
         R1 = [i.split('.gz')[0] for i in R1 if i.endswith('.gz')]
-
     R2 = fastq.get('R2')
     if R2:
         R2 = [i.split(FASTQ_DIR)[-1][1:] for i in fastq['R2']]
-        if not ZIP_FILTERED_FASTQ:
+        if not COMPRESS:
             R2 = [i.split('.gz')[0] for i in R2 if i.endswith('.gz')]
-    
-    fastq_merge = config['filter']['fastq_merge']
-    if fastq_merge['skip']:
-        out = DST_PTH.format('fastq')
-        R1 = [join(out, i) for i in R1]
-        if R2:
-            R2 = [join(out, i) for i in R2]
+    if COMPRESS:
+        ext = '.fastq.gz'
     else:
-        out = DST_PTH.format('merged_fastq')
-        if ZIP_FILTERED_FASTQ:
-            ext = '.fastq.gz'
-        else:
-            ext = '.fastq'
-        R1 = [join(out, wildcards.sample + '_R1' + ext)]
-        if R2:
-            R2 = [join(out, wildcards.sample + '_R2' + ext)]
+        ext = '.fastq'
+    R1 = [join(DST_PTH, wildcards.sample + '_R1' + ext)]
     if R2:
+        R2 = [join(DST_PTH, wildcards.sample + '_R2' + ext)]
         out = {'R1': R1, 'R2': R2}
     else:
         out = {'R1': R1}

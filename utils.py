@@ -128,8 +128,8 @@ def get_raw_fastq(wildcards):
         return {'R1': R1}
     
 def get_processed_fastq(wildcards):
-    ZIP_FILTERED_FASTQ = config['filter'].get('compress_filtered_fastq', False)
-        
+    ZIP_FILTERED_FASTQ = config['filter']['zip_filtered_fastq']
+    DST_PTH = join(FILTER_INTERIM, 'merged_fastq', 'cleaned')
     fastq = get_raw_fastq(wildcards)
     R1 = [i.split(FASTQ_DIR)[-1][1:] for i in fastq['R1']]
     if not ZIP_FILTERED_FASTQ:
@@ -139,23 +139,13 @@ def get_processed_fastq(wildcards):
         R2 = [i.split(FASTQ_DIR)[-1][1:] for i in fastq['R2']]
         if not ZIP_FILTERED_FASTQ:
             R2 = [i.split('.gz')[0] for i in R2 if i.endswith('.gz')]
-    
-    # merge fastq files for each sample
-    if config['filter']['fastq_merge']['skip']:
-        output_path =  join(FILTER_INTERIM, 'fastq', 'clean')
-        R1 = [join(output_path, i) for i in R1]
-        if R2:
-            R2 = [join(output_path, i) for i in R2]
+    if ZIP_FILTERED_FASTQ:
+        ext = '.fastq.gz'
     else:
-        output_path =  join(FILTER_INTERIM, 'merged_fastq', 'clean')
-        if ZIP_FILTERED_FASTQ:
-            ext = '.fastq.gz'
-        else:
-            ext = '.fastq'
-        R1 = [join(output_path, wildcards.sample + '_R1' + ext)]
-        if R2:
-            R2 = [join(output_path, wildcards.sample + '_R2' + ext)]
+        ext = '.fastq'
+    R1 = [join(DST_PTH, wildcards.sample + '_R1' + ext)]
     if R2:
+        R2 = [join(DST_PTH, wildcards.sample + '_R2' + ext)]
         out = {'R1': R1, 'R2': R2}
     else:
         out = {'R1': R1}
