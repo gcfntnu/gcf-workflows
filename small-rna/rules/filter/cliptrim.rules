@@ -51,6 +51,7 @@ rule filter_umidedup:
     shell:
         'bioseqzip_collapse -i {input} --csv-report -f fastq -o {params.outdir} -t {threads}'
 
+
 rule trim_fastp:
     input:
         fastq = rules.filter_umidedup.output if config['filter'].get('dedup', False) else rules.filter_merge_fastq.output
