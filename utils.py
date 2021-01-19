@@ -129,7 +129,7 @@ def get_raw_fastq(wildcards):
     
 def get_processed_fastq(wildcards):
     ZIP_FILTERED_FASTQ = config['filter']['zip_filtered_fastq']
-    DST_PTH = join(FILTER_INTERIM, 'merged_fastq', 'cleaned')
+    DST_PTH = join(FILTER_INTERIM, 'cleaned')
     fastq = get_raw_fastq(wildcards)
     R1 = [i.split(FASTQ_DIR)[-1][1:] for i in fastq['R1']]
     if not ZIP_FILTERED_FASTQ:

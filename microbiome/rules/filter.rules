@@ -20,7 +20,7 @@ include:
 
 rule clean_fastq:
     input:
-        join(FILTER_INTERIM, 'merged_fastq', 'trimmed', 'fastp', '{sample}_R{readnum}.fastq')
+        join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', '{sample}_R{readnum}.fastq')
     output:
         join(FILTER_INTERIM, 'cleaned', '{sample}_R{readnum}.fastq')
     shell:

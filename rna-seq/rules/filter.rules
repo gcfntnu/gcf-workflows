@@ -27,7 +27,7 @@ include:
 
 rule clean_fastq:
     input:
-        join(FILTER_INTERIM, 'merged_fastq', 'rrna', config['filter']['ribosomal']['quantifier'], '{sample}_R{readnum}.fastq')
+        join(FILTER_INTERIM, 'fastq', 'rrna', config['filter']['ribosomal']['quantifier'], '{sample}_R{readnum}.fastq')
     output:
         join(FILTER_INTERIM, 'cleaned', '{sample}_R{readnum}.fastq')
     shell:
