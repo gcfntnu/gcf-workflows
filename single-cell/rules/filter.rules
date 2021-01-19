@@ -9,9 +9,9 @@ include:
 def get_filtered_fastq_R1(wildcards):
     if config['filter']['trim']['quantifier'] == 'skip':
         return get_raw_fastq(wildcards)['R1']
-    return [join(FILTER_INTERIM, 'fastp_10x', '{}_S1_L000_R1_001.fastq.gz'.format(wildcards.sample))]
+    return [join(FILTER_INTERIM, 'cleaned', '{}_S1_L000_R1_001.fastq.gz'.format(wildcards.sample))]
 
 def get_filtered_fastq_R2(wildcards):
     if config['filter']['trim']['quantifier'] == 'skip':
         return get_raw_fastq(wildcards)['R2']
-    return [join(FILTER_INTERIM, 'fastp_10x', '{}_S1_L000_R2_001.fastq.gz'.format(wildcards.sample))]
+    return [join(FILTER_INTERIM, 'cleaned', '{}_S1_L000_R2_001.fastq.gz'.format(wildcards.sample))]
