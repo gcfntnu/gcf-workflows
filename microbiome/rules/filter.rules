@@ -18,13 +18,11 @@ FILTER_INTERIM = join(INTERIM_DIR, 'microbiome', 'filter')
 include:
     'filter/fastp.rules'
 
-
-rule _filter:
+rule clean_fastq:
     input:
-        unpack(get_processed_fastq)
+        join(FILTER_INTERIM, 'merged_fastq', 'trimmed', 'fastp', '{sample}_R{readnum}.fastq')
     output:
-        temp(touch('{sample}.filtered'))
+        join(FILTER_INTERIM, 'cleaned', '{sample}_R{readnum}.fastq')
+    shell:
+        'cp -fL {input} {output} '
 
-rule filter_all:
-    input:
-        expand(rules._filter.output, sample=SAMPLES)
