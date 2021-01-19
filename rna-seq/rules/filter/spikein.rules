@@ -2,10 +2,10 @@
 """
 
 """
-from os.path import join
+include:
+    join(GCFDB_DIR, 'spikein.db')
 
 SPIKE_DIR = join(EXT_DIR, 'spikein')
-
 SPIKE_CONF = FILTER_CONF.get('spikein')
 if SPIKE_CONF is None:
    config['filter']['spikein'] = SPIKE_CONF = {}
