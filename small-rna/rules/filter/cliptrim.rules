@@ -41,12 +41,15 @@ rule filter_umidedup:
     input:
         fastq = rules.filter_merge_fastq.output
     output:
-        temp(join(FILTER_INTERIM, 'dedup', '{sample}.dedup.fastq'))
+        temp(join(FILTER_INTERIM, 'dedup', '{sample}.collapsed.fq'))
+    params:
+        outdir = join(FILTER_INTERIM, 'dedup')
+    threads:
+        2
     singularity:
-        'docker://' + config['docker']['fastx_toolkit']
+        'docker://' + config['docker']['bioseqzip']
     shell:
-        'fastx_collapser -i {input} -o {output}'
-
+        'bioseqzip_collapse -i {input} --csv-report -f fastq -o {params.outdir} -t {threads}'
 
 rule trim_fastp:
     input:
@@ -58,6 +61,9 @@ rule trim_fastp:
         adapter = '' if not config.get('adapter') else '-a {} '.format(config.get('adapter'))
     threads:
         4
+    log:
+        json = join(FILTER_INTERIM, 'fastp_trimmed', '{sample}.json'),
+        html = join(FILTER_INTERIM, 'fastp_trimmed', '{sample}.html')
     singularity:
         'docker://' + config['docker']['fastp']
     shell:
@@ -65,7 +71,9 @@ rule trim_fastp:
         '-i {input.fastq} '
         '-o {output.fastq} '
         '{params.adapter} '
-        '{params.args} ' 
+        '{params.args} '
+        '--json {log.json} '
+        '--html {log.html} '
         
 rule filter_fastp:
     input:
