@@ -106,29 +106,20 @@ def load_model(model_yaml_file):
 
 
 def get_raw_fastq(wildcards):
-    """Returns fastq files per sample.
-
-    Support for merging fastq files of multiple samples by given (config) samplesheet column
+    """Returns path to fastq files per sample.
     """
-    sample_merge = config['filter']['sample_merge']['step'] == 'filter'
-    if not sample_merge or config['filter']['sample_merge']['sscol'] == 'Sample_ID':
-        r1 = config['samples'][wildcards.sample]['R1']
-        R1 = r1.split(',')
-        R2 = config['samples'][wildcards.sample].get('R2', [])
-        if R2 == '':
-            R2 = []
-        if R2:
-            R2 = R2.split(',')
-    else:
-        R1, R2 = [], []
-        sscol = config['filter']['sample_merge']['sscol']
-        for sample, values in config['samples'].items():
-            if values[sscol] == wildcards.sample:
-                r1 = values['R1'].split(',')
-                R1.extend(r1)
-                if values.get('R2'):
-                    r2 = values['R2'].split(',')
-                    R2.extend(r2)
+
+    R1 = config['samples'][wildcards.sample].get('R1', [])
+    R2 = config['samples'][wildcards.sample].get('R2', [])
+    if R1 == '':
+        R1 = []
+    if R2 == '':
+        R2 = []
+    if R1:
+        R1 = R1.split(',')
+    if R2:
+        R2 = R2.split(',')
+
     R1 = [join(FASTQ_DIR, i) for i in R1]
     if R2:
         R2 = [join(FASTQ_DIR, i) for i in R2]
