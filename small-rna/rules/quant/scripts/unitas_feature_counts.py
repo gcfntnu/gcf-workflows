@@ -14,14 +14,15 @@ patt2 = re.compile(r'\-\(\d+\)$')
 patt3 = re.compile('\(.*\-\>.*\)$') 
 trna_patt = re.compile('(.*)(tRNA-\w{3}-\w{3})(.*)')
 
-def parse_lines(txt, simplify_trna=True, simplify_mirna=False):
-    header = txt.pop(0)
+def parse_lines(fh, simplify_trna=True, simplify_mirna=False):
+    header = fh.readline().rstrip('\n')
     if not 'annotation(s)' in header:
         raise ValueError
     seq_counts = collections.defaultdict(int)
     seq_anno = collections.defaultdict(set)
     anno_seq = collections.defaultdict(set)
     for line in txt:
+        line = line.rstrip('\n')
         els = line.split('\t')
         seq = els[0]
         count = int(els[1])
@@ -122,8 +123,8 @@ if __name__ == '__main__':
     for fn in args.filenames:
         sample_id = os.path.dirname(fn).split(os.path.sep)[-1]
         with open(fn) as fh:
-            txt = fh.read().splitlines()
-        seq_counts, seq_anno, anno_seq = parse_lines(txt)
+            #txt = fh.read().splitlines()
+            seq_counts, seq_anno, anno_seq = parse_lines(fh)
         counts = make_feature_counts(seq_counts, seq_anno, anno_seq, frac_count=args.frac)
         df = pd.DataFrame.from_dict(counts, orient='index')
         df.columns = [sample_id]
