@@ -2,12 +2,10 @@
 """
 
 """
-from os.path import join
+include:
+    join(GCFDB_DIR, 'spikein.db')
 
 SPIKE_DIR = join(EXT_DIR, 'spikein')
-FILTER_CONF = config.get('filter')
-if FILTER_CONF is None:
-   config['filter'] = FILTER_CONF = {}
 SPIKE_CONF = FILTER_CONF.get('spikein')
 if SPIKE_CONF is None:
    config['filter']['spikein'] = SPIKE_CONF = {}
@@ -15,7 +13,7 @@ REF = config['filter']['spikein'].get('ref', 'ERCC092')
 PE = len(config['read_geometry']) > 1
 
 def get_trimmed_fastq(wildcards):
-   trimmer = config['filter']['trim']['trimmer']
+   trimmer = config['filter']['trim']['quantifier']
    R1 = join(FILTER_INTERIM, '{merge}', 'trimmed', trimmer, '{sample}_R1.fastq')
    if PE:
       R2 = join(FILTER_INTERIM, '{merge}', 'trimmed', trimmer, '{sample}_R2.fastq')

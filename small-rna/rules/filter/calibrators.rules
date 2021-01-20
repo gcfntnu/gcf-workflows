@@ -3,7 +3,7 @@
 from os.path import join
 from snakemake.workflow import srcdir
 
-SPIKE_REF = config['filter']['spikein'].get('ref', '')   
+SPIKE_REF = config['filter']['spikein'].get('ref', '')
 
 def get_spikein_index():
     ref = SPIKE_REF.lower()

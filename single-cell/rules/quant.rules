@@ -3,7 +3,6 @@ from collections import defaultdict
 
 QUANT_INTERIM = join(INTERIM_DIR, 'singlecell', 'quant')
 
-print(config['quant'].keys())
 if not config['quant']['aggregate']['skip']:
     AGGR_IDS = defaultdict(list)
     groupby = config['quant']['aggregate'].get('groupby', 'all_samples')

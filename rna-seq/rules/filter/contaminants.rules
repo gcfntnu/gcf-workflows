@@ -3,10 +3,6 @@
 NOTES:
 Need to build index per run as the contaminants fasta is config dependent.
 """
-from os.path import join
-
-CONT_DIR = join(EXT_DIR, 'contaminants')
-
 
 def get_spikein_fastq(wildcards):
    q = config['filter']['spikein']['quantifier']

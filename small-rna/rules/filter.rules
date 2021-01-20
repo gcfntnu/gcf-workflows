@@ -1,27 +1,6 @@
 #-*- mode:snakemake -*-
 
 FILTER_INTERIM = join(INTERIM_DIR, 'smallrna', 'filter')
-
-def _get_raw_fastq(wildcards):
-    """Returns fastq files per sample.
-
-    Support for merging fastq files of multiple samples by given (config) samplesheet column
-    """
-    if config['filter']['sample_merge']['skip'] or config['filter']['sample_merge']['sscol'] == 'Sample_ID':
-        r1 = config['samples'][wildcards.sample]['R1']
-        R1 = r1.split(',')
-    else:
-        R1 = []
-        sscol = config['filter']['sample_merge']['sscol']
-        for sample, values in config['samples'].items():
-            if not sscol in values:
-                raise ValueError('Sample merge column: `{}` not present in config!'.format(sscol))
-            if values[sscol] == wildcards.sample:
-                r1 = values['R1'].split(',')
-                R1.extend(r1)
-    
-    R1 = [join(FASTQ_DIR, i) for i in R1]
-    return R1
        
 include:
     'filter/cliptrim.rules'
@@ -37,9 +16,9 @@ rule filtered_fastq:
     input:
         _filter_clean_fastq
     output:
-        fastq = join(FILTER_INTERIM, 'cleaned', '{sample}_R1.fastq')
+        fastq = join(FILTER_INTERIM, 'cleaned', '{sample}_R{readnum}.fastq')
     shell:
-        'cp -L {input} {output}'
+        'cp -Lf {input} {output}'
         
 def get_processed_fastq(wildcards):
     return join(FILTER_INTERIM, 'cleaned', '{sample}_R1.fastq')

@@ -21,10 +21,10 @@ if PE:
         input:
             rules.fastp_interleave_fastq.output
         output:
-            R1 = temp(join(FILTER_INTERIM, 'merged_fastq', 'trimmed', 'fastp', '{sample}_R1.fastq')),
-            R2 = temp(join(FILTER_INTERIM, 'merged_fastq', 'trimmed', 'fastp', '{sample}_R2.fastq')),
-            log_html = join(FILTER_INTERIM, 'merged_fastq', 'trimmed', 'fastp', 'qc', '{sample}.html'),
-            log_json = join(FILTER_INTERIM, 'merged_fastq', 'trimmed', 'fastp', 'qc', '{sample}.json')
+            R1 = temp(join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', '{sample}_R1.fastq')),
+            R2 = temp(join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', '{sample}_R2.fastq')),
+            log_html = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', 'qc', '{sample}.html'),
+            log_json = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', 'qc', '{sample}.json')
         threads:
             1
         params:
@@ -38,35 +38,14 @@ if PE:
         shell:
             'cat {input} | fastp --stdin --interleaved_in -o {output.R1} -O {output.R2} -j {output.log_json} -h {output.log_html} --thread {threads} {params} && cp {output.log_json} {log.json} '
 
-    rule fastp:
-        input:
-            unpack(get_raw_fastq)
-        output:
-            R1 = temp(join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', '{sample}_R1.fastq')),
-            R2 = temp(join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', '{sample}_R2.fastq')),
-            log_html = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', 'qc', '{sample}.html'),
-            log_json = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', 'qc', '{sample}.json')
-        params:
-            args = '--low_complexity_filter --overrepresentation_analysis --overrepresentation_sampling 10000 ',
-            adapter_arg = '--adapter_sequence {} --adapter_sequence_r2 {} '.format(ADAPTER, ADAPTER2) if ADAPTER else '--detect_adapter_for_pe ',
-            kit_args = config['filter']['trim'].get('fastp', {}).get('params', '')
-        threads:
-            1
-        log:
-            json = 'logs/{sample}/{sample}.fastp.json'
-        singularity:
-            'docker://' + config['docker']['fastp']
-        shell:
-            'fastp -i {input.R1} -I {input.R2} -o {output.R1} -O {output.R2} -j {output.log_json} -h {output.log_html} --thread {threads} {params} && cp {output.log_json} {log.json} '
-
     rule fastp_join_skip:
         input:
             join(FILTER_INTERIM, 'interleaved_fastq', '{sample}.fastq')
         output:
-            R1 = temp(join(FILTER_INTERIM, 'merged_fastq', 'trimmed', 'skip', '{sample}_R1.fastq')),
-            R2 = temp(join(FILTER_INTERIM, 'merged_fastq', 'trimmed', 'skip' '{sample}_R2.fastq')),
-            log_html = join(FILTER_INTERIM, 'merged_fastq', 'trimmed', 'fastp', 'qc', '{sample}.html'),
-            log_json = join(FILTER_INTERIM, 'merged_fastq', 'trimmed', 'fastp', 'qc', '{sample}.json')
+            R1 = temp(join(FILTER_INTERIM, 'fastq', 'trimmed', 'skip', '{sample}_R1.fastq')),
+            R2 = temp(join(FILTER_INTERIM, 'fastq', 'trimmed', 'skip' '{sample}_R2.fastq')),
+            log_html = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', 'qc', '{sample}.html'),
+            log_json = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', 'qc', '{sample}.json')
         threads:
             1
         params:
@@ -77,35 +56,15 @@ if PE:
             'docker://quay.io/biocontainers/fastp:0.19.7--hdbcaa40_0'
         shell:
             'cat {input} | fastp --stdin --interleaved_in -o {output.R1} -O {output.R2} -j {output.log_json} -h {output.log_html} --thread {threads} {params}  && cp {output.log_json} {log.json} '
-            
-    rule fastp_skip:
-        input:
-            unpack(get_raw_fastq)
-        output:
-            R1 = temp(join(FILTER_INTERIM, 'fastq', 'trimmed', 'skip', '{sample}_R1.fastq')),
-            R2 = temp(join(FILTER_INTERIM, 'fastq', 'trimmed', 'skip' '{sample}_R2.fastq')),
-            log_html = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', 'qc', '{sample}.html'),
-            log_json = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', 'qc', '{sample}.json')
-        params:
-        params:
-            args = '--overrepresentation_analysis --overrepresentation_sampling 10000 -A -Q -L -G ',
-        threads:
-            1
-        log:
-            json = 'logs/{sample}/{sample}.fastp.json'
-        singularity:
-            'docker://' + config['docker']['fastp']
-        shell:
-            'fastp -i {input.R1} -I {input.R2} -o {output.R1} -O {output.R2} -j {output.log_json} -h {output.log_html} --thread {threads} {params} && cp {output.log_json} {log.json} '
 
 else:
     rule fastp_join:
         input:
             unpack(get_raw_fastq)
         output:
-            R1 = temp(join(FILTER_INTERIM, 'merged_fastq', 'trimmed', 'fastp', '{sample}_R1.fastq')),
-            log_html = join(FILTER_INTERIM, 'merged_fastq', 'trimmed', 'fastp', 'qc', '{sample}.html'),
-            log_json = join(FILTER_INTERIM, 'merged_fastq', 'trimmed', 'fastp', 'qc', '{sample}.json')           
+            R1 = temp(join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', '{sample}_R1.fastq')),
+            log_html = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', 'qc', '{sample}.html'),
+            log_json = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', 'qc', '{sample}.json')           
         threads:
             1        
         params:
@@ -118,34 +77,14 @@ else:
             'docker://' + config['docker']['fastp']
         shell:
             ' zcat {input} | fastp --stdin -o {output.R1} -j {output.log_json} -h {output.log_html} --thread {threads} {params} && cp {output.log_json} {log.json} '
-
-    rule fastp:
-        input:
-            unpack(get_raw_fastq)
-        output:
-            R1 = temp(join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', '{sample}_R1.fastq')),
-            log_html = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', 'qc', '{sample}.html'),
-            log_json = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', 'qc', '{sample}.json')
-        threads:
-            1
-        params:
-            args = '--low_complexity_filter --overrepresentation_analysis --overrepresentation_sampling 10000 ',
-            adapter_arg = '--adapter_sequence {}'.format(ADAPTER) if ADAPTER else '',
-            kit_args = config['filter']['trim'].get('fastp', {}).get('params', '')
-        log:
-            json = 'logs/{sample}/{sample}.fastp.json'
-        singularity:
-            'docker://' + config['docker']['fastp']
-        shell:
-            'fastp -i {input.R1} -o {output.R1} -j {output.log_json} -h {output.log_html} --thread {threads} {params} && cp {output.log_json} {log.json} '
-            
+        
     rule fastp_join_skip:
         input:
             unpack(get_raw_fastq)
         output:
-            R1 = temp(join(FILTER_INTERIM, 'merged_fastq', 'trimmed', 'skip', '{sample}_R1.fastq')),
-            log_html = join(FILTER_INTERIM, 'merged_fastq', 'trimmed', 'fastp', 'qc', '{sample}.html'),
-            log_json = join(FILTER_INTERIM, 'merged_fastq', 'trimmed', 'fastp', 'qc', '{sample}.json')               
+            R1 = temp(join(FILTER_INTERIM, 'fastq', 'trimmed', 'skip', '{sample}_R1.fastq')),
+            log_html = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', 'qc', '{sample}.html'),
+            log_json = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', 'qc', '{sample}.json')               
         threads:
             1        
         params:
@@ -156,21 +95,3 @@ else:
             'docker://' + config['docker']['fastp']
         shell:
             ' zcat {input} | fastp --stdin -o {output.R1} -j {output.log_json} -h {output.log_html} --thread {threads} {params} && cp {output.log_json} {log.json} '
-
-    rule fastp_skip:
-        input:
-            unpack(get_raw_fastq)
-        output:
-            R1 = temp(join(FILTER_INTERIM, 'fastq', 'trimmed', 'skip', '{sample}_R1.fastq')),
-            log_html = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', 'qc', '{sample}.html'),
-            log_json = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', 'qc', '{sample}.json')
-        params:
-            args = '--overrepresentation_analysis --overrepresentation_sampling 10000 -A -Q -L -G',
-        threads:
-            1
-        log:
-            json = 'logs/{sample}/{sample}.fastp.json'
-        singularity:
-            'docker://' + config['docker']['fastp']
-        shell:
-            'fastp -i {input.R1} -o {output.R1} -j {output.log_json} -h {output.log_html} --thread {threads} {params} && cp {output.log_json} {log.json} ' 

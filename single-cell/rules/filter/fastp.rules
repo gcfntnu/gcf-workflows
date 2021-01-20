@@ -1,60 +1,16 @@
 #-*- mode:snakemake -*-
 
-rule fastp_interleave_fastq:
-    input:
-        R1 = _filter_get_raw_R1,
-        R2 = _filter_get_raw_R2,
-    output:
-        pipe(join(FILTER_INTERIM, 'interleaved_fastq', '{sample}.fastq'))
-    params:
-        script = srcdir('scripts/interleave_fastq.sh')
-    shell:
-        '{params.script} <(zcat {input.R1}) <(zcat {input.R2}) > {output}'
-
-rule fastp_se:
-    input:
-        _filter_get_raw_R1
-    output:
-        join(FILTER_INTERIM, 'fastp_se', '{sample}_R1.fastq.gz')
-    params:
-        config['filter']['trim']['fastp']['params']
-    log:
-        json = 'logs/{sample}/fastp.json',
-        html = 'logs/{sample}/fastp.html'
-    singularity:
-        'docker://' + config['docker']['fastp']
-    shell:
-        ' zcat {input} | fastp --stdin -o {output.R1} -j {logs.json} -h {log.html} {params}'
-
-rule fastp_pe:
-    input:
-        join(FILTER_INTERIM, 'interleaved_fastq', '{sample}.fastq')
-    output:
-        R1 = join(FILTER_INTERIM, 'fastp_pe', '{sample}_R1.fastq.gz'),
-        R2 = join(FILTER_INTERIM, 'fastp_pe', '{sample}_R2.fastq.gz')
-    threads:
-        3
-    singularity:
-        'docker://' + config['docker']['fastp']
-    params:
-        config['filter']['trim']['fastp']['params']
-    log:
-        json = 'logs/{sample}/fastp.json',
-        html = 'logs/{sample}/fastp.html'        
-    shell:
-        'cat {input} | fastp --stdin --interleaved_in -o {output.R1} -O {output.R2} -j {log.json} -h {log.html} {params}'
-
 rule fastp_10x_R1:
     input:
-        _filter_get_raw_R1
+        unpack(get_raw_fastq)
     output:
         temp(join(FILTER_INTERIM, 'fastp_10x', '{sample}_R1.fastq'))
     shell:
-        ' zcat {input} > {output}'
+        ' zcat {input.R1} > {output}'
         
 rule fastp_10x_R2:
     input:
-        _filter_get_raw_R2
+        unpack(get_raw_fastq)
     output:
         temp(join(FILTER_INTERIM, 'fastp_10x', '{sample}_R2.trimmed.fastq'))
     singularity:
@@ -65,7 +21,7 @@ rule fastp_10x_R2:
         json = 'logs/{sample}/fastp.json',
         html = 'logs/{sample}/fastp.html' 
     shell:
-        'zcat {input} | fastp --stdin -o {output} -j {log.json} -h {log.html} {params}'
+        'zcat {input.R2} | fastp --stdin -o {output} -j {log.json} -h {log.html} {params}'
 
 rule fastp_10x_repair:
     input:
@@ -88,8 +44,8 @@ rule fastp_10x:
     params:
         out = join(FILTER_INTERIM, 'fastp_10x')
     output:
-        R1 = join(FILTER_INTERIM, 'fastp_10x', '{sample}_S1_L000_R1_001.fastq.gz'),
-        R2 = join(FILTER_INTERIM, 'fastp_10x', '{sample}_S1_L000_R2_001.fastq.gz')   
+        R1 = join(FILTER_INTERIM, 'cleaned', '{sample}_S1_L000_R1_001.fastq.gz'),
+        R2 = join(FILTER_INTERIM, 'cleaned', '{sample}_S1_L000_R2_001.fastq.gz')   
     shell:
         """
         gzip {input.R1} -c > {output.R1}

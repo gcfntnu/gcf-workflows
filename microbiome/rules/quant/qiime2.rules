@@ -25,8 +25,8 @@ rule qiime2_librep_primers:
 
 checkpoint qiime2_region_split:
     input:
-        R1 = join(FILTER_INTERIM, 'merged_fastq', 'trimmed', 'fastp', '{sample}_R1.fastq'),
-        R2 = join(FILTER_INTERIM, 'merged_fastq', 'trimmed', 'fastp', '{sample}_R2.fastq'),
+        R1 = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', '{sample}_R1.fastq'),
+        R2 = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', '{sample}_R2.fastq'),
         fwd = 'forward.tsv',
         rev = 'reverse.tsv'
     output:
