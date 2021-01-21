@@ -169,7 +169,7 @@ rule unitas_allhits:
     output:
         join(QUANT_INTERIM, 'unitas', 'allhits.tsv')
     shell:
-        'python {params.script} {input} --output {output}'
+        'python {params.script} {input} --output {output} '
         
 rule unitas_modifications:
     input:
@@ -203,7 +203,7 @@ rule unitas_allfeatures:
     output:
         join(QUANT_INTERIM, 'unitas', 'allfeatures.tsv')
     shell:
-        'python {params.script} --frac-counts --output {output} {input} '
+        'python {params.script} --output {output} {input} '
 
 rule unitas_isomir_tximport:
     input:
