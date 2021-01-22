@@ -15,83 +15,14 @@ Filter steps:
 FILTER_INTERIM = join(INTERIM_DIR, 'microbiome', 'filter')
 
 
-def get_raw_fastq(wildcards):
-    """Returns fastq files per sample.
-
-    Support for merging fastq files of multiple samples by given (config) samplesheet column
-    """
-    sample_merge = config['filter']['sample_merge']['step'] == 'filter'
-    if not sample_merge or config['filter']['sample_merge']['sscol'] == 'Sample_ID':
-        r1 = config['samples'][wildcards.sample]['R1']
-        R1 = r1.split(',')
-        R2 = config['samples'][wildcards.sample].get('R2', [])
-        if R2 == '':
-            R2 = []
-        if R2:
-            R2 = R2.split(',')
-    else:
-        R1, R2 = [], []
-        sscol = config['filter']['sample_merge']['sscol']
-        for sample, values in config['samples'].items():
-            if values[sscol] == wildcards.sample:
-                r1 = values['R1'].split(',')
-                R1.extend(r1)
-                if values.get('R2'):
-                    r2 = values['R2'].split(',')
-                    R2.extend(r2)
-    R1 = [join(FASTQ_DIR, i) for i in R1]
-    if R2:
-        R2 = [join(FASTQ_DIR, i) for i in R2]
-        return {'R1': R1, 'R2':R2}
-    else:
-        print(R1)
-        return {'R1': R1}
-
 include:
     'filter/fastp.rules'
-    
-def get_processed_fastq(wildcards):
-    ZIP_FILTERED_FASTQ = False #FIXME: options
-    DST_PTH = join(FILTER_INTERIM, '{}', 'trimmed', config['filter']['trim']['trimmer'])
-    fastq = get_raw_fastq(wildcards)
-    R1 = [i.split(FASTQ_DIR)[-1][1:] for i in fastq['R1']]
-    if not ZIP_FILTERED_FASTQ:
-        R1 = [i.split('.gz')[0] for i in R1 if i.endswith('.gz')]
 
-    R2 = fastq.get('R2')
-    if R2:
-        R2 = [i.split(FASTQ_DIR)[-1][1:] for i in fastq['R2']]
-        if not ZIP_FILTERED_FASTQ:
-            R2 = [i.split('.gz')[0] for i in R2 if i.endswith('.gz')]
-    
-    fastq_merge = config['filter']['fastq_merge']
-    if fastq_merge['skip']:
-        out = DST_PTH.format('fastq')
-        R1 = [join(out, i) for i in R1]
-        if R2:
-            R2 = [join(out, i) for i in R2]
-    else:
-        out = DST_PTH.format('merged_fastq')
-        if ZIP_FILTERED_FASTQ:
-            ext = '.fastq.gz'
-        else:
-            ext = '.fastq'
-        R1 = [join(out, wildcards.sample + '_R1' + ext)]
-        if R2:
-            R2 = [join(out, wildcards.sample + '_R2' + ext)]
-    if R2:
-        out = {'R1': R1, 'R2': R2}
-    else:
-        out = {'R1': R1}
-    return out
-
-
-rule _filter:
+rule clean_fastq:
     input:
-        unpack(get_processed_fastq)
+        join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', '{sample}_R{readnum}.fastq')
     output:
-        temp(touch('{sample}.filtered'))
+        join(FILTER_INTERIM, 'cleaned', '{sample}_R{readnum}.fastq')
+    shell:
+        'cp -fL {input} {output} '
 
-rule filter_all:
-    input:
-        expand(rules._filter.output, sample=SAMPLES)

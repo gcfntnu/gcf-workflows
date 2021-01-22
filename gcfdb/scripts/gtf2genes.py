@@ -2,8 +2,15 @@ import sys
 from gtfparse import read_gtf
 
 df = read_gtf(sys.argv[1])
-df_genes = df[df['feature'] == 'gene']
-cols = df_genes.columns.copy()
+df_gene = df[df['feature'] == 'gene']
+cols = df_gene.columns.copy()
 cols = cols.insert(0, 'gene_id')
-df_genes = df_genes[cols]
+df_gene = df_gene[cols]
+
+# add mitochondrial_protein_coding as a biotype category
+if 'gene_biotype' in df_gene.columns and 'seqname' in df_gene.columns:
+    biotypes = df_gene.gene_biotype.copy()
+    biotypes[(F.seqname=="MT") & (F.gene_biotype=="protein_coding")] = "Mt_protein_coding"
+    df_gene.gene_biotype = biotypes
+
 df_genes.to_csv(sys.stdout, sep='\t', index=False)

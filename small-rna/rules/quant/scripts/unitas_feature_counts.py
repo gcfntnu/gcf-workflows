@@ -14,47 +14,50 @@ patt2 = re.compile(r'\-\(\d+\)$')
 patt3 = re.compile('\(.*\-\>.*\)$') 
 trna_patt = re.compile('(.*)(tRNA-\w{3}-\w{3})(.*)')
 
-def parse_lines(txt, simplify_trna=True, simplify_mirna=False):
-    header = txt.pop(0)
+def parse_lines(fh, simplify_trna=True, simplify_mirna=False):
+    header = fh.readline().rstrip('\n')
     if not 'annotation(s)' in header:
         raise ValueError
     seq_counts = collections.defaultdict(int)
     seq_anno = collections.defaultdict(set)
     anno_seq = collections.defaultdict(set)
-    for line in txt:
+    for line in fh:
+        if not line:
+            continue
+        line = line.rstrip('\n')
         els = line.split('\t')
         seq = els[0]
         count = int(els[1])
         remainder = els[2:]
+        if remainder == ['']:
+            remainder = ['no-annotation']
         seq_counts[seq] += count
-        if len(els) == 3:
-            # no annotation
-            continue
-        else:
-            for annotation in remainder:
-                if annotation == '':
-                    continue
-                a = patt.sub('', annotation)
-                a = patt2.sub('', a)
+        if "miR-7a-1-5p" in line and 'L74' in fh.name:
+            print(line)
+        for annotation in remainder:
+            if annotation == '':
+                continue
+            a = patt.sub('', annotation)
+            a = patt2.sub('', a)
 
-                if 'miR' in a:
-                    if simplify_mirna:
-                        a = patt3.sub('', a)
-                else:
-                    # always simplify pir clusters
+            if 'miR' in a:
+                if simplify_mirna:
                     a = patt3.sub('', a)
+            else:
+                # always simplify pir clusters
+                a = patt3.sub('', a)
                 
-                if simplify_trna and 'tRNA' in annotation:
-                    m = trna_patt.match(a)
-                    if m:
-                        groups = m.groups()
-                        if not len(groups)== 3:
-                            print(a)
-                            print(groups)
-                            raise ValueError
-                        a = groups[1]
-                seq_anno[seq].add(a)
-                anno_seq[a].add(seq)
+            if simplify_trna and 'tRNA' in annotation:
+                m = trna_patt.match(a)
+                if m:
+                    groups = m.groups()
+                    if not len(groups)== 3:
+                        print(a)
+                        print(groups)
+                        raise ValueError
+                    a = groups[1]
+            seq_anno[seq].add(a)
+            anno_seq[a].add(seq)
     return seq_counts, seq_anno, anno_seq
 
 def make_feature_counts(seq_counts, seq_anno, anno_seq, frac_count=True):
@@ -65,13 +68,12 @@ def make_feature_counts(seq_counts, seq_anno, anno_seq, frac_count=True):
             if frac_count:
                 anno = list(seq_anno.get(seq))
                 n_assigned_anno = len(anno)
-                if n_assigned_anno > 0:
-                    #if n_assigned_anno == 2:
-                    #    print(n_assigned_anno, count, seq_anno[seq], anno)
-                    #    sys.exit()
-                    count = count / n_assigned_anno
+                if n_assigned_anno > 2:
+                    print(seq, seq_list, anno, count)
+                if n_assigned_anno > 1:
+                    count = count / float(n_assigned_anno)
                 else:
-                    raise ValueError
+                    count = float(count)
             feature_counts[feature] += count
     return feature_counts
 
@@ -111,6 +113,7 @@ def argparser():
     Will subset on samples in aggregated table if needed', dest='samples')
     parser.add_argument('--output', required=True, help='Output filename. Required')
     parser.add_argument('--frac-counts', action='store_true', dest='frac', help='Use fractional counts for sequences that map to multiple annotations')
+    parser.add_argument('--simplify-mirna', action='store_true', help='Simplify miRNA annotation to miRNA name (discard annotated substitutions)')
     
     args = parser.parse_args()
     return args
@@ -122,8 +125,7 @@ if __name__ == '__main__':
     for fn in args.filenames:
         sample_id = os.path.dirname(fn).split(os.path.sep)[-1]
         with open(fn) as fh:
-            txt = fh.read().splitlines()
-        seq_counts, seq_anno, anno_seq = parse_lines(txt)
+            seq_counts, seq_anno, anno_seq = parse_lines(fh, simplify_mirna=args.simplify_mirna)
         counts = make_feature_counts(seq_counts, seq_anno, anno_seq, frac_count=args.frac)
         df = pd.DataFrame.from_dict(counts, orient='index')
         df.columns = [sample_id]

@@ -103,3 +103,50 @@ def load_model(model_yaml_file):
         MODELS  = yaml.load(fh, Loader=Loader) or {}
         config['models'] = MODELS
         config['model_names'] = list(MODELS.keys())
+
+
+def get_raw_fastq(wildcards):
+    """Returns path to fastq files per sample.
+    """
+
+    R1 = config['samples'][wildcards.sample].get('R1', [])
+    R2 = config['samples'][wildcards.sample].get('R2', [])
+    if R1 == '':
+        R1 = []
+    if R2 == '':
+        R2 = []
+    if R1:
+        R1 = R1.split(',')
+    if R2:
+        R2 = R2.split(',')
+
+    R1 = [join(FASTQ_DIR, i) for i in R1]
+    if R2:
+        R2 = [join(FASTQ_DIR, i) for i in R2]
+        return {'R1': R1, 'R2':R2}
+    else:
+        return {'R1': R1}
+    
+def get_processed_fastq(wildcards):
+    ZIP_FILTERED_FASTQ = config['filter']['zip_filtered_fastq']
+    DST_PTH = join(FILTER_INTERIM, 'cleaned')
+    fastq = get_raw_fastq(wildcards)
+    R1 = [i.split(FASTQ_DIR)[-1][1:] for i in fastq['R1']]
+    if not ZIP_FILTERED_FASTQ:
+        R1 = [i.split('.gz')[0] for i in R1 if i.endswith('.gz')]
+    R2 = fastq.get('R2')
+    if R2:
+        R2 = [i.split(FASTQ_DIR)[-1][1:] for i in fastq['R2']]
+        if not ZIP_FILTERED_FASTQ:
+            R2 = [i.split('.gz')[0] for i in R2 if i.endswith('.gz')]
+    if ZIP_FILTERED_FASTQ:
+        ext = '.fastq.gz'
+    else:
+        ext = '.fastq'
+    R1 = [join(DST_PTH, wildcards.sample + '_R1' + ext)]
+    if R2:
+        R2 = [join(DST_PTH, wildcards.sample + '_R2' + ext)]
+        out = {'R1': R1, 'R2': R2}
+    else:
+        out = {'R1': R1}
+    return out

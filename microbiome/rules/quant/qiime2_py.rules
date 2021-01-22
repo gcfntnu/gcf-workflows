@@ -21,8 +21,8 @@ rule qiime2_sample_info:
 checkpoint qiime2_run_regions:
     input:
         sample_info = rules.qiime2_sample_info.output,
-        R1 = expand(join(FILTER_INTERIM, 'merged_fastq', 'trimmed', 'fastp', '{sample}_R1.fastq'), sample=SAMPLES),
-        R2 = expand(join(FILTER_INTERIM, 'merged_fastq', 'trimmed', 'fastp', '{sample}_R2.fastq'), sample=SAMPLES)
+        R1 = expand(join(FILTER_INTERIM, 'cleaned', '{sample}_R1.fastq'), sample=SAMPLES),
+        R2 = expand(join(FILTER_INTERIM, 'cleaned', '{sample}_R2.fastq'), sample=SAMPLES)
     params:
         script = srcdir('scripts/run_qiime2.py'),
         libprep = config['libprep_name'],
