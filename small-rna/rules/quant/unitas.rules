@@ -248,8 +248,6 @@ rule unitas_all:
         rules.unitas_trftable.output,
         rules.unitas_isomirtable.output,
         rules.unitas_isotrftable.output,
-        rules.unitas_allhits.output,
         rules.unitas_modifications.output,
-        rules.unitas_annotations.output,
-        rules.unitas_allfeatures.output
+        rules.unitas_annotations.output
 
