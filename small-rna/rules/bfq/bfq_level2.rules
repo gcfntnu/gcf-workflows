@@ -35,16 +35,14 @@ rule bfq_exprs:
         rules.unitas_trftable.output,
         rules.unitas_isomirtable.output,
         rules.unitas_isotrftable.output,
-        rules.unitas_annotations.output,
-        rules.unitas_allfeatures.output
+        rules.unitas_annotations.output
     output:
         join(BFQ_INTERIM, 'mir_counts.tsv'),
         join(BFQ_INTERIM, 'trf_counts.tsv'),
         join(BFQ_INTERIM, 'isomir_counts.tsv'),
         join(BFQ_INTERIM, 'isomir_counts_anno.tsv'),
         join(BFQ_INTERIM, 'isotrf_counts.csv'),
-        join(BFQ_INTERIM, 'annotations.tsv'),
-        join(BFQ_INTERIM, 'allfeatures.tsv')
+        join(BFQ_INTERIM, 'annotations.tsv')
     run:
         for src in input:
             dst = join(BFQ_INTERIM, os.path.basename(src))
