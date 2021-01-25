@@ -10,7 +10,7 @@ rule qc_fastq_fastqc:
     params:
         out = join(FILTER_INTERIM, 'logs')
     threads:
-        1
+        2
     singularity:
         'docker://' + config['docker']['fastqc']
     shell:
@@ -110,3 +110,8 @@ rule qc_fastq_mirtrace:
         '--output-dir {params.outdir} '
         '--force '
         '{input} '
+
+
+rule qc_all:
+    input:
+        
