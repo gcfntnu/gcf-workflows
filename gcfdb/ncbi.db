@@ -38,6 +38,23 @@ rule ncbi_mus_musculus_rrna:
         echo "ncbi nucore,bk000964.3,{params.url_cru}|{params.url_5S},{params.date}" > {log}
         """
 
+rule ncbi_sars_cov2:
+    params:
+        url = 'https://www.ncbi.nlm.nih.gov/nuccore/NC_045512',
+        date = datetime.now().strftime("%d-%m-%Y")
+    output:
+        join(EXT_DIR, 'ncbi', 'NC_045512.2', 'fasta', 'NC_045512.2.fa')
+    log:
+        join(EXT_DIR, 'ncbi', 'NC_045512.2', 'logs', 'NC_045512.2.log')
+    singularity:
+        'docker://' + config['docker']['entrez-direct']
+    shell:
+        """
+        efetch -db nuccore -id bk000964.3 -format fasta > {output}
+        efetch -db nuccore -id NR_030686.1 -format fasta >> {output}
+        echo "ncbi nucore,bk000964.3,{params.url_cru}|{params.url_5S},{params.date}" > {log}
+        """
+        
 rule ncbi_db_all:
     input:
         join(EXT_DIR, 'ncbi', 'homo_sapiens', 'fasta', 'rrna.fa'),
@@ -45,4 +62,6 @@ rule ncbi_db_all:
         join(EXT_DIR, 'ncbi', 'homo_sapiens', 'index', 'rrna', 'bowtie', 'rrna.1.ebwt'),
         join(EXT_DIR, 'ncbi', 'mus_musculus', 'index', 'rrna', 'bowtie', 'rrna.1.ebwt'),
         join(EXT_DIR, 'ncbi', 'homo_sapiens', 'index', 'rrna', 'bowtie2', 'rrna.1.bt2'),
-        join(EXT_DIR, 'ncbi', 'mus_musculus', 'index', 'rrna', 'bowtie2', 'rrna.1.bt2')
+        join(EXT_DIR, 'ncbi', 'mus_musculus', 'index', 'rrna', 'bowtie2', 'rrna.1.bt2'),
+        join(EXT_DIR, 'ncbi', 'NC_045512.2', 'fasta', 'NC_045512.2.fa')
+        

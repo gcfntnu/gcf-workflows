@@ -1,0 +1,5 @@
+
+rule swift_align:
+    input:
+        R1 = join(FILTER_INTERIM, 'cleaned', '{sample}_R1.fastq'),
+        R2 = join(FILTER_INTERIM, 'cleaned', '{sample}_R2.fastq')
