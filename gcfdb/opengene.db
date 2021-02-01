@@ -35,7 +35,7 @@ rule opengene_microbial_kmer:
         join(EXT_DIR, 'opengene', 'microbial.kc.fasta.gz')
     params:
         date = datetime.now().strftime("%d-%m-%Y"),
-        url = 'http://opengene.org/fastv/data/microbial.kc.fasta.gz'
+        url = 'http://opengene.org/microbial.kc.fasta.gz'
     log:
         join(EXT_DIR, 'opengene', 'logs', 'microbial.log')
     shell:

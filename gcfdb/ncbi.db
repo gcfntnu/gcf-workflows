@@ -50,9 +50,8 @@ rule ncbi_sars_cov2:
         'docker://' + config['docker']['entrez-direct']
     shell:
         """
-        efetch -db nuccore -id bk000964.3 -format fasta > {output}
-        efetch -db nuccore -id NR_030686.1 -format fasta >> {output}
-        echo "ncbi nucore,bk000964.3,{params.url_cru}|{params.url_5S},{params.date}" > {log}
+        efetch -db nuccore -id NC_045512 -format fasta > {output}
+        echo "ncbi nucore,{params.url}|{params.url},{params.date}" > {log}
         """
         
 rule ncbi_db_all:
