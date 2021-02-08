@@ -44,9 +44,8 @@ rule bfq_exprs:
         join(BFQ_INTERIM, 'isotrf_counts.csv'),
         join(BFQ_INTERIM, 'annotations.tsv')
     run:
-        for src in input:
-            dst = join(BFQ_INTERIM, os.path.basename(src))
-            os.symlink(os.path.abspath(src), dst)
+        for src, dst in zip(input, output):
+            shell('ln -sr {src} {dst}')
         
 rule bfq_unitas:
     input:
@@ -71,7 +70,7 @@ rule bfq_mirtrace:
     run:
         for src, dst in zip(input, output):
             os.makedirs(os.path.dirname(dst), exist_ok=True)
-            os.symlink(os.path.abspath(src), dst)
+            shell('ln -sr {src} {dst}')
         
 
 rule bfq_aligned:
@@ -81,7 +80,7 @@ rule bfq_aligned:
         expand(join(BFQ_INTERIM, 'aligned', '{sample}.sorted.bam'), sample=SAMPLES)
     run:
         for src, dst in zip(input, output):
-            os.symlink(os.path.abspath(src), dst)
+            shell('ln -sr {src} {dst}')
 
 rule bfq_logs:
     input:
@@ -94,4 +93,4 @@ rule bfq_logs:
         expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}_screen.txt'), sample=SAMPLES)
     run:
         for src, dst in zip(input, output):
-            os.symlink(os.path.abspath(src), dst)
+            shell('ln -sr {src} {dst}')
