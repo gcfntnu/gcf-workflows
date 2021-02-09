@@ -108,6 +108,8 @@ rule signal_all:
         rundir = os.path.dirname(SIGNAL_SM)
     threads:
         12
+    output:
+        consensus = expand(join(SIGNAL_INTERIM, 'results', '{sample}', 'core', '{sample}.consensus.fa'), sample=SAMPLES)
     shell:
         """
         cd {params.rundir}
