@@ -1,33 +1,21 @@
 
-rule fastv_interleave_fastq:
-    input:
-        unpack(get_raw_fastq)
-    output:
-        join(FILTER_INTERIM, 'interleaved_fastq', '{sample}.fastq')
-    params:
-        script = srcdir('scripts/interleave_fastq.sh')
-    priority:
-        10
-    version:
-        lambda wildcards: subprocess.check_output('fastv --version', shell=True)
-    shell:
-        '{params.script} <(zcat {input.R1}) <(zcat {input.R2}) > {output}'
         
-rule fastv_join:
+rule fastv:
     input:
-        fastq = rules.fastv_interleave_fastq.output,
+        unpack(get_raw_fastq),
         kmer = join(EXT_DIR, 'opengene', 'SARS-CoV-2.kmer.fa'),
-        genome = join(EXT_DIR, 'opengene', 'SARS-CoV-2.genomes.fa')
+        genome = join(EXT_DIR, 'ncbi', 'NC_045512.2', 'fasta/NC_045512.2.fa')
     output:
         R1 = temp(join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastv', '{sample}_R1.fastq')),
         R2 = temp(join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastv', '{sample}_R2.fastq')),
-        log_html = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastv', 'qc', '{sample}.html'),
-        log_json = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastv', 'qc', '{sample}.json')
+        log_html = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastv', 'qc', '{sample}.fastv.html'),
+        log_json = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastv', 'qc', '{sample}.fastv.json')
     threads:
         3
     params:
-        args = '--n_base_limit 0 -A -Q -L --detect_adapter_for_pe'
+        args = '--cut_front --cut_tail --cut_mean_quality 30 --qualified_quality_phred 30 --unqualified_percent_limit 10 --length_required 50 --trim_poly_x  --detect_adapter_for_pe '
     singularity:
         'docker://' + config['docker']['fastv']
     shell:
-        'cat {input.fastq} | fastv --stdin --interleaved_in -k {input.kmer} -g {input.genome} -o {output.R1} -O {output.R2} -j {output.log_json} -h {output.log_html} --thread {threads} {params} '
+        'fastv -i {input.R1} -I {input.R2} -k {input.kmer} -g {input.genome} -o {output.R1} -O {output.R2} -j {output.log_json} -h {output.log_html} --thread {threads} {params} '
+
