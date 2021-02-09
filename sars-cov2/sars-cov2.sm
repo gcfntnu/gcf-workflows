@@ -29,8 +29,8 @@ if not 'SAMPLES' in locals():
 SAMPLES = [str(i) for i in SAMPLES]
 
 include:
-    'rules/signal.rules'
+    'rules/reference_db.rules'
 include:
-    'rules/swift.rules'
+    'rules/signal.rules'
 include:
     'rules/bfq.rules'

@@ -1,0 +1,121 @@
+#-*- mode: snakemake -*-
+"""
+Rules for calling the Signal workflow, https://github.com/jaleezyy/covid-19-signal .
+"""
+
+
+PROTOCOL = 'swift'
+REFERENCE = 'NC_045512.2'
+SIGNAL_SM = srcdir('../external_pipelines/covid-19-signal/Snakefile_{}'.format(PROTOCOL))
+
+SIGNAL_INTERIM = join(INTERIM_DIR, 'signal')
+
+rule dummy_sample:
+    input:
+        unpack(get_raw_fastq)
+    output:
+        temp('{sample}.line')
+    shell:
+        'echo {wildcards.sample},{input.R1},{input.R2} > {output}'
+
+rule signal_sample_table:
+    input:
+        expand(rules.dummy_sample.output, sample=SAMPLES)
+    shadow:
+        'minimal'
+    output:
+        csv = 'sample_table.csv'
+    shell:
+        """
+        echo "sample,r1_path,r2_path" > header.tmp
+        cat header.tmp *.line > {output}
+        """
+
+rule signal_db:
+    output:
+        fasta = join(EXT_DIR, 'signal', REFERENCE, REFERENCE + '.fasta'),
+        gff = join(EXT_DIR, 'signal', REFERENCE, REFERENCE + '.gff3'),
+        gbk = join(EXT_DIR, 'signal', REFERENCE, REFERENCE + '.gbk'),
+        composite_fasta = join(EXT_DIR, 'signal', REFERENCE, 'composite_human_viral_reference.fna'),
+        kraken_db = join(EXT_DIR, 'signal', REFERENCE, 'Kraken2', 'db', 'taxo.k2d')
+    params:
+        url =  'https://gcf-winecellar.medisin.ntnu.no/signal/{}.tar.gz'.format(REFERENCE),
+        output_dir = join(EXT_DIR, 'signal', REFERENCE)
+    shell:
+        'wget {params.url} -O- | tar -xz -C {params.output_dir} '
+        
+rule signal_scheme_bed:
+    input:
+        join(EXT_DIR, PROTOCOL, 'sars-cov2', 'v2', 'anno', 'sarscov2_v2_primers.bed')
+    output:
+        bed = join(EXT_DIR, PROTOCOL, 'sars-cov2', 'v2', 'anno', 'sarscov2_v2_primers_6col.bed')
+    run:
+        with open(input[0]) as fh:
+            txt = fh.read().splitlines()
+        with open(output[0], 'w') as fh:
+            for line in txt:
+                els = line.split('\t')
+                strand = '+' if els[-1].endswith('R') else '-'
+                els.append('60')
+                els.append(strand)
+                fh.write('\t'.join(els) + '\n')
+            
+rule signal_config:
+    input:
+        sample_table = rules.signal_sample_table.output.csv,
+        scheme_bed = rules.signal_scheme_bed.output.bed,
+        composite_reference = rules.signal_db.output.composite_fasta,
+        viral_reference_genome = rules.signal_db.output.fasta,
+        viral_reference_feature_coords = rules.signal_db.output.gff,
+        breseq_reference = rules.signal_db.output.gbk,
+        kraken_db = rules.signal_db.output.kraken_db
+    output:
+        yaml = 'data/tmp/config.yaml'
+    run:
+        import yaml
+        conf = {}
+        conf['samples'] = os.path.abspath(input.sample_table)
+        conf['result_dir'] = os.path.abspath(join(SIGNAL_INTERIM, 'results'))
+        conf['scheme_bed'] = os.path.abspath(input.scheme_bed)
+        conf['composite_reference'] = os.path.abspath(input.composite_reference)
+        conf['viral_reference_contig_name'] = REFERENCE
+        conf['viral_reference_genome'] = os.path.abspath(input.viral_reference_genome)
+        conf['viral_reference_feature_coords'] = os.path.abspath(input.viral_reference_feature_coords)
+        conf['kraken2_db'] = os.path.dirname(os.path.abspath(input.kraken_db))
+        conf['breseq_reference'] = os.path.abspath(input.breseq_reference)
+
+        conf['min_qual'] = 20
+        conf['min_len'] = 20
+        conf['run_breseq'] = False
+        conf['primer_pairs_tsv'] = None
+        conf['mpileup_depth'] = 100000
+        conf['ivar_freq_threshold'] = 0.75
+        conf['ivar_min_freq_threshold'] = 0.25
+        conf['ivar_min_variant_quality'] = 20
+        conf['ivar_min_coverage_depth'] = 10
+        
+        conf['amplicon_loc_bed'] = ''
+        conf['phylo_include_seqs'] = ''
+        
+        with open(output[0], 'w') as fh:
+            yaml.dump(conf, fh, default_flow_style=False)
+
+rule signal_all:
+    input:
+        config = os.path.abspath(rules.signal_config.output.yaml)
+    params:
+        sm = 'Snakefile_{}'.format(PROTOCOL),
+        rundir = os.path.dirname(SIGNAL_SM)
+    threads:
+        12
+    shell:
+        """
+        cd {params.rundir}
+        snakemake  --use-singularity --singularity-prefix $SINGULARITY_CACHEDIR -p -r -j {threads} -s {params.sm} signal_all --configfile {input.config}
+        """
+        
+rule signal_post_processing:
+    input:
+        rules.signal_all.output
+    output:
+        

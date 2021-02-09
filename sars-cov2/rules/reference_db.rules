@@ -19,3 +19,5 @@ include:
     join(GCFDB_DIR, 'ncbi.db')
 include:
     join(GCFDB_DIR, 'opengene.db')
+include:
+    join(GCFDB_DIR, 'swift.db')

@@ -1,4 +1,4 @@
-
+FILTER_INTERIM = join(INTERIM_DIR, 'filtered')
 rule swift_align:
     input:
         R1 = expand(join(FILTER_INTERIM, 'cleaned', '{sample}_R1.fastq'), sample=SAMPLES),
@@ -9,7 +9,5 @@ rule swift_align:
         input_dir = join(FILTER_INTERIM, 'cleaned')
     output:
         ''
-    singularity:
-        'docker://gcfntnu/sc2:parallel-3'
     shell:
         ''

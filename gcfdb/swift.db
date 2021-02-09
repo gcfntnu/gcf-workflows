@@ -10,7 +10,7 @@ url_v2 = "https://swiftbiosci.com/wp-content/uploads/2020/09/sarscov2_v2_masterf
 SWIFT_EXT = join(EXT_DIR, 'swift', 'sars-cov2')
 
 rule swift_sars_cov2_panels_v2_masterfile:
-    params
+    params:
         date = datetime.now().strftime("%d-%m-%Y"),
         url = url_v2
     output:
@@ -24,8 +24,7 @@ rule swift_sars_cov2_panels_v2_masterfile:
     shell:
         """
         wget {params.url} -O temp.zip
-        unzip temp.zip
-        mv sarscov2_v2_masterfile*.txt {output}
+        unzip -p temp.zip -x __MAC* > {output}
         echo "Swift sarscov2 masterfile,V2,{params.url},{params.date}" > {log}
         """
 
@@ -34,9 +33,11 @@ rule swift_sars_cov2_panels_v2_bed_non_merged:
         join(SWIFT_EXT, 'v2', 'anno', 'sarscov2_v2_masterfile.txt')
     output:
         join(SWIFT_EXT, 'v2', 'anno', 'sarscov2_v2_nonmerged.bed')
+    singularity:
+        'docker://' + config['docker']['default']
     shell:
         """
-        awk '{print $1,$2,$3,$4}' OFS="\t" "{input}" | sort -k1,1n -k2,2n > {output}
+        awk '{{print $1,$2,$3,$4}}' OFS="\\t" "{input}" | sort -k1,1n -k2,2n > {output}
         """
 
 rule swift_sars_cov2_panels_v2_bed_merged:
@@ -44,6 +45,8 @@ rule swift_sars_cov2_panels_v2_bed_merged:
         join(SWIFT_EXT, 'v2', 'anno', 'sarscov2_v2_nonmerged.bed')
     output:
         join(SWIFT_EXT, 'v2', 'anno', 'sarscov2_v2_merged.bed')
+    singularity:
+        'docker://' + config['docker']['bedtools']
     shell:
         """
         bedtools intersect -a {input} -b {input} | awk 'a[$1FS$2FS$3]++' OFS="\t" > {output}
@@ -53,8 +56,10 @@ rule swift_swift_sars_cov2_panels_v2_primers_bed:
     input:
         join(SWIFT_EXT, 'v2', 'anno', 'sarscov2_v2_masterfile.txt')
     output:
-        'join(SWIFT_EXT, 'v2', 'anno', 'sarscov2_v2_primers.bed')
+        join(SWIFT_EXT, 'v2', 'anno', 'sarscov2_v2_primers.bed')
+    singularity:
+        'docker://' + config['docker']['default']
     shell:
         """
-        awk '{print $1,$5,$6,$7;print $1,$8,$9,$10}' OFS="\t" {input} > {output}
+        awk '{{print $1,$5,$6,$7;print $1,$8,$9,$10}}' OFS="\\t" {input} > {output}
         """
