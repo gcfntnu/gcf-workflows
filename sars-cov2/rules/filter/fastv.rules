@@ -17,12 +17,12 @@ rule fastv_join:
     input:
         fastq = rules.fastv_interleave_fastq.output,
         kmer = join(EXT_DIR, 'opengene', 'SARS-CoV-2.kmer.fa'),
-        genome = join(EXT_DIR, 'opengene', 'SARS-CoV-2.genomes.fa')
+        genome = join(EXT_DIR, 'ncbi', 'NC_045512.2', 'fasta/NC_045512.2.fa')
     output:
         R1 = temp(join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastv', '{sample}_R1.fastq')),
         R2 = temp(join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastv', '{sample}_R2.fastq')),
-        log_html = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastv', 'qc', '{sample}.html'),
-        log_json = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastv', 'qc', '{sample}.json')
+        log_html = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastv', 'qc', '{sample}.fastv.html'),
+        log_json = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastv', 'qc', '{sample}.fastv.json')
     threads:
         3
     params:

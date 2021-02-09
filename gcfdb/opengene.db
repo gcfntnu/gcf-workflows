@@ -43,3 +43,18 @@ rule opengene_microbial_kmer:
         wget -O- {params.url} > {output}
         echo "OpenGene microbial,NA,{params.url},{params.date}" > {log}
         """
+
+
+rule opengene_viral_kmer:
+    output:
+        join(EXT_DIR, 'opengene', 'viral.kc.fasta.gz')
+    params:
+        date = datetime.now().strftime("%d-%m-%Y"),
+        url = 'http://opengene.org/viral.kc.fasta.gz'
+    log:
+        join(EXT_DIR, 'opengene', 'logs', 'viral.log')
+    shell:
+        """
+        wget -O- {params.url} > {output}
+        echo "OpenGene viral,NA,{params.url},{params.date}" > {log}
+        """
