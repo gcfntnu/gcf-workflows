@@ -14,7 +14,7 @@ rule bfq_signal:
         rules.signal_post_processing.output.samples
     params:
         src_dir = join(SIGNAL_INTERIM, 'results'),
-        dst_dir = join(BFQ_INTERIM, 'results')
+        dst_dir = BFQ_INTERIM
     output:
         join(BFQ_INTERIM, 'results', 'summary.zip'),
         expand(join(BFQ_INTERIM, 'results', '{s}', '{s}_sample.txt'), s=SAMPLES)
