@@ -4,8 +4,8 @@ Rules for calling the Signal workflow, https://github.com/jaleezyy/covid-19-sign
 """
 
 
-PROTOCOL = 'swift'
-REFERENCE = 'NC_045512.2'
+PROTOCOL = config['protocol']
+REFERENCE = config['virale_reference']
 SIGNAL_SM = srcdir('../external_pipelines/covid-19-signal/Snakefile_{}'.format(PROTOCOL))
 
 SIGNAL_INTERIM = join(INTERIM_DIR, 'sars-cov2', 'signal')
@@ -83,21 +83,22 @@ rule signal_config:
         conf['viral_reference_feature_coords'] = os.path.abspath(input.viral_reference_feature_coords)
         conf['kraken2_db'] = os.path.dirname(os.path.abspath(input.kraken_db))
         conf['breseq_reference'] = os.path.abspath(input.breseq_reference)
-
-        conf['min_qual'] = 20
-        conf['min_len'] = 20
-        conf['run_breseq'] = False
-        conf['primer_pairs_tsv'] = None
-        conf['mpileup_depth'] = 100000
-        conf['ivar_freq_threshold'] = 0.75
-        conf['ivar_min_freq_threshold'] = 0.25
-        conf['ivar_min_variant_quality'] = 20
-        conf['ivar_min_coverage_depth'] = 10
-        
         conf['amplicon_loc_bed'] = ''
         conf['phylo_include_seqs'] = ''
 
-        config['signal'] = conf
+        
+        #conf['min_qual'] = 20
+        #conf['min_len'] = 20
+        #conf['run_breseq'] = False
+        #conf['primer_pairs_tsv'] = None
+        #conf['mpileup_depth'] = 100000
+        #conf['ivar_freq_threshold'] = 0.75
+        #conf['ivar_min_freq_threshold'] = 0.25
+        #conf['ivar_min_variant_quality'] = 20
+        #conf['ivar_min_coverage_depth'] = 10
+        update_config(conf, config['signal'])
+
+        config['signal_used'] = conf
         
         with open(output[0], 'w') as fh:
             yaml.dump(conf, fh, default_flow_style=False)
