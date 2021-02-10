@@ -8,7 +8,7 @@ PROTOCOL = 'swift'
 REFERENCE = 'NC_045512.2'
 SIGNAL_SM = srcdir('../external_pipelines/covid-19-signal/Snakefile_{}'.format(PROTOCOL))
 
-SIGNAL_INTERIM = join(INTERIM_DIR, 'signal')
+SIGNAL_INTERIM = join(INTERIM_DIR, 'sars-cov2', 'signal')
 
 rule dummy_sample:
     input:
@@ -96,6 +96,8 @@ rule signal_config:
         
         conf['amplicon_loc_bed'] = ''
         conf['phylo_include_seqs'] = ''
+
+        config['signal'] = conf
         
         with open(output[0], 'w') as fh:
             yaml.dump(conf, fh, default_flow_style=False)
@@ -118,6 +120,18 @@ rule signal_all:
         
 rule signal_post_processing:
     input:
-        rules.signal_all.output
+        rules.signal_all.output,
+        config = os.path.abspath(rules.signal_config.output.yaml)
+    params:
+        sm = 'Snakefile_{}'.format(PROTOCOL),
+        rundir = os.path.dirname(SIGNAL_SM)
+    threads:
+        12
     output:
-        
+        summary = join(SIGNAL_INTERIM, 'results', 'summary.zip'),
+        samples = expand(join(SIGNAL_INTERIM, 'results', '{s}', '{s}_sample.txt'), s=SAMPLES)
+    shell:
+        """
+        cd {params.rundir}
+        snakemake  --use-singularity --singularity-prefix $SINGULARITY_CACHEDIR -p -r -j {threads} -s {params.sm} signal_postprocess --configfile {input.config}
+        """
