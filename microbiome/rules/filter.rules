@@ -4,11 +4,6 @@ Snakemake rules for filtering fastq files before analysis.
 
 Fastp used for standard filtering
 
-Filter steps:
--------------
-
-1. Adapter trimming, quality filter (_get_trimmed_R1)
-
 
 """
 

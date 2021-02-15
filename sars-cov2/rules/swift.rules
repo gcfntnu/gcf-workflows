@@ -1,0 +1,13 @@
+FILTER_INTERIM = join(INTERIM_DIR, 'filtered')
+rule swift_align:
+    input:
+        R1 = expand(join(FILTER_INTERIM, 'cleaned', '{sample}_R1.fastq'), sample=SAMPLES),
+        R2 = expand(join(FILTER_INTERIM, 'cleaned', '{sample}_R2.fastq'), sample=SAMPLES),
+        genome = join(EXT_DIR, 'ncbi', 'NC_045512.2', 'fasta/NC_045512.2.fa')
+    params:
+        script = srcdir('scripts//swift_amplicon_analysis_sarscov2.sh'),
+        input_dir = join(FILTER_INTERIM, 'cleaned')
+    output:
+        ''
+    shell:
+        ''
