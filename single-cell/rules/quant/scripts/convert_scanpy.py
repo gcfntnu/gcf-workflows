@@ -177,8 +177,6 @@ def read_cellranger(fn, args, rm_zero_cells=True, add_sample_id=True, **kw):
         data.obs['library_id'] = data.obs['library_id'].astype('category')
         data.obs_names = [i + '-' + sample_id for i in data.obs_names]
         
-    data.obs.index.name = 'barcodes'
-    data.var.index.name = 'gene_ids'
     return data
         
 def read_cellranger_aggr(fn, args, **kw):
