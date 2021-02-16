@@ -1,0 +1,12 @@
+FILTER_INTERIM = join(INTERIM_DIR, 'sars-cov2', 'filter')
+
+include:
+    'filter/fastv.rules'
+
+rule clean_fastq:
+    input:
+        join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastv', '{sample}_R{readnum}.fastq')
+    output:
+        join(FILTER_INTERIM, 'cleaned', '{sample}_R{readnum}.fastq')
+    shell:
+        'cp -fL {input} {output} '

@@ -1,0 +1,26 @@
+#-*- mode: snakemake -*-
+"""
+Rules for summarizing bfq pipeline results
+"""
+
+
+rule bfq_qc:
+    input:
+
+rule bfq_signal:
+    input:
+        rules.signal_all.output.consensus,
+        rules.signal_post_processing.output.summary,
+        rules.signal_post_processing.output.samples
+    params:
+        src_dir = join(SIGNAL_INTERIM, 'results'),
+        dst_dir = BFQ_INTERIM
+    output:
+        join(BFQ_INTERIM, 'results', 'summary.zip'),
+        expand(join(BFQ_INTERIM, 'results', '{s}', '{s}_sample.txt'), s=SAMPLES)
+        
+    shell:
+        'cp -r {params.src_dir} {params.dst_dir}'
+        
+        
+        
