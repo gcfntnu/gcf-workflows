@@ -198,7 +198,7 @@ def read_cellranger_aggr(fn, args, **kw):
     data.obs['library_id'] = data.obs['library_id'].astype('category')
     # use library_id to make barcodes unique
     barcodes = [b.split('-')[0] for b in data.obs.index]
-    data.obs_names = ['{}-{}'.format(i,j) for i,j in zip(barcodes, samples)]
+    data.obs_names = ['{}-{}'.format(i, j) for i, j in zip(barcodes, samples)]
     return data
 
 def read_velocyto_loom(fn, args, **kw):
@@ -215,7 +215,6 @@ def read_velocyto_loom(fn, args, **kw):
 def read_star(fn, args, **kw):
     mtx_dir = os.path.dirname(fn)
     data = sc.read(fn).T
-    print(data)
     genes = pd.read_csv(os.path.join(mtx_dir, 'features.tsv'), header=None, sep='\t')
     barcodes = pd.read_csv(os.path.join(mtx_dir, 'barcodes.tsv'), header=None)[0].values
     data.var_names = genes[0].values
@@ -232,8 +231,9 @@ def read_star(fn, args, **kw):
         if hasattr(row_sum, 'A'):
             row_sum = row_sum.A.squeeze()
         keep = row_sum > 1
-        print(sum(keep), len(keep))
         data = data[keep,:]
+    print("read_star barcodes: ")
+    print(data.obs_names)
     return data
 
 def read_alevin(fn, args, **kw):
@@ -321,7 +321,10 @@ if __name__ == '__main__':
 
     data = data_list.pop(0)
     if len(data_list) > 0:
-        data = data.concatenate(*data_list, batch_categories=batch_categories)
+        if batch_categories is not None:
+            data = data.concatenate(*data_list, batch_categories=batch_categories, uns_merge='same')
+        else:
+            data = data.concatenate(*data_list, uns_merge='same', index_unique=None)
         if any(i.endswith('-0') for i in data.var.columns):
             remove_duplicate_cols(data.var)
     

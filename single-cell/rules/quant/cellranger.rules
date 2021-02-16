@@ -122,8 +122,8 @@ rule cellranger_quant:
         raw_h5 = join(CR_INTERIM, '{sample}', 'outs', 'raw_feature_bc_matrix.h5'),
         filt_h5 = join(CR_INTERIM, '{sample}', 'outs', 'filtered_feature_bc_matrix.h5'),
         mol_h5 = join(CR_INTERIM, '{sample}', 'outs', 'molecule_info.h5'),
-        raw_mtx = join(CR_INTERIM, '{sample}', 'outs', 'raw_feature_bc_matrix', 'barcodes.tsv.gz'),
-        filt_mtx = join(CR_INTERIM, '{sample}', 'outs', 'filtered_feature_bc_matrix', 'barcodes.tsv.gz'),
+        raw_barcodes = join(CR_INTERIM, '{sample}', 'outs', 'raw_feature_bc_matrix', 'barcodes.tsv.gz'),
+        filt_barcodes = join(CR_INTERIM, '{sample}', 'outs', 'filtered_feature_bc_matrix', 'barcodes.tsv.gz'),
         bam = join(CR_INTERIM, '{sample}', 'outs', 'possorted_genome_bam.bam'),
     params:
         outdir = join(CR_INTERIM, '{sample}'),
