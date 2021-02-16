@@ -4,7 +4,7 @@
 support.10xgenomics.com/single-cell-gene-expression/software/downloads
 
 """
-
+RELEASE = '2020-A'
 _URLS= {
     'homo_sapiens': 'https://cf.10xgenomics.com/supp/cell-exp/refdata-gex-GRCh38-2020-A.tar.gz',
     'mus_musculus': 'https://cf.10xgenomics.com/supp/cell-exp/refdata-gex-mm10-2020-A.tar.gz',
@@ -26,7 +26,7 @@ if ORG not in ['homo_sapiens', 'mus_musculus', 'homo_sapiens__mus_musculus']:
     raise ValueError('No 10x prebuild for org: {}'.format(ORG))
 
 DB_CONF = config['db'].get('10xgenomics', {})
-TX_RELEASE = DB_CONF['release']
+TX_RELEASE = DB_CONF.get('release', RELEASE)
 TX_ASSEMBLY = config['db']['assembly'] = DB_CONF['assembly'] = _ASSEMBLY[ORG]
 
 config['db']['10xgenomics'] = DB_CONF

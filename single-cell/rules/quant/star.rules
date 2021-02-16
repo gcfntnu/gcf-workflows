@@ -87,7 +87,7 @@ rule starsolo_quant:
         '--soloUMIlen {params.umi_len} '
         '--soloUMIstart {params.umi_start} '
         '--outSAMtype BAM SortedByCoordinate '
-        '--outSAMattributes CR CY UR UY CB UB NH '
+        '--outSAMattributes CR CY UR UY CB UB NH sM GX '
         '--limitBAMsortRAM 24000000000 ' 
         '--runThreadN {threads} '
         '{params.extra_args} '
@@ -100,8 +100,6 @@ rule starsolo_bam:
     shell:
         'ln -sr {input} {output}'
 
-        
-
 rule starsolo_clean_shmem:
     input:
         expand(rules.starsolo_quant.output, sample=SAMPLES)
@@ -109,6 +107,8 @@ rule starsolo_clean_shmem:
         genome_dir = rules.starsolo_quant.params.genome_dir
     output:
         temp(touch(join(STAR_INTERIM, '.starsolo.mem.cleaned')))
+    shadow:
+        'minimal'
     singularity:
         'docker://' + config['docker']['star']
     shell:
@@ -163,3 +163,10 @@ rule starsolo_bam_merge:
         'docker://' + config['docker']['sambamba']
     shell:
         'sambamba merge -t 8 {output} {input}'
+
+rule scanpy_barcodes:
+    input:
+        join(QUANT_INTERIM, '{anything}.h5ad')
+    output:
+        join(QUANT_INTERIM, '{anything}.h5ad.barcodes')
+        
