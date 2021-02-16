@@ -47,7 +47,7 @@ rule cellranger_mkref:
     output:
         join(CR_REF_DIR, 'reference.json'),
         join(CR_REF_DIR, 'fasta', 'genome.fa'),
-        join(CR_REF_DIR, 'genes', 'genes.gtf')
+        join(CR_REF_DIR, 'genes', 'genes.gtf.gz')
     threads:
         48
     singularity:
@@ -60,6 +60,14 @@ rule cellranger_mkref:
         '--genome {params.out_name} '
         '&& cp -r {params.out_name}/* {params.out_dir}/ '
         '&& rm -rf {params.out_name} '
+
+rule cellranger_unzip_gtf:
+    input:
+        join(CR_REF_DIR, 'genes', 'genes.gtf.gz')
+    output:
+        join(CR_REF_DIR, 'genes', 'genes.gtf')
+    shell:
+        'gunzip {input} {output}'
  
 rule cellranger_quant_:
     input:
@@ -159,10 +167,10 @@ rule cellranger_aggr:
         csv = join(QUANT_INTERIM, 'aggregate', 'description', '{aggr_id}_aggr.csv')
     output:
         summary = join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}', 'outs', 'web_summary.html'),
-        raw_h5 = join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}', 'outs', 'raw_feature_bc_matrix.h5'),
-        filt_h5 = join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}', 'outs','filtered_feature_bc_matrix.h5'),
-        raw_mtx = join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}','outs', 'raw_feature_bc_matrix', 'barcodes.tsv.gz'),
-        filt_mtx = join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}', 'outs', 'filtered_feature_bc_matrix', 'barcodes.tsv.gz')
+        raw_h5 = join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}', 'outs', 'count', 'raw_feature_bc_matrix.h5'),
+        filt_h5 = join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}', 'outs', 'count','filtered_feature_bc_matrix.h5'),
+        raw_mtx = join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}','outs', 'count', 'raw_feature_bc_matrix', 'barcodes.tsv.gz'),
+        filt_mtx = join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}', 'outs', 'count', 'filtered_feature_bc_matrix', 'barcodes.tsv.gz')
     params:
         outdir = join(QUANT_INTERIM, 'aggregate', 'cellranger'),
         id = '{aggr_id}',
