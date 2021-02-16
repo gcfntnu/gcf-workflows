@@ -1,0 +1,60 @@
+#-*- mode:snakemake -*-
+"""OPENGENE downloads. http://opengene.org/
+"""
+
+rule opengene_sarscov2_kmer:
+    output:
+        join(EXT_DIR, 'opengene', 'SARS-CoV-2.kmer.fa')
+    params:
+        date = datetime.now().strftime("%d-%m-%Y"),
+        url = 'http://opengene.org/fastv/data/SARS-CoV-2.kmer.fa'
+    log:
+        join(EXT_DIR, 'opengene', 'logs', 'kmer.log')
+    shell:
+        """
+        wget -O- {params.url} > {output}
+        echo "OpenGene sars-cov2-kmer,NA,{params.url},{params.date}" > {log}
+        """
+
+rule opengene_sarscov2_genome:
+    output:
+        join(EXT_DIR, 'opengene', 'SARS-CoV-2.genomes.fa')
+    params:
+        date = datetime.now().strftime("%d-%m-%Y"),
+        url = 'http://opengene.org/fastv/data/SARS-CoV-2.genomes.fa'
+    log:
+        join(EXT_DIR, 'opengene', 'logs', 'genomes.log')
+    shell:
+        """
+        wget -O- {params.url} > {output}
+        echo "OpenGene sars-cov2-genomes,NA,{params.url},{params.date}" > {log}
+        """
+
+rule opengene_microbial_kmer:
+    output:
+        join(EXT_DIR, 'opengene', 'microbial.kc.fasta.gz')
+    params:
+        date = datetime.now().strftime("%d-%m-%Y"),
+        url = 'http://opengene.org/microbial.kc.fasta.gz'
+    log:
+        join(EXT_DIR, 'opengene', 'logs', 'microbial.log')
+    shell:
+        """
+        wget -O- {params.url} > {output}
+        echo "OpenGene microbial,NA,{params.url},{params.date}" > {log}
+        """
+
+
+rule opengene_viral_kmer:
+    output:
+        join(EXT_DIR, 'opengene', 'viral.kc.fasta.gz')
+    params:
+        date = datetime.now().strftime("%d-%m-%Y"),
+        url = 'http://opengene.org/viral.kc.fasta.gz'
+    log:
+        join(EXT_DIR, 'opengene', 'logs', 'viral.log')
+    shell:
+        """
+        wget -O- {params.url} > {output}
+        echo "OpenGene viral,NA,{params.url},{params.date}" > {log}
+        """

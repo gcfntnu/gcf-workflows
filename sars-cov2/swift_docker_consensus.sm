@@ -1,0 +1,37 @@
+
+#config -> samplesheet.tsv 
+#SAMPLES = config["samples"]
+
+rule signal_run_ivar_consensus:
+    conda: 'conda_envs/ivar.yaml'
+    singularity: 'docker://gcfntnu/signal-ivar'
+    output:
+        'ivar_consensus/{sample}.consensus.fa'
+    input:
+        "bam/{sample}_realigned.bam"
+    log:
+        'snakelogs/{sample}_ivar_consensus.log'
+    params:
+        mpileup_depth = 100000,
+        ivar_min_coverage_depth = 10,
+        ivar_freq_threshold = 0.75,
+        output_prefix = 'ivar_consensus/{sample}.consensus',
+    threads:
+        1
+    shell:
+        '(samtools mpileup -aa -A -d {params.mpileup_depth} -Q0 {input} | '
+        'ivar consensus -t {params.ivar_freq_threshold} '
+        '-m {params.ivar_min_coverage_depth} -n N -p {params.output_prefix}) '
+        '2>{log}'
+
+rule consensus_all:
+    input:
+        expand('ivar_consensus/{sample}.consensus.fa', sample=SAMPLES)
+
+rule cat_consesnus:
+    input:
+        expand('ivar_consensus/{sample}.consensus.fa', sample=SAMPLES)
+    output:
+        'consensus_all.fa'
+    shell:
+        'cat {input} > {output}'

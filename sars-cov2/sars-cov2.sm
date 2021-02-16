@@ -1,0 +1,36 @@
+#-*- mode: snakemake -*-
+"""
+This is a part of the pipeline utilities at Genomics Core Facility (GCF),  Trondheim
+
+sars-cov2
+===================================
+Sars-Cov-2 Analysis Pipeline.
+
+"""
+
+from os import environ
+from os.path import abspath, join
+
+include:
+    srcdir('../utils.py')
+include:
+    srcdir('../common.rules')
+
+extra_conf_fn = srcdir('sars-cov2.config')
+if os.path.exists(extra_conf_fn):
+    with open(extra_conf_fn) as fh:
+        c  = yaml.load(fh, Loader=Loader) or {}
+        update_config2(config, c)
+
+        
+if not 'SAMPLES' in locals():
+    SAMPLES = list(config.get('samples', {}).keys())
+
+SAMPLES = [str(i) for i in SAMPLES]
+
+include:
+    'rules/reference_db.rules'
+include:
+    'rules/signal.rules'
+include:
+    'rules/bfq.rules'
