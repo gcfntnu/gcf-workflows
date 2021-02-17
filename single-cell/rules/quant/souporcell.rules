@@ -13,7 +13,9 @@ rule spc_common_snps:
     params:
         url = 'https://data.genomicsresearch.org/Projects/scSplit/CommonSNVs/common_snvs_hg38.tar.gz'
     shell:
-        'wget {params.url} -qO- | tar xvz -C {SCSPLIT_INTERIM} '
+        """
+        wget --load-cookies /tmp/cookies.txt "https://docs.google.com/uc?export=download&confirm=$(wget --quiet --save-cookies /tmp/cookies.txt --keep-session-cookies --no-check-certificate 'https://docs.google.com/uc?export=download&id=13aebUpEKrtjliyT9rYzRijtkNJVUk5F_' -O- | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/\1\n/p')&id=13aebUpEKrtjliyT9rYzRijtkNJVUk5F_" -O {output} && rm -rf /tmp/cookies.txt
+        """
 
 
 rule souporcell_barcodes:
@@ -35,7 +37,7 @@ rule souporcell_run:
     output:
         join(SPC_INTERIM, '{sample}', 'cluster_genotypes.vcf')
     singularity:
-        'docker://gcfntnu/souporcell:dev'
+        'docker://gcfntnu/souporcell:2.0'
     threads:
         24
     shell:
