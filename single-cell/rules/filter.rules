@@ -15,3 +15,13 @@ def get_filtered_fastq_R2(wildcards):
     if config['filter']['trim']['quantifier'] == 'skip':
         return get_raw_fastq(wildcards)['R2']
     return [join(FILTER_INTERIM, 'cleaned', '{}_S1_L000_R2_001.fastq.gz'.format(wildcards.sample))]
+
+def umitools_get_filtered_fastq_R1(wildcards):
+    if config['filter']['trim']['quantifier'] == 'skip':
+        return get_raw_fastq(wildcards)['R1']
+    return [join(FILTER_INTERIM, 'cleaned', '{}_R1.fastq.gz'.format(wildcards.sample))]
+
+def umitools_get_filtered_fastq_R2(wildcards):
+    if config['filter']['trim']['quantifier'] == 'skip':
+        return get_raw_fastq(wildcards)['R2']
+    return [join(FILTER_INTERIM, 'cleaned', '{}_R2.fastq.gz'.format(wildcards.sample))]
