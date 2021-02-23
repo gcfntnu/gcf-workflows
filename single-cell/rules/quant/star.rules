@@ -35,6 +35,19 @@ rule starsolo_genome_index:
         '--sjdbOverhang {params.readlength} '
         '&& mv Log.out {log} '
 
+rule starsolo_convert_umitools_whitelist:
+    input:
+        join(UMI_INTERIM, '{sample}','whitelist.txt')
+    output:
+        join(STAR_INTERIM, '{sample}', 'whitelist.txt')
+    threads:
+        1
+    singularity:
+        'docker://' + config['docker']['default']
+    shell:
+        'awk -F\"\\t\" \'{{print $1}}\' {input} > {output} '
+        
+
 READ_LENGTH = config.get('read_geometry', [28, 98])[-1]
 if config['db']['reference_db'] == '10xgenomics':
     # rebuild genome to match current star version
@@ -43,7 +56,7 @@ else:
     REF_GENOME = join(REF_DIR, 'index', 'genome', 'star', 'r_{}'.format(READ_LENGTH), 'SA')
 
 if config['libprepkit'].startswith("Drop-Seq"):
-    WHITELIST = join(UMI_INTERIM, '{sample}','whitelist.txt')
+    WHITELIST = join(STAR_INTERIM, '{sample}','whitelist.txt')
 else:
     WHITELIST = join(EXT_DIR, '10xgenomics', config.get('organism'), "release-{}".format(config['db']['10xgenomics']['release']), config['db']['10xgenomics']['assembly'], config['quant']['starsolo']['whitelist'])
 
