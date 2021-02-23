@@ -61,7 +61,7 @@ rule umitools_align_star:
     params:
         ref = star_genome_dir(),
         out_prefix = join(UMI_INTERIM, '{sample}', '{sample}.'),
-        args = '--readFilesCommand zcat --outFilterMultimapNmax 1 --outSAMtype BAM SortedByCoordinate --genomeLoad LoadAndKeep '
+        args = '--readFilesCommand zcat --outFilterMultimapNmax 1 --outSAMtype BAM SortedByCoordinate --genomeLoad LoadAndKeep --limitBAMsortRAM 24000000000 '
     threads:
         24
     shell:
@@ -107,7 +107,7 @@ rule umitools_index_bam:
     output:
         join(UMI_INTERIM, '{sample}', '{sample}.Assigned.sorted.bam.bai')
     singularity:
-        'docker://' + config['docker']['umi_tools']
+        'docker://' + config['docker']['samtools']
     shell:
         'samtools index {input}'
     
@@ -129,15 +129,41 @@ rule umitools_quant:
 
 rule umitools_scanpy:
     input:
-      rules.umitools_quant.output
+        rules.umitools_quant.output
     params:
-        script = srcdir('scripts/convert_scanpy.py')
+        script = srcdir('scripts/convert_scanpy.py'),
+        format = 'umitools',
     output:
         join(UMI_INTERIM, '{sample}', 'scanpy', 'adata.h5ad')
     singularity:
         'docker://' + config['docker']['scanpy']
     shell:
-        'python {params.script} -i {input} -o {output} '
+        'python {params.script} '
+        '{input} '
+        '-o {output} '
+        '-f {params.format} '
+
+rule umitools_scanpy_aggr:
+    input:
+        h5ad = expand(join(UMI_INTERIM, '{sample}', 'scanpy', 'adata.h5ad'), sample=SAMPLES),
+        counts = expand(rules.umitools_quant.output, sample=SAMPLES),
+    params:
+        script = srcdir('scripts/convert_scanpy.py'),
+        format = 'umitools',
+        norm = config['quant']['aggregate']['norm'],
+    output:
+        join(QUANT_INTERIM, 'aggregate', 'umitools', 'scanpy', '{aggr_id}_aggr.h5ad')
+    singularity:
+        'docker://' + config['docker']['scanpy']
+    shell:
+        'python {params.script} '
+        '{input.counts} '
+        '-o {output} '
+        '-f {params.format} '
+        '--normalize {params.norm} '
+        '--identify-doublets '
+        '-v '
+
 
 rule umitools_seurat:
     input:

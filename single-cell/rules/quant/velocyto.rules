@@ -90,7 +90,7 @@ rule velocyto_merge_aggr:
         sc = join(QUANT_INTERIM, 'aggregate', '{quant}', 'scanpy', '{aggr_id}_aggr.h5ad'),
         vc = join(QUANT_INTERIM, 'aggregate', '{quant}', 'velocyto', '{aggr_id}_aggr.h5ad')
     output:
-        join(QUANT_INTERIM, 'aggregate', '{quant}', '{aggr_id}_aggr.h5ad')
+        join(QUANT_INTERIM, 'aggregate', '{quant}', '{aggr_id}_merge.h5ad')
     params:
         script = srcdir('scripts/merge_scanpy.py')
     singularity:
