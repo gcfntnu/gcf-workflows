@@ -42,14 +42,26 @@ def get_params(wildcards, input, output):
     params_str += '--independentFiltering {} '.format(ifilt)
     if alpha:
         params_str += '--alpha {} '.format(alpha)
-    
+    feature_type = model.get('feature_type', 'gene')
+    assert(feature_type in ['gene', 'transcript'])
+    params_str += '--featureType {} '.format(feature_type)
     return params_str
+
+def get_input(wildcards):
+    target = join(INTERIM_DIR, 'sample_info.tsv')
+    model = config['models'].get(wildcards.model_name)
+    feature_type = model.get('feature_type', 'gene')
+    if feature_type == 'gene':
+        counts = join(QUANT_INTERIM, '{quant}', 'tximport', 'gene_counts.tsv')
+        meta = join(REF_DIR, 'genes', 'genes.tsv')
+    else:
+        counts = join(QUANT_INTERIM, '{quant}', 'tximport', 'transcript_counts.tsv')
+        meta = join(REF_DIR, 'genes', 'transcripts.tsv')
+    return {'target': target, 'counts': counts, 'meta': meta}
         
 rule sartools_deseq2_run:
     input:
-        target = join(INTERIM_DIR, 'sample_info.tsv'),
-        counts = join(QUANT_INTERIM, '{quant}', 'tximport', 'gene_counts.tsv'),
-        meta = join(REF_DIR, 'genes', 'genes.tsv')
+        unpack(get_input)
     params:
         script = srcdir('scripts/template_script_DESeq2_CL.r'),
         args = get_params

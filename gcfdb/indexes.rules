@@ -212,3 +212,33 @@ rule salmon_index:
         '--index {params.out} '
         '--transcripts {input}'
 
+rule salmon_index_tximeta:
+    input:
+        fasta = join('{ref_dir}', 'fasta', '{prefix}.fa'),
+        json = join('{ref_dir}', 'index', '{prefix}', 'salmon', 'info.json'),
+        gtf = join('{ref_dir}', 'genes', 'genes.gtf')
+    output:
+        json = join('{ref_dir}', 'index', '{prefix}', 'salmon', 'tximeta.json')
+    params:
+        script = srcdir('scripts/make_linked_txome.R'),
+        org = config['organism'],
+        db = lambda x: config['db']['reference_db'],
+        release = lambda x: DB_CONF['release'],
+        assembly = lambda x: DB_CONF['assembly'],
+        cache = GCFDB_DIR
+    threads:
+        16
+    singularity:
+        'docker://' + config['docker']['tximport']
+    shell:
+        'Rscript {params.script} '
+        '--index = {input.json} '
+        '--transcriptome {input.fasta} '
+        '--organism {params.org} '
+        '--gtf {input.gtf} '
+        '--source {params.db} '
+        '--release {params.release} '
+        '--assembly {params.assembly} '
+        '--cachedir {GCFDB_DIR} '
+        '--output {output.json} '
+        

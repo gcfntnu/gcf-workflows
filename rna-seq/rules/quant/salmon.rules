@@ -65,17 +65,17 @@ def sample_args(wildcards):
 rule salmon_map:
     input:
         unpack(get_processed_fastq),
-        index = join(REF_DIR, 'index', 'transcriptome', 'salmon', 'info.json'),
+        index = join(REF_DIR, 'index', 'gentrome', 'salmon', 'info.json'),
         gtf = join(REF_DIR, 'genes', 'genes.gtf')
     params:
         output = join(SALMON_INTERIM, '{sample}'),
         nboot = 30,
         lib_type = LIB_TYPE,
-        index = join(REF_DIR, 'index', 'transcriptome', 'salmon'),
+        index = join(REF_DIR, 'index', 'gentrome', 'salmon'),
         sample_args = sample_args,
         unmapped_args = '--writeUnmappedNames --writeMappings=unmapped.sam '
     threads:
-        4
+        24
     singularity:
         'docker://' + config['docker']['salmon']
     output:
@@ -88,6 +88,7 @@ rule salmon_map:
         '-l {params.lib_type} '
         '-g {input.gtf} '
         '-p {threads} '
+        '--numBootstraps {params.nboot} '
         '--validateMappings '
         '--rangeFactorizationBins 4 '
         '--seqBias '

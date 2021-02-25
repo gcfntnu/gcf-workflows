@@ -7,7 +7,7 @@
 ################################################################################
 rm(list=ls())                                        # remove all the objects from the R session
 library(optparse)                                    # to run the script in command lines
-
+library(stringr)
 # options list with associated default value.
 option_list <- list( 
 make_option(c("-P", "--projectName"),
@@ -41,7 +41,7 @@ make_option(c("-m", "--metaFile"),
             help="path to the features info file [default: %default]."),
 
 make_option(c("-R", "--templateFile"),
-            default="src/rna-seq/rules/analysis/diff_expr/scripts/GCF_DESeq2.rmd",
+            default="src/gcf-workflows/rna-seq/rules/analysis/diff_expr/scripts/GCF_DESeq2.rmd",
             dest="templateFile",
             help="path to the directory R markdown template [default: %default]."),
 
@@ -49,6 +49,11 @@ make_option(c("-F", "--featuresToRemove"),
             default="alignment_not_unique,ambiguous,no_feature,not_aligned,too_low_aQual",
             dest="FTR",
             help="names of the features to be removed, more than once can be specified [default: %default]"),
+
+make_option(c("-G", "--featureType"),
+            default="gene",
+            dest="featureType",
+            help="feature type. either `gene` or `transcript` [default: %default]"),
 			
 make_option(c("-v", "--varInt"),
             default="group",
@@ -147,14 +152,15 @@ locfunc <- opt$locfunc                               # "median" (default) or "sh
 colors <- unlist(strsplit(opt$cols, ","))            # vector of colors of each biologicial condition on the plots
 forceCairoGraph <- opt$forceCairoGraph				 # force cairo as plotting device if enabled
 
-if (!is.null(opt$subset)){
-    subset <- unlist(strsplit(opt$subset, ","))
-} else{
-    subset <- opt$subset
+subset <- opt$subset
+if (!is.null(subset)){
+    if (grepl( ",", subset, fixed = TRUE)){
+        subset <- unlist(strsplit(opt$subset, ","))
+    }
 }
 
 print(paste("workDir", workDir))
-print(paste("subset", subset))
+print(paste("subset", as.character(subset)))
 options(echo=TRUE)
 
 # print(paste("projectName", projectName))
@@ -195,10 +201,14 @@ loadTargetFile <- function(targetFile, varInt, condRef, batch, subset=NULL){
     target <- read.table(targetFile, header=TRUE, sep="\t", na.strings="", check.names=FALSE)
     rownames(target) <- as.character(target[,1])
     if (!is.null(subset)){
+        if (grepl( "::", subset, fixed = TRUE)){
+            s <- unlist(str_split(subset, "::"))
+            subset <- rownames(target)[target[,s[1]] == s[2]]
+        }
         target <- target[subset,]
         factor_cols <- vapply(target, is.factor, logical(1))
         target[factor_cols] <- lapply(target[factor_cols], factor)
-    } 
+    }
     if (!I(varInt %in% names(target))) stop(paste("The factor of interest", varInt, "is not in the target file"))
     if (!is.null(batch)){
         if (!I(batch %in% names(target))){
@@ -222,7 +232,10 @@ loadTargetFile <- function(targetFile, varInt, condRef, batch, subset=NULL){
     ##if (!is.null(batch) && is.numeric(target[,batch])) warning(paste("The", batch, "variable is numeric. Use factor() or rename the levels with letters to convert it into a factor"))
     ##if (any(grepl("[[:punct:]]", as.character(target[,varInt])))) stop(paste("The", varInt, "variable contains punctuation characters, please remove them"))
     cat("Target file:\n")
-    print(target)
+    keep.cols <- c(varInt)
+    if (!is.null(batch)) keep.cols <- c(keep.cols, batch)
+    if ("Sample_Biosource" %in% colnames(target))  keep.cols <- c(keep.cols, "Sample_Biosource")
+    target <- target[,keep.cols]
     return(target)
 }
 
@@ -237,9 +250,18 @@ counts <- counts[,rownames(target)]
 
 ## load features meta info
 info <- read.delim(opt$metaFile, sep="\t", check.names=FALSE, as.is=TRUE)
-i <- grep("gene_id.?", colnames(info))[1]
-rownames(info) <- info[,i]
-keep.cols <- intersect(c("gene_id", "gene_name", "gene_biotype", "seqname"), colnames(info))
+if (opt$featureType == "gene"){
+    i <- grep("gene_id.?", colnames(info))[1]
+    rownames(info) <- info[,i]
+    keep.cols <- intersect(c("gene_id", "gene_name", "gene_biotype", "seqname"), colnames(info))
+}
+
+if (opt$featureType == "transcript"){
+    i <- grep("transcript_id.?", colnames(info))[1]
+    rownames(info) <- info[,i]
+    keep.cols <- intersect(c("transcript_id", "transcript_name", "transcript_biotype", "seqname"), colnames(info))
+}
+
 info <- info[,keep.cols]
 info <- info[rownames(counts),]
 
@@ -354,7 +376,11 @@ writeReport.DESeq2 <- function(target, counts, out.DESeq2, summaryResults, majSe
 
 ## generating HTML report
 viz.counts <- data.frame(Id=rownames(counts), counts)
-viz.counts <- merge(info[, c("Id", "gene_name", "gene_biotype")], viz.counts, by='Id')
+if (opt$featureType == "gene"){
+    viz.counts <- merge(info[, c("Id", "gene_name", "gene_biotype")], viz.counts, by='Id')
+} else{
+    viz.counts <- merge(info[, c("Id", "transcript_name", "transcript_biotype")], viz.counts, by='Id')
+}
 writeReport.DESeq2(target=target, counts=viz.counts, out.DESeq2=out.DESeq2, summaryResults=summaryResults,
                    majSequences=majSequences, workDir=workDir, projectName=projectName, author=author,
                    targetFile=targetFile, rawDir=rawDir, featuresToRemove=featuresToRemove, varInt=varInt,

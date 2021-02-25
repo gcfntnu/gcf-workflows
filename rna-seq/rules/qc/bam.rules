@@ -185,7 +185,7 @@ rule create_ribo_bed:
     input:
         gtf = join(REF_DIR, 'genes', 'genes.gtf')
     output:
-        temp('rrna.bed')
+        join(REF_DIR, 'genes', 'rrna.bed')
     singularity:
         'docker://' + config['docker']['ucsc-scripts']
     shell:
