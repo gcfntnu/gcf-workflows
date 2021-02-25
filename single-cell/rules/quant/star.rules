@@ -74,7 +74,7 @@ rule starsolo_quant:
         umi_start = config['quant']['starsolo']['umi_start'],
         R1 = starsolo_R1,
         R2 = starsolo_R2,
-        extra_args = '--genomeLoad LoadAndKeep --soloFeatures Gene GeneFull SJ Velocyto Transcript3p ' 
+        extra_args = '--genomeLoad LoadAndKeep --outFilterMultimapNmax 1 --soloFeatures Gene GeneFull SJ Velocyto Transcript3p ' 
     threads:
         48
     output:
