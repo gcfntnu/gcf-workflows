@@ -45,7 +45,9 @@ rule starsolo_convert_umitools_whitelist:
     singularity:
         'docker://' + config['docker']['default']
     shell:
-        'awk -F\"\\t\" \'{{print $1}}\' {input} > {output} '
+        """
+        awk -F"\\t" '{{print $1}}' {input} > {output} 
+        """
         
 
 READ_LENGTH = config.get('read_geometry', [28, 98])[-1]
