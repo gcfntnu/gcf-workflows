@@ -2,9 +2,9 @@
 """
 This is a part of the pipeline utilities at Genomics Core Facility (GCF),  Trondheim
 
-rna-seq
+single-cell
 ===================================
-rna-seq Analysis Pipeline.
+single-cell Analysis Pipeline.
 
 Documentation: https://github.com/gcfntnu/single-cell
 Authors:
@@ -13,7 +13,8 @@ Arnar Flatberg / flatberg <arnar.flatberg@ntnu.no>
 include:
     srcdir('../utils.py')
 include:
-    srcdir('../common.rules')  
+    srcdir('../common.rules')
+    
 if not 'SAMPLES' in locals():
     SAMPLES = list(config.get('samples', {}).keys())
 

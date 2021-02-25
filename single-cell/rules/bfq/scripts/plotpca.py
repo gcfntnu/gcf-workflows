@@ -8,7 +8,10 @@ warnings.filterwarnings("ignore", message="numpy.dtype size changed")
 import yaml
 import scanpy as sc
 import pandas as pd
-    
+
+import matplotlib
+matplotlib.use('Agg')
+
 def multiqc_yaml(T, S=None, n_comp=2, color_by="Sample_Group"):
     max_comp = T.shape[1]
     T1 = T.iloc[:, :2]
@@ -114,8 +117,8 @@ if __name__ == "__main__":
 
     # standard preprocessing
     sc.pp.filter_cells(adata, min_genes=200)
-    sc.pp.filter_genes(adata, min_cells=3)
-    sc.pp.filter_genes(adata, min_counts=5)
+    sc.pp.filter_genes(adata, min_cells=10)
+    sc.pp.filter_genes(adata, min_counts=20)
     sc.pp.normalize_total(adata, key_added='n_counts_all')
     f = sc.pp.filter_genes_dispersion(adata.X, flavor='cell_ranger', n_top_genes=1000, log=False)
     adata._inplace_subset_var(f.gene_subset)
@@ -124,11 +127,11 @@ if __name__ == "__main__":
     sc.pp.scale(adata)
 
     # neighbours
-    sc.pp.pca(adata, n_comps=30)
+    sc.pp.pca(adata, n_comps=20)
     sc.pp.neighbors(adata)   
 
     # cluster
-    sc.tl.louvain(adata)
+    sc.tl.louvain(adata, resolution=0.8)
 
     # umap
     sc.tl.umap(adata)
