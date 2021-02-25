@@ -3,12 +3,8 @@
 adding a biotype annotation to gtf
 [optional]: renaming ERCC probes features to `gene` to get the exons counted in a gene count pipeline
 """
-from os.path import join
 
 ERCC_DIR = join(EXT_DIR, 'spikein')
-
-include:
-    'indexes.rules'
     
 rule ercc_files:
     params:

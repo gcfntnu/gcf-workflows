@@ -46,7 +46,7 @@ rule starsolo_quant:
         R1 = get_filtered_fastq_R1,
         R2 = get_filtered_fastq_R2,
         genome = REF_GENOME,
-        whitelist = join(EXT_DIR, '10xgenomics', config.get('organism'), "release-{}".format(config['db']['10xgenomics']['release']), config['db']['10xgenomics']['assembly'], config['quant']['starsolo']['whitelist'])
+        whitelist = join(EXT_DIR, '10xgenomics', config['quant']['starsolo']['whitelist'])
     params:
         outdir = join(STAR_INTERIM, '{sample}') + '/',
         genome_dir = os.path.dirname(REF_GENOME),

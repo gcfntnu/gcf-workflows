@@ -34,7 +34,6 @@ if not 'ref' in locals():
     ref = os.path.dirname(REF_DIR)
     config['db']['reference_db'] = ref
     config['db'][ref] = {}
+
 include:
     'indexes.rules'
-include:
-    'convert.rules'

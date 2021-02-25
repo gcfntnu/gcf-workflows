@@ -51,8 +51,6 @@ if ERCC:
         'ercc.db'
 include:
     'convert.rules'
-include:
-    'indexes.rules'
 
 # GENCODE URLS
 GENCODE_GENOME = 'http://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_{}/release_{}/{}.primary_assembly.genome.fa.gz'

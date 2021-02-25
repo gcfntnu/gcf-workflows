@@ -2,7 +2,3 @@
 
 include:
     join(GCFDB_DIR, 'reference_db.db')
-include:
-    join(GCFDB_DIR, '10xgenomics.db')
-
-

@@ -2,8 +2,6 @@
 """Indexes from fasta
 """
 
-include:
-    'convert.rules'
         
 rule star_genome_index_gtf:
     input: 

@@ -294,9 +294,6 @@ rule ensembl_db_downloads:
         ln -sr {input.genome_index} {output.genome_index}
         ln -sr {input.transcriptome} {output.transcriptome}
         """
-
-include:
-    'indexes.rules'
         
 rule ensembl_db_all:
     input:
