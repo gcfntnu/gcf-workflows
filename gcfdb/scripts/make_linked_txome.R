@@ -5,8 +5,6 @@ suppressPackageStartupMessages({
 })
 
 
-
-
 parser <- ArgumentParser(description="tximeta db for Salmon index")
 
 parser$add_argument("-i", "--index", required=TRUE, help="Salmon index")
@@ -32,7 +30,13 @@ parser$add_argument("-v", "--verbose", action="store_true", default=FALSE, help=
 args <- parser$parse_args(args=commandArgs(TRUE))
 
 
+if (args$verbose == TRUE){
+    options(echo=TRUE)
+}
+
 Sys.setenv(TXIMETA_HUB_CACHE=args$cachedir)
+print(getTximetaBFC())
+setTximetaBFC(args$cachedir, quiet=TRUE)
 
 makeLinkedTxome(indexDir = dirname(args$index),
                 source = args$source,

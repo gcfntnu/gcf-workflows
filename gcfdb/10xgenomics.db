@@ -37,7 +37,7 @@ rule txgenomics_whitelist_v1:
         url = _URLS['whitelist_v1'],
         date = datetime.now().strftime("%d-%m-%Y")
     output:
-        join(OUTDIR, '737K-april-2014_rc.txt')
+        join(EXT_DIR, '10xgenomics', '737K-april-2014_rc.txt')
     log:
         join(OUTDIR, 'logs', '737K-april-2014_rc.log')
     shell:
@@ -51,7 +51,7 @@ rule txgenomics_whitelist_v2:
         url = _URLS['whitelist_v2'],
         date = datetime.now().strftime("%d-%m-%Y")
     output:
-        join(OUTDIR, '737K-august-2016.txt.txt')
+        join(EXT_DIR, '10xgenomics', '737K-august-2016.txt.txt')
     log:
         join(OUTDIR, 'logs', '737K-august-2016.txt.log')
     shell:
@@ -65,7 +65,7 @@ rule txgenomics_whitelist_v3:
         url = _URLS['whitelist_v3'],
         date = datetime.now().strftime("%d-%m-%Y")
     output:
-        join(OUTDIR, '3M-february-2018.txt')
+        join(EXT_DIR, '10xgenomics', '3M-february-2018.txt')
     log:
         join(OUTDIR, 'logs', '3M-february-2018.txt.log')
     shell:
@@ -94,7 +94,7 @@ rule txgenomics_org_prebuild:
 
 rule txgenomics_all:
     input:
-        join(OUTDIR, '737K-april-2014_rc.txt'),
-        join(OUTDIR, '737K-august-2016.txt.txt'),
-        join(OUTDIR, '3M-february-2018.txt'),
+        join(EXT_DIR, '10xgenomics', '737K-april-2014_rc.txt'),
+        join(EXT_DIR, '10xgenomics', '737K-august-2016.txt.txt'),
+        join(EXT_DIR, '10xgenomics', '3M-february-2018.txt'),
         join(OUTDIR, 'reference.json')

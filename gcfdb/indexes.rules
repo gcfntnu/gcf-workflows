@@ -210,6 +210,9 @@ rule salmon_index:
         '--index {params.out} '
         '--transcripts {input}'
 
+TXI_CACHE = os.environ.get('TXIMETA_HUB_CACHE', join(EXT_DIR, 'tximeta'))
+if not os.path.exists(TXI_CACHE):
+    os.makedirs(TXI_CACHE)
 rule salmon_index_tximeta:
     input:
         fasta = join('{ref_dir}', 'fasta', '{prefix}.fa'),
@@ -223,20 +226,20 @@ rule salmon_index_tximeta:
         db = lambda x: config['db']['reference_db'],
         release = lambda x: DB_CONF['release'],
         assembly = lambda x: DB_CONF['assembly'],
-        cache = GCFDB_DIR
+        cache = TXI_CACHE
     threads:
         16
     singularity:
         'docker://' + config['docker']['tximport']
     shell:
-        'Rscript {params.script} '
-        '--index = {input.json} '
+        'Rscript {params.script} -v '
+        '--index {input.json} '
+        '--cachedir {params.cache} '
         '--transcriptome {input.fasta} '
         '--organism {params.org} '
         '--gtf {input.gtf} '
         '--source {params.db} '
         '--release {params.release} '
         '--assembly {params.assembly} '
-        '--cachedir {GCFDB_DIR} '
-        '--output {output.json} '
+        '-o {output.json} '
         

@@ -49,13 +49,13 @@ def get_params(wildcards, input, output):
 
 def get_input(wildcards):
     target = join(INTERIM_DIR, 'sample_info.tsv')
-    model = config['models'].get(wildcards.model_name)
+    model = config['models'][wildcards.model_name]
     feature_type = model.get('feature_type', 'gene')
+    quant = config['quant']['method']
+    counts = join(QUANT_INTERIM, quant, 'tximport', 'tx_{}.rds'.format(quant))
     if feature_type == 'gene':
-        counts = join(QUANT_INTERIM, '{quant}', 'tximport', 'gene_counts.tsv')
         meta = join(REF_DIR, 'genes', 'genes.tsv')
     else:
-        counts = join(QUANT_INTERIM, '{quant}', 'tximport', 'transcript_counts.tsv')
         meta = join(REF_DIR, 'genes', 'transcripts.tsv')
     return {'target': target, 'counts': counts, 'meta': meta}
         

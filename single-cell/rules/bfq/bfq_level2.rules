@@ -50,7 +50,7 @@ rule bfq_level2_aligned:
 
 rule bfq_level2_umap_png:
     input:
-        join(QUANT_INTERIM, 'aggregate', '{quant}', '{aggr_id}_aggr.h5ad')
+        join(QUANT_INTERIM, 'aggregate', '{quant}', '{aggr_id}_merge.h5ad')
     output:
         join(BFQ_INTERIM, 'figs', '{quant}', 'umap_{aggr_id}_mqc.png')
     params:

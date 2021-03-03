@@ -5,9 +5,14 @@
 ### designed to be executed with SARTools 1.6.6
 ### run "Rscript template_script_DESeq2_CL.r --help" to get some help
 ################################################################################
-rm(list=ls())                                        # remove all the objects from the R session
-library(optparse)                                    # to run the script in command lines
+suppressPackageStartupMessages(library(SARTools))
+library(optparse)
 library(stringr)
+
+rm(list=ls())                                        # remove all the objects from the R session
+
+
+
 # options list with associated default value.
 option_list <- list( 
 make_option(c("-P", "--projectName"),
@@ -184,7 +189,7 @@ options(echo=TRUE)
 ###                             running script                               ###
 ################################################################################
 
-library(SARTools)
+
 if (forceCairoGraph) options(bitmapType="cairo")
 
 # checking parameters
@@ -232,6 +237,7 @@ loadTargetFile <- function(targetFile, varInt, condRef, batch, subset=NULL){
     ##if (!is.null(batch) && is.numeric(target[,batch])) warning(paste("The", batch, "variable is numeric. Use factor() or rename the levels with letters to convert it into a factor"))
     ##if (any(grepl("[[:punct:]]", as.character(target[,varInt])))) stop(paste("The", varInt, "variable contains punctuation characters, please remove them"))
     cat("Target file:\n")
+    print(head(target))
     keep.cols <- c(varInt)
     if (!is.null(batch)) keep.cols <- c(keep.cols, batch)
     if ("Sample_Biosource" %in% colnames(target))  keep.cols <- c(keep.cols, "Sample_Biosource")
@@ -243,10 +249,24 @@ target <- loadTargetFile(targetFile=targetFile, varInt=varInt, condRef=condRef, 
 
 
 # loading counts
-##counts <- loadCountData(target=target, rawDir=rawDir, featuresToRemove=featuresToRemove)
-counts <- read.delim(countsFile, sep="\t", check.names=FALSE, as.is=TRUE, row.names=1)
+if (tools::file_ext(countsFile) == "rds"){
+    library(tximport)
+    txi <- readRDS(countsFile)
+    print("txi loaded")
+    if (opt$featureType == "gene"){
+        txi <- summarizeToGene(txi, txi$tx2gene)
+        counts <- as.data.frame(txi$counts)
+        print(head(counts, n=3))
+    } else{
+        counts <- txi$counts
+    }
+} else{
+    counts <- read.delim(countsFile, sep="\t", check.names=FALSE, as.is=TRUE, row.names=1)
+}
+
 counts <- as.matrix(round(counts))
 counts <- counts[,rownames(target)]
+
 
 ## load features meta info
 info <- read.delim(opt$metaFile, sep="\t", check.names=FALSE, as.is=TRUE)
@@ -265,15 +285,60 @@ if (opt$featureType == "transcript"){
 info <- info[,keep.cols]
 info <- info[rownames(counts),]
 
-#setwd(output)
-
-# description plots
+## description plots
 majSequences <- descriptionPlots(counts=counts, group=target[,varInt], col=colors)
 
-# analysis with DESeq2
-out.DESeq2 <- run.DESeq2(counts=counts, target=target, varInt=varInt, batch=batch,
-                         locfunc=locfunc, fitType=fitType, pAdjustMethod=pAdjustMethod,
-                         cooksCutoff=cooksCutoff, independentFiltering=independentFiltering, alpha=alpha)
+## analysis with DESeq2
+runDESeq <- function(counts, target, varInt, batch=NULL, locfunc="median", fitType="parametric", pAdjustMethod="BH",
+                     cooksCutoff=TRUE, independentFiltering=TRUE, alpha=0.05, ...){
+    ## building dds object
+    des <- formula(paste("~", ifelse(!is.null(batch), paste(batch,"+"), ""), varInt))
+    if (class(counts) == "list"){ #tximport
+        dds <- DESeqDataSetFromTximport(counts, colData=target, design=des)
+        dds <- estimateSizeFactors(dds, locfunc=eval(as.name(locfunc)))
+        print(head(normalizationFactors(dds)))
+        sizeFactors(dds) <- colMedians(normalizationFactors(dds)) 
+    } else{
+        dds <- DESeqDataSetFromMatrix(counts, colData=target, design=des)
+        dds <- estimateSizeFactors(dds, locfunc=eval(as.name(locfunc)))
+    }
+    
+    cat("Design of the statistical model:\n")
+    cat(paste(as.character(design(dds)), collapse=" "),"\n")					  
+  
+    ## normalization
+    cat("\nNormalization factors:\n")
+    
+    print(sizeFactors(dds))
+    
+    ## estimating dispersions
+    dds <- estimateDispersions(dds, fitType=fitType)
+  
+    ## statistical testing: perform all the comparisons between the levels of varInt
+    dds <- nbinomWaldTest(dds, ...)
+    results <- list()
+    for (comp in combn(nlevels(colData(dds)[,varInt]), 2, simplify=FALSE)){
+        levelRef <- levels(colData(dds)[,varInt])[comp[1]]
+        levelTest <- levels(colData(dds)[,varInt])[comp[2]]
+        results[[paste0(levelTest,"_vs_",levelRef)]] <- results(dds, contrast=c(varInt, levelTest, levelRef),
+                                                                pAdjustMethod=pAdjustMethod, cooksCutoff=cooksCutoff,
+                                                                independentFiltering=independentFiltering, alpha=alpha)
+        cat(paste("Comparison", levelTest, "vs", levelRef, "done\n"))
+    }
+  
+    return(list(dds=dds, results=results, sf=sizeFactors(dds)))
+}
+
+
+if (tools::file_ext(countsFile) == "rds"){
+    out.DESeq2 <- runDESeq(counts=txi, target=target, varInt=varInt, batch=batch,
+                           locfunc=locfunc, fitType=fitType, pAdjustMethod=pAdjustMethod,
+                           cooksCutoff=cooksCutoff, independentFiltering=independentFiltering, alpha=alpha)
+} else{
+    out.DESeq2 <- run.DESeq2(counts=counts, target=target, varInt=varInt, batch=batch,
+                             locfunc=locfunc, fitType=fitType, pAdjustMethod=pAdjustMethod,
+                             cooksCutoff=cooksCutoff, independentFiltering=independentFiltering, alpha=alpha)
+}
 
 ## add feature data if available
 if (!is.null(info)){
