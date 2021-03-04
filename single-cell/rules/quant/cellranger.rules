@@ -195,6 +195,7 @@ rule cellranger_aggr:
         filt_mtx = join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}','outs', 'count', 'filtered_feature_bc_matrix', 'matrix.mtx.gz'),
         filt_barcodes = join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}', 'outs', 'count', 'filtered_feature_bc_matrix', 'barcodes.tsv.gz'),
         filt_features = join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}', 'outs', 'count', 'filtered_feature_bc_matrix', 'features.tsv.gz'),
+        cloupe = join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}', 'outs', 'count', 'cloupe.cloupe'),
     params:
         outdir = join(QUANT_INTERIM, 'aggregate', 'cellranger'),
         id = '{aggr_id}',

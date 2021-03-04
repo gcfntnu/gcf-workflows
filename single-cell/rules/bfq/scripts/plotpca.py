@@ -120,7 +120,13 @@ if __name__ == "__main__":
     sc.pp.filter_genes(adata, min_cells=10)
     sc.pp.filter_genes(adata, min_counts=20)
     sc.pp.normalize_total(adata, key_added='n_counts_all')
-    f = sc.pp.filter_genes_dispersion(adata.X, flavor='cell_ranger', n_top_genes=1000, log=False)
+    try:
+        f = sc.pp.filter_genes_dispersion(adata.X, flavor='cell_ranger', n_top_genes=1000, log=False)
+    except Exception as e:
+        print(e)
+        print("Try with n_top_genes=None")
+        f = sc.pp.filter_genes_dispersion(adata.X, flavor='cell_ranger', n_top_genes=None, log=False)
+
     adata._inplace_subset_var(f.gene_subset)
     sc.pp.normalize_total(adata)
     sc.pp.log1p(adata)

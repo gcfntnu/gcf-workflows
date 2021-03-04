@@ -43,11 +43,11 @@ onsuccess:
     import yaml
     
     dt = datetime.now()
-    final_conf_fn = 'rna-seq_{}_{}_{}.success.config'.format(dt.year, dt.month, dt.day)
+    final_conf_fn = 'singlecell_{}_{}_{}.success.config'.format(dt.year, dt.month, dt.day)
     if os.path.exists(final_conf_fn):
         base_fn = copy.copy(final_conf_fn)
         for i in range(999):
-            final_conf_fn = 'rna-seq_{}_{}_{}_#{}.success.config'.format(dt.year, dt.month, dt.day, i)
+            final_conf_fn = 'singlecell_{}_{}_{}_#{}.success.config'.format(dt.year, dt.month, dt.day, i)
             if not os.path.exists(final_conf_fn):
                 break
     if os.path.exists(final_conf_fn):
