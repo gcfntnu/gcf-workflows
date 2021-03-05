@@ -187,7 +187,7 @@ def read_cellranger_aggr(fn, args, **kw):
     if not fn.endswith('.h5'):
         dirname = os.path.dirname(dirname)
 
-    aggr_csv = os.path.join(dirname, 'aggregation.csv')
+    aggr_csv = os.path.join(os.path.dirname(dirname), 'aggregation.csv')
     aggr_csv = pd.read_csv(aggr_csv)
     sample_map = dict((str(i+1), n) for i, n in enumerate(aggr_csv['library_id']))
     barcodes_enum = [i.split('-')[1] for i in data.obs_names]
