@@ -1,0 +1,86 @@
+ALIGN_INTERIM = join(INTERIM_DIR, 'sars-cov2', 'aligned')
+
+rule bwa_align:
+    input:
+        R1 = join(FILTER_INTERIM, 'cleaned', '{sample}_R1.fastq'),
+        R2 = join(FILTER_INTERIM, 'cleaned', '{sample}_R2.fastq'),
+        genome = join(EXT_DIR, 'ncbi', 'NC_045512.2', 'index', 'NC_045512.2', 'bwa', 'NC_045512.2.amb')
+    params:
+        index = join(EXT_DIR, 'ncbi', 'NC_045512.2', 'index', 'NC_045512.2', 'bwa', 'NC_045512.2')
+    output:
+        join(ALIGN_INTERIM, 'bwa', '{sample}.aligned.bam')
+    threads:
+        4
+    log:
+        join(ALIGN_INTERIM, 'bwa', 'logs', '{sample}.bwa.log')
+    singularity:
+        'docker://' + config['docker']['bwa_samtools']
+    shell:
+        'bwa mem '
+        '-t {threads} '
+        '-U 17 -M '
+        '{params.index} '
+        '{input.R1} {input.R2} 2> {log} '
+        '| samtools view -bS | samtools sort -n -@{threads} '
+        '-o {output} '
+
+
+rule namesort_sam:
+    input:
+        join(ALIGN_INTERIM, 'bwa', '{sample}.aligned.bam')
+    output:
+        join(ALIGN_INTERIM, 'bwa', '{sample}.namesorted.sam')
+    singularity:
+        'docker://' + config['docker']['bwa_samtools']
+    shell:
+        'samtools view {input} > {output} '
+
+
+rule swift_primerclip:
+    input:
+       sam = join(ALIGN_INTERIM, 'bwa', '{sample}.namesorted.sam'),
+       master_fn = 'sarscov2_v2_masterfile2.txt'
+    output:
+        join(ALIGN_INTERIM, 'bwa', '{sample}.primerclipped.sam')
+    log:
+       join(ALIGN_INTERIM, 'bwa', 'logs', '{sample}.primerclip.log')
+    singularity:
+        'docker://' + config['docker']['primerclip']
+    shell:
+        'primerclip {input.sam} {input.master_fn} {output} '
+
+rule swift_picard_sort:
+    input:
+        sam = join(ALIGN_INTERIM, 'bwa', '{sample}.primerclipped.sam')
+    output:
+        bam = join(ALIGN_INTERIM, 'bwa','{sample}.sorted.bam'),
+        bai = join(ALIGN_INTERIM, 'bwa','{sample}.sorted.bai'),
+        bai2 = join(ALIGN_INTERIM, 'bwa','{sample}.sorted.bam.bai'),
+        md5 = join(ALIGN_INTERIM, 'bwa','{sample}.sorted.bam.md5')
+    log:
+        join(ALIGN_INTERIM, 'bwa', 'logs', '{sample}.pciard.log')
+    params:
+        java_opt="-Xms4g -Xmx4g "
+    threads:
+        8
+    singularity:
+        'docker://' + config['docker']['picard_gatk']
+    shell:
+        'picard AddOrReplaceReadGroups '
+        '{params.java_opt} '
+        'INPUT={input.sam} '
+        'OUTPUT={output.bam} '
+        'VALIDATION_STRINGENCY=SILENT '
+        'CREATE_INDEX=TRUE '
+        'CREATE_MD5_FILE=TRUE '
+        'SO=coordinate '
+        'LB=swift '
+        'SM={wildcards.sample} '
+        'PL=illumina '
+        'RGPU=unit '
+        '2> {log}'
+        '&& ln -rs {output.bai} {output.bai2} '
+
+rule align_all:
+    input:
+        expand(rules.swift_picard_sort.output.bam, sample=SAMPLES)

@@ -5,10 +5,17 @@ include:
 include:
     'bfq/bfq_level3.rules'
 
-
-rule bfq_all:
-    input:
-        rules.bfq_level2_exprs.output,
-        rules.bfq_level2_logs.output,
-        rules.bfq_level2_aligned.output,
-        join(BFQ_INTERIM, 'figs', 'star', 'umap_all_samples_mqc.png')
+if config['quant']['method'] == 'star':
+    rule bfq_all:
+        input:
+            rules.bfq_level2_exprs_star.output,
+            rules.bfq_level2_logs_star.output,
+            rules.bfq_level2_aligned.output,
+            join(BFQ_INTERIM, 'figs', 'umap_all_samples_mqc.png')
+else:
+    rule bfq_all:
+        input: 
+            rules.bfq_level2_exprs_cellranger.output,
+            rules.bfq_level2_logs_cellranger.output,
+            rules.bfq_level2_data_cellranger.output,
+            join(BFQ_INTERIM, 'figs', 'umap_all_samples_mqc.png')

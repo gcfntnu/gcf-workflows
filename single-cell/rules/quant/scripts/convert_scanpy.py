@@ -177,8 +177,6 @@ def read_cellranger(fn, args, rm_zero_cells=True, add_sample_id=True, **kw):
         data.obs['library_id'] = data.obs['library_id'].astype('category')
         data.obs_names = [i + '-' + sample_id for i in data.obs_names]
         
-    data.obs.index.name = 'barcodes'
-    data.var.index.name = 'gene_ids'
     return data
         
 def read_cellranger_aggr(fn, args, **kw):
@@ -189,7 +187,7 @@ def read_cellranger_aggr(fn, args, **kw):
     if not fn.endswith('.h5'):
         dirname = os.path.dirname(dirname)
 
-    aggr_csv = os.path.join(dirname, 'aggregation.csv')
+    aggr_csv = os.path.join(os.path.dirname(dirname), 'aggregation.csv')
     aggr_csv = pd.read_csv(aggr_csv)
     sample_map = dict((str(i+1), n) for i, n in enumerate(aggr_csv['library_id']))
     barcodes_enum = [i.split('-')[1] for i in data.obs_names]
@@ -198,7 +196,7 @@ def read_cellranger_aggr(fn, args, **kw):
     data.obs['library_id'] = data.obs['library_id'].astype('category')
     # use library_id to make barcodes unique
     barcodes = [b.split('-')[0] for b in data.obs.index]
-    data.obs_names = ['{}-{}'.format(i,j) for i,j in zip(barcodes, samples)]
+    data.obs_names = ['{}-{}'.format(i, j) for i, j in zip(barcodes, samples)]
     return data
 
 def read_velocyto_loom(fn, args, **kw):
@@ -215,7 +213,6 @@ def read_velocyto_loom(fn, args, **kw):
 def read_star(fn, args, **kw):
     mtx_dir = os.path.dirname(fn)
     data = sc.read(fn).T
-    print(data)
     genes = pd.read_csv(os.path.join(mtx_dir, 'features.tsv'), header=None, sep='\t')
     barcodes = pd.read_csv(os.path.join(mtx_dir, 'barcodes.tsv'), header=None)[0].values
     data.var_names = genes[0].values
@@ -232,8 +229,9 @@ def read_star(fn, args, **kw):
         if hasattr(row_sum, 'A'):
             row_sum = row_sum.A.squeeze()
         keep = row_sum > 1
-        print(sum(keep), len(keep))
         data = data[keep,:]
+    print("read_star barcodes: ")
+    print(data.obs_names)
     return data
 
 def read_alevin(fn, args, **kw):
@@ -252,8 +250,11 @@ def read_alevin(fn, args, **kw):
     data.obs['library_id'] = [sample_id] * data.obs.shape[0]
     return data
     
-def read_umitools(fn, **kw):
-    raise NotImplementedError
+def read_umitools(fn, args, **kw):
+    data = sc.read_umi_tools(fn)
+    sample_id = os.path.dirname(fn).split(os.path.sep)[-1]
+    data.obs['library_id'] = sample_id
+    return data
 
 READERS = {'cellranger_aggr': read_cellranger_aggr,
            'cellranger': read_cellranger,
@@ -321,7 +322,10 @@ if __name__ == '__main__':
 
     data = data_list.pop(0)
     if len(data_list) > 0:
-        data = data.concatenate(*data_list, batch_categories=batch_categories)
+        if batch_categories is not None:
+            data = data.concatenate(*data_list, batch_categories=batch_categories, uns_merge='same')
+        else:
+            data = data.concatenate(*data_list, uns_merge='same', index_unique=None)
         if any(i.endswith('-0') for i in data.var.columns):
             remove_duplicate_cols(data.var)
     
