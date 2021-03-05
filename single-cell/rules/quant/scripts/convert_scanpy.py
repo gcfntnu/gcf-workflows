@@ -250,8 +250,11 @@ def read_alevin(fn, args, **kw):
     data.obs['library_id'] = [sample_id] * data.obs.shape[0]
     return data
     
-def read_umitools(fn, **kw):
-    raise NotImplementedError
+def read_umitools(fn, args, **kw):
+    data = sc.read_umi_tools(fn)
+    sample_id = os.path.dirname(fn).split(os.path.sep)[-1]
+    data.obs['library_id'] = sample_id
+    return data
 
 READERS = {'cellranger_aggr': read_cellranger_aggr,
            'cellranger': read_cellranger,
