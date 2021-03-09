@@ -53,6 +53,27 @@ rule ncbi_sars_cov2:
         efetch -db nuccore -id NC_045512 -format fasta > {output}
         echo "ncbi nucore,{params.url}|{params.url},{params.date}" > {log}
         """
+
+rule ncbi_streptococcus_agalactiae_genome:
+    params:
+        url = 'ftp.ncbi.nlm.nih.gov/genomes/refseq/bacteria/Streptococcus_agalactiae/representative/GCF_900638415.1_57635_F01',
+        date = datetime.now().strftime("%d-%m-%Y")
+    output:
+        fasta = join(EXT_DIR, 'ncbi', 'streptococcus_agalactiae', 'fasta', 'streptococcus_agalactiae.fa'),
+        gff = join(EXT_DIR, 'ncbi', 'streptococcus_agalactiae', 'anno', 'streptococcus_agalactiae.gff'),
+        gtf = join(EXT_DIR, 'ncbi', 'streptococcus_agalactiae', 'anno', 'streptococcus_agalactiae.gtf')
+    log:
+        join(EXT_DIR, 'ncbi', 'streptococcus_agalactiae', 'logs', 'streptococcus_agalactiae.log')
+    shadow:
+        'minimal'
+    shell:
+        """
+        rsync -av --exclude '*.txt' rsync://{params.url}/ .
+        gunzip *.fna.gz -c > {output.fasta}
+        gunzip *.gff.gz -c > {output.gff}
+        gunzip *.gtf.gz -c > {output.gtf}
+        echo "ncbi bacteria,{params.url}|{params.url},{params.date}" > {log}
+        """
         
 rule ncbi_db_all:
     input:
@@ -64,3 +85,7 @@ rule ncbi_db_all:
         join(EXT_DIR, 'ncbi', 'mus_musculus', 'index', 'rrna', 'bowtie2', 'rrna.1.bt2'),
         join(EXT_DIR, 'ncbi', 'NC_045512.2', 'fasta', 'NC_045512.2.fa')
         
+
+
+def get_assemblies(kingdom='bacteria', org='Streptococcus_agalactiae'):
+    pass

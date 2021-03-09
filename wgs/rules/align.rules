@@ -1,0 +1,56 @@
+ALIGN_INTERIM = join(INTERIM_DIR, 'wgs', 'aligned')
+
+ORG = config['organism']
+
+rule bwa_align:
+    input:
+        R1 = join(FILTER_INTERIM, 'cleaned', '{sample}_R1.fastq'),
+        R2 = join(FILTER_INTERIM, 'cleaned', '{sample}_R2.fastq'),
+        genome = join(EXT_DIR, 'ncbi', ORG, 'index', ORG, 'bwa', '{}.amb'.format(ORG))
+    params:
+        index = join(EXT_DIR, 'ncbi', ORG, 'index', ORG, 'bwa', ORG)
+    output:
+        bam = join(ALIGN_INTERIM, 'bwa', '{sample}.sorted.bam')
+    threads:
+        4
+    log:
+        join(ALIGN_INTERIM, 'bwa', 'logs', '{sample}.bwa.log')
+    singularity:
+        'docker://' + config['docker']['bwa_samtools']
+    shell:
+        'bwa mem '
+        '-t {threads} '
+        '-U 17 -M '
+        '{params.index} '
+        '{input.R1} {input.R2} 2> {log} '
+        '| samtools view -bS | samtools sort -@{threads} '
+        '-o {output.bam} '
+
+rule align_all:
+    input:
+        expand(rules.bwa_align.output.bam, sample=SAMPLES)
+
+
+rule ivar_consensus:
+    input:
+        bam = join(ALIGN_INTERIM, 'bwa', '{sample}.sorted.bam')
+    output:
+        bam = join(ALIGN_INTERIM, 'ivar', '{sample}.fa')
+    params:
+        outdir = join(ALIGN_INTERIM, 'ivar', '{sample}'),
+        min_depth = 2,
+        header = '{sample}'
+    singularity:
+        'docker://' + config['docker']['ivar']
+    shell:
+        'samtools mpileup -d 1000 -A -aa -Q 0 {input.bam} '
+        ' |'
+        'ivar consensus -i {params.header} -m {params.min_depth} -q 20 -p {params.outdir} '
+
+rule consensus_all:
+    input:
+        expand(join(ALIGN_INTERIM, 'ivar', '{sample}.fa'), sample=SAMPLES)
+    output:
+        join(ALIGN_INTERIM, 'consensus.fna')
+    shell:
+        'cat {input} > {output}'

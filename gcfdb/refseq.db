@@ -1,0 +1,81 @@
+#-*- mode:snakemake -*-
+"""NCBI refseq genomes
+
+Mostly copied from https://github.com/eclarke/refseq_dl
+
+"""
+
+import re
+import csv
+from pathlib import Path
+
+
+REFSEQ_DIR = join(EXT_DIR, 'refseq', )
+
+KINGDOM = config['db']['refseq']['kingdom']
+RELEASE = config['db']['refseq'].get('release', '50')
+ORG = config['organism'].lower().replace(' ', '_')
+STRAIN = config.get('strain')
+
+REFSEQ_DIR = join(EXT_DIR, 'refseq', ORG, 'release-{}'.format(RELEASE))
+
+
+def convert_to_genome_path(ftp_path):
+    path = re.match(r'(ftp://ftp.ncbi.nlm.nih.gov/genomes/all/.*/)(GCF_.+)', ftp_path)
+    if path:
+        ftp, name = path.groups()
+        return "{ftp}{name}/{name}_genomic.fna.gz".format(ftp=ftp, name=name)
+
+def generate_list(genome_urls_fp):
+    if not Path(genome_urls_fp).exists():
+        return []
+    urls = csv.DictReader(open(genome_urls_fp), fieldnames=['organism_name','url'], delimiter='\t')
+    return [r['organism_name'] for r in urls]
+
+
+rule refseq_assembly_summary:
+    output:
+        join(REFSEQ_DIR, 'assembly_summary.txt')
+    params:
+        kingdom = KINGDOM
+    shell:
+        """
+        mkdir -p {REFSEQ_DIR}
+        curl 'ftp://ftp.ncbi.nlm.nih.gov/genomes/refseq/{params.kingdom}/assembly_summary.txt' > {output}
+        """
+
+rule refseq_genome_urls:
+    input:
+        join(REFSEQ_DIR, 'assembly_summary.txt')
+    output:
+        join(REFSEQ_DIR, 'genome_urls.tx')
+    run:
+        header = []
+        with open(input[0]) as infile:
+            infile.readline() # skip garbage line
+            header = infile.readline().strip().split('\t')
+            csvfile = csv.DictReader(infile, fieldnames=header, delimiter='\t')
+            with open(output[0], 'w') as out:
+                writer = csv.DictWriter(out, fieldnames=['org', 'asm_name', 'url'], delimiter='\t')
+                for row in csvfile:
+                    if row.get('ftp_path'):
+                        genome_url = convert_to_genome_path(row['ftp_path'])
+                        org = row['organism_name'].lower().replace(' ', '_')
+                        if org == ORG and row['assembly_level'] == 'Complete Genome' :
+                            writer.writerow({'org': org, 'asm_name': row['asm_name'], 'url':genome_url})
+
+rule refseq_download_genome:
+    input:
+        join(REFSEQ_DIR, 'genome_urls.txt')
+    output:
+        fasta = join(REFSEQ_DIR, '{}.fna'.format(ORG))
+    shadow:
+        'minimal'
+    run:
+        urls = csv.DictReader(open(input[0]), fieldnames=['org','asm_name', 'url'], delimiter='\t')
+        for row in urls:
+            cmd = "wget {row[url]}"
+            print(cmd)
+            shell(cmd)
+        shell('zcat *.fna.gz > {output}')
+

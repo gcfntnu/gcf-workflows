@@ -1,0 +1,10 @@
+#-*- mode:snakemake -*-
+
+#include:
+#    join(GCFDB_DIR, 'reference_db.db')
+include:
+    join(GCFDB_DIR, 'refseq.db')
+include:
+    join(GCFDB_DIR, 'ncbi.db')
+include:
+    join(GCFDB_DIR, 'indexes.rules')
