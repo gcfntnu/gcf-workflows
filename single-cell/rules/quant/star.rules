@@ -190,4 +190,32 @@ rule scanpy_barcodes:
         join(QUANT_INTERIM, '{anything}.h5ad')
     output:
         join(QUANT_INTERIM, '{anything}.h5ad.barcodes')
-        
+
+
+rule scanpy_pp_ipynb:
+    input:
+        rules.scanpy_aggr_starsolo.output
+    output:
+        join(QUANT_INTERIM, 'aggregate', 'star', 'notebooks', 'all_samples_pp.txt')
+    log:
+        notebook = join(QUANT_INTERIM, 'aggregate', 'star', 'notebooks', 'all_samples_pp.ipynb')
+    threads:
+        24
+    singularity:
+        'docker://' + config['docker']['jupyter-scanpy']
+    notebook:
+        'scripts/single_cell_pp.py.ipynb'
+
+
+rule scanpy_pp_ipynb_html:
+    input:
+        rules.scanpy_pp_ipynb.log
+    output:
+        join(QUANT_INTERIM, 'aggregate', 'star', 'notebooks', 'all_samples_pp.html')
+    singularity:
+        'docker://' + config['docker']['jupyter-scanpy']
+    threads:
+        1
+    shell:
+        'jupyter nbconvert --to html {input} '
+
