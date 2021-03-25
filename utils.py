@@ -68,6 +68,12 @@ main_fn = srcdir('main.config')
 with open(main_fn) as fh:
     CONF = yaml.load(fh, Loader=Loader) or {}
 
+GCF_SECRET = os.environ.get('GCF_SECRET')
+if GCF_SECRET:
+    with open(GCF_SECRET) as fh:
+        SECRETS = yaml.load(fh, Loader=Loader) or {}
+    update_config(CONF, SECRETS)
+
 # library preparation kit specific configuration
 libprep_fn = srcdir('libprep.config')
 with open(libprep_fn) as fh:
