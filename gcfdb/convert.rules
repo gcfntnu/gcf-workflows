@@ -15,11 +15,11 @@ rule pyensembl_version:
 
 rule convert_gtf2gene_csv:
     input:
-        gtf = join('{ref_dir}', 'genes', 'genes.gtf')
+        gtf = join('{ref_dir}', 'anno', 'genes.gtf')
     params:
         script = srcdir('scripts/gtf2genes.py'),
     output:
-        tsv = join('{ref_dir}', 'genes', 'genes.tsv')
+        tsv = join('{ref_dir}', 'anno', 'genes.tsv')
     singularity:
         'docker://' + config['docker']['pyensembl']
     shell:
@@ -29,11 +29,11 @@ rule convert_gtf2gene_csv:
         
 rule convert_gtf2transcript_csv:
     input:
-        join('{ref_dir}', 'genes', 'genes.gtf')
+        join('{ref_dir}', 'anno', 'genes.gtf')
     params:
         script = srcdir('scripts/gtf2tx.py')
     output:
-        join('{ref_dir}', 'genes', 'transcripts.tsv')
+        join('{ref_dir}', 'anno', 'transcripts.tsv')
     singularity:
         'docker://' + config['docker']['pyensembl']
     shell:
@@ -43,7 +43,7 @@ rule convert_gtf2txg:
     input:
         rules.convert_gtf2gene_csv.output
     output:
-        join('{ref_dir}', 'genes', 'tx2gene.tsv')
+        join('{ref_dir}', 'anno', 'tx2gene.tsv')
     shell:
         'cut -f1,10 {input} > {output}'
         
@@ -59,9 +59,9 @@ rule convert_fasta2sequence_dict:
         
 rule convert_gtf2bed12:
     input:
-        join('{ref_dir}', 'genes', 'genes.gtf')
+        join('{ref_dir}', 'anno', 'genes.gtf')
     output:
-        join('{ref_dir}', 'genes', 'genes.bed12')
+        join('{ref_dir}', 'anno', 'genes.bed12')
     params:
         tmpfile = join(TMPDIR, 'gene.genepred')
     singularity:
@@ -75,15 +75,15 @@ rule convert_gtf2bed12:
         
 rule convert_gtf2intervals:
     input:
-        join('{ref_dir}', 'genes', 'genes.gtf')
+        join('{ref_dir}', 'anno', 'genes.gtf')
     output:
-        join('{ref_dir}', 'genes', 'genes.intervals')
+        join('{ref_dir}', 'anno', 'genes.intervals')
         
 rule convert_gtf2refflat:
     input:
-        join('{ref_dir}', 'genes', 'genes.gtf')
+        join('{ref_dir}', 'anno', 'genes.gtf')
     output:
-         join('{ref_dir}', 'genes', 'genes.refflat.gz')
+         join('{ref_dir}', 'anno', 'genes.refflat.gz')
     params:
         tmpfile = join(TMPDIR, 'refflat.tmp')
     singularity:
@@ -99,7 +99,7 @@ rule convert_gtf2refflat:
         
 rule convert_gtf_transcriptome_gffread:
     input:
-        gtf = join('{ref_dir}', 'genes', 'genes.gtf'),
+        gtf = join('{ref_dir}', 'anno', 'genes.gtf'),
         genome = join('{ref_dir}', 'fasta', 'genome.fa')
     output:
         join('{ref_dir}', 'fasta', 'gtf.gffread.transcripts.fa')
@@ -110,7 +110,7 @@ rule convert_gtf_transcriptome_gffread:
         
 rule convert_gtf_transcriptome_rsem:
     input:
-        gtf = join('{ref_dir}', 'genes', 'genes.gtf'),
+        gtf = join('{ref_dir}', 'anno', 'genes.gtf'),
         genome = join('{ref_dir}', 'fasta', 'genome.fa')
     params:
         base = join('{ref_dir}', 'fasta', 'gtf.rsem')

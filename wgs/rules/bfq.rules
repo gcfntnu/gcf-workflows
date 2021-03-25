@@ -11,7 +11,7 @@ def qualimap_strand():
 rule qualimap_bamqc:
     input:
         bam = join(ALIGN_INTERIM, 'bwa', '{sample}.sorted.bam'),
-        gff = join(EXT_DIR, 'ncbi', 'streptococcus_agalactiae', 'anno', 'streptococcus_agalactiae.gff')
+        gff = join(EXT_DIR, 'ncbi', ORG, 'anno', 'genes.gff')
     params:
         strand = qualimap_strand(),
         outdir = 'data/tmp/wgs/qualimap/{sample}'

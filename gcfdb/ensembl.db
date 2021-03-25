@@ -1,317 +1,197 @@
 #-*- mode:snakemake -*-
-"""Cached ENSEMBL genome for human, mouse, rat ++
-
-Two versions with and without added spikein sequences
+"""ENSEMBL reference genomes
 
 """
-import string
-from datetime import datetime
+import urllib.request as request
+from contextlib import closing
 
-# config
-extra_conf_fn = srcdir('ensembl.config')
-if os.path.exists(extra_conf_fn):
-    with open(extra_conf_fn) as fh:
-        c  = yaml.load(fh, Loader=Loader) or {}
-        update_config2(config, c)
-        
-def _ens_species_rest(grch37=False):
-    """Ask ensembl rest api for species info
+
+def _get_current_ensembl():
+    """Get current release number for Ensembl by parsing top-level current_README.
     """
-    import requests, sys, pickle,os
-    cache_fn = os.path.join(TMPDIR, 'ensembl-98.cache')    
-    use_cache = os.path.exists(cache_fn)
-    if use_cache:
-        with open(cache_fn, 'rb') as fh:
-            res = pickle.load(fh)
-        return res
-    server = 'https://grch37.rest.ensembl.org' if grch37 else 'https://rest.ensembl.org'
-    ext = '/info/species?'
-    r = requests.get(server+ext, headers={ 'Content-Type' : 'application/json'}) 
-    if not r.ok:
-        r.raise_for_status()
-        return None
-    res = r.json()['species']
-    if not use_cache:
-        with open(cache_fn, 'wb') as fh:
-            pickle.dump(res, fh)
-    return res
+    url = 'ftp.ensembl.org/pub/current_README'
+    protocol = 'http://'
+    proxies = config.get('proxy', {}).get('server')
+    if proxies:
+        proxy_support = request.ProxyHandler(proxies)
+        request.install_opener(request.build_opener(proxy_support))
+    with closing(request.urlopen(protocol + url)) as response:
+        try:
+            out = response.read()
+            release = int(re.findall(b".*Release\s(\d+)\s+", out)[0])
+        except: 
+            raise ValueError("release parse error or protocol error")
+    return str(release)
 
-def _search_names(S, org, strain=None, assembly=None):
-    if assembly is not None:
-        for species in S:
-            if species['assembly'] == assembly:
-                if strain is not None:
-                    assert(species['strain'] == strain)
-                assert(species['name'] == org.lower())
-            return species
-    for species in S:
-        if species['name'].startswith(org.lower()):
-            if species['strain'] == strain or (strain is None and 'reference' in species['strain']):
-                return species # we have a hit
-    for species in S: # search aliases if there is no hit `name`
-        aliases = species['aliases']
-        aliases.append(species['taxon_id'])
-        aliases.append(species['common_name'])
-        aliases.append(species['display_name'].lower())
-        aliases.append(species['assembly'].lower())
-            
-        if org.lower() in aliases:
-            if species['strain'] == strain or (strain is None and 'reference' in species['strain']):
-                return species
-            hit = _search_names(S, species['name'], strain)
-            if hit is not None:
-                return hit
+if DB_CONF.get('release') is None or DB_CONF.get('release') == '':
+    DB_CONF['release'] = _get_current_ensembl()
+    config['db']['ensembl'] = DB_CONF
+
+
+def _parse_species_txt(tab, sep='\t'):
+    SP = {}
+    header = tab.pop(0).split(sep)
+    for line in tab:
+        els = line.split(sep)
+        row = dict(zip(header, els))
+        species = row.pop('species')
+        if species in SP:
+            raise ValueError('found duplicate species!')
+        if species == 'homo_sapiens':
+            #fixme?
+            row['assembly'] = row['assembly'].split('.')[0]
+        SP[species] = row
+    return SP
+
+
+def _init_ensembl_from_organism():
+    """Parse species annotations by given organsim and release number
+    """
+    url = 'ftp.ensembl.org/pub/release-{}/species_EnsemblVertebrates.txt'.format(str(config['db']['ensembl']['release']))
+    protocol = 'http://'
+    proxies = config.get('proxy', {}).get('server')
+    if proxies:
+        proxy_support = request.ProxyHandler(proxies)
+        request.install_opener(request.build_opener(proxy_support))
+    with closing(request.urlopen(protocol + url)) as response:
+        out = response.read()
+    try:
+        tab = out.decode('utf-8').splitlines()
+    except:
+        raise ValueError('failed to parse url')
+    SP = _parse_species_txt(tab)
+    return SP.get(config['organism'])
+
+if DB_CONF.get('assembly') is None or DB_CONF.get('assembly') == '':
+    sp = _init_ensembl_from_organism()
+    DB_CONF['assembly'] = sp['assembly']
+    DB_CONF['taxid'] = sp.get('taxonomy_id')
+    DB_CONF['acc_id'] = sp.get('assembly_accession')
+    DB_CONF['organism_name'] = sp['#name']
+    config['db']['ensembl'] = DB_CONF
+
+
+rule init_ensembl_species:
+    params:
+        url = 'http://ftp.ensembl.org/pub/release-{wildcards.release}/species_EnsemblVertebrates.txt',
+        proxy = config['proxy'].get('wget', '')
+    threads:
+        48
+    output:
+        join(EXT_DIR, 'ensembl', 'release-{release}', 'lookup_tables', 'species_EnsemblVertebrates.txt')
+    shell:
+        'wget {params.proxy} -O- ftp://ftp.ensembl.org/pub/release-{wildcards.release}/species_EnsemblVertebrates.txt > {output}'
+
+checkpoint build_ftp_table:
+    input:
+        rules.init_ensembl_species.output
+    output:
+        txt = join(EXT_DIR, 'ensembl', 'release-{release}', 'lookup_tables', '{organism}_ftp.txt')
+    params:
+        script = srcdir('scripts/build_ensembl_lookup.py'),
+        proxy = config['proxy'].get('server', {}).get('ftp', 'none')
+    singularity:
+        'docker://' + config['docker']['default']
+    shell:
+        'python {params.script} {input} --proxy {params.proxy} --release {wildcards.release} --organism {wildcards.organism} --output {output}'
+
+
+def get_ensembl_ftp(wildcards, input, sub='genome'):
+    fn = checkpoints.build_ftp_table.get(**wildcards).output[0]
+    with open(input[0]) as fh:
+        txt = fh.read().splitlines()
+        header = txt.pop(0).split('\t')
+        for line in txt:
+            els = line.split('\t')
+            row = dict(zip(header, els))
+            if row['species'] == wildcards.organism:
+                return row['ftp_{}'.format(sub)]
     
-    logger.info('Failed to identify organism ({}), strain ({}) in Ensembl. Available options:\n'.format(str(org), str(strain)))
-    logger.info('Organism    Strain')
-    info = sorted([(s['name'], s['strain']) for s in S])
-    for species in info:
-        logger.info('{}    {}'.format(species[0], species[1]))
-    sys.exit()
-
-def ensembl_search(org, strain=None, assembly=None):
-    """Search species by ORG and strain
-    """
-    if assembly is not None and assembly.lower() in ['grch37', 'hg19']:
-        grch37 = True
-        org = 'homo_sapiens'
-    else:
-        grch37 = False
-    S = _ens_species_rest(grch37)
-    hit = _search_names(S, org, strain)
-    return hit
-
-DB_CONF = config['db']['ensembl']
-ORG = config.get('organism', 'homo_sapiens')
-STRAIN = config.get('strain', DB_CONF.get('strain'))
-ASSEMBLY = DB_CONF.get('assembly')
-if '__' in ORG:
-    raise ValueError('Multispecies genome is not supported for Ensembl!')
-
-SPECIES = ensembl_search(ORG, STRAIN, ASSEMBLY)
-if ORG != SPECIES['name']:
-    config['organism'] = ORG = SPECIES['name']
-if STRAIN != SPECIES['strain']:
-    STRAIN = config['strain'] = DB_CONF['strain'] = SPECIES['strain']
-ENS_RELEASE = str(DB_CONF.get('release', SPECIES['release']))
-
-ENS_ASSEMBLY =  config['db'].get('assembly', DB_CONF.get('assembly', SPECIES['assembly']))   
-DB_CONF['assembly'] = config['db']['assembly'] = ENS_ASSEMBLY
-
-if ORG == 'homo_sapiens':
-    ENS_NAME = '' if ENS_ASSEMBLY == 'GRCh38' else '/grch37'
-    ENS_RELEASE = ENS_RELEASE if ENS_ASSEMBLY == 'GRCh38' else '87'
-    DB_CONF['release'] = ENS_RELEASE
-else:
-    ENS_NAME = ''
-
-ERCC = DB_CONF.get('add_ercc', False)
-DB_CONF['add_ercc'] = ERCC
-
-
-config['db']['ensembl'] = DB_CONF
-OUTDIR = join(EXT_DIR, 'ensembl', ORG, 'release-{}'.format(ENS_RELEASE), ENS_ASSEMBLY)
-
-# includes
-if ERCC:
-    include:
-        'ercc.db'
-include:
-    'convert.rules'
-
-PROTOCOL = 'ftp://'
-
-if ORG in ['homo_sapiens', 'mus_musculus']:
-    _genome = 'ftp.ensembl.org/pub{}/release-{}/fasta/{}/dna/{}.{}.dna.primary_assembly.fa.gz'
-else:
-    _genome = 'ftp.ensembl.org/pub{}/release-{}/fasta/{}/dna/{}.{}.dna.toplevel.fa.gz'
-
-_gtf = 'ftp.ensembl.org/pub{}/release-{}/gtf/{}/{}.{}.{}.gtf.gz'
-_ncdna = 'ftp.ensembl.org/pub{}/release-{}/fasta/{}/ncrna/{}.{}.ncrna.fa.gz'
-_transcriptome = 'ftp.ensembl.org/pub{}/release-{}/fasta/{}/cdna/{}.{}.cdna.all.fa.gz'
-
-
-# ENSEMBL URLS 
-ENS_GENOME = _genome.format(ENS_NAME, ENS_RELEASE, ORG, string.capwords(ORG), ENS_ASSEMBLY)
-ENS_GTF = _gtf.format(ENS_NAME, ENS_RELEASE, ORG, string.capwords(ORG), ENS_ASSEMBLY, ENS_RELEASE)
-ENS_TRANSCRIPTOME = _transcriptome.format(ENS_NAME, ENS_RELEASE, ORG, string.capwords(ORG), ENS_ASSEMBLY)
-ENS_NONCODING = _ncdna.format(ENS_NAME, ENS_RELEASE, ORG, string.capwords(ORG), ENS_ASSEMBLY)
-
-rule ensembl_dna:
+rule ensembl_genome:
+    input:
+        lambda wildcards: checkpoints.build_ftp_table.get(**wildcards).output[0]
     params:
-        url = PROTOCOL + ENS_GENOME,
-        date = datetime.now().strftime("%d-%m-%Y")
+        date = datetime.now().strftime("%d-%m-%Y"),
+        release = DB_CONF['release'],
+        proxy = config['proxy'].get('wget', ''),
+        url = lambda wildcards, input: get_ensembl_ftp(wildcards, input, 'genome')
     output:
-        join(OUTDIR, ENS_GENOME.split('.gz')[0])
+        join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'fasta', 'genome.fa')
     threads: 
-        8
+        24
     log:
-        join(OUTDIR, 'logs', 'ensembl.dna.log')
+        join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'logs', 'genome.log')
     shell: 
         """
-        wget -O- {params.url} | gunzip -c > {output}
-        echo 'Ensembl DNA,{ENS_RELEASE},{ENS_GENOME},{params.date}' > {log}
+        wget {params.proxy} -O- {params.url} | gunzip -c > {output}
+        echo 'Ensembl DNA,release-{params.release},{params.url},{params.date}' > {log}
         """
-        
-rule ensembl_cdna:
-    params:
-        url = PROTOCOL + ENS_TRANSCRIPTOME,
-        date = datetime.now().strftime("%d-%m-%Y")
-    output:
-        join(OUTDIR, ENS_TRANSCRIPTOME.split('.gz')[0])
-    threads: 
-        8
-    log:
-        join(OUTDIR, 'logs', 'ensembl.cdna.log')
-    shell: 
-        """
-        wget -O- {params.url} | gunzip -c > {output}
-        echo 'Ensembl CDNA,ENS_RELEASE,{ENS_TRANSCRIPTOME},{params.date}' > {log}
-        """
-        
+
 rule ensembl_noncoding:
+    input:
+        lambda wildcards: checkpoints.build_ftp_table.get(**wildcards).output[0]
     params:
-        url = PROTOCOL + ENS_NONCODING,
-        date = datetime.now().strftime("%d-%m-%Y")
+        date = datetime.now().strftime("%d-%m-%Y"),
+        release = DB_CONF['release'],
+        proxy = config['proxy'].get('wget', ''),
+        url = lambda wildcards, input: get_ensembl_ftp(wildcards, input, 'ncrna')
     output:
-        join(OUTDIR, ENS_NONCODING.split('.gz')[0])
+        join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'fasta', 'ncrna.fa')
     threads: 
-        8
+        24
     log:
-        join(OUTDIR, 'logs', 'ensembl.noncoding.log')
+        join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'logs', 'ncrna.log')
     shell: 
         """
-        wget -O- {params.url} | gunzip -c  > {output}
-        echo 'Ensembl NCDNA,ENS_RELEASE,{ENS_NONCODING},{params.date}' > {log}
+        wget {params.proxy} -O- {params.url} | gunzip -c > {output}
+        echo 'Ensembl DNA,release-{params.release},{params.url},{params.date}' > {log}
+        """
+
+
+rule ensembl_gff:
+    input:
+        lambda wildcards: checkpoints.build_ftp_table.get(**wildcards).output[0]
+    params:
+        date = datetime.now().strftime("%d-%m-%Y"),
+        release = DB_CONF['release'],
+        proxy = config['proxy'].get('wget', ''),
+        url = lambda wildcards, input: get_ensembl_ftp(wildcards, input, 'gff')
+    output:
+        join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'anno', 'genes.gff')
+    threads: 
+        24
+    log:
+        join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'logs', 'gff.log')
+    shell: 
+        """
+        wget {params.proxy} -O- {params.url} | gunzip -c > {output}
+        echo 'Ensembl GFF,release-{params.release},{params.url},{params.date}' > {log}
         """
 
 rule ensembl_gtf:
+    input:
+        lambda wildcards: checkpoints.build_ftp_table.get(**wildcards).output[0]
     params:
-        url = PROTOCOL + ENS_GTF,
-        date = datetime.now().strftime("%d-%m-%Y")
+        date = datetime.now().strftime("%d-%m-%Y"),
+        release = DB_CONF['release'],
+        proxy = config['proxy'].get('wget', ''),
+        url = lambda wildcards, input: get_ensembl_ftp(wildcards, input, 'gtf')
     output:
-        gtf = join(OUTDIR, ENS_GTF.split('.gz')[0])
+        join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'anno', 'genes.gtf')
     threads: 
-        8
+        24
     log:
-        join(OUTDIR, 'logs', 'ensembl.gtf.log')
-    singularity:
-        'docker://' + config['docker']['default']
+        join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'logs', 'gtf.log')
     shell: 
         """
-        wget {params.url} -O- | gunzip -c > {output.gtf}
-        echo 'Ensembl GTF,ENS_RELEASE,{ENS_GTF},{params.date}' > {log}
-        """
-   
-rule ensembl_add_ercc2genome:
-    input:
-        rules.ensembl_dna.output,
-        join(EXT_DIR, 'ERCC', 'fasta', 'ERCC92.fa')
-    output:
-        rules.ensembl_dna.output[0].split('.fa')[0] + '.ERCC92.fa'
-    shell:
-        'cat {input} > {output}'
+        wget {params.proxy} -O- {params.url} | gunzip -c > {output}
+        echo 'Ensembl GTF,release-{params.release},{params.url},{params.date}' > {log}
+        """ 
 
-rule ensembl_add_ercc2cdna:
+rule ensembl_transcriptome:
     input:
-        rules.ensembl_cdna.output,
-        join(EXT_DIR, 'ERCC', 'fasta', 'ERCC92.fa')
+        join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'fasta', 'gtf.gffread.transcripts.fa')
     output:
-        rules.ensembl_cdna.output[0].split('.fa')[0] + '.ERCC92.fa'
+        join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'fasta', 'transcriptome.fa')
     shell:
-        'cat {input} > {output}'
-
-rule ensembl_add_ercc2noncoding:
-    input:
-        rules.ensembl_noncoding.output,
-        join(EXT_DIR, 'ERCC', 'fasta', 'ERCC92.fa')
-    output:
-        rules.ensembl_noncoding.output[0].split('.fa')[0] + '.ERCC92.fa'
-    shell:
-        'cat {input} > {output}'
-
-rule ensembl_add_ercc2gtf:
-    input:
-        rules.ensembl_gtf.output,
-        join(EXT_DIR, 'ERCC', 'genes', 'ERCC92.gtf')
-    output:
-        rules.ensembl_gtf.output[0].split('.gtf')[0] + '.ERCC92.gtf'
-    shell:
-        'cat {input} > {output}'
-
-rule ensembl_index_genome:
-    input:
-        rules.ensembl_add_ercc2genome.output if ERCC else rules.ensembl_dna.output
-    output:
-        rules.ensembl_add_ercc2genome.output[0] + '.fai' if ERCC else rules.ensembl_dna.output[0] + '.fai'
-    singularity:
-        'docker://' + config['docker']['samtools']
-    shell:
-        'samtools faidx {input}'
-
-rule ensembl_cdna_gtf:
-    input:
-        dna = rules.ensembl_add_ercc2genome.output if ERCC else rules.ensembl_dna.output,
-        gtf = rules.ensembl_add_ercc2gtf.output if ERCC else rules.ensembl_gtf.output,
-        dna_index = rules.ensembl_index_genome.output
-    output:
-        join(OUTDIR, ORG.capitalize() + '.' + ENS_ASSEMBLY + '.cdna.gtf.fa')
-    singularity:
-        'docker://' + config['docker']['gffread']
-    shell:
-        'gffread -w {output} -g {input.dna} {input.gtf} '
-
-rule ensembl_add_ercc2cdna_gtf:
-    input:
-        rules.ensembl_cdna_gtf.output,
-        join(EXT_DIR, 'ERCC', 'fasta', 'ERCC92.fa')
-    output:
-        rules.ensembl_cdna.output[0].split('.fa')[0] + '.ERCC92.fa'
-    shell:
-        'cat {input} > {output}'
-        
-rule ensembl_db_downloads:
-    input:
-        genome = rules.ensembl_add_ercc2genome.output if ERCC else rules.ensembl_dna.output,
-        cdna = rules.ensembl_add_ercc2cdna.output if ERCC else rules.ensembl_cdna.output,
-        noncoding = rules.ensembl_noncoding.output,
-        gtf = rules.ensembl_add_ercc2gtf.output if ERCC else rules.ensembl_gtf.output,
-        genome_index = rules.ensembl_index_genome.output,
-        transcriptome = rules.ensembl_cdna_gtf.output
-    output:
-        genome = join(OUTDIR, 'fasta', 'genome.fa'),
-        cdna = join(OUTDIR, 'fasta', 'cdna.fa'),
-        gtf = join(OUTDIR, 'genes', 'genes.gtf'),
-        noncoding = join(OUTDIR, 'fasta', 'ncdna.fa'),
-        genome_index = join(OUTDIR, 'fasta', 'genome.fa.fai'),
-        transcriptome = join(OUTDIR, 'fasta', 'transcriptome.fa')
-    shell:
-        """
-        ln -sr {input.genome} {output.genome}
-        ln -sr {input.cdna} {output.cdna}
-        ln -sr {input.gtf} {output.gtf}
-        ln -sr {input.noncoding} {output.noncoding}
-        ln -sr {input.genome_index} {output.genome_index}
-        ln -sr {input.transcriptome} {output.transcriptome}
-        """
-
-include:
-    'indexes.rules'
-        
-rule ensembl_db_all:
-    input:
-        join(OUTDIR, 'fasta', 'genome.fa'),
-        join(OUTDIR, 'fasta', 'cdna.fa'),
-        join(OUTDIR, 'genes', 'genes.gtf'),
-        join(OUTDIR, 'fasta', 'ncdna.fa'),
-        join(OUTDIR, 'fasta', 'genome.fa.fai'),    
-        join(OUTDIR, 'genes', 'genes.tsv'),
-        join(OUTDIR, 'genes', 'transcripts.tsv'),
-        join(OUTDIR, 'genes', 'tx2gene.tsv'),
-        join(OUTDIR, 'fasta', 'genome.dict'),
-        join(OUTDIR, 'genes', 'genes.bed12'),
-        join(OUTDIR, 'genes', 'genes.refflat.gz'),
-        join(OUTDIR, 'fasta', 'transcriptome.fa'),
-        join(OUTDIR, 'index', 'genome', 'star', 'r_99', 'SA'),
-        join(OUTDIR, 'index', 'transcriptome', 'salmon', 'info.json'),
-        join(OUTDIR, 'index', 'gentrome', 'salmon', 'info.json')
+        'ln -s {input} {output}'

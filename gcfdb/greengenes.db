@@ -19,6 +19,7 @@ LEVELS = [61, 64, 67, 70, 73, 76, 79, 82, 85, 88, 91, 94, 97, 99]
 rule greengenes_db:
     params:
         url = URL,
+        proxy = config['proxy'].get('wget', ''),
         outdir = join(EXT_DIR, 'greengenes', GG_VER)
     output:
         expand(join(EXT_DIR, 'greengenes', GG_VER, 'trees', '{level}_otus.tree'), level=LEVELS),
@@ -28,7 +29,7 @@ rule greengenes_db:
         expand(join(EXT_DIR, 'greengenes', GG_VER, 'rep_set', '{level}_otus.fasta'), level=LEVELS),
         expand(join(EXT_DIR, 'greengenes', GG_VER, 'otus', '{level}_otu_map.txt'), level=LEVELS)
     shell:
-        'wget {params.url} -O- | tar xvz --strip-components 1 -C {params.outdir} '
+        'wget {params.proxy} {params.url} -O- | tar xvz --strip-components 1 -C {params.outdir} '
 
 rule greengenes_db_symlink:
     input:

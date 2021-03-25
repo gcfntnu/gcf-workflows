@@ -2,7 +2,7 @@
 rule fastv:
     input:
         unpack(get_raw_fastq),
-        genome = rules.refseq_download_genome.output.fasta
+        genome = join(EXT_DIR, config['db']['reference_db'], ORG, 'fasta', 'genome.fa')
     output:
         R1 = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastv', '{sample}_R1.fastq'),
         R2 = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastv', '{sample}_R2.fastq'),
@@ -17,3 +17,21 @@ rule fastv:
     shell:
         'fastv -i {input.R1} -I {input.R2} -g {input.genome} -o {output.R1} -O {output.R2} -j {output.log_json} -h {output.log_html} --thread {threads} {params} '
 
+
+
+rule fastp:
+    input:
+        unpack(get_raw_fastq)
+    output:
+        R1 = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', '{sample}_R1.fastq'),
+        R2 = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', '{sample}_R2.fastq'),
+        log_html = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', 'qc', '{sample}.fastv.html'),
+        log_json = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', 'qc', '{sample}.fastv.json')
+    threads:
+        4
+    params:
+        args = '--cut_front --cut_tail --cut_mean_quality 30 --qualified_quality_phred 30 --unqualified_percent_limit 10 --length_required 50 --trim_poly_x  --detect_adapter_for_pe '
+    singularity:
+        'docker://' + config['docker']['fastp']
+    shell:
+        'fastp -i {input.R1} -I {input.R2} -o {output.R1} -O {output.R2} -j {output.log_json} -h {output.log_html} --thread {threads} {params} '

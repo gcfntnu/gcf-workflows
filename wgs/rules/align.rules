@@ -6,13 +6,13 @@ rule bwa_align:
     input:
         R1 = join(FILTER_INTERIM, 'cleaned', '{sample}_R1.fastq'),
         R2 = join(FILTER_INTERIM, 'cleaned', '{sample}_R2.fastq'),
-        genome = join(EXT_DIR, 'ncbi', ORG, 'index', ORG, 'bwa', '{}.amb'.format(ORG))
+        index = join(EXT_DIR, 'ncbi', ORG, 'index', 'genome', 'bwa', 'genome.amb')
     params:
-        index = join(EXT_DIR, 'ncbi', ORG, 'index', ORG, 'bwa', ORG)
+        index = join(EXT_DIR, 'ncbi', ORG, 'index', 'genome', 'bwa', 'genome')
     output:
         bam = join(ALIGN_INTERIM, 'bwa', '{sample}.sorted.bam')
     threads:
-        4
+        12
     log:
         join(ALIGN_INTERIM, 'bwa', 'logs', '{sample}.bwa.log')
     singularity:

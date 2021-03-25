@@ -57,7 +57,8 @@ rule ncbi_sars_cov2:
 rule ncbi_streptococcus_agalactiae_genome:
     params:
         url = 'ftp.ncbi.nlm.nih.gov/genomes/refseq/bacteria/Streptococcus_agalactiae/representative/GCF_900638415.1_57635_F01',
-        date = datetime.now().strftime("%d-%m-%Y")
+        date = datetime.now().strftime("%d-%m-%Y"),
+        protocol = 'https:'
     output:
         fasta = join(EXT_DIR, 'ncbi', 'streptococcus_agalactiae', 'fasta', 'streptococcus_agalactiae.fa'),
         gff = join(EXT_DIR, 'ncbi', 'streptococcus_agalactiae', 'anno', 'streptococcus_agalactiae.gff'),
@@ -68,11 +69,33 @@ rule ncbi_streptococcus_agalactiae_genome:
         'minimal'
     shell:
         """
-        rsync -av --exclude '*.txt' rsync://{params.url}/ .
+        rsync -av --exclude '*.txt' {params.protocol}//{params.url}/ .
         gunzip *.fna.gz -c > {output.fasta}
         gunzip *.gff.gz -c > {output.gff}
         gunzip *.gtf.gz -c > {output.gtf}
-        echo "ncbi bacteria,{params.url}|{params.url},{params.date}" > {log}
+        echo "ncbi bacteria,{params.url},{params.date}" > {log}
+        """
+
+rule ncbi_cervus_elaphus_hippelaphus:
+    params:
+        url = 'ftp.ncbi.nlm.nih.gov/genomes/all/GCA/002/197/005/GCA_002197005.1_CerEla1.0/',
+        date = datetime.now().strftime("%d-%m-%Y"),
+        protocol = 'https:'
+    output:
+        fasta = join(EXT_DIR, 'ncbi', 'cervus_elaphus_hippelaphus', 'fasta', 'genome.fa'),
+        gff = join(EXT_DIR, 'ncbi', 'cervus_elaphus_hippelaphus', 'anno', 'genes.gff'),
+        gtf = join(EXT_DIR, 'ncbi', 'cervus_elaphus_hippelaphus', 'anno', 'genes.gtf')
+    log:
+        join(EXT_DIR, 'ncbi', 'cervus_elaphus_hippelaphus', 'logs', 'cervus_elaphus_hippelaphus.log')
+    shadow:
+        'minimal'
+    shell:
+        """
+        rsync -av --exclude '*.txt' {params.protocol}//{params.url}/ .
+        gunzip GCA_002197005.1_CerEla1.0_genomic.fna.gz -c > {output.fasta}
+        gunzip GCA_002197005.1_CerEla1.0_genomic.gff.gz -c > {output.gff}
+        gunzip GCA_002197005.1_CerEla1.0_genomic.gtf.gz -c > {output.gtf}
+        echo "ncbi genomes,{params.url},{params.date}" > {log}
         """
         
 rule ncbi_db_all:
@@ -84,8 +107,5 @@ rule ncbi_db_all:
         join(EXT_DIR, 'ncbi', 'homo_sapiens', 'index', 'rrna', 'bowtie2', 'rrna.1.bt2'),
         join(EXT_DIR, 'ncbi', 'mus_musculus', 'index', 'rrna', 'bowtie2', 'rrna.1.bt2'),
         join(EXT_DIR, 'ncbi', 'NC_045512.2', 'fasta', 'NC_045512.2.fa')
+
         
-
-
-def get_assemblies(kingdom='bacteria', org='Streptococcus_agalactiae'):
-    pass

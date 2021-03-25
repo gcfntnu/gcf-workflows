@@ -18,12 +18,13 @@ rule unite_db:
     params:
         url = URLS[UNITE_VER],
         outdir = join(EXT_DIR, 'unite', UNITE_VER),
+        proxy = config['proxy'].get('wget', ''),
         tmpdir = '/tmp' # fixme
     output:
         expand(join(EXT_DIR, 'unite', UNITE_VER, 'sh_refs_qiime_ver8_{level}_04.02.2020.fasta'), level=LEVELS),
         expand(join(EXT_DIR, 'unite', UNITE_VER, 'sh_taxonomy_qiime_ver8_{level}_04.02.2020.txt'), level=LEVELS)
     shell:
-        'wget {params.url} -O- | tar xvz --strip-components 1 -C {params.outdir}'
+        'wget {params.proxy} {params.url} -O- | tar xvz --strip-components 1 -C {params.outdir}'
 
 rule unite_db_symlink:
     input:

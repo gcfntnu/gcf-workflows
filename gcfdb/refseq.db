@@ -9,15 +9,12 @@ import re
 import csv
 from pathlib import Path
 
-
-REFSEQ_DIR = join(EXT_DIR, 'refseq', )
-
-KINGDOM = config['db']['refseq']['kingdom']
-RELEASE = config['db']['refseq'].get('release', '50')
+KINGDOM = config['db'].get('refseq', {}).get('kingdom', 'bacteria')
+RELEASE = config['db'].get('refseq', {}).get('release', '50')
 ORG = config['organism'].lower().replace(' ', '_')
 STRAIN = config.get('strain')
 
-REFSEQ_DIR = join(EXT_DIR, 'refseq', ORG, 'release-{}'.format(RELEASE))
+REFSEQ_DIR = join(EXT_DIR, 'refseq', 'release-{}'.format(RELEASE), ORG)
 
 
 def convert_to_genome_path(ftp_path):
@@ -37,11 +34,12 @@ rule refseq_assembly_summary:
     output:
         join(REFSEQ_DIR, 'assembly_summary.txt')
     params:
-        kingdom = KINGDOM
+        kingdom = KINGDOM,
+        proxy = config['proxy'].get('curl', '')
     shell:
         """
         mkdir -p {REFSEQ_DIR}
-        curl 'ftp://ftp.ncbi.nlm.nih.gov/genomes/refseq/{params.kingdom}/assembly_summary.txt' > {output}
+        curl {params.proxy} 'ftp://ftp.ncbi.nlm.nih.gov/genomes/refseq/{params.kingdom}/assembly_summary.txt' > {output}
         """
 
 rule refseq_genome_urls:
@@ -69,13 +67,14 @@ rule refseq_download_genome:
         join(REFSEQ_DIR, 'genome_urls.txt')
     output:
         fasta = join(REFSEQ_DIR, '{}.fna'.format(ORG))
+    params:
+        proxy = config['proxy'].get('wget', ''),
     shadow:
         'minimal'
     run:
         urls = csv.DictReader(open(input[0]), fieldnames=['org','asm_name', 'url'], delimiter='\t')
         for row in urls:
-            cmd = "wget {row[url]}"
-            print(cmd)
+            cmd = "wget {params.proxy} {row[url]}"
             shell(cmd)
         shell('zcat *.fna.gz > {output}')
 

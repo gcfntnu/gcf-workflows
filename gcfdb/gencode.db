@@ -6,12 +6,6 @@ Gencode is for human/mouse/rat only.
 www.gencodegenes.org
 
 """
-import os
-from os.path import join
-import yaml
-from datetime import datetime
-
-from snakemake.logging import logger
 
 
 # config
@@ -43,16 +37,12 @@ TRANSCRIPTOME_TYPE = DB_CONF.get('transcriptome_type', 'pc_') #['pc_','']
 ERCC = DB_CONF.get('add_ercc', False)
 
 config['db']['gencode'] = DB_CONF
-OUTDIR = join(EXT_DIR, 'gencode', ORG, 'release-{}'.format(GENCODE_RELEASE), GENCODE_ASSEMBLY)
+OUTDIR = join(EXT_DIR, 'gencode', 'release-{}'.format(GENCODE_RELEASE), ORG, GENCODE_ASSEMBLY)
 
 # includes
 if ERCC:
     include:
         'ercc.db'
-include:
-    'convert.rules'
-include:
-    'indexes.rules'
 
 # GENCODE URLS
 GENCODE_GENOME = 'http://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_{}/release_{}/{}.primary_assembly.genome.fa.gz'
@@ -76,7 +66,8 @@ GENCODE_POLYA_GTF = GENCODE_POLYA_GTF.format(GENCODE_ORG, GENCODE_RELEASE, GENCO
 rule gencode_dna:
     params:
         url = GENCODE_GENOME,
-        date = datetime.now().strftime("%d-%m-%Y")
+        date = datetime.now().strftime("%d-%m-%Y"),
+        proxy = config['proxy'].get('wget', ''),
     output:
         join(OUTDIR, GENCODE_GENOME.replace('http://', '').split('.gz')[0])
     threads: 
@@ -85,13 +76,14 @@ rule gencode_dna:
         join(OUTDIR, 'logs', 'gencode.dna.log')
     shell: 
         """
-        wget -O- {params.url} | gunzip -c  > {output}
+        wget {params.proxy} -O- {params.url} | gunzip -c  > {output}
         echo 'Gencode DNA,{GENCODE_GENOME},{params.date}' > {log}
         """
         
 rule gencode_cdna:
     params: 
         date = datetime.now().strftime("%d-%m-%Y"),
+        proxy = config['proxy'].get('wget', ''),
         url = GENCODE_TRANSCRIPTOME
     output:
         join(OUTDIR, GENCODE_TRANSCRIPTOME.replace('http://', '').split('.gz')[0])
@@ -101,13 +93,14 @@ rule gencode_cdna:
         join(OUTDIR, 'logs', 'gencode.cdna.log')
     shell: 
         """
-        wget {params.url} -O- | gunzip -c  > {output}
+        wget {params.proxy} {params.url} -O- | gunzip -c  > {output}
         echo "Gencode CDNA,{GENCODE_TRANSCRIPTOME},{params.date}" > {log}
         """
 
 rule gencode_noncoding:
     params:
         url = GENCODE_LNC,
+        proxy = config['proxy'].get('wget', ''),
         date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(OUTDIR, GENCODE_LNC.replace('http://', '').split('.gz')[0])
@@ -117,13 +110,14 @@ rule gencode_noncoding:
         join(OUTDIR, 'logs', 'gencode.noncoding.log')
     shell: 
         """
-        wget {params.url} -O- | gunzip -c  > {output}
+        wget {params.proxy} {params.url} -O- | gunzip -c  > {output}
         echo 'Gencode NCDNA,{GENCODE_LNC},{params.date}' > {log}
         """
 
 rule gencode_gtf:
     params:
         url = GENCODE_GTF,
+        proxy = config['proxy'].get('wget', ''),
         date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(OUTDIR, GENCODE_GTF.replace('http://', '').split('.gz')[0])
@@ -135,13 +129,14 @@ rule gencode_gtf:
         'docker://' + config['docker']['default']
     shell: 
         """
-        wget {params.url} -O- | gunzip -c > {output}
+        wget {params.proxy} {params.url} -O- | gunzip -c > {output}
         echo 'Gencode GTF,{GENCODE_GTF},{params.date}' > {log}
         """
         
 rule gencode_trna_gtf:
     params:
         url = GENCODE_PREDTRNA_GTF,
+        proxy = config['proxy'].get('wget', ''),
         date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(OUTDIR, GENCODE_PREDTRNA_GTF.replace('http://', '').split('.gz')[0])
@@ -151,7 +146,7 @@ rule gencode_trna_gtf:
         join(OUTDIR, 'logs', 'gencode.trna.gtf.log')
     shell: 
         """
-        wget {params.url} -O- | gunzip -c > {output}
+        wget {params.proxy} {params.url} -O- | gunzip -c > {output}
         echo 'Gencode GTF,{GENCODE_PREDTRNA_GTF},{params.date}' > {log}
         """
 
@@ -246,7 +241,7 @@ rule gencode_db_downloads:
     output:
         genome = join(OUTDIR, 'fasta', 'genome.fa'),
         cdna = join(OUTDIR, 'fasta', 'cdna.fa'),
-        gtf = join(OUTDIR, 'genes', 'genes.gtf'),
+        gtf = join(OUTDIR, 'anno', 'genes.gtf'),
         noncoding = join(OUTDIR, 'fasta', 'ncdna.fa'),
         genome_index = join(OUTDIR, 'fasta', 'genome.fa.fai'),
         transcriptome = join(OUTDIR, 'fasta', 'transcriptome.fa')
@@ -264,15 +259,15 @@ rule gencode_db_all:
     input:
         join(OUTDIR, 'fasta', 'genome.fa'),
         join(OUTDIR, 'fasta', 'cdna.fa'),
-        join(OUTDIR, 'genes', 'genes.gtf'),
+        join(OUTDIR, 'anno', 'genes.gtf'),
         join(OUTDIR, 'fasta', 'ncdna.fa'),
         join(OUTDIR, 'fasta', 'genome.fa.fai'),    
-        join(OUTDIR, 'genes', 'genes.tsv'),
-        join(OUTDIR, 'genes', 'transcripts.tsv'),
-        join(OUTDIR, 'genes', 'tx2gene.tsv'),
+        join(OUTDIR, 'anno', 'genes.tsv'),
+        join(OUTDIR, 'anno', 'transcripts.tsv'),
+        join(OUTDIR, 'anno', 'tx2gene.tsv'),
         join(OUTDIR, 'fasta', 'genome.dict'),
-        join(OUTDIR, 'genes', 'genes.bed12'),
-        join(OUTDIR, 'genes', 'genes.refflat.gz'),
+        join(OUTDIR, 'anno', 'genes.bed12'),
+        join(OUTDIR, 'anno', 'genes.refflat.gz'),
         join(OUTDIR, 'fasta', 'transcriptome.fa'),
         join(OUTDIR, 'index', 'transcriptome', 'salmon', 'info.json'),
         join(OUTDIR, 'index', 'gentrome', 'salmon', 'info.json'),

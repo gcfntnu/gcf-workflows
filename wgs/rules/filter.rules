@@ -3,11 +3,11 @@ FILTER_INTERIM = join(INTERIM_DIR, 'wgs', 'filter')
 include:
     'filter/fastv.rules'
 
-if len(config['read_geometry']) > 1:
+if len(config['read_geometry']) > 3:
     rule clean_fastq:
         input:
-           R1 = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastv', '{sample}_R1.fastq'),
-           R2 = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastv', '{sample}_R2.fastq'),
+           R1 = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', '{sample}_R1.fastq'),
+           R2 = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', '{sample}_R2.fastq'),
         output:
             R1 = join(FILTER_INTERIM, 'cleaned', '{sample}_R1.fastq'),
             R2 = join(FILTER_INTERIM, 'cleaned', '{sample}_R2.fastq')
@@ -22,7 +22,7 @@ if len(config['read_geometry']) > 1:
 else:      
     rule clean_fastq:
         input:
-            join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastv', '{sample}_R{readnum}.fastq')
+            join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', '{sample}_R{readnum}.fastq')
         output:
             join(FILTER_INTERIM, 'cleaned', '{sample}_R{readnum}.fastq')
         shell:

@@ -23,14 +23,15 @@ FRNADB_ORG = {'homo_sapiens': 'Homo_sapiens',
 rule frnadb_fasta:
     params:
         url = 'ftp://ftp.biosciencedbc.jp/archive/frnadb/{}/Sequence_Data/{}.zip'.format(FRNADB_RELEASE, FRNADB_ORG[ORG]),
-        date = datetime.now().strftime("%d-%m-%Y")
+        date = datetime.now().strftime("%d-%m-%Y"),
+        proxy = config['proxy'].get('wget', '')
     output:
         fasta = join(EXT_DIR, 'frnadb', ORG, 'release-{}'.format(FRNADB_RELEASE), 'fasta', 'frna.fa')
     log:
         join(EXT_DIR, 'frnadb', ORG, 'release-{}'.format(FRNADB_RELEASE), 'logs', 'frna.log')
     shell:
         """
-        wget -O temp.zip {params.url} 
+        wget {params.proxy} -O temp.zip {params.url} 
         unzip -p temp.zip > {output.fasta}
         rm temp.zip
         echo "Functional RNA Database,{FRNADB_RELEASE},{params.url},{params.date}" > {log}
