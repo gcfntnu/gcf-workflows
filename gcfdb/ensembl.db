@@ -74,7 +74,7 @@ if DB_CONF.get('assembly') is None or DB_CONF.get('assembly') == '':
 rule init_ensembl_species:
     params:
         url = 'http://ftp.ensembl.org/pub/release-{wildcards.release}/species_EnsemblVertebrates.txt',
-        proxy = config['proxy'].get('wget', '')
+        proxy = config.get('proxy', {}).get('wget', '')
     threads:
         48
     output:
@@ -89,7 +89,7 @@ checkpoint build_ftp_table:
         txt = join(EXT_DIR, 'ensembl', 'release-{release}', 'lookup_tables', '{organism}_ftp.txt')
     params:
         script = srcdir('scripts/build_ensembl_lookup.py'),
-        proxy = config['proxy'].get('server', {}).get('ftp', 'none')
+        proxy = config.get('proxy', {}).get('server', {}).get('ftp', 'none')
     singularity:
         'docker://' + config['docker']['default']
     shell:
