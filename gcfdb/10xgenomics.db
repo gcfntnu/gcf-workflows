@@ -37,7 +37,7 @@ rule txgenomics_whitelist_v1:
     params:
         url = _URLS['whitelist_v1'],
         date = datetime.now().strftime("%d-%m-%Y"),
-        proxy = config['proxy'].get('wget', ''),
+        proxy = config.get('proxy', {}).get('wget', ''),
     output:
         join(REF_DIR, '737K-april-2014_rc.txt')
     log:
@@ -52,7 +52,7 @@ rule txgenomics_whitelist_v2:
     params:
         url = _URLS['whitelist_v2'],
         date = datetime.now().strftime("%d-%m-%Y"),
-        proxy = config['proxy'].get('wget', '')
+        proxy = config.get('proxy', {}).get('wget', '')
     output:
         join(REF_DIR, '737K-august-2016.txt.txt')
     log:
@@ -67,7 +67,7 @@ rule txgenomics_whitelist_v3:
     params:
         url = _URLS['whitelist_v3'],
         date = datetime.now().strftime("%d-%m-%Y"),
-        proxy = config['proxy'].get('wget', '')
+        proxy = config.get('proxy', {}).get('wget', '')
     output:
         join(REF_DIR, '3M-february-2018.txt')
     log:

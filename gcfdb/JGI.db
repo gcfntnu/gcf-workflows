@@ -14,7 +14,7 @@ Those are common contaminant microbes that we encounter in sequencing. For Eukar
 rule jgi_bacterial_eukaryot:
     params:
         url = 'http://portal.nersc.gov/dna/microbial/assembly/bushnell/fusedEPmasked2.fa.gz',
-        proxy = config['proxy'].get('wget', ''),
+        proxy = config.get('proxy', {}).get('wget', ''),
         date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(EXT_DIR, 'JGI', 'fasta', 'fusedEPmasked2.fa')
@@ -29,7 +29,7 @@ rule jgi_bacterial_eukaryot:
 rule jgi_bacterial_prokaryot:
     params:
         url = 'http://portal.nersc.gov/dna/microbial/assembly/bushnell/fusedERPBBmasked2.fa.gz',
-        proxy = config['proxy'].get('wget', ''),
+        proxy = config.get('proxy', {}).get('wget', ''),
         date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(EXT_DIR, 'JGI', 'fasta', 'fusedERPBBmasked2.fa.gz')
@@ -44,7 +44,7 @@ rule jgi_bacterial_prokaryot:
 rule jgi_ribokmers:
     params:
         url = 'http://portal.nersc.gov/dna/microbial/assembly/bushnell/riboKmers.fa.gz',
-        proxy = config['proxy'].get('wget', ''),
+        proxy = config.get('proxy', {}).get('wget', ''),
         date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(EXT_DIR, 'JGI', 'fasta', 'ribokmers.fa.gz')

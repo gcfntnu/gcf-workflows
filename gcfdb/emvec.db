@@ -14,7 +14,7 @@ rule contaminants_emvec_fasta:
     params:
         url = 'http://ftp.ebi.ac.uk/pub/databases/emvec/emvec.dat.gz',
         date = datetime.now().strftime("%d-%m-%Y"),
-        proxy = config['proxy'].get('wget', '')
+        proxy = config.get('proxy', {}).get('wget', '')
     output:
         join(EXT_DIR, 'emvec', 'fasta', 'emvec.fa')
     log:

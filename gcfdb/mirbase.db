@@ -34,7 +34,7 @@ rule mirbase_hairpin_fasta:
     params:
         url = URLS['hairpin'],
         mirbase_org = MIR_ORG[ORG],
-        proxy = config['proxy'].get('wget', ''),
+        proxy = config.get('proxy', {}).get('wget', ''),
         date = datetime.now().strftime("%d-%m-%Y")
     output:
         fasta = join(MIRBASE_EXT, 'fasta', 'hairpin.fa')
@@ -52,7 +52,7 @@ rule mirbase_mature_fasta:
     params:
         url = URLS['mature'],
         mirbase_org = MIR_ORG[ORG],
-        proxy = config['proxy'].get('wget', ''),
+        proxy = config.get('proxy', {}).get('wget', ''),
         date = datetime.now().strftime("%d-%m-%Y")
     output:
         fasta = join(MIRBASE_EXT, 'fasta', 'mature.fa')
@@ -70,7 +70,7 @@ rule mirbase_gff:
     params:
         url = URLS['gff'],
         mirbase_org = MIR_ORG[ORG],
-        proxy = config['proxy'].get('wget', ''),
+        proxy = config.get('proxy', {}).get('wget', ''),
         date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(MIRBASE_EXT, 'anno', 'genes.gff3')
@@ -100,7 +100,7 @@ rule mirbase_mirna_str:
     params:
         url = URLS['mirna_str'],
         mirbase_org = MIR_ORG[ORG],
-        proxy = config['proxy'].get('wget', ''),
+        proxy = config.get('proxy', {}).get('wget', ''),
         date = datetime.now().strftime("%d-%m-%Y")
     output:
         fasta = join(MIRBASE_EXT, 'anno', 'miRNA.str')

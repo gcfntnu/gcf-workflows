@@ -30,7 +30,7 @@ RNACENTRAL_DIR = join(EXT_DIR, 'rnacentral', config['organism'], config['db']['a
 rule rnacentral_gff:
     params:
         url = RNACENTRAL_GFF,
-        proxy = config['proxy'].get('wget', ''),
+        proxy = config.get('proxy', {}).get('wget', ''),
         date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(RNACENTRAL_DIR, 'anno', RNACENTRAL_ORG + '.gff')
@@ -45,7 +45,7 @@ rule rnacentral_gff:
 rule rnacentral_bed:
     params:
         url = RNACENTRAL_BED,
-        proxy = config['proxy'].get('wget', ''),
+        proxy = config.get('proxy', {}).get('wget', ''),
         date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(RNACENTRAL_DIR, 'anno', RNACENTRAL_ORG + '.bed')
@@ -72,7 +72,7 @@ rule rnacentral_gtf:
 rule rnacentral_fasta:
     params:
         url = RNACENTRAL_FASTA,
-        proxy = config['proxy'].get('wget', ''),
+        proxy = config.get('proxy', {}).get('wget', ''),
         date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(RNACENTRAL_DIR, 'fasta', 'rnacentral_active.fa')
@@ -87,7 +87,7 @@ rule rnacentral_fasta:
 rule rnacentral_ids:
     params:
         url = RNACENTRAL_MAP,
-        proxy = config['proxy'].get('wget', ''),
+        proxy = config.get('proxy', {}).get('wget', ''),
         date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(RNACENTRAL_DIR, 'id_mapping.tsv')
@@ -103,7 +103,7 @@ rule rnacentral_ids:
 rule rnacentral_mapping:
     params:
         url = join(RNACENTRAL_DBMAP, '{db}.tsv'),
-        proxy = config['proxy'].get('wget', ''),
+        proxy = config.get('proxy', {}).get('wget', ''),
         date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(RNACENTRAL_DIR, 'rnacentral_{db}.tsv')

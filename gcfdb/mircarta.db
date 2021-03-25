@@ -27,7 +27,7 @@ MIRCARTA_EXT = join(EXT_DIR, 'mircarta', ORG, 'release-{}'.format(MIRCARTA_RELEA
 rule mircarta_hairpin_fasta:
     params:
         url = join(MIRCARTA_URL, '{}_precursors.fa'.format(MIR_ORG[ORG])),
-        proxy = config['proxy'].get('wget', ''),
+        proxy = config.get('proxy', {}).get('wget', ''),
         date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(MIRCARTA_EXT, 'fasta', 'hairpin.fa')
@@ -42,7 +42,7 @@ rule mircarta_hairpin_fasta:
 rule mircarta_mature_fasta:
     params:
         url = join(MIRCARTA_URL, '{}_mirnas.fa'.format(MIR_ORG[ORG])),
-        proxy = config['proxy'].get('wget', ''),
+        proxy = config.get('proxy', {}).get('wget', ''),
         date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(MIRCARTA_EXT, 'fasta', 'mature.fa')
@@ -57,7 +57,7 @@ rule mircarta_mature_fasta:
 rule mircarta_gff:        
     params:
         url = join(MIRCARTA_URL, '{}.gff3'.format(MIR_ORG[ORG])),
-        proxy = config['proxy'].get('wget', ''),
+        proxy = config.get('proxy', {}).get('wget', ''),
         date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(MIRCARTA_EXT, 'anno', 'genes.gff3')

@@ -39,7 +39,7 @@ rule gtrnadb_trna:
     params:
         url = gtrnadb_url,
         date = datetime.now().strftime("%d-%m-%Y"),
-        proxy = config['proxy'].get('wget', ''),
+        proxy = config.get('proxy', {}).get('wget', ''),
         version = GTRNADB_VER[ORG]
     output:
         join(EXT_DIR, 'gtrnadb', ORG, 'release-{}'.format(GTRNADB_VER[ORG]), 'tRNAs.fa')
@@ -62,7 +62,7 @@ rule gtrnadb2_trna:
     params:
         url = gtrnadb2_url,
         date = datetime.now().strftime("%d-%m-%Y"),
-        proxy = config['proxy'].get('wget', ''),
+        proxy = config.get('proxy', {}).get('wget', ''),
         version = GTRNADB_VER[ORG]
     output:
         join(EXT_DIR, 'gtrnadb2', ORG, 'release-{}'.format(GTRNADB_VER[ORG]), 'tRNAs.fa')

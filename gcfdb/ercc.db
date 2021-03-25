@@ -14,7 +14,7 @@ rule ercc_files:
     params:
         url = 'https://tools.thermofisher.com/content/sfs/manuals/ERCC92.zip',
         date = datetime.now().strftime("%d-%m-%Y"),
-        proxy = config['proxy'].get('wget', '')
+        proxy = config.get('proxy', {}).get('wget', '')
     output:
         ercc_gtf = temp(join(ERCC_DIR, 'anno', '_ERCC92.gtf')),
         ercc_fasta = join(ERCC_DIR, 'fasta', 'ERCC92.fa')
@@ -55,7 +55,7 @@ rule ercc_annotations:
     params:
         url = 'http://tools.thermofisher.com/content/sfs/manuals/cms_095046.txt',
         date = datetime.now().strftime("%d-%m-%Y"),
-        proxy = config['proxy'].get('wget', '')
+        proxy = config.get('proxy', {}).get('wget', '')
     output:
         join(ERCC_DIR, 'anno', 'ERCC92.anno')
     log:

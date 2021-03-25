@@ -113,7 +113,7 @@ rule ensembl_genome:
     params:
         date = datetime.now().strftime("%d-%m-%Y"),
         release = DB_CONF['release'],
-        proxy = config['proxy'].get('wget', ''),
+        proxy = config.get('proxy', {}).get('wget', ''),
         url = lambda wildcards, input: get_ensembl_ftp(wildcards, input, 'genome')
     output:
         join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'fasta', 'genome.fa')
@@ -133,7 +133,7 @@ rule ensembl_noncoding:
     params:
         date = datetime.now().strftime("%d-%m-%Y"),
         release = DB_CONF['release'],
-        proxy = config['proxy'].get('wget', ''),
+        proxy = config.get('proxy', {}).get('wget', ''),
         url = lambda wildcards, input: get_ensembl_ftp(wildcards, input, 'ncrna')
     output:
         join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'fasta', 'ncrna.fa')
@@ -154,7 +154,7 @@ rule ensembl_gff:
     params:
         date = datetime.now().strftime("%d-%m-%Y"),
         release = DB_CONF['release'],
-        proxy = config['proxy'].get('wget', ''),
+        proxy = config.get('proxy', {}).get('wget', ''),
         url = lambda wildcards, input: get_ensembl_ftp(wildcards, input, 'gff')
     output:
         join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'anno', 'genes.gff')
@@ -174,7 +174,7 @@ rule ensembl_gtf:
     params:
         date = datetime.now().strftime("%d-%m-%Y"),
         release = DB_CONF['release'],
-        proxy = config['proxy'].get('wget', ''),
+        proxy = config.get('proxy', {}).get('wget', ''),
         url = lambda wildcards, input: get_ensembl_ftp(wildcards, input, 'gtf')
     output:
         join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'anno', 'genes.gtf')

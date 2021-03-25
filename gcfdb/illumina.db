@@ -12,7 +12,7 @@ rule illumina_phix:
         url = 'ftp://igenome:G3nom3s4u@ussd-ftp.illumina.com/PhiX/Illumina/RTA/PhiX_Illumina_RTA.tar.gz',
         date = datetime.now().strftime("%d-%m-%Y"),
         tmp_file = tempfile.mkstemp(suffix='.tar.gz')[-1],
-        proxy = config['proxy'].get('wget', '')
+        proxy = config.get('proxy', {}).get('wget', '')
     log:
         join(ILMN_EXT, 'phix', 'logs', 'phix.log')
     shell:

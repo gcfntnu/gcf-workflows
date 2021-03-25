@@ -19,7 +19,7 @@ LEVELS = [61, 64, 67, 70, 73, 76, 79, 82, 85, 88, 91, 94, 97, 99]
 rule greengenes_db:
     params:
         url = URL,
-        proxy = config['proxy'].get('wget', ''),
+        proxy = config.get('proxy', {}).get('wget', ''),
         outdir = join(EXT_DIR, 'greengenes', GG_VER)
     output:
         expand(join(EXT_DIR, 'greengenes', GG_VER, 'trees', '{level}_otus.tree'), level=LEVELS),

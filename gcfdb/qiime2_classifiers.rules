@@ -45,7 +45,7 @@ rule prebuild_classifiers:
     params:
         url_1 = 'https://data.qiime2.org/2019.10/common/silva-132-99-nb-classifier.qza',
         url_2 = 'https://data.qiime2.org/2019.10/common/gg-13-8-99-nb-classifier.qza',
-        proxy = config['proxy'].get('wget', ''),
+        proxy = config.get('proxy', {}).get('wget', ''),
     output:
        out_1 = join(EXT_DIR, 'silva', '132', 'qiime2', 'classifiers', '99_universal.qza'),
        out_2 = join(EXT_DIR, 'greengenes', '13_8', 'qiime2', 'classifiers', '99_universal.qza')

@@ -35,7 +35,7 @@ rule refseq_assembly_summary:
         join(REFSEQ_DIR, 'assembly_summary.txt')
     params:
         kingdom = KINGDOM,
-        proxy = config['proxy'].get('curl', '')
+        proxy = config.get('proxy', {}).get('curl', '')
     shell:
         """
         mkdir -p {REFSEQ_DIR}
@@ -68,7 +68,7 @@ rule refseq_download_genome:
     output:
         fasta = join(REFSEQ_DIR, '{}.fna'.format(ORG))
     params:
-        proxy = config['proxy'].get('wget', ''),
+        proxy = config.get('proxy', {}).get('wget', ''),
     shadow:
         'minimal'
     run:

@@ -18,7 +18,7 @@ rule unite_db:
     params:
         url = URLS[UNITE_VER],
         outdir = join(EXT_DIR, 'unite', UNITE_VER),
-        proxy = config['proxy'].get('wget', ''),
+        proxy = config.get('proxy', {}).get('wget', ''),
         tmpdir = '/tmp' # fixme
     output:
         expand(join(EXT_DIR, 'unite', UNITE_VER, 'sh_refs_qiime_ver8_{level}_04.02.2020.fasta'), level=LEVELS),

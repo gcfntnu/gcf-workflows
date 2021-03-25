@@ -20,7 +20,7 @@ rule homdb_db:
         fasta = join(URL, 'V{release}', 'HOMD_16S_rRNA_RefSeq_V{release}.fasta'),
         taxa = join(URL, 'V{release}', 'HOMD_16S_rRNA_RefSeq_V{release}.qiime.taxonomy'),
         tree = join(URL, 'V{release}', 'HOMD_16S_rRNA_RefSeq_V{release}.reroot.order.tre'),
-        proxy = config['proxy'].get('wget', '')
+        proxy = config.get('proxy', {}).get('wget', '')
     output:
         aligned = join(EXT_DIR, 'homdb', '{release}', 'fasta', 'aligned.fa'),
         fasta = join(EXT_DIR, 'homdb', '{release}', 'fasta', 'repseq.fa'),

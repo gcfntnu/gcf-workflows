@@ -34,7 +34,7 @@ include:
 rule contaminants_univec_fasta:
     params:
         url = 'http://ftp.ncbi.nlm.nih.gov/pub/UniVec/UniVec',
-        proxy = config['proxy'].get('wget', ''),
+        proxy = config.get('proxy', {}).get('wget', ''),
         date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(EXT_DIR, 'univec', 'fasta', 'univec.fa')
@@ -59,7 +59,7 @@ rule univec_anno:
 rule contaminants_univec_core_fasta:
     params:
         url_core = 'http://ftp.ncbi.nlm.nih.gov/pub/UniVec/UniVec_Core',
-        proxy = config['proxy'].get('wget', ''),
+        proxy = config.get('proxy', {}).get('wget', ''),
         date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(EXT_DIR, 'univec_core', 'fasta', 'univec_core.fa')

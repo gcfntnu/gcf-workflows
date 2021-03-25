@@ -24,7 +24,7 @@ URLS = {'rtr': 'http://www.regulatoryrna.org/database/piRNA/download/archive/v{}
 rule pirbase_fasta:
     params:
         url = URLS['rtr'].format(PB_VERSION, MAP_ORG[ORG]),
-        proxy = config['proxy'].get('wget', ''),
+        proxy = config.get('proxy', {}).get('wget', ''),
         date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(EXT_DIR, 'pirbase', ORG, 'fasta', 'pirna.fa')
@@ -39,7 +39,7 @@ rule pirbase_fasta:
 rule pirnadb_fasta:
     params:
         url = URLS['pirnadb'].format(MAP_ORG[ORG], PDB_VERSION),
-        proxy = config['proxy'].get('wget', ''),
+        proxy = config.get('proxy', {}).get('wget', ''),
         date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(EXT_DIR, 'pirnadb', ORG, 'fasta', 'pirna.fa')

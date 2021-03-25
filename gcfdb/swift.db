@@ -12,7 +12,7 @@ SWIFT_EXT = join(EXT_DIR, 'swift', 'sars-cov2')
 rule swift_sars_cov2_panels_v2_masterfile:
     params:
         date = datetime.now().strftime("%d-%m-%Y"),
-        proxy = config['proxy'].get('wget', ''),
+        proxy = config.get('proxy', {}).get('wget', ''),
         url = url_v2
     output:
         master = join(SWIFT_EXT, 'v2', 'anno', 'sarscov2_v2_masterfile.txt')

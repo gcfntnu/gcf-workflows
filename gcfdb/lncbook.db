@@ -145,7 +145,7 @@ rule lncbook_gencode_gtf:
     params:
         url = LNCB_GTF,
         date = datetime.now().strftime("%d-%m-%Y"),
-        proxy = config['proxy'].get('wget', '')
+        proxy = config.get('proxy', {}).get('wget', '')
     output:
         join(EXT_DIR, 'lncbook', 'anno', 'lncbook.gtf')
     log:

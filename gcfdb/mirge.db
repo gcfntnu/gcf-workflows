@@ -43,7 +43,7 @@ MIRGE_EXT = join(EXT_DIR, 'mirge', ORG, MIRGE_ORG)
 rule mirge_add_trf_human:
     params:
         url = 'https://github.com/mhalushka/miRge/files/2428450/missingtrffiles.zip',
-        proxy = config['proxy'].get('wget', ''),
+        proxy = config.get('proxy', {}).get('wget', ''),
         outdir = join(MIRGE_EXT, 'annotation.Libs')
     output:
         join(MIRGE_EXT, 'annotation.Libs', 'human_trna.str')
@@ -60,7 +60,7 @@ if ORG == 'homo_sapiens':
             trf = rules.mirge_add_trf_human.output,
             url = URLS[MIRGE_ORG],
             out = MIRGE_EXT,
-            proxy = config['proxy'].get('wget', ''),
+            proxy = config.get('proxy', {}).get('wget', ''),
             date = datetime.now().strftime("%d-%m-%Y")
         output:
             join(MIRGE_EXT, 'index.Libs', '{}_snorna.3.ebwt'.format(MIRGE_ORG))
@@ -76,7 +76,7 @@ else:
         params:
             url = URLS[MIRGE_ORG],
             out = MIRGE_EXT,
-            proxy = config['proxy'].get('wget', ''),
+            proxy = config.get('proxy', {}).get('wget', ''),
             date = datetime.now().strftime("%d-%m-%Y")
         output:
             join(MIRGE_EXT, 'index.Libs', '{}_snorna.3.ebwt'.format(MIRGE_ORG))
