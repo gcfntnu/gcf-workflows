@@ -3,6 +3,7 @@ if config['quant']['method'] == 'cellranger':
     rule bfq_level2_exprs_cellranger:
         input:
             expand(join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', '{aggr_id}_aggr.h5ad'), aggr_id=AGGR_IDS),
+            expand(join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', '{aggr_id}_preprocessed.h5ad'), aggr_id=AGGR_IDS),
             expand(join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}', 'outs', 'count', 'filtered_feature_bc_matrix', 'matrix.mtx.gz'), aggr_id=AGGR_IDS),
             expand( join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}', 'outs', 'count', 'filtered_feature_bc_matrix', 'features.tsv.gz'), aggr_id=AGGR_IDS),
             expand( join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}', 'outs', 'count', 'filtered_feature_bc_matrix', 'barcodes.tsv.gz'), aggr_id=AGGR_IDS),
@@ -12,6 +13,7 @@ if config['quant']['method'] == 'cellranger':
             expand(join(CR_INTERIM, '{sample}', 'outs', 'filtered_feature_bc_matrix', 'barcodes.tsv.gz'), sample=SAMPLES)   
         output:
             expand(join(BFQ_INTERIM, 'exprs', 'scanpy', '{aggr_id}_adata.h5ad'), aggr_id=AGGR_IDS),
+            expand(join(BFQ_INTERIM, 'exprs', 'scanpy', '{aggr_id}_preprocessed.h5ad'), aggr_id=AGGR_IDS),
             expand(join(BFQ_INTERIM, 'exprs', 'mtx', '{aggr_id}', 'matrix.mtx.gz'), aggr_id=AGGR_IDS),
             expand(join(BFQ_INTERIM, 'exprs', 'mtx', '{aggr_id}', 'features.tsv.gz'), aggr_id=AGGR_IDS),
             expand(join(BFQ_INTERIM, 'exprs', 'mtx', '{aggr_id}', 'barcodes.tsv.gz'), aggr_id=AGGR_IDS),
@@ -48,6 +50,17 @@ if config['quant']['method'] == 'cellranger':
             expand(join(BFQ_INTERIM, 'data', '{sample}_filtered_feature_bc_matrix.h5'), sample=SAMPLES),
             expand(join(BFQ_INTERIM, 'cloupe', '{aggr_id}.cloupe'), aggr_id=AGGR_IDS),
             expand(join(BFQ_INTERIM, 'cloupe', '{sample}.cloupe'), sample=SAMPLES)
+        run:
+            for src, dst  in zip(input, output):
+                shell('ln -sr {src} {dst}')
+    
+    rule bfq_level2_notebooks_cellranger:
+        input:
+            expand(join(QUANT_INTERIM, 'aggregate', 'cellranger', 'notebooks', '{aggr_id}_pp.html'), aggr_id=AGGR_IDS),
+            expand(join(QUANT_INTERIM, 'aggregate', 'cellranger', 'notebooks', '{aggr_id}_pp.ipynb'), aggr_id=AGGR_IDS),
+        output:
+            expand(join(BFQ_INTERIM, 'notebooks', '{aggr_id}_preprocess.html'), aggr_id=AGGR_IDS),
+            expand(join(BFQ_INTERIM, 'notebooks', '{aggr_id}_preprocess.ipynb'), aggr_id=AGGR_IDS),
         run:
             for src, dst  in zip(input, output):
                 shell('ln -sr {src} {dst}')
