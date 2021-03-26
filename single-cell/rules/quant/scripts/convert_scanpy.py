@@ -167,11 +167,11 @@ def read_cellranger(fn, args, rm_zero_cells=True, add_sample_id=True, **kw):
         data = sc.read_10x_mtx(mtx_dir, gex_only=args.gex_only, var_names='gene_ids')
         data.var['gene_ids'] = list(data.var_names)
     
-    barcodes = [b.split('-')[0] for b in data.obs.index]
-    if len(barcodes) == len(set(barcodes)):
-        data.obs_names = barcodes
         
     if add_sample_id:
+        barcodes = [b.split('-')[0] for b in data.obs.index]
+        if len(barcodes) == len(set(barcodes)):
+            data.obs_names = barcodes
         sample_id = os.path.basename(os.path.dirname(dirname))
         data.obs['library_id'] = sample_id
         data.obs['library_id'] = data.obs['library_id'].astype('category')

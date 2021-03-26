@@ -282,4 +282,28 @@ rule scanpy_cellranger:
     shell:
         'python {params.script} {input} -o {output} -v -f cellranger'
         
-        
+rule cellranger_scanpy_pp_ipynb:
+    input:
+        rules.scanpy_aggr_cellranger.output
+    output:
+        preprocessed = join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', '{aggr_id}_preprocessed.h5ad'),
+    log:
+        notebook = join(QUANT_INTERIM, 'aggregate', 'cellranger', 'notebooks', '{aggr_id}_pp.ipynb')
+    threads:
+        24
+    singularity:
+        'docker://' + config['docker']['jupyter-scanpy']
+    notebook:
+        'scripts/cellranger_preprocess.py.ipynb'
+
+rule cellranger_scanpy_pp_ipynb_html:
+    input:
+        rules.cellranger_scanpy_pp_ipynb.log
+    output:
+        join(QUANT_INTERIM, 'aggregate', 'cellranger', 'notebooks', '{aggr_id}_pp.html')
+    singularity:
+        'docker://' + config['docker']['jupyter-scanpy']
+    threads:
+        1
+    shell:
+        'jupyter nbconvert --to html {input} ' 
