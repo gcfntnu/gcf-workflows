@@ -55,7 +55,7 @@ rule convert_fasta2sequence_dict:
     singularity:
         'docker://' + config['docker']['picard_gatk']
     shell:
-        'picard CreateSequenceDictionary R={input} O={output}'
+        'picard CreateSequenceDictionary REFERENCE={input} OUTPUT={output}'
         
 rule convert_gtf2bed12:
     input:
@@ -78,6 +78,8 @@ rule convert_gtf2intervals:
         join('{ref_dir}', 'anno', 'genes.gtf')
     output:
         join('{ref_dir}', 'anno', 'genes.intervals')
+    shell:
+        ''
         
 rule convert_gtf2refflat:
     input:
@@ -104,7 +106,7 @@ rule convert_gtf_transcriptome_gffread:
     output:
         join('{ref_dir}', 'fasta', 'gtf.gffread.transcripts.fa')
     singularity:
-        'docker://' + config['docker']['ucsc-scripts']
+        'docker://' + config['docker']['gffread']
     shell:
         'gffread -w {output} -g {input.genome} {input.gtf}'
         

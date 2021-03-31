@@ -87,17 +87,17 @@ if __name__ == '__main__':
         row['ftp_gff'] = gff_ftp
 
         # non-coding
-        http://ftp.ensembl.org/pub/release-103/fasta/homo_sapiens/ncrna/Homo_sapiens.GRCh38.ncrna.fa.gz
         FASTA_DIR = DIR.format(args.release, 'fasta', args.organism)
         ncrna_fn = '.'.join([args.organism.capitalize(), ASSEMBLY, 'ncrna', 'fa', 'gz'])
-        ncrna_ftp = PROTOCOL + os.path.join(ENSEMBL_SERVER, FASTA_DIR, 'ncrna', ncrna_fn)        
+        ncrna_ftp = PROTOCOL + os.path.join(ENSEMBL_SERVER, FASTA_DIR, 'ncrna', ncrna_fn)
+        row['ftp_ncrna'] = ncrna_ftp
         rows.append(row)
 
         
         
     out = pd.concat(rows, axis=1).T
-    keep_cols = ['species', '#name', 'taxonomy_id', 'assembly', 'assembly_accession', 'ftp_genome', 'ftp_gtf', 'ftp_gff', 'ncrna_ftp']
+    keep_cols = ['species', '#name', 'taxonomy_id', 'assembly', 'assembly_accession', 'ftp_genome', 'ftp_gtf', 'ftp_gff', 'ftp_ncrna']
     out = out[keep_cols]
-    out.columns = ['species', 'name', 'taxonomy_id', 'assembly', 'assembly_accession', 'ftp_genome', 'ftp_gtf', 'ftp_gff', 'ncrna_ftp']
+    out.columns = ['species', 'name', 'taxonomy_id', 'assembly', 'assembly_accession', 'ftp_genome', 'ftp_gtf', 'ftp_gff', 'ftp_ncrna']
 
     out.to_csv(args.output, sep='\t', index=False)

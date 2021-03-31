@@ -18,10 +18,10 @@ from snakemake.utils import update_config, min_version
 min_version("5.10.0")
 TMPDIR = os.environ.get('TMPDIR', '/tmp')
 # environment variables can override config file
-INTERIM_DIR = environ.get('GCF_INTERIM') or config.get('interim_dir', 'data/tmp/')
+INTERIM_DIR = config.get('interim_dir') or environ.get('GCF_INTERIM', 'data/tmp')
 makedirs(INTERIM_DIR, exist_ok=True)
-EXT_DIR = environ.get('GCF_EXT') or config.get('ext_dir', 'data/ext')
-FASTQ_DIR =  environ.get('GCF_FASTQ') or config.get('fastq_dir','data/raw/fastq')
+EXT_DIR = config.get('ext_dir') or environ.get('GCF_EXT', 'data/ext')
+FASTQ_DIR =  config.get('fastq_dir') or environ.get('GCF_FASTQ', 'data/raw/fastq') 
 while FASTQ_DIR.endswith(os.path.sep):
     FASTQ_DIR = FASTQ_DIR[:-1]
 makedirs(FASTQ_DIR, exist_ok=True)
@@ -79,10 +79,11 @@ libprep_fn = srcdir('libprep.config')
 with open(libprep_fn) as fh:
     LIBPREP_CONF  = yaml.load(fh, Loader=Loader) or {}
 kit = config.get('libprepkit')
-if len(config['read_geometry']) > 1:
-    kit += ' PE'
-else:
-   kit += ' SE' 
+if kit is not None:
+    if len(config['read_geometry']) > 1:
+        kit += ' PE'
+    else:
+        kit += ' SE' 
 if kit in LIBPREP_CONF:
     # overwrite default config
     update_config(CONF, LIBPREP_CONF[kit])

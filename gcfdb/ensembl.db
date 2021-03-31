@@ -188,10 +188,3 @@ rule ensembl_gtf:
         echo 'Ensembl GTF,release-{params.release},{params.url},{params.date}' > {log}
         """ 
 
-rule ensembl_transcriptome:
-    input:
-        join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'fasta', 'gtf.gffread.transcripts.fa')
-    output:
-        join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'fasta', 'transcriptome.fa')
-    shell:
-        'ln -s {input} {output}'
