@@ -21,7 +21,6 @@ else:
     raise ValueError
 
 config['db'][ref] = DB_CONF = config['db'].get(ref, {})
-
 # supported references
 include: 'ensembl.db'
 #include: 'gencode.db'
@@ -30,8 +29,9 @@ include: 'refseq.db'
 
 
 if REF_DIR is None:
-    config['db'][ref]['assembly'] = assembly = DB_CONF.get('assembly', '')
-    config['db'][ref]['release'] = release = DB_CONF.get('release', '')
+    DB_CONF = config['db'][ref]
+    assembly = DB_CONF.get('assembly')
+    release = DB_CONF.get('release')
     release_str = 'release-{}'.format(release) if release is not None else ''
     assembly_str = str(assembly) if assembly is not None else ''
     REF_DIR = join(EXT_DIR, ref, release_str, ORG, assembly_str)
@@ -70,3 +70,5 @@ rule reference_transcriptome:
     shell:
         'gffread -w {output} -g {input.genome} {input.gtf}'
         
+print("----------")
+print(REF_DIR)

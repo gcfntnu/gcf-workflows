@@ -61,7 +61,7 @@ else:
 if config['libprepkit'].startswith("Drop-Seq"):
     WHITELIST = join(STAR_INTERIM, '{sample}','whitelist.txt')
 else:
-    WHITELIST = join(REF_DIR, config['quant']['starsolo']['whitelist'])
+    WHITELIST = join(EXT_DIR, '10xgenomics', config['quant']['starsolo']['whitelist'])
 
 rule starsolo_quant:
     input:
