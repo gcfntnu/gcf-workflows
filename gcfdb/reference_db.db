@@ -64,7 +64,7 @@ rule reference_transcriptome:
         genome = get_genome(),
         gtf = get_gtf()
     output:
-        txome = join(REF_DIR, 'fasta', 'gtf.gffread.transcriptome.fa')
+        txome = join(REF_DIR, 'fasta', 'transcriptome.fa')
     singularity:
         'docker://' + config['docker']['gffread']
     shell:
