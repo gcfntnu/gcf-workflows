@@ -49,7 +49,7 @@ rule sartools_deseq2_run:
     input:
         target = join(INTERIM_DIR, 'sample_info.tsv'),
         counts = join(QUANT_INTERIM, '{quant}', 'tximport', 'gene_counts.tsv'),
-        meta = join(REF_DIR, 'genes', 'genes.tsv')
+        meta = join(REF_DIR, 'anno', 'genes.tsv')
     params:
         script = srcdir('scripts/template_script_DESeq2_CL.r'),
         args = get_params

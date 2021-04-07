@@ -2,7 +2,7 @@
 rule tximport_gene_counts:
     input:
         rds = join(QUANT_INTERIM, '{quant}', 'tximport', 'tx_{quant}.rds'),
-        txinfo = join(REF_DIR, 'genes', 'transcripts.tsv')
+        txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
         script = srcdir('scripts/tximport2csv.R')
     singularity:
@@ -19,7 +19,7 @@ rule tximport_gene_counts:
 rule tximport_gene_lengths:
     input:
         rds = join(QUANT_INTERIM, '{quant}', 'tximport', 'tx_{quant}.rds'),
-        txinfo = join(REF_DIR, 'genes', 'transcripts.tsv')
+        txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
         script = srcdir('scripts/tximport2csv.R')
     singularity:
@@ -36,7 +36,7 @@ rule tximport_gene_lengths:
 rule tximport_gene_tpm:
     input:
         rds = join(QUANT_INTERIM, '{quant}', 'tximport', 'tx_{quant}.rds'),
-        txinfo = join(REF_DIR, 'genes', 'transcripts.tsv')
+        txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
         script = srcdir('scripts/tximport2csv.R')
     singularity:
@@ -53,7 +53,7 @@ rule tximport_gene_tpm:
 rule tximport_gene_tpm_scaled:
     input:
         rds = join(QUANT_INTERIM, '{quant}', 'tximport', 'tx_{quant}.rds'),
-        txinfo = join(REF_DIR, 'genes', 'transcripts.tsv')
+        txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
         script = srcdir('scripts/tximport2csv.R')
     singularity:
@@ -70,7 +70,7 @@ rule tximport_gene_tpm_scaled:
 rule tximport_gene_tpm_length_scaled:
     input:
         rds = join(QUANT_INTERIM, '{quant}', 'tximport', 'tx_{quant}.rds'),
-        txinfo = join(REF_DIR, 'genes', 'transcripts.tsv')
+        txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
         script = srcdir('scripts/tximport2csv.R')
     singularity:
@@ -87,7 +87,7 @@ rule tximport_gene_tpm_length_scaled:
 rule tximport_gene_vst:
     input:
         rds = join(QUANT_INTERIM, '{quant}', 'tximport', 'tx_{quant}.rds'),
-        txinfo = join(REF_DIR, 'genes', 'transcripts.tsv')
+        txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
         script = srcdir('scripts/tximport2csv.R')
     singularity:
@@ -104,7 +104,7 @@ rule tximport_gene_vst:
 rule tximport_gene_rlog:
     input:
         rds = join(QUANT_INTERIM, '{quant}', 'tximport', 'tx_{quant}.rds'),
-        txinfo = join(REF_DIR, 'genes', 'transcripts.tsv')
+        txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
         script = srcdir('scripts/tximport2csv.R')
     singularity:
@@ -121,7 +121,7 @@ rule tximport_gene_rlog:
 rule tximport_transcript_counts:
     input:
         rds = join(QUANT_INTERIM, '{quant}', 'tximport', 'tx_{quant}.rds'),
-        txinfo = join(REF_DIR, 'genes', 'transcripts.tsv')
+        txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
         script = srcdir('scripts/tximport2csv.R')
     singularity:
@@ -138,7 +138,7 @@ rule tximport_transcript_counts:
 rule tximport_transcript_tpm:
     input:
         rds = join(QUANT_INTERIM, '{quant}', 'tximport', 'tx_{quant}.rds'),
-        txinfo = join(REF_DIR, 'genes', 'transcripts.tsv')
+        txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
         script = srcdir('scripts/tximport2csv.R')
     singularity:
@@ -155,7 +155,7 @@ rule tximport_transcript_tpm:
 rule tximport_transcript_vst:
     input:
         rds = join(QUANT_INTERIM, '{quant}', 'tximport', 'tx_{quant}.rds'),
-        txinfo = join(REF_DIR, 'genes', 'transcripts.tsv')
+        txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
         script = srcdir('scripts/tximport2csv.R')
     singularity:
@@ -172,7 +172,7 @@ rule tximport_transcript_vst:
 rule tximport_transcript_rlog:
     input:
         rds = join(QUANT_INTERIM, '{quant}', 'tximport', 'tx_{quant}.rds'),
-        txinfo = join(REF_DIR, 'genes', 'transcripts.tsv')
+        txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
         script = srcdir('scripts/tximport2csv.R')
     singularity:
@@ -189,8 +189,8 @@ rule tximport_transcript_rlog:
 rule tximport_gene_info:
     input:
         rds = join(QUANT_INTERIM, '{quant}', 'tximport', 'tx_{quant}.rds'),
-        txinfo = join(REF_DIR, 'genes', 'transcripts.tsv'),
-        gene_info = join(REF_DIR, 'genes', 'genes.tsv')
+        txinfo = join(REF_DIR, 'anno', 'transcripts.tsv'),
+        gene_info = join(REF_DIR, 'anno', 'genes.tsv')
     params:
         script = srcdir('scripts/tximport2csv.R')
     singularity:
@@ -208,7 +208,7 @@ rule tximport_gene_info:
 rule tximport_transcript_info:
     input:
         rds = join(QUANT_INTERIM, '{quant}', 'tximport', 'tx_{quant}.rds'),
-        txinfo = join(REF_DIR, 'genes', 'transcripts.tsv')
+        txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
         script = srcdir('scripts/tximport2csv.R')
     singularity:

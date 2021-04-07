@@ -1,5 +1,4 @@
 #-*- mode: snakemake -*-
-
 extra_conf_fn = srcdir('reference_db.config')
 if os.path.exists(extra_conf_fn):
     with open(extra_conf_fn) as fh:
@@ -8,33 +7,68 @@ if os.path.exists(extra_conf_fn):
 
 ORG = config['organism']
 
-if 'REF_DIR' in locals() and REF_DIR is not None:
-    pass
-elif environ.get('GCF_REFDIR') is not None:
-    REF_DIR = environ.get('GCF_REFDIR')
-elif 'ref_dir' in config:
-    REF_DIR = config['ref_dir']
-elif 'reference_db' in config['db']:
-    ref = config['db']['reference_db']
-    if ref == 'ensembl':
-        include: 'ensembl.db'
-    if ref == 'gencode':
-        include: 'gencode.db'
-    if ref == '10xgenomics':
-        include: '10xgenomics.db'
-
-    DB_CONF = config['db'][ref]
-    REF_DIR = join(EXT_DIR, ref, ORG, 'release-{}'.format(DB_CONF['release']), DB_CONF['assembly'])
+# support for custom reference dir
+REF_DIR = config.get('ref_dir', environ.get('GCF_REFDIR'))
+if REF_DIR is not None:
+    if not os.path.isdir(REF_DIR):
+        raise OSError("defined variable `REF_DIR` is not a valid directory")
+    config['db']['reference_db'] = os.path.dirname(REF_DIR)
+    
+if 'reference_db' in config['db']:
+    ref = config['db']['reference_db'].strip()
 else:
     logger.error('Reference dir missing. Check config or other ways for ref dir setup')
     raise ValueError
+
+config['db'][ref] = DB_CONF = config['db'].get(ref, {})
+# supported references
+include: 'ensembl.db'
+#include: 'gencode.db'
+include: '10xgenomics.db'
+include: 'refseq.db'
+
+
+if REF_DIR is None:
+    DB_CONF = config['db'][ref]
+    assembly = DB_CONF.get('assembly')
+    release = DB_CONF.get('release')
+    release_str = 'release-{}'.format(release) if release is not None else ''
+    assembly_str = str(assembly) if assembly is not None else ''
+    REF_DIR = join(EXT_DIR, ref, release_str, ORG, assembly_str)
 config['base_ref_dir'] = REF_DIR
 
-if not 'ref' in locals():
-    ref = os.path.dirname(REF_DIR)
-    config['db']['reference_db'] = ref
-    config['db'][ref] = {}
+        
+def get_genome(*args, **kw):
+    """
+    Possible additions to genome: eppstein-barr virus, ercc/sirv spike-ins, decoys
+    """ 
+    return join(REF_DIR, 'fasta', 'genome.fa')
+
+def get_gtf(*args, **kw):
+    """
+    """
+    return join(REF_DIR, 'anno', 'genes.gtf')
+
+def get_gff(*args, **kw):
+    """
+    """
+    return join(REF_DIR, 'anno', 'genes.gff')
+
 include:
     'indexes.rules'
 include:
     'convert.rules'
+
+rule reference_transcriptome:
+    input:
+        genome = get_genome(),
+        gtf = get_gtf()
+    output:
+        txome = join(REF_DIR, 'fasta', 'transcriptome.fa')
+    singularity:
+        'docker://' + config['docker']['gffread']
+    shell:
+        'gffread -w {output} -g {input.genome} {input.gtf}'
+        
+print("----------")
+print(REF_DIR)

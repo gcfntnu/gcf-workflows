@@ -34,6 +34,7 @@ rule mirbase_hairpin_fasta:
     params:
         url = URLS['hairpin'],
         mirbase_org = MIR_ORG[ORG],
+        proxy = config.get('proxy', {}).get('wget', ''),
         date = datetime.now().strftime("%d-%m-%Y")
     output:
         fasta = join(MIRBASE_EXT, 'fasta', 'hairpin.fa')
@@ -43,7 +44,7 @@ rule mirbase_hairpin_fasta:
         'docker://' + config['docker']['default']
     shell:
         """
-        wget {params.url} -O- | gunzip -c | grep -A 1 "^>{params.mirbase_org}" | grep -v "^-" | sed 's/U/T/g' > {output.fasta}
+        wget {params.proxy} {params.url} -O- | gunzip -c | grep -A 1 "^>{params.mirbase_org}" | grep -v "^-" | sed 's/U/T/g' > {output.fasta}
         echo "Mirbase hairpin,{MIRBASE_RELEASE},{params.url},{params.date}" > {log}
         """
 
@@ -51,6 +52,7 @@ rule mirbase_mature_fasta:
     params:
         url = URLS['mature'],
         mirbase_org = MIR_ORG[ORG],
+        proxy = config.get('proxy', {}).get('wget', ''),
         date = datetime.now().strftime("%d-%m-%Y")
     output:
         fasta = join(MIRBASE_EXT, 'fasta', 'mature.fa')
@@ -60,7 +62,7 @@ rule mirbase_mature_fasta:
         'docker://' + config['docker']['default']
     shell:
         """
-        wget {params.url} -O- | gunzip -c | grep -A 1 "^>{params.mirbase_org}" | grep -v "^-" | sed 's/U/T/g' > {output}
+        wget {params.proxy} {params.url} -O- | gunzip -c | grep -A 1 "^>{params.mirbase_org}" | grep -v "^-" | sed 's/U/T/g' > {output}
         echo "Mirbase mature,{MIRBASE_RELEASE},{params.url},{params.date}" > {log}
         """
 
@@ -68,16 +70,17 @@ rule mirbase_gff:
     params:
         url = URLS['gff'],
         mirbase_org = MIR_ORG[ORG],
+        proxy = config.get('proxy', {}).get('wget', ''),
         date = datetime.now().strftime("%d-%m-%Y")
     output:
-        join(MIRBASE_EXT, 'genes', 'genes.gff3')
+        join(MIRBASE_EXT, 'anno', 'genes.gff3')
     log:
        join(MIRBASE_EXT, 'logs', 'gff.log')
     singularity:
         'docker://' + config['docker']['default']
     shell:
         """
-        wget -O - {params.url}/{params.mirbase_org}.gff3 > {output}
+        wget {params.proxy} -O - {params.url}/{params.mirbase_org}.gff3 > {output}
         echo "Mirbase gff,{MIRBASE_RELEASE},{params.url},{params.date}" > {log}
         """
 
@@ -87,7 +90,7 @@ rule mirbase_genes:
     params:
         script = srcdir('scripts/mirbase_gff2genes.py')
     output:
-        join(MIRBASE_EXT, 'genes', 'genes.tsv')
+        join(MIRBASE_EXT, 'anno', 'genes.tsv')
     singularity:
         'docker://' + config['docker']['default']
     shell:
@@ -97,16 +100,17 @@ rule mirbase_mirna_str:
     params:
         url = URLS['mirna_str'],
         mirbase_org = MIR_ORG[ORG],
+        proxy = config.get('proxy', {}).get('wget', ''),
         date = datetime.now().strftime("%d-%m-%Y")
     output:
-        fasta = join(MIRBASE_EXT, 'genes', 'miRNA.str')
+        fasta = join(MIRBASE_EXT, 'anno', 'miRNA.str')
     log:
         join(MIRBASE_EXT, 'logs', 'mature.log')
     singularity:
         'docker://' + config['docker']['default']
     shell:
         """
-        wget {params.url} -O- | gunzip -c > {output}
+        wget {params.proxy} {params.url} -O- | gunzip -c > {output}
         echo "Mirbase mirna_str,{MIRBASE_RELEASE},{params.url},{params.date}" > {log}
         """
 
@@ -125,7 +129,7 @@ rule mirbase_db_all:
     input:
         join(MIRBASE_EXT, 'fasta', 'hairpin.fa'),
         join(MIRBASE_EXT, 'fasta', 'mature.fa'),
-        join(MIRBASE_EXT, 'genes', 'genes.gff3'),
-        join(MIRBASE_EXT, 'genes', 'miRNA.str'),
+        join(MIRBASE_EXT, 'anno', 'genes.gff3'),
+        join(MIRBASE_EXT, 'anno', 'miRNA.str'),
         join(MIRBASE_EXT, 'seqbuster')
                 

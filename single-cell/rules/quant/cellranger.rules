@@ -29,9 +29,9 @@ def input_fastq_path(wildcards, input):
 
 rule cellranger_gtf:
     input:
-        gtf = join(REF_DIR, 'genes', 'genes.gtf')
+        gtf = join(REF_DIR, 'anno', 'genes.gtf')
     output:
-        gtf = join(REF_DIR, 'genes', 'genes.gtf.filtered')
+        gtf = join(REF_DIR, 'anno', 'genes.gtf.filtered')
     params:
         ' '.join('--attribute=gene_biotype:{}'.format(bt) for bt in CR_CONF['mkgtf']['gene_biotype'])
     singularity:
@@ -42,14 +42,14 @@ rule cellranger_gtf:
 rule cellranger_mkref:
     input:
          fasta = join(REF_DIR, 'fasta', 'genome.fa'),
-         gtf = join(REF_DIR, 'genes', 'genes.gtf')
+         gtf = join(REF_DIR, 'anno', 'genes.gtf')
     params:
         out_name = config['db']['10xgenomics']['assembly'],
         out_dir = join(REF_DIR, 'cellranger')
     output:
         join(CR_REF_DIR, 'reference.json'),
         join(CR_REF_DIR, 'fasta', 'genome.fa'),
-        join(CR_REF_DIR, 'genes', 'genes.gtf.gz')
+        join(CR_REF_DIR, 'anno', 'genes.gtf.gz')
     threads:
         48
     singularity:
@@ -65,9 +65,9 @@ rule cellranger_mkref:
 
 rule cellranger_unzip_gtf:
     input:
-        join(CR_REF_DIR, 'genes', 'genes.gtf.gz')
+        join(CR_REF_DIR, 'anno', 'genes.gtf.gz')
     output:
-        join(CR_REF_DIR, 'genes', 'genes.gtf')
+        join(CR_REF_DIR, 'anno', 'genes.gtf')
     shell:
         'gunzip {input} {output}'
  

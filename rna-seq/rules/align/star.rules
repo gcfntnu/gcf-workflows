@@ -42,7 +42,7 @@ rule star_align:
     input:
         unpack(get_processed_fastq),
         genome = join(star_genome_dir(), 'SA'),
-        gtf = join(REF_DIR, 'genes', 'genes.gtf')
+        gtf = join(REF_DIR, 'anno', 'genes.gtf')
     params:
         fastq = star_input_params,
         prefix = lambda wildcards, output: output.bam.split('Aligned.sortedByCoord.out.bam')[0],

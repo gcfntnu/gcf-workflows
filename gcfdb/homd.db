@@ -19,7 +19,8 @@ rule homdb_db:
         aligned = join(URL, 'V{release}', 'HOMD_16S_rRNA_RefSeq_V{release}.aligned.fasta'),
         fasta = join(URL, 'V{release}', 'HOMD_16S_rRNA_RefSeq_V{release}.fasta'),
         taxa = join(URL, 'V{release}', 'HOMD_16S_rRNA_RefSeq_V{release}.qiime.taxonomy'),
-        tree = join(URL, 'V{release}', 'HOMD_16S_rRNA_RefSeq_V{release}.reroot.order.tre')
+        tree = join(URL, 'V{release}', 'HOMD_16S_rRNA_RefSeq_V{release}.reroot.order.tre'),
+        proxy = config.get('proxy', {}).get('wget', '')
     output:
         aligned = join(EXT_DIR, 'homdb', '{release}', 'fasta', 'aligned.fa'),
         fasta = join(EXT_DIR, 'homdb', '{release}', 'fasta', 'repseq.fa'),
@@ -27,10 +28,10 @@ rule homdb_db:
         tree = join(EXT_DIR, 'homdb', '{release}', 'anno', 'tree.tre')
     shell:
         """
-        wget {params.aligned} -O {output.aligned}
-        wget {params.fasta} -O {output.fasta}
-        wget {params.taxa} -O {output.taxa}
-        wget {params.tree} -O {output.tree}
+        wget {params.proxy} {params.aligned} -O {output.aligned}
+        wget {params.proxy} {params.fasta} -O {output.fasta}
+        wget {params.proxy} {params.taxa} -O {output.taxa}
+        wget {params.proxy} {params.tree} -O {output.tree}
         """
 
 rule homdb_seq_import:

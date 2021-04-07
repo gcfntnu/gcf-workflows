@@ -24,6 +24,7 @@ URLS = {'rtr': 'http://www.regulatoryrna.org/database/piRNA/download/archive/v{}
 rule pirbase_fasta:
     params:
         url = URLS['rtr'].format(PB_VERSION, MAP_ORG[ORG]),
+        proxy = config.get('proxy', {}).get('wget', ''),
         date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(EXT_DIR, 'pirbase', ORG, 'fasta', 'pirna.fa')
@@ -31,13 +32,14 @@ rule pirbase_fasta:
         join(EXT_DIR, 'pirbase', ORG, 'logs', 'pirbase.log')
     shell:
         """
-        wget -O- {params.url} | gunzip -c > {output}
+        wget {params.proxy} -O- {params.url} | gunzip -c > {output}
         echo "piRBase,{PB_VERSION},{params.url},{params.date}" > {log}
         """
 
 rule pirnadb_fasta:
     params:
         url = URLS['pirnadb'].format(MAP_ORG[ORG], PDB_VERSION),
+        proxy = config.get('proxy', {}).get('wget', ''),
         date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(EXT_DIR, 'pirnadb', ORG, 'fasta', 'pirna.fa')
@@ -45,7 +47,7 @@ rule pirnadb_fasta:
         join(EXT_DIR, 'pirnadb', ORG, 'logs', 'pirnadb.log')
     shell:
         """
-        wget -O- {params.url} | gunzip -c > {output}
+        wget {params.proxy} -O- {params.url} | gunzip -c > {output}
         echo "piRNAdb,{PDB_VERSION},{params.url},{params.date}" > {log}
         """
         
