@@ -86,15 +86,14 @@ rule convert_gtf2refflat:
         join('{ref_dir}', 'anno', 'genes.gtf')
     output:
          join('{ref_dir}', 'anno', 'genes.refflat.gz')
-    params:
-        tmpfile = join(TMPDIR, 'refflat.tmp')
     singularity:
         'docker://' + config['docker']['ucsc-scripts']
+    shadow:
+        'minimal'
     shell:
         """
-        gtfToGenePred -genePredExt -geneNameAsName2 {input} {params}
-        paste <(cut -f 12 {params}) <(cut -f 1-10 {params}) > refFlat.txt
-        rm {params.tmpfile}
+        gtfToGenePred -genePredExt -geneNameAsName2 {input} dummy.txt
+        paste <(cut -f 12 dummy.txt) <(cut -f 1-10 dummy.txt) > refFlat.txt
         gzip refFlat.txt
         mv refFlat.txt.gz {output}
         """

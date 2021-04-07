@@ -4,6 +4,8 @@
 Mostly copied from https://github.com/eclarke/refseq_dl
 
 """
+import urllib.request as request
+from contextlib import closing
 
 import re
 import csv
@@ -14,7 +16,88 @@ RELEASE = config['db'].get('refseq', {}).get('release', '50')
 ORG = config['organism'].lower().replace(' ', '_')
 STRAIN = config.get('strain')
 
+no_alt = {'url': 'https://ftp.ncbi.nlm.nih.gov/genomes/refseq/vertebrate_mammalian/Homo_sapiens/all_assembly_versions/GCF_000001405.39_GRCh38.p13/GRCh38_major_release_seqs_for_alignment_pipelines/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.gz', 'name': 'no_alt'}
+SPECIALS= {'homo_sapiens': {}}
+SPECIALS['homo_sapiens']['no_alt'] = no_alt
+
+
 REFSEQ_DIR = join(EXT_DIR, 'refseq', 'release-{}'.format(RELEASE), ORG)
+
+
+def _get_current_refseq():
+    """Get current release number for refseq.
+    """
+    url = 'ftp.ncbi.nlm.nih.gov/refseq/release/RELEASE_NUMBER'
+    protocol = 'https://'
+    proxies = config.get('proxy', {}).get('server')
+    if proxies:
+        proxy_support = request.ProxyHandler(proxies)
+        request.install_opener(request.build_opener(proxy_support))
+        
+    with closing(request.urlopen(protocol + url)) as response:
+        try:
+            out = response.read()
+            release = int(re.findall(b"\d+", out)[0])
+        except: 
+            raise ValueError("release parse error or protocol error")
+    return str(release)
+
+if DB_CONF.get('release') is None or DB_CONF.get('release') == '':
+    DB_CONF['release'] = _get_current_refseq()
+    config['db']['refseq'] = DB_CONF
+
+
+def _init_refseq_from_organism():
+    """Parse species annotations by given organsim and release number.
+
+    This function set default configuration values for the refseq block.
+    """
+    url = 'ftp.ncbi.nlm.nih.gov/genomes/refseq/assembly_summary_refseq.txt'
+    protocol = 'https://'
+    proxies = config.get('proxy', {}).get('server')
+    if proxies:
+        proxy_support = request.ProxyHandler(proxies)
+        request.install_opener(request.build_opener(proxy_support))
+    with closing(request.urlopen(protocol + url)) as response:
+        out = response.read()
+    try:
+        tab = out.decode('utf-8').splitlines()
+    except:
+        raise ValueError('failed to parse url')
+    sp = _parse_species_txt(tab)
+    
+    for k, sp_k in [('assembly', 'assembly'), ('taxid', 'taxonomy_id'), ('acc_id', 'assembly_accession'), ('organism_name', '#name')]:
+        if k not in DB_CONF:
+            DB_CONF[k] = sp[sp_k]
+
+    
+def _init_refseq_from_organism():
+    """Update config dictionary with default values if not provided.
+    """
+    url = 'https://ftp.ncbi.nlm.nih.gov/genomes/refseq/assembly_summary_refseq.txt'
+    df = pd.read_csv(url, sep='\t', skiprows=1)
+    df['organism'] = df.organism_name.str.replace(' ', '_').str.lower()
+    df_org = df.loc[df.organism==config['organism'],]
+    n_hits = df_org.shape[0]
+    if n_hits == 0:
+        raise ValueError('failed to identify organism in refseq!')
+    elif n_hits == 1:
+        if df_org.refseq_category.values[0] == "reference genome":
+            pass
+        else:
+            print("Found one assembly but it is not a reference genome")
+    else:
+        print("found multiple assemblies")
+    return df_sub.to_dict(orient='index')
+
+if DB_CONF.get('assembly') is None or DB_CONF.get('assembly') == '':
+    sp = _init_refseq_from_organism()
+    
+    DB_CONF['assembly'] = sp['asm_name']
+    DB_CONF['taxid'] = sp.get('taxonomy_id')
+    DB_CONF['acc_id'] = sp.get('assembly_accession')
+    DB_CONF['organism_name'] = sp['#name']
+    config['db']['ensembl'] = DB_CONF
 
 
 def convert_to_genome_path(ftp_path):
@@ -62,7 +145,7 @@ rule refseq_genome_urls:
                         if org == ORG and row['assembly_level'] == 'Complete Genome' :
                             writer.writerow({'org': org, 'asm_name': row['asm_name'], 'url':genome_url})
 
-rule refseq_download_genome:
+rule refseq_download_genome_assemblies:
     input:
         join(REFSEQ_DIR, 'genome_urls.txt')
     output:
@@ -78,3 +161,5 @@ rule refseq_download_genome:
             shell(cmd)
         shell('zcat *.fna.gz > {output}')
 
+rule refseq_download_reference_genome:
+    

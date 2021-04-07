@@ -2,9 +2,11 @@
 """ENSEMBL reference genomes
 
 """
+
 import urllib.request as request
 from contextlib import closing
 
+DB_CONF = config['db'].get('ensembl', {})
 
 def _get_current_ensembl():
     """Get current release number for Ensembl by parsing top-level current_README.
@@ -15,6 +17,7 @@ def _get_current_ensembl():
     if proxies:
         proxy_support = request.ProxyHandler(proxies)
         request.install_opener(request.build_opener(proxy_support))
+        
     with closing(request.urlopen(protocol + url)) as response:
         try:
             out = response.read()
@@ -29,6 +32,8 @@ if DB_CONF.get('release') is None or DB_CONF.get('release') == '':
 
 
 def _parse_species_txt(tab, sep='\t'):
+    """parse the content of species_EnsemblVertebrates.txt. Check for organism.
+    """
     SP = {}
     header = tab.pop(0).split(sep)
     for line in tab:
@@ -41,11 +46,25 @@ def _parse_species_txt(tab, sep='\t'):
             #fixme?
             row['assembly'] = row['assembly'].split('.')[0]
         SP[species] = row
-    return SP
+    if not config['organism'] in SP:
+        msg = 'Organism from config: `{}` not found in Ensembl.'.format(config['organism'])
+        similar = []
+        for species in SP.keys():
+            genus = config['organism'].split('_')[0].lower()
+            if species.lower().startswith(genus):
+                similar.append(species)
+        if len(similar) > 0:
+            msg += ' Close hits: '
+            msg += ', ',join(similar)
+        raise ValueError(msg)
+    else:
+        return SP[config['organism']]
 
 
 def _init_ensembl_from_organism():
-    """Parse species annotations by given organsim and release number
+    """Parse species annotations by given organsim and release number.
+
+    This function set default configuration values for the ensembl block.
     """
     url = 'ftp.ensembl.org/pub/release-{}/species_EnsemblVertebrates.txt'.format(str(config['db']['ensembl']['release']))
     protocol = 'http://'
@@ -59,16 +78,13 @@ def _init_ensembl_from_organism():
         tab = out.decode('utf-8').splitlines()
     except:
         raise ValueError('failed to parse url')
-    SP = _parse_species_txt(tab)
-    return SP.get(config['organism'])
+    sp = _parse_species_txt(tab)
+    
+    for k, sp_k in [('assembly', 'assembly'), ('taxid', 'taxonomy_id'), ('acc_id', 'assembly_accession'), ('organism_name', '#name')]:
+        if k not in DB_CONF:
+            DB_CONF[k] = sp[sp_k]
 
-if DB_CONF.get('assembly') is None or DB_CONF.get('assembly') == '':
-    sp = _init_ensembl_from_organism()
-    DB_CONF['assembly'] = sp['assembly']
-    DB_CONF['taxid'] = sp.get('taxonomy_id')
-    DB_CONF['acc_id'] = sp.get('assembly_accession')
-    DB_CONF['organism_name'] = sp['#name']
-    config['db']['ensembl'] = DB_CONF
+_init_ensembl_from_organism()
 
 
 rule init_ensembl_species:
@@ -104,7 +120,13 @@ def get_ensembl_ftp(wildcards, input, sub='genome'):
         for line in txt:
             els = line.split('\t')
             row = dict(zip(header, els))
+            if row['species'] in ['homo_sapiens', 'mus_musculus']:
+                row['assembly'] = row['assembly'].split('.')[0]
             if row['species'] == wildcards.organism:
+                if row['assembly'] != wildcards.assembly:
+                    msg = '{} assembly is not supported for this version ({}) of Ensembl. Assembly supported: {}'
+                    msg = msg.format(wildcards.assembly, wildcards.release, row['assembly'])
+                    raise ValueError(msg)
                 return row['ftp_{}'.format(sub)]
     
 rule ensembl_genome:
@@ -112,7 +134,7 @@ rule ensembl_genome:
         lambda wildcards: checkpoints.build_ftp_table.get(**wildcards).output[0]
     params:
         date = datetime.now().strftime("%d-%m-%Y"),
-        release = DB_CONF['release'],
+        release = config['db']['ensembl']['release'],
         proxy = config.get('proxy', {}).get('wget', ''),
         url = lambda wildcards, input: get_ensembl_ftp(wildcards, input, 'genome')
     output:
@@ -146,7 +168,6 @@ rule ensembl_noncoding:
         wget {params.proxy} -O- {params.url} | gunzip -c > {output}
         echo 'Ensembl DNA,release-{params.release},{params.url},{params.date}' > {log}
         """
-
 
 rule ensembl_gff:
     input:

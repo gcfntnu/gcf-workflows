@@ -60,7 +60,7 @@ if __name__ == '__main__':
         # genome
         FASTA_DIR = DIR.format(args.release, 'fasta', args.organism)
         ASSEMBLY = row.assembly
-        if row.species == 'homo_sapiens':
+        if row.species in ['homo_sapiens', 'mus_musculus']:
             ASSEMBLY = ASSEMBLY.split('.')[0]
         primary_fn = '.'.join([args.organism.capitalize(), ASSEMBLY, 'dna', 'primary_assembly', 'fa', 'gz'])
         genome_ftp = PROTOCOL + os.path.join(ENSEMBL_SERVER, FASTA_DIR, 'dna', primary_fn)
