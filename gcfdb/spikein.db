@@ -3,8 +3,7 @@ include:
   'ercc.db'
 include:
   'smallrna_calibrators.db'
-include:
-    'indexes.rules'
+
 
 FILTER_CONF = config.get('filter')
 if FILTER_CONF is None:
@@ -29,7 +28,6 @@ rule spikein_merged_fasta:
         cat {input} > {output}
         cat {params} > {log}
         """
-        
 
 rule spikein_db_all:
     input:

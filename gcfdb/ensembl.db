@@ -208,4 +208,3 @@ rule ensembl_gtf:
         wget {params.proxy} -O- {params.url} | gunzip -c > {output}
         echo 'Ensembl GTF,release-{params.release},{params.url},{params.date}' > {log}
         """ 
-

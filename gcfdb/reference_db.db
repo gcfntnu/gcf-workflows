@@ -70,5 +70,4 @@ rule reference_transcriptome:
     shell:
         'gffread -w {output} -g {input.genome} {input.gtf}'
         
-print("----------")
-print(REF_DIR)
+
