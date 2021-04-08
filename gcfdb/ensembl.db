@@ -65,6 +65,7 @@ def _init_ensembl_from_organism():
     """Parse species annotations by given organsim and release number.
 
     This function set default configuration values for the ensembl block.
+    Main task is to set the assembly name from org and release.
     """
     url = 'ftp.ensembl.org/pub/release-{}/species_EnsemblVertebrates.txt'.format(str(config['db']['ensembl']['release']))
     protocol = 'http://'
