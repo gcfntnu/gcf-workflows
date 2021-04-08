@@ -13,7 +13,7 @@ if not '10xgenomics' in REF_DIR:
     CR_REF_DIR = join(REF_DIR, 'cellranger')
 else:
     CR_REF_DIR = REF_DIR
-    ruleorder: txgenomics_org_prebuild > cellranger_unzip_gtf
+    ruleorder: txgenomics_org_prebuild > cellranger_symlink_gtf
 
     
 def input_fastq_path(wildcards, input):
@@ -49,7 +49,7 @@ rule cellranger_mkref:
     output:
         join(CR_REF_DIR, 'reference.json'),
         join(CR_REF_DIR, 'fasta', 'genome.fa'),
-        join(CR_REF_DIR, 'anno', 'genes.gtf.gz')
+        join(CR_REF_DIR, 'genes', 'genes.gtf.gz')
     threads:
         48
     singularity:
@@ -63,9 +63,9 @@ rule cellranger_mkref:
         '&& cp -r {params.out_name}/* {params.out_dir}/ '
         '&& rm -rf {params.out_name} '
 
-rule cellranger_unzip_gtf:
+rule cellranger_symlink_gtf:
     input:
-        join(CR_REF_DIR, 'anno', 'genes.gtf.gz')
+        join(CR_REF_DIR, 'genes', 'genes.gtf.gz')
     output:
         join(CR_REF_DIR, 'anno', 'genes.gtf')
     shell:
