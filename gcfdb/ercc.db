@@ -9,15 +9,16 @@ ERCC_DIR = join(EXT_DIR, 'spikein')
 rule ercc_files:
     params:
         url = 'https://tools.thermofisher.com/content/sfs/manuals/ERCC92.zip',
-        date = datetime.now().strftime("%d-%m-%Y")
+        date = datetime.now().strftime("%d-%m-%Y"),
+        proxy = config.get('proxy', {}).get('wget', '')
     output:
-        ercc_gtf = temp(join(ERCC_DIR, 'genes', '_ERCC92.gtf')),
+        ercc_gtf = temp(join(ERCC_DIR, 'anno', '_ERCC92.gtf')),
         ercc_fasta = join(ERCC_DIR, 'fasta', 'ERCC92.fa')
     log:
        join(ERCC_DIR, 'logs', 'ERCC92.log') 
     shell:
         """
-        wget {params.url}
+        wget {params.proxy} {params.url}
         unzip ERCC92.zip
         mv ERCC92.gtf {output.ercc_gtf}
         mv ERCC92.fa {output.ercc_fasta}
@@ -29,7 +30,7 @@ rule ercc_gtf:
     input:
         rules.ercc_files.output.ercc_gtf
     output:
-        join(ERCC_DIR, 'genes', 'ERCC92.gtf')
+        join(ERCC_DIR, 'anno', 'ERCC92.gtf')
     params:
         script = srcdir('scripts/fix_ercc_gtf.py')
     shell:
@@ -39,7 +40,7 @@ rule ercc_gtf_gene:
     input:
         rules.ercc_files.output.ercc_gtf
     output:
-        join(ERCC_DIR, 'genes', 'ERCC92.gene.gtf')
+        join(ERCC_DIR, 'anno', 'ERCC92.gene.gtf')
     params:
         script = srcdir('scripts/fix_ercc_gtf.py')
     shell:
@@ -49,22 +50,23 @@ rule ercc_gtf_gene:
 rule ercc_annotations:
     params:
         url = 'http://tools.thermofisher.com/content/sfs/manuals/cms_095046.txt',
-        date = datetime.now().strftime("%d-%m-%Y")
+        date = datetime.now().strftime("%d-%m-%Y"),
+        proxy = config.get('proxy', {}).get('wget', '')
     output:
-        join(ERCC_DIR, 'genes', 'ERCC92.anno')
+        join(ERCC_DIR, 'anno', 'ERCC92.anno')
     log:
         join(ERCC_DIR, 'logs', 'ERCC_anno.log') 
     shell:
         """
-        wget -O - {params.url} > {output}
+        wget {params.proxy} -O - {params.url} > {output}
         echo "ERCC annotations,NA,{params.url},{params.date}" > {log}
         """
         
 rule ercc_db_all:
     input:
         join(ERCC_DIR, 'fasta', 'ERCC92.fa'),
-        join(ERCC_DIR, 'genes', 'ERCC92.gtf'),
-        join(ERCC_DIR, 'genes', 'ERCC92.gene.gtf'),
-        join(ERCC_DIR, 'genes', 'ERCC92.anno'),
+        join(ERCC_DIR, 'anno', 'ERCC92.gtf'),
+        join(ERCC_DIR, 'anno', 'ERCC92.gene.gtf'),
+        join(ERCC_DIR, 'anno', 'ERCC92.anno'),
         join(ERCC_DIR, 'index', 'ERCC92', 'bowtie', 'ERCC92.1.ebwt'),
         join(ERCC_DIR, 'index', 'ERCC92', 'bowtie2', 'ERCC92.1.bt2')

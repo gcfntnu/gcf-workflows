@@ -13,7 +13,7 @@ def starsolo_R2(wildcards):
 rule starsolo_genome_index:
     input: 
         genome = join(REF_DIR, 'fasta', 'genome.fa'),
-        gtf = join(REF_DIR, 'genes', 'genes.gtf')
+        gtf = join(REF_DIR, 'anno', 'genes.gtf')
     output:
         join(REF_DIR, 'starsolo', 'SA')
     params:
@@ -51,6 +51,7 @@ rule starsolo_convert_umitools_whitelist:
         
 
 READ_LENGTH = config.get('read_geometry', [28, 98])[-1]
+
 if config['db']['reference_db'] == '10xgenomics':
     # rebuild genome to match current star version
     REF_GENOME = join(REF_DIR, 'index', 'genome', 'starsolo', 'r_{}'.format(READ_LENGTH), 'SA')
@@ -60,7 +61,7 @@ else:
 if config['libprepkit'].startswith('10x'):
     WHITELIST = join(EXT_DIR, config['quant']['starsolo']['whitelist'])
 else:
-    WHITELIST = join(STAR_INTERIM, '{sample}','whitelist.txt')
+    WHITELIST = join(EXT_DIR, '10xgenomics', config['quant']['starsolo']['whitelist'])
 
 rule starsolo_quant:
     input:
@@ -190,4 +191,32 @@ rule scanpy_barcodes:
         join(QUANT_INTERIM, '{anything}.h5ad')
     output:
         join(QUANT_INTERIM, '{anything}.h5ad.barcodes')
-        
+
+
+rule scanpy_pp_ipynb:
+    input:
+        rules.scanpy_aggr_starsolo.output
+    output:
+        join(QUANT_INTERIM, 'aggregate', 'star', 'notebooks', 'all_samples_pp.txt')
+    log:
+        notebook = join(QUANT_INTERIM, 'aggregate', 'star', 'notebooks', 'all_samples_pp.ipynb')
+    threads:
+        24
+    singularity:
+        'docker://' + config['docker']['jupyter-scanpy']
+    notebook:
+        'scripts/single_cell_pp.py.ipynb'
+
+
+rule scanpy_pp_ipynb_html:
+    input:
+        rules.scanpy_pp_ipynb.log
+    output:
+        join(QUANT_INTERIM, 'aggregate', 'star', 'notebooks', 'all_samples_pp.html')
+    singularity:
+        'docker://' + config['docker']['jupyter-scanpy']
+    threads:
+        1
+    shell:
+        'jupyter nbconvert --to html {input} '
+

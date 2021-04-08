@@ -66,8 +66,8 @@ def sample_args(wildcards):
 rule salmon_map:
     input:
         unpack(get_processed_fastq),
-        index = join(REF_DIR, 'index', 'gentrome', 'salmon', 'info.json'),
-        gtf = join(REF_DIR, 'genes', 'genes.gtf')
+        index = join(REF_DIR, 'index', 'transcriptome', 'salmon', 'info.json'),
+        gtf = join(REF_DIR, 'anno', 'genes.gtf')
     params:
         output = join(SALMON_INTERIM, '{sample}'),
         nboot = 30,
@@ -131,7 +131,7 @@ rule salmon_unmapped_fastq:
 rule salmon_tximport:
     input:
         files = expand(join(SALMON_INTERIM, '{sample}', 'quant.sf'), sample=SAMPLES),
-        txinfo = join(REF_DIR, 'genes', 'transcripts.tsv')
+        txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
         script = srcdir('scripts/tximport.R')
     singularity:

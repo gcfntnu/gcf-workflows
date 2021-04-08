@@ -10,54 +10,56 @@ https://lncipedia.org/downloads/lncipedia_5_2/lncipedia_5_2_ensembl_92_genes.txt
 """
 
 
-RELEASE = config['db']['lincipedia']['release']
-try:
-    number = float(RELEASE)
-    maj, min = str(number).split('.')
-    RELEASE = '{}_{}'.format(maj, min)
-except:
-    pass
+def lncipedia_input(wildcards):
+    try:
+        number = float(wildcards.release)
+        maj, min = str(number).split('.')
+        release = '{}_{}'.format(maj, min)
+    except:
+        release = wildcards.release
+    assembly = 'hg38' if wildcards.assembly == 'GRCh38' else 'hg37'
+        
+    url = 'https://lncipedia.org/downloads/lncipedia_{}'.format(release)
+    fasta = join(url, 'high-confidence-set/lncipedia_{}_hc.fasta'.format(release))
+    gtf = join(url, 'full-database', 'lncipedia_{}_{}.gtf'.format(release, assembly))
+    return {'fasta': fasta, 'gtf': gtf, 'release': release, 'assembly': assembly}
 
-URL = 'https://lncipedia.org/downloads/lincipedia_{}'.format(RELEASE)
-LNC_FASTA = join(URL, 'high-confidence-set/lncipedia_{}_hc.fasta'.format(RELEASE))
-
-ASSEMBLY = 'hg38' if config['db']['assembly'] == 'GRCh38' else 'hg37'
-
-LNC_GTF = join(URL, 'full-database', 'lncipedia_{}_{}.gtf'.format(RELEASE, ASSEMBLY))
-
-
-rule lincipedia_noncoding_hc:
-    input:
-        HTTP.remote(LNC_FASTA)
-    params: 
+rule lncipedia_noncoding_hc:
+    params:
+        unpack(lncipedia_input),
+        proxy = config.get('proxy', {}).get('wget', ''),
         date = datetime.now().strftime("%d-%m-%Y")
     output:
-        join(OUTDIR, 'fasta', os.path.basename(LNC_FASTA))
+        join(EXT_DIR, 'lncipedia', '{release}', 'homo_sapiens', '{asssembly}', 'fasta', 'high-confidence-set_lncipedia_{release}_hc.fasta')
     threads:
         4
     log:
-        join(OUTDIR, 'logs', 'lincipedia.noncoding.log')
+        join(EXT_DIR, 'lncipedia', '{release}', 'homo_sapiens', '{asssembly}', 'logs', 'lncipedia.noncoding.log')
     shell: 
         """
-        cat {input} > {output}
-        echo 'LNCipedia High confidence,{LNC_RELEASE},{LNC_FASTA},{params.date}' > {log}
+        wget {params.proxy} -O- {params.fasta} > {output}
+        echo 'LNCipedia High confidence,{params.release},{params.fasta},{params.date}' > {log}
         """
 
-rule lincipedia_gtf:
-    input:
-        HTTP.remote(LNC_GTF)
+rule lncipedia_gtf:
+    params:
+        unpack(lncipedia_input),
+        proxy = config.get('proxy', {}).get('wget', ''),
+        date = datetime.now().strftime("%d-%m-%Y")
     output:
-        join(OUTDIR, 'genes', os.path.basename(LNC_GTF))
+        join(EXT_DIR, 'lncipedia', '{release}', 'homo_sapiens', '{asssembly}', 'anno', 'lncipedia_{release}_{assembly}.gtf')
     threads:
         4
     log:
-        join(OUTDIR, 'logs', 'lincipedia.gtf.log')
+        join(OUTDIR, 'logs', 'lncipedia.gtf.log')
     shell:
         """
-        cat {input} > {output}
-        echo 'LNCipedia GTF,{LNC_RELEASE},{LNC_GTF},{params.date}' > {log}
+        wget {params.proxy} -O- {params.gtf} > {output}
+        echo 'LNCipedia GTF,{params.release},{params.gtf},{params.date}' > {log}
         """
 
 
-rule lincipedia_db_all:
-    
+rule lncipedia_db_all:
+    input:
+        join(EXT_DIR, 'lncipedia', config['db']['lncipedia']['release'], 'homo_sapiens', 'GRCh38', 'fasta', 'high-confidence-set_lncipedia_{}_hc.fasta'.format(config['db']['lncipedia']['release'])),
+        join(EXT_DIR, 'lncipedia', config['db']['lncipedia']['release'], 'homo_sapiens', 'GRCh38', 'anno', 'lncipedia_{release}_GRCh38.gtf'.format(config['db']['lncipedia']['release']))

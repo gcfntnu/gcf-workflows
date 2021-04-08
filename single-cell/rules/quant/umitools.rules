@@ -75,7 +75,7 @@ rule umitools_align_star:
 rule umitools_assign_genes:
     input:
         bam = join(UMI_INTERIM, '{sample}', '{sample}.Aligned.sortedByCoord.out.bam'),
-        gtf = join(REF_DIR, 'genes', 'genes.gtf')
+        gtf = join(REF_DIR, 'anno', 'genes.gtf')
     singularity:
         'docker://' + config['docker']['subread']
     output:

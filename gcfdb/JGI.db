@@ -14,6 +14,7 @@ Those are common contaminant microbes that we encounter in sequencing. For Eukar
 rule jgi_bacterial_eukaryot:
     params:
         url = 'http://portal.nersc.gov/dna/microbial/assembly/bushnell/fusedEPmasked2.fa.gz',
+        proxy = config.get('proxy', {}).get('wget', ''),
         date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(EXT_DIR, 'JGI', 'fasta', 'fusedEPmasked2.fa')
@@ -21,13 +22,14 @@ rule jgi_bacterial_eukaryot:
        join(EXT_DIR, 'JGI', 'logs', 'fusedEPmasked2.log') 
     shell:
         """
-        wget -O- {params.url}  | gunzip -c | sed 's/ /_/g' > {output}
+        wget {params.proxy} -O- {params.url}  | gunzip -c | sed 's/ /_/g' > {output}
         echo "Masked bacterial genomes,NA,{params.url},{params.date}" > {log}
         """
 
 rule jgi_bacterial_prokaryot:
     params:
         url = 'http://portal.nersc.gov/dna/microbial/assembly/bushnell/fusedERPBBmasked2.fa.gz',
+        proxy = config.get('proxy', {}).get('wget', ''),
         date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(EXT_DIR, 'JGI', 'fasta', 'fusedERPBBmasked2.fa.gz')
@@ -35,13 +37,14 @@ rule jgi_bacterial_prokaryot:
        join(EXT_DIR, 'JGI', 'logs', 'fusedERPBBmasked2.log') 
     shell:
         """
-        wget -O- {params.url}  | gunzip -c | sed 's/ /_/g' > {output}
+        wget {params.proxy} -O- {params.url}  | gunzip -c | sed 's/ /_/g' > {output}
         echo "Masked bacterial genomes,NA,{params.url},{params.date}" > {log}
         """
 
 rule jgi_ribokmers:
     params:
         url = 'http://portal.nersc.gov/dna/microbial/assembly/bushnell/riboKmers.fa.gz',
+        proxy = config.get('proxy', {}).get('wget', ''),
         date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(EXT_DIR, 'JGI', 'fasta', 'ribokmers.fa.gz')
@@ -49,7 +52,7 @@ rule jgi_ribokmers:
        join(EXT_DIR, 'JGI', 'logs', 'ribokmers.log')     
     shell:
         """
-        wget {params.url} -O- > {output}
+        wget {params.proxy} {params.url} -O- > {output}
         echo "RiboKmers,NA,{params.url},{params.date}" > {log}
         """
     

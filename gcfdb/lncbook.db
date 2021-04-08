@@ -144,14 +144,15 @@ LNCB_GTF = join(URL, '1-LncRNAs(GRCh37%7C38)/', 'lncRNA_LncBook_{}_{}.gtf.gz'.fo
 rule lncbook_gencode_gtf:
     params:
         url = LNCB_GTF,
-        date = datetime.now().strftime("%d-%m-%Y")
+        date = datetime.now().strftime("%d-%m-%Y"),
+        proxy = config.get('proxy', {}).get('wget', '')
     output:
-        join(EXT_DIR, 'lncbook', 'genes', 'lncbook.gtf')
+        join(EXT_DIR, 'lncbook', 'anno', 'lncbook.gtf')
     log:
         join(EXT_DIR, 'lncbook', 'logs', 'gtf.log')
     shell:
         """
-        wget -O- '{params.url}' | gunzip -c > {output}
+        wget {params.proxy} -O- '{params.url}' | gunzip -c > {output}
         echo 'LNCbook GTF,{LNCB_RELEASE},{LNCB_GTF},{params.date}' > {log}
         """
 

@@ -6,7 +6,7 @@
 rule star_genome_index_gtf:
     input: 
         genome = join('{ref_dir}', 'fasta', '{prefix}.fa'),
-        gtf = join('{ref_dir}', 'genes', 'genes.gtf')
+        gtf = join('{ref_dir}', 'anno', 'genes.gtf')
     output:
         index = join('{ref_dir}', 'index', '{prefix}', 'star', 'r_{sjdbOverhang}', 'SA')
     params:
@@ -67,9 +67,9 @@ rule hisat2_genome_index:
 
 rule hisat2_splicesites:
     input:
-        gtf = join('{ref_dir}', 'genes', 'genes.gtf')
+        gtf = join('{ref_dir}', 'anno', 'genes.gtf')
     output:
-        join('{ref_dir}', 'genes', 'splicesites.txt')
+        join('{ref_dir}', 'anno', 'splicesites.txt')
     singularity:
        'docker://' + config['docker']['hisat2'] 
     shell:

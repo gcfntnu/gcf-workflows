@@ -26,7 +26,7 @@ def featurecounts_paired_end(wildcards):
 rule featurecounts:
     input:
         bam = get_namesorted_bam,
-        gtf = join(REF_DIR, 'genes', 'genes.gtf')
+        gtf = join(REF_DIR, 'anno', 'genes.gtf')
     params:
         strand = featurecounts_strand,
         paired_end = featurecounts_paired_end
@@ -49,7 +49,7 @@ rule featurecounts:
 rule featurecounts_quant:
     input:
         counts = expand(rules.featurecounts.output.counts, sample=SAMPLES),
-        gene_info = join(REF_DIR, 'genes', 'genes.tsv')
+        gene_info = join(REF_DIR, 'anno', 'genes.tsv')
     params:
         output = join(FC_INTERIM, 'featurecounts'),
         script = srcdir('scripts/gene_quant.R')

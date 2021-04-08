@@ -37,7 +37,7 @@ rule hisat2_align:
     input:
         unpack(get_processed_fastq),
         index = join(REF_DIR, 'index', 'genome', 'hisat2', 'genome' + '.1.ht2'),
-        splices = join(REF_DIR, 'genes', 'splicesites.txt'),
+        splices = join(REF_DIR, 'anno', 'splicesites.txt'),
         db_log = join(REF_DIR, 'logs', 'ensembl.dna.log')
     params:
         input = hisat2_input,

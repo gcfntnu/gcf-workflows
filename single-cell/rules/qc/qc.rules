@@ -4,7 +4,7 @@ CR_PICARD_QCDIR = join(QUANT_INTERIM, 'cellranger', 'qc', 'picard')
 
 rule create_ribo_bed:
     input:
-        gtf = join(REF_DIR, 'genes', 'genes.gtf')
+        gtf = join(REF_DIR, 'anno', 'genes.gtf')
     output:
         temp('rrna.bed')
     singularity:
@@ -34,7 +34,7 @@ rule create_ribo_intervals:
 rule picard_rnametrics_star:
     input:
         bam = rules.starsolo_bam.output,
-        ref_flat = join(REF_DIR, 'genes', 'genes.refflat.gz'),
+        ref_flat = join(REF_DIR, 'anno', 'genes.refflat.gz'),
         rrna = rules.create_ribo_intervals.output
     output:
         metrics = join(STAR_PICARD_QCDIR, '{sample}.rnaseq.metrics')
@@ -56,7 +56,7 @@ rule picard_rnametrics_star:
 rule picard_rnametrics_cellranger:
     input:
         bam = rules.cellranger_bam.output,
-        ref_flat = join(REF_DIR, 'genes', 'genes.refflat.gz'),
+        ref_flat = join(REF_DIR, 'anno', 'genes.refflat.gz'),
         rrna = rules.create_ribo_intervals.output
     output:
         metrics = join(CR_PICARD_QCDIR, '{sample}.rnaseq.metrics')

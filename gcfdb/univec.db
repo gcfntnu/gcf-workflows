@@ -32,6 +32,7 @@ database may be missed when UniVec_Core is used.
 rule contaminants_univec_fasta:
     params:
         url = 'http://ftp.ncbi.nlm.nih.gov/pub/UniVec/UniVec',
+        proxy = config.get('proxy', {}).get('wget', ''),
         date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(EXT_DIR, 'univec', 'fasta', 'univec.fa')
@@ -39,7 +40,7 @@ rule contaminants_univec_fasta:
         join(EXT_DIR, 'univec', 'logs', 'univec.log')
     shell:
         """
-        wget {params.url} -O- > {output}
+        wget {params.proxy} {params.url} -O- > {output}
         echo "UniVec,NA,{params.url},{params.date}" > {log}
         """
 
@@ -56,6 +57,7 @@ rule univec_anno:
 rule contaminants_univec_core_fasta:
     params:
         url_core = 'http://ftp.ncbi.nlm.nih.gov/pub/UniVec/UniVec_Core',
+        proxy = config.get('proxy', {}).get('wget', ''),
         date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(EXT_DIR, 'univec_core', 'fasta', 'univec_core.fa')
@@ -63,7 +65,7 @@ rule contaminants_univec_core_fasta:
         join(EXT_DIR, 'univec_core', 'logs', 'univec_core.log')
     shell:
         """
-        wget {params.url_core} -O- > {output}
+        wget {params.proxy} {params.url_core} -O- > {output}
         echo "UniVec core,NA,{params.url_core},{params.date}" > {log}
         """
 

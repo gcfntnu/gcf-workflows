@@ -27,7 +27,7 @@ if config['assembly']['transcriptome']['assembler'] != 'skip' or config['assembl
         merger = config['assembly']['transcriptome'].get('merger', 'skip')
         assembler = config['assembly']['transcriptome'].get('assembler', 'skip')
         if merger == 'skip' or merger == 'skip':
-            gtf = join(BASE_REF_DIR, 'genes', 'genes.gtf')
+            gtf = join(BASE_REF_DIR, 'anno', 'genes.gtf')
             fasta = join(BASE_REF_DIR, 'fasta', 'gtf.rsem.transcripts.fa')
             return {'gtf': gtf, 'fasta': fasta}
 
@@ -44,7 +44,7 @@ if config['assembly']['transcriptome']['assembler'] != 'skip' or config['assembl
             gtf = join(ASSEMBLY_INTERIM, 'stringtie_merge', 'scallop', 'assembly.refcomp.gtf'),
             fasta = join(ASSEMBLY_INTERIM, 'stringtie_merge', 'scallop', 'transcriptome.fa')
         elif assembler == 'psiclass' and merger == 'psiclass':
-            gtf = join(ASSEMBLY_INTERIM, 'psiclass', 'genes', 'assembly.refcomp.gtf'),
+            gtf = join(ASSEMBLY_INTERIM, 'psiclass', 'anno', 'assembly.refcomp.gtf'),
             fasta = join(ASSEMBLY_INTERIM, 'psiclass', 'fasta', 'transcriptome.fa')
         else:
             print(config['assembly'])
@@ -55,7 +55,7 @@ if config['assembly']['transcriptome']['assembler'] != 'skip' or config['assembl
         input:
             unpack(get_tx_assembly)
         output:
-            gtf = join(REF_DIR, 'genes', 'genes.gtf'),
+            gtf = join(REF_DIR, 'anno', 'genes.gtf'),
             fasta = join(REF_DIR, 'fasta', 'transcriptome.fa')
         shell:
             """

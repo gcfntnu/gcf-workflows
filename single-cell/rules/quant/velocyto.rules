@@ -11,8 +11,8 @@ include:
 
 rule velocyto_cellranger:
     input:
-        rep_gtf = join(EXT_DIR, 'ucsc', ORG, 'genes', 'rmsk_ensembl.gtf'),
-        gtf = join(REF_DIR, 'genes', 'genes.gtf'),
+        rep_gtf = join(EXT_DIR, 'ucsc', ORG, 'anno', 'rmsk_ensembl.gtf'),
+        gtf = join(REF_DIR, 'anno', 'genes.gtf'),
         h5 = join(QUANT_INTERIM, 'cellranger', '{sample}', 'outs', 'filtered_feature_bc_matrix.h5')
     params:
         sample = join(QUANT_INTERIM, 'cellranger', '{sample}')
@@ -32,8 +32,8 @@ rule velocyto_cellranger:
 
 rule velocyto_starsolo:
     input:
-        rep_gtf = join(EXT_DIR, 'ucsc', ORG, 'genes', 'rmsk_ensembl.gtf'),
-        gtf = join(REF_DIR, 'genes', 'genes.gtf'),
+        rep_gtf = join(EXT_DIR, 'ucsc', ORG, 'anno', 'rmsk_ensembl.gtf'),
+        gtf = join(REF_DIR, 'anno', 'genes.gtf'),
         bam = join(QUANT_INTERIM, 'star', '{sample}', 'Aligned.sortedByCoord.out.bam'),
         barcodes = join(QUANT_INTERIM, 'star', '{sample}', 'Solo.out', 'GeneFull', 'filtered', 'barcodes.tsv')
     params:

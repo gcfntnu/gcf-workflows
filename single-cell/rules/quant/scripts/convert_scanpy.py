@@ -167,11 +167,11 @@ def read_cellranger(fn, args, rm_zero_cells=True, add_sample_id=True, **kw):
         data = sc.read_10x_mtx(mtx_dir, gex_only=args.gex_only, var_names='gene_ids')
         data.var['gene_ids'] = list(data.var_names)
     
-    barcodes = [b.split('-')[0] for b in data.obs.index]
-    if len(barcodes) == len(set(barcodes)):
-        data.obs_names = barcodes
         
     if add_sample_id:
+        barcodes = [b.split('-')[0] for b in data.obs.index]
+        if len(barcodes) == len(set(barcodes)):
+            data.obs_names = barcodes
         sample_id = os.path.basename(os.path.dirname(dirname))
         data.obs['library_id'] = sample_id
         data.obs['library_id'] = data.obs['library_id'].astype('category')
@@ -187,7 +187,7 @@ def read_cellranger_aggr(fn, args, **kw):
     if not fn.endswith('.h5'):
         dirname = os.path.dirname(dirname)
 
-    aggr_csv = os.path.join(dirname, 'aggregation.csv')
+    aggr_csv = os.path.join(os.path.dirname(dirname), 'aggregation.csv')
     aggr_csv = pd.read_csv(aggr_csv)
     sample_map = dict((str(i+1), n) for i, n in enumerate(aggr_csv['library_id']))
     barcodes_enum = [i.split('-')[1] for i in data.obs_names]
