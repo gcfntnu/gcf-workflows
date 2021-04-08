@@ -44,6 +44,7 @@ if ERCC:
     include:
         'ercc.db'
 
+
 # GENCODE URLS
 GENCODE_GENOME = 'http://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_{}/release_{}/{}.primary_assembly.genome.fa.gz'
 GENCODE_GENOME = GENCODE_GENOME.format(GENCODE_ORG, GENCODE_RELEASE, GENCODE_ASSEMBLY)

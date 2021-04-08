@@ -28,8 +28,6 @@ include sequences of mammalian origin are excluded. Consequently, some
 vector contamination that could be detected using the full UniVec
 database may be missed when UniVec_Core is used.
 """
-include:
-    'indexes.rules'
 
 rule contaminants_univec_fasta:
     params:

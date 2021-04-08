@@ -44,7 +44,7 @@ rule cellranger_mkref:
          fasta = join(REF_DIR, 'fasta', 'genome.fa'),
          gtf = join(REF_DIR, 'anno', 'genes.gtf')
     params:
-        out_name = config['db']['10xgenomics']['assembly'],
+        out_name = DB_CONF['assembly'],
         out_dir = join(REF_DIR, 'cellranger')
     output:
         join(CR_REF_DIR, 'reference.json'),
@@ -272,7 +272,7 @@ rule scanpy_cellranger:
         join(CR_INTERIM, '{sample}', 'outs', 'filtered_feature_bc_matrix.h5')
     params:
         script = srcdir('scripts/convert_scanpy.py'),
-        genome_name  = config['db']['assembly']
+        genome_name  = DB_CONF['assembly']
     output:
         join(CR_INTERIM, '{sample}', 'scanpy', '{sample}.h5ad')
     singularity:
