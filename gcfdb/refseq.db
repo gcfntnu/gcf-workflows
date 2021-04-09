@@ -190,7 +190,7 @@ rule refseq_gff:
         join(EXT_DIR, 'refseq', 'release-{release}', '{organism}', '{assembly}', 'logs', 'gff.log')
     shell: 
         """
-        wget {params.proxy} -O- {params.url} | gunzip -c > {output}
+        wget {params.proxy} -O- {params.url} | gunzip -c | sed 's/[[:blank:]]*$//'  > {output}
         echo 'Refseq GFF,release-{params.release},{params.url},{params.date}' > {log}
         """
 
@@ -210,7 +210,7 @@ rule refseq_gtf:
         join(EXT_DIR, 'refseq', 'release-{release}', '{organism}', '{assembly}', 'logs', 'gtf.log')
     shell: 
         """
-        wget {params.proxy} -O- {params.url} | gunzip -c > {output}
+        wget {params.proxy} -O- {params.url} | gunzip -c  | sed 's/[[:blank:]]*$//' > {output}
         echo 'Refseq GTF,release-{params.release},{params.url},{params.date}' > {log}
         """
     
