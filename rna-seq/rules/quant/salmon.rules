@@ -72,7 +72,7 @@ rule salmon_map:
         output = join(SALMON_INTERIM, '{sample}'),
         nboot = 30,
         lib_type = LIB_TYPE,
-        index = join(REF_DIR, 'index', 'gentrome', 'salmon'),
+        index = join(REF_DIR, 'index', 'transcriptome', 'salmon'),
         sample_args = sample_args,
         unmapped_args = '--writeUnmappedNames --writeMappings=unmapped.sam '
     threads:
