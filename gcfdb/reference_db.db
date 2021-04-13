@@ -23,7 +23,7 @@ else:
 config['db'][ref] = DB_CONF = config['db'].get(ref, {})
 # supported references
 include: 'ensembl.db'
-#include: 'gencode.db'
+include: 'gencode.db'
 include: '10xgenomics.db'
 include: 'refseq.db'
 

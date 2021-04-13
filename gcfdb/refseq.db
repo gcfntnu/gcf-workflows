@@ -36,7 +36,7 @@ def _get_current_refseq(config):
             out = response.read()
             release = str(int(re.findall(b"\d+", out)[0]))
         except: 
-            raise ValueError("release parse error or protocol error")
+            raise logger.error("release parse error or protocol error")
     DB_CONF['release'] = release
     config['db']['refseq'] = DB_CONF
     return config
@@ -110,9 +110,7 @@ def init_refseq_from_organism(config):
         DB_CONF['assembly'] = [DB_CONF['assembly']]
     config['db']['refseq'] = DB_CONF
     return config
-
 config = init_refseq_from_organism(config)
-print(config['db']['refseq'])
 
 rule init_refseq_species:
     params:
