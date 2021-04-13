@@ -21,16 +21,16 @@ rule qc_fastq_fastqc:
 
 rule qc_fastq_fastqscreen_config:
     input:
-        human = join(EXT_DIR, 'ensembl', 'homo_sapiens', 'release-{}'.format(DB_CONF['release']), 'GRCh38', 'index', 'genome', 'bowtie2', 'genome.1.bt2'),
-        mouse = join(EXT_DIR, 'ensembl', 'mus_musculus', 'release-{}'.format(DB_CONF['release']), 'GRCm38', 'index', 'genome', 'bowtie2', 'genome.1.bt2'),
-        rat = join(EXT_DIR, 'ensembl', 'rattus_norvegicus', 'release-{}'.format(DB_CONF['release']), 'Rnor_6.0', 'index', 'genome', 'bowtie2', 'genome.1.bt2'),
+        human = join(EXT_DIR, 'ensembl', 'release-{}'.format(DB_CONF['release']), 'homo_sapiens', 'GRCh38', 'index', 'genome', 'bowtie2', 'genome.1.bt2'),
+        mouse = join(EXT_DIR, 'ensembl', 'release-{}'.format(DB_CONF['release']), 'mus_musculus', 'GRCm39', 'index', 'genome', 'bowtie2', 'genome.1.bt2'),
+        rat = join(EXT_DIR, 'ensembl', 'release-{}'.format(DB_CONF['release']), 'rattus_norvegicus', 'Rnor_6.0', 'index', 'genome', 'bowtie2', 'genome.1.bt2'),
         univec = join(EXT_DIR, 'univec_core', 'index', 'univec_core', 'bowtie2', 'univec_core.1.bt2')
     output:
         temp('fastq_screen.config')
     params:
-        human = join(EXT_DIR, 'ensembl', 'homo_sapiens', 'release-{}'.format(DB_CONF['release']), 'GRCh38', 'index', 'genome', 'bowtie2', 'genome'),
-        mouse = join(EXT_DIR, 'ensembl', 'mus_musculus', 'release-{}'.format(DB_CONF['release']), 'GRCm38', 'index', 'genome', 'bowtie2', 'genome'),
-        rat = join(EXT_DIR, 'ensembl', 'rattus_norvegicus', 'release-{}'.format(DB_CONF['release']), 'Rnor_6.0', 'index', 'genome', 'bowtie2', 'genome'),
+        human = join(EXT_DIR, 'ensembl', 'release-{}'.format(DB_CONF['release']), 'homo_sapiens', 'GRCh38', 'index', 'genome', 'bowtie2', 'genome'),
+        mouse = join(EXT_DIR, 'ensembl', 'release-{}'.format(DB_CONF['release']), 'mus_musculus', 'GRCm38', 'index', 'genome', 'bowtie2', 'genome'),
+        rat = join(EXT_DIR, 'ensembl', 'release-{}'.format(DB_CONF['release']), 'rattus_norvegicus', 'Rnor_6.0', 'index', 'genome', 'bowtie2', 'genome'),
         univec = join(EXT_DIR, 'univec_core', 'index', 'univec_core', 'bowtie2', 'univec_core')  
     shell:
         """

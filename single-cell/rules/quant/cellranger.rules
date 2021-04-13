@@ -13,7 +13,7 @@ if not '10xgenomics' in REF_DIR:
     CR_REF_DIR = join(REF_DIR, 'cellranger')
 else:
     CR_REF_DIR = REF_DIR
-    ruleorder: txgenomics_org_prebuild > cellranger_unzip_gtf
+    ruleorder: txgenomics_org_prebuild > cellranger_symlink_gtf
 
     
 def input_fastq_path(wildcards, input):
@@ -29,9 +29,9 @@ def input_fastq_path(wildcards, input):
 
 rule cellranger_gtf:
     input:
-        gtf = join(REF_DIR, 'genes', 'genes.gtf')
+        gtf = join(REF_DIR, 'anno', 'genes.gtf')
     output:
-        gtf = join(REF_DIR, 'genes', 'genes.gtf.filtered')
+        gtf = join(REF_DIR, 'anno', 'genes.gtf.filtered')
     params:
         ' '.join('--attribute=gene_biotype:{}'.format(bt) for bt in CR_CONF['mkgtf']['gene_biotype'])
     singularity:
@@ -42,9 +42,9 @@ rule cellranger_gtf:
 rule cellranger_mkref:
     input:
          fasta = join(REF_DIR, 'fasta', 'genome.fa'),
-         gtf = join(REF_DIR, 'genes', 'genes.gtf')
+         gtf = join(REF_DIR, 'anno', 'genes.gtf')
     params:
-        out_name = config['db']['10xgenomics']['assembly'],
+        out_name = DB_CONF['assembly'],
         out_dir = join(REF_DIR, 'cellranger')
     output:
         join(CR_REF_DIR, 'reference.json'),
@@ -63,11 +63,11 @@ rule cellranger_mkref:
         '&& cp -r {params.out_name}/* {params.out_dir}/ '
         '&& rm -rf {params.out_name} '
 
-rule cellranger_unzip_gtf:
+rule cellranger_symlink_gtf:
     input:
         join(CR_REF_DIR, 'genes', 'genes.gtf.gz')
     output:
-        join(CR_REF_DIR, 'genes', 'genes.gtf')
+        join(CR_REF_DIR, 'anno', 'genes.gtf')
     shell:
         'gunzip {input} {output}'
  
@@ -272,7 +272,7 @@ rule scanpy_cellranger:
         join(CR_INTERIM, '{sample}', 'outs', 'filtered_feature_bc_matrix.h5')
     params:
         script = srcdir('scripts/convert_scanpy.py'),
-        genome_name  = config['db']['assembly']
+        genome_name  = DB_CONF['assembly']
     output:
         join(CR_INTERIM, '{sample}', 'scanpy', '{sample}.h5ad')
     singularity:

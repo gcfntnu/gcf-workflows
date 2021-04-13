@@ -62,11 +62,12 @@ def sample_args(wildcards):
         args += '--fldSD {} '.format(get_fragment_sd(wildcards))
     return args
 
+
 rule salmon_map:
     input:
         unpack(get_processed_fastq),
         index = join(REF_DIR, 'index', 'transcriptome', 'salmon', 'info.json'),
-        gtf = join(REF_DIR, 'genes', 'genes.gtf')
+        gtf = join(REF_DIR, 'anno', 'genes.gtf')
     params:
         output = join(SALMON_INTERIM, '{sample}'),
         nboot = 30,
@@ -75,7 +76,7 @@ rule salmon_map:
         sample_args = sample_args,
         unmapped_args = '--writeUnmappedNames --writeMappings=unmapped.sam '
     threads:
-        4
+        24
     singularity:
         'docker://' + config['docker']['salmon']
     output:
@@ -88,6 +89,7 @@ rule salmon_map:
         '-l {params.lib_type} '
         '-g {input.gtf} '
         '-p {threads} '
+        '--numBootstraps {params.nboot} '
         '--validateMappings '
         '--rangeFactorizationBins 4 '
         '--seqBias '
@@ -125,10 +127,11 @@ rule salmon_unmapped_fastq:
         '{params.args} '
         '-o {params.prefix} '
 
+
 rule salmon_tximport:
     input:
         files = expand(join(SALMON_INTERIM, '{sample}', 'quant.sf'), sample=SAMPLES),
-        txinfo = join(REF_DIR, 'genes', 'transcripts.tsv')
+        txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
         script = srcdir('scripts/tximport.R')
     singularity:
@@ -141,6 +144,28 @@ rule salmon_tximport:
         '-t salmon '
         '-o {output} '
 
+
+rule salmon_tximeta:
+    input:
+        files = expand(join(SALMON_INTERIM, '{sample}', 'quant.sf'), sample=SAMPLES),
+        sample_info = join(INTERIM_DIR, 'sample_info.tsv'),
+        index= join(REF_DIR, 'index', 'transcriptome', 'salmon', 'tximeta.json')
+    params:
+        script = srcdir('scripts/tximeta.R'),
+        index_dir = join(REF_DIR, 'index', 'transcriptome', 'salmon')
+    singularity:
+        'docker://' + config['docker']['tximport']
+    output:
+        rds = join(QUANT_INTERIM, 'salmon', 'tximeta', 'tximeta_salmon.rds')
+    shell:
+        'Rscript {params.script} {input.files} '
+        '--sample-info {input.sample_info} '
+        '--txome {input.index} '
+        '-t salmon '
+        '--verbose '
+        '-o {output} '
+
+   
 rule salmon_gene_anndata:
     input:
         gene_counts = join(QUANT_INTERIM, 'salmon', 'tximport', 'gene_counts.tsv'),

@@ -37,7 +37,7 @@ rule quickmirseq_mirbase_index:
 rule quickmirseq_smallrna_index:
     input:
         trna = rules.gtrnadb_trna.output,
-        non_coding = rules.ensembl_db_downloads.output.noncoding
+        non_coding = join(REF_DIR, 'fasta', 'ncrna.fa')
     params:
         trna_log = rules.gtrnadb_trna.log,
         noncoding_log = rules.ensembl_noncoding.log
@@ -64,32 +64,27 @@ rule quickmirseq_smallrna_index:
 
 rule quickmirseq_mrna_index:
     input:
-        cdna = rules.ensembl_db_downloads.output.cdna
-    params:
-        cdna_log = rules.ensembl_noncoding.log
+        cdna = join(REF_DIR, 'fasta', 'cdna.fa')
     output:
         join(QMSQ_EXT, 'mrna.fa'),
         join(QMSQ_EXT, 'mrna.1.ebwt'),
         join(QMSQ_EXT, 'mrna.2.ebwt'),
         join(QMSQ_EXT, 'mrna.rev.1.ebwt'),
         join(QMSQ_EXT, 'mrna.rev.2.ebwt')
-    log:
-        join(QMSQ_EXT, 'logs', 'quickmirseq_cdna.log')
     singularity:
         'docker://' + config['docker']['bowtie_samtools']
     shell:
         """
         bowtie-build {input.cdna} {QMSQ_EXT}/mrna
         cp {input.cdna} {output[0]}
-        cp {params.cdna_log} {log}
         """
         
 rule quickmirseq_genome_index:
     input:
-        genome = rules.ensembl_db_downloads.output.genome
+        genome = join(REF_DIR, 'fasta', 'genome.fa')
     params:
         index_base = join(QMSQ_EXT, 'genome'),
-        genome_log = rules.ensembl_dna.log
+        genome_log = rules.ensembl_genome.log
     output:
         join(QMSQ_EXT, 'genome.fa'),
         join(QMSQ_EXT, 'genome.1.ebwt'),
