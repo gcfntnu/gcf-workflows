@@ -57,6 +57,19 @@ def update_config2(config, extra_config):
         return d
     return _update(config, extra_config)
 
+def config_val2list(d):
+    """Split comma separated values into list of strings.
+    """
+    for key, value in d.items():
+        if (isinstance(value, collections.Mapping)):
+            d[key] = _update(d.get(key, {}), value)
+        else:
+            for key, val in d.items():
+                if isinstance(val, str) and ',' in val:
+                    d[key] = val.split(',')
+        return d
+    return _update(config)
+
 
 default_config_sections = ['db', 'quant', 'filter', 'analysis', 'qc', 'bfq', 'samples']
 for section in default_config_sections:
