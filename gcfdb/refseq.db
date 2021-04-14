@@ -14,9 +14,8 @@ DB_CONF = config['db'].get('refseq', {})
 ORG = config['organism'].lower().replace(' ', '_')
 STRAIN = config.get('strain')
 
-no_alt = {'url': 'https://ftp.ncbi.nlm.nih.gov/genomes/refseq/vertebrate_mammalian/Homo_sapiens/all_assembly_versions/GCF_000001405.39_GRCh38.p13/GRCh38_major_release_seqs_for_alignment_pipelines/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.gz', 'name': 'no_alt'}
-SPECIALS= {'homo_sapiens': {}}
-SPECIALS['homo_sapiens']['no_alt'] = no_alt
+_ANALYSIS_SET_URL = 'https://ftp.ncbi.nlm.nih.gov/genomes/refseq/vertebrate_mammalian/Homo_sapiens/all_assembly_versions/GCF_000001405.39_GRCh38.p13/GRCh38_major_release_seqs_for_alignment_pipelines'
+
 
 def _get_current_refseq(config):
     """Get current release number for refseq.
@@ -151,6 +150,11 @@ def get_refseq_ftp(wildcards, input, sub='genome'):
         if row['species'] in ['homo_sapiens']:
             row['assembly'] = row['assembly'].split('.')[0]
         if row['species'] == wildcards.organism:
+            if row['species'] == 'homo_sapiens':
+                base = os.path.split(row['ftp_{}'.format(sub)])[0]
+                base = os.path.join(base, 'GRCh38_major_release_seqs_for_alignment_pipelines')
+                if sub == 'genome' and wildcards.assembly == 'no_alt':
+                    return os.path.join(base, 'GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.gz')
             if row['assembly'] == wildcards.assembly:
                 return row['ftp_{}'.format(sub)]
     msg = '{} assembly is not supported for this version ({}) of Refseq. Assembly supported: {}'
