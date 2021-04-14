@@ -46,17 +46,17 @@ def read_sample_info(args):
 
 def write_csv(input_files, valid_samples, fh, batch=None, verbose=False):
     if batch:
-        fh.write('library_id,molecule_h5,sample_id,batch\n')
+        fh.write('sample_id,molecule_h5,batch\n')
     else:
-        fh.write('library_id,molecule_h5,sample_id\n')
+        fh.write('sample_id,molecule_h5\n')
         
     for fn in input_files:
         sample = fn.split(os.path.sep)[-3]
         if sample in valid_samples:
             if batch is not None:
-                fh.write('{},{},{},{}\n'.format(sample, fn, sample, df.loc[sample][batch]))
+                fh.write('{},{},{}\n'.format(sample, fn, df.loc[sample][batch]))
             else:
-                fh.write('{},{},{}\n'.format(sample, fn, sample))
+                fh.write('{},{}\n'.format(sample, fn))
         else:
             if verbose:
                 print('{} not in {} !\n'.format(sample, str(valid_samples)))

@@ -156,7 +156,7 @@ if __name__ == "__main__":
         F = F.loc[E.obs.index, :]
 
     if args.output.endswith('_mqc.png'):
-        pca_color = ['louvain', 'library_id']
+        pca_color = ['louvain', 'sample_id']
         if 'Sample_Group' in adata.obs.columns:
             pca_color.append('Sample_Group')
         fig = sc.pl.umap(adata, return_fig=True, color=pca_color, ncols=1)

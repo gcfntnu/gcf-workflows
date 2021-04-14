@@ -31,7 +31,7 @@ parser.add_argument('-o', '--outfile', help='output filename', required=True)
 parser.add_argument('-f', '--input-format', choices=['cellranger_aggr', 'cellranger', 'star', 'alevin', 'umitools', 'velocyto'],
                     default='cellranger_aggr', help='input file format')
 parser.add_argument('-F', '--output-format', choices=['anndata', 'loom', 'csvs'], default='anndata', help='output file format')
-parser.add_argument('--aggr-csv', help='aggregation CSV with header and two columns. First column is `library_id` and second column is path to input file. This is used as a substitute for input files', default=None)
+parser.add_argument('--aggr-csv', help='aggregation CSV with header and two columns. First column is `sample_id` and second column is path to input file. This is used as a substitute for input files', default=None)
 parser.add_argument('--sample-info', help='samplesheet info, tab seprated file assumes `Sample_ID` in header', default=None)
 parser.add_argument('--feature-info', help='extra feature info filename, tab seprated file assumes `gene_ids` in header', default=None)
 parser.add_argument('--log', help='logfile', default=None)
@@ -173,28 +173,28 @@ def read_cellranger(fn, args, rm_zero_cells=True, add_sample_id=True, **kw):
         if len(barcodes) == len(set(barcodes)):
             data.obs_names = barcodes
         sample_id = os.path.basename(os.path.dirname(dirname))
-        data.obs['library_id'] = sample_id
-        data.obs['library_id'] = data.obs['library_id'].astype('category')
+        data.obs['sample_id'] = sample_id
+        data.obs['sample_id'] = data.obs['sample_id'].astype('category')
         data.obs_names = [i + '-' + sample_id for i in data.obs_names]
         
     return data
         
 def read_cellranger_aggr(fn, args, **kw):
     data = read_cellranger(fn, args, add_sample_id=False)
-    #if 'library_id' in data.obs:
-    #    data.obs.rename(index=str, columns={'library_id': 'group'}, inplace=True)
+    #if 'sample_id' in data.obs:
+    #    data.obs.rename(index=str, columns={'sample_id': 'group'}, inplace=True)
     dirname = os.path.dirname(fn)
     if not fn.endswith('.h5'):
         dirname = os.path.dirname(dirname)
 
     aggr_csv = os.path.join(os.path.dirname(dirname), 'aggregation.csv')
     aggr_csv = pd.read_csv(aggr_csv)
-    sample_map = dict((str(i+1), n) for i, n in enumerate(aggr_csv['library_id']))
+    sample_map = dict((str(i+1), n) for i, n in enumerate(aggr_csv['sample_id']))
     barcodes_enum = [i.split('-')[1] for i in data.obs_names]
     samples = [sample_map[i] for i in barcodes_enum]
-    data.obs['library_id'] = samples
-    data.obs['library_id'] = data.obs['library_id'].astype('category')
-    # use library_id to make barcodes unique
+    data.obs['sample_id'] = samples
+    data.obs['sample_id'] = data.obs['sample_id'].astype('category')
+    # use sample_id to make barcodes unique
     barcodes = [b.split('-')[0] for b in data.obs.index]
     data.obs_names = ['{}-{}'.format(i, j) for i, j in zip(barcodes, samples)]
     return data
@@ -203,8 +203,8 @@ def read_velocyto_loom(fn, args, **kw):
     data = sc.read_loom(fn, var_names='Accession')
     data.var.rename(columns={'Gene': 'gene_symbols'}, inplace=True)
     sample_id = os.path.splitext(os.path.basename(fn))[0]
-    data.obs['library_id'] = sample_id
-    data.obs['library_id'] = data.obs['library_id'].astype('category')
+    data.obs['sample_id'] = sample_id
+    data.obs['sample_id'] = data.obs['sample_id'].astype('category')
     sv.utils.clean_obs_names(data)
     data.obs_names = [i + '-' + sample_id for i in data.obs_names]
     data.var.index.name = 'gene_ids'
@@ -218,8 +218,8 @@ def read_star(fn, args, **kw):
     data.var_names = genes[0].values
     data.var['gene_symbols'] = genes[1].values
     sample_id = os.path.normpath(fn).split(os.path.sep)[-5]
-    data.obs['library_id'] = sample_id
-    data.obs['library_id'] = data.obs['library_id'].astype('category')
+    data.obs['sample_id'] = sample_id
+    data.obs['sample_id'] = data.obs['sample_id'].astype('category')
     barcodes = [b.split('-')[0] for b in barcodes]
     if len(barcodes) == len(set(barcodes)):
         data.obs_names = barcodes
@@ -247,13 +247,13 @@ def read_alevin(fn, args, **kw):
     data = anndata.AnnData(df.values, row, col, dtype=np.float32)
     data.var['gene_ids'] = list(data.var_names)
     sample_id = os.path.basename(dirname)
-    data.obs['library_id'] = [sample_id] * data.obs.shape[0]
+    data.obs['sample_id'] = [sample_id] * data.obs.shape[0]
     return data
     
 def read_umitools(fn, args, **kw):
     data = sc.read_umi_tools(fn)
     sample_id = os.path.dirname(fn).split(os.path.sep)[-1]
-    data.obs['library_id'] = sample_id
+    data.obs['sample_id'] = sample_id
     return data
 
 READERS = {'cellranger_aggr': read_cellranger_aggr,
@@ -330,11 +330,11 @@ if __name__ == '__main__':
             remove_duplicate_cols(data.var)
     
     if sample_info:
-        lib_ids = set(data.obs['library_id'])
+        lib_ids = set(data.obs['sample_id'])
         for l in lib_ids:
             if l not in sample_info.index:
                 raise ValueError('Library `{}` not present in sample_info'.format(l))
-        obs = sample_info.loc[data.obs['library_id'],:]
+        obs = sample_info.loc[data.obs['sample_id'],:]
         obs.index = data.obs.index.copy()
         data.obs = data.obs.merge(obs, how='left', left_index=True, right_index=True, suffixes=('', '_sample_info'), validate=True)
 
