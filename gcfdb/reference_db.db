@@ -26,6 +26,7 @@ include: 'ensembl.db'
 include: 'gencode.db'
 include: '10xgenomics.db'
 include: 'refseq.db'
+include: 'ncbi.db'
 
 
 if REF_DIR is None:

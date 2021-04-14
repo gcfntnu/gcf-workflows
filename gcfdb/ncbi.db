@@ -1,6 +1,34 @@
 #-*- mode:snakemake -*-
 """NCBI data mainly fetched using efetch
+
+
 """
+
+# https://gdc.cancer.gov/files/public/file/GRCh83.d1.vd1_virus_decoy.txt
+_VIRAL_DECOYS = ["NC_017996","NC_014835","NC_001683","NC_001593","NC_013931","NC_003977.1","NC_012748","NC_014952","NC_001357","NC_001587","NC_001591","NC_009823.1","NC_001457","NC_001583","NC_009333.1","NC_012750","NC_014185","NC_012213","NC_010277.2","NC_001354","NC_002644","NC_014953","NC_017994","NC_022095","NC_012747","NC_012746","NC_001352","NC_017995","NC_001690","NC_001576","NC_001436.1","NC_001722.1","NC_004500","NC_017997","NC_022892","NC_016157","NC_001691","NC_013035","NC_001596","NC_008188","NC_021483","NC_010329","NC_012744","NC_001355","NC_006273.2","NC_001802.1","NC_014956","NC_007605.1","NC_001531","NC_001586","NC_012485","NC_014955","NC_001526","NC_001693","NC_008189","NC_004102.1","NC_023891","NC_001676","NC_004104","NC_019023","NC_005134","NC_001458","NC_017993","NC_001694","NC_012486","NC_001669.1","NC_012745","NC_014469","NC_014954","NC_013591","NC_001595","NC_001356"]
+
+rule ncbi_nucore:
+    params:
+        url = 'https://www.ncbi.nlm.nih.gov/nuccore/{seq_id}',
+        date = datetime.now().strftime("%d-%m-%Y")
+    output:
+        fasta = join(EXT_DIR, 'ncbi', 'nucore', 'fasta', '{seq_id}.fa')
+    log:
+        join(EXT_DIR, 'ncbi', 'nucore', 'logs', '{seq_id}.log')
+    shell:
+        """
+        efetch -db nuccore -id {wildcards.seq_id} -format fasta > {output.fasta}        
+        echo "ncbi nucore,{wildcards.seq_id},{params.url},{params.date}" > {log}
+        """
+
+rule ncbi_viral_decoys:
+    input:
+        expand(rules.ncbi_nucore.output, seq_id = _VIRAL_DECOYS)
+    output:
+        join(EXT_DIR, 'ncbi', 'viral_decoys', 'fasta', 'viral_decoys.fna')
+    shell:
+        'cat {input} > {output}'
+
 
 rule ncbi_homo_sapiens_rrna:
     params:
@@ -97,7 +125,8 @@ rule ncbi_cervus_elaphus_hippelaphus:
         gunzip GCA_002197005.1_CerEla1.0_genomic.gtf.gz -c > {output.gtf}
         echo "ncbi genomes,{params.url},{params.date}" > {log}
         """
-        
+
+
 rule ncbi_db_all:
     input:
         join(EXT_DIR, 'ncbi', 'homo_sapiens', 'fasta', 'rrna.fa'),
