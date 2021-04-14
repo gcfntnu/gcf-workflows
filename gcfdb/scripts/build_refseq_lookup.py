@@ -64,6 +64,13 @@ if __name__ == '__main__':
         if n== 1 and not remote_file_exists(genome_ftp, args.proxy):
             logger.error("failed to find a valid genome fasta file. {}".format(genome_ftp))
         row['ftp_genome'] = genome_ftp
+        # check for analysis set
+        if args.organism == 'homo_sapiens':
+            analysis_path = os.path.join(row['ftp_path'], 'GRCh38_major_release_seqs_for_alignment_pipelines')
+            no_alt = os.path.basename(row['ftp_path']) + '_no_alt_analysis_set.fna.gz'
+            no_alt_decoys = os.path.basename(row['ftp_path']) + '_no_alt_plus_hs38d1_analysis_set.fna.gz'
+            row['ftp_no_alt'] = os.path.join(row['ftp_path'], no_alt)
+            row['ftp_no_alt_decoys'] = os.path.join(row['ftp_path'], no_alt_decoys)
         # gtf
         fn = os.path.basename(row['ftp_path']) + '_genomic.gtf.gz'
         gtf_ftp = os.path.join(row['ftp_path'], fn)
