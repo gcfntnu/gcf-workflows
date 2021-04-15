@@ -125,9 +125,9 @@ checkpoint build_ftp_table:
         'python {params.script} {input} --proxy {params.proxy} --release {wildcards.release} --organism {wildcards.organism} --output {output}'
 
 
-def get_ensembl_ftp(wildcards, sub='genome'):
+def get_ensembl_ftp(wildcards, sub='genome'):    
     fn = checkpoints.build_ftp_table.get(**wildcards).output[0]
-    with open(input[0]) as fh:
+    with open(fn) as fh:
         txt = fh.read().splitlines()
         header = txt.pop(0).split('\t')
         for line in txt:
