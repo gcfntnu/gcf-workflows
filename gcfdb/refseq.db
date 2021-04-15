@@ -105,8 +105,8 @@ def init_refseq_from_organism(config):
                 else:
                     DB_CONF[k] = ','.join([DB_CONF[k], sp[sp_k]])
     DB_CONF = config_val2list(DB_CONF)
-    if isinstance(DB_CONF['assembly'], str):
-        DB_CONF['assembly'] = [DB_CONF['assembly']]
+    #if isinstance(DB_CONF['assembly'], str):
+    #    DB_CONF['assembly'] = [DB_CONF['assembly']]
     config['db']['refseq'] = DB_CONF
     return config
 config = init_refseq_from_organism(config)

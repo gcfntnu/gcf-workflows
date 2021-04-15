@@ -94,8 +94,8 @@ def init_ensembl_from_organism(config):
         if k not in DB_CONF and sp_k in sp:
             DB_CONF[k] = sp[sp_k]
     DB_CONF = config_val2list(DB_CONF)
-    if isinstance(DB_CONF['assembly'], str):
-        DB_CONF['assembly'] = [DB_CONF['assembly']]
+    #if isinstance(DB_CONF['assembly'], str):
+    #    DB_CONF['assembly'] = [DB_CONF['assembly']]
     config['db']['ensembl'] = DB_CONF
     return config
 config = init_ensembl_from_organism(config)
