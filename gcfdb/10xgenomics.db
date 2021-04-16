@@ -12,11 +12,11 @@ _ASSEMBLY = {'homo_sapiens': 'GRCh38',
 # config
 ORG = config['organism']
 if ORG not in ['homo_sapiens', 'mus_musculus', 'homo_sapiens__mus_musculus']:
-    raise ValueError('No 10x prebuild for org: {}'.format(ORG))
+    logger.error('No 10x prebuild for org: {}'.format(ORG))
 
 DB_CONF = config['db'].get('10xgenomics', {})
 TX_RELEASE = DB_CONF.get('release', '2020-A')
-TX_ASSEMBLY = config['db']['assembly'] = DB_CONF['assembly'] = _ASSEMBLY[ORG]
+TX_ASSEMBLY = config['db']['assembly'] = DB_CONF['assembly'] = _ASSEMBLY.get(ORG, '')
 
 
 
