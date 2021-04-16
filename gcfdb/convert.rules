@@ -62,15 +62,14 @@ rule convert_gtf2bed12:
         join('{ref_dir}', 'anno', 'genes.gtf')
     output:
         join('{ref_dir}', 'anno', 'genes.bed12')
-    params:
-        tmpfile = join(TMPDIR, 'gene.genepred')
     singularity:
         'docker://' + config['docker']['ucsc-scripts']
+    shadow:
+        'minimal'
     shell:
         """
-        gtfToGenePred -genePredExt -geneNameAsName2 {input} {params}
-        genePredToBed {params} {output}
-        rm {params.tmpfile}
+        gtfToGenePred -genePredExt -geneNameAsName2 -ignoreGroupsWithoutExons {input} dummy.txt
+        genePredToBed dummy.txt {output}
         """
         
 rule convert_gtf2intervals:
@@ -92,7 +91,7 @@ rule convert_gtf2refflat:
         'minimal'
     shell:
         """
-        gtfToGenePred -genePredExt -geneNameAsName2 {input} dummy.txt
+        gtfToGenePred -genePredExt -geneNameAsName2 -ignoreGroupsWithoutExons {input} dummy.txt
         paste <(cut -f 12 dummy.txt) <(cut -f 1-10 dummy.txt) > refFlat.txt
         gzip refFlat.txt
         mv refFlat.txt.gz {output}
