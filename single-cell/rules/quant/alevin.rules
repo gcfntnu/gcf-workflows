@@ -7,7 +7,7 @@ AVN_INTERIM = join(QUANT_INTERIM, 'alevin')
 
 rule alevin_tx2gene:
     input:
-        join(REF_DIR, 'genes', 'transcripts.tsv')
+        join(REF_DIR, 'anno', 'transcripts.tsv')
     output:
         temp('tx2gene.tsv')
     shell:
@@ -59,7 +59,7 @@ rule alevin_1pass:
 
 rule alevin_mito_genes:
     input:
-        join(REF_DIR, 'genes', 'genes.tsv')
+        join(REF_DIR, 'anno', 'genes.tsv')
     output:
         join(AVN_INTERIM, 'mito_genes.tsv')
     shell:
@@ -67,7 +67,7 @@ rule alevin_mito_genes:
 
 rule alevin_rrna_genes:
     input:
-        join(REF_DIR, 'genes', 'genes.tsv')
+        join(REF_DIR, 'anno', 'genes.tsv')
     output:
         join(AVN_INTERIM, 'rrna_genes.tsv')
     shell:

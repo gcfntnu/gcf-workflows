@@ -17,7 +17,7 @@ rule bfq_level2_gene_biotypes:
         counts = join(QUANT_INTERIM, 'salmon', 'tximport', 'gene_counts.tsv'),
         abundance = join(QUANT_INTERIM, 'salmon', 'tximport', 'gene_tpm.tsv'),
         sample_info =  join(INTERIM_DIR, 'sample_info.tsv'),
-        feature_info = join(REF_DIR, 'genes', 'genes.tsv'),
+        feature_info = join(REF_DIR, 'anno', 'genes.tsv'),
         gene_lengths = join(QUANT_INTERIM, 'salmon', 'tximport', 'gene_lengths.tsv')
     params:
         script = srcdir('scripts/counts_qc.py')
@@ -41,7 +41,7 @@ rule bfq_level2_gene_high:
         counts = join(QUANT_INTERIM, 'salmon', 'tximport', 'gene_counts.tsv'),
         gene_lengths = join(QUANT_INTERIM, 'salmon', 'tximport', 'gene_lengths.tsv'),
         sample_info =  join(INTERIM_DIR, 'sample_info.tsv'),
-        feature_info = join(REF_DIR, 'genes', 'genes.tsv')
+        feature_info = join(REF_DIR, 'anno', 'genes.tsv')
     params:
         script = srcdir('scripts/counts_qc.py')
     singularity:

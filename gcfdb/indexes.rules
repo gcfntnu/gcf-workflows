@@ -2,13 +2,11 @@
 """Indexes from fasta
 """
 
-include:
-    'convert.rules'
         
 rule star_genome_index_gtf:
     input: 
         genome = join('{ref_dir}', 'fasta', '{prefix}.fa'),
-        gtf = join('{ref_dir}', 'genes', 'genes.gtf')
+        gtf = join('{ref_dir}', 'anno', 'genes.gtf')
     output:
         index = join('{ref_dir}', 'index', '{prefix}', 'star', 'r_{sjdbOverhang}', 'SA')
     params:
@@ -69,13 +67,38 @@ rule hisat2_genome_index:
 
 rule hisat2_splicesites:
     input:
-        gtf = join('{ref_dir}', 'genes', 'genes.gtf')
+        gtf = join('{ref_dir}', 'anno', 'genes.gtf')
     output:
-        join('{ref_dir}', 'genes', 'splicesites.txt')
+        join('{ref_dir}', 'anno', 'splicesites.txt')
     singularity:
        'docker://' + config['docker']['hisat2'] 
     shell:
         'hisat2_extract_splice_sites.py {input.gtf} > {output}'
+        
+rule bwa_index:
+    input:
+        join('{ref_dir}', 'fasta', '{prefix}.fa')
+    output:
+        join('{ref_dir}', 'index', '{prefix}', 'bwa', '{prefix}.amb'),
+        join('{ref_dir}', 'index', '{prefix}', 'bwa', '{prefix}.ann'),
+        join('{ref_dir}', 'index', '{prefix}', 'bwa', '{prefix}.bwt'),
+        join('{ref_dir}', 'index', '{prefix}', 'bwa', '{prefix}.pac'),
+        join('{ref_dir}', 'index', '{prefix}', 'bwa', '{prefix}.sa')
+    params:
+        output_dir = join('{ref_dir}', 'index', '{prefix}', 'bwa'),
+        input_dir = join('{ref_dir}', 'fasta')
+    singularity:
+        'docker://' + config['docker']['bwa_samtools']
+    shell:
+        """
+        bwa index {input}
+        mkdir -p {params.output_dir}
+        mv {params.input_dir}/{wildcards.prefix}.fa.amb {params.output_dir}/{wildcards.prefix}.amb
+        mv {params.input_dir}/{wildcards.prefix}.fa.ann {params.output_dir}/{wildcards.prefix}.ann
+        mv {params.input_dir}/{wildcards.prefix}.fa.bwt {params.output_dir}/{wildcards.prefix}.bwt
+        mv {params.input_dir}/{wildcards.prefix}.fa.pac {params.output_dir}/{wildcards.prefix}.pac
+        mv {params.input_dir}/{wildcards.prefix}.fa.sa {params.output_dir}/{wildcards.prefix}.sa
+        """
 
 rule bowtie_index:
     input:
@@ -187,3 +210,36 @@ rule salmon_index:
         '--index {params.out} '
         '--transcripts {input}'
 
+TXI_CACHE = os.environ.get('TXIMETA_HUB_CACHE', join(EXT_DIR, 'tximeta'))
+if not os.path.exists(TXI_CACHE):
+    os.makedirs(TXI_CACHE)
+rule salmon_index_tximeta:
+    input:
+        fasta = join('{ref_dir}', 'fasta', '{prefix}.fa'),
+        json = join('{ref_dir}', 'index', '{prefix}', 'salmon', 'info.json'),
+        gtf = join('{ref_dir}', 'genes', 'genes.gtf')
+    output:
+        json = join('{ref_dir}', 'index', '{prefix}', 'salmon', 'tximeta.json')
+    params:
+        script = srcdir('scripts/make_linked_txome.R'),
+        org = config['organism'],
+        db = lambda x: config['db']['reference_db'],
+        release = lambda x: DB_CONF['release'],
+        assembly = lambda x: DB_CONF['assembly'],
+        cache = TXI_CACHE
+    threads:
+        16
+    singularity:
+        'docker://' + config['docker']['tximport']
+    shell:
+        'Rscript {params.script} -v '
+        '--index {input.json} '
+        '--cachedir {params.cache} '
+        '--transcriptome {input.fasta} '
+        '--organism {params.org} '
+        '--gtf {input.gtf} '
+        '--source {params.db} '
+        '--release {params.release} '
+        '--assembly {params.assembly} '
+        '-o {output.json} '
+        

@@ -1,5 +1,7 @@
 #-*- mode:snakemake -*-
 
+include: 'umitools.rules'
+
 STAR_INTERIM = join(QUANT_INTERIM, 'star')
 
 def starsolo_R1(wildcards):
@@ -8,11 +10,10 @@ def starsolo_R1(wildcards):
 def starsolo_R2(wildcards):
     return ','.join(get_filtered_fastq_R2(wildcards))
 
-
 rule starsolo_genome_index:
     input: 
         genome = join(REF_DIR, 'fasta', 'genome.fa'),
-        gtf = join(REF_DIR, 'genes', 'genes.gtf')
+        gtf = join(REF_DIR, 'anno', 'genes.gtf')
     output:
         join(REF_DIR, 'starsolo', 'SA')
     params:
@@ -34,19 +35,40 @@ rule starsolo_genome_index:
         '--sjdbOverhang {params.readlength} '
         '&& mv Log.out {log} '
 
+rule starsolo_convert_umitools_whitelist:
+    input:
+        join(UMI_INTERIM, '{sample}','whitelist.txt')
+    output:
+        join(STAR_INTERIM, '{sample}', 'whitelist.txt')
+    threads:
+        1
+    singularity:
+        'docker://' + config['docker']['default']
+    shell:
+        """
+        awk -F"\\t" '{{print $1}}' {input} > {output} 
+        """
+        
+
 READ_LENGTH = config.get('read_geometry', [28, 98])[-1]
+
 if config['db']['reference_db'] == '10xgenomics':
     # rebuild genome to match current star version
     REF_GENOME = join(REF_DIR, 'index', 'genome', 'starsolo', 'r_{}'.format(READ_LENGTH), 'SA')
 else:
     REF_GENOME = join(REF_DIR, 'index', 'genome', 'star', 'r_{}'.format(READ_LENGTH), 'SA')
 
+if config['libprepkit'].startswith('10x'):
+    WHITELIST = join(EXT_DIR, config['quant']['starsolo']['whitelist'])
+else:
+    WHITELIST = join(EXT_DIR, '10xgenomics', config['quant']['starsolo']['whitelist'])
+
 rule starsolo_quant:
     input:
         R1 = get_filtered_fastq_R1,
         R2 = get_filtered_fastq_R2,
         genome = REF_GENOME,
-        whitelist = join(EXT_DIR, '10xgenomics', config.get('organism'), "release-{}".format(config['db']['10xgenomics']['release']), config['db']['10xgenomics']['assembly'], config['quant']['starsolo']['whitelist'])
+        whitelist = WHITELIST
     params:
         outdir = join(STAR_INTERIM, '{sample}') + '/',
         genome_dir = os.path.dirname(REF_GENOME),
@@ -55,7 +77,7 @@ rule starsolo_quant:
         umi_start = config['quant']['starsolo']['umi_start'],
         R1 = starsolo_R1,
         R2 = starsolo_R2,
-        extra_args = '--genomeLoad LoadAndKeep --soloFeatures Gene GeneFull SJ Velocyto Transcript3p ' 
+        extra_args = '--genomeLoad LoadAndKeep --outFilterMultimapNmax 1 --soloFeatures Gene GeneFull SJ Velocyto Transcript3p ' 
     threads:
         48
     output:
@@ -87,7 +109,7 @@ rule starsolo_quant:
         '--soloUMIlen {params.umi_len} '
         '--soloUMIstart {params.umi_start} '
         '--outSAMtype BAM SortedByCoordinate '
-        '--outSAMattributes CR CY UR UY CB UB NH '
+        '--outSAMattributes CR CY UR UY CB UB NH sM GX '
         '--limitBAMsortRAM 24000000000 ' 
         '--runThreadN {threads} '
         '{params.extra_args} '
@@ -100,8 +122,6 @@ rule starsolo_bam:
     shell:
         'ln -sr {input} {output}'
 
-        
-
 rule starsolo_clean_shmem:
     input:
         expand(rules.starsolo_quant.output, sample=SAMPLES)
@@ -109,6 +129,8 @@ rule starsolo_clean_shmem:
         genome_dir = rules.starsolo_quant.params.genome_dir
     output:
         temp(touch(join(STAR_INTERIM, '.starsolo.mem.cleaned')))
+    shadow:
+        'minimal'
     singularity:
         'docker://' + config['docker']['star']
     shell:
@@ -163,3 +185,38 @@ rule starsolo_bam_merge:
         'docker://' + config['docker']['sambamba']
     shell:
         'sambamba merge -t 8 {output} {input}'
+
+rule scanpy_barcodes:
+    input:
+        join(QUANT_INTERIM, '{anything}.h5ad')
+    output:
+        join(QUANT_INTERIM, '{anything}.h5ad.barcodes')
+
+
+rule scanpy_pp_ipynb:
+    input:
+        rules.scanpy_aggr_starsolo.output
+    output:
+        join(QUANT_INTERIM, 'aggregate', 'star', 'notebooks', 'all_samples_pp.txt')
+    log:
+        notebook = join(QUANT_INTERIM, 'aggregate', 'star', 'notebooks', 'all_samples_pp.ipynb')
+    threads:
+        24
+    singularity:
+        'docker://' + config['docker']['jupyter-scanpy']
+    notebook:
+        'scripts/single_cell_pp.py.ipynb'
+
+
+rule scanpy_pp_ipynb_html:
+    input:
+        rules.scanpy_pp_ipynb.log
+    output:
+        join(QUANT_INTERIM, 'aggregate', 'star', 'notebooks', 'all_samples_pp.html')
+    singularity:
+        'docker://' + config['docker']['jupyter-scanpy']
+    threads:
+        1
+    shell:
+        'jupyter nbconvert --to html {input} '
+

@@ -45,7 +45,7 @@ rule unitas_extra_reference:
     input:
         UNITAS_REFSEQ
     output:
-        temp(join(QUANT_INTERIM, 'unitas', 'refseq.fa'))
+        join(QUANT_INTERIM, 'unitas', 'refseq.fa')
     run:
         if len(input) > 0:
             shell('cat {input} > {output}')
@@ -62,15 +62,15 @@ if len(UNITAS_REFSEQ) > 0:
 
 rule unitas_rundir:
     input:
-        seqmap = rules.unitas_db.output.seqmap_exe
+        seqmap = rules.unitas_seqmap.output,
+        db_log = rules.unitas_db.log,
+        db = rules.unitas_db.output.db,
     output:
         seqmap = 'seqmap.exe'
     params:
         outdir = rules.unitas_db.output.db,
         seqmap = temp('seqmap.exe'),
-        db = directory('UNITAS_refdump_{}'.format(ORG))
-    params:
-        outdir = rules.unitas_db.params.refdir
+        db = directory('UNITAS_refdump_{}'.format(ORG)),
     shell:
         """
         cp {input.seqmap} .

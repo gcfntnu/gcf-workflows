@@ -10,7 +10,7 @@ df_gene = df_gene[cols]
 # add mitochondrial_protein_coding as a biotype category
 if 'gene_biotype' in df_gene.columns and 'seqname' in df_gene.columns:
     biotypes = df_gene.gene_biotype.copy()
-    biotypes[(F.seqname=="MT") & (F.gene_biotype=="protein_coding")] = "Mt_protein_coding"
+    biotypes[(df_gene.seqname=="MT") & (df_gene.gene_biotype=="protein_coding")] = "Mt_protein_coding"
     df_gene.gene_biotype = biotypes
 
-df_genes.to_csv(sys.stdout, sep='\t', index=False)
+df_gene.to_csv(sys.stdout, sep='\t', index=False)

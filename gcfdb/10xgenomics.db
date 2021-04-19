@@ -5,96 +5,105 @@ support.10xgenomics.com/single-cell-gene-expression/software/downloads
 
 """
 
-_URLS= {
-    'homo_sapiens': 'https://cf.10xgenomics.com/supp/cell-exp/refdata-gex-GRCh38-2020-A.tar.gz',
-    'mus_musculus': 'https://cf.10xgenomics.com/supp/cell-exp/refdata-gex-mm10-2020-A.tar.gz',
-    'homo_sapiens__mus_musculus': 'https://cf.10xgenomics.com/supp/cell-exp/refdata-gex-GRCh38-and-mm10-2020-A.tar.gz',
-    'ercc': 'http://cf.10xgenomics.com/supp/cell-exp/refdata-cellranger-ercc92-1.2.0.tar.gz',
-    'whitelist_v1': 'https://folk.ntnu.no/geiramh/10xgenomics/737K-april-2014_rc.txt',
-    'whitelist_v2': 'https://folk.ntnu.no/geiramh/10xgenomics/737K-august-2016.txt',
-    'whitelist_v3': 'https://folk.ntnu.no/geiramh/10xgenomics/3M-february-2018.txt',
-    'sc3pv2_indexset': 'http://cf.10xgenomics.com/supp/cell-exp/chromium-shared-sample-indexes-plate.csv'}
-
 _ASSEMBLY = {'homo_sapiens': 'GRCh38',
              'mus_musculus': 'GRCm38',
-             'homo_sapiens__mus_musculus': 'GRCh38_GRCm38'
-}
+             'homo_sapiens__mus_musculus': 'GRCh38_GRCm38'}
 
 # config
-ORG = config.get('organism', 'homo_sapiens')
+ORG = config['organism']
 if ORG not in ['homo_sapiens', 'mus_musculus', 'homo_sapiens__mus_musculus']:
-    raise ValueError('No 10x prebuild for org: {}'.format(ORG))
+    logger.error('No 10x prebuild for org: {}'.format(ORG))
 
 DB_CONF = config['db'].get('10xgenomics', {})
-TX_RELEASE = DB_CONF['release']
-TX_ASSEMBLY = config['db']['assembly'] = DB_CONF['assembly'] = _ASSEMBLY[ORG]
+TX_RELEASE = DB_CONF.get('release', '2020-A')
+TX_ASSEMBLY = config['db']['assembly'] = DB_CONF['assembly'] = _ASSEMBLY.get(ORG, '')
 
-config['db']['10xgenomics'] = DB_CONF
-OUTDIR = join(EXT_DIR, '10xgenomics', ORG, 'release-{}'.format(TX_RELEASE), TX_ASSEMBLY)
+
 
 rule txgenomics_whitelist_v1:
     params:
-        url = _URLS['whitelist_v1'],
-        date = datetime.now().strftime("%d-%m-%Y")
+        url = 'https://gcf-winecellar.medisin.ntnu.no/10xgenomics/whitelists/737K-april-2014_rc.txt',
+        date = datetime.now().strftime("%d-%m-%Y"),
+        proxy = config.get('proxy', {}).get('wget', ''),
     output:
-        join(OUTDIR, '737K-april-2014_rc.txt')
+        join(EXT_DIR, '10xgenomics', '737K-april-2014_rc.txt')
     log:
-        join(OUTDIR, 'logs', '737K-april-2014_rc.log')
+        join(EXT_DIR, '10xgenomics', 'logs', '737K-april-2014_rc.log')
     shell:
         """
-        wget -O {output} {params.url}
+        wget {params.proxy} -O {output} {params.url}
         echo "10xGenomics whitelist v1,NA,{params.url},{params.date}" > {log}
         """
         
 rule txgenomics_whitelist_v2:
     params:
-        url = _URLS['whitelist_v2'],
-        date = datetime.now().strftime("%d-%m-%Y")
+        url = 'https://gcf-winecellar.medisin.ntnu.no/10xgenomics/whitelists/737K-august-2016.txt',
+        date = datetime.now().strftime("%d-%m-%Y"),
+        proxy = config.get('proxy', {}).get('wget', '')
     output:
-        join(OUTDIR, '737K-august-2016.txt.txt')
+        join(EXT_DIR, '10xgenomics', '737K-august-2016.txt.txt')
     log:
-        join(OUTDIR, 'logs', '737K-august-2016.txt.log')
+        join(EXT_DIR, '10xgenomics', 'logs', '737K-august-2016.txt.log')
     shell:
         """
-        wget -O {output} {params.url}
+        wget {params.proxy} -O {output} {params.url}
         echo "10xGenomics whitelist v2,NA,{params.url},{params.date}" > {log}
         """
         
 rule txgenomics_whitelist_v3:
     params:
-        url = _URLS['whitelist_v3'],
-        date = datetime.now().strftime("%d-%m-%Y")
+        url = 'https://gcf-winecellar.medisin.ntnu.no/10xgenomics/whitelists/3M-february-2018.txt',
+        date = datetime.now().strftime("%d-%m-%Y"),
+        proxy = config.get('proxy', {}).get('wget', '')
     output:
-        join(OUTDIR, '3M-february-2018.txt')
+        join(EXT_DIR, '10xgenomics', '3M-february-2018.txt')
     log:
-        join(OUTDIR, 'logs', '3M-february-2018.txt.log')
+        join(EXT_DIR, '10xgenomics', 'logs', '3M-february-2018.txt.log')
     shell:
         """
-        wget -O {output} {params.url}
+        wget {params.proxy} -O {output} {params.url}
         echo "10xGenomics whitelist v3,NA,{params.url},{params.date}" > {log}
         """
 
+def get_10x_url(wildcards):
+    base = 'https://cf.10xgenomics.com/supp/cell-exp'
+    if wildcards.organism == 'homo_sapiens':
+        if not wildcards.assembly == 'GRCh38':
+            raise KeyError('10x homo sapiens genome is only GRCh38 assembly')
+        fn = 'refdata-gex-{}-{}.tar.gz'.format(wildcards.assembly, wildcards.release)
+    elif wildcards.organism == 'mus_musculus':
+        if not wildcards.assembly == 'GRCm38':
+            raise KeyError('10x mus musculus genome is only GRCm38 assembly')
+        assembly = 'mm10'
+        fn = 'refdata-gex-{}-{}.tar.gz'.format(assembly, wildcards.release)
+    elif wildcards.organism == 'homo_sapiens_mus_musculus':
+        fn = 'refdata-gex-GRCh38-and-mm10-2020-A.tar.gz'
+    else:
+        raise ValueError('`{}` is not a supported organism for 10x prebuilds'.format(wildcards.organism))
+    return join(base, fn)
+
+def get_10x_prefix(wildcards):
+    base = join(EXT_DIR, '10xgenomics', 'release-{}', '{}', '{}')
+    prefix = base.format(wildcards.release, wildcards.organism, wildcards.assembly)
+    return prefix
+
+    
 rule txgenomics_org_prebuild:
     params:
-        url = _URLS[ORG],
-        out = OUTDIR,
-        date = datetime.now().strftime("%d-%m-%Y")
+        url = get_10x_url,
+        out = get_10x_prefix,
+        date = datetime.now().strftime("%d-%m-%Y"),
+        proxy = ''
     output:
-        json = join(OUTDIR, 'reference.json'),
-        gtf = join(OUTDIR, 'genes', 'genes.gtf'),
-        fasta = join(OUTDIR, 'fasta', 'genome.fa'),
-        star_index = join(OUTDIR, 'star', 'SA')
+        json = join(EXT_DIR, '10xgenomics', 'release-{release}', '{organism}', '{assembly}', 'reference.json'),
+        gtf = join(EXT_DIR, '10xgenomics', 'release-{release}', '{organism}', '{assembly}', 'anno', 'genes.gtf'),
+        fasta = join(EXT_DIR, '10xgenomics', 'release-{release}', '{organism}', '{assembly}', 'fasta', 'genome.fa'),
+        star_index = join(EXT_DIR, '10xgenomics', 'release-{release}', '{organism}', '{assembly}', 'star', 'SA')
     log:
-        join(OUTDIR, 'logs', '10x-reference.log')
+        join(EXT_DIR, '10xgenomics', 'release-{release}', '{organism}', '{assembly}', 'logs', '10x-reference.log')
     shell:
         """
-        curl {params.url} | tar xvz --strip-components=1 -C {params.out}
+        curl {params.proxy} {params.url} | tar xvz --strip-components=1 -C {params.out}
+        ln -s {params.out}/genes/genes.gtf {params.out}/anno
         echo "10xGenomics reference,NA,{params.url},{params.date}" > {log}
         """
-
-rule txgenomics_all:
-    input:
-        join(OUTDIR, '737K-april-2014_rc.txt'),
-        join(OUTDIR, '737K-august-2016.txt.txt'),
-        join(OUTDIR, '3M-february-2018.txt'),
-        join(OUTDIR, 'reference.json')

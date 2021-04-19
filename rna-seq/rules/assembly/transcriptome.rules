@@ -14,7 +14,7 @@ def get_merge_bam(wildcards):
 
 rule stringtie:
     input:
-        gtf = join(BASE_REF_DIR, 'genes', 'genes.gtf'),
+        gtf = join(BASE_REF_DIR, 'anno', 'genes.gtf'),
         bam = assembly_sorted_bam
     output:
         gtf = join(ASSEMBLY_INTERIM, 'stringtie', '{sample}.gtf')
@@ -77,7 +77,7 @@ rule scallop_gtf_list:
 rule taco_merge:
     input:
         assembled_gtfs = join(ASSEMBLY_INTERIM, 'tmp', '{assembler}', 'assembled_gtfs.txt'),
-        gtf = join(BASE_REF_DIR, 'genes', 'genes.gtf'),
+        gtf = join(BASE_REF_DIR, 'anno', 'genes.gtf'),
         genome = join(BASE_REF_DIR, 'fasta', 'genome.fa')
     output:
         gtf = join(ASSEMBLY_INTERIM, 'taco', '{assembler}', 'assembly.gtf')
@@ -104,7 +104,7 @@ rule taco_merge:
 rule stringtie_merge:
     input:
         assembled_gtfs = ASSEMBLY_INTERIM +'/tmp/{assembler}assembled_gtfs.txt',
-        gtf = join(BASE_REF_DIR, 'genes', 'genes.gtf'),
+        gtf = join(BASE_REF_DIR, 'anno', 'genes.gtf'),
         genome = join(BASE_REF_DIR, 'fasta', 'genome.fa')
     output:
         gtf = join(ASSEMBLY_INTERIM,  'stringtie_merge', '{assembler}' 'assembly.refcomp.gtf')
@@ -124,7 +124,7 @@ rule stringtie_merge:
         
 rule taco_refcomp:
     input:
-        gtf_ref = join(BASE_REF_DIR, 'genes', 'genes.gtf'),
+        gtf_ref = join(BASE_REF_DIR, 'anno', 'genes.gtf'),
         gtf = join(ASSEMBLY_INTERIM, 'taco', '{assembler}', 'assembly.gtf'),
         genome = join(BASE_REF_DIR, 'fasta', 'genome.fa')
     params:
@@ -150,7 +150,7 @@ rule taco_refcomp:
 rule assembly_gffcompare:
     input:
         gtf = join(ASSEMBLY_INTERIM, '{merger}', '{assembler}', 'assembly.refcomp.gtf'),
-        ref_gtf = join(BASE_REF_DIR, 'genes', 'genes.gtf'),
+        ref_gtf = join(BASE_REF_DIR, 'anno', 'genes.gtf'),
         genome = join(BASE_REF_DIR, 'fasta', 'genome.fa')
     output:
         tmap = join(ASSEMBLY_INTERIM, '{merger}', '{assembler}', 'gff.assembly.refcomp.gtf.tmap')
@@ -164,7 +164,7 @@ rule assembly_gffcompare:
 rule assembly_uniq:
     input:
         gtf = join(ASSEMBLY_INTERIM, '{merger}', '{assembler}', 'assembly.refcomp.gtf'),
-        ref_gtf = join(BASE_REF_DIR, 'genes', 'genes.gtf'),
+        ref_gtf = join(BASE_REF_DIR, 'anno', 'genes.gtf'),
         tmap = join(ASSEMBLY_INTERIM, '{merger}', '{assembler}', 'gff.assembly.refcomp.gtf.tmap')
     output:
          join(ASSEMBLY_INTERIM, '{merger}', '{assembler}', 'unique.gtf')

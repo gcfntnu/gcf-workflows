@@ -18,10 +18,10 @@ from snakemake.utils import update_config, min_version
 min_version("5.10.0")
 TMPDIR = os.environ.get('TMPDIR', '/tmp')
 # environment variables can override config file
-INTERIM_DIR = environ.get('GCF_INTERIM') or config.get('interim_dir', 'data/tmp/')
+INTERIM_DIR = config.get('interim_dir') or environ.get('GCF_INTERIM', 'data/tmp')
 makedirs(INTERIM_DIR, exist_ok=True)
-EXT_DIR = environ.get('GCF_EXT') or config.get('ext_dir', 'data/ext')
-FASTQ_DIR =  environ.get('GCF_FASTQ') or config.get('fastq_dir','data/raw/fastq')
+EXT_DIR = config.get('ext_dir') or environ.get('GCF_EXT', 'data/ext')
+FASTQ_DIR =  config.get('fastq_dir') or environ.get('GCF_FASTQ', 'data/raw/fastq') 
 while FASTQ_DIR.endswith(os.path.sep):
     FASTQ_DIR = FASTQ_DIR[:-1]
 makedirs(FASTQ_DIR, exist_ok=True)
@@ -57,6 +57,19 @@ def update_config2(config, extra_config):
         return d
     return _update(config, extra_config)
 
+def config_val2list(d):
+    """Split comma separated values into list of strings.
+    """
+    for key, value in d.items():
+        if (isinstance(value, collections.Mapping)):
+            d[key] = _update(d.get(key, {}), value)
+        else:
+            for key, val in d.items():
+                if isinstance(val, str) and ',' in val:
+                    d[key] = val.split(',')
+        return d
+    return _update(config)
+
 
 default_config_sections = ['db', 'quant', 'filter', 'analysis', 'qc', 'bfq', 'samples']
 for section in default_config_sections:
@@ -68,15 +81,22 @@ main_fn = srcdir('main.config')
 with open(main_fn) as fh:
     CONF = yaml.load(fh, Loader=Loader) or {}
 
+GCF_SECRET = os.environ.get('GCF_SECRET')
+if GCF_SECRET:
+    with open(GCF_SECRET) as fh:
+        SECRETS = yaml.load(fh, Loader=Loader) or {}
+    update_config(CONF, SECRETS)
+
 # library preparation kit specific configuration
 libprep_fn = srcdir('libprep.config')
 with open(libprep_fn) as fh:
     LIBPREP_CONF  = yaml.load(fh, Loader=Loader) or {}
 kit = config.get('libprepkit')
-if len(config['read_geometry']) > 1:
-    kit += ' PE'
-else:
-   kit += ' SE' 
+if kit is not None:
+    if len(config['read_geometry']) > 1:
+        kit += ' PE'
+    else:
+        kit += ' SE' 
 if kit in LIBPREP_CONF:
     # overwrite default config
     update_config(CONF, LIBPREP_CONF[kit])

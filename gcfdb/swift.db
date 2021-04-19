@@ -1,0 +1,66 @@
+#-*- mode:snakemake -*-
+"""
+SWIFT SARS-CoV-2 Panels
+https://swiftbiosci.com/accel-amplicon-data-and-bioinformatics-tools-downloads/
+"""
+
+url_v1 = "https://swiftbiosci.com/wp-content/uploads/2020/09/sarscov2_v1_masterfile.txt.zip"
+url_v2 = "https://swiftbiosci.com/wp-content/uploads/2020/09/sarscov2_v2_masterfile-2.txt.zip"
+
+SWIFT_EXT = join(EXT_DIR, 'swift', 'sars-cov2')
+
+rule swift_sars_cov2_panels_v2_masterfile:
+    params:
+        date = datetime.now().strftime("%d-%m-%Y"),
+        proxy = config.get('proxy', {}).get('wget', ''),
+        url = url_v2
+    output:
+        master = join(SWIFT_EXT, 'v2', 'anno', 'sarscov2_v2_masterfile.txt')
+    log:
+        join(SWIFT_EXT, 'logs', 'sarscov2_v2.log')
+    singularity:
+        'docker://' + config['docker']['default']
+    shadow:
+        'shallow'
+    shell:
+        """
+        wget {params.proxy} {params.url} -O temp.zip
+        unzip -p temp.zip -x __MAC* > {output}
+        echo "Swift sarscov2 masterfile,V2,{params.url},{params.date}" > {log}
+        """
+
+rule swift_sars_cov2_panels_v2_bed_non_merged:
+    input:
+        join(SWIFT_EXT, 'v2', 'anno', 'sarscov2_v2_masterfile.txt')
+    output:
+        join(SWIFT_EXT, 'v2', 'anno', 'sarscov2_v2_nonmerged.bed')
+    singularity:
+        'docker://' + config['docker']['default']
+    shell:
+        """
+        awk '{{print $1,$2,$3,$4}}' OFS="\\t" "{input}" | sort -k1,1n -k2,2n > {output}
+        """
+
+rule swift_sars_cov2_panels_v2_bed_merged:
+    input:
+        join(SWIFT_EXT, 'v2', 'anno', 'sarscov2_v2_nonmerged.bed')
+    output:
+        join(SWIFT_EXT, 'v2', 'anno', 'sarscov2_v2_merged.bed')
+    singularity:
+        'docker://' + config['docker']['bedtools']
+    shell:
+        """
+        bedtools intersect -a {input} -b {input} | awk 'a[$1FS$2FS$3]++' OFS="\t" > {output}
+        """
+
+rule swift_swift_sars_cov2_panels_v2_primers_bed:
+    input:
+        join(SWIFT_EXT, 'v2', 'anno', 'sarscov2_v2_masterfile.txt')
+    output:
+        join(SWIFT_EXT, 'v2', 'anno', 'sarscov2_v2_primers.bed')
+    singularity:
+        'docker://' + config['docker']['default']
+    shell:
+        """
+        awk '{{print $1,$5,$6,$7;print $1,$8,$9,$10}}' OFS="\\t" {input} > {output}
+        """
