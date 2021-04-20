@@ -3,24 +3,21 @@
 This is a part of the pipeline utilities at Genomics Core Facility (GCF),  Trondheim
 
 small-rna
-===================================
+============================
 small-rna Analysis Pipeline.
-
-Documentation: https://github.com/small-rna
-Authors:
-Arnar Flatberg / flatberg <arnar.flatberg@gmail.com>
 """
-
 include:
     srcdir('../utils.py')
-include:
-    srcdir('../common.rules')
 
 extra_conf_fn = srcdir('small-rna.config')
 if os.path.exists(extra_conf_fn):
     with open(extra_conf_fn) as fh:
         c  = yaml.load(fh, Loader=Loader) or {}
         update_config2(config, c)
+
+if not 'SAMPLES' in locals():
+    SAMPLES = [str(name) for name in config.get('samples', {}).keys()]
+
         
 kit = config.get('libprepkit', 'default-smallrna')
 if kit.startswith('Lexogen'):
@@ -33,10 +30,8 @@ if kit.startswith('Lexogen'):
             read_geometry[0] -= 4
         config['read_geometry'] = read_geometry
 
-        
-if not 'SAMPLES' in locals():
-    SAMPLES = list(config.get('samples', {}).keys())
-
+include:
+    srcdir('../common.rules')
 include:
     'rules/gcfdb.rules'
 include:

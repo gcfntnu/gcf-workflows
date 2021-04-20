@@ -6,20 +6,9 @@ microbiome-seq
 ===================================
 microbiome-seq Analysis Pipeline.
 
-Documentation: https://github.com/gcfntnu/microbiome
-Authors:
-Arnar Flatberg / flatberg <arnar.flatberg@ntnu.no>
 """
-
-
-from os import environ
-from os.path import abspath, join
-from snakemake.workflow import srcdir
-
 include:
     srcdir('../utils.py')
-include:
-    srcdir('../common.rules')
 
 extra_conf_fn = srcdir('microbiome-seq.config')
 if os.path.exists(extra_conf_fn):
@@ -27,10 +16,12 @@ if os.path.exists(extra_conf_fn):
         c  = yaml.load(fh, Loader=Loader) or {}
         update_config2(config, c)
 
-
 if not 'SAMPLES' in locals():
     SAMPLES = list(config.get('samples', {}).keys())
 
+
+include:
+    srcdir('../common.rules')
 include:
     'rules/reference_db.rules'
 include:

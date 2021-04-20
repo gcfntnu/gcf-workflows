@@ -10,14 +10,8 @@ Documentation: https://github.com/gcfntnu/rna-seq
 Authors:
 Arnar Flatberg / flatberg <arnar.flatberg@ntnu.no>
 """
-
-from os import environ
-from os.path import abspath, join
-
 include:
     srcdir('../utils.py')
-include:
-    srcdir('../common.rules')
 
 extra_conf_fn = srcdir('rna-seq.config')
 if os.path.exists(extra_conf_fn):
@@ -25,6 +19,8 @@ if os.path.exists(extra_conf_fn):
         c  = yaml.load(fh, Loader=Loader) or {}
         update_config2(config, c)
 
+if not 'SAMPLES' in locals():
+    SAMPLES = [str(name) for name in config.get('samples', {}).keys()]
 
 #fixme: move this part 
 if config['libprep_name'].startswith('Lexogen'):
@@ -37,12 +33,8 @@ if config['libprep_name'].startswith('Lexogen'):
             read_geometry[0] -= 8
         config['read_geometry'] = read_geometry
 
-        
-if not 'SAMPLES' in locals():
-    SAMPLES = list(config.get('samples', {}).keys())
-
-SAMPLES = [str(i) for i in SAMPLES]
-
+include:
+    srcdir('../common.rules')
 include:
     'rules/filter.rules'
 include:

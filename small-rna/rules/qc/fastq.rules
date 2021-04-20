@@ -111,7 +111,3 @@ rule qc_fastq_mirtrace:
         '--force '
         '{input} '
 
-
-rule qc_all:
-    input:
-        

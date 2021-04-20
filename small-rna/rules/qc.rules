@@ -12,7 +12,7 @@ include:
 rule qc_all:
     input:
         expand(rules.qc_fastq_fastqc.output, sample=SAMPLES),
-        expand(rules.qc_fastq_fastqscreen.output, sample=SAMLES),
+        expand(rules.qc_fastq_fastqscreen.output, sample=SAMPLES),
         rules.qc_fastq_mirtrace.output
         
             
