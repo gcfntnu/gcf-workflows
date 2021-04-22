@@ -86,7 +86,7 @@ rule bfq_logs:
     input:
         expand('logs/{sample}/{sample}.Log.final.out', sample=SAMPLES),
         expand('logs/{sample}/fastp.json', sample=SAMPLES),
-        expand(join(QC_INTERIM, 'fastqscreen', '{sample}', '{sample}_R1_screen.txt'), sample=SAMPLES)
+        expand(rules.qc_fastq_fastqscreen.output, sample=SAMPLES)
     output:     
         expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}.Log.final.out'), sample=SAMPLES),
         expand(join(BFQ_INTERIM, 'logs', '{sample}', 'fastp.json'), sample=SAMPLES),

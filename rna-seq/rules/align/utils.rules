@@ -28,9 +28,7 @@ rule picard_mark_duplicates:
         bai = join(ALIGN_INTERIM, ALIGNER, '{sample}.sorted.bai'),
         bai2 = join(ALIGN_INTERIM, ALIGNER, '{sample}.sorted.bam.bai'),
         md5 = join(ALIGN_INTERIM, ALIGNER, '{sample}.sorted.bam.md5'),
-        metrics = 'logs/{sample}/{sample}.rmdup.metrics'
-    log:
-        'logs/{sample}/{sample}.picard.rmdup.log'
+        metrics = join(ALIGN_INTERIM, ALIGNER, '{sample}.rmdup.metrics')
     params:
         java_opt="-Xms4g -Xmx4g ",
         dup_args = optical_dup_args()
