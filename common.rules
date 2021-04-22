@@ -44,7 +44,7 @@ else:
         shell:
             """
             mkdir -p {params.out}
-            fastqc -t {threads} -o {params.out} {input}'
+            fastqc -t {threads} -o {params.out} {input}
             """
 
 rule qc_fastq_fastqscreen_config:
