@@ -1,3 +1,4 @@
+workflow: rnaseq
 project_id:
 - GCF-2020-751
 organism: homo_sapiens

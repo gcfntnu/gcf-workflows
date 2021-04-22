@@ -1,3 +1,4 @@
+workflow: smallrna
 project_id:
 - GCF-2018-568
 organism: mus_musculus

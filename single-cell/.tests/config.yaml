@@ -1,3 +1,4 @@
+workflow: singlecell
 project_id:
 - GCF-2020-739
 organism: mus_musculus
