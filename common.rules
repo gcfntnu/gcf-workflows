@@ -1,4 +1,4 @@
-print("WPRKFLOW: {}".format(WORKFLOW))
+logger.info("WORKFLOW: {}".format(WORKFLOW))
 
 rule sample_info:
     output:
