@@ -19,7 +19,6 @@ if config['quant']['method'] == 'star':
 else:
     rule bfq_all:
         input:
-            rules.bfq_qc_common.output,
             rules.bfq_level2_exprs_cellranger.output,
             rules.bfq_level2_logs_cellranger.output,
             rules.bfq_level2_data_cellranger.output,

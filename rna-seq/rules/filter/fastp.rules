@@ -31,12 +31,10 @@ if PE:
             args = '--low_complexity_filter --overrepresentation_analysis --overrepresentation_sampling 1000 ',
             adapter_arg = '--adapter_sequence {} --adapter_sequence_r2 {} '.format(ADAPTER, ADAPTER2) if ADAPTER else '--detect_adapter_for_pe ',
             kit_args = config['filter']['trim'].get('fastp', {}).get('params', '')
-        log:
-            json = 'logs/{sample}/{sample}.fastp.json'
         singularity:
             'docker://' + config['docker']['fastp']
         shell:
-            'cat {input} | fastp --stdin --interleaved_in -o {output.R1} -O {output.R2} -j {output.log_json} -h {output.log_html} --thread {threads} {params} && cp {output.log_json} {log.json} '
+            'cat {input} | fastp --stdin --interleaved_in -o {output.R1} -O {output.R2} -j {output.log_json} -h {output.log_html} --thread {threads} {params} '
 
     rule fastp_join_skip:
         input:
@@ -50,12 +48,10 @@ if PE:
             1
         params:
             args = '--overrepresentation_analysis --overrepresentation_sampling 10000 -A -Q -L -G '
-        log:
-            json = 'logs/{sample}/fastp.json'
         singularity:
-            'docker://quay.io/biocontainers/fastp:0.19.7--hdbcaa40_0'
+            'docker://' + config['docker']['fastp']
         shell:
-            'cat {input} | fastp --stdin --interleaved_in -o {output.R1} -O {output.R2} -j {output.log_json} -h {output.log_html} --thread {threads} {params}  && cp {output.log_json} {log.json} '
+            'cat {input} | fastp --stdin --interleaved_in -o {output.R1} -O {output.R2} -j {output.log_json} -h {output.log_html} --thread {threads} {params} '
 
 else:
     rule fastp_join:
@@ -69,14 +65,12 @@ else:
             1        
         params:
             args = '--low_complexity_filter --overrepresentation_analysis --overrepresentation_sampling 10000 ',
-            adapter_arg = '--adapter_sequence {}'.format(ADAPTER) if ADAPTER else '',
+            adapter_arg = '--adapter_sequence {}'.format(ADAPTER) if ADAPTER else ' ',
             kit_args = config['filter']['trim'].get('fastp', {}).get('params', '')
-        log:
-            json = 'logs/{sample}/{sample}.fastp.json'
         singularity:
             'docker://' + config['docker']['fastp']
         shell:
-            ' zcat {input} | fastp --stdin -o {output.R1} -j {output.log_json} -h {output.log_html} --thread {threads} {params} && cp {output.log_json} {log.json} '
+            ' zcat {input} | fastp --stdin -o {output.R1} -j {output.log_json} -h {output.log_html} --thread {threads} {params} '
         
     rule fastp_join_skip:
         input:
@@ -89,9 +83,7 @@ else:
             1        
         params:
             args = '--overrepresentation_analysis --overrepresentation_sampling 10000 -A -Q -L -G'
-        log:
-            json = 'logs/{sample}/{sample}.fastp.json'
         singularity:
             'docker://' + config['docker']['fastp']
         shell:
-            ' zcat {input} | fastp --stdin -o {output.R1} -j {output.log_json} -h {output.log_html} --thread {threads} {params} && cp {output.log_json} {log.json} '
+            ' zcat {input} | fastp --stdin -o {output.R1} -j {output.log_json} -h {output.log_html} --thread {threads} {params} '

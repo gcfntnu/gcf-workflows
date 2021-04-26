@@ -7,7 +7,7 @@ BW2_INTERIM = join(ALIGN_INTERIM, 'bowtie2')
 
 rule bowtie2_align:
     input:
-        R1 = get_processed_fastq,
+        unpack(get_processed_fastq),
         index = join(REF_DIR, 'index', 'genome', 'bowtie2', 'genome' + '.1.bt2')
     output:
         R1 = join(BW2_INTERIM, '{sample}_R1_unmapped.fastq'),

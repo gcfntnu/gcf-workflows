@@ -5,14 +5,14 @@ include:
 
 rule mirge_symlink:
     input:
-        get_processed_fastq
+        unpack(get_processed_fastq)
     params:
         join(QUANT_INTERIM, 'mirge', 'fastq')
     output:
         join(QUANT_INTERIM, 'mirge', 'fastq', '{sample}.fastq')
     run:
         import os
-        src = abspath(input[0])
+        src = abspath(input.R1)
         dst = abspath(output[0])
         os.symlink(src, dst)
         print('symlinking: {} > {}'.format(src, dst))

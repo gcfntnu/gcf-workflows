@@ -1,5 +1,114 @@
 #-*- mode: snakemake -*-
 """
-
-
 """
+
+include: 
+    join(GCFDB_DIR, 'illumina.db')
+include: 
+    join(GCFDB_DIR, 'univec.db')
+
+PE = len(config['read_geometry']) > 1
+if PE:
+    rule qc_fastq_fastqc:
+        input:
+            unpack(get_processed_fastq)
+        output:
+            R1_zip = join(QC_INTERIM, 'fastqc', '{sample}_R1_fastqc.zip'),
+            R1_html = join(QC_INTERIM, 'fastqc', '{sample}_R1_fastqc.html'),
+            R2_zip = join(QC_INTERIM, 'fastqc', '{sample}_R2_fastqc.zip'),
+            R2_html = join(QC_INTERIM, 'fastqc', '{sample}_R2_fastqc.html'),           
+        params:
+            out = join(QC_INTERIM, 'fastqc')
+        threads:
+            2
+        singularity:
+            'docker://' + config['docker']['fastqc']
+        shell:
+            'fastqc -t {threads} -o {params.out} {input.R1} {input.R2} '
+else:
+   rule qc_fastq_fastqc:
+       input:
+           unpack(get_processed_fastq)
+       output:
+           R1_zip = join(QC_INTERIM, 'fastqc', '{sample}_R1_fastqc.zip'),
+           R1_html = join(QC_INTERIM, 'fastqc', '{sample}_R1_fastqc.html')
+       params:
+           out = join(QC_INTERIM, 'fastqc')
+       threads:
+           2
+       singularity:
+           'docker://' + config['docker']['fastqc']
+       shell:
+           'fastqc -t {threads} -o {params.out} {input.R1} '
+
+rule qc_fastq_illumina_seqs:
+    input:
+        join(EXT_DIR, 'illumina', 'adaptors', 'fasta', 'adaptors.fa'),
+        join(EXT_DIR, 'univec_illumina', 'fasta', 'univec_illumina.fa')
+    output:
+        join(EXT_DIR, 'illumina', 'adaptors_ext', 'fasta', 'adaptors_ext.fa')
+    shell:
+        'cat {input} > {output}'
+
+
+def qc_fastq_fastqscreen_indexes(*args, **kw):
+   """ Return name and index for screening databases.
+   """
+   # default human
+   release = config['db'].get('ensembl', {}).get('release', '103')
+   INDEXES = {'Human': join(EXT_DIR, 'ensembl', 'release-{}'.format(release), 'homo_sapiens', 'GRCh38', 'index', 'genome', 'bowtie2', 'genome.1.bt2')}
+   org = config.get('organism')
+   if org != 'homo_sapiens':
+      if config['db'].get('reference_db') == 'ensembl':
+         release = config['db']['ensembl']['release']
+         assembly = config['db']['ensembl']['assembly']
+         index = join(EXT_DIR, 'ensembl', 'release-{}'.format(release), org, assembly, 'index', 'genome', 'bowtie2', 'genome.1.bt2')
+         organism_name = config['db']['ensembl'].get('organism_name', org)
+         INDEXES[organism_name] = index
+   # contamination (univec minus phiX/Illumina sequences)
+   INDEXES['Contamination'] = join(EXT_DIR, 'univec_subset', 'index', 'univec_subset', 'bowtie2', 'univec_subset.1.bt2')
+   # phiX
+   INDEXES['PhiX'] = join(EXT_DIR, 'illumina', 'phix', 'index', 'phix', 'bowtie2', 'phix.1.bt2')
+   # illumina specific sequences
+   INDEXES['Adaptors/Primers'] = join(EXT_DIR, 'illumina', 'adaptors_ext', 'index', 'adaptors_ext', 'bowtie2', 'adaptors_ext.1.bt2')
+   return INDEXES
+
+rule qc_fastq_fastqscreen_config:
+    input:
+        unpack(qc_fastq_fastqscreen_indexes)
+    output:
+        fn = temp(os.path.abspath('fastq_screen.config'))
+    run:
+        import os
+        with open(output.fn, 'w') as fh:
+           for db_name, index in input.items():
+              index_dir = os.path.dirname(index)
+              base = os.path.basename(index).split('.')[0]
+              index_base = os.path.join(index_dir, base)
+              fh.write('DATABASE {} {}\n'.format(db_name.title(), index_base))
+       
+rule qc_fastq_fastqscreen:
+    input:
+        unpack(get_processed_fastq),
+        config = rules.qc_fastq_fastqscreen_config.output 
+    output:
+        join(QC_INTERIM, 'fastqscreen', '{sample}', '{sample}_R1_screen.txt')
+    params:
+        args = '-q --force',
+        subset = 400000,
+        top = '10000 ',
+        outdir = join(QC_INTERIM, 'fastqscreen', '{sample}')
+    threads:
+        4
+    singularity:
+        'docker://' + config['docker']['fastq-screen']
+    shell:
+        'fastq_screen '
+        '--aligner bowtie2 '
+        '--threads {threads} '
+        '--top {params.top} '
+        '--conf {input.config} '
+        '--outdir {params.outdir} '
+        '{params.args} '
+        '{input.R1} '
+        

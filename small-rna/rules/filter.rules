@@ -21,6 +21,6 @@ rule filtered_fastq:
         'cp -Lf {input} {output}'
         
 def get_processed_fastq(wildcards):
-    return join(FILTER_INTERIM, 'cleaned', '{sample}_R1.fastq')
+    return {'R1': join(FILTER_INTERIM, 'cleaned', '{sample}_R1.fastq')}
 
     

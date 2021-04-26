@@ -6,7 +6,7 @@ include:
     
 rule quickmirseq_symlink:
     input:
-        fastq = get_processed_fastq
+        unpack(get_processed_fastq)
     params:
         fastq_dir = join(QUANT_INTERIM, 'quickmirseq', 'fastq'),
         samples = join(QUANT_INTERIM, 'quickmirseq', 'allids.txt')
@@ -14,7 +14,7 @@ rule quickmirseq_symlink:
         fastq = join(QUANT_INTERIM, 'quickmirseq', 'fastq', '{sample}.fastq')
     run:
         import os
-        src = abspath(input.fastq)
+        src = abspath(input.R1)
         dst = abspath(output.fastq)
         os.symlink(src, dst)
         #print('symlinking: {} > {}'.format(src, dst))

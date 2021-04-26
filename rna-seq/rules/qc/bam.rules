@@ -174,7 +174,7 @@ rule preseq_lc_extrap:
     singularity:
         'docker://' + config['docker']['preseq']
     threads:
-        1
+        4
     shell:
         """
         preseq lc_extrap -B {input.bam} {params} -o {output}
@@ -273,6 +273,8 @@ rule qualimap_rnaseq:
         'logs/{sample}/rnaseq_qc_results.txt'
     singularity:
         'docker://' + config['docker']['qualimap']
+    threads:
+        8
     shell:
         """
         unset DISPLAY

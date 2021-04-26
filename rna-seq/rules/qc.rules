@@ -26,7 +26,9 @@ if len(config['read_geometry']) > 1:
             expand(rules.rseqc_inner_distance.output, sample=SAMPLES),
             expand(rules.qualimap_rnaseq.output, sample=SAMPLES),
             expand(rules.salmon_meta_info.output, sample=SAMPLES),
-            expand(rules.salmon_flendist.output, sample=SAMPLES)
+            expand(rules.salmon_flendist.output, sample=SAMPLES),
+            expand(rules.qc_fastq_fastqc.output, sample=SAMPLES),
+            expand(rules.qc_fastq_fastqscreen.output, sample=SAMPLES)
 else:
     rule qc_all:
         input:
@@ -37,8 +39,20 @@ else:
             expand(rules.preseq_lc_extrap.output, sample=SAMPLES),
             expand(rules.qorts.output, sample=SAMPLES),
             expand(rules.qualimap_rnaseq.output, sample=SAMPLES),
-            expand(rules.salmon_meta_info.output, sample=SAMPLES)
-        
+            expand(rules.salmon_meta_info.output, sample=SAMPLES),
+            expand(rules.qc_fastq_fastqc.output, sample=SAMPLES),
+            expand(rules.qc_fastq_fastqscreen.output, sample=SAMPLES)
             
 include:
     'qc/multiqc.rules'
+
+rule bfq_qc_fastq:
+    input:
+        expand(rules.qc_fastq_fastqc.output, sample=SAMPLES),
+        expand(rules.qc_fastq_fastqscreen.output, sample=SAMPLES)
+    output:
+        expand(join(BFQ_INTERIM, 'fastqscreen', '{sample}', '{sample}_screen.txt'), sample=SAMPLES),
+        expand(join(BFQ_INTERIM, 'fastqc', '{sample}', '{sample}_R1_fastqc.zip'), sample=SAMPLES)
+    run:
+        for src, dst in zip(input, output):
+            shell('ln -srf {src} {dst}')

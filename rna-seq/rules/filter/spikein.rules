@@ -6,7 +6,7 @@ include:
     join(GCFDB_DIR, 'spikein.db')
 
 SPIKE_DIR = join(EXT_DIR, 'spikein')
-SPIKE_CONF = FILTER_CONF.get('spikein')
+SPIKE_CONF = config.get('filter', {}).get('spikein')
 if SPIKE_CONF is None:
    config['filter']['spikein'] = SPIKE_CONF = {}
 REF = config['filter']['spikein'].get('ref', 'ERCC092')

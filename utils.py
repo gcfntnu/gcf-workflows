@@ -29,15 +29,6 @@ while FASTQ_DIR.endswith(os.path.sep):
     FASTQ_DIR = FASTQ_DIR[:-1]
 makedirs(FASTQ_DIR, exist_ok=True)
 GCFDB_DIR = srcdir("gcfdb")
-WORKFLOW = config.get("workflow")
-if WORKFLOW is None:
-    config["workflow"] = WORKFLOW = "default"
-BFQ_INTERIM = join(INTERIM_DIR, WORKFLOW, "bfq")
-QC_INTERIM = join(INTERIM_DIR, WORKFLOW, "qc")
-QUANT_INTERIM = join(INTERIM_DIR, WORKFLOW, "quant")
-FILTER_INTERIM = join(INTERIM_DIR, WORKFLOW, "filter")
-ALIGN_INTERIM = join(INTERIM_DIR, WORKFLOW, "align")
-ANALYSIS_INTERIM = join(INTERIM_DIR, WORKFLOW, "analysis")
 
 
 def update_config2(config, extra_config):
@@ -124,6 +115,19 @@ else:
 
 # update config (config.yaml). Does not update if key exists
 update_config2(config, CONF)
+
+# workflow specific variables 
+WORKFLOW = config.get("workflow")
+if WORKFLOW is None:
+    config["workflow"] = WORKFLOW = "default"
+BFQ_INTERIM = join(INTERIM_DIR, WORKFLOW, "bfq")
+QC_INTERIM = join(INTERIM_DIR, WORKFLOW, "qc")
+QUANT_INTERIM = join(INTERIM_DIR, WORKFLOW, "quant")
+FILTER_INTERIM = join(INTERIM_DIR, WORKFLOW, "filter")
+ALIGN_INTERIM = join(INTERIM_DIR, WORKFLOW, "align")
+ANALYSIS_INTERIM = join(INTERIM_DIR, WORKFLOW, "analysis")
+
+
 
 # docker images
 docker_fn = srcdir("docker.config")

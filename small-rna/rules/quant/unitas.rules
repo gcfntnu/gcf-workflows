@@ -21,7 +21,7 @@ def get_unitas_seq(wildcards):
     if config['filter']['trim']['quantifier'] == 'mirtrace':
         fastq = join(FILTER_INTERIM, 'mirtrace', 'unitas_fasta', '{sample}_R1.fasta')
     else:
-        fastq = get_processed_fastq(wildcards)
+        fastq = get_processed_fastq(wildcards)['R1']
     return fastq
 
 

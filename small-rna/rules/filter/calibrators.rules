@@ -25,13 +25,6 @@ def get_spikein_fasta():
         return join(EXT_DIR, 'spikein', 'fasta', 'smallrna_calibrators.fa')
     else:
         return join(INTERIM_DIR, 'merged_spikein', 'fasta', 'merged_spikein.fa')
-    
-rule merged_spikein_fasta:
-    input:
-        join(EXT_DIR, 'ERCC92', 'fasta', 'ERCC92.fa'),
-        join(EXT_DIR, 'smallrna_calibrators', 'smallrna_calibrators.fa')
-    output:
-        join(INTERIM_DIR, 'merged_spikein', 'fasta', 'merged_spikein.fa')
 
 rule spikein_filter_bowtie:
     input:

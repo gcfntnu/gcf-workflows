@@ -79,9 +79,43 @@ rule univec_core_anno:
         grep '>' {input} | sed 's/ /\t/' > {output}
         """
 
+rule univec_core_subset:
+    input:
+        rules.contaminants_univec_core_fasta.output
+    output:
+        join(EXT_DIR, 'univec_subset', 'fasta', 'univec_subset.fa')
+    singularity:
+        'docker://' + config['docker']['seqkit']
+    shell:
+        'seqkit grep -n -i -r -v -p spike -p ercc -p control -p illumina -p X174 {input} > {output} '
+
+rule univec_core_spikeins:
+    input:
+        rules.contaminants_univec_core_fasta.output
+    output:
+        join(EXT_DIR, 'univec_spikein', 'fasta', 'univec_spikein.fa')
+    singularity:
+        'docker://' + config['docker']['seqkit']
+    shell:
+        'seqkit grep -n -i -r -p spike -p ercc -p control {input} > {output} '
+
+rule univec_core_illumina_seqs:
+    input:
+        rules.contaminants_univec_core_fasta.output
+    output:
+        join(EXT_DIR, 'univec_illumina', 'fasta', 'univec_illumina.fa')
+    singularity:
+        'docker://' + config['docker']['seqkit']
+    shell:
+        'seqkit grep -n -i -r -p illumina {input} > {output} '    
+        
+
 rule univec_db_all:
     input:
         join(EXT_DIR, 'univec', 'index', 'univec', 'bowtie', 'univec.1.ebwt'),
-        join(EXT_DIR, 'univec', 'index', 'univec', 'bowtie2', 'univec.1.bt2'),  
+        join(EXT_DIR, 'univec', 'index', 'univec', 'bowtie2', 'univec.1.bt2'),
         join(EXT_DIR, 'univec_core', 'index', 'univec_core', 'bowtie', 'univec_core.1.ebwt'),
-        join(EXT_DIR, 'univec_core', 'index', 'univec_core', 'bowtie2', 'univec_core.1.bt2')
+        join(EXT_DIR, 'univec_core', 'index', 'univec_core', 'bowtie2', 'univec_core.1.bt2'),
+        join(EXT_DIR, 'univec_subset', 'fasta', 'univec_subset.fa'),
+        join(EXT_DIR, 'univec_spikein', 'fasta', 'univec_spikein.fa'),
+        join(EXT_DIR, 'univec_illumina', 'fasta', 'univec_illumina.fa')

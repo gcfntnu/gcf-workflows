@@ -36,7 +36,7 @@ def star_genome_dir():
         
 rule star_align:
     input:
-        get_processed_fastq,
+        unpack(get_processed_fastq),
         genome = join(star_genome_dir(), 'SA'),
         gtf = join(REF_DIR, 'anno', 'genes.gtf')
     params:
