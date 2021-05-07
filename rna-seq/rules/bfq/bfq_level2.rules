@@ -74,6 +74,16 @@ else:
             expand(rules.picard_rnametrics.output, sample=SAMPLES),
             expand(rules.salmon_meta_info.output, sample=SAMPLES)
 
+rule bfq_level2_qc_fastq:
+    input:
+        expand(rules.qc_fastq_fastqscreen.output, sample=SAMPLES),
+        expand(rules.qc_fastq_fastqc.output, sample=SAMPLES),
+    output:
+        expand(join(BFQ_INTERIM, 'fastqscreen', '{sample}', '{sample}_screen.txt'), sample=SAMPLES),
+        expand(join(BFQ_INTERIM, 'fastqc', '{sample}', '{sample}_R1_fastqc.zip'), sample=SAMPLES)
+    run:
+        for src, dst in zip(input, output):
+            shell('ln -srf {src} {dst}')
 
 rule bfq_level2_exprs:
     input:
@@ -124,4 +134,5 @@ rule bfq_level2_all:
         join(BFQ_INTERIM, 'figs', 'gene_high_mqc.yaml'),
         rules.bfq_level2_qc.input,
         rules.bfq_level2_exprs.output,
-        rules.bfq_level2_aligned.output
+        rules.bfq_level2_aligned.output,
+        rules.bfq_level2_qc_fastq.output
