@@ -46,13 +46,3 @@ else:
 include:
     'qc/multiqc.rules'
 
-rule bfq_qc_fastq:
-    input:
-        expand(rules.qc_fastq_fastqc.output, sample=SAMPLES),
-        expand(rules.qc_fastq_fastqscreen.output, sample=SAMPLES)
-    output:
-        expand(join(BFQ_INTERIM, 'fastqscreen', '{sample}', '{sample}_screen.txt'), sample=SAMPLES),
-        expand(join(BFQ_INTERIM, 'fastqc', '{sample}', '{sample}_R1_fastqc.zip'), sample=SAMPLES)
-    run:
-        for src, dst in zip(input, output):
-            shell('ln -srf {src} {dst}')

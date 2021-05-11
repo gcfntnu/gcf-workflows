@@ -77,14 +77,19 @@ if len(config['read_geometry']) > 1:
 else:
     rule bfq_level2_qc:
         input:
+            expand(rules.qc_fastq_fastqscreen.output, sample=SAMPLES),
+            expand(rules.qc_fastq_fastqc.output, sample=SAMPLES),
             expand(rules.picard_rnametrics.output.metrics, sample=SAMPLES),
             expand(rules.salmon_map.output.meta_log, sample=SAMPLES)
         output:
+            expand(join(BFQ_INTERIM, 'fastqscreen', '{sample}', '{sample}_screen.txt'), sample=SAMPLES),
+            expand(join(BFQ_INTERIM, 'fastqc', '{sample}', '{sample}_R1_fastqc.zip'), sample=SAMPLES),
             expand(join(BFQ_INTERIM, 'logs', '{sample}.rnaseq.metrics'), sample=SAMPLES),
             expand(join(BFQ_INTERIM, 'logs', '{sample}', 'aux_info', 'meta_info.json'), sample=SAMPLES)
         run:
             for src, dst in zip(input, output):
                 shell('ln -srf {src} {dst}')
+
 
 rule bfq_level2_exprs:
     input:
@@ -136,4 +141,3 @@ rule bfq_level2_all:
         rules.bfq_level2_qc.output,
         rules.bfq_level2_exprs.output,
         rules.bfq_level2_aligned.output
-

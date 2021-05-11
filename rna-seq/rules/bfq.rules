@@ -13,3 +13,10 @@ rule bfq_all:
 
 
 rule bfq_multiqc:
+        join(BFQ_INTERIM, 'figs', 'pca_mqc.yaml'),
+        join(BFQ_INTERIM, 'figs', 'gene_biotypes_mqc.yaml'),
+        join(BFQ_INTERIM, 'figs', 'gene_high_mqc.yaml'),
+        rules.bfq_level2_qc_fastq.output,
+        rules.bfq_level2_qc.input,
+        rules.bfq_level2_exprs.output,
+        rules.bfq_level2_aligned.output
