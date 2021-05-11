@@ -1,6 +1,5 @@
-import shutil
 
-rule bfq_pca:
+rule bfq_level2_pca:
     input:
         join(QUANT_INTERIM, 'unitas', 'adata.h5ad')
     output:
@@ -15,7 +14,7 @@ rule bfq_pca:
         '--input {input} '
         '--output {output} '
 
-rule bfq_mirna_high:
+rule bfq_level2_mirna_high:
     input:
         exprs = join(QUANT_INTERIM, 'unitas', 'adata.h5ad')
     params:
@@ -29,7 +28,7 @@ rule bfq_mirna_high:
         '{input.exprs} '
         '--output {output} '
 
-rule bfq_exprs:
+rule bfq_level2_exprs:
     input:
         rules.unitas_mirtable.output,
         rules.unitas_trftable.output,
@@ -37,17 +36,17 @@ rule bfq_exprs:
         rules.unitas_isotrftable.output,
         rules.unitas_annotations.output
     output:
-        join(BFQ_INTERIM, 'mir_counts.tsv'),
-        join(BFQ_INTERIM, 'trf_counts.tsv'),
-        join(BFQ_INTERIM, 'isomir_counts.tsv'),
-        join(BFQ_INTERIM, 'isomir_counts_anno.tsv'),
-        join(BFQ_INTERIM, 'isotrf_counts.csv'),
-        join(BFQ_INTERIM, 'annotations.tsv')
+        join(BFQ_INTERIM, 'exprs', 'mir_counts.tsv'),
+        join(BFQ_INTERIM, 'exprs', 'trf_counts.tsv'),
+        join(BFQ_INTERIM, 'exprs', 'isomir_counts.tsv'),
+        join(BFQ_INTERIM, 'exprs', 'isomir_counts_anno.tsv'),
+        join(BFQ_INTERIM, 'exprs', 'isotrf_counts.csv'),
+        join(BFQ_INTERIM, 'exprs', 'annotations.tsv')
     run:
         for src, dst in zip(input, output):
             shell('ln -sr {src} {dst}')
         
-rule bfq_unitas:
+rule bfq_level2_unitas:
     input:
         expand(rules.unitas.output.html, sample=SAMPLES)
     output:
@@ -60,37 +59,46 @@ rule bfq_unitas:
             os.makedirs(os.path.dirname(bfq_dir), exist_ok=True)
             os.symlink(unitas_output_dir, bfq_dir)
 
-rule bfq_mirtrace:
+rule bfq_level2_mirtrace:
     input:
         join(MIRTRACE_DIR, 'mirtrace-results.json'),
         rules.qc_fastq_mirtrace.output.length
     output:
-        join(BFQ_INTERIM, 'qc', 'mirtrace-results.json'),
-        join(BFQ_INTERIM, 'qc', 'mirtrace-stats-length.tsv')
+        join(BFQ_INTERIM, 'logs', 'mirtrace-results.json'),
+        join(BFQ_INTERIM, 'logs', 'mirtrace-stats-length.tsv')
     run:
         for src, dst in zip(input, output):
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             shell('ln -sr {src} {dst}')
-        
 
-rule bfq_aligned:
+rule bfq_level2_aligned:
     input:
         expand(join(ALIGN_INTERIM, 'star', '{sample}.sorted.bam'), sample=SAMPLES)
     output:
-        expand(join(BFQ_INTERIM, 'aligned', '{sample}.sorted.bam'), sample=SAMPLES)
+        expand(join(BFQ_INTERIM, 'align', '{sample}.sorted.bam'), sample=SAMPLES)
     run:
         for src, dst in zip(input, output):
             shell('ln -sr {src} {dst}')
 
-rule bfq_logs:
+rule bfq_level2_logs:
     input:
         expand('logs/{sample}/{sample}.Log.final.out', sample=SAMPLES),
         expand('logs/{sample}/fastp.json', sample=SAMPLES),
-        expand(rules.qc_fastq_fastqscreen.output, sample=SAMPLES)
+        expand(rules.qc_fastq_fastqscreen.output, sample=SAMPLES),
+        expand(rules.qc_fastq_fastqc.output, sample=SAMPLES)
     output:     
         expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}.Log.final.out'), sample=SAMPLES),
         expand(join(BFQ_INTERIM, 'logs', '{sample}', 'fastp.json'), sample=SAMPLES),
-        expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}_screen.txt'), sample=SAMPLES)
+        expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}_screen.txt'), sample=SAMPLES),
+        expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}_R1_fastqc.zip'), sample=SAMPLES)
     run:
         for src, dst in zip(input, output):
-            shell('ln -sr {src} {dst}')
+            shell('ln -srf {src} {dst}')
+
+rule bfq_level2_all:
+    input:
+        join(BFQ_INTERIM, 'figs', 'pca_mqc.yaml'),
+        join(BFQ_INTERIM, 'figs', 'gene_high_mqc.yaml'),
+        rules.bfq_level2_logs.output,
+        rules.bfq_level2_exprs.output,
+        rules.bfq_level2_aligned.output

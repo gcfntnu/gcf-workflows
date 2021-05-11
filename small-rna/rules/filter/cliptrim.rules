@@ -13,30 +13,6 @@ rule filter_merge_fastq:
     shell:
         'zcat {input.R1} > {output.R1}'
 
-rule filter_adapter_atropos:
-    input:
-        fastq = join(FILTER_INTERIM, 'fastq', '{sample}.fastq')
-    output:
-        trimmed = temp(join(FILTER_INTERIM, 'atropos', '{sample}.trimmed.fastq')),
-        untrimmed = temp(join(FILTER_INTERIM, 'atropos', '{sample}.untrimmed.fastq'))
-    params:
-        args = '--mirna'
-    singularity:
-        'docker://' + config['docker']['atropos']
-    threads:
-        4
-    log:
-        'logs/{sample}/atropos.log'
-    shell:
-        'atropos trim '
-        '-se {input.fastq} '
-        '--untrimmed-output {output.untrimmed} '
-        '-o {output.trimmed} '
-        '-T {threads} '
-        '{params.args} '
-        ' > {log} '
-        '&& test -f {output.untrimmed} || touch {output.untrimmed}'
-
 rule filter_umidedup:
     input:
         fastq = rules.filter_merge_fastq.output
@@ -50,8 +26,7 @@ rule filter_umidedup:
         'docker://' + config['docker']['bioseqzip']
     shell:
         'bioseqzip_collapse -i {input} --csv-report -f fastq -o {params.outdir} -t {threads}'
-
-
+        
 rule trim_fastp:
     input:
         fastq = rules.filter_umidedup.output if config['filter'].get('dedup', False) else rules.filter_merge_fastq.output
@@ -78,9 +53,11 @@ rule trim_fastp:
         
 rule filter_fastp:
     input:
-        fastq = rules.trim_fastp.output
+        fastq = rules.trim_fastp.output.fastq
     output:
-        fastq = temp(join(FILTER_INTERIM, 'fastp', '{sample}.fastq'))
+        fastq = temp(join(FILTER_INTERIM, 'fastp', '{sample}.fastq')),
+        json = join(FILTER_INTERIM, 'fastp', '{sample}.json'),
+        html = join(FILTER_INTERIM, 'fastp', '{sample}.html')
     params:
         args = config['filter']['trim']['fastp']['args'],
         adapter = config['adapter']
@@ -88,16 +65,13 @@ rule filter_fastp:
         4
     singularity:
         'docker://' + config['docker']['fastp']
-    log:
-        html = 'logs/{sample}/fastp.html',
-        json = 'logs/{sample}/fastp.json'
     shell:
         'fastp '
         '-i {input.fastq} '
         '-o {output.fastq} '
         '{params.args} ' 
-        '--json {log.json} '
-        '--html {log.html} '
+        '--json {output.json} '
+        '--html {output.html} '
 
 rule filter_mirtrace_config:
     input:

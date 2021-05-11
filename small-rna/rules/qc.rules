@@ -7,10 +7,3 @@ QC_INTERIM = join(INTERIM_DIR, 'smallrna', 'qc')
      
 include:
     'qc/fastq.rules'
-
-
-rule qc_smallrna_all:
-    input:
-        rules.qc_fastq_mirtrace.output
-        
-            

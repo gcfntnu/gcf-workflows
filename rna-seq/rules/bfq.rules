@@ -1,5 +1,6 @@
 BFQ_INTERIM = join(INTERIM_DIR, 'rnaseq', 'bfq')
-
+include:
+    'bfq/bfq_level1.rules'
 include:
     'bfq/bfq_level2.rules'
 include:
@@ -7,10 +8,8 @@ include:
     
 rule bfq_all:
     input:
-        join(BFQ_INTERIM, 'figs', 'pca_mqc.yaml'),
-        join(BFQ_INTERIM, 'figs', 'gene_biotypes_mqc.yaml'),
-        join(BFQ_INTERIM, 'figs', 'gene_high_mqc.yaml'),
-        rules.bfq_qc_fastq.output,
-        rules.bfq_level2_qc.input,
-        rules.bfq_level2_exprs.output,
-        rules.bfq_level2_aligned.output
+        rules.bfq_level1_all.input,
+        rules.bfq_level2all.input
+
+
+rule bfq_multiqc:

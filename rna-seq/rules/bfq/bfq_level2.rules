@@ -62,18 +62,29 @@ rule bfq_level2_gene_high:
 if len(config['read_geometry']) > 1:
     rule bfq_level2_qc:
         input:
-            rules.align_all.input,
-            expand(rules.picard_rnametrics.output, sample=SAMPLES),
-            expand(rules.picard_insertsize.output, sample=SAMPLES),
-            expand(rules.salmon_flendist.output, sample=SAMPLES),
-            expand(rules.salmon_meta_info.output, sample=SAMPLES)
+            expand(rules.picard_rnametrics.output.metrics, sample=SAMPLES),
+            expand(rules.picard_insertsize.output.log, sample=SAMPLES),
+            expand(rules.rules.salmon_map.output.dist_log, sample=SAMPLES),
+            expand(rules.salmon_map.output.meta_log, sample=SAMPLES)
+        output:
+            expand(join(BFQ_INTERIM, 'logs', '{sample}.rnaseq.metrics'), sample=SAMPLES),
+            expand(join(BFQ_INTERIM, 'logs', '{sample}.insert_size_metric.tsv'), sample=SAMPLES),
+            expand(join(BFQ_INTERIM, 'logs', '{sample}', 'libParams', 'flenDist.txt'), sample=SAMPLES),
+            expand(join(BFQ_INTERIM, 'logs', '{sample}', 'aux_info', 'meta_info.json'), sample=SAMPLES)
+        run:
+            for src, dst in zip(input, output):
+                shell('ln -srf {src} {dst}')
 else:
     rule bfq_level2_qc:
         input:
-            rules.align_all.input,
-            expand(rules.picard_rnametrics.output, sample=SAMPLES),
-            expand(rules.salmon_meta_info.output, sample=SAMPLES)
-
+            expand(rules.picard_rnametrics.output.metrics, sample=SAMPLES),
+            expand(rules.salmon_map.output.meta_log, sample=SAMPLES)
+        output:
+            expand(join(BFQ_INTERIM, 'logs', '{sample}.rnaseq.metrics'), sample=SAMPLES),
+            expand(join(BFQ_INTERIM, 'logs', '{sample}', 'aux_info', 'meta_info.json'), sample=SAMPLES)
+        run:
+            for src, dst in zip(input, output):
+                shell('ln -srf {src} {dst}')
 
 rule bfq_level2_exprs:
     input:
@@ -122,6 +133,7 @@ rule bfq_level2_all:
         join(BFQ_INTERIM, 'figs', 'pca_mqc.yaml'),
         join(BFQ_INTERIM, 'figs', 'gene_biotypes_mqc.yaml'),
         join(BFQ_INTERIM, 'figs', 'gene_high_mqc.yaml'),
-        rules.bfq_level2_qc.input,
+        rules.bfq_level2_qc.output,
         rules.bfq_level2_exprs.output,
         rules.bfq_level2_aligned.output
+

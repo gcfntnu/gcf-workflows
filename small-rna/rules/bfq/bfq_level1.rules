@@ -1,0 +1,20 @@
+rule bfq_level1_qc:
+    input:
+        expand(rules.)
+        expand(rules.qc_fastq_fastqc.output, sample=SAMPLES),
+        expand(rules.qc_fastq_fastqscreen.output, sample=SAMPLES)
+    output:
+        expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}_screen.txt'), sample=SAMPLES),
+        expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}_R1_fastqc.zip'), sample=SAMPLES)
+    run:
+        for src, dst in zip(input, output):
+            shell('ln -srf {src} {dst}')
+            
+rule bfq_level1_mirtrace:
+    input:
+        rules.qc_fastq_mirtrace.output
+
+
+rule bfq_level1_all:
+    input:
+        rules.bfq_level1_qc.output

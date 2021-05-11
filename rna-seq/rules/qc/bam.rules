@@ -11,7 +11,7 @@ http://smithlabresearch.org/software/preseq/
 
 """
 
-BAM_QCDIR = join(ALIGN_INTERIM, ALIGNER, 'QC')
+BAM_QCDIR = join(ALIGN_INTERIM, ALIGNER, 'qc')
 RSEQC_QCDIR = join(BAM_QCDIR, 'rseqc')
 QORT_QCDIR = join(BAM_QCDIR, 'qort')
 PRESEQ_QCDIR = join(BAM_QCDIR, 'preseq')
@@ -108,20 +108,15 @@ rule rseqc_tin:
         'docker://' + config['docker']['rseqc']
     output:
         tin = join(RSEQC_QCDIR, '{sample}.tin.xls'),
-        summary = join(RSEQC_QCDIR, '{sample}.summary.txt')
+        summary = join(RSEQC_QCDIR, '{sample}.tin.summary.txt')
     params:
         tin = lambda wildcards, input: basename(input.bam).replace('.bam', '') + '.tin.xls',
         summary = lambda wildcards, input: basename(input.bam).replace('.bam', '') + '.summary.txt'
-    log:
-        tin = 'logs/{sample}/{sample}.tin.xls',
-        summary = 'logs/{sample}/{sample}.summary.txt'
     shell:
         """
         tin.py -i {input.bam} -r {input.bed} 
         mv {params.tin} {output.tin}
         mv {params.summary} {output.summary}
-        cp {output.tin} {log.tin}
-        cp {output.summary} {log.summary}
         """
 
 rule rseqc_tin_log:
@@ -145,8 +140,6 @@ rule qorts:
         outdir = lambda wildcards, output: os.path.dirname(output.log)
     output:
         log = join(QORT_QCDIR, '{sample}', 'QC.summary.txt')
-    log:
-        join('logs', '{sample}', 'QC.summary.txt')
     threads:
         4
     singularity:
@@ -160,15 +153,12 @@ rule qorts:
         '{input.bam} '
         '{input.gtf} '
         '{params.outdir} '
-        '&& '
-        'cp {output.log} {log} '
         
 rule preseq_lc_extrap:
     input:
         bam = join(ALIGN_INTERIM, ALIGNER, '{sample}' + '.sorted.bam')
     output:
-        log = join(PRESEQ_QCDIR, '{sample}.ccurve.txt'),
-        log2 = 'logs/{sample}/{sample}.ccurve.txt'
+        log = join(PRESEQ_QCDIR, '{sample}.ccurve.txt')
     params:
         '-P -seg_len 9000000 ' if len(config['read_geometry']) > 1 else ''
     singularity:
@@ -176,10 +166,7 @@ rule preseq_lc_extrap:
     threads:
         4
     shell:
-        """
-        preseq lc_extrap -B {input.bam} {params} -o {output}
-        cp {output.log} {output.log2}
-        """
+        'preseq lc_extrap -B {input.bam} {params} -o {output}'
 
 rule create_ribo_bed:
     input:
@@ -188,12 +175,13 @@ rule create_ribo_bed:
         join(REF_DIR, 'genes', 'rrna.bed')
     singularity:
         'docker://' + config['docker']['ucsc-scripts']
+    shadow:
+        'minimal'
     shell:
         """
         grep -i rrna {input.gtf} > rrna.gtf
         gtfToGenePred rrna.gtf rrna.genepred
         genePredToBed rrna.genepred {output}
-        rm rrna.gtf rrna.genepred
         """
         
 rule create_ribo_intervals:
@@ -216,10 +204,8 @@ rule picard_rnametrics:
         ref_flat = join(REF_DIR, 'anno', 'genes.refflat.gz'),
         rrna = rules.create_ribo_intervals.output
     output:
-        metrics = join(PICARD_QCDIR, '{sample}.rnaseq.metrics')
-    log:
-        metrics = 'logs/{sample}/{sample}.rnaseq.metrics',
-        log_out = 'logs/{sample}/{sample}.log'
+        metrics = join(PICARD_QCDIR, '{sample}.rnaseq.metrics'),
+        log = join(PICARD_QCDIR, '{sample}.rnaseq.log')
     params:
         java_opt='-Xms4g -Xmx4g'
     threads:
@@ -228,8 +214,7 @@ rule picard_rnametrics:
         'docker://' + config['docker']['picard_gatk']
     shell:
         """
-        picard CollectRnaSeqMetrics {params.java_opt} INPUT={input.bam} OUTPUT={output.metrics} REF_FLAT={input.ref_flat} STRAND=SECOND_READ_TRANSCRIPTION_STRAND ASSUME_SORTED=TRUE RIBOSOMAL_INTERVALS={input.rrna} VALIDATION_STRINGENCY=SILENT 2> {log.log_out} 
-        cp {output.metrics} {log.metrics}
+        picard CollectRnaSeqMetrics {params.java_opt} INPUT={input.bam} OUTPUT={output.metrics} REF_FLAT={input.ref_flat} STRAND=SECOND_READ_TRANSCRIPTION_STRAND ASSUME_SORTED=TRUE RIBOSOMAL_INTERVALS={input.rrna} VALIDATION_STRINGENCY=SILENT 2> {output.log}
         """
 
 rule picard_insertsize:
@@ -245,7 +230,6 @@ rule picard_insertsize:
     shell:
         """
         picard CollectInsertSizeMetrics INPUT={input.bam} H={output.pdf} OUTPUT={output.log}
-        cp {output.log} {log}
         """
 
 def qualimap_strand():
