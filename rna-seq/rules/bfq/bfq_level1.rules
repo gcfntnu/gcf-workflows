@@ -2,8 +2,8 @@
 if len(config['read_geometry']) > 1:
     rule bfq_level1_qc:
         input:
-            expand(rules.qc_fastq_fastqc.output, sample=SAMPLES),
-            expand(rules.qc_fastq_fastqscreen.output, sample=SAMPLES)
+            expand(rules.qc_fastq_fastqscreen.output, sample=SAMPLES),
+            expand(rules.qc_fastq_fastqc.output, sample=SAMPLES)
         output:
             expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}_screen.txt'), sample=SAMPLES),
             expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}_R1_fastqc.zip'), sample=SAMPLES),
@@ -14,12 +14,11 @@ if len(config['read_geometry']) > 1:
 else:
     rule bfq_level1_qc:
         input:
+            expand(rules.qc_fastq_fastqscreen.output, sample=SAMPLES),
             expand(rules.qc_fastq_fastqc.output, sample=SAMPLES),
-            expand(rules.qc_fastq_fastqscreen.output, sample=SAMPLES)
         output:
             expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}_screen.txt'), sample=SAMPLES),
-            expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}_R1_fastqc.zip'), sample=SAMPLES),
-            expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}_R2_fastqc.zip'), sample=SAMPLES)
+            expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}_R1_fastqc.zip'), sample=SAMPLES)
         run:
             for src, dst in zip(input, output):
                 shell('ln -srf {src} {dst}')

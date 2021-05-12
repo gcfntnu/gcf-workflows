@@ -78,7 +78,7 @@ rule qc_fastq_fastqscreen:
         unpack(get_processed_fastq),
         config = rules.qc_fastq_fastqscreen_config.output 
     output:
-        join(QC_INTERIM, 'fastqscreen', '{sample}', '{sample}_R1_screen.txt')
+        screen = join(QC_INTERIM, 'fastqscreen', '{sample}', '{sample}_R1_screen.txt')
     params:
         args = '-q --force',
         subset = 400000,

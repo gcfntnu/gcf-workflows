@@ -12,16 +12,15 @@ rule fastp_10x_R2:
     input:
         unpack(get_raw_fastq)
     output:
-        temp(join(FILTER_INTERIM, 'fastp_10x', '{sample}_R2.trimmed.fastq'))
+        temp(join(FILTER_INTERIM, 'fastp_10x', '{sample}_R2.trimmed.fastq')),
+        log_html = join(FILTER_INTERIM, 'fastp_10x', '{sample}_R2.html'),
+        log_json = join(FILTER_INTERIM, 'fastp_10x', '{sample}_R2.json')        
     singularity:
         'docker://' + config['docker']['fastp']
     params:
         config['filter']['trim']['fastp']['params']
-    log:
-        json = 'logs/{sample}/fastp.json',
-        html = 'logs/{sample}/fastp.html' 
     shell:
-        'zcat {input.R2} | fastp --stdin -o {output} -j {log.json} -h {log.html} {params}'
+        'zcat {input.R2} | fastp --stdin -o {output} -j {output.log_json} -h {output.log_html} {params} '
 
 rule fastp_10x_repair:
     input:

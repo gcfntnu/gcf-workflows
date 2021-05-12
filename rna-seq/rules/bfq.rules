@@ -9,14 +9,13 @@ include:
 rule bfq_all:
     input:
         rules.bfq_level1_all.input,
-        rules.bfq_level2all.input
-
+        rules.bfq_level2_all.input
 
 rule bfq_multiqc:
+    input:
         join(BFQ_INTERIM, 'figs', 'pca_mqc.yaml'),
         join(BFQ_INTERIM, 'figs', 'gene_biotypes_mqc.yaml'),
         join(BFQ_INTERIM, 'figs', 'gene_high_mqc.yaml'),
-        rules.bfq_level2_qc_fastq.output,
-        rules.bfq_level2_qc.input,
+        rules.bfq_level2_qc.output,
         rules.bfq_level2_exprs.output,
         rules.bfq_level2_aligned.output

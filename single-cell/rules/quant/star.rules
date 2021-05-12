@@ -97,7 +97,6 @@ rule starsolo_quant:
         star = join(STAR_INTERIM, '{sample}', 'Log.final.out'),
         barcodes = join(STAR_INTERIM, '{sample}', 'Solo.out', 'Gene', 'Barcodes.stats'),
         umi_cell = join(STAR_INTERIM, '{sample}', 'Solo.out', 'Gene', 'UMIperCellSorted.txt')
-        
     shell:
         'STAR --soloType CB_UMI_Simple '
         ' --readFilesCommand zcat '

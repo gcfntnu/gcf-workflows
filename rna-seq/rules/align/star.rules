@@ -49,11 +49,10 @@ rule star_align:
         genome_dir = star_genome_dir(),
         args = config['align']['star']['args']
     output:
-        bam = temp(join(STAR_INTERIM, '{sample}.Aligned.sortedByCoord.out.bam'))
+        bam = temp(join(STAR_INTERIM, '{sample}.Aligned.sortedByCoord.out.bam')),
+        log = join(STAR_INTERIM, '{sample}.Log.final.out')
     threads:
        48
-    log:
-        'logs/{sample}/{sample}.Log.final.out'
     singularity:
         'docker://' + config['docker']['star']
     shell: 
@@ -63,8 +62,6 @@ rule star_align:
         '--outFileNamePrefix {params.prefix} '
         '--readFilesIn {params.fastq} '
         '{params.args} '
-        '&& '
-        'cp {params.prefix}Log.final.out {log} '
 
 rule star_all:
     input:

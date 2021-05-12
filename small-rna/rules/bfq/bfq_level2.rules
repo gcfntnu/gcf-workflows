@@ -44,7 +44,7 @@ rule bfq_level2_exprs:
         join(BFQ_INTERIM, 'exprs', 'annotations.tsv')
     run:
         for src, dst in zip(input, output):
-            shell('ln -sr {src} {dst}')
+            shell('ln -srf {src} {dst}')
         
 rule bfq_level2_unitas:
     input:
@@ -69,7 +69,7 @@ rule bfq_level2_mirtrace:
     run:
         for src, dst in zip(input, output):
             os.makedirs(os.path.dirname(dst), exist_ok=True)
-            shell('ln -sr {src} {dst}')
+            shell('ln -srf {src} {dst}')
 
 rule bfq_level2_aligned:
     input:
@@ -78,19 +78,15 @@ rule bfq_level2_aligned:
         expand(join(BFQ_INTERIM, 'align', '{sample}.sorted.bam'), sample=SAMPLES)
     run:
         for src, dst in zip(input, output):
-            shell('ln -sr {src} {dst}')
+            shell('ln -srf {src} {dst}')
 
 rule bfq_level2_logs:
     input:
-        expand('logs/{sample}/{sample}.Log.final.out', sample=SAMPLES),
-        expand('logs/{sample}/fastp.json', sample=SAMPLES),
-        expand(rules.qc_fastq_fastqscreen.output, sample=SAMPLES),
-        expand(rules.qc_fastq_fastqc.output, sample=SAMPLES)
+        expand(join(ALIGN_INTERIM, 'star', '{sample}.Log.final.out'), sample=SAMPLES),
+        expand(join(FILTER_INTERIM, 'fastp_trimmed', '{sample}.json'), sample=SAMPLES)
     output:     
         expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}.Log.final.out'), sample=SAMPLES),
-        expand(join(BFQ_INTERIM, 'logs', '{sample}', 'fastp.json'), sample=SAMPLES),
-        expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}_screen.txt'), sample=SAMPLES),
-        expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}_R1_fastqc.zip'), sample=SAMPLES)
+        expand(join(BFQ_INTERIM, 'logs', '{sample}', 'fastp.json'), sample=SAMPLES)
     run:
         for src, dst in zip(input, output):
             shell('ln -srf {src} {dst}')
