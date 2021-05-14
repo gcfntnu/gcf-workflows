@@ -16,7 +16,7 @@ include:
 if not 'REF_DIR' in locals():
    raise ValueError
 
-if config['read_orientation'] is None:
+if config.get('read_orientation') is None:
    LIB_TYPE = 'A'
 else:
    PE = len(config['read_geometry']) > 1

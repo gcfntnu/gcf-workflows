@@ -67,8 +67,8 @@ if len(config['read_geometry']) > 1:
             expand(rules.rules.salmon_map.output.dist_log, sample=SAMPLES),
             expand(rules.salmon_map.output.meta_log, sample=SAMPLES)
         output:
-            expand(join(BFQ_INTERIM, 'logs', '{sample}.rnaseq.metrics'), sample=SAMPLES),
-            expand(join(BFQ_INTERIM, 'logs', '{sample}.insert_size_metric.tsv'), sample=SAMPLES),
+            expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}.rnaseq.metrics'), sample=SAMPLES),
+            expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}.insert_size_metric.tsv'), sample=SAMPLES),
             expand(join(BFQ_INTERIM, 'logs', '{sample}', 'libParams', 'flenDist.txt'), sample=SAMPLES),
             expand(join(BFQ_INTERIM, 'logs', '{sample}', 'aux_info', 'meta_info.json'), sample=SAMPLES)
         run:
@@ -80,7 +80,7 @@ else:
             expand(rules.picard_rnametrics.output.metrics, sample=SAMPLES),
             expand(rules.salmon_map.output.meta_log, sample=SAMPLES)
         output:
-            expand(join(BFQ_INTERIM, 'logs', '{sample}.rnaseq.metrics'), sample=SAMPLES),
+            expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}.rnaseq.metrics'), sample=SAMPLES),
             expand(join(BFQ_INTERIM, 'logs', '{sample}', 'aux_info', 'meta_info.json'), sample=SAMPLES)
         run:
             for src, dst in zip(input, output):

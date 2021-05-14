@@ -197,7 +197,17 @@ rule create_ribo_intervals:
         '-I {input.bed} '
         '-O {output} '
         '-SD {input.genome} '
-        
+
+
+def picard_strand():
+    strand = config.get('read_orientation', 'reverse')
+    if strand == 'reverse':
+        return 'SECOND_READ_TRANSCRIPTION_STRAND'
+    elif strand == 'forward':
+        return 'FIRST_READ_TRANSCRIPTION_STRAND'
+    else:
+        return 'NONE'
+
 rule picard_rnametrics:
     input:
         bam = join(ALIGN_INTERIM, ALIGNER, '{sample}' + '.sorted.bam'),
@@ -207,14 +217,15 @@ rule picard_rnametrics:
         metrics = join(PICARD_QCDIR, '{sample}.rnaseq.metrics'),
         log = join(PICARD_QCDIR, '{sample}.rnaseq.log')
     params:
-        java_opt='-Xms4g -Xmx4g'
+        java_opt='-Xms4g -Xmx4g',
+        strand = picard_strand()
     threads:
         2
     singularity:
         'docker://' + config['docker']['picard_gatk']
     shell:
         """
-        picard CollectRnaSeqMetrics {params.java_opt} INPUT={input.bam} OUTPUT={output.metrics} REF_FLAT={input.ref_flat} STRAND=SECOND_READ_TRANSCRIPTION_STRAND ASSUME_SORTED=TRUE RIBOSOMAL_INTERVALS={input.rrna} VALIDATION_STRINGENCY=SILENT 2> {output.log}
+        picard CollectRnaSeqMetrics {params.java_opt} INPUT={input.bam} OUTPUT={output.metrics} REF_FLAT={input.ref_flat} STRAND={params.strand} ASSUME_SORTED=TRUE RIBOSOMAL_INTERVALS={input.rrna} VALIDATION_STRINGENCY=SILENT 2> {output.log}
         """
 
 rule picard_insertsize:
@@ -233,7 +244,7 @@ rule picard_insertsize:
         """
 
 def qualimap_strand():
-    strand = config['read_geometry']
+    strand = config.get('read_orientation', 'reverse')
     if strand == 'reverse':
         return 'strand-specific-reverse'
     elif strand == 'forward':
