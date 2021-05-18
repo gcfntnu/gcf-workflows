@@ -5,8 +5,13 @@
 ### designed to be executed with SARTools 1.6.6
 ### run "Rscript template_script_DESeq2_CL.r --help" to get some help
 ################################################################################
+suppressPackageStartupMessages(library(SARTools))
+library(optparse)
+library(stringr)
+
 rm(list=ls())                                        # remove all the objects from the R session
-library(optparse)                                    # to run the script in command lines
+
+
 
 # options list with associated default value.
 option_list <- list( 
@@ -41,7 +46,7 @@ make_option(c("-m", "--metaFile"),
             help="path to the features info file [default: %default]."),
 
 make_option(c("-R", "--templateFile"),
-            default="src/rna-seq/rules/analysis/diff_expr/scripts/GCF_DESeq2.rmd",
+            default="src/gcf-workflows/rna-seq/rules/analysis/diff_expr/scripts/GCF_DESeq2.rmd",
             dest="templateFile",
             help="path to the directory R markdown template [default: %default]."),
 
@@ -49,6 +54,11 @@ make_option(c("-F", "--featuresToRemove"),
             default="alignment_not_unique,ambiguous,no_feature,not_aligned,too_low_aQual",
             dest="FTR",
             help="names of the features to be removed, more than once can be specified [default: %default]"),
+
+make_option(c("-G", "--featureType"),
+            default="gene",
+            dest="featureType",
+            help="feature type. either `gene` or `transcript` [default: %default]"),
 			
 make_option(c("-v", "--varInt"),
             default="group",
@@ -147,14 +157,15 @@ locfunc <- opt$locfunc                               # "median" (default) or "sh
 colors <- unlist(strsplit(opt$cols, ","))            # vector of colors of each biologicial condition on the plots
 forceCairoGraph <- opt$forceCairoGraph				 # force cairo as plotting device if enabled
 
-if (!is.null(opt$subset)){
-    subset <- unlist(strsplit(opt$subset, ","))
-} else{
-    subset <- opt$subset
+subset <- opt$subset
+if (!is.null(subset)){
+    if (grepl( ",", subset, fixed = TRUE)){
+        subset <- unlist(strsplit(opt$subset, ","))
+    }
 }
 
 print(paste("workDir", workDir))
-print(paste("subset", subset))
+print(paste("subset", as.character(subset)))
 options(echo=TRUE)
 
 # print(paste("projectName", projectName))
@@ -178,7 +189,7 @@ options(echo=TRUE)
 ###                             running script                               ###
 ################################################################################
 
-library(SARTools)
+
 if (forceCairoGraph) options(bitmapType="cairo")
 
 # checking parameters
@@ -195,10 +206,14 @@ loadTargetFile <- function(targetFile, varInt, condRef, batch, subset=NULL){
     target <- read.table(targetFile, header=TRUE, sep="\t", na.strings="", check.names=FALSE)
     rownames(target) <- as.character(target[,1])
     if (!is.null(subset)){
+        if (grepl( "::", subset, fixed = TRUE)){
+            s <- unlist(str_split(subset, "::"))
+            subset <- rownames(target)[target[,s[1]] == s[2]]
+        }
         target <- target[subset,]
         factor_cols <- vapply(target, is.factor, logical(1))
         target[factor_cols] <- lapply(target[factor_cols], factor)
-    } 
+    }
     if (!I(varInt %in% names(target))) stop(paste("The factor of interest", varInt, "is not in the target file"))
     if (!is.null(batch)){
         if (!I(batch %in% names(target))){
@@ -222,7 +237,11 @@ loadTargetFile <- function(targetFile, varInt, condRef, batch, subset=NULL){
     ##if (!is.null(batch) && is.numeric(target[,batch])) warning(paste("The", batch, "variable is numeric. Use factor() or rename the levels with letters to convert it into a factor"))
     ##if (any(grepl("[[:punct:]]", as.character(target[,varInt])))) stop(paste("The", varInt, "variable contains punctuation characters, please remove them"))
     cat("Target file:\n")
-    print(target)
+    print(head(target))
+    keep.cols <- c(varInt)
+    if (!is.null(batch)) keep.cols <- c(keep.cols, batch)
+    if ("Sample_Biosource" %in% colnames(target))  keep.cols <- c(keep.cols, "Sample_Biosource")
+    target <- target[,keep.cols]
     return(target)
 }
 
@@ -230,28 +249,96 @@ target <- loadTargetFile(targetFile=targetFile, varInt=varInt, condRef=condRef, 
 
 
 # loading counts
-##counts <- loadCountData(target=target, rawDir=rawDir, featuresToRemove=featuresToRemove)
-counts <- read.delim(countsFile, sep="\t", check.names=FALSE, as.is=TRUE, row.names=1)
+if (tools::file_ext(countsFile) == "rds"){
+    library(tximport)
+    txi <- readRDS(countsFile)
+    print("txi loaded")
+    if (opt$featureType == "gene"){
+        txi <- summarizeToGene(txi, txi$tx2gene)
+        counts <- as.data.frame(txi$counts)
+        print(head(counts, n=3))
+    } else{
+        counts <- txi$counts
+    }
+} else{
+    counts <- read.delim(countsFile, sep="\t", check.names=FALSE, as.is=TRUE, row.names=1)
+}
+
 counts <- as.matrix(round(counts))
 counts <- counts[,rownames(target)]
 
+
 ## load features meta info
 info <- read.delim(opt$metaFile, sep="\t", check.names=FALSE, as.is=TRUE)
-i <- grep("gene_id.?", colnames(info))[1]
-rownames(info) <- info[,i]
-keep.cols <- intersect(c("gene_id", "gene_name", "gene_biotype", "seqname"), colnames(info))
+if (opt$featureType == "gene"){
+    i <- grep("gene_id.?", colnames(info))[1]
+    rownames(info) <- info[,i]
+    keep.cols <- intersect(c("gene_id", "gene_name", "gene_biotype", "seqname"), colnames(info))
+}
+
+if (opt$featureType == "transcript"){
+    i <- grep("transcript_id.?", colnames(info))[1]
+    rownames(info) <- info[,i]
+    keep.cols <- intersect(c("transcript_id", "transcript_name", "transcript_biotype", "seqname"), colnames(info))
+}
+
 info <- info[,keep.cols]
 info <- info[rownames(counts),]
 
-#setwd(output)
-
-# description plots
+## description plots
 majSequences <- descriptionPlots(counts=counts, group=target[,varInt], col=colors)
 
-# analysis with DESeq2
-out.DESeq2 <- run.DESeq2(counts=counts, target=target, varInt=varInt, batch=batch,
-                         locfunc=locfunc, fitType=fitType, pAdjustMethod=pAdjustMethod,
-                         cooksCutoff=cooksCutoff, independentFiltering=independentFiltering, alpha=alpha)
+## analysis with DESeq2
+runDESeq <- function(counts, target, varInt, batch=NULL, locfunc="median", fitType="parametric", pAdjustMethod="BH",
+                     cooksCutoff=TRUE, independentFiltering=TRUE, alpha=0.05, ...){
+    ## building dds object
+    des <- formula(paste("~", ifelse(!is.null(batch), paste(batch,"+"), ""), varInt))
+    if (class(counts) == "list"){ #tximport
+        dds <- DESeqDataSetFromTximport(counts, colData=target, design=des)
+        dds <- estimateSizeFactors(dds, locfunc=eval(as.name(locfunc)))
+        print(head(normalizationFactors(dds)))
+        sizeFactors(dds) <- colMedians(normalizationFactors(dds)) 
+    } else{
+        dds <- DESeqDataSetFromMatrix(counts, colData=target, design=des)
+        dds <- estimateSizeFactors(dds, locfunc=eval(as.name(locfunc)))
+    }
+    
+    cat("Design of the statistical model:\n")
+    cat(paste(as.character(design(dds)), collapse=" "),"\n")					  
+  
+    ## normalization
+    cat("\nNormalization factors:\n")
+    
+    print(sizeFactors(dds))
+    
+    ## estimating dispersions
+    dds <- estimateDispersions(dds, fitType=fitType)
+  
+    ## statistical testing: perform all the comparisons between the levels of varInt
+    dds <- nbinomWaldTest(dds, ...)
+    results <- list()
+    for (comp in combn(nlevels(colData(dds)[,varInt]), 2, simplify=FALSE)){
+        levelRef <- levels(colData(dds)[,varInt])[comp[1]]
+        levelTest <- levels(colData(dds)[,varInt])[comp[2]]
+        results[[paste0(levelTest,"_vs_",levelRef)]] <- results(dds, contrast=c(varInt, levelTest, levelRef),
+                                                                pAdjustMethod=pAdjustMethod, cooksCutoff=cooksCutoff,
+                                                                independentFiltering=independentFiltering, alpha=alpha)
+        cat(paste("Comparison", levelTest, "vs", levelRef, "done\n"))
+    }
+  
+    return(list(dds=dds, results=results, sf=sizeFactors(dds)))
+}
+
+
+if (tools::file_ext(countsFile) == "rds"){
+    out.DESeq2 <- runDESeq(counts=txi, target=target, varInt=varInt, batch=batch,
+                           locfunc=locfunc, fitType=fitType, pAdjustMethod=pAdjustMethod,
+                           cooksCutoff=cooksCutoff, independentFiltering=independentFiltering, alpha=alpha)
+} else{
+    out.DESeq2 <- run.DESeq2(counts=counts, target=target, varInt=varInt, batch=batch,
+                             locfunc=locfunc, fitType=fitType, pAdjustMethod=pAdjustMethod,
+                             cooksCutoff=cooksCutoff, independentFiltering=independentFiltering, alpha=alpha)
+}
 
 ## add feature data if available
 if (!is.null(info)){
@@ -354,7 +441,11 @@ writeReport.DESeq2 <- function(target, counts, out.DESeq2, summaryResults, majSe
 
 ## generating HTML report
 viz.counts <- data.frame(Id=rownames(counts), counts)
-viz.counts <- merge(info[, c("Id", "gene_name", "gene_biotype")], viz.counts, by='Id')
+if (opt$featureType == "gene"){
+    viz.counts <- merge(info[, c("Id", "gene_name", "gene_biotype")], viz.counts, by='Id')
+} else{
+    viz.counts <- merge(info[, c("Id", "transcript_name", "transcript_biotype")], viz.counts, by='Id')
+}
 writeReport.DESeq2(target=target, counts=viz.counts, out.DESeq2=out.DESeq2, summaryResults=summaryResults,
                    majSequences=majSequences, workDir=workDir, projectName=projectName, author=author,
                    targetFile=targetFile, rawDir=rawDir, featuresToRemove=featuresToRemove, varInt=varInt,

@@ -1,0 +1,24 @@
+#-*- mode: snakemake -*-
+include:
+    srcdir('../utils.py')
+include:
+    srcdir('../common.rules')
+
+extra_conf_fn = srcdir('wgs.config')
+if os.path.exists(extra_conf_fn):
+    with open(extra_conf_fn) as fh:
+        c  = yaml.load(fh, Loader=Loader) or {}
+        update_config2(config, c)
+
+        
+if not 'SAMPLES' in locals():
+    SAMPLES = list(config.get('samples', {}).keys())
+
+SAMPLES = [str(i) for i in SAMPLES]
+
+include:
+    'rules/gcfdb.rules'
+include:
+    'rules/filter.rules'
+include:
+    'rules/align.rules'

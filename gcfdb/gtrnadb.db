@@ -39,6 +39,7 @@ rule gtrnadb_trna:
     params:
         url = gtrnadb_url,
         date = datetime.now().strftime("%d-%m-%Y"),
+        proxy = config.get('proxy', {}).get('wget', ''),
         version = GTRNADB_VER[ORG]
     output:
         join(EXT_DIR, 'gtrnadb', ORG, 'release-{}'.format(GTRNADB_VER[ORG]), 'tRNAs.fa')
@@ -46,7 +47,7 @@ rule gtrnadb_trna:
         join(EXT_DIR, 'gtrnadb', ORG, 'release-{}'.format(GTRNADB_VER[ORG]), 'logs', 'gtrnadb.log')
     shell:
         """
-        wget -O {output} {params.url}
+        wget {params.proxy} -O {output} {params.url}
         echo "GtRNAdb,{params.version},{params.url},{params.date}" > {log}
         """
 
@@ -61,6 +62,7 @@ rule gtrnadb2_trna:
     params:
         url = gtrnadb2_url,
         date = datetime.now().strftime("%d-%m-%Y"),
+        proxy = config.get('proxy', {}).get('wget', ''),
         version = GTRNADB_VER[ORG]
     output:
         join(EXT_DIR, 'gtrnadb2', ORG, 'release-{}'.format(GTRNADB_VER[ORG]), 'tRNAs.fa')
@@ -68,6 +70,6 @@ rule gtrnadb2_trna:
         join(EXT_DIR, 'gtrnadb2', ORG, 'release-{}'.format(GTRNADB_VER[ORG]), 'logs', 'gtrnadb.log')
     shell:
         """
-        wget -O {output} {params.url}
+        wget {params.proxy} -O {output} {params.url}
         echo "GtRNAdb2,{params.version},{params.url},{params.date}" > {log}
         """

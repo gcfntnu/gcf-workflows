@@ -24,7 +24,8 @@ UNITAS_ORG = _unitas_map[config['organism']]
 
 rule unitas_dummy_input:
     output:
-        temp(touch('.unitas_dummy.txt'))
+        touch(os.path.abspath('.unitas_dummy.txt'))
+    
 
 rule contaminants_unitas:
     input:
@@ -36,24 +37,39 @@ rule contaminants_unitas:
     shell:
         'python {params.script} {input} > {output}'
 
-
-rule unitas_db:
+rule unitas_seqmap:
     output:
-        db = directory(join(EXT_DIR, 'unitas', 'UNITAS_refdump_{}'.format(ORG))),
-        seqmap_exe = join(EXT_DIR, 'unitas', 'seqmap.exe'),
+        join(EXT_DIR, 'unitas', 'seqmap.exe'),
     params:
         refdir = join(EXT_DIR, 'unitas'),
-        script = srcdir('scripts/format_unitas_dblog.py')
-    log:
-        join(EXT_DIR, 'unitas', 'UNITAS_refdump_{}'.format(ORG), 'logs', 'unitas.log')
-    singularity:
-        'docker://' + config['docker']['unitas'] 
     shell:
         """
         mkdir -p {params.refdir}
         cd {params.refdir}
-        unitas.pl -latest_ref -species {ORG} -input {input}
-        python {params.script} {output.db} > {log}
+        wget https://gcf-winecellar.medisin.ntnu.no/seqmap/seqmap.exe
+        chmod a+x seqmap.exe
+        """
+        
+rule unitas_db:
+    input:
+        rules.unitas_dummy_input.output,
+        rules.unitas_seqmap.output
+    output:
+        db = directory(join(EXT_DIR, 'unitas', config['db']['unitas']['release'],'UNITAS_refdump_{}'.format(ORG))),
+    params:
+        refdir = join(EXT_DIR, 'unitas', config['db']['unitas']['release']),
+        script = srcdir('scripts/format_unitas_dblog.py'),
+        url = "https://gcf-winecellar.medisin.ntnu.no/unitas/{release}/UNITAS_refdump_{org}.tar.gz".format(release = config['db']['unitas']['release'], org = ORG),
+        versions_info = join(EXT_DIR, 'unitas', config['db']['unitas']['release'],'UNITAS_refdump_{}'.format(ORG),'db_versions.info')
+    log:
+        join(EXT_DIR, 'unitas', config['db']['unitas']['release'], 'UNITAS_refdump_{}'.format(ORG), 'logs', 'unitas.log')
+    singularity:
+        'docker://' + config['docker']['default'] 
+    shell:
+        """
+        cd {params.refdir}
+        wget -qO- {params.url} | tar xvz 
+        python {params.script} {params.versions_info} > {log}
         """
 
 rule unitas_db_all:

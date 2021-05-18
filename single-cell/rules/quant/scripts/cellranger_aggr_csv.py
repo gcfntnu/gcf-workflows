@@ -21,6 +21,7 @@ def read_sample_info(args):
     import pandas as pd
     df = pd.read_csv(args.sample_info, sep='\t')
     assert('Sample_ID' in df.columns)
+    df['Sample_ID'] = df['Sample_ID'].astype(str)
     df.index = df['Sample_ID']
     if args.batch is not None:
         assert(args.batch in df.columns)
@@ -45,9 +46,9 @@ def read_sample_info(args):
 
 def write_csv(input_files, valid_samples, fh, batch=None, verbose=False):
     if batch:
-        fh.write('library_id,molecule_h5,batch\n')
+        fh.write('sample_id,molecule_h5,batch\n')
     else:
-        fh.write('library_id,molecule_h5\n')
+        fh.write('sample_id,molecule_h5\n')
         
     for fn in input_files:
         sample = fn.split(os.path.sep)[-3]

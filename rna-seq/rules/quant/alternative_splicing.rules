@@ -1,6 +1,6 @@
 rule yanagi_preprocess:
     input:
-        gtf = join(REF_DIR, 'genes', 'genes.gtf'),
+        gtf = join(REF_DIR, 'anno', 'genes.gtf'),
         genome = join(REF_DIR, 'fasta', 'genome.fa')
     output:
         ex = join(QUANT_INTERIM, 'yanagi', 'preprocess', 'disjoint_bins.tsv'),

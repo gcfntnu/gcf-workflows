@@ -21,7 +21,7 @@ QUALIMAP_QCDIR = join(BAM_QCDIR, 'qualimap')
 rule rseqc_read_distribution:
     input:
         bam = get_sorted_bam,
-        bed = join(REF_DIR, 'genes', 'genes.bed12')
+        bed = join(REF_DIR, 'anno', 'genes.bed12')
     output:
         join(RSEQC_QCDIR , '{sample}.readdist.txt')
     singularity:
@@ -40,7 +40,7 @@ rule rseqc_read_distribution_log:
 rule rseqc_junction_annotation:
     input:
         bam = join(ALIGN_INTERIM, ALIGNER, '{sample}' + '.sorted.bam'),
-        bed = join(REF_DIR, 'genes', 'genes.bed12')
+        bed = join(REF_DIR, 'anno', 'genes.bed12')
     params:
         prefix = join(RSEQC_QCDIR, '{sample}')
     output:
@@ -61,7 +61,7 @@ rule rseqc_junction_annotation_log:
 rule rseqc_junction_saturation:
     input:
         bam = join(ALIGN_INTERIM, ALIGNER, '{sample}' + '.sorted.bam'),
-        bed = join(REF_DIR, 'genes', 'genes.bed12')
+        bed = join(REF_DIR, 'anno', 'genes.bed12')
     params:
         prefix = join(RSEQC_QCDIR, '{sample}')
     output:
@@ -82,7 +82,7 @@ rule rseqc_junction_saturation_log:
 rule rseqc_inner_distance:
     input:
         bam = join(ALIGN_INTERIM, ALIGNER, '{sample}' + '.sorted.bam'),
-        bed = join(REF_DIR, 'genes', 'genes.bed12')
+        bed = join(REF_DIR, 'anno', 'genes.bed12')
     params:
         prefix = join(RSEQC_QCDIR, '{sample}')
     output:
@@ -103,7 +103,7 @@ rule rseqc_inner_distance_log:
 rule rseqc_tin:
     input:
         bam = join(ALIGN_INTERIM, ALIGNER, '{sample}' + '.sorted.bam'),
-        bed = join(REF_DIR, 'genes', 'genes.bed12')
+        bed = join(REF_DIR, 'anno', 'genes.bed12')
     singularity:
         'docker://' + config['docker']['rseqc']
     output:
@@ -134,7 +134,7 @@ rule rseqc_tin_log:
         
 rule qorts:
     input:
-        gtf = join(REF_DIR, 'genes', 'genes.gtf'),
+        gtf = join(REF_DIR, 'anno', 'genes.gtf'),
         bam = join(ALIGN_INTERIM, ALIGNER, '{sample}' + '.sorted.bam')
     params:
         java_opt = '-Xms4G -Xmx4G',
@@ -183,9 +183,9 @@ rule preseq_lc_extrap:
 
 rule create_ribo_bed:
     input:
-        gtf = join(REF_DIR, 'genes', 'genes.gtf')
+        gtf = join(REF_DIR, 'anno', 'genes.gtf')
     output:
-        temp('rrna.bed')
+        join(REF_DIR, 'genes', 'rrna.bed')
     singularity:
         'docker://' + config['docker']['ucsc-scripts']
     shell:
@@ -198,7 +198,7 @@ rule create_ribo_bed:
         
 rule create_ribo_intervals:
     input:
-        bed = 'rrna.bed',
+        bed = join(REF_DIR, 'genes', 'rrna.bed'),
         genome = join(REF_DIR, 'fasta', 'genome.dict')
     output:
         temp('rrna.intervals')
@@ -213,7 +213,7 @@ rule create_ribo_intervals:
 rule picard_rnametrics:
     input:
         bam = join(ALIGN_INTERIM, ALIGNER, '{sample}' + '.sorted.bam'),
-        ref_flat = join(REF_DIR, 'genes', 'genes.refflat.gz'),
+        ref_flat = join(REF_DIR, 'anno', 'genes.refflat.gz'),
         rrna = rules.create_ribo_intervals.output
     output:
         metrics = join(PICARD_QCDIR, '{sample}.rnaseq.metrics')
@@ -260,7 +260,7 @@ def qualimap_strand():
 rule qualimap_rnaseq:
     input:
         bam = get_namesorted_bam,
-        gtf = join(REF_DIR, 'genes', 'genes.gtf')
+        gtf = join(REF_DIR, 'anno', 'genes.gtf')
     params:
         strand = qualimap_strand(),
         paired = '-pe' if len(config['read_geometry']) > 1 else '',
