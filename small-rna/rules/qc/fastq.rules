@@ -26,7 +26,7 @@ rule qc_fastq_fastqscreen_config:
         rat = join(EXT_DIR, 'ensembl', 'release-{}'.format(DB_CONF['release']), 'rattus_norvegicus', 'Rnor_6.0', 'index', 'genome', 'bowtie2', 'genome.1.bt2'),
         univec = join(EXT_DIR, 'univec_core', 'index', 'univec_core', 'bowtie2', 'univec_core.1.bt2')
     output:
-        temp('fastq_screen.config')
+        os.path.abspath('fastq_screen.config')
     params:
         human = join(EXT_DIR, 'ensembl', 'release-{}'.format(DB_CONF['release']), 'homo_sapiens', 'GRCh38', 'index', 'genome', 'bowtie2', 'genome'),
         mouse = join(EXT_DIR, 'ensembl', 'release-{}'.format(DB_CONF['release']), 'mus_musculus', 'GRCm38', 'index', 'genome', 'bowtie2', 'genome'),
@@ -43,7 +43,7 @@ rule qc_fastq_fastqscreen_config:
 rule qc_fastq_fastqscreen:
     input:
         fastq = get_processed_fastq,
-        config = 'fastq_screen.config'
+        config = rules.qc_fastq_fastqscreen_config.output 
     output:
         join(QC_INTERIM, 'fastqscreen', '{sample}', '{sample}_R1_screen.txt')
     params:

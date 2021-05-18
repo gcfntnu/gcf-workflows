@@ -21,7 +21,7 @@ rule picard_add_rg:
     input:
         bam = get_sorted_bam
     params:
-        machine = config.get('machine', 'nextseq500')
+        machine = config.get('machine', 'nextseq500').replace(' ', '')
     output:
         bam = join(VARCALL_INTERIM, '{sample}_RG.bam')
     singularity:

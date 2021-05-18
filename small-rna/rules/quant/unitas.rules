@@ -45,7 +45,7 @@ rule unitas_extra_reference:
     input:
         UNITAS_REFSEQ
     output:
-        temp(join(QUANT_INTERIM, 'unitas', 'refseq.fa'))
+        join(QUANT_INTERIM, 'unitas', 'refseq.fa')
     run:
         if len(input) > 0:
             shell('cat {input} > {output}')
