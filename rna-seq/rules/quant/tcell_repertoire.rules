@@ -21,3 +21,39 @@ rule mixcr_analyze:
 rule mixcr_all:
     input:
         expand(rules.mixcr_analyze.output, sample=SAMPLES)
+
+
+rule trust4_fasta_db:
+    output:
+        join(QUANT_INTERIM, 'mixcr', 'trust4', 'bcrtcr.fa')
+    params:
+        url = 'https://raw.githubusercontent.com/liulab-dfci/TRUST4/master/hg38_bcrtcr.fa'
+    shell:
+        'wget -O- {params.url} > {output}'
+
+rule trust4_anno:
+    output:
+        join(QUANT_INTERIM, 'mixcr', 'trust4', 'IMGT+C.fa')
+    params:
+        url = 'https://raw.githubusercontent.com/liulab-dfci/TRUST4/master/human_IMGT%2BC.fa'
+    shell:
+        'wget -O- {params.url} > {output}'    
+
+rule trust4_run:
+    input:
+        bam = get_sorted_bam,
+        fa = join(QUANT_INTERIM, 'trust4', 'anno', 'bcrtcr.fa'),
+        ref = join(QUANT_INTERIM, 'trust4', 'anno', 'IMGT+C.fa')
+    output:
+        join(QUANT_INTERIM, 'trust4', '')
+    params:
+        outdir = (QUANT_INTERIM, 'trust4', ''
+    threads:
+        12
+    singularity:
+        'docker://gcfntnu/trust4:1.0.4'
+    shell:
+        'run_trust4 -t {threads} -b {input.bam} -f {input.fa} --ref {input.anno} --od '
+
+rule trust_all:
+    
