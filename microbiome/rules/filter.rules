@@ -13,6 +13,9 @@ FILTER_INTERIM = join(INTERIM_DIR, 'microbiome', 'filter')
 include:
     'filter/fastp.rules'
 
+include:
+    'filter/cutadapt.rules'
+
 rule clean_fastq:
     input:
         join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', '{sample}_R{readnum}.fastq')
