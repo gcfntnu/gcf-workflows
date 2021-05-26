@@ -91,7 +91,7 @@ rule qc_fastq_fastqscreen:
 		args = '-q --force',
 		subset = 400000,
 		top = '10000 ',
-		outdir = join(QC_INTERIM, 'fastqscreen', '{sample}')
+		outdir = join(QC_INTERIM, 'fastqscreen')
 	threads:
 		4
 	singularity:
