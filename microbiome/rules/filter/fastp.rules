@@ -6,7 +6,8 @@ PE = len(config['read_geometry']) > 1
         
 rule fastp_interleave_fastq:
     input:
-        unpack(get_raw_fastq)
+        R1 = rules.cutadapt_demultiplex.output.R1,
+        R2 = rules.cutadapt_demultiplex.output.R2
     output:
         join(FILTER_INTERIM, 'interleaved_fastq', '{sample}.fastq')
     params:
