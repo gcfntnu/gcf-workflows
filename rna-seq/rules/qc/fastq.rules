@@ -96,7 +96,6 @@ rule qc_fastq_fastqscreen:
     params:
         args = '-q --force',
         subset = 400000,
-        top = '10000 ',
         outdir = join(QC_INTERIM, 'fastqscreen', '{sample}')
     threads:
         4
@@ -106,7 +105,6 @@ rule qc_fastq_fastqscreen:
         'fastq_screen '
         '--aligner bowtie2 '
         '--threads {threads} '
-        '--top {params.top} '
         '--conf {input.config} '
         '--outdir {params.outdir} '
         '{params.args} '
