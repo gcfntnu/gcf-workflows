@@ -10,7 +10,7 @@ microbiome-seq Analysis Pipeline.
 include:
     srcdir('../utils.py')
 
-extra_conf_fn = srcdir('microbiome-seq.config')
+extra_conf_fn = srcdir('microbiome.config')
 if os.path.exists(extra_conf_fn):
     with open(extra_conf_fn) as fh:
         c  = yaml.load(fh, Loader=Loader) or {}
