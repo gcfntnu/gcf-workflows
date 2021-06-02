@@ -31,7 +31,7 @@ include:
 include:
     'rules/quant.rules'
 include:
-    'rules/qc/qc.rules'
+    'rules/qc.rules'
 include:
     'rules/bfq.rules' 
 

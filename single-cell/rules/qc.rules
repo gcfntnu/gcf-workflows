@@ -1,0 +1,16 @@
+#-*- mode: snakemake -*-
+"""
+Snakemake rules for quality control of rna-seq.
+"""
+
+QC_INTERIM = join(INTERIM_DIR, 'singlecell', 'qc')
+
+include:
+    'qc/fastq.rules'
+include:
+    'qc/bam.rules'
+include:
+    'qc/quant.rules'
+
+
+

@@ -33,6 +33,8 @@ rule fastp_10x_repair:
     output:
         R1 = temp(join(FILTER_INTERIM, 'fastp_10x', '{sample}_R1.fastq.paired.fq')),
         R2 = temp(join(FILTER_INTERIM, 'fastp_10x', '{sample}_R2.trimmed.fastq.paired.fq'))
+    threads:
+        1
     shell:
         'fastq_pair {input} '
 
@@ -44,7 +46,9 @@ rule fastp_10x:
         out = join(FILTER_INTERIM, 'fastp_10x')
     output:
         R1 = join(FILTER_INTERIM, 'cleaned', '{sample}_S1_L000_R1_001.fastq.gz'),
-        R2 = join(FILTER_INTERIM, 'cleaned', '{sample}_S1_L000_R2_001.fastq.gz')   
+        R2 = join(FILTER_INTERIM, 'cleaned', '{sample}_S1_L000_R2_001.fastq.gz') 
+    threads:
+        1
     shell:
         """
         gzip {input.R1} -c > {output.R1}

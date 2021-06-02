@@ -15,6 +15,7 @@ if config['quant']['method'] == 'star':
             rules.bfq_level2_exprs_star.output,
             rules.bfq_level2_logs_star.output,
             rules.bfq_level2_aligned.output,
+            rules.bfq_level2_qc_logs.output,
             join(BFQ_INTERIM, 'figs', 'umap_all_samples_mqc.png')
 else:
     rule bfq_all:
@@ -23,4 +24,5 @@ else:
             rules.bfq_level2_logs_cellranger.output,
             rules.bfq_level2_data_cellranger.output,
             rules.bfq_level2_notebooks_cellranger.output,
+            rules.bfq_level2_qc_logs.output,
             join(BFQ_INTERIM, 'figs', 'umap_all_samples_mqc.png')
