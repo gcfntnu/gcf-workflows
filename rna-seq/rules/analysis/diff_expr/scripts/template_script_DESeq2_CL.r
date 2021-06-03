@@ -389,7 +389,7 @@ summaryResults <- summarizeResults.DESeq2(out.DESeq2, group=target[,varInt], col
 
 ## lets patch up the export
 exportResults.DESeq2 <- function(out.DESeq2, group, alpha=0.05, info=NULL, export=TRUE){
-  
+    
   dds <- out.DESeq2$dds
   results <- out.DESeq2$results
   
@@ -447,6 +447,30 @@ exportResults.DESeq2 <- function(out.DESeq2, group, alpha=0.05, info=NULL, expor
 
 summaryResults$complete <- exportResults.DESeq2(out.DESeq2, group=target[,varInt], alpha=0.05, info, export=TRUE)
 
+## metacore export
+gene.ids <- NULL
+for (name in names(summaryResults$complete)){
+    complete <- summaryResults$complete[[name]]
+    gene.ids <- union(ids, rownames(complete))
+    print(gene.ids[1:10])
+}
+metacore <- data.frame(rownames=gene.ids)
+for (name in names(summaryResults$complete)){
+    complete <- summaryResults$complete[[name]]
+    tab <- complete[,c("log2FoldChange", "padj")]
+    rownames(tab) <- complete$Id
+    tab <- tab[match(gene.ids, rownames(tab)),]
+    tab$log2FoldChange[is.na(tab$log2FoldChange)] <- 0
+    tab$padj[is.na(tab$padj)] <- 1
+    new.cols <- c(paste0(name, "_log2FC"), paste0(name, "_Pval"))
+    colnames(tab) <- new.cols
+    metacore <- cbind(metacore, tab)
+}
+Gene_ID <- rownames(metacore)
+metacore <- cbind(Gene_ID, metacore)
+print(head(metacore))
+write.table(metacore, file=file.path(args$output, "metacore_input.txt"), sep="\t", row.names=FALSE, dec=".", quote=FALSE)
+
 # save image of the R session
 #save.image(file=paste0(projectName, ".RData"))
 
@@ -496,3 +520,4 @@ file.rename(report.name, file.path(output, report.name))
 #unlink("tables", recursive = TRUE)
 #unlink("figures", recursive = TRUE)
 #unlink(report.name)
+
