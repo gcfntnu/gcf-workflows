@@ -8,6 +8,7 @@ import glob
 
 def get_params(wildcards, input, output):
     model = config['models'].get(wildcards.model_name)
+    print(model)
     if model is None:
         logger.error('failed to identify model: {}'.format(wildcards.model_name))
     condition = model.get('condition', 'Sample_Group')
@@ -54,9 +55,9 @@ def get_input(wildcards):
     quant = config['quant']['method']
     counts = join(QUANT_INTERIM, quant, 'tximport', 'tx_{}.rds'.format(quant))
     if feature_type == 'gene':
-        meta = join(REF_DIR, 'genes', 'genes.tsv')
+        meta = join(REF_DIR, 'anno', 'genes.tsv')
     else:
-        meta = join(REF_DIR, 'genes', 'transcripts.tsv')
+        meta = join(REF_DIR, 'anno', 'transcripts.tsv')
     return {'target': target, 'counts': counts, 'meta': meta}
         
 rule sartools_deseq2_run:

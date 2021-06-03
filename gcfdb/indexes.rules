@@ -217,7 +217,7 @@ rule salmon_index_tximeta:
     input:
         fasta = join('{ref_dir}', 'fasta', '{prefix}.fa'),
         json = join('{ref_dir}', 'index', '{prefix}', 'salmon', 'info.json'),
-        gtf = join('{ref_dir}', 'genes', 'genes.gtf')
+        gtf = join('{ref_dir}', 'anno', 'genes.gtf')
     output:
         json = join('{ref_dir}', 'index', '{prefix}', 'salmon', 'tximeta.json')
     params:
