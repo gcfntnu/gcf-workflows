@@ -1,0 +1,6 @@
+include:
+    'bfq/bfq_level1.rules'
+
+rule bfq_all:
+    input:
+        rules.bfq_level1_all.input,
