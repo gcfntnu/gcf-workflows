@@ -4,7 +4,7 @@ configfile:
     'config.yaml'
 
 include:
-    '../rna-seq.sm'
+    '../rnaseq.sm'
 include:
     '../rules/bfq.rules'
     
