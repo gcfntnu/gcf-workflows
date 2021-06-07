@@ -4,10 +4,14 @@ if len(config['read_geometry']) > 1:
         input:
             expand(rules.qc_fastq_fastqscreen.output, sample=SAMPLES),
             expand(rules.qc_fastq_fastqc.output, sample=SAMPLES)
+            expand(rules.fastp_join.output.log_json, sample=SAMPLES),
+            expand(rules.fastp_join.output.log_html, sample=SAMPLES),
         output:
             expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}_screen.txt'), sample=SAMPLES),
             expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}_R1_fastqc.zip'), sample=SAMPLES),
-            expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}_R2_fastqc.zip'), sample=SAMPLES)
+            expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}_R2_fastqc.zip'), sample=SAMPLES),
+            expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}.fastp.json'), sample=SAMPLES),
+            expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}_R1.fastp.html'), sample=SAMPLES),
         run:
             for src, dst in zip(input, output):
                 shell('ln -srf {src} {dst}')
@@ -16,9 +20,13 @@ else:
         input:
             expand(rules.qc_fastq_fastqscreen.output, sample=SAMPLES),
             expand(rules.qc_fastq_fastqc.output, sample=SAMPLES),
+            expand(rules.fastp_join.output.log_json, sample=SAMPLES),
+            expand(rules.fastp_join.output.log_html, sample=SAMPLES),
         output:
             expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}_screen.txt'), sample=SAMPLES),
-            expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}_R1_fastqc.zip'), sample=SAMPLES)
+            expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}_R1_fastqc.zip'), sample=SAMPLES),
+            expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}.fastp.json'), sample=SAMPLES),
+            expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}_R1.fastp.html'), sample=SAMPLES),
         run:
             for src, dst in zip(input, output):
                 shell('ln -srf {src} {dst}')
