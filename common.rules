@@ -1,5 +1,8 @@
 logger.info("WORKFLOW: {}".format(WORKFLOW))
 
+include:
+    'gcfdb/indexes.rules'
+
 rule sample_info:
     output:
         join(INTERIM_DIR, 'sample_info.tsv')
