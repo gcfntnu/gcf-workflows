@@ -2,14 +2,18 @@
 """
 This is a part of the pipeline utilities at Genomics Core Facility (GCF),  Trondheim
 
-small-rna
-============================
-small-rna Analysis Pipeline.
+rna-seq
+===================================
+rna-seq Analysis Pipeline.
+
+Documentation: https://github.com/gcfntnu/rna-seq
+Authors:
+Arnar Flatberg / flatberg <arnar.flatberg@ntnu.no>
 """
 include:
     srcdir('../utils.py')
 
-extra_conf_fn = srcdir('small-rna.config')
+extra_conf_fn = srcdir('rnaseq.config')
 if os.path.exists(extra_conf_fn):
     with open(extra_conf_fn) as fh:
         c  = yaml.load(fh, Loader=Loader) or {}
@@ -18,24 +22,23 @@ if os.path.exists(extra_conf_fn):
 if not 'SAMPLES' in locals():
     SAMPLES = [str(name) for name in config.get('samples', {}).keys()]
 
-        
-kit = config.get('libprepkit', 'default-smallrna')
-if kit.startswith('Lexogen'):
+#fixme: move this part 
+if config['libprep_name'].startswith('Lexogen'):
     # we cut start/end random seqs on lexogen kits
     read_geometry = config.get('read_geometry')
     if read_geometry:
         read_geometry = [int(i) for i in read_geometry]
-        read_geometry[0] -= 4
+        read_geometry[0] -= 11
         if len(read_geometry) > 1:
-            read_geometry[0] -= 4
+            read_geometry[0] -= 8
         config['read_geometry'] = read_geometry
 
 include:
     srcdir('../common.rules')
 include:
-    'rules/gcfdb.rules'
-include:
     'rules/filter.rules'
+include:
+    'rules/assembly.rules'
 include:
     'rules/align.rules'
 include:
@@ -44,7 +47,8 @@ include:
     'rules/qc.rules'
 include:
     'rules/bfq.rules'
-    
+
+
 onsuccess:
     # write config
     from datetime import datetime
@@ -52,18 +56,15 @@ onsuccess:
     import yaml
     
     dt = datetime.now()
-    final_conf_fn = 'small-rna_{}_{}_{}.success.config'.format(dt.year, dt.month, dt.day)
+    final_conf_fn = 'rnaseq_{}_{}_{}.success.config'.format(dt.year, dt.month, dt.day)
     if os.path.exists(final_conf_fn):
         base_fn = copy.copy(final_conf_fn)
         for i in range(999):
-            final_conf_fn = 'small-rna_{}_{}_{}_#{}.success.config'.format(dt.year, dt.month, dt.day, i)
+            final_conf_fn = 'rnaseq_{}_{}_{}_#{}.success.config'.format(dt.year, dt.month, dt.day, i)
             if not os.path.exists(final_conf_fn):
                 break
     if os.path.exists(final_conf_fn):
         raise ValueError('this is just too many runs on the same day')
     
-    #config_path = dirname(srcdir('small-rna.config'))
-    #final_conf_fn = join(config_path,  final_conf_fn)
-    
-    with open(final_conf_fn, 'w') as fh:
-        yaml.dump(config, fh, default_flow_style=False)
+    #with open(final_conf_fn, 'w') as fh:
+    #    yaml.dump(config, fh, default_flow_style=False)
