@@ -64,7 +64,7 @@ if len(config['read_geometry']) > 1:
         input:
             expand(rules.picard_rnametrics.output.metrics, sample=SAMPLES),
             expand(rules.picard_insertsize.output.log, sample=SAMPLES),
-            expand(rules.rules.salmon_map.output.dist_log, sample=SAMPLES),
+            expand(rules.salmon_map.output.dist_log, sample=SAMPLES),
             expand(rules.salmon_map.output.meta_log, sample=SAMPLES),
             expand(rules.rules.star_align.output.log, sample=SAMPLES),
         output:
@@ -81,7 +81,7 @@ else:
         input:
             expand(rules.picard_rnametrics.output.metrics, sample=SAMPLES),
             expand(rules.salmon_map.output.meta_log, sample=SAMPLES),
-            expand(rules.rules.star_align.output.log, sample=SAMPLES),
+            expand(rules.star_align.output.log, sample=SAMPLES),
         output:
             expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}.rnaseq.metrics'), sample=SAMPLES),
             expand(join(BFQ_INTERIM, 'logs', '{sample}', 'aux_info', 'meta_info.json'), sample=SAMPLES),
