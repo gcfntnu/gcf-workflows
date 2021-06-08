@@ -8,11 +8,5 @@ include:
     
 rule bfq_all:
     input:
-        rules.bfq_level2_exprs.output,
-        rules.bfq_level2_taxonomy_log.output,
-        rules.bfq_level2_dada2_log.output,
-        rules.bfq_level2_rpca_log.output,
-        rules.bfq_level2_qiime2_data.output,
-        rules.bfq_level2_region_demultiplexed_fastq.output,
-        rules.bfq_level2_qc_logs.output,
+        rules.bfq_level2_all.input,
 
