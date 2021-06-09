@@ -1,0 +1,6 @@
+#-*- mode:snakemake -*-
+
+FILTER_INTERIM = join(INTERIM_DIR, 'singlecell', 'filter')
+    
+include:
+    'filter/fastp.rules'

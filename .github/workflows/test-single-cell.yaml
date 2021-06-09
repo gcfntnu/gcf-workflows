@@ -24,6 +24,6 @@ jobs:
         python -m pip install snakemake pyyaml==5.3.1 
         python --version
     - name: Dry run bfq_all
-      working-directory: ./single-cell/.tests
+      working-directory: ./singlecell/.tests
       run: |
         snakemake -n -p -j1 bfq_all

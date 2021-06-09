@@ -1,8 +1,6 @@
 #-*- mode: snakemake -*-
 include:
     srcdir('../utils.py')
-include:
-    srcdir('../common.rules')
 
 extra_conf_fn = srcdir('wgs.config')
 if os.path.exists(extra_conf_fn):
@@ -10,12 +8,11 @@ if os.path.exists(extra_conf_fn):
         c  = yaml.load(fh, Loader=Loader) or {}
         update_config2(config, c)
 
-        
 if not 'SAMPLES' in locals():
-    SAMPLES = list(config.get('samples', {}).keys())
+    SAMPLES = [str(name) for name in config.get('samples', {}).keys()]
 
-SAMPLES = [str(i) for i in SAMPLES]
-
+include:
+    srcdir('../common.rules')
 include:
     'rules/gcfdb.rules'
 include:

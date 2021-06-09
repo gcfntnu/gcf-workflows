@@ -1,16 +1,10 @@
 #-*- mode:snakemake -*-
 include:
-  'ercc.db'
+    'ercc.db'
 include:
-  'smallrna_calibrators.db'
-
-
-FILTER_CONF = config.get('filter')
-if FILTER_CONF is None:
-   config['filter'] = FILTER_CONF = {}
-SPIKE_CONF = FILTER_CONF.get('spikein')
-if SPIKE_CONF is None:
-   config['filter']['spikein'] = SPIKE_CONF = {}
+    'smallrna_calibrators.db'
+include:
+    'univec.db'
 
 rule spikein_merged_fasta:
     input:
