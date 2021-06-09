@@ -9,7 +9,7 @@ SPIKE_DIR = join(EXT_DIR, 'spikein')
 SPIKE_CONF = config.get('filter', {}).get('spikein')
 if SPIKE_CONF is None:
    config['filter']['spikein'] = SPIKE_CONF = {}
-REF = config['filter']['spikein'].get('ref', 'ERCC092')
+REF = config['filter']['spikein'].get('ref', 'ERCC92')
 PE = len(config['read_geometry']) > 1
 
 def get_trimmed_fastq(wildcards):

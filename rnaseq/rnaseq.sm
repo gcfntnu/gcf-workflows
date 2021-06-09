@@ -44,6 +44,8 @@ include:
 include:
     'rules/quant.rules'
 include:
+    'rules/analysis.rules'
+include:
     'rules/qc.rules'
 include:
     'rules/bfq.rules'

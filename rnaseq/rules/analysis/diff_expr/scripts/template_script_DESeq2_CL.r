@@ -161,7 +161,9 @@ subset <- opt$subset
 if (!is.null(subset)){
     if (grepl( ",", subset, fixed = TRUE)){
         subset <- unlist(strsplit(opt$subset, ","))
-    }
+    } else{
+        subset <- list(subset)
+        }
 }
 
 print(paste("workDir", workDir))
@@ -205,15 +207,41 @@ if (problem) quit(save="yes")
 loadTargetFile <- function(targetFile, varInt, condRef, batch, subset=NULL){
     target <- read.table(targetFile, header=TRUE, sep="\t", na.strings="", check.names=FALSE)
     rownames(target) <- as.character(target[,1])
+
     if (!is.null(subset)){
-        if (grepl( "::", subset, fixed = TRUE)){
-            s <- unlist(str_split(subset, "::"))
-            subset <- rownames(target)[target[,s[1]] == s[2]]
+        keep <- NULL
+        remove <- NULL
+        for (s in subset){
+            print(s)
+            if (grepl( "::", s, fixed = TRUE)){
+                ss <- unlist(str_split(s, "::"))
+                col.name <- ss[1]
+                level <- ss[2]
+                if (!I(col.name %in% colnames(target))){
+                    stop(paste("The column", batch, "is not in the target file"))
+                } else{
+                    col <- as.character(target[,col.name])
+                }
+                if (grepl('^\\!', level) ){
+                    level <- substr(level, 2, 10000000L)
+                    remove <- c(remove, which(col==level))
+                } else{
+                    keep <- c(keep, which(col==level))
+                }
+                
+                print(keep)
+            }
         }
-        target <- target[subset,]
+        keep <- unique(keep)
+        remove <- unique(remove)
+        keep <- setdiff(keep, remove)
+        cat(paste("Keeping:", length(keep), "samples", "\n"))
+        target <- target[keep,]
         factor_cols <- vapply(target, is.factor, logical(1))
         target[factor_cols] <- lapply(target[factor_cols], factor)
     }
+    
+    
     if (!I(varInt %in% names(target))) stop(paste("The factor of interest", varInt, "is not in the target file"))
     if (!is.null(batch)){
         if (!I(batch %in% names(target))){
@@ -223,7 +251,7 @@ loadTargetFile <- function(targetFile, varInt, condRef, batch, subset=NULL){
         }
     }
     target[,varInt] <- as.factor(target[,varInt])
-    if (!I(condRef %in% as.character(target[,varInt]))) stop(paste("The reference level", condRef, "is not a level of the factor of interest"))
+    if (!I(condRef %in% as.character(target[,varInt]))) stop(paste("The reference level", condRef, "is not a level of the factor of interest", levels(target[,varInt])))
     target[,varInt] <- relevel(target[,varInt],ref=condRef)
     ##target <- target[order(target[,varInt]),]
     rownames(target) <- as.character(target[,1])
@@ -241,7 +269,7 @@ loadTargetFile <- function(targetFile, varInt, condRef, batch, subset=NULL){
     keep.cols <- c(varInt)
     if (!is.null(batch)) keep.cols <- c(keep.cols, batch)
     if ("Sample_Biosource" %in% colnames(target))  keep.cols <- c(keep.cols, "Sample_Biosource")
-    target <- target[,keep.cols]
+    target <- target[,keep.cols, drop=FALSE]
     return(target)
 }
 
@@ -266,6 +294,7 @@ if (tools::file_ext(countsFile) == "rds"){
 
 counts <- as.matrix(round(counts))
 counts <- counts[,rownames(target)]
+txi.f <- lapply(txi, function(x) if(is.matrix(x)) return(x[,rownames(target)]) else return(x))
 
 
 ## load features meta info
@@ -296,7 +325,6 @@ runDESeq <- function(counts, target, varInt, batch=NULL, locfunc="median", fitTy
     if (class(counts) == "list"){ #tximport
         dds <- DESeqDataSetFromTximport(counts, colData=target, design=des)
         dds <- estimateSizeFactors(dds, locfunc=eval(as.name(locfunc)))
-        print(head(normalizationFactors(dds)))
         sizeFactors(dds) <- colMedians(normalizationFactors(dds)) 
     } else{
         dds <- DESeqDataSetFromMatrix(counts, colData=target, design=des)
@@ -331,7 +359,7 @@ runDESeq <- function(counts, target, varInt, batch=NULL, locfunc="median", fitTy
 
 
 if (tools::file_ext(countsFile) == "rds"){
-    out.DESeq2 <- runDESeq(counts=txi, target=target, varInt=varInt, batch=batch,
+    out.DESeq2 <- runDESeq(counts=txi.f, target=target, varInt=varInt, batch=batch,
                            locfunc=locfunc, fitType=fitType, pAdjustMethod=pAdjustMethod,
                            cooksCutoff=cooksCutoff, independentFiltering=independentFiltering, alpha=alpha)
 } else{
@@ -361,7 +389,7 @@ summaryResults <- summarizeResults.DESeq2(out.DESeq2, group=target[,varInt], col
 
 ## lets patch up the export
 exportResults.DESeq2 <- function(out.DESeq2, group, alpha=0.05, info=NULL, export=TRUE){
-  
+    
   dds <- out.DESeq2$dds
   results <- out.DESeq2$results
   
@@ -419,6 +447,30 @@ exportResults.DESeq2 <- function(out.DESeq2, group, alpha=0.05, info=NULL, expor
 
 summaryResults$complete <- exportResults.DESeq2(out.DESeq2, group=target[,varInt], alpha=0.05, info, export=TRUE)
 
+## metacore export
+gene.ids <- NULL
+for (name in names(summaryResults$complete)){
+    complete <- summaryResults$complete[[name]]
+    gene.ids <- union(ids, rownames(complete))
+    print(gene.ids[1:10])
+}
+metacore <- data.frame(rownames=gene.ids)
+for (name in names(summaryResults$complete)){
+    complete <- summaryResults$complete[[name]]
+    tab <- complete[,c("log2FoldChange", "padj")]
+    rownames(tab) <- complete$Id
+    tab <- tab[match(gene.ids, rownames(tab)),]
+    tab$log2FoldChange[is.na(tab$log2FoldChange)] <- 0
+    tab$padj[is.na(tab$padj)] <- 1
+    new.cols <- c(paste0(name, "_log2FC"), paste0(name, "_Pval"))
+    colnames(tab) <- new.cols
+    metacore <- cbind(metacore, tab)
+}
+Gene_ID <- rownames(metacore)
+metacore <- cbind(Gene_ID, metacore)
+print(head(metacore))
+write.table(metacore, file=file.path(args$output, "metacore_input.txt"), sep="\t", row.names=FALSE, dec=".", quote=FALSE)
+
 # save image of the R session
 #save.image(file=paste0(projectName, ".RData"))
 
@@ -459,6 +511,7 @@ if (!dir.exists(output)){
     dir.create(output, showWarnings=TRUE, recursive=TRUE)
 }
 
+
 file.rename("tables", file.path(output, "tables"))
 file.rename("figures", file.path(output, "figures"))
 report.name <- paste(projectName, "report.html", sep="_")
@@ -467,3 +520,4 @@ file.rename(report.name, file.path(output, report.name))
 #unlink("tables", recursive = TRUE)
 #unlink("figures", recursive = TRUE)
 #unlink(report.name)
+
