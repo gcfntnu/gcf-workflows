@@ -111,22 +111,6 @@ rule bfq_level2_aligned:
         for src, dst  in zip(input, output):
             shell('ln -sr {src} {dst}')
 
-rule bfq_level2_qc_logs:
-    input:
-        expand(rules.qc_fastq_fastqc.output.R2_zip, sample=SAMPLES),
-        expand(rules.qc_fastq_fastqc.output.R2_html, sample=SAMPLES),
-        expand(rules.qc_fastq_fastqscreen.output, sample=SAMPLES),
-        expand(rules.fastp_10x_R2.output.log_html, sample=SAMPLES),
-        expand(rules.fastp_10x_R2.output.log_json, sample=SAMPLES),
-    output:
-        expand(join(BFQ_INTERIM, 'qc', 'fastqc', '{sample}_R2_fastqc.zip'), sample=SAMPLES),
-        expand(join(BFQ_INTERIM, 'qc', 'fastqc', '{sample}_R2_fastqc.html'), sample=SAMPLES),
-        expand(join(BFQ_INTERIM, 'qc', 'fastq_screen', '{sample}_R2_screen.txt'), sample=SAMPLES),
-        expand(join(BFQ_INTERIM, 'qc', 'fastp', '{sample}.fastp.html'), sample=SAMPLES),
-        expand(join(BFQ_INTERIM, 'qc', 'fastp', '{sample}.fastp.json'), sample=SAMPLES),
-    run:
-        for src, dst  in zip(input, output):
-            shell('ln -sr {src} {dst}')
 
 rule bfq_level2_umap_png:
     input:
@@ -153,4 +137,20 @@ rule bfq_level2_umap_yaml:
     shell:
         'python {params.script} {input} -o {output}'
 
+if config['quant']['method'] == 'star':
+    rule bfq_level2_all:
+        input:
+            rules.bfq_qc_common.output,
+            rules.bfq_level2_exprs_star.output,
+            rules.bfq_level2_logs_star.output,
+            rules.bfq_level2_aligned.output,
+            join(BFQ_INTERIM, 'figs', 'umap_all_samples_mqc.png')
+else:
+    rule bfq_level2_all:
+        input:
+            rules.bfq_level2_exprs_cellranger.output,
+            rules.bfq_level2_logs_cellranger.output,
+            rules.bfq_level2_data_cellranger.output,
+            rules.bfq_level2_notebooks_cellranger.output,
+            join(BFQ_INTERIM, 'figs', 'umap_all_samples_mqc.png')
 
