@@ -1,0 +1,10 @@
+#-*- mode: snakemake -*-
+"""
+Snakemake rules for quality control of microbiome.
+"""
+
+QC_INTERIM = join(INTERIM_DIR, 'microbiome', 'qc')
+
+include:
+    'qc/fastq.rules'
+

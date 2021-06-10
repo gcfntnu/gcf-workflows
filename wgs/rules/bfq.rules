@@ -1,6 +1,6 @@
 
 def qualimap_strand():
-    strand = config['read_orientation']
+    strand = config.get('read_orientation', 'reverse')
     if strand == 'reverse':
         return 'strand-specific-reverse'
     elif strand == 'forward':

@@ -1,0 +1,116 @@
+#-*- mode:snakemake -*-
+
+rule fastp_10x_R1:
+    input:
+        unpack(get_raw_fastq)
+    output:
+        temp(join(FILTER_INTERIM, 'fastp_10x', '{sample}_R1.fastq'))
+    shell:
+        ' zcat {input.R1} > {output}'
+        
+rule fastp_10x_R2:
+    input:
+        unpack(get_raw_fastq)
+    output:
+        temp(join(FILTER_INTERIM, 'fastp_10x', '{sample}_R2.trimmed.fastq')),
+        log_html = join(FILTER_INTERIM, 'fastp_10x', '{sample}_R2.html'),
+        log_json = join(FILTER_INTERIM, 'fastp_10x', '{sample}_R2.json')        
+    singularity:
+        'docker://' + config['docker']['fastp']
+    params:
+        config['filter']['trim']['fastp']['params']
+    shell:
+        'zcat {input.R2} | fastp --stdin -o {output} -j {output.log_json} -h {output.log_html} {params} '
+
+rule fastp_10x_repair:
+    input:
+        R1 = join(FILTER_INTERIM, 'fastp_10x', '{sample}_R1.fastq'),
+        R2 = join(FILTER_INTERIM, 'fastp_10x', '{sample}_R2.trimmed.fastq')
+    params:
+        out = join(FILTER_INTERIM, 'fastp_10x')
+    singularity:
+        'docker://' + config['docker']['fastq_pair']
+    output:
+        R1 = temp(join(FILTER_INTERIM, 'fastp_10x', '{sample}_R1.fastq.paired.fq')),
+        R2 = temp(join(FILTER_INTERIM, 'fastp_10x', '{sample}_R2.trimmed.fastq.paired.fq'))
+    threads:
+        1
+    shell:
+        'fastq_pair {input} '
+
+rule fastp_10x:
+    input:
+        R1 = join(FILTER_INTERIM, 'fastp_10x', '{sample}_R1.fastq.paired.fq'),
+        R2 = join(FILTER_INTERIM, 'fastp_10x', '{sample}_R2.trimmed.fastq.paired.fq')
+    params:
+        out = join(FILTER_INTERIM, 'fastp_10x')
+    output:
+        R1 = join(FILTER_INTERIM, 'cleaned', '{sample}_S1_L000_R1_001.fastq.gz'),
+        R2 = join(FILTER_INTERIM, 'cleaned', '{sample}_S1_L000_R2_001.fastq.gz') 
+    threads:
+        1
+    shell:
+        """
+        gzip {input.R1} -c > {output.R1}
+        gzip {input.R2} -c > {output.R2}
+        """
+
+rule fastp_umitools_R1:
+    input:
+        unpack(get_raw_fastq)
+    output:
+        temp(join(FILTER_INTERIM, 'fastp_umitools', '{sample}_R1.fastq'))
+    threads:
+        1
+    shell:
+        ' zcat {input.R1} > {output}'
+        
+rule fastp_umitools_R2:
+    input:
+        unpack(get_raw_fastq)
+    output:
+        temp(join(FILTER_INTERIM, 'fastp_umitools', '{sample}_R2.trimmed.fastq'))
+    singularity:
+        'docker://' + config['docker']['fastp']
+    params:
+        config['filter']['trim']['fastp']['params']
+    log:
+        json = 'logs/{sample}/fastp.json',
+        html = 'logs/{sample}/fastp.html' 
+    threads:
+        24
+    shell:
+        'zcat {input.R2} | fastp --stdin -o {output} -j {log.json} -h {log.html} {params} --thread {threads} '
+
+rule fastp_umitools_repair:
+    input:
+        R1 = join(FILTER_INTERIM, 'fastp_umitools', '{sample}_R1.fastq'),
+        R2 = join(FILTER_INTERIM, 'fastp_umitools', '{sample}_R2.trimmed.fastq')
+    params:
+        out = join(FILTER_INTERIM, 'fastp_umitools')
+    singularity:
+        'docker://' + config['docker']['fastq_pair']
+    output:
+        R1 = temp(join(FILTER_INTERIM, 'fastp_umitools', '{sample}_R1.fastq.paired.fq')),
+        R2 = temp(join(FILTER_INTERIM, 'fastp_umitools', '{sample}_R2.trimmed.fastq.paired.fq'))
+    threads:
+        1
+    shell:
+        'fastq_pair {input} '
+
+rule fastp_umitools:
+    input:
+        R1 = join(FILTER_INTERIM, 'fastp_umitools', '{sample}_R1.fastq.paired.fq'),
+        R2 = join(FILTER_INTERIM, 'fastp_umitools', '{sample}_R2.trimmed.fastq.paired.fq')
+    params:
+        out = join(FILTER_INTERIM, 'fastp_umitools')
+    output:
+        R1 = join(FILTER_INTERIM, 'cleaned', '{sample}_R1.fastq.gz'),
+        R2 = join(FILTER_INTERIM, 'cleaned', '{sample}_R2.fastq.gz')   
+    threads:
+        1
+    shell:
+        """
+        gzip {input.R1} -c > {output.R1}
+        gzip {input.R2} -c > {output.R2}
+        """

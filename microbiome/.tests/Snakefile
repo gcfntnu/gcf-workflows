@@ -4,7 +4,7 @@ configfile:
     'config.yaml'
 
 include:
-    '../microbiome-seq.sm'
+    '../microbiome.sm'
 include:
     '../rules/bfq.rules'
     
