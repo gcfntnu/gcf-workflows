@@ -2,9 +2,9 @@
 
 BASE_DIR=$(pwd)
 
-for PIPELINE in "smallrna" "singlecell" "rnaseq" "microbiome" 
+for PIPELINE in "smallrna" "singlecell" "rnaseq" "microbiome" "default" 
 do
     cd $BASE_DIR/$PIPELINE/.tests/
-    snakemake -n -p -j1 bfq_all
+    snakemake -n -p -j2 bfq_all
     rm -rf .snakemake/
 done

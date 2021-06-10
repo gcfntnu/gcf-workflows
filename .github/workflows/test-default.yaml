@@ -1,0 +1,29 @@
+# This workflow will install snakemake and test rule bfq_all
+
+name: Test default
+
+on: [push, pull_request]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.6']
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install snakemake pyyaml==5.3.1 
+        python --version
+    - name: Dry run bfq_all
+      working-directory: ./default/.tests
+      run: |
+        snakemake -n -p -j2 bfq_all
