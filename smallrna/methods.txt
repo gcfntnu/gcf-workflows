@@ -1,0 +1,6 @@
+FastQC v0.11.9 [*] and FastQ Screen v0.14.0 [**] was used to perform primary quality control of the small RNA-Seq FASTQ files. Sequence reads were trimmed for quality and adapter sequences using atropos v1.1.21 [***]. Small RNA annotation was performed using the Unitas pipeline v1.7.0[****].
+
+[*] Andrews, S. (2010). FastQC:  A Quality Control Tool for High Throughput Sequence Data [Online]. Available online at: http://www.bioinformatics.babraham.ac.uk/projects/fastqc/
+[**]  Wingett SW, Andrews S. FastQ screen: a tool for multi-genome mapping and quality control. F1000Res. 2018;7:1338. doi: 10.12688/f1000research.15931.1.
+[***] Didion JP, Martin M, Collins FS. (2017) Atropos: specific, sensitive, and speedy trimming of sequencing reads. PeerJ 5:e3720 https://doi.org/10.7717/peerj.3720
+[****] Gebert, D., Hewel, C. & Rosenkranz, D. unitas: the universal tool for annotation of small RNAs. BMC Genomics 18, 644 (2017). https://doi.org/10.1186/s12864-017-4031-9

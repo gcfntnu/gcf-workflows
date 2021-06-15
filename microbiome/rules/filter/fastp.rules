@@ -1,12 +1,18 @@
 #-*- mode:snakemake -*-
 import subprocess
 
-PE = len(config['read_geometry']) > 1
+include:
+    '../qc/fastq.rules'
 
+PE = len(config['read_geometry']) > 1
+ADAPTER = config['adapter']
+ADAPTER2 = config['adapter2']
+ADAPTER_EXTRA_ARGS = '--auto_detect_adapter_for_pe ' if not ADAPTER else ''
         
 rule fastp_interleave_fastq:
     input:
-        unpack(get_raw_fastq)
+        R1 = rules.cutadapt_demultiplex.output.R1,
+        R2 = rules.cutadapt_demultiplex.output.R2
     output:
         join(FILTER_INTERIM, 'interleaved_fastq', '{sample}.fastq')
     params:
@@ -21,7 +27,8 @@ rule fastp_interleave_fastq:
 if PE:
     rule fastp_join:
         input:
-            rules.fastp_interleave_fastq.output
+            fastq = rules.fastp_interleave_fastq.output,
+            adapter_fasta = rules.qc_fastq_illumina_seqs.output,
         output:
             R1 = temp(join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', '{sample}_R1.fastq')),
             R2 = temp(join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', '{sample}_R2.fastq')),
@@ -30,11 +37,11 @@ if PE:
         threads:
             3
         params:
-            args = '--overrepresentation_analysis --overrepresentation_sampling 1000 --n_base_limit 0 -A -Q -L '
+            args = '--overrepresentation_analysis --overrepresentation_sampling 1000 --n_base_limit 0 --correction ',
         singularity:
             'docker://' + config['docker']['fastp']
         shell:
-            'cat {input} | fastp --stdin --interleaved_in -o {output.R1} -O {output.R2} -j {output.log_json} -h {output.log_html} --thread {threads} {params} '
+            'cat {input.fastq} | fastp --stdin --interleaved_in -o {output.R1} -O {output.R2} -j {output.log_json} -h {output.log_html} --thread {threads} {params} --adapter_fasta {input.adapter_fasta}'
 
 else:
     rule fastp_join:

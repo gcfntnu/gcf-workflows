@@ -16,15 +16,8 @@ STRAIN = config.get('strain')
 
 _ANALYSIS_SET_URL = 'https://ftp.ncbi.nlm.nih.gov/genomes/refseq/vertebrate_mammalian/Homo_sapiens/all_assembly_versions/GCF_000001405.39_GRCh38.p13/GRCh38_major_release_seqs_for_alignment_pipelines'
 
-
-def _get_current_refseq(config):
-    """Get current release number for refseq.
-    """
-    DB_CONF = config['db'].get('refseq', {})
-    if 'release' in DB_CONF:
-        return config
+def _get_current_refseq_from_www(config, protocol='https://'):
     url = 'ftp.ncbi.nlm.nih.gov/refseq/release/RELEASE_NUMBER'
-    protocol = 'https://'
     proxies = config.get('proxy', {}).get('server')
     if proxies:
         proxy_support = request.ProxyHandler(proxies)
@@ -36,7 +29,29 @@ def _get_current_refseq(config):
             release = str(int(re.findall(b"\d+", out)[0]))
         except: 
             raise logger.error("release parse error or protocol error")
-    DB_CONF['release'] = release
+    return str(release)
+
+def _get_current_refseq(config):
+    """Get current release number for refseq.
+    """
+    DB_CONF = config['db'].get('refseq', {})
+    if 'release' in DB_CONF:
+        return config
+    cache_fn = os.path.join(TMPDIR, '.refseq_current_release')
+    cache_exists = os.path.exists(cache_fn)
+    if use_cache:
+        if cache_exists:
+            with open(cache_fn, 'rb') as fh:
+                release = pickle.load(fh)
+                logger.info("loading refseq current release ...")
+        else:
+            release = _get_current_ensembl_from_www(config)
+            with open(cache_fn, 'wb') as fh:
+                logger.info("caching refseq current release ...")
+                pickle.dump(release, fh)
+    else:
+        release = _get_current_ensembl_from_www(config)
+    DB_CONF['release'] = str(release)
     config['db']['refseq'] = DB_CONF
     return config
 
@@ -72,17 +87,10 @@ def _parse_species_txt(df, sep='\t'):
         raise ValueError(msg)
     else:
         return SP[config['organism']]
-    
-def init_refseq_from_organism(config):
-    """Parse species annotations by given organism and release number.
 
-    This function set default configuration values for the refseq block.
-    """
-    DB_CONF = config['db'].get('refseq', {})
-    if 'assembly' in DB_CONF:
-        return config
+
+def _get_tab_from_www(config, release, protocol='https://'):
     url = 'ftp.ncbi.nlm.nih.gov/genomes/refseq/assembly_summary_refseq.txt'
-    protocol = 'https://'
     proxies = config.get('proxy', {}).get('server')
     if proxies:
         proxy_support = request.ProxyHandler(proxies)
@@ -94,6 +102,32 @@ def init_refseq_from_organism(config):
         tab = out.decode('utf-8').splitlines()
     except:
         logger.error('failed to parse url {}'.format(url))
+    return tab
+
+def init_refseq_from_organism(config, use_cache=True, cache='.refseq-release-{}'):
+    """Parse species annotations by given organism and release number.
+
+    This function set default configuration values for the refseq block.
+    """
+    DB_CONF = config['db'].get('refseq', {})
+    if 'assembly' in DB_CONF:
+        return config
+    release = str(config['db']['refseq']['release'])
+    if use_cache:
+        cache_fn = os.path.join(TMPDIR, cache.format(release))
+        cache_exists = os.path.exists(cache_fn)
+        if cache_exists:
+            logger.info(cache_fn)
+            with open(cache_fn, 'rb') as fh:
+                tab = pickle.load(fh)
+                logger.info("loading refseq release {}...".format(release))
+        else:
+           tab = _get_tab_from_www(config, release)
+           with open(cache_fn, 'wb') as fh:
+               logger.info("caching refseq release {} ...".format(release))
+               pickle.dump(tab, fh)
+    else:
+        tab = _get_tab_from_www(config, release)
     SP = _parse_species_txt(tab)
     for sp in SP: 
         for k, sp_k in [('assembly', 'asm_name'), ('taxid', 'species_taxid'), ('acc_id', '# assembly_accession'), ('organism_name', 'organism_name')]:
