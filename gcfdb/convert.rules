@@ -2,46 +2,10 @@
 """Converters between common fileformats
 """
 
-rule pyensembl_version:
-    output:
-        'pyensembl.version'
-    singularity:
-        'docker://' + config['docker']['pyensembl']
-    params:
-        script = srcdir('scripts/pyensembl_version.py'),
-        docker = config['docker']['pyensembl']
-    shell:
-        'python {params.script} {params.docker} > {output}'
-
-rule convert_gtf2gene_csv:
-    input:
-        gtf = join('{ref_dir}', 'anno', 'genes.gtf')
-    params:
-        script = srcdir('scripts/gtf2genes.py'),
-    output:
-        tsv = join('{ref_dir}', 'anno', 'genes.tsv')
-    singularity:
-        'docker://' + config['docker']['pyensembl']
-    shell:
-        """
-        python {params.script} {input.gtf} > {output.tsv}
-        """
         
-rule convert_gtf2transcript_csv:
-    input:
-        join('{ref_dir}', 'anno', 'genes.gtf')
-    params:
-        script = srcdir('scripts/gtf2tx.py')
-    output:
-        join('{ref_dir}', 'anno', 'transcripts.tsv')
-    singularity:
-        'docker://' + config['docker']['pyensembl']
-    shell:
-        'python {params.script} {input} > {output}'    
-
 rule convert_gtf2txg:
     input:
-        rules.convert_gtf2gene_csv.output
+        join('{ref_dir}', 'anno', 'genes.tsv')
     output:
         join('{ref_dir}', 'anno', 'tx2gene.tsv')
     shell:
@@ -120,3 +84,63 @@ rule convert_gtf_transcriptome_rsem:
         join('{ref_dir}', 'fasta', 'gtf.rsem.transcripts.fa')
     shell:
         'rsem-prepare-reference --gtf {input.gtf} {input.genome} {params.base}'
+
+
+rule convert_gtf2transcript_info:
+    input:
+        gtf = join('{ref_dir}', 'anno', 'genes.gtf'),
+        fasta = join('{ref_dir}', 'fasta', 'transcriptome.fa')
+    params:
+        script = srcdir('scripts/gtf2tsv.py')
+    output:
+        tsv = join('{ref_dir}', 'anno', 'transcripts.tsv')
+    singularity:
+        'docker://' + config['docker']['gcf-bio']
+    shell:
+        'python {params.script} '
+        '--gtf {input.gtf} '
+        '--fasta {input.fasta} '
+        '--output {output.tsv} '
+        '--feature transcript '
+        '--add-gc-content '
+    
+rule exon_gtf:
+    input:
+       join('{ref_dir}', 'anno', 'genes.gtf')
+    output:
+        temp(join('{ref_dir}', 'anno', 'exons.gtf'))
+    singularity:
+        'docker://' + config['docker']['default']        
+    shell:
+        """awk '$3=="exon"' {input} > {output}"""
+
+rule exon_fasta:
+    input:
+        genome = join('{ref_dir}', 'fasta', 'genome.fa'),
+        gtf = join('{ref_dir}', 'anno', 'exons.gtf')
+    output:
+        join('{ref_dir}', 'fasta', 'exons.fa')
+    singularity:
+        'docker://' + config['docker']['gcf-bio']        
+    shell:
+        'bedtools getfasta -fi {input.genome} -fo {output} -bed {input.gtf} '    
+
+        
+rule convert_gtf2gene_info:
+    input:
+        gtf = join('{ref_dir}', 'anno', 'genes.gtf'),
+        fasta = join('{ref_dir}', 'fasta', 'exons.fa')
+    params:
+        script = srcdir('scripts/gtf2tsv.py'),
+    output:
+        tsv = join('{ref_dir}', 'anno', 'genes.tsv')
+    singularity:
+        'docker://' + config['docker']['gcf-bio']
+    shell:
+        'python {params.script} '
+        '--gtf {input.gtf} '
+        '--fasta {input.fasta} '
+        '--output {output.tsv} '
+        '--feature gene '
+        '--add-gc-content '
+        
