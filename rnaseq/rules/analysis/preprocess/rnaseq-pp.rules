@@ -1,0 +1,14 @@
+PP_INTERIM = join(ANALYSIS_INTERIM, 'preprocess')
+
+rule wgcna_nb:
+    input:
+        rds = join(QUANT_INTERIM, 'salmon', 'tximport', 'tx_salmon.rds')
+    output:
+        directory(PP_INTERIM)
+    log:
+        notebook = join(PP_INTERIM, 'notebooks', 'wgcna.ipynb')
+    singularity:
+        'docker://' + config['docker']['jupyter-rnaseq']
+    notebook:
+        'scripts/rnaseq-pp.ipynb'
+    
