@@ -172,7 +172,7 @@ rule create_ribo_bed:
     input:
         gtf = join(REF_DIR, 'anno', 'genes.gtf')
     output:
-        join(REF_DIR, 'genes', 'rrna.bed')
+        join(REF_DIR, 'anno', 'rrna.bed')
     singularity:
         'docker://' + config['docker']['ucsc-scripts']
     shadow:
@@ -186,10 +186,10 @@ rule create_ribo_bed:
         
 rule create_ribo_intervals:
     input:
-        bed = join(REF_DIR, 'genes', 'rrna.bed'),
+        bed = join(REF_DIR, 'anno', 'rrna.bed'),
         genome = join(REF_DIR, 'fasta', 'genome.dict')
     output:
-        temp('rrna.intervals')
+        join(REF_DIR, 'anno', 'rrna.intervals')
     singularity:
         'docker://' + config['docker']['picard_gatk']
     shell:
