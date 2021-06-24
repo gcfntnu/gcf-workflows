@@ -135,8 +135,8 @@ rule qorts:
         java_opt = '-Xms4G -Xmx4G',
         se = '--singleEnded' if len(config['read_geometry']) == 1 else '',
         max_len = '--maxReadLength {}'.format(int(config['read_geometry'][0])),
-        stranded = '--stranded',
-        read_strand = '--fr_secondStrand ' if config['read_geometry'] == 'forward' else '',
+        stranded = ' ' if config['read_orientation'] == 'unstranded' else '--stranded ',
+        read_strand = '--fr_secondStrand ' if config['read_orientation'] == 'forward' else ' ',
         outdir = lambda wildcards, output: os.path.dirname(output.log)
     output:
         log = join(QORT_QCDIR, '{sample}', 'QC.summary.txt')
@@ -172,7 +172,7 @@ rule create_ribo_bed:
     input:
         gtf = join(REF_DIR, 'anno', 'genes.gtf')
     output:
-        join(REF_DIR, 'genes', 'rrna.bed')
+        join(REF_DIR, 'anno', 'rrna.bed')
     singularity:
         'docker://' + config['docker']['ucsc-scripts']
     shadow:
@@ -186,10 +186,10 @@ rule create_ribo_bed:
         
 rule create_ribo_intervals:
     input:
-        bed = join(REF_DIR, 'genes', 'rrna.bed'),
+        bed = join(REF_DIR, 'anno', 'rrna.bed'),
         genome = join(REF_DIR, 'fasta', 'genome.dict')
     output:
-        temp('rrna.intervals')
+        join(REF_DIR, 'anno', 'rrna.intervals')
     singularity:
         'docker://' + config['docker']['picard_gatk']
     shell:
@@ -220,7 +220,7 @@ rule picard_rnametrics:
         java_opt='-Xms4g -Xmx4g',
         strand = picard_strand()
     threads:
-        2
+        6
     singularity:
         'docker://' + config['docker']['picard_gatk']
     shell:
