@@ -7,7 +7,7 @@ import argparse
 
 from gtfparse import read_gtf
 import pandas as pd
-from Bio.SeqIO.FastaIO import SimpleFastaParser
+from Bio.SeqIO.FastaIO import SimpleFastaParser, FastaIterator
 from Bio.SeqUtils import GC
 
 
