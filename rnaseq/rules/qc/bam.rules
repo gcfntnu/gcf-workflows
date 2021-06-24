@@ -135,8 +135,8 @@ rule qorts:
         java_opt = '-Xms4G -Xmx4G',
         se = '--singleEnded' if len(config['read_geometry']) == 1 else '',
         max_len = '--maxReadLength {}'.format(int(config['read_geometry'][0])),
-        stranded = '--stranded',
-        read_strand = '--fr_secondStrand ' if config['read_geometry'] == 'forward' else '',
+        stranded = ' ' if config['read_orientation'] == 'unstranded' else '--stranded ',
+        read_strand = '--fr_secondStrand ' if config['read_orientation'] == 'forward' else ' ',
         outdir = lambda wildcards, output: os.path.dirname(output.log)
     output:
         log = join(QORT_QCDIR, '{sample}', 'QC.summary.txt')
@@ -220,7 +220,7 @@ rule picard_rnametrics:
         java_opt='-Xms4g -Xmx4g',
         strand = picard_strand()
     threads:
-        2
+        6
     singularity:
         'docker://' + config['docker']['picard_gatk']
     shell:

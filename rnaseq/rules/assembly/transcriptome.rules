@@ -19,7 +19,7 @@ rule stringtie:
     output:
         gtf = join(ASSEMBLY_INTERIM, 'stringtie', '{sample}.gtf')
     params:
-        lib_type = '--fr' if config['read_geometry'] == 'reverse' else '--rf' if config['read_geometry'] == 'forward' else ''
+        lib_type = '--fr' if config['read_orientation'] == 'reverse' else '--rf' if config['read_orientation'] == 'forward' else ''
     threads:
         8
     singularity:
@@ -42,11 +42,11 @@ rule stringtie_gtf_list:
         'ls {input} > {output} '
 
 def scallop_library():
-    if config['read_geometry'] == 'reverse':
+    if config['read_orientation'] == 'reverse':
         arg = '--library_type first '
-    elif config['read_geometry'] == 'forward':
+    elif config['read_orientation'] == 'forward':
         arg = '--library_type second '
-    elif config['read_geometry'] == 'unstranded':
+    elif config['read_orientation'] == 'unstranded':
         arg = '--library_type unstranded '
     else:
         arg = '' #empty
