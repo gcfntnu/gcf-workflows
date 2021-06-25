@@ -1,0 +1,17 @@
+This report is generated for projects run at <a href=\"https://www.ntnu.edu/mh/gcf\">Genomics Core Facility, NTNU, Trondheim</a>. The results are reported per sample.<br/>
+<br/>
+In the delivered zipped archive ({pname}.7za) , you will find the following content:<br/>
+<strong>- {pname}:</strong> A folder containing the demultiplexed fastq-files (sequence data).<br/>
+<strong>- QC_{pname}:</strong> A folder containing output from quality control software <a href=\"https://www.bioinformatics.babraham.ac.uk/projects/fastqc\">Fastqc</a>, <a href=\"https://www.bioinformatics.babraham.ac.uk/projects/fastq_screen/\">fastq_screen</a> and <a href=\"https://multiqc.info/\">MultiQC</a> together with this report, multiqc_{pname}.html<br/>
+<strong>- Stats:</strong> A folder containing statistics from the sequencer. A summary report of the sequencer stats can be found in sequencer_stats_{pname}.html<br/>
+<strong>- Undetermined*.fastq.gz:</strong> Fastq-files with indexes that did not map to any samples.<br/>
+<strong>- {pname}_samplesheet.tsv:</strong> A samplesheet containing all the submitted samples together with info from user sample submission form, if apliccable.<br/>
+<br/>
+The data archive is compressed and (if sensitive) password protected using the <a href=\"https://innsida.ntnu.no/wiki/-/wiki/English/7-zip\">7zip</a> software available on all NTNU PCs.<br/> 
+To unzip the archive from a linux/mac command line, execute the following command.<br/>
+<br/>
+If you were given a password:<br/>
+7za x {pname}.7za -p'your_password'<br/>
+<br/>
+If you were not given a password:<br/>
+7za x {pname}.7za<br/><br/>If you don't have 7za available from your command line, you must install the package p7zip-full.
