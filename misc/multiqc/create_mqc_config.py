@@ -8,6 +8,18 @@ import yaml
 import json
 import subprocess
 
+QC_PLACEMENT = {
+    'External_ID': 0,
+    'Sample_Biosource': 10,
+    'Sample_Group': 20,
+    'Customer_Comment': 30,
+    'Fragment_Length': 35,
+    '260/230': 40,
+    '260/280': 50,
+    'Concentration': 50,
+    'RIN': 60
+}
+
 def get_software_versions(args):
     versions = {}
     with open(os.path.join(args.repo_dir, ".git", "HEAD"), 'r') as head_fh:
@@ -15,7 +27,7 @@ def get_software_versions(args):
     with open(os.path.join(args.repo_dir, ".git", "refs", "heads", branch), 'r') as commit_fh:
         commit = commit_fh.read().rstrip()
     versions["Analysis pipeline"] = "github.com/gcfntnu/gcf-workflows/tree/{} commit {}".format(branch, commit).encode()
-    version["Workflow"] = args.workflow
+    #version["Workflow"] = args.workflow
     software = '\n'.join('{}: {}'.format(key,val) for (key,val) in versions.items())
     return software
 
@@ -29,13 +41,11 @@ def str_read_geometry(read_geometry):
 
 
 def create_mqc_config(args):
-    mqc_conf = yaml.load(args.config_template, loader=yaml.FullLoader)
+    mqc_conf = yaml.load(args.config_template)
     mqc_conf['title'] = args.project_id
     read_geometry = args.read_geometry.split(",")
     #pipeline = config.get("Options","pipeline")
 
-    with open("/opt/mqc_headers/{}_mqc_header.txt".format(pipeline),"r") as header_file:
-        header_text = header_file.read()
     header_text = args.header_template.read()
     mqc_conf['intro_text'] = header_text.format(pname=args.project_id)
     software = get_software_versions(args)
@@ -46,11 +56,9 @@ def create_mqc_config(args):
     report_header = [
     {'Sequencing Platform': args.machine},
     {'Read Geometry': str_read_geometry(read_geometry)},
+    {'Organism': args.organism},
+    {'Lib prep kit': args.libkit},
     ]
-    if not organism in ['N/A', 'n/a', '', ' ']:
-        report_header.append({'Organism': organism})
-    if not prepkit in ['N/A', 'n/a', '', ' ']:
-        report_header.append({'Lib prep kit': prepkit})
 
     mqc_conf['report_header_info'] = report_header
 
@@ -82,6 +90,8 @@ def create_mqc_config(args):
 
     pconfig = {}
     for col in list(s_df.columns.values):
+        if col not in QC_PLACEMENT.keys():
+            continue
         pconfig[col] = {'format': '{}', 'min': 0, 'placement': QC_PLACEMENT[col]}
         pconfig[col]['max'] = MAX.get(col,None)
         pconfig[col]['scale'] = COL_SCALE.get(col,False)
@@ -103,7 +113,7 @@ def create_mqc_config(args):
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("-p", "--project-id", , help="GCF project ID", required=True)
+    parser.add_argument("-p", "--project-id", help="GCF project ID", required=True)
     parser.add_argument("-o", "--output", default=".multiqc_config.yaml", help="Output config file", type=argparse.FileType('w'), required=True)
     parser.add_argument("-S", "--sample-info", type=argparse.FileType('r'), help="Sample info in tsv format", required=True)
     parser.add_argument("--organism",  help="Organism (if applicable to all samples). Overrides value from samplesheet.", required=True)
