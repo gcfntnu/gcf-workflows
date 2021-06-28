@@ -43,4 +43,28 @@ rule multiqc_config:
         '--header-template {input.header_template} '
         '--config-template {input.config_template} '
         '-o {output.mqc_config} '
-        
+
+def get_mqc_modules():
+    modules = config['multiqc'][WORKFLOW][modules].split(',')
+    return '-m ' + ' -m '.join(modules)
+       
+rule multiqc_report:
+    input:
+        bfq = rules.bfq_all.input,
+        mqc_config = rules.multiqc_config.output.mqc_config,
+    output:
+        report = join(BFQ_INTERIM, 'multiq_{}.html'.format(config['project_id'])),
+    params:
+        modules = get_mqc_modules(),
+        extra_args = '-f -q --interactive ',
+        analysis_directory = BFQ_INTERIM,
+    singularity:
+        'docker://' + config['docker']['multiqc']
+    shell:
+        'multiqc '
+        '--config {input.mqc_config} '
+        '{params.modules} '
+        '--filename {params.output.report} '
+        '{params.extra_args} '
+        '{params.analysis_directory} '
+
