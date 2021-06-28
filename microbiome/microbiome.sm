@@ -34,6 +34,8 @@ include:
     'rules/analysis.rules'
 include:
     'rules/bfq.rules'
+include:
+    srcdir('../postprocess.rules')
 
 
 onsuccess:
