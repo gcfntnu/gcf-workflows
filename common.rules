@@ -20,7 +20,7 @@ rule multiqc_config:
         config_template = srcdir(join('misc', 'multiqc', 'multiqc_config-{}.yaml'.format(WORKFLOW))),
         sample_info = join(TMPDIR, 'sample_info.tsv'),
     output:
-        mqc_config = join(BFQ_TMP, '.multiqc_config.yaml')
+        mqc_config = join(BFQ_INTERIM, '.multiqc_config.yaml')
     params:
         script = srcdir('misc/multiqc/create_mqc_config.py'),
         org = config['organism'],
