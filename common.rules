@@ -26,7 +26,7 @@ rule multiqc_config:
         org = config['organism'],
         project_id = config['project_id'],
         machine = config['machine'],
-        read_geometry = ','.join(config['read_geometry']),
+        read_geometry = ','.join([str(x) for x in config['read_geometry']]),
         libprep = config['libprepkit'],
         repo_dir = srcdir(os.path.dirname('main.config')),
     singularity:

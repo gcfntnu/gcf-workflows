@@ -3,7 +3,7 @@
 
 
 
-rule multiqc_config:
+rule qc_multiqc_config:
     output:
         '.multiqc_config.yaml'
     params:
@@ -40,9 +40,9 @@ rule multiqc_config:
         with open(output[0], 'w') as fh:
             yaml.dump(conf, fh, default_flow_style=False)
     
-rule multiqc_summary:
+rule qc_multiqc_summary:
     input:
-        config = rules.multiqc_config.output,
+        config = rules.qc_multiqc_config.output,
         qc = rules.qc_all.input
     params:
         outdir = join(QC_INTERIM, 'multiqc')
