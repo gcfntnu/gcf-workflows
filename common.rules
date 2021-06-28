@@ -18,7 +18,7 @@ rule multiqc_config:
     input:
         header_template = srcdir(join('misc', 'multiqc', 'mqc_header.txt')),
         config_template = srcdir(join('misc', 'multiqc', 'multiqc_config-{}.yaml'.format(WORKFLOW))),
-        sample_info = join(TMPDIR, 'sample_info.tsv'),
+        sample_info = join(INTERIM_DIR, 'sample_info.tsv'),
     output:
         mqc_config = join(BFQ_INTERIM, '.multiqc_config.yaml')
     params:
@@ -35,10 +35,10 @@ rule multiqc_config:
         'python {params.script} '
         '-p {params.project_id} '
         '-S {input.sample_info} '
-        '--organism {params.org}'
-        '--libkit {params.libprep} '
-        '--machine {params.machine} '
-        '--read-geometry {params.read_geometry}'
+        '--organism {params.org} '
+        '--libkit "{params.libprep}" '
+        '--machine "{params.machine}" '
+        '--read-geometry {params.read_geometry} '
         '--repo-dir {params.repo_dir} '
         '--header-template {input.header_template} '
         '--config-template {input.config_template} '
