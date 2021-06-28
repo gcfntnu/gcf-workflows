@@ -13,3 +13,34 @@ rule sample_info:
     shell:
         'python {params.script} config.yaml > {output}'
 
+
+rule multiqc_config:
+    input:
+        header_template = srcdir(join('misc', 'multiqc', 'mqc_header.txt')),
+        config_template = srcdir(join('misc', 'multiqc', 'multiqc_config-{}.yaml'.format(WORKFLOW))),
+        sample_info = join(TMPDIR, 'sample_info.tsv'),
+    output:
+        mqc_config = join(BFQ_TMP, '.multiqc_config.yaml')
+    params:
+        script = srcdir('misc/multiqc/create_mqc_config.py'),
+        org = config['organism'],
+        project_id = config['project_id'],
+        machine = config['machine'],
+        read_geometry = ','.join(config['read_geometry']),
+        libprep = config['libprepkit'],
+        repo_dir = srcdir(os.path.dirname('main.config')),
+    singularity:
+        'docker://' + config['docker']['default']
+    shell:
+        'python {params.script} '
+        '-p {params.project_id} '
+        '-S {input.sample_info} '
+        '--organism {params.org}'
+        '--libkit {params.libprep} '
+        '--machine {params.machine} '
+        '--read-geometry {params.read_geometry}'
+        '--repo-dir {params.repo_dir} '
+        '--header-template {input.header_template} '
+        '--config-template {input.config_template} '
+        '-o {output.mqc_config} '
+        
