@@ -29,8 +29,11 @@ rule multiqc_config:
         '-o {output.mqc_config} '
 
 def get_mqc_modules():
-    modules = config['multiqc'][WORKFLOW]['modules'].split(',')
-    return '-m ' + ' -m '.join(modules)
+    if WORKFLOW in config['multiqc'].keys():
+        modules = config['multiqc'][WORKFLOW].get('modules', "").split(',')
+        return ('-m ' + ' -m '.join(modules)) if modules else ""
+    else:
+        return ""
 
 rule multiqc_report:
     input:
