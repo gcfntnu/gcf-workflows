@@ -9,7 +9,7 @@ include:
 rule bfq_all:
     input:
         rules.bfq_level1_all.input,
-        rules.bfq_level2_all.input
+        rules.bfq_level2_all.input,
 
 rule bfq_multiqc:
     input:
