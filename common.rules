@@ -13,3 +13,4 @@ rule sample_info:
     shell:
         'python {params.script} config.yaml > {output}'
 
+

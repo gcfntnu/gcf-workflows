@@ -16,6 +16,7 @@ include:
 if not 'REF_DIR' in locals():
    raise ValueError
 
+
 if config.get('read_orientation') is None:
    LIB_TYPE = 'A'
 else:
@@ -26,7 +27,7 @@ else:
    elif config['read_orientation'] == 'forward':
       orientation = 'F'
    else:
-      raise ValueError('read_orientation configuration not valid')
+      orientation = ''
    LIB_TYPE = 'I' + stranded + orientation if PE else stranded + orientation
 
 

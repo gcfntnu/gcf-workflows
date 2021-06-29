@@ -108,7 +108,7 @@ rule exon_gtf:
     input:
        join('{ref_dir}', 'anno', 'genes.gtf')
     output:
-        temp(join('{ref_dir}', 'anno', 'exons.gtf'))
+        join('{ref_dir}', 'anno', 'exons.gtf')
     singularity:
         'docker://' + config['docker']['default']        
     shell:
