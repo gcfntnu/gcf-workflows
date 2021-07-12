@@ -34,14 +34,14 @@ rule fastp_10x_repair:
         R1 = temp(join(FILTER_INTERIM, 'fastp_10x', '{sample}_R1.fastq.paired.fq')),
         R2 = temp(join(FILTER_INTERIM, 'fastp_10x', '{sample}_R2.trimmed.fastq.paired.fq'))
     threads:
-        1
+        12
     shell:
         'fastq_pair {input} '
 
 rule fastp_10x:
     input:
-        R1 = join(FILTER_INTERIM, 'fastp_10x', '{sample}_R1.fastq.paired.fq'),
-        R2 = join(FILTER_INTERIM, 'fastp_10x', '{sample}_R2.trimmed.fastq.paired.fq')
+        R1 = join(FILTER_INTERIM, 'fastp_10x', '{sample}_R1.fastq'),
+        R2 = join(FILTER_INTERIM, 'fastp_10x', '{sample}_R2.trimmed.fastq')
     params:
         out = join(FILTER_INTERIM, 'fastp_10x')
     output:

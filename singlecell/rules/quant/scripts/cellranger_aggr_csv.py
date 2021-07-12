@@ -19,7 +19,7 @@ parser.add_argument('-v ', '--verbose', help='verbose output.', action='store_tr
 
 def read_sample_info(args):
     import pandas as pd
-    df = pd.read_csv(args.sample_info, sep='\t')
+    df = pd.read_csv(args.sample_info, sep='\t', dtype={'Sample_ID': str})
     assert('Sample_ID' in df.columns)
     df['Sample_ID'] = df['Sample_ID'].astype(str)
     df.index = df['Sample_ID']

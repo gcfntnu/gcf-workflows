@@ -30,6 +30,8 @@ include:
     'rules/qc.rules'
 include:
     'rules/bfq.rules'
+include:
+    srcdir('../postprocess.rules')
 
 
 onsuccess:
