@@ -150,7 +150,7 @@ rule salmon_tximeta:
     input:
         files = expand(join(SALMON_INTERIM, '{sample}', 'quant.sf'), sample=SAMPLES),
         sample_info = join(INTERIM_DIR, 'sample_info.tsv'),
-        index= join(REF_DIR, 'index', 'transcriptome', 'salmon', 'tximeta.json')
+        index = join(REF_DIR, 'index', 'transcriptome', 'salmon', 'tximeta.json')
     params:
         script = srcdir('scripts/tximeta.R'),
         index_dir = join(REF_DIR, 'index', 'transcriptome', 'salmon')

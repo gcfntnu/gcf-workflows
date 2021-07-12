@@ -23,7 +23,7 @@ parser$add_argument("-a", "--assembly", type="character", help="reference databa
 
 parser$add_argument("-o", "--output", default="tximeta.json", help="Output json file")
 
-parser$add_argument("-c", "--cachedir", default="", help="Output json file")
+parser$add_argument("-c", "--cachedir", default="/tmp/.cache", help="Cachedir location")
 
 parser$add_argument("-v", "--verbose", action="store_true", default=FALSE, help="Print extra output")
 
@@ -34,8 +34,10 @@ if (args$verbose == TRUE){
     options(echo=TRUE)
 }
 
-Sys.setenv(TXIMETA_HUB_CACHE=args$cachedir)
-print(getTximetaBFC())
+if (!dir.exists(args$cachedir)){
+    dir.create(args$cachedir, showWarnings=FALSE, recursive=TRUE)
+    }
+
 setTximetaBFC(args$cachedir, quiet=TRUE)
 
 makeLinkedTxome(indexDir = dirname(args$index),

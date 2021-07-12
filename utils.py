@@ -24,6 +24,10 @@ TMPDIR = os.environ.get("TMPDIR", "/tmp")
 INTERIM_DIR = config.get("interim_dir") or environ.get("GCF_INTERIM", "data/tmp")
 makedirs(INTERIM_DIR, exist_ok=True)
 EXT_DIR = config.get("ext_dir") or environ.get("GCF_EXT", "data/ext")
+makedirs(EXT_DIR, exist_ok=True)
+EXT_CACHE = join(EXT_DIR, '.cache')
+makedirs(EXT_DIR, exist_ok=True)
+
 FASTQ_DIR = config.get("fastq_dir") or environ.get("GCF_FASTQ", "data/raw/fastq")
 while FASTQ_DIR.endswith(os.path.sep):
     FASTQ_DIR = FASTQ_DIR[:-1]

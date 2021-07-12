@@ -36,7 +36,7 @@ if (args$verbose == TRUE){
 }
 
 
-tximeta::loadLinkedTxome(args$txome)
+##tximeta::loadLinkedTxome(args$txome)
 
 desc <- read.delim(args$sample_info, header=TRUE, as.is=TRUE, sep="\t")
 rownames(desc) <- desc[,"Sample_ID"]
@@ -47,7 +47,7 @@ coldata$names <- coldata[,"Sample_ID"]
 coldata <- cbind(coldata, files = args$input, stringsAsFactors = FALSE)
 
 if (args$type %in% c("kallisto", "salmon", "stringtie", "sailfish", "rsem")){
-    txi.tx <- tximeta::tximeta(coldata, type=args$type)
+    txi.tx <- tximeta::tximeta(coldata, type=args$type, useHub=FALSE)
 } else{
     stop(cat("method: ", args$type, " not valid \n"))
 }

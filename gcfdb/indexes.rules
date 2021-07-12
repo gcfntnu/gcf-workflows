@@ -1,7 +1,6 @@
 #-*- mode:snakemake -*-
 """Indexes from fasta
 """
-
         
 rule star_genome_index_gtf:
     input: 
@@ -210,9 +209,7 @@ rule salmon_index:
         '--index {params.out} '
         '--transcripts {input}'
 
-TXI_CACHE = os.environ.get('TXIMETA_HUB_CACHE', join(EXT_DIR, 'tximeta'))
-if not os.path.exists(TXI_CACHE):
-    os.makedirs(TXI_CACHE)
+
 rule salmon_index_tximeta:
     input:
         fasta = join('{ref_dir}', 'fasta', '{prefix}.fa'),
@@ -226,7 +223,7 @@ rule salmon_index_tximeta:
         db = lambda x: config['db']['reference_db'],
         release = lambda x: DB_CONF['release'],
         assembly = lambda x: DB_CONF['assembly'],
-        cache = TXI_CACHE
+        cache = join(EXT_CACHE, 'tximeta')
     threads:
         16
     singularity:
