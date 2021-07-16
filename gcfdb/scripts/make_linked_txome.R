@@ -37,8 +37,14 @@ if (args$verbose == TRUE){
 if (!dir.exists(args$cachedir)){
     dir.create(args$cachedir, showWarnings=FALSE, recursive=TRUE)
     }
-
 setTximetaBFC(args$cachedir, quiet=TRUE)
+
+GTF <- args$gtf
+## is symlink, get symlinked name
+if (nzchar(Sys.readlink(GTF))){
+    gtf.abspath <- normalizePath(GTF)
+    GTF <- file.path(dirname(gtf.abspath), Sys.readlink(GTF))
+}
 
 makeLinkedTxome(indexDir = dirname(args$index),
                 source = args$source,
@@ -46,6 +52,6 @@ makeLinkedTxome(indexDir = dirname(args$index),
                 release = args$release,
                 genome = args$assembly,
                 fasta = args$transcriptome,
-                gtf = args$gtf,
+                gtf = GTF,
                 write = TRUE,
                 jsonFile = args$output)

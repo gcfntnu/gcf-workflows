@@ -2,6 +2,8 @@ logger.info("WORKFLOW: {}".format(WORKFLOW))
 
 include:
     'gcfdb/indexes.rules'
+include:
+    'gcfdb/convert.rules'
 
 rule sample_info:
     output:

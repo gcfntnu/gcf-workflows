@@ -77,7 +77,7 @@ rule convert_gtf_transcriptome_rsem:
         gtf = join('{ref_dir}', 'anno', 'genes.gtf'),
         genome = join('{ref_dir}', 'fasta', 'genome.fa')
     params:
-        base = join('{ref_dir}', 'fasta', 'gtf.rsem')
+        base = join('{ref_dir}', 'fasta', 'gtf.rsem.transcripts.fa')
     singularity:
         'docker://' + config['docker']['rsem']
     output:
@@ -85,6 +85,14 @@ rule convert_gtf_transcriptome_rsem:
     shell:
         'rsem-prepare-reference --gtf {input.gtf} {input.genome} {params.base}'
 
+#fixme
+rule convert_transcriptome:
+    input:
+        join('{ref_dir}', 'fasta', 'gtf.gffread.transcripts.fa')
+    output:
+        join('{ref_dir}', 'fasta', 'transcriptome.fa')
+    shell:
+        'ln -sr {input} {output}'
 
 rule convert_gtf2transcript_info:
     input:

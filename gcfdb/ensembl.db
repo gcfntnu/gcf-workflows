@@ -227,7 +227,7 @@ rule ensembl_gff:
         proxy = config.get('proxy', {}).get('wget', ''),
         url = lambda wildcards, input: get_ensembl_ftp(wildcards, 'gff')
     output:
-        join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'anno', 'genes.gff')
+        join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'anno', '{organism}.{assembly}.{release}.gff')
     threads: 
         24
     log:
@@ -247,7 +247,7 @@ rule ensembl_gtf:
         proxy = config.get('proxy', {}).get('wget', ''),
         url = lambda wildcards, input: get_ensembl_ftp(wildcards, 'gtf')
     output:
-        join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'anno', 'genes.gtf')
+        join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'anno', '{organism}.{assembly}.{release}.gtf')
     threads: 
         24
     log:
@@ -257,3 +257,14 @@ rule ensembl_gtf:
         wget {params.proxy} -O- {params.url} | gunzip -c > {output}
         echo 'Ensembl GTF,release-{params.release},{params.url},{params.date}' > {log}
         """ 
+
+
+rule symlink_genes:
+    input:
+        join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'anno', '{organism}.{assembly}.{release}.{ext}')
+    output:
+        join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'anno', 'genes.{ext}')
+    wildcard_constraints:
+        ext = 'g.+f$'
+    shell:
+        'ln -sr {input} {output}'

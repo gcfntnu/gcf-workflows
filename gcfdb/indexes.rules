@@ -220,7 +220,7 @@ rule salmon_index_tximeta:
     params:
         script = srcdir('scripts/make_linked_txome.R'),
         org = config['organism'],
-        db = lambda x: config['db']['reference_db'],
+        db = lambda x: 'GCF_' + config['db']['reference_db'],
         release = lambda x: DB_CONF['release'],
         assembly = lambda x: DB_CONF['assembly'],
         cache = join(EXT_CACHE, 'tximeta')
@@ -239,4 +239,5 @@ rule salmon_index_tximeta:
         '--release {params.release} '
         '--assembly {params.assembly} '
         '-o {output.json} '
+        '--verbose '
         
