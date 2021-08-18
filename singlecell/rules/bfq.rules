@@ -1,13 +1,9 @@
-BFQ_INTERIM = join(INTERIM_DIR, 'singlecell', 'bfq')
+#-*- mode:snakemake -*-
 
-
-include:
-    'bfq/bfq_level1.rules'
 include:
     'bfq/bfq_level2.rules'
 include:
     'bfq/bfq_level3.rules'
-
 
 
 rule bfq_all:

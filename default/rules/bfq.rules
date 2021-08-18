@@ -1,5 +1,4 @@
-include:
-    'bfq/bfq_level1.rules'
+#-*- mode:snakemake -*-
 
 rule bfq_all:
     input:

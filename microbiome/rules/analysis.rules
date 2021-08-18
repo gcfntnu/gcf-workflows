@@ -1,6 +1,5 @@
 #-*- mode:snakemake -*-
 
-ANALYSIS_INTERIM = join(INTERIM_DIR, 'microbiome', 'analysis')
 MODELS = list(config.get('models', {}).keys())
 
 def model_par(wildcards, p, default=None, require_default=False, rule=None):

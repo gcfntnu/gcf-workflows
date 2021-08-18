@@ -115,10 +115,14 @@ def cutadapt_worker(args, primers):
     r1 = " ".join(R1)
     r2 = r1.replace("R1.fastq", "R2.fastq")
 
-    #cat and compress
-    cmd = "cat {r1} | pigz -6 -p 2 > {outdir}/{sample}_R1.fastq.gz".format(r1 = r1, sample = sample, outdir = args.output_dir)
+    #cat and (optional) compress
+    zip_call = ''
+    if args.compress:
+        zip_call = '| pigz -6 -p 2 '
+    cmd = "cat {r1}{zip_call} > {outdir}/{sample}_R1.fastq.gz"
+    cmd = cmd.format(zip_call=zip_call, r1=r1, sample=sample, outdir=args.output_dir)
     subprocess.check_call(cmd, shell=True)
-    cmd = "cat {r2} | pigz -6 -p 2 > {outdir}/{sample}_R2.fastq.gz".format(r2 = r2, sample = sample, outdir = args.output_dir)
+    cmd = cmd.format(zip_call=zip_call, r1=r2, sample=sample, outdir=args.output_dir)
     subprocess.check_call(cmd, shell=True)
 
     #unlink r1 and r2 from above
@@ -135,6 +139,7 @@ if __name__ == '__main__':
     parser.add_argument("--libprepconfig",  help="Path to libprepconfig.")
     parser.add_argument("--in1",  help="Input R1.")
     parser.add_argument("--in2",  help="Input R2.")
+    parser.add_argument("--compress",  action='store_true', help="compress output files (boolean)")
     parser.add_argument("--output-dir",  help="Path to output directory.")
     parser.add_argument("--log-dir",  help="Path to log directory.")
 

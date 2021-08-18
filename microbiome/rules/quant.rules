@@ -1,4 +1,7 @@
-QUANT_INTERIM = join(INTERIM_DIR, 'microbiome', 'quant')
+#-*- mode: snakemake -*-
+"""
+Snakemake rules for q2 microbiome.
+"""
 
 include:
     'quant/qiime2_py.rules'

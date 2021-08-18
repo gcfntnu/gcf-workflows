@@ -3,8 +3,6 @@
 Snakemake rules for quality control of rna-seq.
 """
 
-QC_INTERIM = join(INTERIM_DIR, 'singlecell', 'qc')
-
 include:
     'qc/fastq.rules'
 include:

@@ -1,7 +1,5 @@
 #-*- mode:snakemake -*-
 
-QUANT_INTERIM = join(INTERIM_DIR, 'smallrna', 'quant')
-
 include:
     'quant/quickmirseq.rules'
 include:

@@ -1,10 +1,7 @@
 #-*- mode:snakemake -*-
-from collections import defaultdict
-
-QUANT_INTERIM = join(INTERIM_DIR, 'singlecell', 'quant')
 
 if not config['quant']['aggregate']['skip']:
-    AGGR_IDS = defaultdict(list)
+    AGGR_IDS = collections.defaultdict(list)
     groupby = config['quant']['aggregate'].get('groupby', 'all_samples')
     for k, v in config['samples'].items():
         if groupby in v:

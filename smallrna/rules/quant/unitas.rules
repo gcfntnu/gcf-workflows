@@ -21,10 +21,18 @@ def get_unitas_seq(wildcards):
     if config['filter']['trim']['quantifier'] == 'mirtrace':
         fastq = join(FILTER_INTERIM, 'mirtrace', 'unitas_fasta', '{sample}_R1.fasta')
     else:
-        fastq = get_processed_fastq(wildcards)['R1']
+        fastq = get_filtered_fastq(wildcards)['R1']
     return fastq
 
-
+def get_spikein_fasta():
+    ref = config['filter']['spikein'].get('ref', '').lower()
+    if ref == 'ercc':
+        return join(EXT_DIR, 'ERCC', 'fasta', 'ERCC92.fa')
+    elif ref == 'smallrna_calibrators':
+        return join(EXT_DIR, 'spikein', 'fasta', 'smallrna_calibrators.fa')
+    else:
+        return join(EXT_DIR, 'spikein', 'fasta', 'merged_spikein.fa')
+    
 rule spikein_unitas:
     input:
         get_spikein_fasta()

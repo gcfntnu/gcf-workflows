@@ -1,9 +1,6 @@
 #-*- mode: snakemake -*-
 """Snakemake rules for alignment free transcript and gene expression modelling using salmon.
-
 """
-        
-QUANT_INTERIM = join(INTERIM_DIR, 'rnaseq', 'quant')
 
 include:
     'filter.rules'

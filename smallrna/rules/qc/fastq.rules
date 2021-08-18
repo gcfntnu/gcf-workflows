@@ -1,140 +1,54 @@
 #-*- mode: snakemake -*-
-"""Fastqc rules on trimmed fastq files
+"""Fastq qc rules on trimmed fastq files
 """
 
-ORG_MAP = {'homo_sapiens': 'hsa', 'mus_musculus': 'mmu', 'rattus_norvegicus': 'rnor'}
 MIRTRACE_DIR = join(INTERIM_DIR, 'smallrna', 'qc', 'mirtrace')
 
-
-include: 
-    join(GCFDB_DIR, 'illumina.db')
-include: 
-    join(GCFDB_DIR, 'univec.db')
-
-
-rule qc_fastq_fastqc:
-   input:
-       unpack(get_processed_fastq)
-   output:
-       R1_zip = join(QC_INTERIM, 'fastqc', '{sample}_R1_fastqc.zip'),
-       R1_html = join(QC_INTERIM, 'fastqc', '{sample}_R1_fastqc.html')
-   params:
-       out = join(QC_INTERIM, 'fastqc')
-   threads:
-       2
-   singularity:
-       'docker://' + config['docker']['fastqc']
-   shell:
-       'fastqc -t {threads} -o {params.out} {input.R1} '
-
-rule qc_fastq_illumina_seqs:
+rule mirtrace_config:
     input:
-        join(EXT_DIR, 'illumina', 'adaptors', 'fasta', 'adaptors.fa'),
-        join(EXT_DIR, 'univec_illumina', 'fasta', 'univec_illumina.fa')
+        expand(join(FILTER_INTERIM, 'fastq', '{sample}_R1.fastq'), sample=SAMPLES)
     output:
-        join(EXT_DIR, 'illumina', 'adaptors_ext', 'fasta', 'adaptors_ext.fa')
-    shell:
-        'cat {input} > {output}'
-
-
-def qc_fastq_fastqscreen_indexes(*args, **kw):
-   """ Return name and index for screening databases.
-   """
-   # default human
-   release = config['db'].get('ensembl', {}).get('release', '103')
-   INDEXES = {'Human': join(EXT_DIR, 'ensembl', 'release-{}'.format(release), 'homo_sapiens', 'GRCh38', 'index', 'genome', 'bowtie2', 'genome.1.bt2')}
-   org = config.get('organism')
-   if org != 'homo_sapiens':
-      if config['db'].get('reference_db') == 'ensembl':
-         release = config['db']['ensembl']['release']
-         assembly = config['db']['ensembl']['assembly']
-         index = join(EXT_DIR, 'ensembl', 'release-{}'.format(release), org, assembly, 'index', 'genome', 'bowtie2', 'genome.1.bt2')
-         organism_name = config['db']['ensembl'].get('organism_name', org)
-         INDEXES[organism_name] = index
-   # contamination (univec minus phiX/Illumina sequences)
-   INDEXES['Contamination'] = join(EXT_DIR, 'univec_subset', 'index', 'univec_subset', 'bowtie2', 'univec_subset.1.bt2')
-   # phiX
-   INDEXES['PhiX'] = join(EXT_DIR, 'illumina', 'phix', 'index', 'phix', 'bowtie2', 'phix.1.bt2')
-   # illumina specific sequences
-   INDEXES['Adaptors/Primers'] = join(EXT_DIR, 'illumina', 'adaptors_ext', 'index', 'adaptors_ext', 'bowtie2', 'adaptors_ext.1.bt2')
-   return INDEXES
-
-rule qc_fastq_fastqscreen_config:
-    input:
-        unpack(qc_fastq_fastqscreen_indexes)
-    output:
-        fn = temp(os.path.abspath('fastq_screen.config'))
-    run:
-        import os
-        with open(output.fn, 'w') as fh:
-           for db_name, index in input.items():
-              index_dir = os.path.dirname(index)
-              base = os.path.basename(index).split('.')[0]
-              index_base = os.path.join(index_dir, base)
-              fh.write('DATABASE {} {}\n'.format(db_name.title(), index_base))
-       
-rule qc_fastq_fastqscreen:
-    input:
-        unpack(get_processed_fastq),
-        config = rules.qc_fastq_fastqscreen_config.output 
-    output:
-        screen = join(QC_INTERIM, 'fastqscreen', '{sample}', '{sample}_R1_screen.txt')
-    params:
-        args = '-q --force',
-        subset = 400000,
-        outdir = join(QC_INTERIM, 'fastqscreen', '{sample}')
-    threads:
-        4
-    singularity:
-        'docker://' + config['docker']['fastq-screen']
-    shell:
-        'fastq_screen '
-        '--aligner bowtie2 '
-        '--threads {threads} '
-        '--conf {input.config} '
-        '--outdir {params.outdir} '
-        '{params.args} '
-        '{input.R1} '
-
-rule qc_fastq_mirtrace_config:
-    output:
-        fn = temp(os.path.abspath('mirtrace.config'))
+        temp('.filter_mirtrace.conf')
     params:
         adapter = config['adapter']
     run:
         with open(output[0], 'w') as fh:
-            for name, info in config['samples'].items():
-                filename = join(FASTQ_DIR, info['R1'])
-                line = ','.join([os.path.abspath(filename), name])
-                fh.write(line + '\n')
+            for k, v in config['samples'].items():
+                fn = join(config['fastq_dir'], v['R1'])
+                els = [fn, k, params.adapter]
+                fh.write(','.join(els) + '\n')            
 
-def mirtrace_input(*args):
-    os.makedirs(MIRTRACE_DIR, exist_ok=True)
-    out = []
-    for k, v in config['samples'].items():
-        filename = os.path.abspath(join(FASTQ_DIR, v['R1']))  
-        out.append(filename)
-    return out
+def mirtrace_species(*args):
+    org_map = {'homo_sapiens': 'hsa',
+               'mus_musculus': 'mmu',
+               'rattus_norvegicus': 'rno'}
+    org = org_map.get(config['organism'])
+    if org is None:
+        raise ValueError('mirtrace qc support onle for human, mouse or rat. Got: {}'.format(config['organism']))
+    return org
 
-rule qc_fastq_mirtrace:
+rule qc_mirtrace:
     input:
-        mirtrace_input()
+        config = '.filter_mirtrace.conf',
+        samples = expand(join(FILTER_INTERIM, 'fastq', '{sample}.fastq'), sample=SAMPLES)
     params:
-        org = ORG_MAP[config['organism']],
-        adapter = config['adapter'],
-        protocol = 'qiaseq',
-        outdir = MIRTRACE_DIR
+        outdir = MIRTRACE_DIR,
+        protocol = config['filter']['trim']['mirtrace']['protocol'],
+        species = mirtrace_species(),
+        title = config.get('project_id', 'GCF-0000-00')
     singularity:
         'docker://' + config['docker']['mirtrace']
+    threads:
+        8
     output:
         qc = join(MIRTRACE_DIR, 'mirtrace-results.json'),
         length = join(MIRTRACE_DIR, 'mirtrace-stats-length.tsv')
     shell:
         'mirtrace qc '
-        '--species {params.org} '
-        '--adapter {params.adapter} '
-        '--protocol {params.protocol} '
-        '--output-dir {params.outdir} '
-        '--force '
-        '{input} '
+        '-s {params.species} '
+        '-c {input.config} '
+        '-o {params.outdir} '
+        '-p {params.protocol} '
+        '--title {params.title} '
+        '-t {threads} '
 

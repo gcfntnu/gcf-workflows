@@ -3,8 +3,6 @@
 Snakemake rules for quality control of rna-seq.
 """
 
-QC_INTERIM = join(INTERIM_DIR, 'rnaseq', 'qc')
-
 include:
     'qc/fastq.rules'
 include:
@@ -27,8 +25,8 @@ if len(config['read_geometry']) > 1:
             expand(rules.qualimap_rnaseq.output, sample=SAMPLES),
             expand(rules.salmon_meta_info.output, sample=SAMPLES),
             expand(rules.salmon_flendist.output, sample=SAMPLES),
-            expand(rules.qc_fastq_fastqc.output, sample=SAMPLES),
-            expand(rules.qc_fastq_fastqscreen.output, sample=SAMPLES)
+            expand(rules.fastqc.output, sample=SAMPLES),
+            expand(rules.fastq_screen.output, sample=SAMPLES)
 else:
     rule qc_all:
         input:
@@ -40,9 +38,6 @@ else:
             expand(rules.qorts.output, sample=SAMPLES),
             expand(rules.qualimap_rnaseq.output, sample=SAMPLES),
             expand(rules.salmon_meta_info.output, sample=SAMPLES),
-            expand(rules.qc_fastq_fastqc.output, sample=SAMPLES),
-            expand(rules.qc_fastq_fastqscreen.output, sample=SAMPLES)
-            
-include:
-    'qc/multiqc.rules'
+            expand(rules.fastqc.output, sample=SAMPLES),
+            expand(rules.fastq_screen.output, sample=SAMPLES)
 

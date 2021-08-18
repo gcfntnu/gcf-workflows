@@ -5,7 +5,7 @@ include:
 
 rule mirge_symlink:
     input:
-        unpack(get_processed_fastq)
+        unpack(get_filtered_fastq)
     params:
         join(QUANT_INTERIM, 'mirge', 'fastq')
     output:

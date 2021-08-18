@@ -13,7 +13,7 @@ def star_genome_dir():
 
 rule umitools_whitelist:
     input:
-        R1 = umitools_get_filtered_fastq_R1
+        unpack(get_filtered_fastq)
     params:
         bc_pattern = config['quant']['umi_tools']['chemistry'],
         extra_args = '--plot-prefix ' + UMI_INTERIM + '/{sample}/{sample}'
@@ -31,8 +31,7 @@ rule umitools_whitelist:
 
 rule umitools_extract:
     input:
-        R1 = umitools_get_filtered_fastq_R1,
-        R2 = umitools_get_filtered_fastq_R2,
+        unpack(get_filtered_fastq),
         whitelist = rules.umitools_whitelist.output
     params:
         '--bc-pattern={} --filter-cell-barcode '.format(config['quant']['umi_tools']['chemistry'])

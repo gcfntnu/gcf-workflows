@@ -3,9 +3,8 @@
 Snakemake rules for aligning rna-seq fastq files to genome.
 
 STAR, https://github.com/alexdobin/STAR
-
 """
-ALIGN_INTERIM = join(INTERIM_DIR, 'rnaseq', 'align')
+
 ALIGNER = config['align']['genome']['aligner']
         
 def get_sorted_bam(wildcards):

@@ -6,7 +6,6 @@ STAR, https://github.com/alexdobin/STAR
 
 """
 
-ALIGN_INTERIM = join(INTERIM_DIR, 'smallrna', 'align')
 ALIGNER = config['align']['genome']['aligner']
         
 def get_sorted_bam(wildcards):

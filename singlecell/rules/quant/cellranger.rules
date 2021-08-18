@@ -73,8 +73,7 @@ rule cellranger_symlink_gtf:
  
 rule cellranger_quant_:
     input:
-        R1 = get_filtered_fastq_R1,
-        R2 = get_filtered_fastq_R2,
+        unpack(get_filtered_fastq),
         genome = join(CR_REF_DIR, 'fasta', 'genome.fa')
     params:
         input = input_fastq_path,

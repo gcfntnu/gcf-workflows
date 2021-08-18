@@ -51,7 +51,7 @@ def sample_args(wildcards):
     args = ''
     sample = config['samples'][wildcards.sample]
     PE = sample.get('paired_end') or len(config['read_geometry']) > 1
-    fastq = get_processed_fastq(wildcards)
+    fastq = get_filtered_fastq(wildcards)
     salmon_r1 = ' '.join(fastq['R1'])
     if PE:
         salmon_r2 = ' '.join(fastq['R2'])
@@ -66,7 +66,7 @@ def sample_args(wildcards):
 
 rule salmon_map:
     input:
-        unpack(get_processed_fastq),
+        unpack(get_filtered_fastq),
         index = join(REF_DIR, 'index', 'transcriptome', 'salmon', 'info.json'),
         gtf = join(REF_DIR, 'anno', 'genes.gtf')
     params:
@@ -103,7 +103,7 @@ def unmapped_sample_args(wildcards):
     args = ''
     sample = config['samples'][wildcards.sample]
     PE = sample.get('paired_end') or len(config['read_geometry']) > 1
-    fastq = get_processed_fastq(wildcards)
+    fastq = get_filtered_fastq(wildcards)
     salmon_r1 = ' '.join(fastq['R1'])
     if PE:
         salmon_r2 = ' '.join(fastq['R2'])
@@ -114,7 +114,7 @@ def unmapped_sample_args(wildcards):
 
 rule salmon_unmapped_fastq:
     input:
-        unpack(get_processed_fastq),
+        unpack(get_filtered_fastq),
         unmapped = join(SALMON_INTERIM, '{sample}', 'unmapped.sam')
     params:
         args = unmapped_sample_args,

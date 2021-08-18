@@ -61,8 +61,8 @@ rule bfq_level2_unitas:
 
 rule bfq_level2_mirtrace:
     input:
-        join(MIRTRACE_DIR, 'mirtrace-results.json'),
-        rules.qc_fastq_mirtrace.output.length
+        rules.qc_mirtrace.output.qc,
+        rules.qc_mirtrace.output.length
     output:
         join(BFQ_INTERIM, 'logs', 'mirtrace-results.json'),
         join(BFQ_INTERIM, 'logs', 'mirtrace-stats-length.tsv')
@@ -83,7 +83,7 @@ rule bfq_level2_aligned:
 rule bfq_level2_logs:
     input:
         expand(join(ALIGN_INTERIM, 'star', '{sample}.Log.final.out'), sample=SAMPLES),
-        expand(join(FILTER_INTERIM, 'fastp_trimmed', '{sample}.json'), sample=SAMPLES)
+        expand(join(FILTER_INTERIM, 'fastp', 'qc', '{sample}.json'), sample=SAMPLES)
     output:     
         expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}.Log.final.out'), sample=SAMPLES),
         expand(join(BFQ_INTERIM, 'logs', '{sample}', 'fastp.json'), sample=SAMPLES)

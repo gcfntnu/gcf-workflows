@@ -33,8 +33,7 @@ rule alevin_index:
 
 rule alevin_1pass:
     input:
-        R1 = get_filtered_fastq_R1,
-        R2 = get_filtered_fastq_R2,
+        unpack(get_filtered_fastq),
         ref = join(REF_DIR, 'salmon', 'refInfo.json'),
         t2g = 'tx2gene.tsv'   
     threads:
@@ -75,8 +74,7 @@ rule alevin_rrna_genes:
         
 rule alevin_quant:
     input:
-        R1 = get_filtered_fastq_R1,
-        R2 = get_filtered_fastq_R2,
+        unpack(get_filtered_fastq),
         mrna = rules.alevin_mito_genes.output,
         rrna = rules.alevin_rrna_genes.output,
         ref = join(REF_DIR, 'salmon', 'refInfo.json'),

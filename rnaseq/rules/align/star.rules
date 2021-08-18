@@ -26,7 +26,7 @@ def star_input_params(wildcards):
     A work around in snakemake is to build the comma separated input string as a params.fastq
     
     """
-    fastq = get_processed_fastq(wildcards)
+    fastq = get_filtered_fastq(wildcards)
     R1 = fastq['R1']
     R2 = fastq.get('R2', [])
     R1 = ','.join(sorted(set(R1)))
@@ -40,7 +40,7 @@ def star_genome_dir():
         
 rule star_align:
     input:
-        unpack(get_processed_fastq),
+        unpack(get_filtered_fastq),
         genome = join(star_genome_dir(), 'SA'),
         gtf = join(REF_DIR, 'anno', 'genes.gtf')
     params:

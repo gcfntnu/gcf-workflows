@@ -4,11 +4,6 @@ include: 'umitools.rules'
 
 STAR_INTERIM = join(QUANT_INTERIM, 'star')
 
-def starsolo_R1(wildcards):
-    return ','.join(get_filtered_fastq_R1(wildcards))
-
-def starsolo_R2(wildcards):
-    return ','.join(get_filtered_fastq_R2(wildcards))
 
 rule starsolo_genome_index:
     input: 
@@ -65,8 +60,7 @@ else:
 
 rule starsolo_quant:
     input:
-        R1 = get_filtered_fastq_R1,
-        R2 = get_filtered_fastq_R2,
+        unpack(get_filtered_fastq),
         genome = REF_GENOME,
         whitelist = WHITELIST
     params:
@@ -75,8 +69,8 @@ rule starsolo_quant:
         cb_len = config['quant']['starsolo']['cb_len'],
         umi_len = config['quant']['starsolo']['umi_len'],
         umi_start = config['quant']['starsolo']['umi_start'],
-        R1 = starsolo_R1,
-        R2 = starsolo_R2,
+        R1 = lambda wildcards, input: ','.join(input.R1),
+        R2 = lambda wildcards, input: ','.join(input.R2),
         extra_args = '--genomeLoad LoadAndKeep --outFilterMultimapNmax 1 --soloFeatures Gene GeneFull SJ Velocyto Transcript3p ' 
     threads:
         48

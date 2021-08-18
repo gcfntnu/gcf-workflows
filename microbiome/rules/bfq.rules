@@ -1,7 +1,3 @@
-BFQ_INTERIM = join(INTERIM_DIR, 'microbiome', 'bfq')
-
-include:
-    'bfq/bfq_level1.rules'
 include:
     'bfq/bfq_level2.rules'
 #NOT IMPLEMENTED

@@ -4,8 +4,8 @@ rule cutadapt_demultiplex:
     input:
         unpack(get_raw_fastq)
     output:
-        R1 = join(FILTER_INTERIM, 'cutadapt_demultiplex', '{sample}_R1.fastq.gz'),
-        R2 = join(FILTER_INTERIM, 'cutadapt_demultiplex', '{sample}_R2.fastq.gz'),
+        R1 = temp(join(FILTER_INTERIM, 'cutadapt_demultiplex', '{sample}_R1.fastq')),
+        R2 = temp(join(FILTER_INTERIM, 'cutadapt_demultiplex', '{sample}_R2.fastq')),
         log = join(FILTER_INTERIM, 'cutadapt_demultiplex', 'log', '{sample}_qiaseq_demultiplex.log'),
     params:
         script = srcdir('scripts/demultiplex_16s_its.py'),

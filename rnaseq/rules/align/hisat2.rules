@@ -7,7 +7,7 @@ HISAT2 aligner.
 HISAT_INTERIM = join(ALIGN_INTERIM, 'hisat2')
 
 PE = len(config['read_geometry']) > 1
-KIT_STRAND = config['read_geometry']
+KIT_STRAND = config['read_orientation']
 if PE:
     if KIT_STRAND == 'forward':
         HISAT_STRAND = 'FR'
@@ -20,7 +20,7 @@ else:
         HISAT_STRAND = 'R'
 
 def hisat2_input(wildcards):
-    fastq = get_processed_fastq(wildcards)
+    fastq = get_filtered_fastq(wildcards)
     sample = config['samples'][wildcards.sample]
     PE = sample.get('paired_end') or len(config['read_geometry']) > 1
     R1 = fastq['R1']
@@ -35,7 +35,7 @@ def hisat2_input(wildcards):
 
 rule hisat2_align:
     input:
-        unpack(get_processed_fastq),
+        unpack(get_filtered_fastq),
         index = join(REF_DIR, 'index', 'genome', 'hisat2', 'genome' + '.1.ht2'),
         splices = join(REF_DIR, 'anno', 'splicesites.txt'),
         db_log = join(REF_DIR, 'logs', 'ensembl.dna.log')

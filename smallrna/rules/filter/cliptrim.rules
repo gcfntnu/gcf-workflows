@@ -1,62 +1,38 @@
 #-*- mode:snakemake -*-
 
-"""Trime and filter of small-rna sequences.
+"""Trim and filter of small-rna sequences.
 
-Fastp is round in two rounds in order to 
+Fastp is round in two rounds in order to  have global trimming after adapter trimming (for bioscientific data)
 """
+ruleorder: smallrna_fastp > fastp_log > fastp
 
-rule filter_merge_fastq:
+rule smallrna_trim_fastp:
     input:
-        unpack(get_raw_fastq)
+        unpack(get_merged_fastq)
     output:
-        R1 = temp(join(FILTER_INTERIM, 'fastq', '{sample}.fastq'))
-    shell:
-        'zcat {input.R1} > {output.R1}'
-
-rule filter_umidedup:
-    input:
-        fastq = rules.filter_merge_fastq.output
-    output:
-        temp(join(FILTER_INTERIM, 'dedup', '{sample}.collapsed.fq'))
-    params:
-        outdir = join(FILTER_INTERIM, 'dedup')
-    threads:
-        2
-    singularity:
-        'docker://' + config['docker']['bioseqzip']
-    shell:
-        'bioseqzip_collapse -i {input} --csv-report -f fastq -o {params.outdir} -t {threads}'
-        
-rule trim_fastp:
-    input:
-        fastq = rules.filter_umidedup.output if config['filter'].get('dedup', False) else rules.filter_merge_fastq.output
-    output:
-        fastq = temp(join(FILTER_INTERIM, 'fastp_trimmed', '{sample}.fastq'))
+        R1 = temp(join(FILTER_INTERIM, 'fastp_trimmed', '{sample}_R1.fastq')),
+        json = temp(join(FILTER_INTERIM, 'fastp_trimmed', '{sample}.tmp_json'))
     params:
         args = config['filter']['trim']['fastp']['trim_args'],
         adapter = '' if not config.get('adapter') else '-a {} '.format(config.get('adapter'))
     threads:
         4
-    log:
-        json = join(FILTER_INTERIM, 'fastp_trimmed', '{sample}.json'),
-        html = join(FILTER_INTERIM, 'fastp_trimmed', '{sample}.html')
     singularity:
         'docker://' + config['docker']['fastp']
     shell:
         'fastp '
-        '-i {input.fastq} '
-        '-o {output.fastq} '
+        '-i {input.R1} '
+        '-o {output.R1} '
         '{params.adapter} '
         '{params.args} '
-        '--json {log.json} '
-        '--html {log.html} '
+        '--json {output.json} '
         
-rule filter_fastp:
+rule smallrna_fastp:
     input:
-        fastq = rules.trim_fastp.output.fastq
+        R1 = rules.smallrna_trim_fastp.output.R1
     output:
-        fastq = temp(join(FILTER_INTERIM, 'fastp', '{sample}.fastq')),
-        json = join(FILTER_INTERIM, 'fastp', '{sample}.json'),
+        R1 = temp(join(FILTER_INTERIM, 'fastp', '{sample}_R1.fastq')),
+        json = temp(join(FILTER_INTERIM, 'fastp', '{sample}.tmp_json')),
         html = join(FILTER_INTERIM, 'fastp', '{sample}.html')
     params:
         args = config['filter']['trim']['fastp']['args'],
@@ -67,15 +43,27 @@ rule filter_fastp:
         'docker://' + config['docker']['fastp']
     shell:
         'fastp '
-        '-i {input.fastq} '
-        '-o {output.fastq} '
+        '-i {input.R1} '
+        '-o {output.R1} '
         '{params.args} ' 
         '--json {output.json} '
         '--html {output.html} '
 
+rule fastp_log:
+    input:
+        trim_log = rules.smallrna_trim_fastp.output.json,
+        filter_log = rules.smallrna_fastp.output.json
+    output:
+        json = join(FILTER_INTERIM, 'fastp', '{sample}.json')
+    params:
+        script = srcdir('scripts/merge_fastp.py')
+    shell:
+        'python {params.script} {input} > {output} '
+
+        
 rule filter_mirtrace_config:
     input:
-        expand(join(FILTER_INTERIM, 'fastq', '{sample}.fastq'), sample=SAMPLES)
+        expand(join(FILTER_INTERIM, 'fastq', '{sample}_R1.fastq'), sample=SAMPLES)
     output:
         temp('.filter_mirtrace.conf')
     params:
@@ -89,10 +77,12 @@ rule filter_mirtrace_config:
 
 
 def mirtrace_species(*args):
-    map = {'homo_sapiens': 'hsa',
-           'mus_musculus': 'mmu',
-           'rattus_norvegicus': 'rno'}
-    org = map[config['organism']]
+    org_map = {'homo_sapiens': 'hsa',
+               'mus_musculus': 'mmu',
+               'rattus_norvegicus': 'rno'}
+    org = org_map.get(config['organism'])
+    if org is None:
+        raise ValueError('mirtrace qc support onle for human, mouse or rat. Got: {}'.format(config['organism']))
     return org
 
 rule filter_mirtrace:
@@ -110,7 +100,8 @@ rule filter_mirtrace:
     threads:
         48
     output:
-        expand(join(FILTER_INTERIM, 'mirtrace', 'qc_passed_reads.all.collapsed', '{sample}_R1.fasta'), sample=SAMPLES)
+        qc = join(FILTER_INTERIM, 'mirtrace', 'mirtrace-results.json'),
+        length = join(FILTER_INTERIM, 'mirtrace', 'mirtrace-stats-length.tsv')
     shell:
         'mirtrace qc '
         '-s {params.species} '
@@ -125,14 +116,15 @@ rule rename_mirtrace:
     input:
         join(FILTER_INTERIM, 'mirtrace', 'qc_passed_reads.all.collapsed', '{sample}_R1.fasta')
     output:
-        join(FILTER_INTERIM, 'mirtrace', '{sample}.fasta')
+        join(FILTER_INTERIM, 'mirtrace', '{sample}_R1.fasta')
     shell:
         'ln -s {input} {output}'
 
-def _filter_get_trimmed(wildcards):
+def get_filtered_fastq(wildcards):
     if config['filter']['trim']['quantifier'] == 'skip':
-        return join(FILTER_INTERIM, 'fastq', '{sample}.fastq')
+        R1 = join(FILTER_INTERIM, 'fastq', '{sample}_R1.fastq')
     elif config['filter']['trim']['quantifier'] == 'fastp':
-        return join(FILTER_INTERIM, 'fastp', '{sample}.fastq')
+        R1 = join(FILTER_INTERIM, 'fastp', '{sample}_R1.fastq')
     else:
-        return join(FILTER_INTERIM, 'mirtrace', '{sample}.fasta')
+        R1 = join(FILTER_INTERIM, 'mirtrace', '{sample}.fasta')
+    return {'R1': R1}

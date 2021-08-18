@@ -14,7 +14,7 @@ def assembly_star_input_params(wildcards):
     A work around in snakemake is to build the comma separated input string as a params.fastq
     
     """
-    fastq = get_processed_fastq(wildcards)
+    fastq = get_filtered_fastq(wildcards)
     R1 = fastq['R1']
     R2 = fastq.get('R2', [])
     R1 = ','.join(sorted(set(R1)))
@@ -28,7 +28,7 @@ def assembly_star_genome_dir():
 
 rule assembly_star_align:
     input:
-        unpack(get_processed_fastq),
+        unpack(get_filtered_fastq),
         genome = join(assembly_star_genome_dir(), 'SA')
     params:
         fastq = assembly_star_input_params,
@@ -58,7 +58,7 @@ rule assembly_star_sorted_bam:
         'cp {input} {output}'
 
 def assembly_hisat2_input(wildcards):
-    fastq = get_processed_fastq(wildcards)
+    fastq = get_filtered_fastq(wildcards)
     sample = config['samples'][wildcards.sample]
     PE = sample.get('paired_end') or len(config['read_geometry']) > 1
     R1 = fastq['R1']
@@ -88,7 +88,7 @@ def assembly_hisat2_strand():
 
 rule assembly_hisat2_align:
     input:
-        unpack(get_processed_fastq),
+        unpack(get_filtered_fastq),
         index = join(BASE_REF_DIR, 'index', 'genome', 'hisat2', 'genome' + '.1.ht2')
     params:
         input = assembly_hisat2_input,
