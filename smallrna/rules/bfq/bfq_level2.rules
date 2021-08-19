@@ -83,7 +83,7 @@ rule bfq_level2_aligned:
 rule bfq_level2_logs:
     input:
         expand(join(ALIGN_INTERIM, 'star', '{sample}.Log.final.out'), sample=SAMPLES),
-        expand(join(FILTER_INTERIM, 'fastp', 'qc', '{sample}.json'), sample=SAMPLES)
+        expand(join(FILTER_INTERIM, 'fastp', '{sample}.json'), sample=SAMPLES)
     output:     
         expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}.Log.final.out'), sample=SAMPLES),
         expand(join(BFQ_INTERIM, 'logs', '{sample}', 'fastp.json'), sample=SAMPLES)
