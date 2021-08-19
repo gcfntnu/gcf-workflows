@@ -46,15 +46,21 @@ def get_fragment_sd(wildcards):
     return val
     
 def sample_args(wildcards):
-    """Sample specific args.
+    """Sample specific args
     """
     args = ''
     sample = config['samples'][wildcards.sample]
     PE = sample.get('paired_end') or len(config['read_geometry']) > 1
     fastq = get_filtered_fastq(wildcards)
-    salmon_r1 = ' '.join(fastq['R1'])
+    if isinstance(fastq['R1'], str):
+        salmon_r1 = fastq['R1']
+    else:
+        salmon_r1 = ' '.join(fastq['R1'])
     if PE:
-        salmon_r2 = ' '.join(fastq['R2'])
+        if isinstance(fastq['R2'], str):
+            salmon_r2 = fastq['R2']
+        else:
+            salmon_r2 = ' '.join(fastq['R2'])
         args += ' -1 {} -2 {} '.format(salmon_r1, salmon_r2)
         args += '--gcBias '
     else:

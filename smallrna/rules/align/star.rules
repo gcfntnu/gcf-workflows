@@ -27,6 +27,8 @@ def star_input_params(wildcards):
     
     """
     R1 = join(FILTER_INTERIM, 'cleaned', '{}_R1.fastq'.format(wildcards.sample))
+    if isinstance(R1, str):
+        R1 = [R1]
     input_string = ' '.join([R1])
     return input_string
 

@@ -28,9 +28,11 @@ def star_input_params(wildcards):
     """
     fastq = get_filtered_fastq(wildcards)
     R1 = fastq['R1']
-    R2 = fastq.get('R2', [])
-    R1 = ','.join(sorted(set(R1)))
-    R2 = ','.join(sorted(set(R2)))
+    R2 = fastq.get('R2', '')
+    if isinstance(R1, (list, tuple)):
+        R1 = ','.join(sorted(set(R1)))
+    if isinstance(R2, (list, tuple)):
+        R2 = ','.join(sorted(set(R2)))
     input_string = ' '.join([R1, R2])
     return input_string
 

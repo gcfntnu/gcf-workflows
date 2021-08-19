@@ -1,5 +1,6 @@
 #-*- mode:snakemake -*-
 
+print("include smallrna filter ...")
     
 # filter endpoint
 rule _filtered_fastq:

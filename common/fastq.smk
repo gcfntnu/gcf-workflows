@@ -1,6 +1,7 @@
 #-*- mode:snakemake -*-
 """Shared fastqc rules
 """
+print("include fastq")
 
 rule merged_fastq_R1:
     input:
@@ -52,6 +53,6 @@ def get_filtered_fastq(wildcards):
     DST_PTH = join(FILTER_INTERIM, config['filter']['trim']['quantifier'])
     R1 = join(DST_PTH, wildcards.sample + '_R1.fastq')
     if R2:
-        R2 = join(DST_PTH, wildcards.sample + '_R1.fastq')
+        R2 = join(DST_PTH, wildcards.sample + '_R2.fastq')
         return {'R1': R1, 'R2': R2}
     return {'R1': R1}
