@@ -32,8 +32,8 @@ if PE:
         output:
             R1 = temp(join(FILTER_INTERIM, 'fastp', '{sample}_R1.fastq')),
             R2 = temp(join(FILTER_INTERIM, 'fastp', '{sample}_R2.fastq')),
-            log_html = join(FILTER_INTERIM, 'fastp', 'qc', '{sample}.html'),
-            log_json = join(FILTER_INTERIM, 'fastp', 'qc', '{sample}.json')           
+            log_html = join(FILTER_INTERIM, 'fastp', '{sample}.html'),
+            log_json = join(FILTER_INTERIM, 'fastp', '{sample}.json')           
         threads:
             2        
         params:
@@ -50,8 +50,8 @@ else:
             unpack(get_merged_fastq)
         output:
             R1 = temp(join(FILTER_INTERIM, 'fastp', '{sample}_R1.fastq')),
-            log_html = join(FILTER_INTERIM, 'fastp', 'qc', '{sample}.html'),
-            log_json = join(FILTER_INTERIM, 'fastp', 'qc', '{sample}.json')               
+            log_html = join(FILTER_INTERIM, 'fastp', '{sample}.html'),
+            log_json = join(FILTER_INTERIM, 'fastp', '{sample}.json')               
         threads:
             2
         params:

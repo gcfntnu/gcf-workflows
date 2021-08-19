@@ -56,8 +56,8 @@ else:
             expand(rules.fastq_screen.output, sample=SAMPLES),
             expand(rules.fastqc.output.R1_zip, sample=SAMPLES),
             expand(rules.fastqc.output.R1_html, sample=SAMPLES),
-            expand(rules.fastp.output.log_json, sample=SAMPLES),
-            expand(rules.fastp.output.log_html, sample=SAMPLES),
+            expand(join(FILTER_INTERIM, 'fastp', '{sample}.json'), sample=SAMPLES),
+            expand(join(FILTER_INTERIM, 'fastp', '{sample}.html'), sample=SAMPLES),
         output:
             expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}_screen.txt'), sample=SAMPLES),
             expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}_fastqc.zip'), sample=SAMPLES),
