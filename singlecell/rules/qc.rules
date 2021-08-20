@@ -7,8 +7,6 @@ include:
     'qc/fastq.rules'
 include:
     'qc/bam.rules'
-include:
-    'qc/quant.rules'
 
 
 

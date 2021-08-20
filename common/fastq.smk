@@ -1,7 +1,6 @@
 #-*- mode:snakemake -*-
 """Shared fastqc rules
 """
-print("include fastq")
 
 rule merged_fastq_R1:
     input:

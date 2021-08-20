@@ -17,7 +17,7 @@ rule illumina_fasta:
         'cat {input} > {output}'
 
 
-def fastqscreen_indexes(*args, **kw):
+def fastq_screen_indexes(*args, **kw):
    """ Return name and index for screening databases.
    """
    # default human
@@ -39,9 +39,9 @@ def fastqscreen_indexes(*args, **kw):
    INDEXES['Adaptors/Primers'] = join(EXT_DIR, 'illumina', 'adaptors_ext', 'index', 'adaptors_ext', 'bowtie2', 'adaptors_ext.1.bt2')
    return INDEXES
 
-rule fastqscreen_config:
+rule fastq_screen_config:
     input:
-        unpack(fastqscreen_indexes)
+        unpack(fastq_screen_indexes)
     output:
         fn = temp(os.path.abspath('fastq_screen.config'))
     run:
@@ -54,49 +54,28 @@ rule fastqscreen_config:
               fh.write('DATABASE {} {}\n'.format(db_name.title(), index_base))
 
 
-if WORKFLOW in ['singlecell']:
-   rule fastq_screen:
-       input:
-           unpack(get_filtered_fastq),
-           config = rules.fastqscreen_config.output 
-       output:
-           join(QC_INTERIM, 'fastqscreen', '{sample}_R2_screen.txt')
-       params:
-           args = '-q --force',
-           subset = 400000,
-           outdir = join(QC_INTERIM, 'fastqscreen')
-       threads:
-           4
-       singularity:
-           'docker://' + config['docker']['fastq-screen']
-       shell:
-           'fastq_screen '
-           '--aligner bowtie2 '
-           '--threads {threads} '
-           '--conf {input.config} '
-           '--outdir {params.outdir} '
-           '{params.args} '
-           '{input.R2} '
-else:
-   rule fastq_screen:
-       input:
-           unpack(get_filtered_fastq),
-           config = rules.fastqscreen_config.output 
-       output:
-           join(QC_INTERIM, 'fastqscreen', '{sample}_R1_screen.txt')
-       params:
-           args = '-q --force',
-           subset = 400000,
-           outdir = join(QC_INTERIM, 'fastqscreen')
-       threads:
-           4
-       singularity:
-           'docker://' + config['docker']['fastq-screen']
-       shell:
-           'fastq_screen '
-           '--aligner bowtie2 '
-           '--threads {threads} '
-           '--conf {input.config} '
-           '--outdir {params.outdir} '
-           '{params.args} '
-           '{input.R1} '
+rule fastq_screen:
+   input:
+       unpack(get_filtered_fastq),
+       config = rules.fastq_screen_config.output 
+   output:
+       join(QC_INTERIM, 'fastq_screen', '{sample}_screen.txt')
+   params:
+       args = '-q --force',
+       subset = 400000,
+       outdir = join(QC_INTERIM, 'fastq_screen')
+   threads:
+       4
+   singularity:
+       'docker://' + config['docker']['fastq-screen']
+   shadow:
+       'minimal'
+   shell:
+       'fastq_screen '
+       '--aligner bowtie2 '
+       '--threads {threads} '
+       '--conf {input.config} '
+       '--outdir . '
+       '{params.args} '
+       '{input.R1} '
+       ' && mv {wildcards.sample}*_screen.txt {output} '

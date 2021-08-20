@@ -23,7 +23,7 @@ include:
 include:
     'quant/velocyto.rules'
 include:
-    'qc/qc.rules'
+    'qc/bam.rules'
     
 QRULES = {'cellranger': rules.cellranger_quant.output,
           'starsolo': rules.starsolo_quant.output,
