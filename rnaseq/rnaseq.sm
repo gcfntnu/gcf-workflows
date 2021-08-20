@@ -34,23 +34,23 @@ if config['libprep_name'].startswith('Lexogen'):
         config['read_geometry'] = read_geometry
 
 include:
-    srcdir('../common.rules')
+    srcdir('../common.smk')
 include:
-    'rules/filter.rules'
+    'rules/filter.smk'
 include:
-    'rules/assembly.rules'
+    'rules/assembly.smk'
 include:
-    'rules/align.rules'
+    'rules/align.smk'
 include:
-    'rules/quant.rules'
+    'rules/quant.smk'
 include:
-    'rules/analysis.rules'
+    'rules/analysis.smk'
 include:
-    'rules/qc.rules'
+    'rules/qc.smk'
 include:
-    'rules/bfq.rules'
+    'rules/bfq.smk'
 include:
-    srcdir('../postprocess.rules')
+    srcdir('../postprocess.smk')
 
 
 onsuccess:

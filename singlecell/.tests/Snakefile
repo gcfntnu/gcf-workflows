@@ -6,5 +6,5 @@ configfile:
 include:
     '../singlecell.sm'
 include:
-    '../rules/bfq.rules'
+    '../rules/bfq.smk'
 

@@ -7,5 +7,5 @@ configfile:
 include:
     '../default.sm'
 include:
-    '../rules/bfq.rules'
+    '../rules/bfq.smk'
 

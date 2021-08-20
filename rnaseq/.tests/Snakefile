@@ -6,5 +6,5 @@ configfile:
 include:
     '../rnaseq.sm'
 include:
-    '../rules/bfq.rules'
+    '../rules/bfq.smk'
     

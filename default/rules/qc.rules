@@ -1,7 +1,0 @@
-#-*- mode: snakemake -*-
-
-include:
-    'qc/fastq.rules'
-
-
-

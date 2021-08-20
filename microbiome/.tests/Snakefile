@@ -6,5 +6,5 @@ configfile:
 include:
     '../microbiome.sm'
 include:
-    '../rules/bfq.rules'
+    '../rules/bfq.smk'
     
