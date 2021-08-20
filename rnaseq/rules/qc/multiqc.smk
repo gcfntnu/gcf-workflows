@@ -1,0 +1,53 @@
+#-*- mode: snakemake -*-
+
+
+
+
+rule qc_multiqc_config:
+    output:
+        '.multiqc_config.yaml'
+    params:
+        html = join(QC_INTERIM, 'multiqc', 'multiqc_report.html'),
+        data_dir = join(QC_INTERIM, 'multiqc', 'multiqc_datal')
+    run:
+        import yaml
+        conf = {}
+        conf['title'] = config['project_id']
+        conf['subtitle'] = 'Quality Control of sequence filtering and quantification. '
+        conf['intro_text'] = 'Prior to statistical analysis the sequences needs to be filtered, aligned to a reference genome and genomic features are quantified. In RNA-seq the most common genomic features to quantify are genes or transcripts. The software `fastp` is used for adapter trimming and quality filtering. The filtred reads are then aligned to transcriptome (`Salmon` aligner) and/or aligned to reference genome using the `STAR` aligner. The number of reads supporting each gene is estimated and collected to a count matrix exported as a tab delimited file. This count matrix has genes (Ensembl identifers) as rows and samples (Sample_ID) in columns. This count matrix is used for further statistical analysis.'
+        #conf['report_comment'] = 'Report comment here ...'
+        tbl = {}
+        tbl['FastQC'] = {'percent_duplicates': False, 'percent_gc': False}
+        tbl['star'] = {'uniquely_mapped_percent': False, 'uniquely_mapped': False}
+        tbl['fastp'] = {'after_filtering_gc_content': False}
+        tbl['qorts'] = {'NumberOfChromosomesCovered': False}
+        tbl['qualimap'] = {'reads_aligned': False}
+        
+        conf['table_columns_visible'] = tbl
+        conf['no_version_check'] = True
+        conf['extra_fn_clean_exts'] = ['.namesorted', '_R1', '_R2', '.ccurve.txt', '.rnaseq.metrics', '.hisat2', '.fastp']
+        conf['report_header_info'] = [{'Bioinformatician: ': 'Arnar Flatberg'}, {'E-mail: ': 'arnar.flatberg@ntnu.no'}, {'Phone': '920 29 102'}]
+        conf['plots_flat_numseries'] = 250
+        #custom_content = {}
+        #custom_content['order'] = ['fastp', ]
+        #conf['custom_content'] = custom_content
+        conf['module_order'] = ['fastqc', 'fastp', 'star', 'hisat2', 'salmon', 'qualimap', 'picard', 'qorts', 'rseqc', 'preseq', 'featureCounts']
+        if config['organism'] == 'homo_sapiens':
+            conf['fastqc_config'] = {'fastqc_theoretical_gc': 'hg38_txome'}
+            preseq = {'genome_size': 'hg38_genome', 'read_length': 75, 'x_axis': 'counts', 'y_axis': 'coverage'}
+            conf['preseq'] = preseq
+        
+        with open(output[0], 'w') as fh:
+            yaml.dump(conf, fh, default_flow_style=False)
+    
+rule qc_multiqc_summary:
+    input:
+        config = rules.qc_multiqc_config.output,
+        qc = rules.qc_all.input
+    params:
+        outdir = join(QC_INTERIM, 'multiqc')
+    output:
+        html = join(QC_INTERIM, 'multiqc', 'multiqc_report.html'),
+        data_dir = directory(join(QC_INTERIM, 'multiqc', 'multiqc_data'))
+    shell:
+        'multiqc -f -c {input.config} -o {params.outdir} logs'
