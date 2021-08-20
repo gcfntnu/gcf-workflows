@@ -60,11 +60,11 @@ if WORKFLOW in ['singlecell']:
            unpack(get_filtered_fastq),
            config = rules.fastqscreen_config.output 
        output:
-           join(QC_INTERIM, 'fastqscreen', '{sample}', '{sample}_R2_screen.txt')
+           join(QC_INTERIM, 'fastqscreen', '{sample}_R2_screen.txt')
        params:
            args = '-q --force',
            subset = 400000,
-           outdir = join(QC_INTERIM, 'fastqscreen', '{sample}')
+           outdir = join(QC_INTERIM, 'fastqscreen')
        threads:
            4
        singularity:
@@ -83,11 +83,11 @@ else:
            unpack(get_filtered_fastq),
            config = rules.fastqscreen_config.output 
        output:
-           join(QC_INTERIM, 'fastqscreen', '{sample}', '{sample}_R1_screen.txt')
+           join(QC_INTERIM, 'fastqscreen', '{sample}_R1_screen.txt')
        params:
            args = '-q --force',
            subset = 400000,
-           outdir = join(QC_INTERIM, 'fastqscreen', '{sample}')
+           outdir = join(QC_INTERIM, 'fastqscreen')
        threads:
            4
        singularity:
