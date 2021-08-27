@@ -26,7 +26,7 @@ def star_input_params(wildcards):
     A work around in snakemake is to build the comma separated input string as a params.fastq
     
     """
-    R1 = join(FILTER_INTERIM, 'cleaned', '{}_R1.fastq'.format(wildcards.sample))
+    R1 = expand(get_filtered_fastq(wildcards)['R1'], sample=wildcards.sample)
     if isinstance(R1, str):
         R1 = [R1]
     input_string = ' '.join(R1)
