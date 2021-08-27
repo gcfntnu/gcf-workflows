@@ -26,9 +26,9 @@ if not 'ref' in locals():
     config['db']['reference_db'] = ref
     config['db'][ref] = {}
 
-include:
-    join(GCFDB_DIR, 'silva.db')
-include:
-   join(GCFDB_DIR,  'greengenes.db')
+#include:
+#    join(GCFDB_DIR, 'silva.db')
+#include:
+#   join(GCFDB_DIR,  'greengenes.db')
 include:
     join(GCFDB_DIR,  'qiime2_classifiers.smk')

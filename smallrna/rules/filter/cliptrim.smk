@@ -6,9 +6,24 @@ Fastp is round in two rounds in order to  have global trimming after adapter tri
 """
 ruleorder: smallrna_fastp > fastp_log > fastp
 
+
+rule dedup_nextflex:
+    input:
+        rules.merged_fastq_R1.output
+    output:
+        temp(join(FILTER_INTERIM, 'dedup', '{sample}.collapsed.fq'))
+    params:
+        outdir = join(FILTER_INTERIM, 'dedup')
+    threads:
+        2
+    singularity:
+        'docker://' + config['docker']['bioseqzip']
+    shell:
+        'bioseqzip_collapse -i {input.R1} --csv-report -f fastq -o {params.outdir} -t {threads}'
+        
 rule smallrna_trim_fastp:
     input:
-        unpack(get_merged_fastq)
+        R1 = rules.dedup_nextflex.output if config['filter']['dedup'] else rules.merged_fastq_R1.output
     output:
         R1 = temp(join(FILTER_INTERIM, 'fastp_trimmed', '{sample}_R1.fastq')),
         json = temp(join(FILTER_INTERIM, 'fastp_trimmed', '{sample}.tmp_json'))

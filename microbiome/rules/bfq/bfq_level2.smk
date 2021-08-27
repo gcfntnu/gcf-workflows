@@ -144,4 +144,4 @@ rule bfq_level2_all:
         rules.bfq_level2_taxonomy_log.output,
         rules.bfq_level2_dada2_log.output,
         rules.bfq_level2_rpca_log.output,
-        rules.bfq_level2_qiime2_data.output,
+        rules.bfq_level2_qiime2_data.output

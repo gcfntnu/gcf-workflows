@@ -117,7 +117,7 @@ def seqkit_worker(fname, region):
     fname = fname.replace('_R1.fastq', '_R2.fastq')
     cmd = 'seqkit grep -n -r -p region={} {} -o {}_{}_R2.fastq'.format(region, fname, sample, region)
     subprocess.check_call(cmd, shell=True)
-    print(cmd)
+    write_message(cmd)
 
     # clean up empty files
     # subprocess.check_call("""for file in *.fastq; do if [[ ! -s $file ]]; then rm $file; fi; done""", shell=True)
@@ -143,7 +143,7 @@ def import_data_worker(manifest_fn):
     cmd = 'qiime tools import --type SampleData[PairedEndSequencesWithQuality] --input-path {} --input-format PairedEndFastqManifestPhred33V2 --output-path {}'
     output_fn = manifest_fn.split('_')[0] + '.qza'
     cmd = cmd.format(manifest_fn, output_fn)
-    print(cmd)
+    write_message(cmd)
     subprocess.check_call(cmd, shell=True)
 
     #return Artifact.import_data('SampleData[PairedEndSequencesWithQuality]', manifest_fn,
@@ -180,7 +180,7 @@ def demultiplex_manifests(fastq_files, primers, regions=None, split_on_header=Tr
         pool.map(import_data_worker, manifest_filenames.values())
 
     for r, fn in manifest_filenames.items():
-        print('importing data ({}) from {}'.format(r, fn))
+        write_message('importing data ({}) from {}'.format(r, fn))
         adata[r] = Artifact.load(fn.split('_')[0] + '.qza')
 
     # clean up tmpdir
@@ -195,15 +195,15 @@ def sequence_counts(adata, min_count=200000):
     counts = {}
     merged_counts = collections.defaultdict(int)
     for k, v in adata.items():
-        print('summarizing counts for region: {}'.format(k))
+        write_message('summarizing counts for region: {}'.format(k))
         s = demux.visualizers.summarize(v)
         try:
             fn = glob.glob(str(s.visualization._archiver.path) + '/*/data/per-sample-fastq-counts.csv')[0]
             df = pd.read_csv(fn)
         except Exception as e:
             #qiime 2019.10 -> 2020.8 hotfix
-            print(e)
-            print("Assuming qiime2 2020.8 formatting. Try with per-sample-fastq-counts.csv -> per-sample-fastq-counts.tsv ")
+            write_message(e)
+            write_message("Assuming qiime2 2020.8 formatting. Try with per-sample-fastq-counts.csv -> per-sample-fastq-counts.tsv ")
             fn = glob.glob(str(s.visualization._archiver.path) + '/*/data/per-sample-fastq-counts.tsv')[0]
             df = pd.read_csv(fn, sep='\t')
             df.rename(columns={"sample ID": "Sample name", "forward sequence count": "Sequence count"}, inplace=True)
@@ -223,7 +223,7 @@ def denoise_dada2(adata, trunc_len_f=0, trunc_len_r=0, trim_left_f=0, trim_left_
     """
     tables, seqs, stats = {}, {}, {}
     for region, data in adata.items():
-        write_message('denoising region {}'.format(region))
+        write_message('dada2 starting denoising region {}'.format(region))
         try:
             res = dada2.methods.denoise_paired(data, trunc_len_f=trunc_len_f, trunc_len_r=trunc_len_r,
                                                trim_left_f=trim_left_f, trim_left_r=trim_left_r,
@@ -232,8 +232,8 @@ def denoise_dada2(adata, trunc_len_f=0, trunc_len_r=0, trim_left_f=0, trim_left_
                                                n_threads=threads, n_reads_learn=1000000, hashed_feature_ids=True)
             tables[region], seqs[region], stats[region]  = res
         except Exception as inst:
-            print('skipping ' + region)
-            print(inst)
+            write_message('dada2 skipping region:' + region)
+            write_message(inst)
         write_message('completed denoising region {}'.format(region))
     return tables, seqs, stats
 
@@ -284,20 +284,21 @@ def merge_data(tables, taxas, sequences, samples):
     table_list = []
     seq_list = []
     meta_region = []
+    write_message('merging region results ...')
     # ensure same ordering of dicts
     for r in taxas.keys():
+        write_message('collecting data from {}'.format(r))
         taxa_list.append(taxas[r].classification)
         df = tables[r].view(pd.DataFrame)
         df.index = df.index.str.replace('_{}'.format(r), '')
+        print(df.head())
         meta_region.extend([r] * df.shape[1])
         table = Artifact.import_data('FeatureTable[Frequency]', df)
         table_list.append(table)
         seq_list.append(sequences[r])
     merged_taxa = feature_table.methods.merge_taxa(taxa_list)
     merged_seq = feature_table.methods.merge_seqs(seq_list)
-    merged_table = feature_table.methods.merge(
-        table_list, overlap_method='error_on_overlapping_feature'
-    )
+    merged_table = feature_table.methods.merge(table_list, overlap_method='error_on_overlapping_feature')
 
     #
     meta = pd.DataFrame(meta_region)
@@ -332,7 +333,7 @@ def filter_features(table, taxonomy, sequence, db, min_confidence):
         has_phylum = X.Taxon.str.contains('p__')
         tx = tx.str.replace('[a-z]__unidentified', '', regex=True)
     else:
-        print('ERROR: db not valid!')
+        write_message('ERROR: db not valid!')
         sys.exit(-1)
 
     out = (X.Confidence.astype('d') < min_confidence) | \
@@ -341,8 +342,8 @@ def filter_features(table, taxonomy, sequence, db, min_confidence):
           (has_phylum == False)
     keep = out == False
 
-    print("Before filtering: {} features".format(X.shape[0]))
-    print("After filtering: {} features".format(sum(keep)))
+    write_message("Before filtering: {} features".format(X.shape[0]))
+    write_message("After filtering: {} features".format(sum(keep)))
 
     table = Artifact.import_data('FeatureTable[Frequency]', T.loc[:,keep] )
     taxonomy = Artifact.import_data('FeatureData[Taxonomy]', X[keep])
@@ -403,7 +404,7 @@ def calc_diversity_region(tables, sample_meta=None, threads=8, metrics=['observe
         # res = diversity.actions.core_metrics(data, sampling_depth=sampling_depth, metadata=metadata, with_replacement=True, n_jobs=threads)
         if max_depth is None:
             max_depth = int(data.view(pd.DataFrame).sum(1).median() / 2.0)
-            print(max_depth)
+            write_message('Max depth: {}'.format(max_depth))
         res = diversity.actions.alpha_rarefaction(data, max_depth=max_depth, metrics=set(metrics),
                                                   metadata=metadata, steps=20, iterations=30)
         diversity_res[region] = res
@@ -470,7 +471,7 @@ def write_data(table, taxonomy, sequence, adata, biom_table, denoise_viz_region,
 if __name__ == '__main__':
     def write_message(msg):
         timestamp = time.strftime("%Y-%m-%d %X")
-        sys.stdout.write('\n{} [{}]'.format(msg, timestamp))
+        sys.stdout.write('[{}] {}\n'.format(timestamp, msg))
 
     write_message('starting run_qiime2')
     test = False

@@ -2,6 +2,7 @@
 """Shared fastp rule
 """
 
+
 def fastp_adapter_args(*args, **kw):
     ADAPTER = config.get('adapter')
     ADAPTER2 = config.get('adapter2')
@@ -28,7 +29,8 @@ def fastp_adapter_args(*args, **kw):
 if PE:
     rule fastp:
         input:
-            unpack(get_merged_fastq)
+            R1 = join(FILTER_INTERIM, 'fastq', '{sample}_R1.fastq'),
+            R2 = join(FILTER_INTERIM, 'fastq', '{sample}_R2.fastq')
         output:
             R1 = temp(join(FILTER_INTERIM, 'fastp', '{sample}_R1.fastq')),
             R2 = temp(join(FILTER_INTERIM, 'fastp', '{sample}_R2.fastq')),
@@ -47,7 +49,7 @@ if PE:
 else:
     rule fastp:
         input:
-            unpack(get_merged_fastq)
+            R1 = join(FILTER_INTERIM, 'fastq', '{sample}_R1.fastq')
         output:
             R1 = temp(join(FILTER_INTERIM, 'fastp', '{sample}_R1.fastq')),
             log_html = join(FILTER_INTERIM, 'fastp', '{sample}.html'),

@@ -32,19 +32,6 @@ rule merged_interleave_fastq:
         script = srcdir('scripts/interleave_fastq.sh')
     shell:
         '{params.script} <(zcat {input.R1}) <(zcat {input.R2}) > {output}'
-        
-
-def get_merged_fastq(wildcards):
-    """Returns path to merged fastq files per sample.
-    """
-    R1 = config['samples'][wildcards.sample].get('R1', '')
-    R2 = config['samples'][wildcards.sample].get('R2', '')
-    if R1:
-        R1 = rules.merged_fastq_R1.output
-    if R2:
-        R2 = rules.merged_fastq_R2.output
-        return {'R1': R1, 'R2': R2}
-    return {'R1': R1}
 
 def get_filtered_fastq(wildcards):
     R1 = config['samples'][wildcards.sample].get('R1', '')
