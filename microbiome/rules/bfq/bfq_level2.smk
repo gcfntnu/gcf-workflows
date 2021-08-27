@@ -138,10 +138,8 @@ rule bfq_level2_qiime2_data:
             dst = os.path.join(out_dir, bn)
             shell('ln -sr {src} {dst}')
 
-rule bfq_level2_all:
-    input:
-        rules.bfq_level2_exprs.output,
-        rules.bfq_level2_taxonomy_log.output,
-        rules.bfq_level2_dada2_log.output,
-        rules.bfq_level2_rpca_log.output,
-        rules.bfq_level2_qiime2_data.output
+BFQ_LEVEL2_ALL = [rules.bfq_level2_exprs.output,
+                  rules.bfq_level2_taxonomy_log.output,
+                  rules.bfq_level2_dada2_log.output,
+                  rules.bfq_level2_rpca_log.output,
+                  rules.bfq_level2_qiime2_data.output]

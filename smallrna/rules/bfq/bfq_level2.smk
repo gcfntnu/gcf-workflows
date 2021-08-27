@@ -89,11 +89,9 @@ rule bfq_level2_logs:
         for src, dst in zip(input, output):
             shell('ln -srf {src} {dst}')
 
-rule bfq_level2_all:
-    input:
-        join(BFQ_INTERIM, 'figs', 'pca_mqc.yaml'),
-        join(BFQ_INTERIM, 'figs', 'gene_high_mqc.yaml'),
-        rules.bfq_level2_logs.output,
-        rules.bfq_level2_exprs.output,
-        rules.bfq_level2_unitas.output,
-        rules.bfq_level2_aligned.output
+BFQ_LEVEL2_ALL = [join(BFQ_INTERIM, 'figs', 'pca_mqc.yaml'),
+                  join(BFQ_INTERIM, 'figs', 'gene_high_mqc.yaml'),
+                  rules.bfq_level2_logs.output,
+                  rules.bfq_level2_exprs.output,
+                  rules.bfq_level2_unitas.output,
+                  rules.bfq_level2_aligned.output]

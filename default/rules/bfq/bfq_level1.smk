@@ -18,7 +18,7 @@ if PE:
             expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}.fastp.html'), sample=SAMPLES),
         run:
             for src, dst in zip(input, output):
-                shell('ln -srf {src} {dst}')            
+                shell('ln -srf {src} {dst}')
 else:
     rule bfq_level1_all:
         input:
@@ -36,3 +36,6 @@ else:
         run:
             for src, dst in zip(input, output):
                 shell('ln -srf {src} {dst}')
+
+
+BFQ_LEVEL1_ALL = rules.bfq_level1_all.output

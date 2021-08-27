@@ -10,5 +10,5 @@ include:
     
 rule bfq_all:
     input:
-        rules.bfq_level1_all.input,
-        rules.bfq_level2_all.input,
+        BFQ_LEVEL1_ALL,
+        BFQ_LEVEL2_ALL

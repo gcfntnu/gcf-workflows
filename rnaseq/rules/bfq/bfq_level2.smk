@@ -133,11 +133,9 @@ rule bfq_level2_aligned:
         for fn in input:
             shell('ln -srf -t {params.outdir} {fn}')
         
-rule bfq_level2_all:
-    input:
-        join(BFQ_INTERIM, 'figs', 'pca_mqc.yaml'),
-        join(BFQ_INTERIM, 'figs', 'gene_biotypes_mqc.yaml'),
-        join(BFQ_INTERIM, 'figs', 'gene_high_mqc.yaml'),
-        rules.bfq_level2_qc.output,
-        rules.bfq_level2_exprs.output,
-        rules.bfq_level2_aligned.output
+BFQ_LEVEL2_ALL = [join(BFQ_INTERIM, 'figs', 'pca_mqc.yaml'),
+                  join(BFQ_INTERIM, 'figs', 'gene_biotypes_mqc.yaml'),
+                  join(BFQ_INTERIM, 'figs', 'gene_high_mqc.yaml'),
+                  rules.bfq_level2_qc.output,
+                  rules.bfq_level2_exprs.output,
+                  rules.bfq_level2_aligned.output]

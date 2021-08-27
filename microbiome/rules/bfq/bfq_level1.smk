@@ -31,7 +31,7 @@ rule bfq_level1_all:
         expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}_R1_fastqc.zip'), sample=SAMPLES),
         expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}_R1_fastqc.html'), sample=SAMPLES),
         expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}_R2_fastqc.zip'), sample=SAMPLES),
-        expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}_R2_fastqc.html'), sample=SAMPLES),           
+        expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}_R2_fastqc.html'), sample=SAMPLES),
         expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}.fastp.json'), sample=SAMPLES),
         expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}.fastp.html'), sample=SAMPLES),
         expand(join(BFQ_INTERIM, 'region_demultiplexed_fastq', '{sample}_R1.fastq.gz'), sample=SAMPLES),
@@ -44,3 +44,6 @@ rule bfq_level1_all:
             else:
                 shell('ln -srf {src} {dst}')
 
+
+BFQ_LEVEL1_ALL = rules.bfq_level1_all.output
+              

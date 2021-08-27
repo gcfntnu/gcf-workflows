@@ -16,3 +16,5 @@ rule bfq_level1_all:
     run:
         for src, dst in zip(input, output):
             shell('ln -srf {src} {dst}')
+
+BFQ_LEVEL1_ALL = rules.bfq_level1_all.output

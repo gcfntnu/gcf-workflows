@@ -7,7 +7,7 @@ def fastp_adapter_args(*args, **kw):
     ADAPTER = config.get('adapter')
     ADAPTER2 = config.get('adapter2')
     PE = len(config['read_geometry']) > 1
-    param_str = '-A '
+    param_str = ''
     if PE:
         if ADAPTER2:
             if ADAPTER2.endswith('.fa') or ADAPTER2.endswith('.fasta'):
@@ -24,6 +24,7 @@ def fastp_adapter_args(*args, **kw):
                 param_str += ''
             else:
                 param_str += '--adapter_sequence {} '.format(ADAPTER)
+    param_str = param_str or '-A '
     return param_str
 
 if PE:

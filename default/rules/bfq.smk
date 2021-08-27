@@ -4,4 +4,4 @@ include:
 
 rule bfq_all:
     input:
-        rules.bfq_level1_all.input,
+        BFQ_LEVEL1_ALL
