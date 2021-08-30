@@ -37,7 +37,7 @@ def get_mqc_modules():
 
 rule multiqc_report:
     input:
-        bfq = rules.bfq_all.input,
+        bfq = BFQ_ALL,
         mqc_config = rules.multiqc_config.output.mqc_config,
     output:
         report = join(BFQ_INTERIM, 'multiqc_{}.html'.format('_'.join(config['project_id']))),

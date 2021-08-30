@@ -39,3 +39,4 @@ else:
 
 
 BFQ_LEVEL1_ALL = rules.bfq_level1_all.output
+BFQ_ALL.extend(BFQ_LEVEL1_ALL)

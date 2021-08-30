@@ -95,3 +95,4 @@ BFQ_LEVEL2_ALL = [join(BFQ_INTERIM, 'figs', 'pca_mqc.yaml'),
                   rules.bfq_level2_exprs.output,
                   rules.bfq_level2_unitas.output,
                   rules.bfq_level2_aligned.output]
+BFQ_ALL.extend(BFQ_LEVEL2_ALL)

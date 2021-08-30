@@ -149,3 +149,5 @@ else:
                       rules.bfq_level2_data_cellranger.output,
                       rules.bfq_level2_notebooks_cellranger.output,
                       join(BFQ_INTERIM, 'figs', 'umap_all_samples_mqc.png')]
+
+BFQ_ALL.extend(BFQ_LEVEL2_ALL)
