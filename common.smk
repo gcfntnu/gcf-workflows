@@ -4,6 +4,7 @@
 
 logger.info("WORKFLOW: {}".format(WORKFLOW))
 PE = len(config['read_geometry']) > 1
+BFQ_LEVEL1_ALL,BFQ_LEVEL2_ALL, BFQ_LEVEL3_ALL = [],[],[]
 
 include:
     'gcfdb/indexes.smk'
@@ -28,3 +29,11 @@ rule sample_info:
         script = srcdir('scripts/create_sampleinfo.py')
     shell:
         'python {params.script} config.yaml > {output}'
+
+
+
+rule bfq_all:
+    input:
+        BFQ_LEVEL1_ALL,
+        BFQ_LEVEL2_ALL,
+        BFQ_LEVEL3_ALL
