@@ -1,4 +1,6 @@
-ALIGN_INTERIM = join(INTERIM_DIR, 'sars-cov2', 'aligned')
+#-*- mode: snakemake -*-
+"""
+"""
 
 rule bwa_align:
     input:

@@ -1,3 +1,0 @@
-#-*- mode:snakemake -*-
-
-ANALYSIS_INTERIM = join(INTERIM_DIR, 'rnaseq', 'analysis')

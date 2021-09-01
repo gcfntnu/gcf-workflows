@@ -1,0 +1,17 @@
+$schema: "https://json-schema.org/draft-06/schema#"
+description: main configuration block
+type: object
+properties:
+  organism:
+    type: string
+  samples:
+    type: string
+    description: samples block
+  db:
+    type: string
+    description: reference database
+
+required:
+  - samples
+  - db
+  - organism

@@ -1,9 +1,0 @@
-#-*- mode: snakemake -*-
-"""
-Snakemake rules for quality control of small-rna.
-"""
-
-QC_INTERIM = join(INTERIM_DIR, 'smallrna', 'qc')
-     
-include:
-    'qc/fastq.rules'

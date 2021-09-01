@@ -1,4 +1,6 @@
-ALIGN_INTERIM = join(INTERIM_DIR, 'wgs', 'aligned')
+#-*- mode: snakemake -*-
+"""
+"""
 
 ORG = config['organism']
 

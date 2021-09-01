@@ -6,8 +6,6 @@ Mostly copied from https://github.com/eclarke/refseq_dl
 """
 import urllib.request as request
 from contextlib import closing
-import re
-
 
 
 DB_CONF = config['db'].get('refseq', {})
