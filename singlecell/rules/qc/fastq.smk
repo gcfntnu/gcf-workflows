@@ -21,8 +21,8 @@ rule singlecell_fastqc:
     shell:
         """
         fastqc -t {threads} -o . {input.R2}
-        mv {wildcards.sample}_R2_fastqc.zip {output.zip}
-        mv {wildcards.sample}_R2_fastqc.html {output.html}
+        mv {wildcards.sample}_S1_L000_R2_001_fastqc.zip {output.zip}
+        mv {wildcards.sample}_S1_L000_R2_001_fastqc.html {output.html}
         """
 
 rule singlecell_fastq_screen:
@@ -30,7 +30,9 @@ rule singlecell_fastq_screen:
        unpack(get_filtered_fastq),
        config = rules.fastq_screen_config.output 
    output:
-       join(QC_INTERIM, 'fastq_screen', '{sample}_screen.txt')
+       txt = join(QC_INTERIM, 'fastq_screen', '{sample}_screen.txt'),
+       png = join(QC_INTERIM, 'fastq_screen', '{sample}_screen.png'),
+       html = join(QC_INTERIM, 'fastq_screen', '{sample}_screen.html'),
    params:
        args = '-q --force',
        subset = 400000,
@@ -47,4 +49,6 @@ rule singlecell_fastq_screen:
        '--outdir . '
        '{params.args} '
        '{input.R2} '
-       '&& mv {wildcards.sample}*_screen.txt {output} '
+       '&& mv {wildcards.sample}*_screen.txt {output.txt} '
+       '&& mv {wildcards.sample}*_screen.png {output.png} '
+       '&& mv {wildcards.sample}*_screen.html {output.html} '

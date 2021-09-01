@@ -40,7 +40,7 @@ rule bfq_level1_all:
     run:
         for src, dst in zip(input, output):
             if src.endswith('.fastq') and dst.endswith('fastq.gz'):
-                shell('gzip {input} -c > {output}')
+                shell('gzip {src} -c > {dst}')
             else:
                 shell('ln -srf {src} {dst}')
 
