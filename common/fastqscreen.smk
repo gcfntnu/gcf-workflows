@@ -2,6 +2,8 @@
 """
 """
 include: 
+    join(GCFDB_DIR, 'ensembl.db')
+include: 
     join(GCFDB_DIR, 'illumina.db')
 include: 
     join(GCFDB_DIR, 'univec.db')
