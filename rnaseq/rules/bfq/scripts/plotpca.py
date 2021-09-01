@@ -27,6 +27,11 @@ def pca(E, max_comp=20):
     x = x - x.mean(0)
     u, s, vt = np.linalg.svd(x, 0)
     T = u * s
+    variance = s**2
+    total = variance.sum()
+    var_expl = (variance/total).cumsum()
+    print(var_expl)
+    max_comp = min(max_comp, sum(var_expl < 0.9))
     P = vt.T
     T = pd.DataFrame(
         T[:, :max_comp],
@@ -95,12 +100,12 @@ def multiqc_yaml(T, S=None, n_comp=2):
     default_colors = ['#7cb5ec', '#434348', '#90ed7d', '#f7a35c', '#8085e9',
                       '#f15c80', '#e4d354', '#2b908f', '#f45b5b', '#91e8e1']
 
-    zeileis_28 = ["#023fa5", "#7d87b9", "#bec1d4", "#d6bcc0", "#bb7784", 
-                "#8e063b", "#4a6fe3", "#8595e1", "#b5bbe3", "#e6afb9", 
-                "#e07b91", "#d33f6a", "#11c638", "#8dd593", "#c6dec7", 
-                "#ead3c6", "#f0b98d", "#ef9708", "#0fcfc0", "#9cded6", 
-                "#d5eae7", "#f3e1eb", "#f6c4e1", "#f79cd4", '#7f7f7f', 
-                "#c7c7c7", "#1CE6FF", "#336600"]
+    zeileis_28 = ["#023fa5", "#7d87b9", "#bec1d4", "#d6bcc0", "#bb7784",
+                  "#8e063b", "#4a6fe3", "#8595e1", "#b5bbe3", "#e6afb9", 
+                  "#e07b91", "#d33f6a", "#11c638", "#8dd593", "#c6dec7", 
+                  "#ead3c6", "#f0b98d", "#ef9708", "#0fcfc0", "#9cded6", 
+                  "#d5eae7", "#f3e1eb", "#f6c4e1", "#f79cd4", '#7f7f7f', 
+                  "#c7c7c7", "#1CE6FF", "#336600"]
     
 
 

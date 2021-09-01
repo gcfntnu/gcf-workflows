@@ -1,4 +1,6 @@
-FILTER_INTERIM = join(INTERIM_DIR, 'wgs', 'filter')
+#-*- mode:snakemake -*-
+"""
+"""
 
 include:
     'filter/fastv.rules'

@@ -1,0 +1,13 @@
+#-*- mode:snakemake -*-
+
+rule create_txdb:
+    input:
+        gtf = join(REF_DIR, 'anno', 'genes.gtf')
+    output:
+        db = join(REF_DIR, 'anno', 'txdb.sqlite')
+    params:
+        script = srcdir('scripts/create_txdb.R'),
+        organism = config['organism'],
+        db = config['db']['reference_db']
+    shell:
+        'Rscript --vanilla {params.script} {input.gtf} {params.organism} {params.db} {output.db}'

@@ -14,7 +14,7 @@ parser$add_argument("--txome", required=TRUE, help="linked txome file (.json)")
 
 parser$add_argument("--sample-info", required=TRUE, default="sample_info.tsv", help="sample info file (.tsv)")
 
-parser$add_argument("-t", "--type", type="character", default="salmon",
+parser$add_argument("-t", "--method", type="character", default="salmon",
                     help="Data origins (kallisto, salmon, sailfish, rsem, stringtie, alevin, none)")
 
 parser$add_argument("-o", "--output", default="tximeta.rds",
@@ -46,13 +46,14 @@ coldata = desc[,!colnames(desc) %in% remove.cols]
 coldata$names <- coldata[,"Sample_ID"]
 coldata <- cbind(coldata, files = args$input, stringsAsFactors = FALSE)
 
-if (args$type %in% c("kallisto", "salmon", "stringtie", "sailfish", "rsem")){
-    txi.tx <- tximeta::tximeta(coldata, type=args$type)
+if (args$method %in% c("salmon", "sailfish", "alevin")){
+    txi.tx <- tximeta::tximeta(coldata, type=args$method, skipMeta=TRUE)
 } else{
-    stop(cat("method: ", args$type, " not valid \n"))
+    stop(cat("method: ", args$method, " not valid \n"))
 }
 
-txi.tx$type <- args$type
+txi.tx$type <- args$method
+txi.tx$method <- args$method
 #txi.tx$tx2gene <- summarizeToGene(txi.tx)
 
 saveRDS(txi.tx, args$output, compress=FALSE)

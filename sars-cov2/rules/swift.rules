@@ -1,4 +1,7 @@
-FILTER_INTERIM = join(INTERIM_DIR, 'filtered')
+#-*- mode: snakemake -*-
+"""
+"""
+
 rule swift_align:
     input:
         R1 = expand(join(FILTER_INTERIM, 'cleaned', '{sample}_R1.fastq'), sample=SAMPLES),

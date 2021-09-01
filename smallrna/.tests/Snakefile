@@ -4,8 +4,8 @@ configfile:
     'config.yaml'
 
 include:
-    '../smallrna.sm'
+    '../smallrna.smk'
 
 include:
-    '../rules/bfq.rules'
+    '../rules/bfq.smk'
     

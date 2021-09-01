@@ -3,6 +3,7 @@ from os.path import join, abspath, dirname
 from os import makedirs, environ
 import sys
 import collections
+import re
 import yaml
 
 try:
@@ -24,6 +25,10 @@ TMPDIR = os.environ.get("TMPDIR", "/tmp")
 INTERIM_DIR = config.get("interim_dir") or environ.get("GCF_INTERIM", "data/tmp")
 makedirs(INTERIM_DIR, exist_ok=True)
 EXT_DIR = config.get("ext_dir") or environ.get("GCF_EXT", "data/ext")
+makedirs(EXT_DIR, exist_ok=True)
+EXT_CACHE = join(EXT_DIR, '.cache')
+makedirs(EXT_DIR, exist_ok=True)
+
 FASTQ_DIR = config.get("fastq_dir") or environ.get("GCF_FASTQ", "data/raw/fastq")
 while FASTQ_DIR.endswith(os.path.sep):
     FASTQ_DIR = FASTQ_DIR[:-1]
@@ -148,86 +153,19 @@ def get_raw_fastq(wildcards):
     """Returns path to fastq files per sample.
     """
 
-    R1 = config["samples"][wildcards.sample].get("R1", [])
-    R2 = config["samples"][wildcards.sample].get("R2", [])
-    if R1 == "":
+    R1 = config['samples'][wildcards.sample].get('R1', [])
+    R2 = config['samples'][wildcards.sample].get('R2', [])
+    if R1 == '':
         R1 = []
-    if R2 == "":
+    if R2 == '':
         R2 = []
     if R1:
-        R1 = R1.split(",")
+        R1 = R1.split(',')
     if R2:
-        R2 = R2.split(",")
+        R2 = R2.split(',')
 
     R1 = [join(FASTQ_DIR, i) for i in R1]
     if R2:
         R2 = [join(FASTQ_DIR, i) for i in R2]
-        return {"R1": R1, "R2": R2}
-    else:
-        return {"R1": R1}
-
-
-def get_processed_fastq(wildcards):
-    ZIP_FILTERED_FASTQ = config["filter"].get("zip_filtered_fastq", False)
-    DST_PTH = join(FILTER_INTERIM, "cleaned")
-    fastq = get_raw_fastq(wildcards)
-    R1 = [i.split(FASTQ_DIR)[-1][1:] for i in fastq["R1"]]
-    if not ZIP_FILTERED_FASTQ:
-        R1 = [i.split(".gz")[0] for i in R1 if i.endswith(".gz")]
-    R2 = fastq.get("R2")
-    if R2:
-        R2 = [i.split(FASTQ_DIR)[-1][1:] for i in fastq["R2"]]
-        if not ZIP_FILTERED_FASTQ:
-            R2 = [i.split(".gz")[0] for i in R2 if i.endswith(".gz")]
-    if ZIP_FILTERED_FASTQ:
-        ext = ".fastq.gz"
-    else:
-        ext = ".fastq"
-    R1 = [join(DST_PTH, wildcards.sample + "_R1" + ext)]
-    if R2:
-        R2 = [join(DST_PTH, wildcards.sample + "_R2" + ext)]
-        out = {"R1": R1, "R2": R2}
-    else:
-        out = {"R1": R1}
-    return out
-
-
-# single cell get fastq functions
-def umitools_get_filtered_fastq_R1(wildcards):
-    if config["filter"]["trim"]["quantifier"] == "skip":
-        return get_raw_fastq(wildcards)["R1"]
-    return [join(FILTER_INTERIM, "cleaned", "{}_R1.fastq.gz".format(wildcards.sample))]
-
-
-def umitools_get_filtered_fastq_R2(wildcards):
-    if config["filter"]["trim"]["quantifier"] == "skip":
-        return get_raw_fastq(wildcards)["R2"]
-    return [join(FILTER_INTERIM, "cleaned", "{}_R2.fastq.gz".format(wildcards.sample))]
-
-
-def get_filtered_fastq_R1(wildcards):
-    if config["filter"]["trim"]["quantifier"] == "skip":
-        return get_raw_fastq(wildcards)["R1"]
-    elif config["libprepkit"].startswith("Drop-Seq"):
-        return umitools_get_filtered_fastq_R1(wildcards)
-    return [
-        join(
-            FILTER_INTERIM,
-            "cleaned",
-            "{}_S1_L000_R1_001.fastq.gz".format(wildcards.sample),
-        )
-    ]
-
-
-def get_filtered_fastq_R2(wildcards):
-    if config["filter"]["trim"]["quantifier"] == "skip":
-        return get_raw_fastq(wildcards)["R2"]
-    elif config["libprepkit"].startswith("Drop-Seq"):
-        return umitools_get_filtered_fastq_R2(wildcards)
-    return [
-        join(
-            FILTER_INTERIM,
-            "cleaned",
-            "{}_S1_L000_R2_001.fastq.gz".format(wildcards.sample),
-        )
-    ]
+        return {'R1': R1, 'R2': R2}
+    return {'R1': R1}

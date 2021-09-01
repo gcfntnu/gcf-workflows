@@ -23,7 +23,7 @@ parser$add_argument("-a", "--assembly", type="character", help="reference databa
 
 parser$add_argument("-o", "--output", default="tximeta.json", help="Output json file")
 
-parser$add_argument("-c", "--cachedir", default="", help="Output json file")
+parser$add_argument("-c", "--cachedir", default="/tmp/.cache", help="Cachedir location")
 
 parser$add_argument("-v", "--verbose", action="store_true", default=FALSE, help="Print extra output")
 
@@ -34,9 +34,17 @@ if (args$verbose == TRUE){
     options(echo=TRUE)
 }
 
-Sys.setenv(TXIMETA_HUB_CACHE=args$cachedir)
-print(getTximetaBFC())
+if (!dir.exists(args$cachedir)){
+    dir.create(args$cachedir, showWarnings=FALSE, recursive=TRUE)
+    }
 setTximetaBFC(args$cachedir, quiet=TRUE)
+
+GTF <- args$gtf
+## is symlink, get symlinked name
+if (nzchar(Sys.readlink(GTF))){
+    gtf.abspath <- normalizePath(GTF)
+    GTF <- file.path(dirname(gtf.abspath), Sys.readlink(GTF))
+}
 
 makeLinkedTxome(indexDir = dirname(args$index),
                 source = args$source,
@@ -44,6 +52,6 @@ makeLinkedTxome(indexDir = dirname(args$index),
                 release = args$release,
                 genome = args$assembly,
                 fasta = args$transcriptome,
-                gtf = args$gtf,
+                gtf = GTF,
                 write = TRUE,
                 jsonFile = args$output)
