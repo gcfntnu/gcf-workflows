@@ -65,7 +65,7 @@ def create_mqc_config(args):
     if len(read_geometry) == 1:
         mqc_conf['extra_fn_clean_exts'].append('_R1')
 
-    s_df = pd.read_csv(args.sample_info, sep='\t')
+    s_df = pd.read_csv(args.sample_info, sep='\t', dtype={'Sample_ID': str})
     s_df.index = s_df['Sample_ID']
 
     max_260_230 = float(s_df['260/230'].max()) if '260/230' in s_df.columns else 3
