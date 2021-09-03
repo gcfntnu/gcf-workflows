@@ -34,7 +34,7 @@ def fig_expression(abundance, counts, feature_info, norm=True, msg=''):
                       '#f45b5b', '#91e8e1']
     
     for i, k in enumerate(a_df.index):
-        name = a_df.loc[k, 'gene_name'] + ' (' + a_df.loc[k, 'gene_biotype'] +')' 
+        name = str(a_df.loc[k, 'gene_name']) + ' (' + a_df.loc[k, 'gene_biotype'] +')' 
         color = default_colors[i]
         keys[k] = {'color': color, 'name': name}
     
