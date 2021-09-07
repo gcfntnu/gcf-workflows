@@ -5,6 +5,8 @@ include:
     join(GCFDB_DIR, 'illumina.db')
 include: 
     join(GCFDB_DIR, 'univec.db')
+include: 
+    join(GCFDB_DIR, 'ensembl.db')
 
 
 rule illumina_fasta:
