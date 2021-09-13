@@ -2,11 +2,11 @@
 """
 """
 include: 
-    join(GCFDB_DIR, 'ensembl.db')
-include: 
     join(GCFDB_DIR, 'illumina.db')
 include: 
     join(GCFDB_DIR, 'univec.db')
+include: 
+    join(GCFDB_DIR, 'ensembl.db')
 
 
 rule illumina_fasta:
@@ -26,7 +26,7 @@ def fastq_screen_indexes(*args, **kw):
    release = config['db'].get('ensembl', {}).get('release', '103')
    INDEXES = {'Human': join(EXT_DIR, 'ensembl', 'release-{}'.format(release), 'homo_sapiens', 'GRCh38', 'index', 'genome', 'bowtie2', 'genome.1.bt2')}
    org = config.get('organism')
-   if org != 'homo_sapiens' and org != 'N/A':
+   if org not in ['homo_sapiens', 'N/A']:
       if config['db'].get('reference_db') == 'ensembl':
          release = config['db']['ensembl']['release']
          assembly = config['db']['ensembl']['assembly']
