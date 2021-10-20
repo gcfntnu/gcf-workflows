@@ -67,7 +67,7 @@ import tempfile
 ORG = config['organism']
 config['organism'] = ORG.replace(' ', '_').lower()
 
-A = ['ensembl', 'refseq', '10xgenomics', 'silva']
+A = ['ensembl', 'refseq', '10xgenomics']
 
 
 def is_url(x):
@@ -106,7 +106,7 @@ else:
 
 
 # supported references
-if ref in ['ensembl', 'refseq', '10xgenomics']:
+if ref in ['refseq', '10xgenomics']:
     include: '{}.db'.format(ref)
 
 config['db'][ref] = DB_CONF = config['db'].get(ref, {})

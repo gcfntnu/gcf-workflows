@@ -7,8 +7,6 @@ include:
     'mirbase.db'
 include:
     'gtrnadb.db'
-include:
-    'ensembl.db'
 
 QMSQ_EXT = join(EXT_DIR, 'quickmirseq', ORG)
 
