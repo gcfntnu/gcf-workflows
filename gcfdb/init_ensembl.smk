@@ -57,9 +57,9 @@ if ENS_RELEASE is None:
 ENSG_RELEASE = config['db']['ensemblgenomes'].get('release')
 if ENSG_RELEASE is None:
     ENSG_RELEASE = config['db']['ensemblgenomes']['release'] = get_ensemblgenomes_release(release=ENS_RELEASE)
-DIVISIONS = config['db']['ensembl'].get('divisions')
+DIVISIONS = config['db']['ensembl'].get('all_divisions')
 if DIVISIONS is None:
-    DIVISIONS = config['db']['ensembl']['dvisions'] = get_ensembl_divisions()
+    DIVISIONS = config['db']['ensembl']['all_divisions'] = get_ensembl_divisions()
 elif isinstance(DIVISIONS, str):
     DIVISIONS = DIVISIONS.split(',')
 
