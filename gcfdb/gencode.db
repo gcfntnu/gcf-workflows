@@ -8,7 +8,8 @@ from contextlib import closing
 import re
 import os
 
-DB_CONF = config['db'].get('ensembl', {})
+DB_CONF = config['db'].get('genocode', {})
+config['db']['gencode'] = DB_CONF
 ORG = config['organism'].lower().replace(' ', '_')
 
 def get_current_gencode(config):
@@ -23,6 +24,7 @@ def get_current_gencode(config):
         url = 'ftp.ebi.ac.uk/pub/databases/gencode/Gencode_mouse/latest_release/MD5SUMS'
     else:
         logger.error('only human/mouse are supported organisms in Gencode. Got: {}'.format(config['organism']))
+        return config
     protocol = 'https://'
     proxies = config.get('proxy', {}).get('server')
     if proxies:
@@ -35,11 +37,12 @@ def get_current_gencode(config):
             release = re.findall(".*gencode.v(M?\d+)\..*", out)[0]
         except: 
             logger.error("release parse error or protocol error if {}".format(url))
-    DB_CONF['release'] = str(release)
-    config['db']['ensembl'] = DB_CONF
+    DB_CONF['release'] = str(release) if release else ''
+    config['db']['gencode'] = DB_CONF
     return config
-config = get_current_ensembl(config)
-GENCODE_DIR = join(EXT_DIR, 'ensembl', 'release-{}'.format(config['db']['ensembl']['release']), ORG)
+
+config = get_current_gencode(config)
+GENCODE_DIR = join(EXT_DIR, 'gencode', 'release-{}'.format(config['db']['gencode']['release']), ORG)
 
 
 def init_gencode_from_organism(config):
@@ -64,7 +67,8 @@ def init_gencode_from_organism(config):
         GENCODE_ASSEMBLY = 'GRCh37' if int(GENCODE_RELEASE) <= 19 else 'GRCh38'
     config['db']['assembly'] = DB_CONF['assembly'] = [GENCODE_ASSEMBLY]
     return config
-config = init_gencode_from_organism(config)
+if config['db']['gencode']['release']:
+    config = init_gencode_from_organism(config)
 
 def get_gencode_url(wildcards, sub='genome'):
     protocol = 'http://'
