@@ -78,7 +78,9 @@ def get_ensembl_url(wildcards, tag='dna'):
     elif tag == 'gff':
         gff_fn = '.'.join([wildcards.organism.capitalize(), wildcards.assembly, RELEASE, 'gff3', 'gz'])
         return join(PROTOCOL + url.format(RELEASE, 'gff3', wildcards.organism), gff_fn)
-    
+    elif tag == 'ncrna':
+        ncrna_fn = '.'.join([wildcards.organism.capitalize(), wildcards.assembly, 'ncrna', 'fa', 'gz'])
+        return join(PROTOCOL + url.format(RELEASE, 'fasta', wildcards.organism), 'ncrna', ncrna_fn)
     else:
         raise ValueError
         
@@ -89,7 +91,7 @@ rule ensembl_genome:
     params:
         date = datetime.now().strftime("%d-%m-%Y"),
         proxy = config.get('proxy', {}).get('wget', ''),
-        url = lambda wildcards: get_ensembl_url(wildcards)
+        url = lambda wildcards: get_ensembl_url(wildcards, tag='dna')
     output:
         genome = join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'fasta', 'genome.fa')
     threads: 
@@ -104,11 +106,11 @@ rule ensembl_genome:
 
 rule ensembl_noncoding:
     input:
-        table = srcdir('tables/ensembl-release-{release}.tsv')
+        table = srcdir('tables/ensembl-{}.gz'.format(ENS_RELEASE))
     params:
         date = datetime.now().strftime("%d-%m-%Y"),
         proxy = config.get('proxy', {}).get('wget', ''),
-        url = DB_CONF.get('ftp_ncrna')
+        url = lambda wildcards: get_ensembl_url(wildcards, tag='ncrna')
     output:
         join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'fasta', 'ncrna.fa')
     threads: 
@@ -123,7 +125,7 @@ rule ensembl_noncoding:
 
 rule ensembl_gff:
     input:
-        table = srcdir('tables/ensembl-release-{release}.tsv')
+        table = srcdir('tables/ensembl-{}.gz'.format(ENS_RELEASE))
     params:
         date = datetime.now().strftime("%d-%m-%Y"),
         proxy = config.get('proxy', {}).get('wget', ''),

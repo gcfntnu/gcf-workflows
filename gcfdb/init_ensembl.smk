@@ -62,15 +62,9 @@ if DIVISIONS is None:
     DIVISIONS = config['db']['ensembl']['dvisions'] = get_ensembl_divisions()
 elif isinstance(DIVISIONS, str):
     DIVISIONS = DIVISIONS.split(',')
-    
+
 def get_ensembl_species_url(wildcards):
     PROTOCOL = 'http://'
-    ENSEMBL_SERVER = {'EnsemblVertebrates': 'ftp.ensembl.org/pub/release-{}/species_EnsemblVertebrates.txt',
-                      'EnsemblPlants': 'ftp.ebi.ac.uk/ensemblgenomes/pub/release-{}/plants/species_EnsemblPlants.txt',
-                      'EnsemblProtists': 'ftp.ebi.ac.uk/ensemblgenomes/pub/release-{}/protists/species_EnsemblProtists.txt',
-                      'EnsemblMetazoa': 'ftp.ebi.ac.uk/ensemblgenomes/pub/release-{}/metazoa/species_EnsemblMetazoa.txt',
-                      'EnsemblFungi': 'ftp.ebi.ac.uk/ensemblgenomes/pub/release-{}/fungi/species_EnsemblFungi.txt',
-                      'EnsemblBacteria': 'ftp.ebi.ac.uk/ensemblgenomes/pub/release-{}/bacteria/species_EnsemblBacteria.txt'}
     if wildcards.division == 'vertebrates':
         url = 'ftp.ensembl.org/pub/release-{}/species_EnsemblVertebrates.txt'
         return PROTOCOL + url.format(ENS_RELEASE)
