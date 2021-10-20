@@ -98,7 +98,7 @@ rule quickmirseq_genome_index:
     shell:
         """
         bowtie-build {input.genome} {params.index_base} 
-        cp {input.noncoding} {output[0]} 
+        cp {input.genome} {output[0]} 
         cp {params.genome_log} {log}
         """
         
