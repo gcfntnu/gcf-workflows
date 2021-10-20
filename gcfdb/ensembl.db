@@ -57,11 +57,12 @@ def get_ensembl_url(wildcards, tag='dna'):
     if wildcards.release != str(config['db']['ensembl']['release']):
         logger.error('ensembl release mismatch configuration. wildcards vs config value')
         raise ValueError
-    DIVISION = DB_CONF.get('division', 'vertebrates')
+    DIVISION = DB_CONF.get('division')
     if DIVISION == 'vertebrates':
         url = 'ftp.ensembl.org/pub/release-{}/{}/{}'
         RELEASE = wildcards.release
     else:
+        print("HEIIIIIII____________\n")
         url = 'ftp.ebi.ac.uk/ensemblgenomes/pub/release-{{}}/{}/{{}}/{{}}'.format(DIVISION)
         RELEASE = str(config['db']['ensemblgenomes']['release'])
     
