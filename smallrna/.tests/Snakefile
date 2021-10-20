@@ -6,6 +6,4 @@ configfile:
 include:
     '../smallrna.smk'
 
-include:
-    '../rules/bfq.smk'
     
