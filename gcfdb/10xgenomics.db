@@ -76,7 +76,7 @@ def get_10x_url(wildcards):
             raise KeyError('10x mus musculus genome is only GRCm38 assembly')
         assembly = 'mm10'
         fn = 'refdata-gex-{}-{}.tar.gz'.format(assembly, wildcards.release)
-    elif wildcards.organism == 'homo_sapiens_mus_musculus':
+    elif wildcards.organism == 'homo_sapiens__mus_musculus':
         fn = 'refdata-gex-GRCh38-and-mm10-2020-A.tar.gz'
     else:
         raise ValueError('`{}` is not a supported organism for 10x prebuilds'.format(wildcards.organism))

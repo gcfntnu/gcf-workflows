@@ -1,36 +1,116 @@
 #-*- mode: snakemake -*-
-extra_conf_fn = srcdir('reference_db.config')
-if os.path.exists(extra_conf_fn):
-    with open(extra_conf_fn) as fh:
-        c  = yaml.load(fh, Loader=Loader) or {}
-        update_config2(config, c)
+"""Genome and annotation reference databases
+
+Lookups are based on organism . Organism name is named by genus and
+species seperated by underscore and all lower case
+(genus_species). e.g homo_sapiens. *
+
+The main files from a reference db is the genome in fasta format
+(genome.fa) and annotations in gene transfer format (genes.gtf)
+Supported databases are ensembl/ensemblgenomes, refseq and
+10xgenomics.
+
+A custom reference dir may be setup by building a directory with the
+following conventions:
+
+[name_of_reference_db]/
+  [release_number]/
+    [organism_name]/
+      [assembly_name]/
+        fasta/
+          genome.fa
+        anno/
+          genes.gtf
+
+for example:
+ensembl/
+  release-104/
+    mus_musculus/
+      GRCm39/
+        fasta/
+          genome.fa
+        anno/
+          genes.gtf
+
+* Custom reference dir is activated by adding 'ref_dir':[path_to_custom_ref_dir] in config.yaml or using the GCF_REFDIR env variable
+* Multiorganism genomes are represented by double underscores in organism name (e.g homo_sapiens__mus_musculus)
+* Multiassembly genomes (within one organism) are represented by assembly=='merged_assemblies'
+* A specific strain is specified by using three underscores (genus_species_strain)
+
+
+The variable REF_DIR is the path to the reference db and is used
+extensively in downstream code. This path is on the form:
+/any_path/[name_of reference_db]/[release_number]/[assembly_name]
+
+
+Custom reference II: config file key-val insertion
+--------------------------------------------------
+
+use db config:
+
+ex:
+organism: [organism name]
+'db':
+  [name of reference db]:
+    release: [release number] (optional)
+    assembly: [assembly name] (optional)
+    dna: 
+      file: [local path to fasta dna]
+      url: [url to fasta dna]
+    gtf: '[path to gtf annotations] (optional)'
+
+
+
+"""
+import tempfile
 
 ORG = config['organism']
+config['organism'] = ORG.replace(' ', '_').lower()
 
-# support for custom reference dir
+A = ['ensembl', 'refseq', '10xgenomics']
+
+
+def is_url(x):
+    from urllib.parse import urlparse
+    try:
+        result = urlparse(x)
+        return all([result.scheme, result.netloc])
+    except:
+        return False
+
+def is_local_path(x):
+    return os.path.exists(x)
+
+def validate_ref_dir(x):
+    pass
+
+
 REF_DIR = config.get('ref_dir', environ.get('GCF_REFDIR'))
-if REF_DIR is not None:
-    if not os.path.isdir(REF_DIR):
-        raise OSError("defined variable `REF_DIR` is not a valid directory")
-    config['db']['reference_db'] = os.path.dirname(REF_DIR)
-    
+# 1) custom reference config
 if 'reference_db' in config['db']:
-    ref = config['db']['reference_db'].strip()
+    ref = config['db']['reference_db']
+    if config['db'][ref].get('dna') is not None:
+        pass
+elif REF_DIR is not None:
+    # 2) custom reference dir
+    if not is_local_path(REF_DIR):
+        raise OSError("`REF_DIR` is not a valid directory {}".format(REF_DIR))
+    ref = os.path.dirname(REF_DIR)
+    config['db']['reference_db'] = ref
+elif 'reference_db' in config['db']:
+    # 3) supported reference db
+    ref = config['db']['reference_db']
 else:
     logger.error('Reference dir missing. Check config or other ways for ref dir setup')
     raise ValueError
 
-config['db'][ref] = DB_CONF = config['db'].get(ref, {})
+
 # supported references
-include: 'ensembl.db'
-include: 'gencode.db'
-include: '10xgenomics.db'
-include: 'refseq.db'
-include: 'ncbi.db'
+if ref in ['refseq', '10xgenomics']:
+    include: '{}.db'.format(ref)
 
-
+config['db'][ref] = DB_CONF = config['db'].get(ref, {})
 if REF_DIR is None:
-    DB_CONF = config['db'][ref]
     assembly = DB_CONF.get('assembly')
     release = DB_CONF.get('release')
     release_str = 'release-{}'.format(release) if release is not None else ''
@@ -38,7 +118,7 @@ if REF_DIR is None:
     REF_DIR = join(EXT_DIR, ref, release_str, ORG, assembly_str)
 config['base_ref_dir'] = REF_DIR
 
-        
+
 def get_genome(*args, **kw):
     """
     Possible additions to genome: eppstein-barr virus, ercc/sirv spike-ins, decoys
@@ -49,11 +129,6 @@ def get_gtf(*args, **kw):
     """
     """
     return join(REF_DIR, 'anno', 'genes.gtf')
-
-def get_gff(*args, **kw):
-    """
-    """
-    return join(REF_DIR, 'anno', 'genes.gff')
 
         
 

@@ -5,9 +5,6 @@ include:
     join(GCFDB_DIR, 'illumina.db')
 include: 
     join(GCFDB_DIR, 'univec.db')
-include: 
-    join(GCFDB_DIR, 'ensembl.db')
-
 
 rule illumina_fasta:
     input:
@@ -26,13 +23,12 @@ def fastq_screen_indexes(*args, **kw):
    release = config['db'].get('ensembl', {}).get('release', '103')
    INDEXES = {'Human': join(EXT_DIR, 'ensembl', 'release-{}'.format(release), 'homo_sapiens', 'GRCh38', 'index', 'genome', 'bowtie2', 'genome.1.bt2')}
    org = config.get('organism')
-   if org not in ['homo_sapiens', 'N/A']:
+   if org not in ['homo_sapiens', 'N/A', 'n/a']:
       if config['db'].get('reference_db') == 'ensembl':
          release = config['db']['ensembl']['release']
          assembly = config['db']['ensembl']['assembly']
          index = join(EXT_DIR, 'ensembl', 'release-{}'.format(release), org, assembly, 'index', 'genome', 'bowtie2', 'genome.1.bt2')
-         organism_name = config['db']['ensembl'].get('organism_name', org)
-         INDEXES[organism_name] = index
+         INDEXES[org] = index
    # contamination (univec minus phiX/Illumina sequences)
    INDEXES['Contamination'] = join(EXT_DIR, 'univec_subset', 'index', 'univec_subset', 'bowtie2', 'univec_subset.1.bt2')
    # phiX

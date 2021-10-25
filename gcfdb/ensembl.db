@@ -1,211 +1,125 @@
 #-*- mode:snakemake -*-
 """ENSEMBL reference genomes
 
+Use ensembl.org for vertebrates and ensemblgenomes for other kingdoms.
+
+0) Check for config custom reference
+
+1) Initialize ensembl from organism (set required configuration : assembly, release numbers)
+2) Build urls for downloading files and add to config
+3) Download files into REF_DIR structure
+
 """
 
-import urllib.request as request
-from contextlib import closing
-import re
-import pickle
+# assembly name lookup table
+include:
+    'init_ensembl.smk'
 
-DB_CONF = config['db'].get('ensembl', {})
-ORG = config['organism'].lower().replace(' ', '_')
-STRAIN = config.get('strain')
 
-def _get_current_ensembl_from_www(config, protocol='http://'):
-    url = 'ftp.ensembl.org/pub/current_README'
-    proxies = config.get('proxy', {}).get('server')
-    if proxies:
-        proxy_support = request.ProxyHandler(proxies)
-        request.install_opener(request.build_opener(proxy_support))
-    with closing(request.urlopen(protocol + url)) as response:
-        try:
-            logger.info('fetching {} ...'.format(url))
-            out = response.read()
-            release = int(re.findall(b".*Release\s(\d+)\s+", out)[0])
-        except: 
-            logger.error("release parse error or protocol error if {}".format(url))
-    return str(release)
+if '__' in config['organism']:
+    MULTI_ORG = ORG.split('__')
+    multi_species = True
+else:
+    mulit_species = False
 
-def get_current_ensembl(config, use_cache=True, cache='.ensembl_current_release'):
-    """Get current release number for Ensembl by parsing top-level current_README.
+def ensembl_lookup(fn, organism=None, assembly=None):
+    import gzip
+    out = []
+    organism = organism or config['organism']
+    release = config['db']['ensembl']['release']
+    if not os.path.exists(fn):
+        logger.info('ensembl lookupfile for release {} is missing!'.format(release))
+        return None
+    header = ['species', 'assembly', 'division']
+    for row in gzip.open(fn).read().decode('utf-8').splitlines():
+        els = dict(zip(header, row.split('\t')))
+        if els['species'] == organism:
+            if config['organism'] in ['homo_sapiens', 'mus_musculus']:
+                els['assembly'] = els['assembly'].split('.')[0]
+            out.append(els)
+    if len(out) == 0:
+        logger.error('species `{}` not found in ensembl lookup file'.format(config['organism']))
+        return None
+    if len(out) > 1:
+        logger.error('multiple hits in ensembl lookup file')
+        raise ValueError
+    return out[0]
+        
+def init_ensembl(els):
+    """Set assembly and division from organism
+    
     """
-    DB_CONF = config['db'].get('ensembl', {})
-    if 'release' in DB_CONF:
+    if els is None:
         return config
-    cache_fn = os.path.join(TMPDIR, '.ensembl_current_release')
-    cache_exists = os.path.exists(cache_fn)
-    if use_cache:
-        if cache_exists:
-            with open(cache_fn, 'rb') as fh:
-                release = pickle.load(fh)
-                logger.info("loading ensembl current release ...")
-        else:
-            release = _get_current_ensembl_from_www(config)
-            with open(cache_fn, 'wb') as fh:
-                logger.info("caching ensembl current release ...")
-                pickle.dump(release, fh)
-    else:
-        release = _get_current_ensembl_from_www(config)
-    DB_CONF['release'] = str(release)
-    config['db']['ensembl'] = DB_CONF
+    for k in ['assembly', 'division']:
+        config['db']['ensembl'][k] = els[k]
+    
     return config
 
-config = get_current_ensembl(config)
-ENSEMBL_DIR = join(EXT_DIR, 'ensembl', 'release-{}'.format(config['db']['ensembl']['release']), ORG)
+ENS_DB = srcdir('tables/ensembl-{}.gz'.format(config['db']['ensembl']['release']))
+config = init_ensembl(ensembl_lookup(ENS_DB))
+DB_CONF = config['db']['ensembl']
 
-def _parse_species_txt(tab, sep='\t'):
-    """parse the content of species_EnsemblVertebrates.txt. Check for organism.
-    """
-    SP = {}
-    header = tab.pop(0).split(sep)
-    for line in tab:
-        els = line.split(sep)
-        row = dict(zip(header, els))
-        species = row.pop('species')
-        if species in SP:
-            raise ValueError('found duplicate species!')
-        if species == 'homo_sapiens':
-            #fixme?
-            row['assembly'] = row['assembly'].split('.')[0]
-        SP[species] = row
-    if not config['organism'] in SP:
-        msg = 'Organism from config: `{}` not found in Ensembl.'.format(config['organism'])
-        similar = []
-        for species in SP.keys():
-            genus = config['organism'].split('_')[0].lower()
-            if species.lower().startswith(genus):
-                similar.append(species)
-        if len(similar) > 0:
-            msg += ' Close hits: '
-            msg += ', ',join(similar)
-        logger.error(msg)
+def get_ensembl_url(wildcards, tag='dna'):
+    PROTOCOL = 'http://'
+    if wildcards.release != str(config['db']['ensembl']['release']):
+        logger.error('ensembl release mismatch configuration. wildcards vs config value')
+        raise ValueError
+    DIVISION = ensembl_lookup(ENS_DB, organism=wildcards.organism)['division']
+    if DIVISION == 'vertebrates':
+        url = 'ftp.ensembl.org/pub/release-{}/{}/{}'
+        RELEASE = wildcards.release
     else:
-        return SP[config['organism']]
-    return {}
-
-def _get_tab_from_www(config, release, protocol='http://'):
-    url = 'ftp.ensembl.org/pub/release-{}/species_EnsemblVertebrates.txt'.format(release)
-    proxies = config.get('proxy', {}).get('server')
-    if proxies:
-        proxy_support = request.ProxyHandler(proxies)
-        request.install_opener(request.build_opener(proxy_support))
-    with closing(request.urlopen(protocol + url)) as response:
-        logger.info('fetching {} ...'.format(url))
-        out = response.read()
-    try:
-        tab = out.decode('utf-8').splitlines()
-    except:
-        raise ValueError('failed to parse {}'.format(url))
-    return tab
-
-def init_ensembl_from_organism(config, use_cache=True, cache='.ensembl-release-{}'):
-    """Parse species annotations by given organsim and release number.
-
-    This function set default configuration values for the ensembl block.
-    Main task is to set the assembly name from org and release.
-    """
-    DB_CONF = config['db'].get('ensembl', {})
-    if 'assembly' in DB_CONF:
-        return config
-    release = str(config['db']['ensembl']['release'])
-    if use_cache:
-        cache_fn = os.path.join(TMPDIR, cache.format(release))
-        cache_exists = os.path.exists(cache_fn)
-        if cache_exists:
-            logger.info(cache_fn)
-            with open(cache_fn, 'rb') as fh:
-                tab = pickle.load(fh)
-                logger.info("loading ensembl release {}...".format(release))
+        url = 'ftp.ebi.ac.uk/ensemblgenomes/pub/release-{{}}/{}/{{}}/{{}}'.format(DIVISION)
+        RELEASE = str(config['db']['ensemblgenomes']['release'])
+    
+    if tag == 'dna':
+        if wildcards.organism in ['homo_sapiens', 'mus_musculus']:
+            if '.' in wildcards.assembly:
+                wildcards.assembly = wildcards.assembly.split('.')[0]
+            dna_fn = '.'.join([wildcards.organism.capitalize(), wildcards.assembly, 'dna', 'primary_assembly', 'fa', 'gz'])
         else:
-           tab = _get_tab_from_www(config, release)
-           with open(cache_fn, 'wb') as fh:
-               logger.info("caching ensembl release {} ...".format(release))
-               pickle.dump(tab, fh)
+            dna_fn = '.'.join([wildcards.organism.capitalize(), wildcards.assembly, 'dna', 'toplevel', 'fa', 'gz'])
+        return join(PROTOCOL + url.format(RELEASE, 'fasta', wildcards.organism), 'dna', dna_fn)
+    elif tag == 'gtf':
+        gtf_fn = '.'.join([wildcards.organism.capitalize(), wildcards.assembly, RELEASE, 'gtf', 'gz'])
+        return join(PROTOCOL + url.format(RELEASE, 'gtf', wildcards.organism), gtf_fn)
+    elif tag == 'gff':
+        gff_fn = '.'.join([wildcards.organism.capitalize(), wildcards.assembly, RELEASE, 'gff3', 'gz'])
+        return join(PROTOCOL + url.format(RELEASE, 'gff3', wildcards.organism), gff_fn)
+    elif tag == 'ncrna':
+        ncrna_fn = '.'.join([wildcards.organism.capitalize(), wildcards.assembly, 'ncrna', 'fa', 'gz'])
+        return join(PROTOCOL + url.format(RELEASE, 'fasta', wildcards.organism), 'ncrna', ncrna_fn)
     else:
-        tab = _get_tab_from_www(config, release)
-    sp = _parse_species_txt(tab)
-    
-    for k, sp_k in [('assembly', 'assembly'), ('taxid', 'taxonomy_id'), ('acc_id', 'assembly_accession'), ('organism_name', '#name')]:
-        if k not in DB_CONF and sp_k in sp:
-            DB_CONF[k] = sp[sp_k]
-    DB_CONF = config_val2list(DB_CONF)
-    #if isinstance(DB_CONF['assembly'], str):
-    #    DB_CONF['assembly'] = [DB_CONF['assembly']]
-    config['db']['ensembl'] = DB_CONF
-    return config
-config = init_ensembl_from_organism(config)
+        raise ValueError
+        
 
-rule init_ensembl_species:
-    params:
-        url = 'http://ftp.ensembl.org/pub/release-{wildcards.release}/species_EnsemblVertebrates.txt',
-        proxy = config.get('proxy', {}).get('wget', '')
-    threads:
-        48
-    output:
-        join(EXT_DIR, 'ensembl', 'release-{release}', 'lookup_tables', 'species_EnsemblVertebrates.txt')
-    shell:
-        'wget {params.proxy} -O- ftp://ftp.ensembl.org/pub/release-{wildcards.release}/species_EnsemblVertebrates.txt > {output}'
-
-checkpoint build_ftp_table:
-    input:
-        rules.init_ensembl_species.output
-    output:
-        txt = join(EXT_DIR, 'ensembl', 'release-{release}', 'lookup_tables', '{organism}_ftp.txt')
-    params:
-        script = srcdir('scripts/build_ensembl_lookup.py'),
-        proxy = config.get('proxy', {}).get('server', {}).get('ftp', 'none')
-    singularity:
-        'docker://' + config['docker']['default']
-    shell:
-        'python {params.script} {input} --proxy {params.proxy} --release {wildcards.release} --organism {wildcards.organism} --output {output}'
-
-
-def get_ensembl_ftp(wildcards, sub='genome'):    
-    fn = checkpoints.build_ftp_table.get(**wildcards).output[0]
-    with open(fn) as fh:
-        txt = fh.read().splitlines()
-        header = txt.pop(0).split('\t')
-        for line in txt:
-            els = line.split('\t')
-            row = dict(zip(header, els))
-            if row['species'] in ['homo_sapiens', 'mus_musculus']:
-                row['assembly'] = row['assembly'].split('.')[0]
-            if row['species'] == wildcards.organism:
-                if row['assembly'] != wildcards.assembly:
-                    msg = '{} assembly is not supported for this version ({}) of Ensembl. Assembly supported: {}'
-                    msg = msg.format(wildcards.assembly, wildcards.release, row['assembly'])
-                    raise ValueError(msg)
-                return row['ftp_{}'.format(sub)]
-    
 rule ensembl_genome:
     input:
-        lambda wildcards: checkpoints.build_ftp_table.get(**wildcards).output[0]
+        table = srcdir('tables/ensembl-{}.gz'.format(ENS_RELEASE))
     params:
         date = datetime.now().strftime("%d-%m-%Y"),
-        release = config['db']['ensembl']['release'],
         proxy = config.get('proxy', {}).get('wget', ''),
-        url = lambda wildcards, input: get_ensembl_ftp(wildcards, 'genome')
+        url = lambda wildcards: get_ensembl_url(wildcards, tag='dna')
     output:
-        join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'fasta', 'genome.fa')
+        genome = join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'fasta', 'genome.fa')
     threads: 
         24
     log:
         join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'logs', 'genome.log')
-    shell: 
+    shell:
         """
-        wget {params.proxy} -O- {params.url} | gunzip -c > {output}
-        echo 'Ensembl DNA,release-{params.release},{params.url},{params.date}' > {log}
+        wget {params.proxy} -O- {params.url} | gunzip -c >> {output.genome}
+        echo 'Ensembl DNA,release-{wildcards.release},{params.url},{params.date}' >> {log}
         """
 
 rule ensembl_noncoding:
     input:
-        lambda wildcards: checkpoints.build_ftp_table.get(**wildcards).output[0]
+        table = srcdir('tables/ensembl-{}.gz'.format(ENS_RELEASE))
     params:
         date = datetime.now().strftime("%d-%m-%Y"),
-        release = DB_CONF['release'],
         proxy = config.get('proxy', {}).get('wget', ''),
-        url = lambda wildcards, input: get_ensembl_ftp(wildcards, 'ncrna')
+        url = lambda wildcards: get_ensembl_url(wildcards, tag='ncrna')
     output:
         join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'fasta', 'ncrna.fa')
     threads: 
@@ -214,18 +128,17 @@ rule ensembl_noncoding:
         join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'logs', 'ncrna.log')
     shell: 
         """
-        wget {params.proxy} -O- {params.url} | gunzip -c > {output}
-        echo 'Ensembl DNA,release-{params.release},{params.url},{params.date}' > {log}
+        wget {params.proxy} -O- {params.url} | gunzip -c >> {output}
+        echo 'Ensembl DNA,release-{wildcards.release},{params.url},{params.date}' > {log}
         """
 
 rule ensembl_gff:
     input:
-        lambda wildcards: checkpoints.build_ftp_table.get(**wildcards).output[0]
+        table = srcdir('tables/ensembl-{}.gz'.format(ENS_RELEASE))
     params:
         date = datetime.now().strftime("%d-%m-%Y"),
-        release = DB_CONF['release'],
         proxy = config.get('proxy', {}).get('wget', ''),
-        url = lambda wildcards, input: get_ensembl_ftp(wildcards, 'gff')
+        url = lambda wildcards: get_ensembl_url(wildcards, tag='gff')
     output:
         join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'anno', '{organism}.{assembly}.{release}.gff')
     threads: 
@@ -234,18 +147,17 @@ rule ensembl_gff:
         join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'logs', 'gff.log')
     shell: 
         """
-        wget {params.proxy} -O- {params.url} | gunzip -c > {output}
-        echo 'Ensembl GFF,release-{params.release},{params.url},{params.date}' > {log}
+        wget {params.proxy} -O- {params.url} | gunzip -c >> {output}
+        echo 'Ensembl GFF,release-{wildcards.release},{params.url},{params.date}' > {log}
         """
 
 rule ensembl_gtf:
     input:
-        lambda wildcards: checkpoints.build_ftp_table.get(**wildcards).output[0]
+        table = srcdir('tables/ensembl-{}.gz'.format(ENS_RELEASE))
     params:
         date = datetime.now().strftime("%d-%m-%Y"),
-        release = DB_CONF['release'],
         proxy = config.get('proxy', {}).get('wget', ''),
-        url = lambda wildcards, input: get_ensembl_ftp(wildcards, 'gtf')
+        url = lambda wildcards: get_ensembl_url(wildcards, tag='gtf')
     output:
         join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'anno', '{organism}.{assembly}.{release}.gtf')
     threads: 
@@ -254,12 +166,12 @@ rule ensembl_gtf:
         join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'logs', 'gtf.log')
     shell: 
         """
-        wget {params.proxy} -O- {params.url} | gunzip -c > {output}
-        echo 'Ensembl GTF,release-{params.release},{params.url},{params.date}' > {log}
+        wget {params.proxy} -O- {params.url} | gunzip -c >> {output}
+        echo 'Ensembl GTF,release-{wildcards.release},{params.url},{params.date}' > {log}
         """ 
 
 
-rule symlink_genes:
+rule ensembl_symlink_genes:
     input:
         join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'anno', '{organism}.{assembly}.{release}.{ext}')
     output:
@@ -268,3 +180,5 @@ rule symlink_genes:
         ext = 'g.+f$'
     shell:
         'ln -sr {input} {output}'
+
+    

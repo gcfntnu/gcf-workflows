@@ -1,266 +1,176 @@
 #-*- mode:snakemake -*-
-"""NCBI refseq genomes
-
-Mostly copied from https://github.com/eclarke/refseq_dl
+"""REFSEQ reference genomes
 
 """
-import urllib.request as request
-from contextlib import closing
 
 
 DB_CONF = config['db'].get('refseq', {})
-ORG = config['organism'].lower().replace(' ', '_')
-STRAIN = config.get('strain')
+ASSEMBLY = DB_CONF.pop('assembly', None)
+STRAIN = config.get('strain') or DB_CONF.pop('strain', None)
+ORG = config['organism'].lower().strip().replace(' ', '_')
+config['organism'] = ORG
+PROXIES = config.get('proxy', {}).get('server')
 
-_ANALYSIS_SET_URL = 'https://ftp.ncbi.nlm.nih.gov/genomes/refseq/vertebrate_mammalian/Homo_sapiens/all_assembly_versions/GCF_000001405.39_GRCh38.p13/GRCh38_major_release_seqs_for_alignment_pipelines'
-
-def _get_current_refseq_from_www(config, protocol='https://'):
-    url = 'ftp.ncbi.nlm.nih.gov/refseq/release/RELEASE_NUMBER'
-    proxies = config.get('proxy', {}).get('server')
-    if proxies:
-        proxy_support = request.ProxyHandler(proxies)
-        request.install_opener(request.build_opener(proxy_support))       
-    with closing(request.urlopen(protocol + url)) as response:
-        try:
-            logger.info('fetching {} ...'.format(url))
-            out = response.read()
-            release = str(int(re.findall(b"\d+", out)[0]))
-        except: 
-            raise logger.error("release parse error or protocol error")
-    return str(release)
-
-def _get_current_refseq(config):
-    """Get current release number for refseq.
+def init_refseq(config):
+    """Initialize config dict from refseq table
+    Set assembly from organism
+    
     """
-    DB_CONF = config['db'].get('refseq', {})
-    if 'release' in DB_CONF:
+    release = config['db']['refseq']['release']
+    config['db']['refseq']['multi_assembly'] = False
+    fn = srcdir('tables/refseq-release-{}.tsv'.format(release))
+    if not os.path.exists(fn):
+        logger.info('refseq lookupfile for release {} is missing!'.format(release))
         return config
-    cache_fn = os.path.join(TMPDIR, '.refseq_current_release')
-    cache_exists = os.path.exists(cache_fn)
-    if use_cache:
-        if cache_exists:
-            with open(cache_fn, 'rb') as fh:
-                release = pickle.load(fh)
-                logger.info("loading refseq current release ...")
+    keys = ['division', 'strain', 'taxon_id', 'assembly', 'refseq_category', 'accession', 'ftp_genome', 'ftp_gtf', 'ftp_gff']
+    with open(fn) as fh:
+        txt = fh.read().splitlines()
+    header = txt.pop(0).split('\t')
+    species_index = header.index('species')
+    species_match = False
+    rows = []
+    for row in txt:
+        els = dict(zip(header, row.split('\t')))
+        species_match = els['species'].lower() == config['organism'].lower()
+        assembly_match = ASSEMBLY is None or ASSEMBLY == els['assembly']
+        strain_match = STRAIN is None or STRAIN == els['strain']
+        if species_match and assembly_match and strain_match:
+            rows.append(els)
+    if len(rows) == 0:
+        logger.error('species `{}` not found in refseq lookup file'.format(config['organism']))
+    
+    # 1) use reference assembly if present 
+    for row in rows:
+        if row['refseq_category'] == 'reference genome':
+            for k in keys:
+                config['db']['refseq'][k] = row[k]
+            return config
+
+    # 2) use representative assembly/assemblies
+    repr_genomes = []
+    for row in rows:
+        if row['refseq_category'] == 'representative genome':
+            repr_genomes.append(row)
+    if len(repr_genomes) > 0:
+        if len(repr_genomes) == 1:
+            row = repr_genomes[0]
+            for k in keys:
+                config['db']['refseq'][k] = row[k]
+            return config
         else:
-            release = _get_current_ensembl_from_www(config)
-            with open(cache_fn, 'wb') as fh:
-                logger.info("caching refseq current release ...")
-                pickle.dump(release, fh)
-    else:
-        release = _get_current_ensembl_from_www(config)
-    DB_CONF['release'] = str(release)
-    config['db']['refseq'] = DB_CONF
-    return config
+            config['db']['refseq']['multi_assembly'] = True
+            for row in repr_genomes:
+                for k in keys:
+                    if k in config['db']['refseq']:
+                        config['db']['refseq'][k] += ',{}'.format(row[k])
+                    else:
+                        config['db']['refseq'][k] = str(row[k])
+            for k in keys:
+                vals = set(config['db']['refseq'][k].split(','))
+                if len(vals) == 1:
+                    config['db']['refseq'][k] = vals.pop()
+            if len(config['db']['refseq']['ftp_genome'].split(',')) == 1:
+                config['db']['refseq']['multi_assembly'] = False
+            return config
 
-config = _get_current_refseq(config)
-REFSEQ_DIR = join(EXT_DIR, 'refseq', 'release-{}'.format(config['db']['refseq']['release']), ORG)
-
-def _parse_species_txt(df, sep='\t'):
-    """parse the content of assembly_summary_refseq.txt. Check for organism.
-    """
-    df = df.copy()
-    SP = collections.defaultdict(list)
-    comment = df.pop(0)
-    header = df.pop(0).split(sep)
-    for line in df:
-        els = line.split(sep)
-        row = dict(zip(header, els))
-        species = row['organism_name'].lower().replace(' ', '_')
-        if species in ['homo_sapiens']:
-            row['asm_name'] = row['asm_name'].split('.')[0]
-        row['organism'] = species
-        SP[species].append(row)
-        
-    if not config['organism'] in SP:
-        msg = 'Organism from config: `{}` not found in refseq.'.format(config['organism'])
-        similar = []
-        for species in SP.keys():
-            genus = config['organism'].split('_')[0].lower()
-            if species.lower().startswith(genus):
-                similar.append(species)
-        if len(similar) > 0:
-            msg += ' Close hits: '
-            msg += ', ',join(similar)
-        raise ValueError(msg)
-    else:
-        return SP[config['organism']]
-
-
-def _get_tab_from_www(config, release, protocol='https://'):
-    url = 'ftp.ncbi.nlm.nih.gov/genomes/refseq/assembly_summary_refseq.txt'
-    proxies = config.get('proxy', {}).get('server')
-    if proxies:
-        proxy_support = request.ProxyHandler(proxies)
-        request.install_opener(request.build_opener(proxy_support))
-    with closing(request.urlopen(protocol + url)) as response:
-        logger.info('fetching {} ...'.format(url))
-        out = response.read()
-    try:
-        tab = out.decode('utf-8').splitlines()
-    except:
-        logger.error('failed to parse url {}'.format(url))
-    return tab
-
-def init_refseq_from_organism(config, use_cache=True, cache='.refseq-release-{}'):
-    """Parse species annotations by given organism and release number.
-
-    This function set default configuration values for the refseq block.
-    """
-    DB_CONF = config['db'].get('refseq', {})
-    if 'assembly' in DB_CONF:
-        return config
-    release = str(config['db']['refseq']['release'])
-    if use_cache:
-        cache_fn = os.path.join(TMPDIR, cache.format(release))
-        cache_exists = os.path.exists(cache_fn)
-        if cache_exists:
-            logger.info(cache_fn)
-            with open(cache_fn, 'rb') as fh:
-                tab = pickle.load(fh)
-                logger.info("loading refseq release {}...".format(release))
-        else:
-           tab = _get_tab_from_www(config, release)
-           with open(cache_fn, 'wb') as fh:
-               logger.info("caching refseq release {} ...".format(release))
-               pickle.dump(tab, fh)
-    else:
-        tab = _get_tab_from_www(config, release)
-    SP = _parse_species_txt(tab)
-    for sp in SP: 
-        for k, sp_k in [('assembly', 'asm_name'), ('taxid', 'species_taxid'), ('acc_id', '# assembly_accession'), ('organism_name', 'organism_name')]:
-            if k not in DB_CONF:
-                DB_CONF[k] = sp[sp_k]
+    # 3) use all assemblies
+    config['db']['refseq']['multi_assembly'] = True
+    for row in rows:
+        for k in keys:
+            if k in config['db']['refseq']:
+                config['db']['refseq'][k] += ',{}'.format(row[k])
             else:
-                if sp[sp_k] == DB_CONF[k]:
-                    pass
-                else:
-                    DB_CONF[k] = ','.join([DB_CONF[k], sp[sp_k]])
-    DB_CONF = config_val2list(DB_CONF)
-    #if isinstance(DB_CONF['assembly'], str):
-    #    DB_CONF['assembly'] = [DB_CONF['assembly']]
-    config['db']['refseq'] = DB_CONF
+                config['db']['refseq'][k] = str(row[k])
+    for k in keys:
+        vals = set(config['db']['refseq'][k].split(','))
+        if len(vals) == 1:
+            config['db']['refseq'][k] = vals.pop()
+    if len(config['db']['refseq']['ftp_genome'].split(',')) == 1:
+        config['db']['refseq']['multi_assembly'] = False
     return config
-config = init_refseq_from_organism(config)
+    
 
-rule init_refseq_species:
-    params:
-        url = 'ftp.ncbi.nlm.nih.gov/genomes/refseq/assembly_summary_refseq.txt',
-        proxy = config.get('proxy', {}).get('wget', ''),
-    threads:
-        48
-    output:
-        join(REFSEQ_DIR, 'lookup_tables', 'assembly_summary_refseq.txt')
-    shell:
-        'wget {params.proxy} -O- {params.url} > {output}'
+config = init_refseq(config)
+if config['db']['refseq']['multi_assembly']:
+    config['db']['refseq']['assembly'] = 'merged_assemblies'
 
-checkpoint build_refseq_ftp_table:
-    input:
-        rules.init_refseq_species.output
+
+rule refseq_lookuptable:
     output:
-        txt = join(EXT_DIR, 'refseq', 'release-{release}', 'lookup_tables', '{organism}_ftp.txt')
+        txt = 'src/gcf-workflows/gcfdb/tables/refseq-release-{release}.tsv'
     params:
         script = srcdir('scripts/build_refseq_lookup.py'),
-        proxy = config.get('proxy', {}).get('server', {}).get('ftp', 'none')
+        proxy = config.get('proxy', {}).get('server', {}).get('ftp'),
+        kingdoms = 'vertebrate_mammalian,vertebrate_other,plant,archaea,fungi,invertebrate,protozoa,bacteria,viral'
     singularity:
         'docker://' + config['docker']['default']
     shell:
-        'python {params.script} {input} --proxy {params.proxy} --release {wildcards.release} --organism {wildcards.organism} --output {output}'
+        'python {params.script} --proxy {params.proxy} --release {wildcards.release} --kingdoms {params.kingdoms}  --output {output}'
 
-
-def get_refseq_ftp(wildcards, input, sub='genome'):
-    """Returns ftp path of first hit matching organism.
-    """
-    fn = checkpoints.build_refseq_ftp_table.get(**wildcards).output[0]
-    with open(input[0]) as fh:
-        txt = fh.read().splitlines()
-    header = txt.pop(0).split('\t')
-    rows = []
-    for line in txt:
-        els = line.split('\t')
-        row = dict(zip(header, els))
-        if row['species'] in ['homo_sapiens']:
-            row['assembly'] = row['assembly'].split('.')[0]
-        if row['species'] == wildcards.organism:
-            if row['species'] == 'homo_sapiens':
-                base = os.path.split(row['ftp_{}'.format(sub)])[0]
-                base = os.path.join(base, 'GRCh38_major_release_seqs_for_alignment_pipelines')
-                if sub == 'genome' and wildcards.assembly == 'no_alt':
-                    return os.path.join(base, 'GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.gz')
-            if row['assembly'] == wildcards.assembly:
-                return row['ftp_{}'.format(sub)]
-    msg = '{} assembly is not supported for this version ({}) of Refseq. Assembly supported: {}'
-    msg = msg.format(wildcards.assembly, wildcards.release, row['assembly'])
-    logger.warning(msg)
 
 rule refseq_genome:
     input:
-        lambda wildcards: checkpoints.build_refseq_ftp_table.get(**wildcards).output[0]
+        table = srcdir('tables/refseq-release-{release}.tsv')
     params:
         date = datetime.now().strftime("%d-%m-%Y"),
         release = config['db']['refseq']['release'],
         proxy = config.get('proxy', {}).get('wget', ''),
-        url = lambda wildcards, input: get_refseq_ftp(wildcards, input, 'genome')
+        url = config['db']['refseq']['ftp_genome'].split(',')[:2]
     output:
-        join(EXT_DIR, 'refseq', 'release-{release}', '{organism}', '{assembly}', 'fasta', 'genome.fa')
+        genome = join(EXT_DIR, 'refseq', 'release-{release}', '{organism}', '{assembly}', 'fasta', 'genome.fa')
     threads: 
         24
     log:
         join(EXT_DIR, 'refseq', 'release-{release}', '{organism}', '{assembly}', 'logs', 'genome.log')
-    shell: 
-        """
-        wget {params.proxy} -O- {params.url} | gunzip -c > {output}
-        echo 'Refseq DNA,release-{params.release},{params.url},{params.date}' > {log}
-        """
+    run:
+        for url in params.url:
+            shell("wget {params.proxy} -O- {url} | gunzip -c >> {output.genome}")
+            shell("echo 'Refseq DNA,release-{wildcards.release},{params.url},{params.date}' >> {log}")
 
 rule refseq_gff:
     input:
-        lambda wildcards: checkpoints.build_refseq_ftp_table.get(**wildcards).output[0]
+        table = srcdir('tables/refseq-release-{release}.tsv')
     params:
         date = datetime.now().strftime("%d-%m-%Y"),
         release = DB_CONF['release'],
         proxy = config.get('proxy', {}).get('wget', ''),
-        url = lambda wildcards, input: get_refseq_ftp(wildcards, input, 'gff')
+        url = config['db']['refseq']['ftp_gff'].split(',')[:2]
     output:
-        join(EXT_DIR, 'refseq', 'release-{release}', '{organism}', '{assembly}', 'anno', 'genes.gff')
+        join(EXT_DIR, 'refseq', 'release-{release}', '{organism}', '{assembly}', 'anno', '{organism}.{assembly}.{release}.gff')
     threads: 
         24
     log:
         join(EXT_DIR, 'refseq', 'release-{release}', '{organism}', '{assembly}', 'logs', 'gff.log')
-    shell: 
-        """
-        wget {params.proxy} -O- {params.url} | gunzip -c | sed 's/[[:blank:]]*$//'  > {output}
-        echo 'Refseq GFF,release-{params.release},{params.url},{params.date}' > {log}
-        """
-
+    run: 
+        for url in params.url:
+            shell("wget {params.proxy} -O- {params.url} | gunzip -c  | grep -v '^#' >> {output}")
+            shell("echo 'Refseq GFF,release-{params.release},{params.url},{params.date}' > {log}")
+            
 rule refseq_gtf:
     input:
-        lambda wildcards: checkpoints.build_refseq_ftp_table.get(**wildcards).output[0]
+        table = srcdir('tables/refseq-release-{release}.tsv')
     params:
         date = datetime.now().strftime("%d-%m-%Y"),
         release = DB_CONF['release'],
         proxy = config.get('proxy', {}).get('wget', ''),
-        url = lambda wildcards, input: get_refseq_ftp(wildcards, input, 'gtf')
+        url = config['db']['refseq']['ftp_gtf'].split(',')[:2]
     output:
-        join(EXT_DIR, 'refseq', 'release-{release}', '{organism}', '{assembly}', 'anno', 'genes.gtf')
+        join(EXT_DIR, 'refseq', 'release-{release}', '{organism}', '{assembly}', 'anno', '{organism}.{assembly}.{release}.gtf')
     threads: 
         24
     log:
         join(EXT_DIR, 'refseq', 'release-{release}', '{organism}', '{assembly}', 'logs', 'gtf.log')
-    shell: 
-        """
-
-        wget {params.proxy} -O- {params.url} | gunzip -c  | sed 's/[[:blank:]]*$//' > {output}
-        echo 'Refseq GTF,release-{params.release},{params.url},{params.date}' > {log}
-        """
-
-rule refseq_merged_assemblies:
-    input:
-        expand(rules.refseq_genome.output, release=config['db']['refseq']['release'], organism=config['organism'], assembly=config['db']['refseq']['assembly'])
-    output:
-        join(REFSEQ_DIR, 'merged', 'fasta', 'genome.fna')
-    threads: 
-        24
-    shell:
-        'cat {input} > {output}'
+    run: 
+        for url in params.url:
+            shell("wget {params.proxy} -O- {params.url} | gunzip -c  | grep -v '^#' >> {output}")
+            shell("echo 'Refseq GTF,release-{params.release},{params.url},{params.date}' > {log}")
     
+rule refseq_symlink_genes:
+    input:
+        join(EXT_DIR, 'refseq', 'release-{release}', '{organism}', '{assembly}', 'anno', '{organism}.{assembly}.{release}.{ext}')
+    output:
+        join(EXT_DIR, 'refseq', 'release-{release}', '{organism}', '{assembly}', 'anno', 'genes.{ext}')
+    wildcard_constraints:
+        ext = 'g.+f$'
+    shell:
+        'ln -sr {input} {output}'
