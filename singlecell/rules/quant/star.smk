@@ -4,6 +4,50 @@ include: 'umitools.smk'
 
 STAR_INTERIM = join(QUANT_INTERIM, 'star')
 
+rule txgenomics_whitelist_v1:
+    params:
+        url = 'https://gcf-winecellar.medisin.ntnu.no/10xgenomics/whitelists/737K-april-2014_rc.txt',
+        date = datetime.now().strftime("%d-%m-%Y"),
+        proxy = config.get('proxy', {}).get('wget', ''),
+    output:
+        join(EXT_DIR, '10xgenomics', '737K-april-2014_rc.txt')
+    log:
+        join(EXT_DIR, '10xgenomics', 'logs', '737K-april-2014_rc.log')
+    shell:
+        """
+        wget {params.proxy} -O {output} {params.url}
+        echo "10xGenomics whitelist v1,NA,{params.url},{params.date}" > {log}
+        """
+
+rule txgenomics_whitelist_v2:
+    params:
+        url = 'https://gcf-winecellar.medisin.ntnu.no/10xgenomics/whitelists/737K-august-2016.txt',
+        date = datetime.now().strftime("%d-%m-%Y"),
+        proxy = config.get('proxy', {}).get('wget', '')
+    output:
+        join(EXT_DIR, '10xgenomics', '737K-august-2016.txt.txt')
+    log:
+        join(EXT_DIR, '10xgenomics', 'logs', '737K-august-2016.txt.log')
+    shell:
+        """
+        wget {params.proxy} -O {output} {params.url}
+        echo "10xGenomics whitelist v2,NA,{params.url},{params.date}" > {log}
+        """
+
+rule txgenomics_whitelist_v3:
+    params:
+        url = 'https://gcf-winecellar.medisin.ntnu.no/10xgenomics/whitelists/3M-february-2018.txt',
+        date = datetime.now().strftime("%d-%m-%Y"),
+        proxy = config.get('proxy', {}).get('wget', '')
+    output:
+        join(EXT_DIR, '10xgenomics', '3M-february-2018.txt')
+    log:
+        join(EXT_DIR, '10xgenomics', 'logs', '3M-february-2018.txt.log')
+    shell:
+        """
+        wget {params.proxy} -O {output} {params.url}
+        echo "10xGenomics whitelist v3,NA,{params.url},{params.date}" > {log}
+        """
 
 rule starsolo_genome_index:
     input: 
@@ -93,7 +137,6 @@ rule starsolo_quant:
         umi_cell = join(STAR_INTERIM, '{sample}', 'Solo.out', 'Gene', 'UMIperCellSorted.txt')
     shell:
         'STAR --soloType CB_UMI_Simple '
-        ' --readFilesCommand zcat '
         '--soloCBwhitelist {input.whitelist} '
         '--readFilesIn {params.R2} {params.R1} '
         '--genomeDir {params.genome_dir} '

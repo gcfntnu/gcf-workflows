@@ -95,8 +95,6 @@ def get_ensembl_url(wildcards, tag='dna'):
         
 
 rule ensembl_genome:
-    input:
-        table = srcdir('tables/ensembl-{}.gz'.format(ENS_RELEASE))
     params:
         date = datetime.now().strftime("%d-%m-%Y"),
         proxy = config.get('proxy', {}).get('wget', ''),
@@ -114,8 +112,6 @@ rule ensembl_genome:
         """
 
 rule ensembl_noncoding:
-    input:
-        table = srcdir('tables/ensembl-{}.gz'.format(ENS_RELEASE))
     params:
         date = datetime.now().strftime("%d-%m-%Y"),
         proxy = config.get('proxy', {}).get('wget', ''),
@@ -133,8 +129,6 @@ rule ensembl_noncoding:
         """
 
 rule ensembl_gff:
-    input:
-        table = srcdir('tables/ensembl-{}.gz'.format(ENS_RELEASE))
     params:
         date = datetime.now().strftime("%d-%m-%Y"),
         proxy = config.get('proxy', {}).get('wget', ''),
@@ -152,8 +146,6 @@ rule ensembl_gff:
         """
 
 rule ensembl_gtf:
-    input:
-        table = srcdir('tables/ensembl-{}.gz'.format(ENS_RELEASE))
     params:
         date = datetime.now().strftime("%d-%m-%Y"),
         proxy = config.get('proxy', {}).get('wget', ''),
