@@ -190,7 +190,8 @@ rule scanpy_starsolo:
 rule scanpy_aggr_starsolo:
     input:
         input = expand(rules.starsolo_quant.output.raw_mtx, sample=SAMPLES),
-        mem_clean = rules.starsolo_clean_shmem.output
+        mem_clean = rules.starsolo_clean_shmem.output,
+        #feature_info = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
         script = srcdir('scripts/convert_scanpy.py'),
         norm = config['quant']['aggregate']['norm']
@@ -233,15 +234,15 @@ rule scanpy_pp_ipynb:
     input:
         rules.scanpy_aggr_starsolo.output
     output:
-        join(QUANT_INTERIM, 'aggregate', 'star', 'notebooks', 'all_samples_pp.txt')
+        preprocessed = join(QUANT_INTERIM, 'aggregate', 'star', 'scanpy', '{aggr_id}_preprocessed.h5ad'),
     log:
-        notebook = join(QUANT_INTERIM, 'aggregate', 'star', 'notebooks', 'all_samples_pp.ipynb')
+        notebook = join(QUANT_INTERIM, 'aggregate', 'star', 'notebooks', '{aggr_id}_pp.ipynb')
     threads:
         24
     singularity:
         'docker://' + config['docker']['jupyter-scanpy']
     notebook:
-        'scripts/single_cell_pp.py.ipynb'
+        'scripts/star_preprocess.py.ipynb'
 
 
 rule scanpy_pp_ipynb_html:
