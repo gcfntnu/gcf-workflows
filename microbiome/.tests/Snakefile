@@ -5,6 +5,5 @@ configfile:
 
 include:
     '../microbiome.smk'
-include:
-    '../rules/bfq.smk'
+
     

@@ -6,6 +6,5 @@ configfile:
 
 include:
     '../default.smk'
-include:
-    '../rules/bfq.smk'
+
 

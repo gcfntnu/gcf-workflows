@@ -35,6 +35,8 @@ while FASTQ_DIR.endswith(os.path.sep):
 makedirs(FASTQ_DIR, exist_ok=True)
 GCFDB_DIR = srcdir("gcfdb")
 
+ORG = config['organism'].lower().strip().replace(' ', '_')
+config['organism'] = ORG
 
 def update_config2(config, extra_config):
     """Recursively update dictionary config with overwrite_config.
