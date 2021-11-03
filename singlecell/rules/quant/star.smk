@@ -249,7 +249,7 @@ rule scanpy_pp_ipynb_html:
     input:
         rules.scanpy_pp_ipynb.log
     output:
-        join(QUANT_INTERIM, 'aggregate', 'star', 'notebooks', 'all_samples_pp.html')
+        join(QUANT_INTERIM, 'aggregate', 'star', 'notebooks', '{aggr_id}_pp.html')
     singularity:
         'docker://' + config['docker']['jupyter-scanpy']
     threads:
