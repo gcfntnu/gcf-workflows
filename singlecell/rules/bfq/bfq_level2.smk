@@ -2,7 +2,8 @@
 if config['quant']['method'] == 'cellranger':
     rule bfq_level2_exprs_cellranger:
         input:
-            expand(join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', '{aggr_id}_aggr.h5ad'), aggr_id=AGGR_IDS),
+            #expand(join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', '{aggr_id}_aggr.h5ad'), aggr_id=AGGR_IDS),
+            expand(rules.velocyto_merge_aggr.output, quant=['cellranger'], aggr_id=AGGR_IDS),
             expand(join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', '{aggr_id}_preprocessed.h5ad'), aggr_id=AGGR_IDS),
             expand(join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}', 'outs', 'count', 'filtered_feature_bc_matrix', 'matrix.mtx.gz'), aggr_id=AGGR_IDS),
             expand( join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}', 'outs', 'count', 'filtered_feature_bc_matrix', 'features.tsv.gz'), aggr_id=AGGR_IDS),
@@ -68,7 +69,8 @@ if config['quant']['method'] == 'cellranger':
 else:
     rule bfq_level2_exprs_star:
         input:
-            expand(rules.velocyto_merge_aggr.output, quant=['star'], aggr_id=AGGR_IDS),
+            #expand(rules.velocyto_merge_aggr.output, quant=['star'], aggr_id=AGGR_IDS),
+            expand(join(QUANT_INTERIM, 'aggregate', 'star', 'scanpy', '{aggr_id}_aggr.h5ad'), aggr_id=AGGR_IDS),
             expand(join(QUANT_INTERIM, 'aggregate', 'star', 'scanpy', '{aggr_id}_preprocessed.h5ad'), aggr_id=AGGR_IDS),
             expand(rules.velocyto_merge.output, quant=['star'], sample=SAMPLES),
             expand(rules.starsolo_quant.output.mtx, sample=SAMPLES),
