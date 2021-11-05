@@ -12,7 +12,7 @@ rule ucsc_gencode_rmsk:
     output:
         gtf = join(EXT_DIR, 'ucsc', ORG, 'anno', 'rmsk_gencode.gtf')
     params:
-        url = 'https://gcf-winecellar.medisin.ntnu.no/ucsc/{}/genes/rmsk_gencode.gtf'.format(ORG),
+        url = join(config['winecellar']['url'], 'ucsc', ORG, 'anno', 'rmsk_gencode.gtf'),
         proxy = config.get('proxy', {}).get('wget', ''),
         date = datetime.now().strftime("%d-%m-%Y")
     log:
@@ -36,7 +36,7 @@ rule ucsc_gencode_trna:
     output:
         bed = join(EXT_DIR, 'ucsc', ORG, 'anno', 'trna_gencode.bed')
     params:
-        url = 'https://gcf-winecellar.medisin.ntnu.no/ucsc/{}/genes/trna_gencode.bed'.format(ORG),
+        url = join(config['winecellar']['url'], 'ucsc', ORG, 'anno', 'trna_gencode.bed'),
         proxy = config.get('proxy', {}).get('wget', ''),
         date = datetime.now().strftime("%d-%m-%Y")
     log:

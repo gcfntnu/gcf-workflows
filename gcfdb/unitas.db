@@ -42,11 +42,12 @@ rule unitas_seqmap:
         join(EXT_DIR, 'unitas', 'seqmap.exe'),
     params:
         refdir = join(EXT_DIR, 'unitas'),
+        url = join(config['winecellar']['url'], 'seqmap', 'seqmap.exe')
     shell:
         """
         mkdir -p {params.refdir}
         cd {params.refdir}
-        wget https://gcf-winecellar.medisin.ntnu.no/seqmap/seqmap.exe
+        wget {params.url}
         chmod a+x seqmap.exe
         """
         
@@ -59,7 +60,7 @@ rule unitas_db:
     params:
         refdir = join(EXT_DIR, 'unitas', config['db']['unitas']['release']),
         script = srcdir('scripts/format_unitas_dblog.py'),
-        url = "https://gcf-winecellar.medisin.ntnu.no/unitas/{release}/UNITAS_refdump_{org}.tar.gz".format(release = config['db']['unitas']['release'], org = ORG),
+        url = join(config['winecellar']['url'], 'unitas', config['db']['unitas']['release'], 'UNITAS_refdump_{org}.tar.gz'.format(ORG))
         versions_info = join(EXT_DIR, 'unitas', config['db']['unitas']['release'],'UNITAS_refdump_{}'.format(ORG),'db_versions.info')
     log:
         join(EXT_DIR, 'unitas', config['db']['unitas']['release'], 'UNITAS_refdump_{}'.format(ORG), 'logs', 'unitas.log')

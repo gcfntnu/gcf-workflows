@@ -22,7 +22,7 @@ rule illumina_phix:
     
 rule illumina_adaptors:
     params:
-        url = 'https://gcf-winecellar.medisin.ntnu.no/illumina/ILMN_sequences.fa',
+        url = join(config['winecellar']['url'], 'illumina', 'ILMN_sequences.fa'),
         date = datetime.now().strftime("%d-%m-%Y"),
         proxy = config.get('proxy', {}).get('wget', ''),
     output:
