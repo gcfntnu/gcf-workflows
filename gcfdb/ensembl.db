@@ -22,46 +22,55 @@ if '__' in config['organism']:
 else:
     mulit_species = False
 
-
-def init_ensembl(config):
-    """Set assembly from organism
-    
-    """
+def ensembl_lookup(fn, organism=None, assembly=None):
     import gzip
-    species_match = False
+    out = []
+    organism = organism or config['organism']
     release = config['db']['ensembl']['release']
-    fn = srcdir('tables/ensembl-{}.gz'.format(release))
     if not os.path.exists(fn):
         logger.info('ensembl lookupfile for release {} is missing!'.format(release))
-        return config
+        return None
     header = ['species', 'assembly', 'division']
-
     for row in gzip.open(fn).read().decode('utf-8').splitlines():
         els = dict(zip(header, row.split('\t')))
-        if els['species'].lower() == config['organism'].lower():
-            species_match = True
+        if els['species'] == organism:
             if config['organism'] in ['homo_sapiens', 'mus_musculus']:
                 els['assembly'] = els['assembly'].split('.')[0]
-            for k in header:
-                config['db']['ensembl'][k] = els[k]
-    if not species_match:
+            out.append(els)
+    if len(out) == 0:
         logger.error('species `{}` not found in ensembl lookup file'.format(config['organism']))
+        return None
+    if len(out) > 1:
+        logger.error('multiple hits in ensembl lookup file')
+        raise ValueError
+    return out[0]
+        
+def init_ensembl(els):
+    """Set assembly and division from organism
+    
+    """
+    if els is None:
+        return config
+    for k in ['assembly', 'division']:
+        config['db']['ensembl'][k] = els[k]
+    
     return config
 
-config = init_ensembl(config)
+
+ENS_DB = srcdir('tables/ensembl-{}.gz'.format(config['db']['ensembl']['release']))
+config = init_ensembl(ensembl_lookup(ENS_DB))
 if config['db'].get('assembly') is None: # no hits in lookupfile
     config['db']['reference_db'] = 'custom_reference'
     DB_CONF = {}
 else:
     DB_CONF = config['db']['ensembl']
 
-
 def get_ensembl_url(wildcards, tag='dna'):
     PROTOCOL = 'http://'
     if wildcards.release != str(config['db']['ensembl']['release']):
         logger.error('ensembl release mismatch configuration. wildcards vs config value')
         raise ValueError
-    DIVISION = DB_CONF.get('division', '')
+    DIVISION = ensembl_lookup(ENS_DB, organism=wildcards.organism)['division']
     if DIVISION == 'vertebrates':
         url = 'ftp.ensembl.org/pub/release-{}/{}/{}'
         RELEASE = wildcards.release
