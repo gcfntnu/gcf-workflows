@@ -1,0 +1,67 @@
+#-*- mode:snakemake -*-
+"""Custom reference genomes
+"""
+CUSTOM_URL = join(config['winecellar']['url'], 'custom_reference'))
+
+rule custom_genome:
+    params:
+        date = datetime.now().strftime("%d-%m-%Y"),
+        url = join(CUSTOM_URL, '{organism}', '{assembly}', 'fasta', 'genome.fa')
+        log = join(CUSTOM_URL, '{organism}', '{assembly}', 'logs', 'genome.log')
+    output:
+        genome = join(EXT_DIR, 'custom_reference', '{organism}', '{assembly}', 'fasta', 'genome.fa')
+    threads: 
+        24
+    log:
+        join(EXT_DIR, 'custom_reference', '{organism}', '{assembly}', 'logs', 'genome.log')
+    shell:
+        """
+        wget -O- {params.url} > {output.genome}
+        wget -O- {params.log} > {log}
+        """
+
+rule custom_gff:
+    params:
+        date = datetime.now().strftime("%d-%m-%Y"),
+        url = join(CUSTOM_URL, '{organism}', '{assembly}', 'anno', '{organism}.{assembly}.{release}.gff')
+        log = join(CUSTOM_URL, '{organism}', '{assembly}', 'logs', 'gff.log')
+    output:
+        gff = join(EXT_DIR, 'custom_reference', '{organism}', '{assembly}', 'anno', '{organism}.{assembly}.{release}.gff')
+    threads: 
+        24
+    log:
+        join(EXT_DIR, 'custom_reference', '{organism}', '{assembly}', 'logs', 'gff.log')
+    shell:
+        """
+        wget -O- {params.url} > {output.gff}
+        wget -O- {params.log} > {log}
+        """
+
+rule custom_gtf:
+    params:
+        date = datetime.now().strftime("%d-%m-%Y"),
+        url = join(CUSTOM_URL, '{organism}', '{assembly}', 'anno', '{organism}.{assembly}.{release}.gtf')
+        log = join(CUSTOM_URL, '{organism}', '{assembly}', 'logs', 'gtf.log')
+    output:
+        gtf = join(EXT_DIR, 'custom_reference', '{organism}', '{assembly}', 'anno', '{organism}.{assembly}.{release}.gtf')
+    threads: 
+        24
+    log:
+        join(EXT_DIR, 'custom_reference', '{organism}', '{assembly}', 'logs', 'gtf.log')
+    shell:
+        """
+        wget -O- {params.url} > {output.gtf}
+        wget -O- {params.log} > {log}
+        """
+
+rule custom_symlink_genes:
+    input:
+        join(EXT_DIR, 'custom_reference', '{organism}', '{assembly}', 'anno', '{organism}.{assembly}.{release}.{ext}')
+    output:
+        join(EXT_DIR, 'custom_reference', '{organism}', '{assembly}', 'anno', 'genes.{ext}')
+    wildcard_constraints:
+        ext = 'g.+f$'
+    shell:
+        'ln -sr {input} {output}'
+
+    

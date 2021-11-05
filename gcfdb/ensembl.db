@@ -49,7 +49,11 @@ def init_ensembl(config):
     return config
 
 config = init_ensembl(config)
-DB_CONF = config['db']['ensembl']
+if config['db'].get('assembly') is None: # no hits in lookupfile
+    config['db']['reference_db'] = 'custom_reference'
+    DB_CONF = {}
+else:
+    DB_CONF = config['db']['ensembl']
 
 
 def get_ensembl_url(wildcards, tag='dna'):
