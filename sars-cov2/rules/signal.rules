@@ -39,7 +39,7 @@ rule signal_db:
         composite_fasta = join(EXT_DIR, 'signal', REFERENCE, 'composite_human_viral_reference.fna'),
         kraken_db = join(EXT_DIR, 'signal', REFERENCE, 'Kraken2', 'db', 'taxo.k2d')
     params:
-        url =  join(config['winecellar']['url'],'signal', '{}.tar.gz'.format(REFERENCE)),
+        url =  join(config.get('winecellar', {}).get('url', ''),'signal', '{}.tar.gz'.format(REFERENCE)),
         output_dir = join(EXT_DIR, 'signal', REFERENCE)
     shell:
         'wget {params.url} -O- | tar -xz -C {params.output_dir} '
