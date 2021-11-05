@@ -60,7 +60,7 @@ rule unitas_db:
     params:
         refdir = join(EXT_DIR, 'unitas', config['db']['unitas']['release']),
         script = srcdir('scripts/format_unitas_dblog.py'),
-        url = join(config['winecellar']['url'], 'unitas', config['db']['unitas']['release'], 'UNITAS_refdump_{org}.tar.gz'.format(ORG))
+        url = join(config['winecellar']['url'], 'unitas', config['db']['unitas']['release'], 'UNITAS_refdump_{}.tar.gz'.format(ORG)),
         versions_info = join(EXT_DIR, 'unitas', config['db']['unitas']['release'],'UNITAS_refdump_{}'.format(ORG),'db_versions.info')
     log:
         join(EXT_DIR, 'unitas', config['db']['unitas']['release'], 'UNITAS_refdump_{}'.format(ORG), 'logs', 'unitas.log')
