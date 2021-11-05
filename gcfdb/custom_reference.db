@@ -1,7 +1,7 @@
 #-*- mode:snakemake -*-
 """Custom reference genomes
 """
-CUSTOM_URL = join(config['winecellar']['url'], 'custom_reference'))
+CUSTOM_URL = join(config.get('winecellar', {}).get('url', ''), 'custom_reference'))
 
 rule custom_genome:
     params:
