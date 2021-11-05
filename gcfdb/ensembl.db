@@ -59,8 +59,11 @@ def init_ensembl(els):
 
 ENS_DB = srcdir('tables/ensembl-{}.gz'.format(config['db']['ensembl']['release']))
 config = init_ensembl(ensembl_lookup(ENS_DB))
-if config['db'].get('assembly') is None: # no hits in lookupfile
-    config['db']['reference_db'] = 'custom_reference'
+
+if config['db']['ensembl'].get('assembly') is None:# no hits in lookupfile
+    ref = config['db'].get('reference_db')
+    if ref is None or ref == 'ensembl': 
+        config['db']['reference_db'] = 'custom_reference'
     DB_CONF = {}
 else:
     DB_CONF = config['db']['ensembl']
