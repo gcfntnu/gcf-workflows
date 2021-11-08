@@ -13,6 +13,7 @@ import pandas as pd
 import numpy as np
 import anndata
 import scvelo as sv
+from scipy import sparse
 
 GENOME = {'homo_sapiens': 'GRCh38',
           'human': 'GRCh38',
@@ -213,6 +214,33 @@ def read_velocyto_loom(fn, args, **kw):
 def read_star(fn, args, **kw):
     mtx_dir = os.path.dirname(fn)
     data = sc.read(fn).T
+    velocyto_dir = mtx_dir.replace("Gene/raw", "Velocyto/raw")
+    if not os.path.exists(velocyto_dir):
+        warnings.warn("Velocyto directory not found - Proceeding without velocity data")
+    else:
+        # Load the 3 matrices containing Spliced, Unspliced and Ambigous reads
+        mtxU = np.loadtxt(os.path.join(velocyto_dir, 'unspliced.mtx'), skiprows=3, delimiter=' ')
+        mtxS = np.loadtxt(os.path.join(velocyto_dir, 'spliced.mtx'), skiprows=3, delimiter=' ')
+        mtxA = np.loadtxt(os.path.join(velocyto_dir, 'ambiguous.mtx'), skiprows=3, delimiter=' ')
+
+        # Extract sparse matrix shape informations from the third row
+        shapeU = np.loadtxt(os.path.join(velocyto_dir, 'unspliced.mtx'), skiprows=2, max_rows = 1 ,delimiter=' ')[0:2].astype(int)
+        shapeS = np.loadtxt(os.path.join(velocyto_dir, 'spliced.mtx'), skiprows=2, max_rows = 1 ,delimiter=' ')[0:2].astype(int)
+        shapeA = np.loadtxt(os.path.join(velocyto_dir, 'ambiguous.mtx'), skiprows=2, max_rows = 1 ,delimiter=' ')[0:2].astype(int)
+
+        # Read the sparse matrix with csr_matrix((data, (row_ind, col_ind)), shape=(M, N))
+        # Subract -1 to rows and cols index because csr_matrix expects a 0 based index
+        # Traspose counts matrix to have Cells as rows and Genes as cols as expected by AnnData objects
+
+        spliced = sparse.csr_matrix((mtxS[:,2], (mtxS[:,0]-1, mtxS[:,1]-1)), shape = shapeS).transpose()
+        unspliced = sparse.csr_matrix((mtxU[:,2], (mtxU[:,0]-1, mtxU[:,1]-1)), shape = shapeU).transpose()
+        ambiguous = sparse.csr_matrix((mtxA[:,2], (mtxA[:,0]-1, mtxA[:,1]-1)), shape = shapeA).transpose()
+
+        data.layers = {
+                'spliced': spliced,
+                'unspliced': unspliced,
+                'ambiguous': ambiguous,
+                }
     genes = pd.read_csv(os.path.join(mtx_dir, 'features.tsv'), header=None, sep='\t')
     barcodes = pd.read_csv(os.path.join(mtx_dir, 'barcodes.tsv'), header=None)[0].values
     data.var_names = genes[0].values
@@ -294,10 +322,13 @@ if __name__ == '__main__':
         
     if args.feature_info is not None:
         feature_info = pd.read_csv(args.feature_info, sep='\t')
+        if 'gene_id' in feature_info.columns:
+            feature_info.rename(columns={"gene_id": "gene_ids"}, inplace=True)
         if not 'gene_ids' in feature_info.columns:
             raise ValueError('feature_info needs a column called `gene_ids`')
         
         feature_info.index = feature_info['gene_ids']
+        feature_info.index.name = "index"
     else:
         feature_info = None
     
@@ -350,8 +381,18 @@ if __name__ == '__main__':
         keep = col_sum > 0
         data = data[:,keep]
         
-    if feature_info:
-        data.var = data.var.merge(feature_info, how='left', on='gene_ids', copy=False)
+    if isinstance(feature_info, pd.DataFrame):
+        print(data.var.head())
+        print(feature_info.head())
+        """
+        #data.var = data.var.join(feature_info, how='inner')
+        data.var = pd.merge(data.var, feature_info, how='left', left_index=True, right_index=True)
+        print(data.var.head())
+        """
+        print(data.var.index)
+        test = feature_info[feature_info.index.isin(list(data.var.index))].copy()
+        print(len(test))
+        data.var = pd.merge(data.var, subsampled_feature_info, how='left', left_index=True, right_index=True, copy=True)
         
     if 'gene_symbols' in data.var.columns:
         mito_genes = data.var.gene_symbols.str.lower().str.startswith('mt-')

@@ -18,53 +18,6 @@ DB_CONF = config['db'].get('10xgenomics', {})
 TX_RELEASE = DB_CONF.get('release', '2020-A')
 TX_ASSEMBLY = config['db']['assembly'] = DB_CONF['assembly'] = _ASSEMBLY.get(ORG, '')
 
-
-
-rule txgenomics_whitelist_v1:
-    params:
-        url = join(config.get('winecellar', {}).get('url', ''), '10xgenomics', 'whitelists', '737K-april-2014_rc.txt'),
-        date = datetime.now().strftime("%d-%m-%Y"),
-        proxy = config.get('proxy', {}).get('wget', ''),
-    output:
-        join(EXT_DIR, '10xgenomics', '737K-april-2014_rc.txt')
-    log:
-        join(EXT_DIR, '10xgenomics', 'logs', '737K-april-2014_rc.log')
-    shell:
-        """
-        wget {params.proxy} -O {output} {params.url}
-        echo "10xGenomics whitelist v1,NA,{params.url},{params.date}" > {log}
-        """
-        
-rule txgenomics_whitelist_v2:
-    params:
-        url = join(config.get('winecellar', {}).get('url', ''), '10xgenomics', 'whitelists', '737K-august-2016.txt'),
-        date = datetime.now().strftime("%d-%m-%Y"),
-        proxy = config.get('proxy', {}).get('wget', '')
-    output:
-        join(EXT_DIR, '10xgenomics', '737K-august-2016.txt.txt')
-    log:
-        join(EXT_DIR, '10xgenomics', 'logs', '737K-august-2016.txt.log')
-    shell:
-        """
-        wget {params.proxy} -O {output} {params.url}
-        echo "10xGenomics whitelist v2,NA,{params.url},{params.date}" > {log}
-        """
-        
-rule txgenomics_whitelist_v3:
-    params:
-        url = join(config.get('winecellar', {}).get('url', ''), '10xgenomics', 'whitelists', '3M-february-2018.txt'),
-        date = datetime.now().strftime("%d-%m-%Y"),
-        proxy = config.get('proxy', {}).get('wget', '')
-    output:
-        join(EXT_DIR, '10xgenomics', '3M-february-2018.txt')
-    log:
-        join(EXT_DIR, '10xgenomics', 'logs', '3M-february-2018.txt.log')
-    shell:
-        """
-        wget {params.proxy} -O {output} {params.url}
-        echo "10xGenomics whitelist v3,NA,{params.url},{params.date}" > {log}
-        """
-
 def get_10x_url(wildcards):
     base = 'https://cf.10xgenomics.com/supp/cell-exp'
     if wildcards.organism == 'homo_sapiens':
