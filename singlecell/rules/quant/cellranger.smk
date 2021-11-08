@@ -283,7 +283,8 @@ rule scanpy_cellranger:
         
 rule cellranger_scanpy_pp_ipynb:
     input:
-        rules.scanpy_aggr_cellranger.output
+        #rules.scanpy_aggr_cellranger.output
+        join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}_merge.h5ad'),
     output:
         preprocessed = join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', '{aggr_id}_preprocessed.h5ad'),
     log:
