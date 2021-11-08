@@ -18,7 +18,6 @@ DB_CONF = config['db'].get('10xgenomics', {})
 TX_RELEASE = DB_CONF.get('release', '2020-A')
 TX_ASSEMBLY = config['db']['assembly'] = DB_CONF['assembly'] = _ASSEMBLY.get(ORG, '')
 
-
 def get_10x_url(wildcards):
     base = 'https://cf.10xgenomics.com/supp/cell-exp'
     if wildcards.organism == 'homo_sapiens':
