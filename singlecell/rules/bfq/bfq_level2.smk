@@ -2,7 +2,8 @@
 if config['quant']['method'] == 'cellranger':
     rule bfq_level2_exprs_cellranger:
         input:
-            expand(join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', '{aggr_id}_aggr.h5ad'), aggr_id=AGGR_IDS),
+            #expand(join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', '{aggr_id}_aggr.h5ad'), aggr_id=AGGR_IDS),
+            expand(rules.velocyto_merge_aggr.output, quant=['cellranger'], aggr_id=AGGR_IDS),
             expand(join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', '{aggr_id}_preprocessed.h5ad'), aggr_id=AGGR_IDS),
             expand(join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}', 'outs', 'count', 'filtered_feature_bc_matrix', 'matrix.mtx.gz'), aggr_id=AGGR_IDS),
             expand( join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}', 'outs', 'count', 'filtered_feature_bc_matrix', 'features.tsv.gz'), aggr_id=AGGR_IDS),
@@ -68,13 +69,16 @@ if config['quant']['method'] == 'cellranger':
 else:
     rule bfq_level2_exprs_star:
         input:
-            expand(rules.velocyto_merge_aggr.output, quant=['star'], aggr_id=AGGR_IDS),
+            #expand(rules.velocyto_merge_aggr.output, quant=['star'], aggr_id=AGGR_IDS),
+            expand(join(QUANT_INTERIM, 'aggregate', 'star', 'scanpy', '{aggr_id}_aggr.h5ad'), aggr_id=AGGR_IDS),
+            expand(join(QUANT_INTERIM, 'aggregate', 'star', 'scanpy', '{aggr_id}_preprocessed.h5ad'), aggr_id=AGGR_IDS),
             expand(rules.velocyto_merge.output, quant=['star'], sample=SAMPLES),
             expand(rules.starsolo_quant.output.mtx, sample=SAMPLES),
             expand(rules.starsolo_quant.output.genes, sample=SAMPLES),
             expand(rules.starsolo_quant.output.barcodes, sample=SAMPLES),
         output:
             expand(join(BFQ_INTERIM, 'exprs', 'scanpy', '{aggr_id}_adata.h5ad'), aggr_id=AGGR_IDS),
+            expand(join(BFQ_INTERIM, 'exprs', 'scanpy', '{aggr_id}_preprocessed.h5ad'), aggr_id=AGGR_IDS),
             expand(join(BFQ_INTERIM, 'exprs', 'scanpy', '{sample}_adata.h5ad'), sample=SAMPLES),
             expand(join(BFQ_INTERIM, 'exprs', 'mtx', '{sample}', 'matrix.mtx'), sample=SAMPLES),
             expand(join(BFQ_INTERIM, 'exprs', 'mtx', '{sample}', 'features.tsv'), sample=SAMPLES),
@@ -98,6 +102,17 @@ else:
             expand(join(BFQ_INTERIM, 'logs', '{sample}_Log.final.out'), sample=SAMPLES),
             expand(join(BFQ_INTERIM, 'logs', '{sample}_UMIperCellSorted.txt'), sample=SAMPLES),
             expand(join(BFQ_INTERIM, 'logs', '{sample}.rnaseq.metrics'), sample=SAMPLES)
+        run:
+            for src, dst  in zip(input, output):
+                shell('ln -sr {src} {dst}')
+    
+    rule bfq_level2_notebooks_star:
+        input:
+            expand(join(QUANT_INTERIM, 'aggregate', 'star', 'notebooks', '{aggr_id}_pp.html'), aggr_id=AGGR_IDS),
+            expand(join(QUANT_INTERIM, 'aggregate', 'star', 'notebooks', '{aggr_id}_pp.ipynb'), aggr_id=AGGR_IDS),
+        output:
+            expand(join(BFQ_INTERIM, 'notebooks', '{aggr_id}_preprocess.html'), aggr_id=AGGR_IDS),
+            expand(join(BFQ_INTERIM, 'notebooks', '{aggr_id}_preprocess.ipynb'), aggr_id=AGGR_IDS),
         run:
             for src, dst  in zip(input, output):
                 shell('ln -sr {src} {dst}')
@@ -138,10 +153,10 @@ rule bfq_level2_umap_yaml:
         'python {params.script} {input} -o {output}'
 
 if config['quant']['method'] == 'star':
-    BFQ_LEVEL2_ALL = [rules.bfq_qc_common.output,
-                      rules.bfq_level2_exprs_star.output,
+    BFQ_LEVEL2_ALL = [rules.bfq_level2_exprs_star.output,
                       rules.bfq_level2_logs_star.output,
                       rules.bfq_level2_aligned.output,
+                      rules.bfq_level2_notebooks_star.output,
                       join(BFQ_INTERIM, 'figs', 'umap_all_samples_mqc.png')]
 else:
     BFQ_LEVEL2_ALL = [rules.bfq_level2_exprs_cellranger.output,
