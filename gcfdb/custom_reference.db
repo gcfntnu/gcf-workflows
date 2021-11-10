@@ -1,13 +1,13 @@
 #-*- mode:snakemake -*-
 """Custom reference genomes
 """
-CUSTOM_URL = join(config.get('winecellar', {}).get('url', ''), 'custom_reference'))
+CUSTOM_URL = join(config.get('winecellar', {}).get('url', ''), 'custom_reference')
 
 rule custom_genome:
     params:
         date = datetime.now().strftime("%d-%m-%Y"),
-        url = join(CUSTOM_URL, '{organism}', '{assembly}', 'fasta', 'genome.fa')
-        log = join(CUSTOM_URL, '{organism}', '{assembly}', 'logs', 'genome.log')
+        url = join(CUSTOM_URL, '{organism}', '{assembly}', 'fasta', 'genome.fa'),
+        log = join(CUSTOM_URL, '{organism}', '{assembly}', 'logs', 'genome.log'),
     output:
         genome = join(EXT_DIR, 'custom_reference', '{organism}', '{assembly}', 'fasta', 'genome.fa')
     threads: 
@@ -23,10 +23,10 @@ rule custom_genome:
 rule custom_gff:
     params:
         date = datetime.now().strftime("%d-%m-%Y"),
-        url = join(CUSTOM_URL, '{organism}', '{assembly}', 'anno', '{organism}.{assembly}.{release}.gff')
-        log = join(CUSTOM_URL, '{organism}', '{assembly}', 'logs', 'gff.log')
+        url = join(CUSTOM_URL, '{organism}', '{assembly}', 'anno', '{organism}.{assembly}.{release}.gff'),
+        log = join(CUSTOM_URL, '{organism}', '{assembly}', 'logs', 'gff.log'),
     output:
-        gff = join(EXT_DIR, 'custom_reference', '{organism}', '{assembly}', 'anno', '{organism}.{assembly}.{release}.gff')
+        gff = join(EXT_DIR, 'custom_reference', '{organism}', '{assembly}', 'anno', '{organism}.{assembly}.gff')
     threads: 
         24
     log:
@@ -40,10 +40,10 @@ rule custom_gff:
 rule custom_gtf:
     params:
         date = datetime.now().strftime("%d-%m-%Y"),
-        url = join(CUSTOM_URL, '{organism}', '{assembly}', 'anno', '{organism}.{assembly}.{release}.gtf')
-        log = join(CUSTOM_URL, '{organism}', '{assembly}', 'logs', 'gtf.log')
+        url = join(CUSTOM_URL, '{organism}', '{assembly}', 'anno', '{organism}.{assembly}.{release}.gtf'),
+        log = join(CUSTOM_URL, '{organism}', '{assembly}', 'logs', 'gtf.log'),
     output:
-        gtf = join(EXT_DIR, 'custom_reference', '{organism}', '{assembly}', 'anno', '{organism}.{assembly}.{release}.gtf')
+        gtf = join(EXT_DIR, 'custom_reference', '{organism}', '{assembly}', 'anno', '{organism}.{assembly}.gtf')
     threads: 
         24
     log:

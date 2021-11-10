@@ -12,7 +12,7 @@ if not 'SAMPLES' in locals():
     SAMPLES = [str(name) for name in config.get('samples', {}).keys()]
 
 include:
-    srcdir('../common.rules')
+    srcdir('../common.smk')
 include:
     'rules/gcfdb.rules'
 include:
