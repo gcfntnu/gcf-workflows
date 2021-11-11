@@ -14,8 +14,15 @@ if not 'SAMPLES' in locals():
 include:
     srcdir('../common.smk')
 include:
-    'rules/gcfdb.rules'
+    'rules/gcfdb.smk'
 include:
-    'rules/filter.rules'
+    'rules/filter.smk'
 include:
-    'rules/align.rules'
+    'rules/align.smk'
+include:
+    'rules/qc.smk'
+include:
+    'rules/bfq.smk'
+include:
+    srcdir('../postprocess.smk')
+

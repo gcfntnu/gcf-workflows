@@ -1,27 +1,8 @@
 
-def qualimap_strand():
-    strand = config.get('read_orientation', 'reverse')
-    if strand == 'reverse':
-        return 'strand-specific-reverse'
-    elif strand == 'forward':
-        return 'strand-specific-forward'
-    else:
-        return 'non-strand-specific'
-    
-rule qualimap_bamqc:
-    input:
-        bam = join(ALIGN_INTERIM, 'bwa', '{sample}.sorted.bam'),
-        gff = join(EXT_DIR, 'ncbi', ORG, 'anno', 'genes.gff')
-    params:
-        strand = qualimap_strand(),
-        outdir = 'data/tmp/wgs/qualimap/{sample}'
-    output:
-        'data/tmp/wgs/qualimap/{sample}/qualimapReport.html'
-    singularity:
-        'docker://' + config['docker']['qualimap']
-    shell:
-        'unset DISPLAY; qualimap bamqc --java-mem-size=8G -gff {input.gff} -bam {input.bam} -p {params.strand} -outdir {params.outdir}'
+BFQ_ALL = []
+include: "bfq/bfq_level1.smk"
+include: "bfq/bfq_level2.smk"
 
 rule bfq_all:
     input:
-        expand(rules.qualimap_bamqc.output, sample=SAMPLES)
+        BFQ_ALL

@@ -8,6 +8,7 @@ rule custom_genome:
         date = datetime.now().strftime("%d-%m-%Y"),
         url = join(CUSTOM_URL, '{organism}', '{assembly}', 'fasta', 'genome.fa'),
         log = join(CUSTOM_URL, '{organism}', '{assembly}', 'logs', 'genome.log'),
+        proxy = config.get('proxy', {}).get('wget', '')
     output:
         genome = join(EXT_DIR, 'custom_reference', '{organism}', '{assembly}', 'fasta', 'genome.fa')
     threads: 
@@ -16,52 +17,45 @@ rule custom_genome:
         join(EXT_DIR, 'custom_reference', '{organism}', '{assembly}', 'logs', 'genome.log')
     shell:
         """
-        wget -O- {params.url} > {output.genome}
-        wget -O- {params.log} > {log}
+        wget {params.proxy} -O- {params.url} > {output.genome}
+        wget {params.proxy} -O- {params.log} > {log}
         """
 
 rule custom_gff:
     params:
         date = datetime.now().strftime("%d-%m-%Y"),
-        url = join(CUSTOM_URL, '{organism}', '{assembly}', 'anno', '{organism}.{assembly}.{release}.gff'),
+        url = join(CUSTOM_URL, '{organism}', '{assembly}', 'anno', 'genes.gff'),
         log = join(CUSTOM_URL, '{organism}', '{assembly}', 'logs', 'gff.log'),
+        proxy = config.get('proxy', {}).get('wget', '')
     output:
-        gff = join(EXT_DIR, 'custom_reference', '{organism}', '{assembly}', 'anno', '{organism}.{assembly}.gff')
+        gff = join(EXT_DIR, 'custom_reference', '{organism}', '{assembly}', 'anno', 'genes.gff')
     threads: 
         24
     log:
         join(EXT_DIR, 'custom_reference', '{organism}', '{assembly}', 'logs', 'gff.log')
     shell:
         """
-        wget -O- {params.url} > {output.gff}
-        wget -O- {params.log} > {log}
+        wget {params.proxy} -O- {params.url} > {output.gff}
+        wget {params.proxy} -O- {params.log} > {log}
         """
 
 rule custom_gtf:
     params:
         date = datetime.now().strftime("%d-%m-%Y"),
-        url = join(CUSTOM_URL, '{organism}', '{assembly}', 'anno', '{organism}.{assembly}.{release}.gtf'),
+        url = join(CUSTOM_URL, '{organism}', '{assembly}', 'anno', 'genes.gtf'),
         log = join(CUSTOM_URL, '{organism}', '{assembly}', 'logs', 'gtf.log'),
+        proxy = config.get('proxy', {}).get('wget', '')
     output:
-        gtf = join(EXT_DIR, 'custom_reference', '{organism}', '{assembly}', 'anno', '{organism}.{assembly}.gtf')
+        gtf = join(EXT_DIR, 'custom_reference', '{organism}', '{assembly}', 'anno', 'genes.gtf')
     threads: 
         24
     log:
         join(EXT_DIR, 'custom_reference', '{organism}', '{assembly}', 'logs', 'gtf.log')
     shell:
         """
-        wget -O- {params.url} > {output.gtf}
-        wget -O- {params.log} > {log}
+        wget {params.proxy} -O- {params.url} > {output.gtf}
+        wget {params.proxy} -O- {params.log} > {log}
         """
 
-rule custom_symlink_genes:
-    input:
-        join(EXT_DIR, 'custom_reference', '{organism}', '{assembly}', 'anno', '{organism}.{assembly}.{release}.{ext}')
-    output:
-        join(EXT_DIR, 'custom_reference', '{organism}', '{assembly}', 'anno', 'genes.{ext}')
-    wildcard_constraints:
-        ext = 'g.+f$'
-    shell:
-        'ln -sr {input} {output}'
 
     

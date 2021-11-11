@@ -6,11 +6,11 @@ ORG = config['organism']
 
 rule bwa_align:
     input:
-        R1 = join(FILTER_INTERIM, 'cleaned', '{sample}_R1.fastq'),
-        R2 = join(FILTER_INTERIM, 'cleaned', '{sample}_R2.fastq'),
-        index = join(EXT_DIR, 'ncbi', ORG, 'index', 'genome', 'bwa', 'genome.amb')
+        R1 = join(FILTER_INTERIM, 'fastp', '{sample}_R1.fastq'),
+        R2 = join(FILTER_INTERIM, 'fastp', '{sample}_R2.fastq'),
+        index = join(REF_DIR, 'index', 'genome', 'bwa', 'genome.amb')
     params:
-        index = join(EXT_DIR, 'ncbi', ORG, 'index', 'genome', 'bwa', 'genome')
+        index = join(REF_DIR, 'index', 'genome', 'bwa', 'genome')
     output:
         bam = join(ALIGN_INTERIM, 'bwa', '{sample}.sorted.bam')
     threads:
