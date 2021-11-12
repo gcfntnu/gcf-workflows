@@ -5,6 +5,7 @@ extra_fn_clean_exts:
   - '.namesorted'
   - '_fastp'
   - '.fastp'
+  - '_qualimap'
 
 custom_logo:    '/opt/images/logo_ntnu.png'
 custom_logo_url: 'https://www.ntnu.edu/mh/gcf'
@@ -37,10 +38,8 @@ report_section_order:
     order: 700
   picard:
     order: 600
-  gene_high:
+  qualimap:
     order: 500
-  gene_biotypes:
-    order: 400
 remove_sections:
  - fastqc_rnaseq_sequence_counts
  - fastqc_rnaseq_per_base_sequence_quality
@@ -59,17 +58,16 @@ remove_sections:
 table_columns_visible:
   fastp:
     pct_duplication: False
+  qualimap:
+    5_x_pc: True
+    10_x_pc: True
+    percentage_aligned: False
 table_columns_placement:
   fastp:
     before_filtering_total_reads: 110
     pct_surviving: 112
     pct_adapter: 114
     after_filtering_gc_content: 116
-  STAR:
-    uniquely_mapped_percent: 120
-    uniquely_mapped: 125
   Picard:
-    PCT_RIBOSOMAL_BASES: 130
-    PCT_MRNA_BASES: 135
- 
+    PCT_PF_READS_ALIGNED: 117 
 

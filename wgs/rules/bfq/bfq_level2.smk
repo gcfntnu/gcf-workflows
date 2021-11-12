@@ -1,11 +1,12 @@
+#-*- mode: snakemake -*- 
 
 rule bfq_level2_bam_qc:
     input:
-        expand(rules.qualimap_bamqc.output, sample=SAMPLES),
+        directory(expand(rules.qualimap_bamqc.output.odir, sample=SAMPLES)),
         expand(rules.picard_alignment_summary_metrics.output, sample=SAMPLES),
         expand(rules.picard_wgs_metrics.output, sample=SAMPLES),
     output:
-        expand(join(BFQ_INTERIM, 'logs', '{sample}', 'qualimapReport.html'), sample=SAMPLES),
+        directory(expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}_qualimap'), sample=SAMPLES)),
         expand(join(BFQ_INTERIM, 'logs', '{sample}', 'alignment_summary_metrics.txt'), sample=SAMPLES),
         expand(join(BFQ_INTERIM, 'logs', '{sample}', 'wgs_metrics.txt'), sample=SAMPLES),
     run:

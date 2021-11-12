@@ -21,7 +21,7 @@ rule qualimap_bamqc:
         strand = qualimap_strand(),
         outdir = join(QUALIMAP_DIR, '{sample}')
     output:
-        join(QUALIMAP_DIR, '{sample}', 'qualimapReport.html')
+        odir = directory(join(QUALIMAP_DIR, '{sample}')),
     singularity:
         'docker://' + config['docker']['qualimap']
     shell:
