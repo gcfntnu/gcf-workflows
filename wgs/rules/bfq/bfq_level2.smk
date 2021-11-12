@@ -5,10 +5,12 @@ rule bfq_level2_bam_qc:
         directory(expand(rules.qualimap_bamqc.output.odir, sample=SAMPLES)),
         expand(rules.picard_alignment_summary_metrics.output, sample=SAMPLES),
         expand(rules.picard_wgs_metrics.output, sample=SAMPLES),
+        expand(rules.picard_mark_duplicates.output.metrics, sample=SAMPLES),
     output:
         directory(expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}_qualimap'), sample=SAMPLES)),
-        expand(join(BFQ_INTERIM, 'logs', '{sample}', 'alignment_summary_metrics.txt'), sample=SAMPLES),
-        expand(join(BFQ_INTERIM, 'logs', '{sample}', 'wgs_metrics.txt'), sample=SAMPLES),
+        expand(join(BFQ_INTERIM, 'logs', '{sample}', 'picard_alignment_summary.metrics'), sample=SAMPLES),
+        expand(join(BFQ_INTERIM, 'logs', '{sample}', 'picard_wgs.metrics'), sample=SAMPLES),
+        expand(join(BFQ_INTERIM, 'logs', '{sample}', 'picard_rmdup.metrics'), sample=SAMPLES),
     run:
         for src, dst in zip(input, output):
             shell('ln -srf {src} {dst}')

@@ -6,6 +6,7 @@ extra_fn_clean_exts:
   - '_fastp'
   - '.fastp'
   - '_qualimap'
+  - '.bwa'
 
 custom_logo:    '/opt/images/logo_ntnu.png'
 custom_logo_url: 'https://www.ntnu.edu/mh/gcf'
@@ -55,6 +56,7 @@ remove_sections:
  - fastqc_per_base_n_content
  - fastqc_sequence_duplication_levels
  - fastqc_status_checks
+ - picard-wgsmetrics-cov
 table_columns_visible:
   fastp:
     pct_duplication: False
@@ -69,5 +71,6 @@ table_columns_placement:
     pct_adapter: 114
     after_filtering_gc_content: 116
   Picard:
-    PCT_PF_READS_ALIGNED: 117 
+    PCT_PF_READS_ALIGNED: 117
+    PERCENT_DUPLICATION: 118
 
