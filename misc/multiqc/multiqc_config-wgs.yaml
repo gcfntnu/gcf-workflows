@@ -64,6 +64,9 @@ table_columns_visible:
     5_x_pc: True
     10_x_pc: True
     percentage_aligned: False
+  picard:
+    MEDIAN_COVERAGE: False
+    PCT_30X: False
 table_columns_placement:
   fastp:
     before_filtering_total_reads: 110

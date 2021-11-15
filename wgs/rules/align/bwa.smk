@@ -14,7 +14,7 @@ rule bwa_align:
     output:
         bam = temp(join(ALIGN_INTERIM, 'bwa', '{sample}.bwa.sorted.bam'))
     threads:
-        12
+        32
     log:
         join(ALIGN_INTERIM, 'bwa', 'logs', '{sample}.bwa.log')
     singularity:
