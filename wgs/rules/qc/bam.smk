@@ -2,7 +2,6 @@
 
 QUALIMAP_DIR = join(QC_INTERIM, "qualimap")
 PICARD_DIR = join(QC_INTERIM, "picard")
-print(REF_DIR)
 
 def qualimap_strand():
     strand = config.get('read_orientation', 'reverse')
