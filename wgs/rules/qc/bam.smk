@@ -15,7 +15,7 @@ def qualimap_strand():
 rule qualimap_bamqc:
     input:
         bam = join(ALIGN_INTERIM, 'bwa', '{sample}.sorted.bam'),
-        gff = join(REF_DIR, 'anno', 'genes.gff')
+        #gff = join(REF_DIR, 'anno', 'genes.gff')
     params:
         strand = qualimap_strand(),
         outdir = join(QUALIMAP_DIR, '{sample}')
@@ -24,7 +24,8 @@ rule qualimap_bamqc:
     singularity:
         'docker://' + config['docker']['qualimap']
     shell:
-        'unset DISPLAY; qualimap bamqc --java-mem-size=8G -gff {input.gff} -bam {input.bam} -p {params.strand} -outdir {params.outdir}'
+        #'unset DISPLAY; qualimap bamqc --java-mem-size=8G -gff {input.gff} -bam {input.bam} -p {params.strand} -outdir {params.outdir}'
+        'unset DISPLAY; qualimap bamqc --java-mem-size=8G -bam {input.bam} -p {params.strand} -outdir {params.outdir}'
 
 
 rule picard_wgs_metrics:
