@@ -1,0 +1,61 @@
+project_id:
+- GCF-2021-999
+organism: rangifer_tarandus
+libprepkit: WGS Custom
+read_geometry:
+- 150
+- 150
+db:
+  reference_db: custom_reference
+  custom_reference:
+    assembly: Rtarandus_2.1
+machine: ''
+quant:
+  batch:
+    method: skip
+fastq_dir: data/raw/fastq
+samples:
+  NMBU33:
+    R1: rangifer_tarandus_reduced/GCF-2021-999/NMBU33_R1.fastq.gz
+    R2: rangifer_tarandus_reduced/GCF-2021-999/NMBU33_R2.fastq.gz
+    paired_end: 1
+    Sample_ID: NMBU33
+    External_ID: ''
+    Project_ID: GCF-2021-999
+    Organism: rangifer_tarandus
+    Sample_Biosource: ''
+    Index1_p7 (If dual indexed libraries are submitted indicate what index sequence is used P7): ''
+    Index2_p5 (If libraries are submitted  indicate what index sequence is used P75): ''
+    Sample_Group: svalbard_wild
+    Customer_Comment: ''
+    Project ID: GCF-2021-999
+    RIN: ''
+    SpikeIn: ''
+    Fragment_Length: ''
+    Fragment_SD: ''
+    Concentration: ''
+    260/280: ''
+    260/230: ''
+    Lab_Comment: ''
+  NMBU38:
+    R1: rangifer_tarandus_reduced/GCF-2021-999/NMBU38_R1.fastq.gz
+    R2: rangifer_tarandus_reduced/GCF-2021-999/NMBU38_R2.fastq.gz
+    paired_end: 1
+    Sample_ID: NMBU38
+    External_ID: ''
+    Project_ID: GCF-2021-999
+    Organism: rangifer_tarandus
+    Sample_Biosource: ''
+    Index1_p7 (If dual indexed libraries are submitted indicate what index sequence is used P7): ''
+    Index2_p5 (If libraries are submitted  indicate what index sequence is used P75): ''
+    Sample_Group: norway_wild
+    Customer_Comment: ''
+    Project ID: GCF-2021-999
+    RIN: ''
+    SpikeIn: ''
+    Fragment_Length: ''
+    Fragment_SD: ''
+    Concentration: ''
+    260/280: ''
+    260/230: ''
+    Lab_Comment: ''
