@@ -89,7 +89,7 @@ REF_DIR = config.get('ref_dir', environ.get('GCF_REFDIR'))
 # 1) custom reference config
 if 'reference_db' in config['db']:
     ref = config['db']['reference_db']
-    if config['db'][ref].get('dna') is not None:
+    if config['db'].get(ref,{}).get('dna') is not None:
         pass
 elif REF_DIR is not None:
     # 2) custom reference dir

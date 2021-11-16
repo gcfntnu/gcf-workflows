@@ -18,7 +18,6 @@ rule fastv:
         'fastv -i {input.R1} -I {input.R2} -g {input.genome} -o {output.R1} -O {output.R2} -j {output.log_json} -h {output.log_html} --thread {threads} {params} '
 
 
-
 rule fastp:
     input:
         unpack(get_raw_fastq)

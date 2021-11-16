@@ -2,7 +2,7 @@
 """Shared fastp rule
 """
 
-
+print(FILTER_INTERIM)
 def fastp_adapter_args(*args, **kw):
     ADAPTER = config.get('adapter')
     ADAPTER2 = config.get('adapter2')
