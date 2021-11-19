@@ -97,7 +97,8 @@ if (args$type == "gene"){
     R <- rlog(dds)
     out <- assay(R)
 } else if (args$type == "gene_info"){
-    gene.info <- read.table(args$geneinfo, sep="\t", header=TRUE, row.names=1)
+    gene.info <- read.table(args$geneinfo, sep="\t", header=TRUE, row.names="gene_id")
+    
     counts <- summarizeToGene(txi.tx, tx2gene)$counts
     out <- gene.info[rownames(counts),]
     keep.cols <- colSums(!is.na(out)) > 0
