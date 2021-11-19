@@ -3,7 +3,6 @@
 
 """
 
-
 DB_CONF = config['db'].get('refseq', {})
 ASSEMBLY = DB_CONF.pop('assembly', None)
 STRAIN = config.get('strain') or DB_CONF.pop('strain', None)
@@ -18,9 +17,10 @@ def init_refseq(config):
     """
     release = config['db']['refseq']['release']
     config['db']['refseq']['multi_assembly'] = False
-    fn = srcdir('tables/refseq-release-{}.tsv'.format(release))
+    fn = srcdir('tables/refseq-{}.tsv'.format(release))
     if not os.path.exists(fn):
         logger.info('refseq lookupfile for release {} is missing!'.format(release))
+        logger.info('expected: {}'.format(fn))
         return config
     keys = ['division', 'strain', 'taxon_id', 'assembly', 'refseq_category', 'accession', 'ftp_genome', 'ftp_gtf', 'ftp_gff']
     with open(fn) as fh:
@@ -31,14 +31,18 @@ def init_refseq(config):
     rows = []
     for row in txt:
         els = dict(zip(header, row.split('\t')))
-        species_match = els['species'].lower() == config['organism'].lower()
+        species = '_'.join(els['species'].lower().split('_')[:2])
+        species_match = species == config['organism'].lower()
         assembly_match = ASSEMBLY is None or ASSEMBLY == els['assembly']
         strain_match = STRAIN is None or STRAIN == els['strain']
         if species_match and assembly_match and strain_match:
             rows.append(els)
     if len(rows) == 0:
         logger.error('species `{}` not found in refseq lookup file'.format(config['organism']))
-    
+    else:
+        logger.info('found {} entries of {} in table'.format(len(rows), config['organism']))
+        #cats = set([row['refseq_category'] for row in rows])
+        #print(cats)
     # 1) use reference assembly if present 
     for row in rows:
         if row['refseq_category'] == 'reference genome':
@@ -91,31 +95,33 @@ def init_refseq(config):
     
 
 config = init_refseq(config)
+
 if config['db']['refseq']['multi_assembly']:
     config['db']['refseq']['assembly'] = 'merged_assemblies'
 
+REFSEQ_DB = srcdir('tables/refseq-{}.tsv.gz'.format(config['db']['refseq']['release']))
 
 rule refseq_lookuptable:
     output:
-        txt = 'src/gcf-workflows/gcfdb/tables/refseq-release-{release}.tsv'
+        REFSEQ_DB
     params:
         script = srcdir('scripts/build_refseq_lookup.py'),
         proxy = config.get('proxy', {}).get('server', {}).get('ftp'),
-        kingdoms = 'vertebrate_mammalian,vertebrate_other,plant,archaea,fungi,invertebrate,protozoa,bacteria,viral'
+        kingdoms = 'vertebrate_mammalian,vertebrate_other,plant,archaea,fungi,invertebrate,protozoa,bacteria,viral',
+        release = config['db']['refseq']['release']
     singularity:
         'docker://' + config['docker']['default']
     shell:
-        'python {params.script} --proxy {params.proxy} --release {wildcards.release} --kingdoms {params.kingdoms}  --output {output}'
-
+        'python {params.script} --proxy {params.proxy} --release {params.release} --kingdoms {params.kingdoms}  --output {output}'
 
 rule refseq_genome:
     input:
-        table = srcdir('tables/refseq-release-{release}.tsv')
+        REFSEQ_DB
     params:
         date = datetime.now().strftime("%d-%m-%Y"),
         release = config['db']['refseq']['release'],
         proxy = config.get('proxy', {}).get('wget', ''),
-        url = config['db']['refseq']['ftp_genome'].split(',')[:2]
+        url = config['db']['refseq'].get('ftp_genome','').split(',')[:2]
     output:
         genome = join(EXT_DIR, 'refseq', 'release-{release}', '{organism}', '{assembly}', 'fasta', 'genome.fa')
     threads: 
@@ -125,16 +131,16 @@ rule refseq_genome:
     run:
         for url in params.url:
             shell("wget {params.proxy} -O- {url} | gunzip -c >> {output.genome}")
-            shell("echo 'Refseq DNA,release-{wildcards.release},{params.url},{params.date}' >> {log}")
+            shell("echo 'Refseq DNA,release-{params.release},{params.url},{params.date}' >> {log}")
 
 rule refseq_gff:
     input:
-        table = srcdir('tables/refseq-release-{release}.tsv')
+        REFSEQ_DB
     params:
         date = datetime.now().strftime("%d-%m-%Y"),
         release = DB_CONF['release'],
         proxy = config.get('proxy', {}).get('wget', ''),
-        url = config['db']['refseq']['ftp_gff'].split(',')[:2]
+        url = config['db']['refseq'].get('ftp_gff', '').split(',')[:2]
     output:
         join(EXT_DIR, 'refseq', 'release-{release}', '{organism}', '{assembly}', 'anno', '{organism}.{assembly}.{release}.gff')
     threads: 
@@ -148,12 +154,12 @@ rule refseq_gff:
             
 rule refseq_gtf:
     input:
-        table = srcdir('tables/refseq-release-{release}.tsv')
+        table = REFSEQ_DB
     params:
         date = datetime.now().strftime("%d-%m-%Y"),
         release = DB_CONF['release'],
         proxy = config.get('proxy', {}).get('wget', ''),
-        url = config['db']['refseq']['ftp_gtf'].split(',')[:2]
+        url = config['db']['refseq'].get('ftp_gtf', '').split(',')[:2]
     output:
         join(EXT_DIR, 'refseq', 'release-{release}', '{organism}', '{assembly}', 'anno', '{organism}.{assembly}.{release}.gtf')
     threads: 
@@ -164,8 +170,23 @@ rule refseq_gtf:
         for url in params.url:
             shell("wget {params.proxy} -O- {params.url} | gunzip -c  | grep -v '^#' >> {output}")
             shell("echo 'Refseq GTF,release-{params.release},{params.url},{params.date}' > {log}")
+
+if config['db']['refseq']['division'] == 'bacteria':
+    ruleorder: refseq_gtf_noneukaryot > refseq_symlink_genes
     
+rule refseq_gtf_noneukaryot:
+    input:
+        join(EXT_DIR, 'refseq', 'release-{release}', '{organism}', '{assembly}', 'anno', '{organism}.{assembly}.{release}.gtf')
+    output:
+        join(EXT_DIR, 'refseq', 'release-{release}', '{organism}', '{assembly}', 'anno', 'genes.gtf')
+    params:
+        script = srcdir('scripts/refseq_gtf.py')
+    shell:
+        'python {params.script} {input} {output}'
+
 rule refseq_symlink_genes:
+    params:
+        release = DB_CONF['release']
     input:
         join(EXT_DIR, 'refseq', 'release-{release}', '{organism}', '{assembly}', 'anno', '{organism}.{assembly}.{release}.{ext}')
     output:
