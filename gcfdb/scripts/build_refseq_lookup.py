@@ -143,7 +143,7 @@ if __name__ == '__main__':
         df = filter_assemblies(df, kingdom=k)
         print(df.shape)
         df_list.append(df)
-    print(df_list)
+    
     out = pd.concat(df_list, axis=0)
-    print(out.shape)
-    out.to_csv(args.output, sep='\t', index=False)
+    
+    out.to_csv(args.output, sep='\t', index=False, compression='infer'))
