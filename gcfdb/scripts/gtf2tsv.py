@@ -20,9 +20,10 @@ def extract_genes(df, args):
         biotypes = df_gene.gene_biotype.copy()
         biotypes[(df_gene.seqname=="MT") & (df_gene.gene_biotype=="protein_coding")] = "Mt_protein_coding"
         df_gene.gene_biotype = biotypes
-    keep_cols = ['gene_id', 'seqname', 'start', 'end', 'strand', 'gene_id', 'gene_name', 'gene_biotype', 'score']
+    keep_cols = ['gene_id', 'seqname', 'start', 'end', 'strand', 'gene_id', 'gene_name', 'gene_biotype']
+    keep_cols = list(set(keep_cols).intersection(df_gene.columns))
     df_gene = df_gene[keep_cols].copy()
-    df_gene.columns = ['gene_id', 'seqname', 'start', 'end', 'strand', 'gene_id', 'gene_name', 'gene_biotype', 'gc_content']
+    df_gene['gc_content'] = 0.0
     return df_gene
 
 def extract_transcripts(df, args):
@@ -38,10 +39,10 @@ def extract_transcripts(df, args):
         biotypes = df_tx.gene_biotype.copy()
         biotypes[(df_tx.seqname=="MT") & (df_tx.transcript_biotype=="protein_coding")] = "Mt_protein_coding"
         df_tx.gene_biotype = biotypes
-    keep_cols = ['transcript_id', 'seqname', 'start', 'end', 'strand', 'gene_id', 'gene_name', 'transcript_biotype', 'score']
+    keep_cols = ['transcript_id', 'seqname', 'start', 'end', 'strand', 'gene_id', 'gene_name', 'transcript_biotype']
+    keep_cols = list(set(keep_cols).intersection(df_tx.columns))
     df_tx = df_tx[keep_cols].copy()
-    df_tx.columns = ['transcript_id', 'seqname', 'start', 'end', 'strand', 'gene_id', 'gene_name', 'transcript_biotype', 'gc_content']
-    #df_tx.rename(columns={'score', 'gc_content'})
+    df_tx['gc_content'] = 0.0
     return df_tx
 
 def add_gc_content(df, df_sub, args):
@@ -55,7 +56,7 @@ def add_gc_content(df, df_sub, args):
             nn = 0
             for ii, row in df.iloc[idx,:].iterrows():
                 exon_key = '{}:{}-{}'.format(row['seqname'], row['start']-1, row['end'])
-                seq = fasta[exon_key]
+                seq = fasta.get(exon_key)
                 exons[gene] += seq
         for gene_id in df_sub.index:
             if gene_id in exons:

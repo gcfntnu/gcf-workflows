@@ -24,6 +24,8 @@ def high_values(X, index, copy=True):
 
 
 def fig_expression(abundance, counts, feature_info, norm=True, msg=''):
+    if 'gene_name' not in feature_info:
+        feature_info['gene_name'] = feature_info['gene_id'].copy()
     a_df = pd.concat([abundance, feature_info[['gene_name', 'gene_biotype']]], axis=1)
     c_df = pd.concat([counts, feature_info[['gene_name', 'gene_biotype']]], axis=1)
     keys = {}
@@ -194,14 +196,18 @@ if __name__ == "__main__":
     E = E.loc[keep_features,:]
     C = C.loc[keep_features,:]
 
-    F = pd.read_csv(args.features, sep="\t", index_col=0)
+    F = pd.read_csv(args.features, sep="\t", index_col='gene_id')
     if not keep_features.isin(F.index).all():
         warnings.warn("missing annotations in feature info!")
+        keep_features = list(set(keep_features).intersection(F.index))
+        E = E.loc[keep_features,:]
+        C = C.loc[keep_features,:]
     F = F.loc[keep_features, :]
-    if not 'gene_biotype' in F.columns or 'gene_name' not in F.columns:
+    if not 'gene_biotype' in F.columns:
         print(F.head(n=2))
         raise ValueError('Feature info needs columns `gene_biotype` and `gene_name` !')   
-
+    if 'gene_name' not in F.columns:
+        F['gene_name'] = F.index.values.copy()
     keep = high_index(E, 10)
     abundance = E.loc[keep,:]
     counts = C.loc[keep,:]

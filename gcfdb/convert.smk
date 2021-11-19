@@ -57,6 +57,7 @@ rule convert_gtf2refflat:
         """
         gtfToGenePred -genePredExt -geneNameAsName2 -ignoreGroupsWithoutExons {input} dummy.txt
         paste <(cut -f 12 dummy.txt) <(cut -f 1-10 dummy.txt) > refFlat.txt
+
         gzip refFlat.txt
         mv refFlat.txt.gz {output}
         """
@@ -77,11 +78,13 @@ rule convert_gtf_transcriptome_rsem:
         gtf = join('{ref_dir}', 'anno', 'genes.gtf'),
         genome = join('{ref_dir}', 'fasta', 'genome.fa')
     params:
-        base = join('{ref_dir}', 'fasta', 'gtf.rsem.transcripts.fa')
+        base = join('{ref_dir}', 'fasta', 'gtf.rsem')
     singularity:
         'docker://' + config['docker']['rsem']
     output:
         join('{ref_dir}', 'fasta', 'gtf.rsem.transcripts.fa')
+    shadow:
+        'minimal'
     shell:
         'rsem-prepare-reference --gtf {input.gtf} {input.genome} {params.base}'
 

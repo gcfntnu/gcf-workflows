@@ -13,11 +13,18 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 
 
-def var_filter(E, f=0.5):
-    E = E.loc[E.sum(1) > 10, :]
-    o = E.var(axis=1).argsort()[::-1]
-    n = int(np.floor(E.shape[0] * f))
-    E = E.iloc[o[:n], :]
+def var_filter(E, f=0.5, axis=1):
+    """Simple signal/variance filter 
+    keep top 10% percentile of signal size and top 50% highest variance
+    """
+    lim = E.sum(axis).describe(percentiles=[.1])['10%']
+    E = E.loc[E.sum(axis) > lim, :]
+    o = E.var(axis=axis).argsort()[::-1]
+    n = max(3, int(np.floor(E.shape[0] * f)))
+    if axis == 1:
+        E = E.iloc[o[:n], :]
+    else:
+        E = E.iloc[:, o[:n]]
     return E
 
 
@@ -30,19 +37,11 @@ def pca(E, max_comp=20):
     variance = s**2
     total = variance.sum()
     var_expl = (variance/total).cumsum()
-    print(var_expl)
     max_comp = min(max_comp, sum(var_expl < 0.9))
+    max_comp = max(max_comp, 2)
     P = vt.T
-    T = pd.DataFrame(
-        T[:, :max_comp],
-        index=E.index,
-        columns=["PC_{}".format(i + 1) for i in range(max_comp)],
-    )
-    P = pd.DataFrame(
-        P[:, :max_comp],
-        index=E.columns,
-        columns=["PC_{}".format(i + 1) for i in range(max_comp)],
-    )
+    T = pd.DataFrame(T[:, :max_comp], index=E.index, columns=["PC_{}".format(i + 1) for i in range(max_comp)])
+    P = pd.DataFrame(P[:, :max_comp], index=E.columns, columns=["PC_{}".format(i + 1) for i in range(max_comp)])
     return T, P
 
 
