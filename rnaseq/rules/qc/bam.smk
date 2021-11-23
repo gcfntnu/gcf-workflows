@@ -180,7 +180,7 @@ rule create_ribo_bed:
     shell:
         """
         grep -i rrna {input.gtf} > rrna.gtf
-        gtfToGenePred rrna.gtf rrna.genepred
+        gtfToGenePred -ignoreGroupsWithoutExons rrna.gtf rrna.genepred
         genePredToBed rrna.genepred {output}
         """
         
