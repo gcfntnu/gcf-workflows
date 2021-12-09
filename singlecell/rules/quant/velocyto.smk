@@ -21,7 +21,7 @@ rule velocyto_cellranger:
     singularity:
         'docker://'+ config['docker']['velocyto']
     threads:
-        48
+        8
     shell:
         'velocyto run10x '
         '--samtools-threads 8 '
