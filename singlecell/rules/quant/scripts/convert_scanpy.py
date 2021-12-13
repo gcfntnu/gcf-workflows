@@ -235,7 +235,6 @@ def read_star(fn, args, **kw):
         spliced = sparse.csr_matrix((mtxS[:,2], (mtxS[:,0]-1, mtxS[:,1]-1)), shape = shapeS).transpose()
         unspliced = sparse.csr_matrix((mtxU[:,2], (mtxU[:,0]-1, mtxU[:,1]-1)), shape = shapeU).transpose()
         ambiguous = sparse.csr_matrix((mtxA[:,2], (mtxA[:,0]-1, mtxA[:,1]-1)), shape = shapeA).transpose()
-
         data.layers = {
                 'spliced': spliced,
                 'unspliced': unspliced,
@@ -283,6 +282,19 @@ def read_umitools(fn, args, **kw):
     sample_id = os.path.dirname(fn).split(os.path.sep)[-1]
     data.obs['sample_id'] = sample_id
     return data
+
+
+def add_nuclear_fraction(adata):
+    """Estimate nuclear fraction from velocyto params
+    """
+    if 'spliced' in adata.layers and 'unspliced' in adata.layers and 'nuclear_fraction' not in adata.obs.columns:
+        exon_sum = adata.layers['spliced'].sum(axis=1)
+        intron_sum = adata.layers['unspliced'].sum(axis=1)
+        nuclear_fraction = intron_sum/(exon_sum + intron_sum)
+        if hasattr(nuclear_fraction, "A1"):
+            nuclear_fraction = nuclear_fraction.A1
+        adata.obs['nuclear_fraction'] = nuclear_fraction
+    return adata
 
 READERS = {'cellranger_aggr': read_cellranger_aggr,
            'cellranger': read_cellranger,
@@ -404,7 +416,9 @@ if __name__ == '__main__':
         data.obs['n_counts'] = data.X.sum(axis=1).A1
     except:
         data.obs['n_counts'] = data.X.sum(axis=1)
-        
+
+    adata = add_nuclear_fraction(adata)
+
     if args.verbose:
         print(data)
         
