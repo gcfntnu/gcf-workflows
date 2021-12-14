@@ -3,6 +3,7 @@
 include: 'umitools.smk'
 
 STAR_INTERIM = join(QUANT_INTERIM, 'star')
+READ_LENGTH = config.get('read_geometry', [28, 98])[-1]
 
 rule txgenomics_whitelist_v1:
     params:
@@ -54,9 +55,9 @@ rule starsolo_genome_index:
         genome = join(REF_DIR, 'fasta', 'genome.fa'),
         gtf = join(REF_DIR, 'anno', 'genes.gtf')
     output:
-        join(REF_DIR, 'starsolo', 'SA')
+        join(REF_DIR, 'index', 'genome', 'starsolo', 'r_{}'.format(READ_LENGTH), 'SA')
     params:
-        index_dir =  join(REF_DIR, 'starsolo'),
+        index_dir =  join(REF_DIR, 'index', 'genome', 'starsolo', 'r_{}'.format(READ_LENGTH)),
         readlength = config.get('read_geometry', [28, 98])[-1]
     threads:
         48
@@ -89,7 +90,6 @@ rule starsolo_convert_umitools_whitelist:
         """
         
 
-READ_LENGTH = config.get('read_geometry', [28, 98])[-1]
 
 if config['db']['reference_db'] == '10xgenomics':
     # rebuild genome to match current star version

@@ -417,7 +417,7 @@ if __name__ == '__main__':
     except:
         data.obs['n_counts'] = data.X.sum(axis=1)
 
-    adata = add_nuclear_fraction(adata)
+    data = add_nuclear_fraction(data)
 
     if args.verbose:
         print(data)
