@@ -42,13 +42,12 @@ if config['quant']['method'] == 'cellranger':
     rule bfq_level2_data_cellranger:
         input:
             expand(join(CR_INTERIM, '{sample}', 'outs', 'filtered_feature_bc_matrix.h5'), sample=SAMPLES),
-            expand(join(CR_INTERIM, '{sample}', 'outs', 'filtered_feature_bc_matrix.h5'), sample=SAMPLES),
             expand(join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}', 'outs', 'count', 'filtered_feature_bc_matrix.h5'), aggr_id=AGGR_IDS),
             expand(join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}', 'outs', 'count', 'cloupe.cloupe'), aggr_id=AGGR_IDS),
             expand(join(CR_INTERIM, '{sample}', 'outs', 'cloupe.cloupe'), sample=SAMPLES)
         output:
-            expand(join(BFQ_INTERIM, 'data', '{aggr_id}_filtered_feature_bc_matrix.h5'), aggr_id=AGGR_IDS),
             expand(join(BFQ_INTERIM, 'data', '{sample}_filtered_feature_bc_matrix.h5'), sample=SAMPLES),
+            expand(join(BFQ_INTERIM, 'data', '{aggr_id}_filtered_feature_bc_matrix.h5'), aggr_id=AGGR_IDS),
             expand(join(BFQ_INTERIM, 'cloupe', '{aggr_id}.cloupe'), aggr_id=AGGR_IDS),
             expand(join(BFQ_INTERIM, 'cloupe', '{sample}.cloupe'), sample=SAMPLES)
         run:
@@ -72,14 +71,14 @@ else:
             #expand(rules.velocyto_merge_aggr.output, quant=['star'], aggr_id=AGGR_IDS),
             expand(join(QUANT_INTERIM, 'aggregate', 'star', 'scanpy', '{aggr_id}_aggr.h5ad'), aggr_id=AGGR_IDS),
             expand(join(QUANT_INTERIM, 'aggregate', 'star', 'scanpy', '{aggr_id}_preprocessed.h5ad'), aggr_id=AGGR_IDS),
-            expand(rules.velocyto_merge.output, quant=['star'], sample=SAMPLES),
+            #expand(rules.velocyto_merge.output, quant=['star'], sample=SAMPLES),
             expand(rules.starsolo_quant.output.mtx, sample=SAMPLES),
             expand(rules.starsolo_quant.output.genes, sample=SAMPLES),
             expand(rules.starsolo_quant.output.barcodes, sample=SAMPLES),
         output:
             expand(join(BFQ_INTERIM, 'exprs', 'scanpy', '{aggr_id}_adata.h5ad'), aggr_id=AGGR_IDS),
             expand(join(BFQ_INTERIM, 'exprs', 'scanpy', '{aggr_id}_preprocessed.h5ad'), aggr_id=AGGR_IDS),
-            expand(join(BFQ_INTERIM, 'exprs', 'scanpy', '{sample}_adata.h5ad'), sample=SAMPLES),
+            #expand(join(BFQ_INTERIM, 'exprs', 'scanpy', '{sample}_adata.h5ad'), sample=SAMPLES),
             expand(join(BFQ_INTERIM, 'exprs', 'mtx', '{sample}', 'matrix.mtx'), sample=SAMPLES),
             expand(join(BFQ_INTERIM, 'exprs', 'mtx', '{sample}', 'features.tsv'), sample=SAMPLES),
             expand(join(BFQ_INTERIM, 'exprs', 'mtx', '{sample}', 'barcodes.tsv'), sample=SAMPLES),
