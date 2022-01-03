@@ -46,7 +46,7 @@ make_option(c("-m", "--metaFile"),
             help="path to the features info file [default: %default]."),
 
 make_option(c("-R", "--templateFile"),
-            default="src/gcf-workflows/rna-seq/rules/analysis/diff_expr/scripts/GCF_DESeq2.rmd",
+            default="src/gcf-workflows/rnaseq/rules/analysis/diff_expr/scripts/GCF_DESeq2.rmd",
             dest="templateFile",
             help="path to the directory R markdown template [default: %default]."),
 
@@ -167,7 +167,7 @@ if (!is.null(subset)){
 }
 
 print(paste("workDir", workDir))
-print(paste("subset", as.character(subset)))
+print(as.character(subset))
 options(echo=TRUE)
 
 # print(paste("projectName", projectName))
@@ -212,13 +212,12 @@ loadTargetFile <- function(targetFile, varInt, condRef, batch, subset=NULL){
         keep <- NULL
         remove <- NULL
         for (s in subset){
-            print(s)
             if (grepl( "::", s, fixed = TRUE)){
                 ss <- unlist(str_split(s, "::"))
                 col.name <- ss[1]
                 level <- ss[2]
                 if (!I(col.name %in% colnames(target))){
-                    stop(paste("The column", batch, "is not in the target file"))
+                    stop(paste("The column", col.name, "is not in the target file"))
                 } else{
                     col <- as.character(target[,col.name])
                 }
@@ -228,8 +227,6 @@ loadTargetFile <- function(targetFile, varInt, condRef, batch, subset=NULL){
                 } else{
                     keep <- c(keep, which(col==level))
                 }
-                
-                print(keep)
             }
         }
         keep <- unique(keep)
@@ -272,6 +269,7 @@ loadTargetFile <- function(targetFile, varInt, condRef, batch, subset=NULL){
     target <- target[,keep.cols, drop=FALSE]
     return(target)
 }
+
 
 target <- loadTargetFile(targetFile=targetFile, varInt=varInt, condRef=condRef, batch=batch, subset=subset)
 
@@ -469,7 +467,7 @@ for (name in names(summaryResults$complete)){
 Gene_ID <- rownames(metacore)
 metacore <- cbind(Gene_ID, metacore)
 print(head(metacore))
-write.table(metacore, file=file.path(args$output, "metacore_input.txt"), sep="\t", row.names=FALSE, dec=".", quote=FALSE)
+
 
 # save image of the R session
 #save.image(file=paste0(projectName, ".RData"))
@@ -511,7 +509,8 @@ if (!dir.exists(output)){
     dir.create(output, showWarnings=TRUE, recursive=TRUE)
 }
 
-
+metacore.fn <- file.path(output, "metacore_input.txt")
+write.table(metacore, file=metacore.fn, sep="\t", row.names=FALSE, dec=".", quote=FALSE)
 file.rename("tables", file.path(output, "tables"))
 file.rename("figures", file.path(output, "figures"))
 report.name <- paste(projectName, "report.html", sep="_")
