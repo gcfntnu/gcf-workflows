@@ -283,7 +283,7 @@ def merge_data(tables, taxas, sequences, samples):
     taxa_list = []
     table_list = []
     seq_list = []
-    meta_region = []
+    meta_region = {}
     write_message('merging region results ...')
     # ensure same ordering of dicts
     for r in taxas.keys():
@@ -291,17 +291,22 @@ def merge_data(tables, taxas, sequences, samples):
         taxa_list.append(taxas[r].classification)
         df = tables[r].view(pd.DataFrame)
         df.index = df.index.str.replace('_{}'.format(r), '')
-        print(df.head())
-        meta_region.extend([r] * df.shape[1])
+        for seq_id in df.columns:
+            if seq_id in meta_region.keys():
+                rr = meta_region[seq_id] + '_' + r
+            else:
+                rr = r
+            meta_region[seq_id] = rr
         table = Artifact.import_data('FeatureTable[Frequency]', df)
         table_list.append(table)
         seq_list.append(sequences[r])
     merged_taxa = feature_table.methods.merge_taxa(taxa_list)
     merged_seq = feature_table.methods.merge_seqs(seq_list)
-    merged_table = feature_table.methods.merge(table_list, overlap_method='error_on_overlapping_feature')
+    merged_table = feature_table.methods.merge(table_list, overlap_method='sum')
 
     #
-    meta = pd.DataFrame(meta_region)
+    meta = [meta_region[seq_id] for seq_id in merged_table.merged_table.view(pd.DataFrame).columns]
+    meta = pd.DataFrame(meta)
     meta.index = merged_table.merged_table.view(pd.DataFrame).columns
     meta.index.name = 'feature-id'
     meta.columns = ['region']
