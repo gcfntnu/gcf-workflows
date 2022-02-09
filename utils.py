@@ -2,6 +2,7 @@ import warnings
 from os.path import join, abspath, dirname
 from os import makedirs, environ
 import sys
+import collections
 try:
     from collections import Mapping
 except:
