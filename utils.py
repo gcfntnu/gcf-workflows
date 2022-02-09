@@ -2,7 +2,10 @@ import warnings
 from os.path import join, abspath, dirname
 from os import makedirs, environ
 import sys
-import collections
+try:
+    from collections import Mapping
+except:
+    from collections.abc import Mapping
 import re
 import yaml
 
@@ -55,7 +58,7 @@ def update_config2(config, extra_config):
 
     def _update(d, u):
         for (key, value) in u.items():
-            if isinstance(value, collections.Mapping):
+            if isinstance(value, Mapping):
                 d[key] = _update(d.get(key, {}), value)
             else:
                 if not key in d:
@@ -74,7 +77,7 @@ def config_val2list(d):
     """Split comma separated values into list of strings.
     """
     for key, value in d.items():
-        if isinstance(value, collections.Mapping):
+        if isinstance(value, Mapping):
             d[key] = _update(d.get(key, {}), value)
         else:
             for key, val in d.items():
