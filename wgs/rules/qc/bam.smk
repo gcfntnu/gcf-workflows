@@ -23,9 +23,11 @@ rule qualimap_bamqc:
         odir = directory(join(QUALIMAP_DIR, '{sample}')),
     singularity:
         'docker://' + config['docker']['qualimap']
+    threads:
+        6
     shell:
         #'unset DISPLAY; qualimap bamqc --java-mem-size=8G -gff {input.gff} -bam {input.bam} -p {params.strand} -outdir {params.outdir}'
-        'unset DISPLAY; qualimap bamqc --java-mem-size=8G -bam {input.bam} -p {params.strand} -outdir {params.outdir}'
+        'unset DISPLAY; qualimap bamqc --java-mem-size=15G -bam {input.bam} -p {params.strand} -outdir {params.outdir}'
 
 
 rule picard_wgs_metrics:
