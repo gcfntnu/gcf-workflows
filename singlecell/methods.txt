@@ -1,0 +1,48 @@
+
+
+Analysis of single cell sequencing data was carried out using the 10x
+Genomics Cellranger software (version 3.1.0). The bcl files were
+converted to FASTQ format and mapped to the GRCh38 reference
+genome. Cellranger was further used to generate UMI counts from those
+droplets likely to contain at least one cell and aggregated into a
+read depth normalized feature count matrix. The 10x Genomics
+cellbrowser (Cloupe version 5) was used for visualization purposes and
+cell-type assignment of the aggregated data. Downstream analysis was
+conducted primarily using the Seurat R package (Stuart et
+al.2019). Cells with low counts (<200) or classified as low quality by
+the miQC R package (Hippen et al. 2021) were excluded. Features with
+counts lower than 500 or higher than 40000 counts were also
+excluded. The count data was further normalized with the sctransform
+variance transform accounting for the mitochondrial fraction and the
+top 3000 highly variable genes were used for principal component
+analysis (PCA) dimension reduction. The top 40 principal components
+were used as input to the uniform manifold approximation (UMAP) method
+and clustered using the "FindClusters" function. The cell-type
+classifications were refined to match the clustering output and
+differential expressions between groups were identified with the
+non-parametric Wilcoxon rank-sum test using the Seurat function
+"FindMarkers".
+
+
+
+Alignment and gene expression quantification of samples was performed
+using the STARsolo option of the STAR (v2.7.3) aligner using the
+GRCh38 reference genome. Acceptable cell barcodes were downloaded from
+the 10x Genomics website (3M-february-2018.txt) and barcodes
+representing a droplet with missing cells were classified using the
+EmptyDrops R package. The feature count table was imported to scanpy
+(v1.5.1) for downstream analysis. Cell doublets were identified with
+Scrublet (Wolock et al. 2019) and removed. A cell with read count
+between 1000-25000, mitochondrial gene fraction > 20%, and >400 genes
+expressed was kept for further analysis, and features detected in <20
+cells were filtered out. The feature count table was normalized to
+total size factors derived by the "computeSumFactors" method of the
+scran R package and log-transformed. The 3000 most highly variable
+genes were used for Principal Component Analysis (PCA) and the top 20
+principal components were used as input to the uniform manifold
+approximation (UMAP) method and clustered using the louvain method
+(Traag et al. 2018). Marker genes between groups were identified with
+the non-parametric Wilcoxon rank-sum test using the scanpy function
+"rank_genes_groups". The derived results and data were exported to the
+UCSC Cellbrowser (Speir et al. 2021) for further visual aid and
+analysis.
