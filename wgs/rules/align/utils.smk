@@ -29,10 +29,10 @@ rule picard_mark_duplicates:
         md5 = join(ALIGN_INTERIM, 'bwa', '{sample}.sorted.bam.md5'),
         metrics = join(ALIGN_INTERIM, 'bwa', '{sample}.rmdup.metrics')
     params:
-        java_opt="-Xms4g -Xmx4g ",
+        java_opt="-Xms10g -Xmx10g ",
         dup_args = optical_dup_args()
     threads:
-        8
+        6
     singularity:
         'docker://' + config['docker']['picard_gatk']
     shell:
@@ -43,6 +43,7 @@ rule picard_mark_duplicates:
         'METRICS_FILE={output.metrics} '
         'VALIDATION_STRINGENCY=SILENT '
         'MAX_FILE_HANDLES_FOR_READ_ENDS_MAP=1000 '
+        'MAX_RECORDS_IN_RAM=10000000 '
         'CREATE_INDEX=TRUE '
         'CREATE_MD5_FILE=TRUE '
         '{params.dup_args}'
@@ -58,4 +59,4 @@ rule bam_namesort:
     singularity:
         'docker://' + config['docker']['sambamba']
     shell:
-        'sambamba sort -N -p -m 24G -t 8 -o {output} {input.bam}'
+        'sambamba sort -N -p -m 20G -t 8 -o {output} {input.bam}'
