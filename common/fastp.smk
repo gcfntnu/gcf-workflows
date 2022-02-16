@@ -12,7 +12,7 @@ rule fastp_adapter_fasta:
         EXTRA_ADAPTERS = config.get('extra_adapters', ''),
         PE = len(config['read_geometry']) > 1
     output:
-        fasta = 'fastp_adapters.fa'
+        fasta = temp('fastp_adapters.fa')
     run:
         adapters = params.EXTRA_ADAPTERS
         if not adapters or adapters == 'None':

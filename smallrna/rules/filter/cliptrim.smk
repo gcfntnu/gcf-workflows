@@ -23,13 +23,14 @@ rule dedup_nextflex:
         
 rule smallrna_trim_fastp:
     input:
-        R1 = rules.dedup_nextflex.output if config['filter']['dedup'] else rules.merged_fastq_R1.output
+        R1 = rules.dedup_nextflex.output if config['filter']['dedup'] else rules.merged_fastq_R1.output,
+        adapter_fasta = 'fastp_adapters.fa'
     output:
         R1 = temp(join(FILTER_INTERIM, 'fastp_trimmed', '{sample}_R1.fastq')),
         json = temp(join(FILTER_INTERIM, 'fastp_trimmed', '{sample}.tmp_json'))
     params:
         args = config['filter']['trim']['fastp']['trim_args'],
-        adapter = '' if not config.get('adapter') else '-a {} '.format(config.get('adapter'))
+        adapter_arg = lambda wildcards, input: fastp_adapter_args(input),
     threads:
         4
     singularity:
@@ -38,8 +39,7 @@ rule smallrna_trim_fastp:
         'fastp '
         '-i {input.R1} '
         '-o {output.R1} '
-        '{params.adapter} '
-        '{params.args} '
+        '{params} '
         '--json {output.json} '
         
 rule smallrna_fastp:
@@ -50,8 +50,7 @@ rule smallrna_fastp:
         json = temp(join(FILTER_INTERIM, 'fastp', '{sample}.tmp_json')),
         html = join(FILTER_INTERIM, 'fastp', '{sample}.html')
     params:
-        args = config['filter']['trim']['fastp']['args'],
-        adapter = config['adapter']
+        args = config['filter']['trim']['fastp']['args']
     threads:
         4
     singularity:
