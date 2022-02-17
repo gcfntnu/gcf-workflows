@@ -3,7 +3,7 @@
 include: 'umitools.smk'
 
 STAR_INTERIM = join(QUANT_INTERIM, 'star')
-READ_LENGTH = config.get('read_geometry', [28, 98])[-1]
+READ_LENGTH = config['read_geometry'][-1]
 
 rule txgenomics_whitelist_v1:
     params:

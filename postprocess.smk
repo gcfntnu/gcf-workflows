@@ -1,3 +1,9 @@
+# report on read geometry before any filter steps
+_original_read_geometry = config['read_geometry']
+if 'delta_readlen' in config:
+    for i, val in enumerate(config['delta_readlen']):
+        _original_read_geometry[i] = int(config['read_geometry'][i]) - int(val)
+    
 rule multiqc_config:
     input:
         header_template = srcdir(join('misc', 'multiqc', 'mqc_header.txt')),
@@ -10,7 +16,7 @@ rule multiqc_config:
         org = config['organism'],
         project_id = config['project_id'],
         machine = config['machine'],
-        read_geometry = ','.join([str(x) for x in config['read_geometry']]),
+        read_geometry = ','.join([str(x) for x in _original_read_geometry]),
         libprep = config['libprepkit'],
         repo_dir = srcdir(os.path.dirname('main.config')),
     singularity:
