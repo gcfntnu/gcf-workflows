@@ -7,7 +7,8 @@ if PE:
     rule microbiome_fastp:
         input:
             R1 = join(FILTER_INTERIM, 'cutadapt_demultiplex', '{sample}_R1.fastq'),
-            R2 = join(FILTER_INTERIM, 'cutadapt_demultiplex', '{sample}_R2.fastq')
+            R2 = join(FILTER_INTERIM, 'cutadapt_demultiplex', '{sample}_R2.fastq'),
+            adapter_fasta = 'fastp_adapters.fa'
         output:
             R1 = temp(join(FILTER_INTERIM, 'fastp', '{sample}_R1.fastq')),
             R2 = temp(join(FILTER_INTERIM, 'fastp', '{sample}_R2.fastq')),
@@ -17,7 +18,7 @@ if PE:
             2        
         params:
             args = '--overrepresentation_analysis --overrepresentation_sampling 10000 ',
-            adapter_arg = fastp_adapter_args(),
+            adapter_arg = lambda wildcards, input: fastp_adapter_args(input),
             kit_args = config['filter']['trim'].get('fastp', {}).get('params', ' ')
         singularity:
             'docker://' + config['docker']['fastp']
@@ -26,7 +27,8 @@ if PE:
 else:
     rule microbiome_fastp:
         input:
-            join(FILTER_INTERIM, 'cutadapt_demultiplex', '{sample}_R1.fastq')
+            R1 = join(FILTER_INTERIM, 'cutadapt_demultiplex', '{sample}_R1.fastq'),
+            adapter_fasta = 'fastp_adapters.fa'
         output:
             R1 = temp(join(FILTER_INTERIM, 'fastp', '{sample}_R1.fastq')),
             log_html = join(FILTER_INTERIM, 'fastp', '{sample}.html'),
@@ -35,7 +37,7 @@ else:
             2
         params:
             args = '--overrepresentation_analysis --overrepresentation_sampling 10000 ',
-            adapter_arg = fastp_adapter_args(),
+            adapter_arg = lambda wildcards, input: fastp_adapter_args(input),
             kit_args = config['filter']['trim'].get('fastp', {}).get('params', '')
         singularity:
             'docker://' + config['docker']['fastp']

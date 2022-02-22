@@ -116,7 +116,7 @@ if kit is not None:
         kit += " SE"
 if kit in LIBPREP_CONF:
     # overwrite default config
-    update_config(CONF, LIBPREP_CONF[kit])
+    update_config(CONF, LIBPREP_CONF[kit])  
 else:
     if kit is None:
         logger.warning("Running without LIBREPKIT defined!")
@@ -126,6 +126,15 @@ else:
 
 # update config (config.yaml). Does not update if key exists
 update_config2(config, CONF)
+
+
+# update read geometry with delta_readlen
+if 'delta_readlen' in config and 'read_geometry' in config:
+    read_geometry = config["read_geometry"]
+    for i, val in enumerate(config['delta_readlen']):
+        read_geometry[i] = int(read_geometry[i]) + int(val)
+    config["read_geometry"] = read_geometry 
+
 
 # workflow specific variables 
 WORKFLOW = config.get("workflow")
