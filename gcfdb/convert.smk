@@ -5,11 +5,15 @@
         
 rule convert_gtf2txg:
     input:
-        join('{ref_dir}', 'anno', 'genes.tsv')
+        join('{ref_dir}', 'anno', 'transcripts.tsv')
     output:
         join('{ref_dir}', 'anno', 'tx2gene.tsv')
+    shadow:
+        'minimal'
+    singularity:
+        'docker://' + config['docker']['default']
     shell:
-        'cut -f1,10 {input} > {output}'
+        'csvcut -t -c transcript_id,gene_id {input} > dummy.csv && csvformat -T dummy.csv > {output}'
         
 rule convert_fasta2sequence_dict:
     input:
