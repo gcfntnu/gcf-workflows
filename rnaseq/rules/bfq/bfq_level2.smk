@@ -1,7 +1,7 @@
 
 rule bfq_level2_pca:
     input:
-        exprs = join(QUANT_INTERIM, 'salmon', 'tximport', 'gene_vst.tsv'),
+        exprs = join(QUANT_INTERIM, config['quant']['method'], 'tximport', 'gene_vst.tsv'),
         sample_info =  join(INTERIM_DIR, 'sample_info.tsv')
     params:
         script = srcdir('scripts/plotpca.py')
@@ -14,11 +14,11 @@ rule bfq_level2_pca:
 
 rule bfq_level2_gene_biotypes:
     input:
-        counts = join(QUANT_INTERIM, 'salmon', 'tximport', 'gene_counts.tsv'),
-        abundance = join(QUANT_INTERIM, 'salmon', 'tximport', 'gene_tpm.tsv'),
+        counts = join(QUANT_INTERIM, config['quant']['method'], 'tximport', 'gene_counts.tsv'),
+        abundance = join(QUANT_INTERIM, config['quant']['method'], 'tximport', 'gene_tpm.tsv'),
         sample_info =  join(INTERIM_DIR, 'sample_info.tsv'),
         feature_info = join(REF_DIR, 'anno', 'genes.tsv'),
-        gene_lengths = join(QUANT_INTERIM, 'salmon', 'tximport', 'gene_lengths.tsv')
+        gene_lengths = join(QUANT_INTERIM, config['quant']['method'], 'tximport', 'gene_lengths.tsv')
     params:
         script = srcdir('scripts/counts_qc.py')
     singularity:
@@ -28,7 +28,7 @@ rule bfq_level2_gene_biotypes:
     shell:
         'python {params.script} '
         '--figure top_biotypes '
-        '--abundance {input.counts} '
+        '--abundance {input.abundance} '
         '--counts {input.counts} '
         '--gene-lengths {input.gene_lengths} '
         '--sample-info {input.sample_info} '
@@ -37,9 +37,9 @@ rule bfq_level2_gene_biotypes:
        
 rule bfq_level2_gene_high:
     input:
-        abundance = join(QUANT_INTERIM, 'salmon', 'tximport', 'gene_tpm.tsv'),
-        counts = join(QUANT_INTERIM, 'salmon', 'tximport', 'gene_counts.tsv'),
-        gene_lengths = join(QUANT_INTERIM, 'salmon', 'tximport', 'gene_lengths.tsv'),
+        abundance = join(QUANT_INTERIM, config['quant']['method'], 'tximport', 'gene_tpm.tsv'),
+        counts = join(QUANT_INTERIM, config['quant']['method'], 'tximport', 'gene_counts.tsv'),
+        gene_lengths = join(QUANT_INTERIM, config['quant']['method'], 'tximport', 'gene_lengths.tsv'),
         sample_info =  join(INTERIM_DIR, 'sample_info.tsv'),
         feature_info = join(REF_DIR, 'anno', 'genes.tsv')
     params:
@@ -93,19 +93,19 @@ else:
 
 rule bfq_level2_exprs:
     input:
-        rds = join(QUANT_INTERIM, 'salmon', 'tximport', 'tx_salmon.rds'),
-        gene_counts = join(QUANT_INTERIM, 'salmon', 'tximport', 'gene_counts.tsv'),
-        gene_vst = join(QUANT_INTERIM, 'salmon', 'tximport', 'gene_vst.tsv'),
-        gene_tpm = join(QUANT_INTERIM, 'salmon', 'tximport', 'gene_tpm.tsv'),
-        transcript_counts = join(QUANT_INTERIM, 'salmon', 'tximport', 'transcript_counts.tsv'),
-        transcript_vst = join(QUANT_INTERIM, 'salmon', 'tximport', 'transcript_vst.tsv'),
-        transcript_tpm = join(QUANT_INTERIM, 'salmon', 'tximport', 'transcript_tpm.tsv'),
-        gene_info = join(QUANT_INTERIM, 'salmon', 'tximport', 'gene_info.tsv'),
-        tx_info = join(QUANT_INTERIM, 'salmon', 'tximport', 'transcript_info.tsv')
+        rds = join(QUANT_INTERIM, config['quant']['method'], 'tximport', 'tx_{}.rds'.format(config['quant']['method']) ),
+        gene_counts = join(QUANT_INTERIM, config['quant']['method'], 'tximport', 'gene_counts.tsv'),
+        gene_vst = join(QUANT_INTERIM, config['quant']['method'], 'tximport', 'gene_vst.tsv'),
+        gene_tpm = join(QUANT_INTERIM, config['quant']['method'], 'tximport', 'gene_tpm.tsv'),
+        transcript_counts = join(QUANT_INTERIM, config['quant']['method'], 'tximport', 'transcript_counts.tsv'),
+        transcript_vst = join(QUANT_INTERIM, config['quant']['method'], 'tximport', 'transcript_vst.tsv'),
+        transcript_tpm = join(QUANT_INTERIM, config['quant']['method'], 'tximport', 'transcript_tpm.tsv'),
+        gene_info = join(QUANT_INTERIM, config['quant']['method'], 'tximport', 'gene_info.tsv'),
+        tx_info = join(QUANT_INTERIM, config['quant']['method'], 'tximport', 'transcript_info.tsv')
     params:
         outdir = join(BFQ_INTERIM, 'exprs')
     output:
-        rds = join(BFQ_INTERIM, 'exprs', 'tx_salmon.rds'),
+        rds = join(BFQ_INTERIM, 'exprs', 'tx_{}.rds'.format(config['quant']['method']) ),
         gene_counts = join(BFQ_INTERIM, 'exprs', 'gene_counts.tsv'),
         gene_vst = join(BFQ_INTERIM, 'exprs', 'gene_vst.tsv'),
         gene_tpm = join(BFQ_INTERIM, 'exprs', 'gene_tpm.tsv'),

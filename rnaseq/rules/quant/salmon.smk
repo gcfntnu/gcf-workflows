@@ -77,7 +77,7 @@ rule salmon_map:
         gtf = join(REF_DIR, 'anno', 'genes.gtf')
     params:
         output = join(SALMON_INTERIM, '{sample}'),
-        nboot = 30,
+        nboot = 100,
         lib_type = LIB_TYPE,
         index = join(REF_DIR, 'index', 'transcriptome', 'salmon'),
         sample_args = sample_args,
@@ -96,7 +96,7 @@ rule salmon_map:
         '-l {params.lib_type} '
         '-g {input.gtf} '
         '-p {threads} '
-        '--numBootstraps {params.nboot} '
+        '--numGibbsSamples {params.nboot} -d '
         '--validateMappings '
         '--rangeFactorizationBins 4 '
         '--seqBias '
@@ -203,3 +203,77 @@ rule salmon_quant:
         gene_vst = join(QUANT_INTERIM, 'salmon', 'tximport', 'gene_vst.tsv'),
         tx_counts = join(QUANT_INTERIM, 'salmon', 'tximport', 'transcript_counts.tsv'),
         tx_tpm = join(QUANT_INTERIM, 'salmon', 'tximport', 'transcript_tpm.tsv')
+
+
+rule terminus_group:
+    input:
+        join(SALMON_INTERIM, '{sample}', 'quant.sf')
+    params:
+        salmon_dir = join(SALMON_INTERIM, '{sample}'),
+        outdir = join(QUANT_INTERIM, 'terminus'),
+        m = 0.05,
+        tolerance = 0.001
+    singularity:
+        'docker://' + config['docker']['salmon']
+    output:
+        join(QUANT_INTERIM, 'terminus', '{sample}', 'groups.txt')
+    shell:
+        'terminus group -m {params.m} -d {params.salmon_dir} -o {params.outdir} '
+
+rule terminus_collapse:
+    input:
+       salmon = expand(rules.terminus_group.input, sample=SAMPLES),
+       groups = expand(rules.terminus_group.output, sample=SAMPLES)
+    singularity:
+        'docker://' + config['docker']['salmon']
+    params:
+        input_dirs = lambda wildcards, input: ' '.join([os.path.dirname(n) for n in input.salmon]),
+        outdir = join(QUANT_INTERIM, 'terminus'),
+        consensus_thresh = 0.5
+    output:
+        expand(join(QUANT_INTERIM, 'terminus', '{sample}', 'quant.sf'), sample=SAMPLES),
+        expand(join(QUANT_INTERIM, 'terminus', '{sample}', 'clusters.txt'), sample=SAMPLES)
+    threads:
+        8  
+    shell:
+        'terminus collapse -c {params.consensus_thresh} -d {params.input_dirs} -o {params.outdir} '
+
+
+rule terminus_tx2terminus:
+    input:
+        quant = join(SALMON_INTERIM, SAMPLES[0], 'quant.sf'),
+        clusters = join(QUANT_INTERIM, 'terminus', SAMPLES[0], 'clusters.txt'),
+        tx2gene = join(REF_DIR, 'anno', 'tx2gene.tsv')
+    output:
+        join(QUANT_INTERIM, 'terminus', 'tx2terminus.tsv')
+    params:
+        script = srcdir('scripts/extract_txp_group.py')
+    shell:
+        'python {params.script} {input.quant} {input.clusters} {input.tx2gene} {output}'
+       
+rule terminus_tximport:
+    input:
+        files = expand(join(SALMON_INTERIM, '{sample}', 'quant.sf'), sample=SAMPLES),
+        txinfo = join(QUANT_INTERIM, 'terminus', 'tx2terminus.tsv')
+    params:
+        script = srcdir('scripts/tximport.R')
+    singularity:
+        'docker://' + config['docker']['tximport']
+    output:
+        rds = join(QUANT_INTERIM, 'terminus', 'tximport', 'tx_terminus.rds')
+    shell:
+        'Rscript {params.script} {input.files} '
+        '--txinfo {input.txinfo} '
+        '-t terminus '
+        '-o {output} '
+
+rule terminus_info:
+    input:
+        txinfo = join(REF_DIR, 'anno', 'transcripts.tsv'),
+        tx2terminus = join(QUANT_INTERIM, 'terminus', 'tx2terminus.tsv')
+    params:
+        script = srcdir('scripts/terminus_anno.py')
+    output:
+        join(QUANT_INTERIM, 'terminus', 'terminus_info.tsv')
+    shell:
+        'python {params.script} {input} {output}'

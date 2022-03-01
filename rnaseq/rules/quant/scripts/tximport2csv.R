@@ -10,8 +10,8 @@ parser <- ArgumentParser(description="tximport obj csv export")
 
 parser$add_argument("input", help="tximport obj RDS file")
 
-parser$add_argument("--txinfo", required=TRUE,
-                    help="Transcript info (required). Tab delimited file, needs columns with `gene_id`, `transcript_id`")
+parser$add_argument("--txinfo", required=FALSE,
+                    help="Transcript info. Tab delimited file, needs columns with `gene_id`, `transcript_id`")
 
 parser$add_argument("--geneinfo", required=FALSE,
                     help="Gene info (optional). Tab delimited file, needs column with `gene_id`")
@@ -28,11 +28,14 @@ if (args$verbose==TRUE){
     print(args)
     options(echo=TRUE)
 }
-
-tx.info <- read.table(args$txinfo, sep="\t", header=TRUE)
-tx2gene <- tx.info[,c("transcript_id", "gene_id")]
-
 txi.tx <- readRDS(args$input)
+
+if (is.null(args$txinfo)){
+    tx.info <- txi.tx$tx2gene
+} else{
+    tx.info <- read.table(args$txinfo, sep="\t", header=TRUE)
+}
+
 
 #small testdata may contain a lot of zero counts 
 safeEstimateSizeFactors <- function(dds){
@@ -43,21 +46,21 @@ safeEstimateSizeFactors <- function(dds){
 
 
 if (args$type == "gene"){
-    out <- summarizeToGene(txi.tx, tx2gene)$counts
+    out <- summarizeToGene(txi.tx, txi.tx$tx2gene)$counts
 } else if (args$type == "gene_tpm"){
-    out <- summarizeToGene(txi.tx, tx2gene)$abundance
+    out <- summarizeToGene(txi.tx, txi.tx$tx2gene)$abundance
 } else if (args$type == "gene_tpm_scaled"){
-    out <- summarizeToGene(txi.tx, tx2gene, countsFromAbundance="scaledTPM")$counts
+    out <- summarizeToGene(txi.tx, txi.tx$tx2gene, countsFromAbundance="scaledTPM")$counts
 } else if (args$type == "gene_tpm_length_scaled"){
-    out <- summarizeToGene(txi.tx, tx2gene, countsFromAbundance="lengthScaledTPM")$counts
+    out <- summarizeToGene(txi.tx, txi.tx$tx2gene, countsFromAbundance="lengthScaledTPM")$counts
 } else if (args$type == "gene_length"){
-    out <- summarizeToGene(txi.tx, tx2gene)$length
+    out <- summarizeToGene(txi.tx, txi.tx$tx2gene)$length
 } else if (args$type == "tx"){
     out <- txi.tx$counts
 } else if (args$type == "tx_tpm"){
     out <- txi.tx$abundance
 } else if (args$type == "tx_tpm_scaled"){
-    length4CFA <- tximport:::medianLengthOverIsoform(txi.tx$length, tx2gene)
+    length4CFA <- tximport:::medianLengthOverIsoform(txi.tx$length, txi.tx$tx2gene)
     out <- tximport:::makeCountsFromAbundance(countsMat = txi.tx$counts, 
                                               abundanceMat = txi.tx$abundance,
                                               lengthMat=length4CFA,
@@ -68,9 +71,9 @@ if (args$type == "gene"){
     if (! args$type %in% c("salmon", "kallisto")){
         stop("only salmon, kallisto estimate variances!")
         }
-    out <- summarizeToGene(txi.tx, tx2gene, varReduce=TRUE)$variance
+    out <- summarizeToGene(txi.tx, txi.tx$tx2gene, varReduce=TRUE)$variance
 }  else if (args$type == "gene_vst"){
-    counts <- summarizeToGene(txi.tx, tx2gene)$counts
+    counts <- summarizeToGene(txi.tx, txi.tx$tx2gene)$counts
     samples <- data.frame(row.names=colnames(counts))
     dds <-DESeqDataSetFromMatrix(round(counts), colData=samples, design = ~1)
     tryCatch
@@ -78,7 +81,7 @@ if (args$type == "gene"){
     vsd <- varianceStabilizingTransformation(dds)
     out <- assay(vsd)
 } else if (args$type == "gene_rlog"){
-    counts <- summarizeToGene(txi.tx, tx2gene)$counts
+    counts <- summarizeToGene(txi.tx, txi.tx$tx2gene)$counts
     samples <- data.frame(row.names=colnames(counts))
     dds <-DESeqDataSetFromMatrix(round(counts), colData=samples, design = ~1)
     dds <- safeEstimateSizeFactors(dds)
@@ -97,14 +100,19 @@ if (args$type == "gene"){
     R <- rlog(dds)
     out <- assay(R)
 } else if (args$type == "gene_info"){
-    gene.info <- read.table(args$geneinfo, sep="\t", header=TRUE, row.names="gene_id")
-    
-    counts <- summarizeToGene(txi.tx, tx2gene)$counts
+    gene.info <- read.table(args$geneinfo, sep="\t", header=TRUE)
+    rownames(gene.info) <- gene.info[,"gene_id"]
+    counts <- summarizeToGene(txi.tx, txi.tx$tx2gene)$counts
     out <- gene.info[rownames(counts),]
     keep.cols <- colSums(!is.na(out)) > 0
     out <- out[,keep.cols]
 } else if (args$type == "tx_info"){
-    rownames(tx.info) <- tx.info[,"transcript_id"]
+    if ('terminus_id' %in% colnames(tx.info)){
+        tx.info <- tx.info[!duplicated(tx.info[,"terminus_id"]),]
+        rownames(tx.info) <- tx.info[,"terminus_id"]
+    } else{
+        rownames(tx.info) <- tx.info[,"transcript_id"]
+    }
     out <- tx.info[rownames(txi.tx$counts),]
     keep.cols <- colSums(!is.na(out)) > 0
     out <- out[,keep.cols]
@@ -112,7 +120,7 @@ if (args$type == "gene"){
 
 
 
-write.table(as.data.frame(out), file=args$output, sep="\t", quote=FALSE)
+write.table(as.data.frame(out), file=args$output, sep="\t", quote=FALSE, row.names=TRUE, col.names=NA)
 
 
 
