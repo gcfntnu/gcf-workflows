@@ -10,6 +10,12 @@ import pandas as pd
 from Bio.SeqIO.FastaIO import SimpleFastaParser, FastaIterator
 from Bio.SeqUtils import GC
 
+DISCARD = {'gene': ['score', 'frame', 'feature', 'transcript_id', 'transcript_version',
+                    'transcript_name', 'transcript_source', 'transcript_biotype', 'tag',
+                    'ccds_id', 'transcript_support_level', 'exon_number', 'exon_id',
+                    'exon_version', 'protein_id', 'protein_version'],
+           'transcript': ['score', 'frame', 'feature', 'gene_name', 'gene_source', 'gene_biotype', 'exon_number', 'exon_id',
+                    'exon_version', 'protein_id', 'protein_version']}
 
 def extract_genes(df, args):
     df_gene = df[df['feature'] == args.feature].copy()
@@ -20,8 +26,7 @@ def extract_genes(df, args):
         biotypes = df_gene.gene_biotype.copy()
         biotypes[(df_gene.seqname=="MT") & (df_gene.gene_biotype=="protein_coding")] = "Mt_protein_coding"
         df_gene.gene_biotype = biotypes
-    keep_cols = ['gene_id', 'seqname', 'start', 'end', 'strand', 'gene_id', 'gene_name', 'gene_biotype']
-    keep_cols = list(set(keep_cols).intersection(df_gene.columns))
+    keep_cols = [n for n in df_gene.columns if n not in DISCARD['gene']]
     df_gene = df_gene[keep_cols].copy()
     df_gene['gc_content'] = 0.0
     return df_gene
@@ -35,12 +40,11 @@ def extract_transcripts(df, args):
         tx_ver = df_tx['transcript_version']
         df_tx.loc[:,'transcript_id'] = ['{}.{}'.format(i, j) for i,j in zip(tx, tx_ver)]
     # add mitochondrial_protein_coding as a biotype category
-    if 'gene_biotype' in df_tx.columns and 'seqname' in df_tx.columns:
-        biotypes = df_tx.gene_biotype.copy()
+    if 'transcript_biotype' in df_tx.columns and 'seqname' in df_tx.columns:
+        biotypes = df_tx.transcript_biotype.copy()
         biotypes[(df_tx.seqname=="MT") & (df_tx.transcript_biotype=="protein_coding")] = "Mt_protein_coding"
         df_tx.gene_biotype = biotypes
-    keep_cols = ['transcript_id', 'seqname', 'start', 'end', 'strand', 'gene_id', 'gene_name', 'transcript_biotype']
-    keep_cols = list(set(keep_cols).intersection(df_tx.columns))
+    keep_cols = [n for n in df_tx.columns if n not in DISCARD['transcript']]
     df_tx = df_tx[keep_cols].copy()
     df_tx['gc_content'] = 0.0
     return df_tx
@@ -79,12 +83,15 @@ def add_gc_content(df, df_sub, args):
     return df_sub
 
 
-def extract_feature_length(df):
+def extract_feature_length(df, simplify=False):
     keep_cols = [i for i in df.columns if i not in ['start', 'end']]
     feature_lens = []
     for i, row in df.iterrows():
         feature_lens.append(row['end'] - row['start'])
-    df = df[keep_cols].copy()
+    if simplify:
+        df = df[keep_cols].copy()
+    else:
+        df = df.copy()
     df.loc[:,'length'] = feature_lens
     return df
 
@@ -93,7 +100,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--gtf', help='transcripts.tsv', type=argparse.FileType('r'))
     parser.add_argument('--fasta', help="transcriptome/exon fasta", type=argparse.FileType('r'), required=False)
-    parser.add_argument('--feature', help="feature type tp extract. [genes/transcripts]")
+    parser.add_argument('--feature', help="feature type tp extract. [gene/transcript]")
     parser.add_argument('--db', help="database origins", default="ensembl")
     parser.add_argument('--add-feature-version', help="add feature version to feature name", action='store_true')
     parser.add_argument('--add-gc-content', help="add GC content. needs --transcriptome", action='store_true')
