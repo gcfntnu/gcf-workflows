@@ -76,7 +76,6 @@ if (args$type == "gene"){
     counts <- summarizeToGene(txi.tx, txi.tx$tx2gene)$counts
     samples <- data.frame(row.names=colnames(counts))
     dds <-DESeqDataSetFromMatrix(round(counts), colData=samples, design = ~1)
-    tryCatch
     dds <- safeEstimateSizeFactors(dds)
     vsd <- varianceStabilizingTransformation(dds)
     out <- assay(vsd)

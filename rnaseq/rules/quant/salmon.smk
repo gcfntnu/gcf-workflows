@@ -188,7 +188,7 @@ rule salmon_gene_anndata:
         'docker://' + config['docker']['scanpy']
     shell:
         'python {params.script} '
-        '--input {input.gene_counts} '
+        '--gene-counts {input.gene_counts} '
         '--tpm {input.gene_tpm} '
         '--vsn {input.gene_vst} '
         '--abundance {input.gene_abundance} '
