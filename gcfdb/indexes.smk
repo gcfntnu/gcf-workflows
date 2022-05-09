@@ -28,7 +28,7 @@ rule star_genome_index_gtf:
     params:
         index_dir =  join('{ref_dir}', 'index', '{prefix}', 'star', 'r_{sjdbOverhang}'),
         sjdbOverhang = '{sjdbOverhang}',
-        size_params = lambda wildcards, input: genome_size_params(input.fasta)
+        size_params = lambda wildcards, input: genome_size_params(input.genome)
     threads:
         48
     singularity:
@@ -51,7 +51,7 @@ rule star_genome_index:
     params:
         index_dir =  join('{ref_dir}', 'index', '{prefix}', 'star'),
         sjdbOverhang = '{sjdbOverhang}',
-        size_params = lambda wildcards, input: genome_size_params(input.fasta)
+        size_params = lambda wildcards, input: genome_size_params(input.genome)
     threads:
         48
     singularity:
