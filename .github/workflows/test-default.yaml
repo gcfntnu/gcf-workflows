@@ -26,4 +26,4 @@ jobs:
     - name: Dry run bfq_all
       working-directory: ./default/.tests
       run: |
-        snakemake==7.7.0 -n -p -j2 bfq_all
+        snakemake -n -p -j2 bfq_all
