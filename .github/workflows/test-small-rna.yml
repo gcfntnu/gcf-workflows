@@ -21,7 +21,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        python -m pip install snakemake pyyaml==5.3.1 
+        python -m pip install snakemake pyyaml peppy==5.3.1 
         python --version
     - name: Dry run bfq_all
       working-directory: ./smallrna/.tests
