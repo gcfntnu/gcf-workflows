@@ -9,7 +9,7 @@ def genome_size_params(genome):
     
     """
     size = float(os.path.getsize(genome))
-    n_chrs = 0
+    n_chr = 0
     with open(genome, 'r') as f:
         for line in f:
             if line.strip().startswith('>'):
@@ -17,7 +17,7 @@ def genome_size_params(genome):
     chrnbits = min(18, int(math.log(size / n_chr, 2)))
     sa_nbases = min(14, int(math.log(size, 2)/2 - 1))
     
-    return ' --genomeChrBinNbit {} --genomeSAindexNbases {} '.format(chrnbits, sa_nbases)
+    return ' --genomeChrBinNbits {} --genomeSAindexNbases {} '.format(chrnbits, sa_nbases)
 
 rule star_genome_index_gtf:
     input: 
