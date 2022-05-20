@@ -8,6 +8,10 @@ import yaml
 import json
 import subprocess
 
+import peppy
+from matplotlib import cm, colors
+
+
 QC_PLACEMENT = {
     'External_ID': 0,
     'Sample_Biosource': 10,
@@ -41,67 +45,98 @@ def str_read_geometry(read_geometry):
 
 
 def create_mqc_config(args):
+    pep = peppy.Project(args.pep.name)
     mqc_conf = yaml.load(args.config_template)
-    mqc_conf['title'] = args.project_id
-    read_geometry = args.read_geometry.split(",")
-    #pipeline = config.get("Options","pipeline")
+    title = ','.join(pep.config.get('Project_ID', [args.project_id]))
+    mqc_conf['title'] = title
 
     header_text = args.header_template.read()
-    mqc_conf['intro_text'] = header_text.format(pname=args.project_id)
+    mqc_conf['intro_text'] = header_text.format(pname=title)
     software = get_software_versions(args)
     format_software = '<br/>'.join(["<strong>Software versions</strong>"] + software.split("\n"))
     mqc_conf['intro_text'] = '<br/><br/>'.join([mqc_conf['intro_text'],format_software])
 
     # ommit {'Contact E-mail': contact},
     report_header = [
-    {'Sequencing Platform': args.machine},
-    {'Read Geometry': str_read_geometry(read_geometry)},
-    {'Organism': args.organism},
-    {'Lib prep kit': args.libkit},
+        {'Sequencing Platform': pep.config.get('machine', args.machine)},
+        {'Read Geometry': str_read_geometry(pep.config.read_geometry)},
+        {'Organism': pep.config.get('organism', args.organism).replace('_', ' ').title()},
+        {'Lib prep kit': pep.config.libprepkit},
+        {'Workflow': pep.config.get('workflow', 'custom')}
     ]
 
     mqc_conf['report_header_info'] = report_header
 
-    if len(read_geometry) == 1:
+    if len(pep.config.read_geometry) == 1:
         mqc_conf['extra_fn_clean_exts'].append('_R1')
 
-    s_df = pd.read_csv(args.sample_info, sep='\t', dtype={'Sample_ID': str})
-    s_df.index = s_df['Sample_ID']
-
-    max_260_230 = float(s_df['260/230'].max()) if '260/230' in s_df.columns else 3
-    max_260_280 = float(s_df['260/280'].max()) if '260/280' in s_df.columns else 3
-
-    MAX = {
-        'RIN': 10,
-        '260/230': max_260_230,
-        '260/280': max_260_280
-        }
-
+ 
+    s_df = pep.sample_table
+    s_df = s_df.rename(columns={'sample_name': 'Sample_ID'}).set_index('Sample_ID')
+    drop = list(set(['Flowcell_Name', 'Project_ID', 'R1', 'subsample_name', 'sample_name', 'Flowcell_ID']).intersection(s_df.columns))
+    if 'Organism' in s_df.columns and len(set(s_df['Organism'])) == 1:
+        drop.append('Organism')
+    s_df = s_df.drop(drop, axis=1)
+    
     COL_SCALE = {
-        'RIN': 'OrRd',
-        '260/230': 'PuBu',
-        '260/280': 'BuGn'
+        'RIN': 'RdYlGn',
+        '260/230': 'BuGn',
+        '260/280': 'BuGn',
+        'Concentration': 'BuGn'
+    }
+    
+    def _get_colors(col, scale='pairs'):
+        levels = col.astype('category').cat.categories
+        if scale == 'pairs':
+            cols = list(map(colors.to_hex, cm.tab20.colors))[1:15:2]
+        else:
+            if len(levels) <= 10:
+                cols = list(map(colors.to_hex, cm.tab10.colors))
+            else:
+                cols = list(map(colors.to_hex, cm.tab20.colors))
+                
+        
+        levels = col.astype('category').cat.categories
+        return {k:cols[i] for i,k in enumerate(levels)}
+        
+    BGCOLS = {
+        'Sample_Biosource': _get_colors(s_df['Sample_Biosource'], scale='pairs'),
+        'Sample_Group': _get_colors(s_df['Sample_Group'], scale='mqc')
     }
 
-    s_df.drop(['Sample_ID'], axis=1,inplace=True)
+    
     s_df.dropna(how='all', axis=1, inplace=True)
     s_df = s_df.round(2)
     s_dict = s_df.to_dict(orient='index')
 
     pconfig = {}
+    #pconfig['title'] = 'GCF'
+    desc = pep.config.get('descriptors', {})
     for col in list(s_df.columns.values):
-        if col not in QC_PLACEMENT.keys():
+        pconfig[col] = {'format': '{}', 'namespace': 'gcf'}
+        if col not in desc.keys():
             continue
-        pconfig[col] = {'format': '{}', 'min': 0, 'placement': QC_PLACEMENT[col]}
-        pconfig[col]['max'] = MAX.get(col,None)
-        pconfig[col]['scale'] = COL_SCALE.get(col,False)
-
-    data = s_dict
+        if 'max' in desc[col]:
+            pconfig[col]['max'] = desc[col]['max']
+        if 'min' in desc[col]:
+            pconfig[col]['min'] = desc[col]['min']
+        if 'placement' in desc[col]:
+            pconfig[col]['placement'] = desc[col]['placement']
+        if 'display_name' in desc[col]:
+            pconfig[col]['title'] = desc[col]['display_name']
+        if 'description' in desc[col]:
+            pconfig[col]['description'] = desc[col]['description']
+        if 'suffix' in desc[col]:
+            pconfig[col]['suffix'] = ' ' + desc[col]['suffix']
+        if col in COL_SCALE:
+            pconfig[col]['scale'] = COL_SCALE[col]
+        if col in BGCOLS:
+            pconfig[col]['bgcols'] = BGCOLS[col]
 
     general_statistics = {
         'plot_type': 'generalstats',
         'pconfig': [pconfig],
-        'data': data
+        'data': s_df.to_dict(orient='index')
     }
     custom_data = {'general_statistics': general_statistics}
 
@@ -116,13 +151,14 @@ if __name__ == '__main__':
     parser.add_argument("-p", "--project-id", help="GCF project ID", required=True)
     parser.add_argument("-o", "--output", default=".multiqc_config.yaml", help="Output config file", type=argparse.FileType('w'), required=True)
     parser.add_argument("-S", "--sample-info", type=argparse.FileType('r'), help="Sample info in tsv format", required=True)
-    parser.add_argument("--organism",  help="Organism (if applicable to all samples). Overrides value from samplesheet.", required=True)
-    parser.add_argument("--libkit",  help="Library preparation kit name. (if applicable for all samples). Overrides value from samplesheet.", required=True)
-    parser.add_argument("--machine",  help="Sequencer model.", required=True)
-    parser.add_argument("--read-geometry",  help="Read geometry.", required=True)
+    parser.add_argument("--organism",  help="Organism (if applicable to all samples). Overrides value from samplesheet.", default='')
+    parser.add_argument("--libkit",  help="Library preparation kit name. (if applicable for all samples). Overrides value from samplesheet.", default='')
+    parser.add_argument("--machine",  help="Sequencer model.", default='')
+    parser.add_argument("--read-geometry",  help="Read geometry.", default=[75])
     parser.add_argument("--repo-dir",  help="Path to git repo of workflow.", required=True)
     parser.add_argument("--header-template",  help="Path to multiqc header template.", type=argparse.FileType('r'), required=True)
     parser.add_argument("--config-template",  help="Path to multiqc config template.", type=argparse.FileType('r'), required=True)
+    parser.add_argument("--pep",  help="Path to peppy project", type=argparse.FileType('r'), required=True)
 
     args = parser.parse_args()
 

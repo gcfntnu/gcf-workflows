@@ -1,6 +1,7 @@
 
 from snakemake.utils import validate, min_version
-
+pepfile:
+    'pep/pep_config.yaml'
 configfile:
     'config.yaml'
 

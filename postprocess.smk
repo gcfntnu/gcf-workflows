@@ -19,6 +19,7 @@ rule multiqc_config:
         read_geometry = ','.join([str(x) for x in _original_read_geometry]),
         libprep = config['libprepkit'],
         repo_dir = srcdir(os.path.dirname('main.config')),
+        pep = workflow.pepfile
     singularity:
         'docker://' + config['docker']['default']
     shell:
@@ -32,6 +33,7 @@ rule multiqc_config:
         '--repo-dir {params.repo_dir} '
         '--header-template {input.header_template} '
         '--config-template {input.config_template} '
+        '--pep {params.pep} '
         '-o {output.mqc_config} '
 
 def get_mqc_modules():

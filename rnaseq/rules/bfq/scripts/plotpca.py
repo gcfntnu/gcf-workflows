@@ -10,7 +10,15 @@ import pandas as pd
 import numpy as np
 
 import seaborn as sns
+import matplotlib.colors
 import matplotlib.pyplot as plt
+
+### colors from scanpy:
+### https://raw.githubusercontent.com/scverse/scanpy/master/scanpy/plotting/palettes.py
+from matplotlib import cm, colors
+gcf_10 = list(map(colors.to_hex, cm.tab10.colors))
+gcf_20 = list(map(colors.to_hex, cm.tab20.colors))
+
 
 
 def var_filter(E, f=0.5, axis=1):
@@ -96,22 +104,10 @@ def multiqc_yaml(T, S=None, n_comp=2):
 
     data = []
     data1 = {}
-    default_colors = ['#7cb5ec', '#434348', '#90ed7d', '#f7a35c', '#8085e9',
-                      '#f15c80', '#e4d354', '#2b908f', '#f45b5b', '#91e8e1']
-
-    zeileis_28 = ["#023fa5", "#7d87b9", "#bec1d4", "#d6bcc0", "#bb7784",
-                  "#8e063b", "#4a6fe3", "#8595e1", "#b5bbe3", "#e6afb9", 
-                  "#e07b91", "#d33f6a", "#11c638", "#8dd593", "#c6dec7", 
-                  "#ead3c6", "#f0b98d", "#ef9708", "#0fcfc0", "#9cded6", 
-                  "#d5eae7", "#f3e1eb", "#f6c4e1", "#f79cd4", '#7f7f7f', 
-                  "#c7c7c7", "#1CE6FF", "#336600"]
-    
-
-
     if 'Sample_Group' in df1.columns:
-        groups = set(df1['Sample_Group'])
+        groups = df1['Sample_Group'].astype('category').cat.categories
         g_df = df1.groupby('Sample_Group')
-        colors = zeileis_28 if len(groups) > len(default_colors) else default_colors
+        colors = gcf_20 if len(groups) > len(gcf_10) else gcf_10
         for i, g in enumerate(groups):
             sub = g_df.get_group(g)[['x', 'y']]
             sub['color'] = colors[i]
@@ -127,10 +123,10 @@ def multiqc_yaml(T, S=None, n_comp=2):
         if 'Sample_Group' in df2.columns:
             groups = set(df2['Sample_Group'])
             g_df = df2.groupby('Sample_Group')
-            colors = zeileis_28 if len(groups) > len(default_colors) else default_colors
+            colors = gcf_20_scanpy if len(groups) > len(gcf_10_scanpy) else gcf_10_scanpy
             for i, g in enumerate(groups):
                 sub = g_df.get_group(g)[['x', 'y']]
-                sub['color'] = colors[i]
+                sub['color'] = matplotlib.colors.to_hex(colors[i])
                 sub['name'] = g
                 this_series = sub.to_dict(orient='index')
                 data2.update(this_series)

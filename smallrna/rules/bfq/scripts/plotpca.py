@@ -20,6 +20,10 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 plt.ioff()
+from matplotlib import cm, colors
+
+gcf_10 = list(map(colors.to_hex, cm.tab10.colors))
+gcf_20 = list(map(colors.to_hex, cm.tab20.colors))
 
 def argparser():
     parser = argparse.ArgumentParser(description='Dimred plot from anndata')
@@ -110,14 +114,14 @@ def multiqc_yaml(adata, args):
 
     data = []
     data1 = {}
-    default_colors = ['#7cb5ec', '#434348', '#90ed7d', '#f7a35c', '#8085e9',
-                      '#f15c80', '#e4d354', '#2b908f', '#f45b5b', '#91e8e1']
+
     if 'Sample_Group' in df1.columns:
-        groups = set(df1['Sample_Group'])
+        groups = df1['Sample_Group'].astype('category').cat.categories
         g_df = df1.groupby('Sample_Group')
+        colors = gcf_20 if len(groups) > len(gcf_10) else gcf_10
         for i, g in enumerate(groups):
             sub = g_df.get_group(g)[['x', 'y']]
-            sub['color'] = default_colors[i]
+            sub['color'] = colors[i]
             sub['name'] = g
             this_series = sub.to_dict(orient='index')
             data1.update(this_series)
