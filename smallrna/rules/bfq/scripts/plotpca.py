@@ -137,7 +137,7 @@ def multiqc_yaml(adata, args):
             g_df = df2.groupby('Sample_Group')
             for i, g in enumerate(groups):
                 sub = g_df.get_group(g)[['x', 'y']]
-                sub['color'] = default_colors[i]
+                sub['color'] = colors[i]
                 sub['name'] = g
                 this_series = sub.to_dict(orient='index')
                 data2.update(this_series)
