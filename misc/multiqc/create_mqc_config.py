@@ -85,7 +85,9 @@ def create_mqc_config(args):
         'Concentration': 'BuGn'
     }
     
-    def _get_colors(col, scale='pairs'):
+    def _get_colors(df, col_name, scale='pairs'):
+        if not col_name in df.columns:
+            return None
         levels = col.astype('category').cat.categories
         if scale == 'pairs':
             cols = list(map(colors.to_hex, cm.tab20.colors))[1:15:2]
@@ -98,12 +100,16 @@ def create_mqc_config(args):
         
         levels = col.astype('category').cat.categories
         return {k:cols[i] for i,k in enumerate(levels)}
-        
-    BGCOLS = {
-        'Sample_Biosource': _get_colors(s_df['Sample_Biosource'], scale='pairs'),
-        'Sample_Group': _get_colors(s_df['Sample_Group'], scale='mqc')
-    }
 
+    BGCOLS = {}
+    for col_name in s_df.columns:
+        'Sample_Group':
+        if col_name in ['Sample_Group']:
+            BGCOLS[col_name] = _get_colors(s_df, col_name, scale='mqc')
+        elif col in ['Sample_Biosource']:
+            BGCOLS[col_name] = _get_colors(s_df, col_name, scale='pairs')
+        else:
+            pass
     
     s_df.dropna(how='all', axis=1, inplace=True)
     s_df = s_df.round(2)
