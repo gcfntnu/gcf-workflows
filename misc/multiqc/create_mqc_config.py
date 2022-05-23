@@ -88,6 +88,7 @@ def create_mqc_config(args):
     def _get_colors(df, col_name, scale='pairs'):
         if not col_name in df.columns:
             return None
+        col = df[col_name]
         levels = col.astype('category').cat.categories
         if scale == 'pairs':
             cols = list(map(colors.to_hex, cm.tab20.colors))[1:15:2]
