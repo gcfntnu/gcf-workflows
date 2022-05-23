@@ -1,3 +1,7 @@
+
+PROJECT_ID = config['project_id']
+PROJECT_ID = PROJECT_ID[0] if isinstance(PROJECT_ID, (list, tuple)) else PROJECT_ID
+
 # report on read geometry before any filter steps
 _original_read_geometry = config['read_geometry']
 if 'delta_readlen' in config:
@@ -14,7 +18,7 @@ rule multiqc_config:
     params:
         script = srcdir('misc/multiqc/create_mqc_config.py'),
         org = config['organism'],
-        project_id = config['project_id'],
+        project_id = PROJECT_ID,
         machine = config['machine'],
         read_geometry = ','.join([str(x) for x in _original_read_geometry]),
         libprep = config['libprepkit'],
@@ -48,7 +52,7 @@ rule multiqc_report:
         bfq = BFQ_ALL,
         mqc_config = rules.multiqc_config.output.mqc_config,
     output:
-        report = join(BFQ_INTERIM, 'multiqc_{}.html'.format('_'.join(config['project_id']))),
+        report = join(BFQ_INTERIM, 'multiqc_{}.html'.format(PROJECT_ID)),
     params:
         modules = get_mqc_modules(),
         extra_args = '-f -q --interactive ',
