@@ -105,7 +105,7 @@ def create_mqc_config(args):
     for col_name in s_df.columns:
         if col_name in ['Sample_Group']:
             BGCOLS[col_name] = _get_colors(s_df, col_name, scale='mqc')
-        elif col in ['Sample_Biosource']:
+        elif col_name in ['Sample_Biosource']:
             BGCOLS[col_name] = _get_colors(s_df, col_name, scale='pairs')
         else:
             pass
