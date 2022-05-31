@@ -17,7 +17,6 @@ rule multiqc_config:
         mqc_config = join(BFQ_INTERIM, '.multiqc_config.yaml')
     params:
         script = srcdir('misc/multiqc/create_mqc_config.py'),
-        org = config['organism'],
         project_id = PROJECT_ID,
         machine = config['machine'],
         read_geometry = ','.join([str(x) for x in _original_read_geometry]),
@@ -30,7 +29,6 @@ rule multiqc_config:
         'python {params.script} '
         '-p {params.project_id} '
         '-S {input.sample_info} '
-        '--organism {params.org} '
         '--libkit "{params.libprep}" '
         '--machine "{params.machine}" '
         '--read-geometry {params.read_geometry} '
