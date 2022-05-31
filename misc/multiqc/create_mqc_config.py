@@ -61,7 +61,7 @@ def create_mqc_config(args):
         {'Sequencing Platform': pep.config.get('machine', args.machine)},
         {'Read Geometry': str_read_geometry(pep.config.read_geometry)},
         {'Organism': pep.config.get('organism', args.organism).replace('_', ' ').title()},
-        {'Lib prep kit': pep.config.get('libprepkit', args.libkit},
+        {'Lib prep kit': pep.config.get('libprepkit', args.libkit)},
         {'Workflow': pep.config.get('workflow', args.workflow)}
     ]
 
