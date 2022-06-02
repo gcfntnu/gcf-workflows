@@ -1,0 +1,3 @@
+sample_name,R1,R2,paired_end,Project_ID,Organism,Sample_Group,Project ID
+NMBU33,rangifer_tarandus_reduced/GCF-2021-999/NMBU33_R1.fastq.gz,rangifer_tarandus_reduced/GCF-2021-999/NMBU33_R2.fastq.gz,1,GCF-2021-999,rangifer_tarandus,svalbard_wild,GCF-2021-999
+NMBU38,rangifer_tarandus_reduced/GCF-2021-999/NMBU38_R1.fastq.gz,rangifer_tarandus_reduced/GCF-2021-999/NMBU38_R2.fastq.gz,1,GCF-2021-999,rangifer_tarandus,norway_wild,GCF-2021-999

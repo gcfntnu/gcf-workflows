@@ -1,7 +1,24 @@
 #-*- mode:snakemake -*-
 """Indexes from fasta
 """
-        
+import math
+
+def genome_size_params(genome):
+    """
+    genome size specific params for STAR
+    
+    """
+    size = float(os.path.getsize(genome))
+    n_chr = 0
+    with open(genome, 'r') as f:
+        for line in f:
+            if line.strip().startswith('>'):
+                n_chr += 1
+    chrnbits = min(18, int(math.log(size / n_chr, 2)))
+    sa_nbases = min(14, int(math.log(size, 2)/2 - 1))
+    
+    return ' --genomeChrBinNbits {} --genomeSAindexNbases {} '.format(chrnbits, sa_nbases)
+
 rule star_genome_index_gtf:
     input: 
         genome = join('{ref_dir}', 'fasta', '{prefix}.fa'),
@@ -10,7 +27,8 @@ rule star_genome_index_gtf:
         index = join('{ref_dir}', 'index', '{prefix}', 'star', 'r_{sjdbOverhang}', 'SA')
     params:
         index_dir =  join('{ref_dir}', 'index', '{prefix}', 'star', 'r_{sjdbOverhang}'),
-        sjdbOverhang = '{sjdbOverhang}'
+        sjdbOverhang = '{sjdbOverhang}',
+        size_params = lambda wildcards, input: genome_size_params(input.genome)
     threads:
         48
     singularity:
@@ -23,6 +41,7 @@ rule star_genome_index_gtf:
         '--genomeFastaFiles {input.genome} '
         '--sjdbGTFfile {input.gtf} '
         '--sjdbOverhang {params.sjdbOverhang} '
+        '{params.size_params} '
 
 rule star_genome_index:
     input: 
@@ -31,7 +50,8 @@ rule star_genome_index:
         index = join('{ref_dir}', 'index', '{prefix}', 'star', 'SA')
     params:
         index_dir =  join('{ref_dir}', 'index', '{prefix}', 'star'),
-        sjdbOverhang = '{sjdbOverhang}'
+        sjdbOverhang = '{sjdbOverhang}',
+        size_params = lambda wildcards, input: genome_size_params(input.genome)
     threads:
         48
     singularity:
@@ -42,6 +62,7 @@ rule star_genome_index:
         '--runMode genomeGenerate '
         '--genomeDir {params.index_dir} '
         '--genomeFastaFiles {input.genome} '
+        '{params.size_params} '
         
 rule hisat2_genome_index:
     input:

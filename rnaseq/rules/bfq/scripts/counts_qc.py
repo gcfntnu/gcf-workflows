@@ -13,8 +13,10 @@ import numpy as np
 def high_index(E, n_top=10):
     order = E.values.sum(1).argsort()[::-1]
     keep = order[:n_top]
+    out = order[n_top:]
     genes = E.index[keep]
-    return genes
+    other = E.index[out]
+    return genes, other
 
 def high_values(X, index, copy=True):
     x = X.loc[genes,:]
@@ -24,20 +26,29 @@ def high_values(X, index, copy=True):
 
 
 def fig_expression(abundance, counts, feature_info, norm=True, msg=''):
-    if 'gene_name' not in feature_info:
-        feature_info['gene_name'] = feature_info['gene_id'].copy()
-    a_df = pd.concat([abundance, feature_info[['gene_name', 'gene_biotype']]], axis=1)
-    c_df = pd.concat([counts, feature_info[['gene_name', 'gene_biotype']]], axis=1)
+    #abundance = 100* (abundance / abundance.sum(0))
+    #counts = 100* (counts / counts.sum(0))
+    a_df = pd.concat([abundance, feature_info], axis=1)
+    c_df = pd.concat([counts, feature_info], axis=1)
     keys = {}
     default_colors = ['#7cb5ec', '#434348', '#90ed7d', '#f7a35c',
                       '#8085e9','#f15c80', '#e4d354', '#2b908f',
-                      '#f45b5b', '#91e8e1', '#7cb5ec', '#434348', '#90ed7d', '#f7a35c',
+                      '#f45b5b', '#91e8e1', '#bdbdbd', '#434348', '#90ed7d', '#f7a35c',
                       '#8085e9','#f15c80', '#e4d354', '#2b908f',
-                      '#f45b5b', '#91e8e1']
-    
+                      '#f45b5b', '#91e8e1', '#bdbdbd']
     for i, k in enumerate(a_df.index):
-        name = str(a_df.loc[k, 'gene_name']) + ' (' + a_df.loc[k, 'gene_biotype'] +')' 
-        color = default_colors[i]
+        gene_name = a_df.loc[k, 'gene_name']
+        if pd.isnull(gene_name):
+            gene_name = k
+        gene_biotype =  str(a_df.loc[k, 'gene_biotype'])
+        if gene_biotype == 'other':
+            name = 'Other'
+            color = '#bdbdbd'
+        else:
+            gene_biotype = gene_biotype.replace('_', ' ').title()
+            name = str(gene_name) + ' (' + gene_biotype + ')' 
+            color = default_colors[i]
+        name = name.replace('_', ' ').title()
         keys[k] = {'color': color, 'name': name}
     
     
@@ -45,12 +56,11 @@ def fig_expression(abundance, counts, feature_info, norm=True, msg=''):
     pconfig = {
         'id': 'gene_high',
         'title': 'Top 10 most abundant genes',
-        'ylab': '% of total sample TPM',
+        'ylab': '# Reads',
         'tt_decimals': 1,
         'tt_percentages': False,
         'cpswitch': False,
-        'data_labels' : [{'name': 'TPM', 'ylab': '% of total sample TPM'},
-                         {'name': 'counts', 'ylab': '% of total sample read count'}]
+        'data_labels' : [{'name': 'counts', 'ylab': '# Reads'}, {'name': 'TPM', 'ylab': 'TPM fraction'}]
     }
     
     section = {}
@@ -72,7 +82,7 @@ def fig_expression(abundance, counts, feature_info, norm=True, msg=''):
         if not k in ['gene_name', 'gene_biotype']:
             c_dict[k] = v
     
-    section['data'] = [a_dict, c_dict]
+    section['data'] = [c_dict, a_dict]
 
     return section
 
@@ -110,19 +120,20 @@ def fig_biotype(E, C, F, rel=0.01, msg=''):
             name = k
         else:
             name = k.replace("_", " ").title()
-        color = default_colors[i]
+        if k  == 'other':
+            color = "#bdbdbd"
+        else:
+            color = default_colors[i]
         keys[k] = {"color": color, "name": name}
-
     # Config for the plot
     pconfig = {
         "id": "gene_biotypes",
         "title": "Gene Biotype Counts",
-        'ylab': 'TPM',
+        'ylab': '# Reads',
         'tt_decimals': 1,
         'tt_percentages': False,
         'cpswitch': False,
-        'data_labels' : [{'name': 'TPM', 'ylab': 'TPM'},
-                         {'name': 'counts', 'ylab': '# Reads'}]
+        'data_labels' : [{'name': 'counts', 'ylab': '# Reads'}, {'name': 'TPM', 'ylab': 'TPM'}]
     }
 
     section = {}
@@ -132,8 +143,8 @@ def fig_biotype(E, C, F, rel=0.01, msg=''):
     section["plot_type"] = "bargraph"
 
     section["pconfig"] = pconfig
-    section["categories"] = keys
-    section["data"] = [a_tab.to_dict(), c_tab.to_dict()]
+    section["categories"] = [keys, keys]
+    section["data"] = [c_tab.to_dict(), a_tab.to_dict()]
 
     return section
 
@@ -161,14 +172,13 @@ if __name__ == "__main__":
     args = argparser()
     E = pd.read_csv(args.exprs, sep="\t", index_col=0)
     E.columns = keep_samples = E.columns.astype(str)
-    E = E / 1E4 # normalize TPM to 0-100
+    #E = E / 1E4 # normalize TPM to 0-100
     keep_features = E.index
 
     C = pd.read_csv(args.counts, sep="\t", index_col=0)
     C.columns = C.columns.astype(str)
 
-    C = 100*(C / C.sum(0))
-    
+    #C = 100*(C / C.sum(0))
     if args.samples is not None:
         S = pd.read_csv(args.samples, sep="\t", index_col=0)
         S.index = S.index.astype(str)
@@ -192,10 +202,11 @@ if __name__ == "__main__":
                 keep_features = keep_features[out == False]
                 msg += '. {} features removed from calculation due to low effective gene length (<{})'.format(sum(out), args.len_cutoff)
                 print(msg)
-
+    
     E = E.loc[keep_features,:]
     C = C.loc[keep_features,:]
-
+    L = L.loc[keep_features,:]
+    
     F = pd.read_csv(args.features, sep="\t", index_col='gene_id')
     if not keep_features.isin(F.index).all():
         warnings.warn("missing annotations in feature info!")
@@ -207,12 +218,30 @@ if __name__ == "__main__":
         print(F.head(n=2))
         raise ValueError('Feature info needs columns `gene_biotype` and `gene_name` !')   
     if 'gene_name' not in F.columns:
-        F['gene_name'] = F.index.values.copy()
-    keep = high_index(E, 10)
-    abundance = E.loc[keep,:]
-    counts = C.loc[keep,:]
-    feature_info = F.loc[keep,:]
+        if 'gene_id' in F.columns:
+            F['gene_name'] = F['gene_id'].copy()
+        else:
+            F['gene_name'] = F.index.values.copy()
+    F = F[['gene_name', 'gene_biotype']]
 
+    # renormalize tpm abundance
+    A = C / L
+    E = (A/A.sum(0)) 
+    keep, inv_keep = high_index(E, 10)
+
+    abundance = E.loc[keep,:]
+    other = E.loc[inv_keep,:].sum(0)
+    other.name = "other"
+    abundance = abundance.append(other)
+    counts = C.loc[keep,:]
+    other = C.loc[inv_keep,:].sum(0)
+    other.name = "other"
+    counts = counts.append(other)
+    feature_info = F.loc[keep,:]
+    other = pd.Series(['other','other'], name="other", index=feature_info.columns)
+    feature_info = feature_info.append(other)
+
+    
     if args.fig == 'top_genes':
         section =  fig_expression(abundance, counts, feature_info, msg=msg)
     elif args.fig == 'top_biotypes':

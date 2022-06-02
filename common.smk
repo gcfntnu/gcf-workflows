@@ -26,7 +26,7 @@ rule sample_info:
     singularity:
         'docker://' + config['docker']['default']
     params:
-        script = srcdir('scripts/create_sampleinfo.py')
+        script = srcdir('scripts/pep_sampleinfo.py'),
+        pep = workflow.pepfile
     shell:
-        'python {params.script} config.yaml > {output}'
-
+        'python {params.script} {params.pep} > {output}'

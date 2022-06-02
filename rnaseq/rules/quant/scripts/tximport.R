@@ -13,7 +13,7 @@ parser$add_argument("--txinfo", required=TRUE,
                     help="Transcript info (required). Tab delimited file, needs columns with `gene_id`, `transcript_id`")
 
 parser$add_argument("-t", "--type", type="character", default="salmon",
-                    help="Data origins (kallisto, salmon, sailfish, rsem, stringtie, alevin, none)")
+                    help="Data origins (kallisto, salmon, sailfish, rsem, stringtie, alevin, terminus, none)")
 
 parser$add_argument("-o", "--output", default="tximport.rds",
                     help="Output rds file")
@@ -35,13 +35,20 @@ if (args$verbose == TRUE){
 
 
 tx.info <- read.delim(args$txinfo, sep="\t")
-tx2gene <- tx.info[,c("transcript_id", "gene_id")]
-
 
 if (args$type %in% c("kallisto", "salmon", "stringtie", "sailfish", "rsem")){
+    tx2gene <- tx.info[,c("transcript_id", "gene_id")]
     txi.tx <- tximport(args$input, type=args$type, tx2gene=tx2gene, txOut=TRUE)
+} else if (args$type == "terminus"){
+    tx2gene <- tx.info[,c("transcript_id", "terminus_id")]
+    txi.tx <- tximport(args$input, type="salmon", tx2gene=tx2gene, txOut=FALSE)
+    tx2gene <- tx.info[,c("terminus_id", "gene_id")]
+    tx2gene <- tx2gene[!duplicated(tx2gene[,"terminus_id"]),]
+    rownames(tx2gene) <- tx2gene[,"terminus_id"]
+    ids.ordered <- rownames(txi.tx$counts)
+    tx2gene <- tx2gene[ids.ordered,]
 } else if (args$type == "none"){
-    txi.tx <- tximport(args$input, type=args$type, tx2gene=tx2gene,
+    txi.tx <- tximport(args$input, type=args$type, tx2gene=tx.info[,c(1,2)],
                        importer=importer, txIn=TRUE, txOut=TRUE)
 } else{
     stop(cat("method: ", args$type, " not valid \n"))

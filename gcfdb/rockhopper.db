@@ -1,0 +1,46 @@
+#-*- mode:snakemake -*-
+"""Rockhopper reference genomes (genbank)
+
+Rockhopper references are cached at the gcf winecellar
+
+"""
+RH_URL = join(config.get('winecellar', {}).get('url', ''), 'rockhopper')
+RH_NAME = '{}_{}'.format(config['organism'].capitalize(), config['db']['rockhopper']['assembly'])
+
+rule rockhopper_reference_dir:
+    params:
+        date = datetime.now().strftime("%d-%m-%Y"),
+        url = join(config['winecellar']['url'], 'rockhopper', RH_NAME),
+        proxy = config.get('proxy', {}).get('wget', '') 
+    output:
+        output_dir = directory(join(EXT_DIR, 'rockhopper', '_reference_dir', RH_NAME)),
+    threads: 
+        48
+    shell:
+        """
+        wget {params.proxy} -r -np -nd  -nH -P {output.output_dir} {params.url}
+        """    
+
+rule rockhopper_genome:
+    input:
+        rules.rockhopper_reference_dir.output
+    output:
+        genome = join(EXT_DIR, 'rockhopper', '{organism}', '{assembly}', 'fasta', 'genome.fa')
+    threads: 
+        48
+    shell:
+        'ln -s {input}/*.fna {output}'
+
+rule rockhopper_gff:
+    input:
+        
+    output:
+        gff = join(EXT_DIR, 'custom_reference', '{organism}', '{assembly}', 'anno', 'genes.gff')
+    threads: 
+        24
+    shell:
+        'ls {input}/*.gff| head -1 | xargs tail -n+2 > {output}'
+
+
+
+    

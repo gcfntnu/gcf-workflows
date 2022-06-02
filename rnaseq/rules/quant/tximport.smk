@@ -12,7 +12,7 @@ rule tximport_gene_counts:
     shell:
         'Rscript {params.script} '
         '--type gene '
-        '--txinfo {input.txinfo} '
+        #'--txinfo {input.txinfo} '
         '--output {output} '
         '{input.rds} '
         
@@ -29,7 +29,7 @@ rule tximport_gene_lengths:
     shell:
         'Rscript {params.script} '
         '--type gene_length '
-        '--txinfo {input.txinfo} '
+        #'--txinfo {input.txinfo} '
         '--output {output} '
         '{input.rds} '
         
@@ -46,7 +46,7 @@ rule tximport_gene_tpm:
     shell:
         'Rscript {params.script} '
         '--type gene_tpm '
-        '--txinfo {input.txinfo} '
+        #'--txinfo {input.txinfo} '
         '--output {output} '
         '{input.rds} '
 
@@ -80,7 +80,7 @@ rule tximport_gene_tpm_length_scaled:
     shell:
         'Rscript {params.script} '
         '--type gene_tpm '
-        '--txinfo {input.txinfo} '
+        #'--txinfo {input.txinfo} '
         '--output {output} '
         '{input.rds} '
         
@@ -97,7 +97,7 @@ rule tximport_gene_vst:
     shell:
         'Rscript {params.script} '
         '--type gene_vst '
-        '--txinfo {input.txinfo} '
+        #'--txinfo {input.txinfo} '
         '--output {output} '
         '{input.rds} '
 
@@ -114,7 +114,7 @@ rule tximport_gene_rlog:
     shell:
         'Rscript {params.script} '
         '--type gene_rlog '
-        '--txinfo {input.txinfo} '
+        #'--txinfo {input.txinfo} '
         '--output {output} '
         '{input.rds} '
         
@@ -131,7 +131,7 @@ rule tximport_transcript_counts:
     shell:
         'Rscript {params.script} '
         '--type tx '
-        '--txinfo {input.txinfo} '
+        #'--txinfo {input.txinfo} '
         '--output {output} '
         '{input.rds} '
         
@@ -148,7 +148,7 @@ rule tximport_transcript_tpm:
     shell:
         'Rscript {params.script} '
         '--type tx '
-        '--txinfo {input.txinfo} '
+        #'--txinfo {input.txinfo} '
         '--output {output} '
         '{input.rds} '      
 
@@ -165,7 +165,7 @@ rule tximport_transcript_vst:
     shell:
         'Rscript {params.script} '
         '--type tx_vst '
-        '--txinfo {input.txinfo} '
+        #'--txinfo {input.txinfo} '
         '--output {output} '
         '{input.rds} '
 
@@ -182,7 +182,7 @@ rule tximport_transcript_rlog:
     shell:
         'Rscript {params.script} '
         '--type tx_rlog '
-        '--txinfo {input.txinfo} '
+        #'--txinfo {input.txinfo} '
         '--output {output} '
         '{input.rds} '
 
@@ -200,21 +200,38 @@ rule tximport_gene_info:
     shell:
         'Rscript {params.script} '
         '--type gene_info '
-        '--txinfo {input.txinfo} '
+        #'--txinfo {input.txinfo} '
         '--geneinfo {input.gene_info} '
         '--output {output} '
         '{input.rds} '
         
 rule tximport_transcript_info:
     input:
-        rds = join(QUANT_INTERIM, '{quant}', 'tximport', 'tx_{quant}.rds'),
+        rds = join(QUANT_INTERIM, 'salmon', 'tximport', 'tx_salmon.rds'),
         txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
         script = srcdir('scripts/tximport2csv.R')
     singularity:
         'docker://' + config['docker']['tximport']
     output:
-        join(QUANT_INTERIM, '{quant}', 'tximport', 'transcript_info.tsv')
+        join(QUANT_INTERIM, 'salmon', 'tximport', 'transcript_info.tsv')
+    shell:
+        'Rscript {params.script} '
+        '--type tx_info '
+        '--txinfo {input.txinfo} '
+        '--output {output} '
+        '{input.rds} '
+        
+rule tximport_terminus_info:
+    input:
+        rds = join(QUANT_INTERIM, 'terminus', 'tximport', 'tx_terminus.rds'),
+        txinfo = join(QUANT_INTERIM, 'terminus', 'terminus_info.tsv')
+    params:
+        script = srcdir('scripts/tximport2csv.R')
+    singularity:
+        'docker://' + config['docker']['tximport']
+    output:
+        join(QUANT_INTERIM, 'terminus', 'tximport', 'transcript_info.tsv')
     shell:
         'Rscript {params.script} '
         '--type tx_info '

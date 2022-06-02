@@ -22,17 +22,6 @@ if os.path.exists(extra_conf_fn):
 if not 'SAMPLES' in locals():
     SAMPLES = [str(name) for name in config.get('samples', {}).keys()]
 
-#fixme: move this part 
-if config['libprep_name'].startswith('Lexogen'):
-    # we cut start/end random seqs on lexogen kits
-    read_geometry = config.get('read_geometry')
-    if read_geometry:
-        read_geometry = [int(i) for i in read_geometry]
-        read_geometry[0] -= 11
-        if len(read_geometry) > 1:
-            read_geometry[0] -= 8
-        config['read_geometry'] = read_geometry
-
 include:
     srcdir('../common.smk')
 include:
