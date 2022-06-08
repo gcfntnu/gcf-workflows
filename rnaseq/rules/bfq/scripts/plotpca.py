@@ -123,7 +123,7 @@ def multiqc_yaml(T, S=None, n_comp=2):
         if 'Sample_Group' in df2.columns:
             groups = set(df2['Sample_Group'])
             g_df = df2.groupby('Sample_Group')
-            colors = gcf_20_scanpy if len(groups) > len(gcf_10_scanpy) else gcf_10_scanpy
+            colors = gcf_20 if len(groups) > len(gcf_10) else gcf_10
             for i, g in enumerate(groups):
                 sub = g_df.get_group(g)[['x', 'y']]
                 sub['color'] = matplotlib.colors.to_hex(colors[i])
