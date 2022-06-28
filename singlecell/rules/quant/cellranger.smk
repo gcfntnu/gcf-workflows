@@ -111,7 +111,6 @@ rule cellranger_quant_:
         '--id {params.id} '
         '--sample {params.sample} '
         '--transcriptome {params.genome_dir} '
-        '--expect-cells {params.ncells} '
         '--chemistry {params.chemistry} '
         '{params.extra_args} '
 
