@@ -95,7 +95,7 @@ def config_val2list(d):
     return _update(config)
 
 
-default_config_sections = ["db", "quant", "filter", "analysis", "qc", "bfq", "samples"]
+default_config_sections = ["db", "quant", "filter", "analysis", "qc", "bfq", "samples", "protocol"]
 for section in default_config_sections:
     if section not in config:
         config[section] = {}
@@ -123,7 +123,8 @@ if kit is not None:
         kit += " SE"
 if kit in LIBPREP_CONF:
     # overwrite default config
-    update_config(CONF, LIBPREP_CONF[kit])  
+    kit_conf = LIBPREP_CONF[kit]
+    update_config(CONF, kit_conf)
 else:
     if kit is None:
         logger.warning("Running without LIBREPKIT defined!")
