@@ -1,0 +1,20 @@
+
+FASTQ files quality controlled with fastqc
+({{params.versions.fastqc}}) then filtered and trimmed by fastp
+({{params.versions.fastp}}). Trimmed sequences were aligned to the
+{{params.organism}} {{params.db.genome.assembly}} reference genome
+using STAR ({{params.versions.star}}) and quality metrics were
+extracted with picard CollectRNASeqMetrics
+({{params.versions.picard_gatk}}). Transcript counts were generated
+using quasi alignment (Salmon {{params.versions.salmon}}) to the
+{{params.db.genome.assembly}} transcriptome reference
+sequences. Transcript counts were imported into the R statistical
+software and aggregated to gene counts using the tximport
+({{params.versions.tximport}}) bioconductor package for downstream
+statistical analysis.
+
+
+
+Reference genome:
+{{config.db.reference_db|title}} {{params.db.release}} {{params.db.url}} (download date: {{params.db.download_date}})
+Reference annotation:
