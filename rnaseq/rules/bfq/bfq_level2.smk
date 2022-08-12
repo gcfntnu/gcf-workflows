@@ -75,7 +75,7 @@ if len(config['read_geometry']) > 1:
             expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}.Log.final.out'), sample=SAMPLES),
         run:
             for src, dst in zip(input, output):
-                shell('ln -srf {src} {dst}')
+                shell('ln -srfv {src} {dst}')
 else:
     rule bfq_level2_qc:
         input:
@@ -93,7 +93,7 @@ else:
 
 rule bfq_level2_exprs:
     input:
-        rds = join(QUANT_INTERIM, config['quant']['method'], 'tximport', 'tx_{}.rds'.format(config['quant']['method']) ),
+        rds = join(QUANT_INTERIM, config['quant']['method'], 'tximport', '{}_{}.rds'.format(SALMON_INDEX_TYPE, config['quant']['method']) ),
         gene_counts = join(QUANT_INTERIM, config['quant']['method'], 'tximport', 'gene_counts.tsv'),
         gene_vst = join(QUANT_INTERIM, config['quant']['method'], 'tximport', 'gene_vst.tsv'),
         gene_tpm = join(QUANT_INTERIM, config['quant']['method'], 'tximport', 'gene_tpm.tsv'),
@@ -103,7 +103,8 @@ rule bfq_level2_exprs:
         gene_info = join(QUANT_INTERIM, config['quant']['method'], 'tximport', 'gene_info.tsv'),
         tx_info = join(QUANT_INTERIM, config['quant']['method'], 'tximport', 'transcript_info.tsv')
     params:
-        outdir = join(BFQ_INTERIM, 'exprs')
+        outdir = join(BFQ_INTERIM, 'exprs'),
+        rds_tmp = join(BFQ_INTERIM, 'exprs', '{}_{}.rds'.format(SALMON_INDEX_TYPE, config['quant']['method']) )
     output:
         rds = join(BFQ_INTERIM, 'exprs', 'tx_{}.rds'.format(config['quant']['method']) ),
         gene_counts = join(BFQ_INTERIM, 'exprs', 'gene_counts.tsv'),
@@ -116,7 +117,8 @@ rule bfq_level2_exprs:
         tx_info = join(BFQ_INTERIM, 'exprs', 'transcript_info.tsv')
     run:
         for fn in input:
-            shell('ln -srf -t {params.outdir} {fn}')
+            shell('ln -srfv -t {params.outdir} {fn}')
+        shell('mv {params.rds_tmp} {output.rds}')
 
 rule bfq_level2_aligned:
     input:
@@ -131,7 +133,7 @@ rule bfq_level2_aligned:
         outdir = join(BFQ_INTERIM, 'align')
     run:
         for fn in input:
-            shell('ln -srf -t {params.outdir} {fn}')
+            shell('ln -srfv -t {params.outdir} {fn}')
         
 BFQ_LEVEL2_ALL = [join(BFQ_INTERIM, 'figs', 'pca_mqc.yaml'),
                   join(BFQ_INTERIM, 'figs', 'gene_biotypes_mqc.yaml'),
