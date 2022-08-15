@@ -1,4 +1,4 @@
-
+#-*- mode:snakemake -*-
 rule bfq_level1_all:
     input:
         expand(join(QC_INTERIM, 'fastq_screen', '{sample}_screen.txt'), sample=SAMPLES),
