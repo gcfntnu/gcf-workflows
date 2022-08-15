@@ -22,3 +22,4 @@ BFQ_LEVEL1_ALL = [expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}_screen.
                   expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}.fastp.json'), sample=SAMPLES),
                   expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}.fastp.html'), sample=SAMPLES)]
 BFQ_ALL.extend(BFQ_LEVEL1_ALL)
+BFQ_LOGS.extend(BFQ_LEVEL1_ALL)

@@ -38,4 +38,4 @@ else:
                 shell('ln -srf {src} {dst}')
 
 BFQ_ALL.extend(rules.bfq_level1_all.output)
-
+BFQ_LOGS.extend(rules.bfq_level1_all.output)
