@@ -97,7 +97,7 @@ BFQ_LEVEL2_ALL = [join(BFQ_INTERIM, 'figs', 'pca_mqc.yaml'),
                   rules.bfq_level2_aligned.output]
 BFQ_ALL.extend(BFQ_LEVEL2_ALL)
 
-BFQ_LOGS.extend(
+BFQ_LOGS.extend([
     join(BFQ_INTERIM, 'figs', 'pca_mqc.yaml'),
     join(BFQ_INTERIM, 'figs', 'gene_high_mqc.yaml'),
     rules.bfq_level2_logs.output,
