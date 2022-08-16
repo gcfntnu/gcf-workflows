@@ -4,6 +4,8 @@
 
 logger.info("WORKFLOW: {}".format(WORKFLOW))
 PE = len(config['read_geometry']) > 1
+BFQ_LOGS = []
+BFQ_ALL = []
 include:
     'gcfdb/ensembl.db'
 include:
