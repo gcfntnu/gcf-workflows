@@ -61,8 +61,8 @@ def create_mqc_config(args):
         {'Sequencing Platform': pep.config.get('machine', args.machine)},
         {'Read Geometry': str_read_geometry(pep.config.read_geometry)},
         {'Organism': pep.config.get('organism', args.organism).replace('_', ' ').title()},
-        {'Lib prep kit': pep.config.libprepkit},
-        {'Workflow': pep.config.get('workflow', 'custom')}
+        {'Lib prep kit': pep.config.get('libprepkit', args.libkit)},
+        {'Workflow': pep.config.get('workflow', args.workflow)}
     ]
 
     mqc_conf['report_header_info'] = report_header
@@ -73,7 +73,7 @@ def create_mqc_config(args):
  
     s_df = pep.sample_table
     s_df = s_df.rename(columns={'sample_name': 'Sample_ID'}).set_index('Sample_ID')
-    drop = list(set(['Flowcell_Name', 'Project_ID', 'R1', 'subsample_name', 'sample_name', 'Flowcell_ID']).intersection(s_df.columns))
+    drop = list(set(['Flowcell_Name', 'Project_ID', 'R1', 'R2', 'subsample_name', 'sample_name', 'Flowcell_ID', 'Lane', 'lane', 'run_number']).intersection(s_df.columns))
     if 'Organism' in s_df.columns and len(set(s_df['Organism'])) == 1:
         drop.append('Organism')
     s_df = s_df.drop(drop, axis=1)
@@ -152,13 +152,13 @@ def create_mqc_config(args):
 
 
 if __name__ == '__main__':
-
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("-p", "--project-id", help="GCF project ID", required=True)
     parser.add_argument("-o", "--output", default=".multiqc_config.yaml", help="Output config file", type=argparse.FileType('w'), required=True)
     parser.add_argument("-S", "--sample-info", type=argparse.FileType('r'), help="Sample info in tsv format", required=True)
-    parser.add_argument("--organism",  help="Organism (if applicable to all samples). Overrides value from samplesheet.", default='')
-    parser.add_argument("--libkit",  help="Library preparation kit name. (if applicable for all samples). Overrides value from samplesheet.", default='')
+    parser.add_argument("--organism",  help="Organism (if applicable to all samples). Overrides value from samplesheet.", default='N/A')
+    parser.add_argument("--libkit",  help="Library preparation kit name. (if applicable for all samples). Overrides value from samplesheet.", default='default')
+    parser.add_argument("--workflow",  help="Snakemake workflow.", default='default')    
     parser.add_argument("--machine",  help="Sequencer model.", default='')
     parser.add_argument("--read-geometry",  help="Read geometry.", default=[75])
     parser.add_argument("--repo-dir",  help="Path to git repo of workflow.", required=True)
