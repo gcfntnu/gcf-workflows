@@ -73,8 +73,10 @@ def get_ensembl_url_dynamic(wildcards, tag='dna'):
     if wildcards.release != str(config['db']['ensembl']['release']):
         logger.error('ensembl release mismatch configuration. wildcards vs config value')
         raise ValueError
-    DIVISION = ensembl_lookup(ENS_DB, organism=wildcards.organism)['division']
-    if DIVISION == 'vertebrates':
+    ens_org = ensembl_lookup(ENS_DB, organism=wildcards.organism)
+    if ens_org is not None:
+        DIVISION = ens_org.get('division', '')
+    if DIVISION == 'vertebrates' or DIVISION == '':
         url = 'ftp.ensembl.org/pub/release-{}/{}/{}'
         RELEASE = wildcards.release
     else:
@@ -107,8 +109,10 @@ def get_ensembl_url_static(tag='dna'):
     release = str(config['db']['ensembl']['release'])
     organism = config['organism']
     assembly = config['db']['ensembl'].get('assembly', '')
-    DIVISION = ensembl_lookup(ENS_DB, organism=organism)['division']
-    if DIVISION == 'vertebrates':
+    ens_org = ensembl_lookup(ENS_DB, organism=organism)
+    if ens_org is not None:
+        DIVISION = ens_org.get('division', '')
+    if DIVISION == 'vertebrates' or DIVISION == '':
         url = 'ftp.ensembl.org/pub/release-{}/{}/{}'
         RELEASE = release
     else:
