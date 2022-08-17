@@ -68,7 +68,7 @@ if config['db']['ensembl'].get('assembly') is None:# no hits in lookupfile
 else:
     DB_CONF = config['db']['ensembl']
 
-def get_ensembl_url(wildcards, tag='dna'):
+def get_ensembl_url_dynamic(wildcards, tag='dna'):
     PROTOCOL = 'http://'
     if wildcards.release != str(config['db']['ensembl']['release']):
         logger.error('ensembl release mismatch configuration. wildcards vs config value')
@@ -100,13 +100,46 @@ def get_ensembl_url(wildcards, tag='dna'):
         return join(PROTOCOL + url.format(RELEASE, 'fasta', wildcards.organism), 'ncrna', ncrna_fn)
     else:
         raise ValueError
-        
 
+
+def get_ensembl_url_static(tag='dna'):
+    PROTOCOL = 'http://'
+    release = str(config['db']['ensembl']['release'])
+    organism = config['organism']
+    assembly = config['db']['ensembl'].get('assembly', '')
+    DIVISION = ensembl_lookup(ENS_DB, organism=organism)['division']
+    if DIVISION == 'vertebrates':
+        url = 'ftp.ensembl.org/pub/release-{}/{}/{}'
+        RELEASE = release
+    else:
+        url = 'ftp.ebi.ac.uk/ensemblgenomes/pub/release-{{}}/{}/{{}}/{{}}'.format(DIVISION)
+        RELEASE = str(config['db']['ensemblgenomes']['release'])
+    
+    if tag == 'dna':
+        if organism in ['homo_sapiens', 'mus_musculus']:
+            if '.' in assembly:
+                assembly = assembly.split('.')[0]
+            dna_fn = '.'.join([organism.capitalize(), assembly, 'dna', 'primary_assembly', 'fa', 'gz'])
+        else:
+            dna_fn = '.'.join([organism.capitalize(), assembly, 'dna', 'toplevel', 'fa', 'gz'])
+        return join(PROTOCOL + url.format(RELEASE, 'fasta', organism), 'dna', dna_fn)
+    elif tag == 'gtf':
+        gtf_fn = '.'.join([organism.capitalize(), assembly, RELEASE, 'gtf', 'gz'])
+        return join(PROTOCOL + url.format(RELEASE, 'gtf', organism), gtf_fn)
+    elif tag == 'gff':
+        gff_fn = '.'.join([organism.capitalize(), assembly, RELEASE, 'gff3', 'gz'])
+        return join(PROTOCOL + url.format(RELEASE, 'gff3', organism), gff_fn)
+    elif tag == 'ncrna':
+        ncrna_fn = '.'.join([organism.capitalize(), assembly, 'ncrna', 'fa', 'gz'])
+        return join(PROTOCOL + url.format(RELEASE, 'fasta', organism), 'ncrna', ncrna_fn)
+    else:
+        raise ValueError
+    
 rule ensembl_genome:
     params:
         date = datetime.now().strftime("%d-%m-%Y"),
         proxy = config.get('proxy', {}).get('wget', ''),
-        url = lambda wildcards: get_ensembl_url(wildcards, tag='dna')
+        url = get_ensembl_url_static(tag='dna')
     output:
         genome = join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'fasta', 'genome.fa')
     threads: 
@@ -123,7 +156,7 @@ rule ensembl_noncoding:
     params:
         date = datetime.now().strftime("%d-%m-%Y"),
         proxy = config.get('proxy', {}).get('wget', ''),
-        url = lambda wildcards: get_ensembl_url(wildcards, tag='ncrna')
+        url = get_ensembl_url_static(tag='ncrna')
     output:
         join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'fasta', 'ncrna.fa')
     threads: 
@@ -140,7 +173,7 @@ rule ensembl_gff:
     params:
         date = datetime.now().strftime("%d-%m-%Y"),
         proxy = config.get('proxy', {}).get('wget', ''),
-        url = lambda wildcards: get_ensembl_url(wildcards, tag='gff')
+        url = lambda wildcards: get_ensembl_url_static(tag='gff')
     output:
         join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'anno', '{organism}.{assembly}.{release}.gff')
     threads: 
@@ -157,7 +190,7 @@ rule ensembl_gtf:
     params:
         date = datetime.now().strftime("%d-%m-%Y"),
         proxy = config.get('proxy', {}).get('wget', ''),
-        url = lambda wildcards: get_ensembl_url(wildcards, tag='gtf')
+        url = lambda wildcards: get_ensembl_url_static(tag='gtf')
     output:
         join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'anno', '{organism}.{assembly}.{release}.gtf')
     threads: 
