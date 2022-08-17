@@ -136,7 +136,8 @@ def get_ensembl_url_static(tag='dna'):
         return join(PROTOCOL + url.format(RELEASE, 'fasta', organism), 'ncrna', ncrna_fn)
     else:
         raise ValueError
-    
+
+
 rule ensembl_genome:
     params:
         date = datetime.now().strftime("%d-%m-%Y"),
@@ -215,5 +216,114 @@ rule ensembl_symlink_genes:
         ext = 'g.+f$'
     shell:
         'ln -sr {input} {output}'
+
+
+################
+def get_human_ensembl_url_static(tag='dna'):
+    PROTOCOL = 'http://'
+    release = str(config['db']['ensembl']['release'])
+    organism = 'homo_sapiens'
+    assembly = 'GRCH38'
+    url = 'ftp.ensembl.org/pub/release-{}/{}/{}'
+    RELEASE = str(config['db']['ensemblgenomes']['release'])
+        
+    if tag == 'dna':
+        dna_fn = '.'.join([organism.capitalize(), assembly, 'dna', 'primary_assembly', 'fa', 'gz'])
+        return join(PROTOCOL + url.format(RELEASE, 'fasta', organism), 'dna', dna_fn)
+    elif tag == 'gtf':
+        gtf_fn = '.'.join([organism.capitalize(), assembly, RELEASE, 'gtf', 'gz'])
+        return join(PROTOCOL + url.format(RELEASE, 'gtf', organism), gtf_fn)
+    elif tag == 'gff':
+        gff_fn = '.'.join([organism.capitalize(), assembly, RELEASE, 'gff3', 'gz'])
+        return join(PROTOCOL + url.format(RELEASE, 'gff3', organism), gff_fn)
+    elif tag == 'ncrna':
+        ncrna_fn = '.'.join([organism.capitalize(), assembly, 'ncrna', 'fa', 'gz'])
+        return join(PROTOCOL + url.format(RELEASE, 'fasta', organism), 'ncrna', ncrna_fn)
+    else:
+        raise ValueError
+
+ruleorder: human_ensembl_genome > ensembl_genome
+ruleorder: human_ensembl_noncoding > ensembl_noncoding
+ruleorder: human_ensembl_gff > ensembl_gff
+ruleorder: human_ensembl_gtf > ensembl_gtf
+
+rule human_ensembl_genome:
+    params:
+        date = datetime.now().strftime("%d-%m-%Y"),
+        proxy = config.get('proxy', {}).get('wget', ''),
+        url = get_human_ensembl_url_static(tag='dna')
+    output:
+        genome = join(EXT_DIR, 'ensembl', 'release-{}'.format(config['db']['ensembl']['release']), 'homo_sapiens', 'GRCh38', 'fasta', 'genome.fa')
+    threads: 
+        24
+    log:
+        join(EXT_DIR, 'ensembl', 'release-{release}', 'homo_sapiens', 'GRCh38', 'logs', 'genome.log')
+    shell:
+        """
+        wget {params.proxy} -O- {params.url} | gunzip -c >> {output.genome}
+        echo 'Ensembl DNA,release-{wildcards.release},{params.url},{params.date}' >> {log}
+        """
+
+rule human_ensembl_noncoding:
+    params:
+        date = datetime.now().strftime("%d-%m-%Y"),
+        proxy = config.get('proxy', {}).get('wget', ''),
+        url = get_human_ensembl_url_static(tag='ncrna')
+    output:
+        join(EXT_DIR, 'ensembl', 'release-{release}', 'homo_sapiens', 'GRCh38', 'fasta', 'ncrna.fa')
+    threads: 
+        24
+    log:
+        join(EXT_DIR, 'ensembl', 'release-{release}', 'homo_sapiens', 'GRCh38', 'logs', 'ncrna.log')
+    shell: 
+        """
+        wget {params.proxy} -O- {params.url} | gunzip -c >> {output}
+        echo 'Ensembl DNA,release-{wildcards.release},{params.url},{params.date}' > {log}
+        """
+
+rule human_ensembl_gff:
+    params:
+        date = datetime.now().strftime("%d-%m-%Y"),
+        proxy = config.get('proxy', {}).get('wget', ''),
+        url = lambda wildcards: get_human_ensembl_url_static(tag='gff')
+    output:
+        join(EXT_DIR, 'ensembl', 'release-{release}', 'homo_sapiens', 'GRCh38', 'anno', 'homo_sapiens.GRCh38.{release}.gff')
+    threads: 
+        24
+    log:
+        join(EXT_DIR, 'ensembl', 'release-{release}', 'homo_sapiens', 'GRCh38', 'logs', 'gff.log')
+    shell: 
+        """
+        wget {params.proxy} -O- {params.url} | gunzip -c >> {output}
+        echo 'Ensembl GFF,release-{wildcards.release},{params.url},{params.date}' > {log}
+        """
+
+rule human_ensembl_gtf:
+    params:
+        date = datetime.now().strftime("%d-%m-%Y"),
+        proxy = config.get('proxy', {}).get('wget', ''),
+        url = lambda wildcards: get_human_ensembl_url_static(tag='gtf')
+    output:
+        join(EXT_DIR, 'ensembl', 'release-{release}', 'homo_sapiens', 'GRCh38', 'anno', 'homo_sapiens.GRCh38.{release}.gtf')
+    threads: 
+        24
+    log:
+        join(EXT_DIR, 'ensembl', 'release-{release}', 'homo_sapiens', 'GRCh38', 'logs', 'gtf.log')
+    shell: 
+        """
+        wget {params.proxy} -O- {params.url} | gunzip -c >> {output}
+        echo 'Ensembl GTF,release-{wildcards.release},{params.url},{params.date}' > {log}
+        """ 
+
+
+#rule human_ensembl_symlink_genes:
+#    input:
+#        join(EXT_DIR, 'ensembl', 'release-{release}', 'homo_sapiens', 'GRCh38', 'anno', 'homo_sapiens.GRCh38.{release}.{ext}')
+#    output:
+#        join(EXT_DIR, 'ensembl', 'release-{release}', 'homo_sapiens', 'GRCh38', 'anno', 'genes.{ext}')
+#    wildcard_constraints:
+#        ext = 'g.+f$'
+#    shell:
+#        'ln -sr {input} {output}'
 
     
