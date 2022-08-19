@@ -28,7 +28,6 @@ rule lncipedia_noncoding_hc:
     params:
         unpack(lncipedia_input),
         proxy = config.get('proxy', {}).get('wget', ''),
-        date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(EXT_DIR, 'lncipedia', '{release}', 'homo_sapiens', '{asssembly}', 'fasta', 'high-confidence-set_lncipedia_{release}_hc.fasta')
     threads:
@@ -38,14 +37,13 @@ rule lncipedia_noncoding_hc:
     shell: 
         """
         wget {params.proxy} -O- {params.fasta} > {output}
-        echo 'LNCipedia High confidence,{params.release},{params.fasta},{params.date}' > {log}
+        echo 'LNCipedia High confidence,{params.release},{params.fasta},`date -I`' > {log}
         """
 
 rule lncipedia_gtf:
     params:
         unpack(lncipedia_input),
         proxy = config.get('proxy', {}).get('wget', ''),
-        date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(EXT_DIR, 'lncipedia', '{release}', 'homo_sapiens', '{asssembly}', 'anno', 'lncipedia_{release}_{assembly}.gtf')
     threads:
@@ -55,7 +53,7 @@ rule lncipedia_gtf:
     shell:
         """
         wget {params.proxy} -O- {params.gtf} > {output}
-        echo 'LNCipedia GTF,{params.release},{params.gtf},{params.date}' > {log}
+        echo 'LNCipedia GTF,{params.release},{params.gtf},`date -I`' > {log}
         """
 
 

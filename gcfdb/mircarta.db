@@ -28,7 +28,6 @@ rule mircarta_hairpin_fasta:
     params:
         url = join(MIRCARTA_URL, '{}_precursors.fa'.format(MIR_ORG[ORG])),
         proxy = config.get('proxy', {}).get('wget', ''),
-        date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(MIRCARTA_EXT, 'fasta', 'hairpin.fa')
     log:
@@ -36,14 +35,13 @@ rule mircarta_hairpin_fasta:
     shell:
         """
         wget {params.proxy} {params.url} -O- | sed 's/U/T/g' > {output}
-        echo "Mircarta hairpin,{MIRCARTA_RELEASE},{params.url},{params.date}" > {log}
+        echo "Mircarta hairpin,{MIRCARTA_RELEASE},{params.url},`date -I`" > {log}
         """
         
 rule mircarta_mature_fasta:
     params:
         url = join(MIRCARTA_URL, '{}_mirnas.fa'.format(MIR_ORG[ORG])),
         proxy = config.get('proxy', {}).get('wget', ''),
-        date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(MIRCARTA_EXT, 'fasta', 'mature.fa')
     log:
@@ -51,14 +49,13 @@ rule mircarta_mature_fasta:
     shell:
         """
         wget {params.proxy} {params.url}  -O- | sed 's/U/T/g' > {output}
-        echo "Mircarta mature,{MIRCARTA_RELEASE},{params.url},{params.date}" > {log}
+        echo "Mircarta mature,{MIRCARTA_RELEASE},{params.url},`date -I`" > {log}
         """
         
 rule mircarta_gff:        
     params:
         url = join(MIRCARTA_URL, '{}.gff3'.format(MIR_ORG[ORG])),
         proxy = config.get('proxy', {}).get('wget', ''),
-        date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(MIRCARTA_EXT, 'anno', 'genes.gff3')
     log:
@@ -66,7 +63,7 @@ rule mircarta_gff:
     shell:
         """
         wget {params.proxy} -O- {params.url} > {output}
-        echo "Mircarta gff,{MIRCARTA_RELEASE},{params.url},{params.date}" > {log}
+        echo "Mircarta gff,{MIRCARTA_RELEASE},{params.url},`date -I`" > {log}
         """
 
 rule mircarta_db_all:

@@ -85,7 +85,6 @@ def get_gencode_url(wildcards, sub='genome'):
 rule gencode_genome:
     params:
         url = lambda wildcards: get_gencode_url(wildcards, sub='genome'),
-        date = datetime.now().strftime("%d-%m-%Y"),
         release = DB_CONF['release'],
         proxy = config.get('proxy', {}).get('wget', ''),
     output:
@@ -97,12 +96,11 @@ rule gencode_genome:
     shell: 
         """
         wget {params.proxy} -O- {params.url} | gunzip -c  > {output}
-        echo 'Gencode DNA,release-{params.release},{params.url},{params.date}' > {log}
+        echo 'Gencode DNA,release-{params.release},{params.url},`date -I`' > {log}
         """
 
 rule gencode_noncoding:
     params:
-        date = datetime.now().strftime("%d-%m-%Y"),
         release = DB_CONF['release'],
         proxy = config.get('proxy', {}).get('wget', ''),
         url = lambda wildcards, input: get_gencode_url(wildcards, 'ncrna')
@@ -115,12 +113,11 @@ rule gencode_noncoding:
     shell: 
         """
         wget {params.proxy} -O- {params.url} | gunzip -c > {output}
-        echo 'Gencode non-coding RNA,release-{params.release},{params.url},{params.date}' > {log}
+        echo 'Gencode non-coding RNA,release-{params.release},{params.url},`date -I`' > {log}
         """
 
 rule gencode_gff:
     params:
-        date = datetime.now().strftime("%d-%m-%Y"),
         release = DB_CONF['release'],
         proxy = config.get('proxy', {}).get('wget', ''),
         url = lambda wildcards, input: get_gencode_url(wildcards, 'gff')
@@ -133,12 +130,11 @@ rule gencode_gff:
     shell: 
         """
         wget {params.proxy} -O- {params.url} | gunzip -c > {output}
-        echo 'Gencode GFF,release-{params.release},{params.url},{params.date}' > {log}
+        echo 'Gencode GFF,release-{params.release},{params.url},`date -I`' > {log}
         """
 
 rule gencode_gtf:
     params:
-        date = datetime.now().strftime("%d-%m-%Y"),
         release = DB_CONF['release'],
         proxy = config.get('proxy', {}).get('wget', ''),
         url = lambda wildcards, input: get_gencode_url(wildcards, 'gtf')
@@ -151,5 +147,5 @@ rule gencode_gtf:
     shell: 
         """
         wget {params.proxy} -O- {params.url} | gunzip -c > {output}
-        echo 'Gencode GTF,release-{params.release},{params.url},{params.date}' > {log}
+        echo 'Gencode GTF,release-{params.release},{params.url},`date -I`' > {log}
         """ 

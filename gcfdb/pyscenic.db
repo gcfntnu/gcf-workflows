@@ -37,7 +37,6 @@ rule pyscenic_tf:
     params:
         url = TF_URL,
         proxy = config.get('proxy', {}).get('wget', ''),
-        date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(PYSCENIC_EXT, 'tfs.txt')
     log:
@@ -45,7 +44,7 @@ rule pyscenic_tf:
     shell:
         """
         wget {params.proxy} -O - {params.url} > {output}
-        echo "Pyscenic,TF,{params.url},{params.date}" > {log}
+        echo "Pyscenic,TF,{params.url},`date -I`" > {log}
         """
 
 rule pyscenic_motif_db:
@@ -54,13 +53,12 @@ rule pyscenic_motif_db:
     params:
         url = MOTIF2TF_URL,
         proxy = config.get('proxy', {}).get('wget', ''),
-        date = datetime.now().strftime("%d-%m-%Y")
     log:
        join(PYSCENIC_EXT, 'logs', 'motifs.log') 
     shell:
         """
         wget {params.proxy} -O - {params.url} -o {log} > {output}
-        echo "Pyscenic,Motifs,{params.url},{params.date}" > {log}
+        echo "Pyscenic,Motifs,{params.url},`date -I`" > {log}
         """
     
 rule pyscenic_cis_db:
@@ -69,13 +67,12 @@ rule pyscenic_cis_db:
     params:
         url = CIS_DB_URL,
         proxy = config.get('proxy', {}).get('wget', ''),
-        date = datetime.now().strftime("%d-%m-%Y")
     log:
        join(PYSCENIC_EXT, 'logs', 'tss.log') 
     shell:
         """
         wget {params.proxy} -O - {params.url} -o {log} > {output}
-        echo "Pyscenic,Cis,{params.url},{params.date}" > {log}
+        echo "Pyscenic,Cis,{params.url},`date -I`" > {log}
         """
 
 rule pyscenic_db_all:

@@ -38,7 +38,6 @@ def gtrnadb_url(wildcards):
 rule gtrnadb_trna:
     params:
         url = gtrnadb_url,
-        date = datetime.now().strftime("%d-%m-%Y"),
         proxy = config.get('proxy', {}).get('wget', ''),
         version = GTRNADB_VER[ORG]
     output:
@@ -48,7 +47,7 @@ rule gtrnadb_trna:
     shell:
         """
         wget {params.proxy} -O {output} {params.url}
-        echo "GtRNAdb,{params.version},{params.url},{params.date}" > {log}
+        echo "GtRNAdb,{params.version},{params.url},`date -I`" > {log}
         """
 
 def gtrnadb2_url(wildcards):
@@ -61,7 +60,6 @@ def gtrnadb2_url(wildcards):
 rule gtrnadb2_trna:
     params:
         url = gtrnadb2_url,
-        date = datetime.now().strftime("%d-%m-%Y"),
         proxy = config.get('proxy', {}).get('wget', ''),
         version = GTRNADB_VER[ORG]
     output:
@@ -71,5 +69,5 @@ rule gtrnadb2_trna:
     shell:
         """
         wget {params.proxy} -O {output} {params.url}
-        echo "GtRNAdb2,{params.version},{params.url},{params.date}" > {log}
+        echo "GtRNAdb2,{params.version},{params.url},`date -I`" > {log}
         """

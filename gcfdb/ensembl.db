@@ -6,10 +6,11 @@ Use ensembl.org for vertebrates and ensemblgenomes for other kingdoms.
 0) Check for config custom reference
 
 1) Initialize ensembl from organism (set required configuration : assembly, release numbers)
-2) Build urls for downloading files and add to config
+2) Build urls for downloading files
 3) Download files into REF_DIR structure
 
 """
+PROTOCOL = 'https://'
 
 # assembly name lookup table
 include:
@@ -24,26 +25,28 @@ else:
 
 def ensembl_lookup(fn, organism=None, assembly=None):
     import gzip
-    out = []
+    hits = []
     organism = organism or config['organism']
     release = config['db']['ensembl']['release']
     if not os.path.exists(fn):
         logger.info('ensembl lookupfile for release {} is missing!'.format(release))
-        return None
+        return {'assembly': None, 'division': None, 'species': organism}
     header = ['species', 'assembly', 'division']
     for row in gzip.open(fn).read().decode('utf-8').splitlines():
         els = dict(zip(header, row.split('\t')))
         if els['species'] == organism:
             if config['organism'] in ['homo_sapiens', 'mus_musculus']:
                 els['assembly'] = els['assembly'].split('.')[0]
-            out.append(els)
-    if len(out) == 0:
-        logger.error('species `{}` not found in ensembl lookup file'.format(config['organism']))
-        return {}
-    if len(out) > 1:
+            hits.append(els)
+    if len(hits) == 0:
+        logger.warning('species `{}` not found in ensembl lookup file'.format(organism))
+        return {'assembly': None, 'division': None, 'species': organism}
+    elif len(hits) > 1:
         logger.error('multiple hits in ensembl lookup file')
         raise ValueError
-    return out[0]
+    else:
+        els = hits[0]
+    return els
         
 def init_ensembl(els):
     """Set assembly and division from organism
@@ -52,278 +55,197 @@ def init_ensembl(els):
     if els is None:
         return config
     for k in ['assembly', 'division']:
-        config['db']['ensembl'][k] = els[k]
+        config['db']['ensembl'][k] = els.get(k)
     
     return config
 
-
-ENS_DB = srcdir('tables/ensembl-{}.gz'.format(config['db']['ensembl']['release']))
-config = init_ensembl(ensembl_lookup(ENS_DB))
-
-if config['db']['ensembl'].get('assembly') is None:# no hits in lookupfile
+ENS_RELEASE = str(config['db']['ensembl']['release'])
+config = init_ensembl(ensembl_lookup(srcdir('tables/ensembl-{}.gz'.format(ENS_RELEASE))))
+ENS_DIVISION = config['db']['ensembl']['division'] or ''
+ENS_ASSEMBLY = config['db']['ensembl']['assembly'] or ''
+if not ENS_ASSEMBLY:
+    # no hits in lookup or no valid lookup file
     ref = config['db'].get('reference_db')
-    if ref is None or ref == 'ensembl': 
+    if ref is None:
+        logger.warning('no reference_db is set in config file. Assuming reference_db is `custom_reference`')
         config['db']['reference_db'] = 'custom_reference'
-    DB_CONF = {}
+    elif ref == 'ensembl':
+        logger.warning('no hits in ensembl lookup file. Trying reference_db = `custom_reference`')
+        config['db']['reference_db'] = 'custom_reference'
+    else:
+        logger.info('no hits in ensembl lookup file (reference_db={})'.format(ref))
+    config['db']['reference_db'] = 'custom_reference'
+            
+
+if ENS_DIVISION == 'vertebrates':
+    URL = 'ftp.ensembl.org/pub/release-{}/{{}}/{{}}'.format(ENS_RELEASE)
 else:
-    DB_CONF = config['db']['ensembl']
-
-def get_ensembl_url_dynamic(wildcards, tag='dna'):
-    PROTOCOL = 'http://'
-    if wildcards.release != str(config['db']['ensembl']['release']):
-        logger.error('ensembl release mismatch configuration. wildcards vs config value')
-        raise ValueError
-    ens_org = ensembl_lookup(ENS_DB, organism=wildcards.organism)
-    DIVISION = ens_org.get('division', 'vertebrates')
-    if DIVISION == 'vertebrates':
-        url = 'ftp.ensembl.org/pub/release-{}/{}/{}'
-        RELEASE = wildcards.release
-    else:
-        url = 'ftp.ebi.ac.uk/ensemblgenomes/pub/release-{{}}/{}/{{}}/{{}}'.format(DIVISION)
-        RELEASE = str(config['db']['ensemblgenomes']['release'])
-    
-    if tag == 'dna':
-        if wildcards.organism in ['homo_sapiens', 'mus_musculus']:
-            if '.' in wildcards.assembly:
-                wildcards.assembly = wildcards.assembly.split('.')[0]
-            dna_fn = '.'.join([wildcards.organism.capitalize(), wildcards.assembly, 'dna', 'primary_assembly', 'fa', 'gz'])
-        else:
-            dna_fn = '.'.join([wildcards.organism.capitalize(), wildcards.assembly, 'dna', 'toplevel', 'fa', 'gz'])
-        return join(PROTOCOL + url.format(RELEASE, 'fasta', wildcards.organism), 'dna', dna_fn)
-    elif tag == 'gtf':
-        gtf_fn = '.'.join([wildcards.organism.capitalize(), wildcards.assembly, RELEASE, 'gtf', 'gz'])
-        return join(PROTOCOL + url.format(RELEASE, 'gtf', wildcards.organism), gtf_fn)
-    elif tag == 'gff':
-        gff_fn = '.'.join([wildcards.organism.capitalize(), wildcards.assembly, RELEASE, 'gff3', 'gz'])
-        return join(PROTOCOL + url.format(RELEASE, 'gff3', wildcards.organism), gff_fn)
-    elif tag == 'ncrna':
-        ncrna_fn = '.'.join([wildcards.organism.capitalize(), wildcards.assembly, 'ncrna', 'fa', 'gz'])
-        return join(PROTOCOL + url.format(RELEASE, 'fasta', wildcards.organism), 'ncrna', ncrna_fn)
-    else:
-        raise ValueError
-
-
-def get_ensembl_url_static(tag='dna'):
-    PROTOCOL = 'http://'
-    release = str(config['db']['ensembl']['release'])
-    organism = config['organism']
-    assembly = config['db']['ensembl'].get('assembly', '')
-    ens_org = ensembl_lookup(ENS_DB, organism=organism)
-    DIVISION = ens_org.get('division', 'vertebrates')
-    if DIVISION == 'vertebrates':
-        url = 'ftp.ensembl.org/pub/release-{}/{}/{}'
-        RELEASE = release
-    else:
-        url = 'ftp.ebi.ac.uk/ensemblgenomes/pub/release-{{}}/{}/{{}}/{{}}'.format(DIVISION)
-        RELEASE = str(config['db']['ensemblgenomes']['release'])
-    
-    if tag == 'dna':
-        if organism in ['homo_sapiens', 'mus_musculus']:
-            if '.' in assembly:
-                assembly = assembly.split('.')[0]
-            dna_fn = '.'.join([organism.capitalize(), assembly, 'dna', 'primary_assembly', 'fa', 'gz'])
-        else:
-            dna_fn = '.'.join([organism.capitalize(), assembly, 'dna', 'toplevel', 'fa', 'gz'])
-        return join(PROTOCOL + url.format(RELEASE, 'fasta', organism), 'dna', dna_fn)
-    elif tag == 'gtf':
-        gtf_fn = '.'.join([organism.capitalize(), assembly, RELEASE, 'gtf', 'gz'])
-        return join(PROTOCOL + url.format(RELEASE, 'gtf', organism), gtf_fn)
-    elif tag == 'gff':
-        gff_fn = '.'.join([organism.capitalize(), assembly, RELEASE, 'gff3', 'gz'])
-        return join(PROTOCOL + url.format(RELEASE, 'gff3', organism), gff_fn)
-    elif tag == 'ncrna':
-        ncrna_fn = '.'.join([organism.capitalize(), assembly, 'ncrna', 'fa', 'gz'])
-        return join(PROTOCOL + url.format(RELEASE, 'fasta', organism), 'ncrna', ncrna_fn)
-    else:
-        raise ValueError
-
+    ENSG_RELEASE = str(config['db']['ensemblgenomes']['release'])
+    URL = 'ftp.ebi.ac.uk/ensemblgenomes/pub/release-{}/{}/{{}}/{{}}'.format(ENSG_RELEASE, ENS_DIVISION)
 
 rule ensembl_genome:
     params:
-        date = datetime.now().strftime("%d-%m-%Y"),
         proxy = config.get('proxy', {}).get('wget', ''),
-        url = get_ensembl_url_static(tag='dna')
+        url = join(PROTOCOL + URL.format('fasta', ORG), 'dna'),
+        filename = '.'.join([ORG.capitalize(), ENS_ASSEMBLY, 'dna', 'primary_assembly', 'fa', 'gz']) if ORG in ['homo_sapiens', 'mus_musculus'] else '.'.join([ORG.capitalize(), ENS_ASSEMBLY, 'dna', 'toplevel', 'fa', 'gz']),
+        release = ENS_RELEASE
     output:
-        genome = join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'fasta', 'genome.fa')
+        genome = join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), ORG, ENS_ASSEMBLY, 'fasta', 'genome.fa')
     threads: 
         24
     log:
-        join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'logs', 'genome.log')
+        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), ORG, ENS_ASSEMBLY, 'logs', 'genome.log')
     shell:
         """
-        wget {params.proxy} -O- {params.url} | gunzip -c >> {output.genome}
-        echo 'Ensembl DNA,release-{wildcards.release},{params.url},{params.date}' >> {log}
+        wget {params.proxy} -O- {params.url}/{params.filename} | gunzip -c >> {output.genome}
+        echo "Ensembl DNA,release-{params.release},{params.url}/{params.filename},`date -I`" > {log}
         """
 
 rule ensembl_noncoding:
     params:
-        date = datetime.now().strftime("%d-%m-%Y"),
         proxy = config.get('proxy', {}).get('wget', ''),
-        url = get_ensembl_url_static(tag='ncrna')
+        url = join(PROTOCOL + URL.format('fasta', ORG), 'ncrna'),
+        filename = '.'.join([ORG.capitalize(), ENS_ASSEMBLY, 'ncrna', 'fa', 'gz']),
+        release = ENS_RELEASE
     output:
-        join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'fasta', 'ncrna.fa')
+        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), ORG, ENS_ASSEMBLY, 'fasta', 'ncrna.fa')
     threads: 
         24
     log:
-        join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'logs', 'ncrna.log')
+        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), ORG, ENS_ASSEMBLY, 'logs', 'ncrna.log')
     shell: 
         """
-        wget {params.proxy} -O- {params.url} | gunzip -c >> {output}
-        echo 'Ensembl DNA,release-{wildcards.release},{params.url},{params.date}' > {log}
+        wget {params.proxy} -O- {params.url}/{params.filename} | gunzip -c >> {output}
+        echo 'Ensembl DNA,release-{params.release},{params.url}/{params.filename},`date -I`' > {log}
         """
 
 rule ensembl_gff:
     params:
-        date = datetime.now().strftime("%d-%m-%Y"),
         proxy = config.get('proxy', {}).get('wget', ''),
-        url = lambda wildcards: get_ensembl_url_static(tag='gff')
+        url = PROTOCOL + URL.format('gff3', ORG),
+        filename = '.'.join([ORG.capitalize(), ENS_ASSEMBLY, ENS_RELEASE, 'gff3', 'gz']),
+        release = ENS_RELEASE
     output:
-        join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'anno', '{organism}.{assembly}.{release}.gff')
+        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), ORG, ENS_ASSEMBLY, 'anno', '.'.join([ORG, ENS_ASSEMBLY, ENS_RELEASE, 'gff']) )
     threads: 
         24
     log:
-        join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'logs', 'gff.log')
+        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), ORG, ENS_ASSEMBLY, 'logs', 'gff.log')
     shell: 
         """
-        wget {params.proxy} -O- {params.url} | gunzip -c >> {output}
-        echo 'Ensembl GFF,release-{wildcards.release},{params.url},{params.date}' > {log}
+        wget {params.proxy} -O- {params.url}/{params.filename} | gunzip -c >> {output}
+        echo 'Ensembl GFF,release-{params.release},{params.url}/{params.filename},`date -I`' > {log}
         """
-
+        
 rule ensembl_gtf:
     params:
-        date = datetime.now().strftime("%d-%m-%Y"),
         proxy = config.get('proxy', {}).get('wget', ''),
-        url = lambda wildcards: get_ensembl_url_static(tag='gtf')
+        url = PROTOCOL + URL.format('gtf', ORG),
+        filename = '.'.join([ORG.capitalize(), ENS_ASSEMBLY, ENS_RELEASE, 'gtf', 'gz']),
+        release = ENS_RELEASE
     output:
-        join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'anno', '{organism}.{assembly}.{release}.gtf')
+        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), ORG, ENS_ASSEMBLY, 'anno', '.'.join([ORG, ENS_ASSEMBLY, ENS_RELEASE, 'gtf']))
     threads: 
         24
     log:
-        join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'logs', 'gtf.log')
+        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), ORG, ENS_ASSEMBLY, 'logs', 'gtf.log')
     shell: 
         """
-        wget {params.proxy} -O- {params.url} | gunzip -c >> {output}
-        echo 'Ensembl GTF,release-{wildcards.release},{params.url},{params.date}' > {log}
-        """ 
-
+        wget {params.proxy} -O- {params.url}/{params.filename} | gunzip -c >> {output}
+        echo 'Ensembl GTF,release-{params.release},{params.url}/{params.filename},`date -I`' > {log}
+        """
 
 rule ensembl_symlink_genes:
     input:
-        join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'anno', '{organism}.{assembly}.{release}.{ext}')
+        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), ORG, ENS_ASSEMBLY, 'anno', '.'.join([ORG, ENS_ASSEMBLY, ENS_RELEASE, '{ext}']))
     output:
-        join(EXT_DIR, 'ensembl', 'release-{release}', '{organism}', '{assembly}', 'anno', 'genes.{ext}')
+        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), ORG, ENS_ASSEMBLY, 'anno', 'genes.{ext}')
     wildcard_constraints:
         ext = 'g.+f$'
     shell:
         'ln -sr {input} {output}'
 
 
-################
-def get_human_ensembl_url_static(tag='dna'):
-    PROTOCOL = 'http://'
-    release = str(config['db']['ensembl']['release'])
-    organism = 'homo_sapiens'
-    assembly = 'GRCH38'
-    url = 'ftp.ensembl.org/pub/release-{}/{}/{}'
-    RELEASE = str(config['db']['ensemblgenomes']['release'])
-        
-    if tag == 'dna':
-        dna_fn = '.'.join([organism.capitalize(), assembly, 'dna', 'primary_assembly', 'fa', 'gz'])
-        return join(PROTOCOL + url.format(RELEASE, 'fasta', organism), 'dna', dna_fn)
-    elif tag == 'gtf':
-        gtf_fn = '.'.join([organism.capitalize(), assembly, RELEASE, 'gtf', 'gz'])
-        return join(PROTOCOL + url.format(RELEASE, 'gtf', organism), gtf_fn)
-    elif tag == 'gff':
-        gff_fn = '.'.join([organism.capitalize(), assembly, RELEASE, 'gff3', 'gz'])
-        return join(PROTOCOL + url.format(RELEASE, 'gff3', organism), gff_fn)
-    elif tag == 'ncrna':
-        ncrna_fn = '.'.join([organism.capitalize(), assembly, 'ncrna', 'fa', 'gz'])
-        return join(PROTOCOL + url.format(RELEASE, 'fasta', organism), 'ncrna', ncrna_fn)
-    else:
-        raise ValueError
 
+## special casing human genome rules for some rules that need the human genome when working in other organisms (mostly contamination checks)
 ruleorder: human_ensembl_genome > ensembl_genome
 ruleorder: human_ensembl_noncoding > ensembl_noncoding
 ruleorder: human_ensembl_gff > ensembl_gff
 ruleorder: human_ensembl_gtf > ensembl_gtf
-
+    
 rule human_ensembl_genome:
     params:
-        date = datetime.now().strftime("%d-%m-%Y"),
         proxy = config.get('proxy', {}).get('wget', ''),
-        url = get_human_ensembl_url_static(tag='dna')
+        url = join(PROTOCOL + URL.format('fasta', 'homo_sapiens'), 'dna'),
+        filename = '.'.join(['homo_sapiens'.capitalize(), ENS_ASSEMBLY, 'dna', 'primary_assembly', 'fa', 'gz']),
+        release = ENS_RELEASE
     output:
-        genome = join(EXT_DIR, 'ensembl', 'release-{}'.format(config['db']['ensembl']['release']), 'homo_sapiens', 'GRCh38', 'fasta', 'genome.fa')
+        genome = join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), 'homo_sapiens', ENS_ASSEMBLY, 'fasta', 'genome.fa')
     threads: 
         24
     log:
-        join(EXT_DIR, 'ensembl', 'release-{release}', 'homo_sapiens', 'GRCh38', 'logs', 'genome.log')
+        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), 'homo_sapiens', ENS_ASSEMBLY, 'logs', 'genome.log')
     shell:
         """
-        wget {params.proxy} -O- {params.url} | gunzip -c >> {output.genome}
-        echo 'Ensembl DNA,release-{wildcards.release},{params.url},{params.date}' >> {log}
+        wget {params.proxy} -O- {params.url}/{params.filename} | gunzip -c >> {output.genome}
+        echo 'Ensembl DNA,release-{params.release},{params.url}/{params.filename},`date -I`' >> {log}
         """
 
 rule human_ensembl_noncoding:
     params:
-        date = datetime.now().strftime("%d-%m-%Y"),
         proxy = config.get('proxy', {}).get('wget', ''),
-        url = get_human_ensembl_url_static(tag='ncrna')
+        url = join(PROTOCOL + URL.format('fasta', 'homo_sapiens'), 'ncrna'),
+        filename = '.'.join(['homo_sapiens'.capitalize(), ENS_ASSEMBLY, 'ncrna', 'fa', 'gz']),
+        release = ENS_RELEASE
     output:
-        join(EXT_DIR, 'ensembl', 'release-{release}', 'homo_sapiens', 'GRCh38', 'fasta', 'ncrna.fa')
+        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), 'homo_sapiens', ENS_ASSEMBLY, 'fasta', 'ncrna.fa')
     threads: 
         24
     log:
-        join(EXT_DIR, 'ensembl', 'release-{release}', 'homo_sapiens', 'GRCh38', 'logs', 'ncrna.log')
+        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), 'homo_sapiens', ENS_ASSEMBLY, 'logs', 'ncrna.log')
     shell: 
         """
-        wget {params.proxy} -O- {params.url} | gunzip -c >> {output}
-        echo 'Ensembl DNA,release-{wildcards.release},{params.url},{params.date}' > {log}
+        wget {params.proxy} -O- {params.url}/{params.filename} | gunzip -c >> {output}
+        echo 'Ensembl DNA,release-{params.release},{params.url}/{params.filename},`date -I`' > {log}
         """
 
 rule human_ensembl_gff:
     params:
-        date = datetime.now().strftime("%d-%m-%Y"),
         proxy = config.get('proxy', {}).get('wget', ''),
-        url = lambda wildcards: get_human_ensembl_url_static(tag='gff')
+        url = PROTOCOL + URL.format('gff3', 'homo_sapiens'),
+        filename = '.'.join(['homo_sapiens'.capitalize(), ENS_ASSEMBLY, ENS_RELEASE, 'gff3', 'gz']),
+        release = ENS_RELEASE
     output:
-        join(EXT_DIR, 'ensembl', 'release-{release}', 'homo_sapiens', 'GRCh38', 'anno', 'homo_sapiens.GRCh38.{release}.gff')
+        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), 'homo_sapiens', ENS_ASSEMBLY, 'anno', '.'.join(['homo_sapiens', ENS_ASSEMBLY, ENS_RELEASE, 'gff']))
     threads: 
         24
     log:
-        join(EXT_DIR, 'ensembl', 'release-{release}', 'homo_sapiens', 'GRCh38', 'logs', 'gff.log')
+        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), 'homo_sapiens', ENS_ASSEMBLY, 'logs', 'gff.log')
     shell: 
         """
-        wget {params.proxy} -O- {params.url} | gunzip -c >> {output}
-        echo 'Ensembl GFF,release-{wildcards.release},{params.url},{params.date}' > {log}
+        wget {params.proxy} -O- {params.url}/{params.filename} | gunzip -c >> {output}
+        echo 'Ensembl GFF,release-{params.release},{params.url}/{params.filename},`date -I`' > {log}
         """
-
+        
 rule human_ensembl_gtf:
     params:
-        date = datetime.now().strftime("%d-%m-%Y"),
         proxy = config.get('proxy', {}).get('wget', ''),
-        url = lambda wildcards: get_human_ensembl_url_static(tag='gtf')
+        url = PROTOCOL + URL.format('gtf', 'homo_sapiens'),
+        filename = '.'.join(['homo_sapiens'.capitalize(), ENS_ASSEMBLY, ENS_RELEASE, 'gtf', 'gz']),
+        release = ENS_RELEASE
     output:
-        join(EXT_DIR, 'ensembl', 'release-{release}', 'homo_sapiens', 'GRCh38', 'anno', 'homo_sapiens.GRCh38.{release}.gtf')
+        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), 'homo_sapiens', ENS_ASSEMBLY, 'anno', '.'.join(['homo_sapiens', ENS_ASSEMBLY, ENS_RELEASE, 'gff']))
     threads: 
         24
     log:
-        join(EXT_DIR, 'ensembl', 'release-{release}', 'homo_sapiens', 'GRCh38', 'logs', 'gtf.log')
+        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), 'homo_sapiens', ENS_ASSEMBLY, 'logs', 'gtf.log')
     shell: 
         """
-        wget {params.proxy} -O- {params.url} | gunzip -c >> {output}
-        echo 'Ensembl GTF,release-{wildcards.release},{params.url},{params.date}' > {log}
-        """ 
+        wget {params.proxy} -O- {params.url}/{params.filename} | gunzip -c >> {output}
+        echo 'Ensembl GTF,release-{params.release},{params.url}/{params.filename},`date -I`' > {log}
+        """
 
 
-#rule human_ensembl_symlink_genes:
-#    input:
-#        join(EXT_DIR, 'ensembl', 'release-{release}', 'homo_sapiens', 'GRCh38', 'anno', 'homo_sapiens.GRCh38.{release}.{ext}')
-#    output:
-#        join(EXT_DIR, 'ensembl', 'release-{release}', 'homo_sapiens', 'GRCh38', 'anno', 'genes.{ext}')
-#    wildcard_constraints:
-#        ext = 'g.+f$'
-#    shell:
-#        'ln -sr {input} {output}'
 
-    
+
+

@@ -10,7 +10,6 @@ _VIRAL_DECOYS = ["NC_017996","NC_014835","NC_001683","NC_001593","NC_013931","NC
 rule ncbi_nucore:
     params:
         url = 'https://www.ncbi.nlm.nih.gov/nuccore/{seq_id}',
-        date = datetime.now().strftime("%d-%m-%Y")
     output:
         fasta = join(EXT_DIR, 'ncbi', 'nucore', 'fasta', '{seq_id}.fa')
     log:
@@ -18,7 +17,7 @@ rule ncbi_nucore:
     shell:
         """
         efetch -db nuccore -id {wildcards.seq_id} -format fasta > {output.fasta}        
-        echo "ncbi nucore,{wildcards.seq_id},{params.url},{params.date}" > {log}
+        echo "ncbi nucore,{wildcards.seq_id},{params.url},`date -I`" > {log}
         """
 
 rule ncbi_viral_decoys:
@@ -34,7 +33,6 @@ rule ncbi_homo_sapiens_rrna:
     params:
         url_cru = 'https://www.ncbi.nlm.nih.gov/nuccore/555853',
         url_5S = 'https://www.ncbi.nlm.nih.gov/nuccore/23898',
-        date = datetime.now().strftime("%d-%m-%Y")
     output:
         fasta = join(EXT_DIR, 'ncbi', 'homo_sapiens', 'fasta', 'rrna.fa')
     log:
@@ -45,14 +43,13 @@ rule ncbi_homo_sapiens_rrna:
         """
         efetch -db nuccore -id U13369.1 -format fasta > {output.fasta}
         efetch -db nuccore -id X12811.1 -format fasta >> {output.fasta}
-        echo "ncbi nucore,U13369.1|X12811.1,{params.url_cru}|{params.url_5S},{params.date}" > {log}
+        echo "ncbi nucore,U13369.1|X12811.1,{params.url_cru}|{params.url_5S},`date -I`" > {log}
         """
 
 rule ncbi_mus_musculus_rrna:
     params:
         url_cru = 'https://www.ncbi.nlm.nih.gov/nuccore/bk000964.3',
         url_5S = 'https://www.ncbi.nlm.nih.gov/nuccore/NR_030686.1',
-        date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(EXT_DIR, 'ncbi', 'mus_musculus', 'fasta', 'rrna.fa')
     log:
@@ -63,13 +60,12 @@ rule ncbi_mus_musculus_rrna:
         """
         efetch -db nuccore -id bk000964.3 -format fasta > {output}
         efetch -db nuccore -id NR_030686.1 -format fasta >> {output}
-        echo "ncbi nucore,bk000964.3,{params.url_cru}|{params.url_5S},{params.date}" > {log}
+        echo "ncbi nucore,bk000964.3,{params.url_cru}|{params.url_5S},`date -I`" > {log}
         """
 
 rule ncbi_sars_cov2:
     params:
         url = 'https://www.ncbi.nlm.nih.gov/nuccore/NC_045512',
-        date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(EXT_DIR, 'ncbi', 'NC_045512.2', 'fasta', 'NC_045512.2.fa')
     log:
@@ -79,13 +75,12 @@ rule ncbi_sars_cov2:
     shell:
         """
         efetch -db nuccore -id NC_045512 -format fasta > {output}
-        echo "ncbi nucore,{params.url}|{params.url},{params.date}" > {log}
+        echo "ncbi nucore,{params.url}|{params.url},`date -I`" > {log}
         """
 
 rule ncbi_streptococcus_agalactiae_genome:
     params:
         url = 'ftp.ncbi.nlm.nih.gov/genomes/refseq/bacteria/Streptococcus_agalactiae/representative/GCF_900638415.1_57635_F01',
-        date = datetime.now().strftime("%d-%m-%Y"),
         protocol = 'https:'
     output:
         fasta = join(EXT_DIR, 'ncbi', 'streptococcus_agalactiae', 'fasta', 'streptococcus_agalactiae.fa'),
@@ -101,13 +96,12 @@ rule ncbi_streptococcus_agalactiae_genome:
         gunzip *.fna.gz -c > {output.fasta}
         gunzip *.gff.gz -c > {output.gff}
         gunzip *.gtf.gz -c > {output.gtf}
-        echo "ncbi bacteria,{params.url},{params.date}" > {log}
+        echo "ncbi bacteria,{params.url},`date -I`" > {log}
         """
 
 rule ncbi_cervus_elaphus_hippelaphus:
     params:
         url = 'ftp.ncbi.nlm.nih.gov/genomes/all/GCA/002/197/005/GCA_002197005.1_CerEla1.0/',
-        date = datetime.now().strftime("%d-%m-%Y"),
         protocol = 'https:'
     output:
         fasta = join(EXT_DIR, 'ncbi', 'cervus_elaphus_hippelaphus', 'fasta', 'genome.fa'),
@@ -123,7 +117,7 @@ rule ncbi_cervus_elaphus_hippelaphus:
         gunzip GCA_002197005.1_CerEla1.0_genomic.fna.gz -c > {output.fasta}
         gunzip GCA_002197005.1_CerEla1.0_genomic.gff.gz -c > {output.gff}
         gunzip GCA_002197005.1_CerEla1.0_genomic.gtf.gz -c > {output.gtf}
-        echo "ncbi genomes,{params.url},{params.date}" > {log}
+        echo "ncbi genomes,{params.url},`date -I`" > {log}
         """
 
 
