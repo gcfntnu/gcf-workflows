@@ -2,7 +2,7 @@
 
 rule bfq_level2_bam_qc:
     input:
-        directory(expand(rules.qualimap_bamqc.output.odir, sample=SAMPLES)),
+        expand(rules.qualimap_bamqc.output.odir, sample=SAMPLES),
         expand(rules.picard_alignment_summary_metrics.output, sample=SAMPLES),
         expand(rules.picard_wgs_metrics.output, sample=SAMPLES),
         expand(rules.picard_mark_duplicates.output.metrics, sample=SAMPLES),
