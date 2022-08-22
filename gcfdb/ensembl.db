@@ -174,19 +174,19 @@ ruleorder: human_ensembl_genome > ensembl_genome
 ruleorder: human_ensembl_noncoding > ensembl_noncoding
 ruleorder: human_ensembl_gff > ensembl_gff
 ruleorder: human_ensembl_gtf > ensembl_gtf
-    
+
 rule human_ensembl_genome:
     params:
         proxy = config.get('proxy', {}).get('wget', ''),
         url = join(PROTOCOL + URL.format('fasta', 'homo_sapiens'), 'dna'),
-        filename = '.'.join(['homo_sapiens'.capitalize(), ENS_ASSEMBLY, 'dna', 'primary_assembly', 'fa', 'gz']),
+        filename = '.'.join(['homo_sapiens'.capitalize(), 'GRCh38', 'dna', 'primary_assembly', 'fa', 'gz']),
         release = ENS_RELEASE
     output:
-        genome = join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), 'homo_sapiens', ENS_ASSEMBLY, 'fasta', 'genome.fa')
+        genome = join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), 'homo_sapiens', 'GRCh38', 'fasta', 'genome.fa')
     threads: 
         24
     log:
-        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), 'homo_sapiens', ENS_ASSEMBLY, 'logs', 'genome.log')
+        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), 'homo_sapiens', 'GRCh38', 'logs', 'genome.log')
     shell:
         """
         wget {params.proxy} -O- {params.url}/{params.filename} | gunzip -c >> {output.genome}
@@ -197,14 +197,14 @@ rule human_ensembl_noncoding:
     params:
         proxy = config.get('proxy', {}).get('wget', ''),
         url = join(PROTOCOL + URL.format('fasta', 'homo_sapiens'), 'ncrna'),
-        filename = '.'.join(['homo_sapiens'.capitalize(), ENS_ASSEMBLY, 'ncrna', 'fa', 'gz']),
+        filename = '.'.join(['homo_sapiens'.capitalize(), 'GRCh38', 'ncrna', 'fa', 'gz']),
         release = ENS_RELEASE
     output:
-        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), 'homo_sapiens', ENS_ASSEMBLY, 'fasta', 'ncrna.fa')
+        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), 'homo_sapiens', 'GRCh38', 'fasta', 'ncrna.fa')
     threads: 
         24
     log:
-        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), 'homo_sapiens', ENS_ASSEMBLY, 'logs', 'ncrna.log')
+        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), 'homo_sapiens', 'GRCh38', 'logs', 'ncrna.log')
     shell: 
         """
         wget {params.proxy} -O- {params.url}/{params.filename} | gunzip -c >> {output}
@@ -215,14 +215,14 @@ rule human_ensembl_gff:
     params:
         proxy = config.get('proxy', {}).get('wget', ''),
         url = PROTOCOL + URL.format('gff3', 'homo_sapiens'),
-        filename = '.'.join(['homo_sapiens'.capitalize(), ENS_ASSEMBLY, ENS_RELEASE, 'gff3', 'gz']),
+        filename = '.'.join(['homo_sapiens'.capitalize(), 'GRCh38', ENS_RELEASE, 'gff3', 'gz']),
         release = ENS_RELEASE
     output:
-        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), 'homo_sapiens', ENS_ASSEMBLY, 'anno', '.'.join(['homo_sapiens', ENS_ASSEMBLY, ENS_RELEASE, 'gff']))
+        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), 'homo_sapiens', 'GRCh38', 'anno', '.'.join(['homo_sapiens', 'GRCh38', ENS_RELEASE, 'gff']))
     threads: 
         24
     log:
-        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), 'homo_sapiens', ENS_ASSEMBLY, 'logs', 'gff.log')
+        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), 'homo_sapiens', 'GRCh38', 'logs', 'gff.log')
     shell: 
         """
         wget {params.proxy} -O- {params.url}/{params.filename} | gunzip -c >> {output}
@@ -233,14 +233,14 @@ rule human_ensembl_gtf:
     params:
         proxy = config.get('proxy', {}).get('wget', ''),
         url = PROTOCOL + URL.format('gtf', 'homo_sapiens'),
-        filename = '.'.join(['homo_sapiens'.capitalize(), ENS_ASSEMBLY, ENS_RELEASE, 'gtf', 'gz']),
+        filename = '.'.join(['homo_sapiens'.capitalize(), 'GRCh38', ENS_RELEASE, 'gtf', 'gz']),
         release = ENS_RELEASE
     output:
-        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), 'homo_sapiens', ENS_ASSEMBLY, 'anno', '.'.join(['homo_sapiens', ENS_ASSEMBLY, ENS_RELEASE, 'gff']))
+        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), 'homo_sapiens', 'GRCh38', 'anno', '.'.join(['homo_sapiens', 'GRCh38', ENS_RELEASE, 'gff']))
     threads: 
         24
     log:
-        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), 'homo_sapiens', ENS_ASSEMBLY, 'logs', 'gtf.log')
+        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), 'homo_sapiens', 'GRCh38', 'logs', 'gtf.log')
     shell: 
         """
         wget {params.proxy} -O- {params.url}/{params.filename} | gunzip -c >> {output}
