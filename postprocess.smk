@@ -47,7 +47,7 @@ def get_mqc_modules():
 
 rule multiqc_report:
     input:
-        bfq = BFQ_LOGS,
+        bfq = BFQ_ALL,
         mqc_config = rules.multiqc_config.output.mqc_config,
     output:
         report = join(BFQ_INTERIM, 'multiqc_{}.html'.format(PROJECT_ID)),
@@ -55,6 +55,7 @@ rule multiqc_report:
         modules = get_mqc_modules(),
         extra_args = '-f -q --interactive ',
         analysis_directory = BFQ_INTERIM,
+        bfq_logs = BFQ_LOGS
     singularity:
         'docker://' + config['docker']['multiqc']
     shell:
