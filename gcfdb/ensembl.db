@@ -27,6 +27,8 @@ def ensembl_lookup(fn, organism=None, assembly=None):
     import gzip
     hits = []
     organism = organism or config['organism']
+    if organism in ['NA', 'na', 'N/A', 'n/a', '']:
+        return {'assembly': None, 'division': None, 'species': organism}
     release = config['db']['ensembl']['release']
     if not os.path.exists(fn):
         logger.info('ensembl lookupfile for release {} is missing!'.format(release))
@@ -39,7 +41,7 @@ def ensembl_lookup(fn, organism=None, assembly=None):
                 els['assembly'] = els['assembly'].split('.')[0]
             hits.append(els)
     if len(hits) == 0:
-        logger.warning('species `{}` not found in ensembl lookup file'.format(organism))
+        logger.info('species `{}` not found in ensembl lookup file'.format(organism))
         return {'assembly': None, 'division': None, 'species': organism}
     elif len(hits) > 1:
         logger.error('multiple hits in ensembl lookup file')
@@ -67,14 +69,14 @@ if not ENS_ASSEMBLY:
     # no hits in lookup or no valid lookup file
     ref = config['db'].get('reference_db')
     if ref is None:
-        logger.warning('no reference_db is set in config file. Assuming reference_db is `custom_reference`')
+        logger.info('no reference_db is set in config file. Assuming reference_db is `custom_reference`')
         config['db']['reference_db'] = 'custom_reference'
     elif ref == 'ensembl':
         logger.warning('no hits in ensembl lookup file. Trying reference_db = `custom_reference`')
         config['db']['reference_db'] = 'custom_reference'
     else:
         logger.info('no hits in ensembl lookup file (reference_db={})'.format(ref))
-    config['db']['reference_db'] = 'custom_reference'
+    
             
 
 if ENS_DIVISION == 'vertebrates':
