@@ -54,8 +54,7 @@ rule multiqc_report:
     params:
         modules = get_mqc_modules(),
         extra_args = '-f -q --interactive ',
-        analysis_directory = BFQ_INTERIM,
-        bfq_logs = BFQ_LOGS
+        analysis_directory = [join(BFQ_INTERIM, 'logs'), join(BFQ_INTERIM, 'figs')] 
     singularity:
         'docker://' + config['docker']['multiqc']
     shell:

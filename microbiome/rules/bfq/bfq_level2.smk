@@ -144,5 +144,3 @@ BFQ_LEVEL2_ALL = [rules.bfq_level2_exprs.output,
                   rules.bfq_level2_rpca_log.output,
                   rules.bfq_level2_qiime2_data.output]
 BFQ_ALL.extend(BFQ_LEVEL2_ALL)
-
-BFQ_LOGS.extend([join(BFQ_INTERIM, 'logs')])

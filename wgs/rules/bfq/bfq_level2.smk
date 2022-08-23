@@ -32,4 +32,3 @@ BFQ_LEVEL2_ALL = [rules.bfq_level2_bam_qc.output,
                   rules.bfq_level2_align.output,]
 
 BFQ_ALL.extend(BFQ_LEVEL2_ALL)
-BFQ_LOGS.extend(rules.bfq_level2_bam_qc.output)        

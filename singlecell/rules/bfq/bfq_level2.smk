@@ -159,14 +159,13 @@ if config['quant']['method'] == 'star':
                       rules.bfq_level2_aligned.output,
                       rules.bfq_level2_notebooks_star.output,
                       join(BFQ_INTERIM, 'figs', 'umap_all_samples_mqc.png')]
-    BFQ_LOGS.extend(rules.bfq_level2_logs_star.output)
+
 else:
     BFQ_LEVEL2_ALL = [rules.bfq_level2_exprs_cellranger.output,
                       rules.bfq_level2_logs_cellranger.output,
                       rules.bfq_level2_data_cellranger.output,
                       rules.bfq_level2_notebooks_cellranger.output,
                       join(BFQ_INTERIM, 'figs', 'umap_all_samples_mqc.png')]
-    BFQ_LOGS.extend(rules.bfq_level2_logs_cellranger.output)
 
 BFQ_ALL.extend(BFQ_LEVEL2_ALL)
-BFQ_LOGS.extend([join(BFQ_INTERIM, 'figs', 'umap_all_samples_mqc.png')])
+
