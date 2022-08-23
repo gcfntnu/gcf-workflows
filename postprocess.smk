@@ -45,6 +45,20 @@ def get_mqc_modules():
     else:
         return ""
 
+def bfq_search_paths(*args):
+    """run time check for multiqc search paths in bfq directory
+    """
+    valid_paths = []
+    log_path = join(BFQ_INTERIM, 'logs')
+    fig_path = join(BFQ_INTERIM, 'figs')
+    if os.path.exists(log_path):
+        valid_paths.append(log_path)
+    if os.path.exists(fig_path):
+        valid_paths.append(fig_path)
+    if len(valid_paths) == 0:
+        valid_paths = BFQ_INTERIM
+    return valid_paths
+    
 rule multiqc_report:
     input:
         bfq = BFQ_ALL,
@@ -54,7 +68,7 @@ rule multiqc_report:
     params:
         modules = get_mqc_modules(),
         extra_args = '-f -q --interactive ',
-        analysis_directory = [join(BFQ_INTERIM, 'logs'), join(BFQ_INTERIM, 'figs')] 
+        search_paths = lambda wildcards: bfq_search_paths()
     singularity:
         'docker://' + config['docker']['multiqc']
     shell:
@@ -63,6 +77,6 @@ rule multiqc_report:
         '{params.modules} '
         '--filename {output.report} '
         '{params.extra_args} '
-        '{params.analysis_directory} '
+        '{params.search_paths} '
 
 
