@@ -215,8 +215,11 @@ if __name__ == "__main__":
         C = C.loc[keep_features,:]
     F = F.loc[keep_features, :]
     if not 'gene_biotype' in F.columns:
-        print(F.head(n=2))
-        raise ValueError('Feature info needs columns `gene_biotype` and `gene_name` !')   
+        if 'gene_type' in F.columns: #gencode
+            F = F.rename(columns={'gene_type': 'gene_biotype'})
+        else:
+            print(F.head(n=2))
+            raise ValueError('Feature info needs column `gene_biotype`')   
     if 'gene_name' not in F.columns:
         if 'gene_id' in F.columns:
             F['gene_name'] = F['gene_id'].copy()
