@@ -65,7 +65,7 @@ def init_gencode_from_organism(config):
             GENCODE_ASSEMBLY = 'GRCm39'
     else:
         GENCODE_ASSEMBLY = 'GRCh37' if int(GENCODE_RELEASE) <= 19 else 'GRCh38'
-    config['db']['assembly'] = DB_CONF['assembly'] = [GENCODE_ASSEMBLY]
+    config['db']['assembly'] = DB_CONF['assembly'] = GENCODE_ASSEMBLY
     return config
 if config['db']['gencode']['release']:
     config = init_gencode_from_organism(config)
