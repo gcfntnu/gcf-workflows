@@ -104,10 +104,13 @@ if __name__ == "__main__":
     if not E.index.isin(F.index).all():
         warnings.warn("missing annotations in feature info!")
     F = F.loc[E.index, :]
-
-    if not "gene_biotype" in F.columns:
-        raise ValueError("Feature info needs column `gene_biotype` !")
-
+    
+    if not 'gene_biotype' in F.columns:
+        if 'gene_type' in F.columns: #gencode
+            F = F.rename(columns={'gene_type': 'gene_biotype'})
+        else:
+            print(F.head(n=2))
+            raise ValueError('Feature info needs column `gene_biotype`')   
     section = biotype_yaml(E, F)
 
     with open(args.output, "w") as fh:
