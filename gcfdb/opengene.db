@@ -6,7 +6,6 @@ rule opengene_sarscov2_kmer:
     output:
         join(EXT_DIR, 'opengene', 'SARS-CoV-2.kmer.fa')
     params:
-        date = datetime.now().strftime("%d-%m-%Y"),
         proxy = config.get('proxy', {}).get('wget', ''),
         url = 'http://opengene.org/fastv/data/SARS-CoV-2.kmer.fa'
     log:
@@ -14,14 +13,13 @@ rule opengene_sarscov2_kmer:
     shell:
         """
         wget {params.proxy} -O- {params.url} > {output}
-        echo "OpenGene sars-cov2-kmer,NA,{params.url},{params.date}" > {log}
+        echo "OpenGene sars-cov2-kmer,NA,{params.url},`date -I`" > {log}
         """
 
 rule opengene_sarscov2_genome:
     output:
         join(EXT_DIR, 'opengene', 'SARS-CoV-2.genomes.fa')
     params:
-        date = datetime.now().strftime("%d-%m-%Y"),
         proxy = config.get('proxy', {}).get('wget', ''),
         url = 'http://opengene.org/fastv/data/SARS-CoV-2.genomes.fa'
     log:
@@ -29,14 +27,13 @@ rule opengene_sarscov2_genome:
     shell:
         """
         wget {params.proxy} -O- {params.url} > {output}
-        echo "OpenGene sars-cov2-genomes,NA,{params.url},{params.date}" > {log}
+        echo "OpenGene sars-cov2-genomes,NA,{params.url},`date -I`" > {log}
         """
 
 rule opengene_microbial_kmer:
     output:
         join(EXT_DIR, 'opengene', 'microbial.kc.fasta.gz')
     params:
-        date = datetime.now().strftime("%d-%m-%Y"),
         proxy = config.get('proxy', {}).get('wget', ''),
         url = 'http://opengene.org/microbial.kc.fasta.gz'
     log:
@@ -44,7 +41,7 @@ rule opengene_microbial_kmer:
     shell:
         """
         wget {params.proxy} -O- {params.url} > {output}
-        echo "OpenGene microbial,NA,{params.url},{params.date}" > {log}
+        echo "OpenGene microbial,NA,{params.url},`date -I`" > {log}
         """
 
 
@@ -52,7 +49,6 @@ rule opengene_viral_kmer:
     output:
         join(EXT_DIR, 'opengene', 'viral.kc.fasta.gz')
     params:
-        date = datetime.now().strftime("%d-%m-%Y"),
         proxy = config.get('proxy', {}).get('wget', ''),
         url = 'http://opengene.org/viral.kc.fasta.gz'
     log:
@@ -60,5 +56,5 @@ rule opengene_viral_kmer:
     shell:
         """
         wget {params.proxy} -O- {params.url} > {output}
-        echo "OpenGene viral,NA,{params.url},{params.date}" > {log}
+        echo "OpenGene viral,NA,{params.url},`date -I`" > {log}
         """

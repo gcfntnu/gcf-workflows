@@ -1,3 +1,7 @@
+#-*- mode:snakemake -*-
+"""setup/configuration, common imports, and  utility functions for all workflows
+"""
+
 import warnings
 from os.path import join, abspath, dirname
 from os import makedirs, environ
@@ -41,6 +45,9 @@ GCFDB_DIR = srcdir("gcfdb")
 
 ORG = config['organism'].lower().strip().replace(' ', '_')
 config['organism'] = ORG
+
+PE = len(config['read_geometry']) > 1
+BFQ_ALL = []
 
 def update_config2(config, extra_config):
     """Recursively update dictionary config with overwrite_config.
@@ -140,13 +147,13 @@ if 'delta_readlen' in config and 'read_geometry' in config:
 WORKFLOW = config.get("workflow")
 if WORKFLOW is None:
     config["workflow"] = WORKFLOW = "default"
+logger.info("WORKFLOW: {}".format(WORKFLOW))
 BFQ_INTERIM = join(INTERIM_DIR, WORKFLOW, "bfq")
 QC_INTERIM = join(INTERIM_DIR, WORKFLOW, "qc")
 QUANT_INTERIM = join(INTERIM_DIR, WORKFLOW, "quant")
 FILTER_INTERIM = join(INTERIM_DIR, WORKFLOW, "filter")
 ALIGN_INTERIM = join(INTERIM_DIR, WORKFLOW, "align")
 ANALYSIS_INTERIM = join(INTERIM_DIR, WORKFLOW, "analysis")
-
 
 
 # docker images

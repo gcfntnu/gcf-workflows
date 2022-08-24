@@ -9,7 +9,6 @@ RH_NAME = '{}_{}'.format(config['organism'].capitalize(), config['db']['rockhopp
 
 rule rockhopper_reference_dir:
     params:
-        date = datetime.now().strftime("%d-%m-%Y"),
         url = join(config['winecellar']['url'], 'rockhopper', RH_NAME),
         proxy = config.get('proxy', {}).get('wget', '') 
     output:

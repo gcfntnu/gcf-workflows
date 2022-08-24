@@ -13,7 +13,6 @@ rule calibrators_fasta:
     log:
        join(CAL_DIR, 'logs', 'smallrna_calibrators.log')
     params:
-        date = datetime.now().strftime("%d-%m-%Y")
     shell:
         """
         echo ">spikeIn|Cal01 spikeIn 01" >> {output}
@@ -37,7 +36,7 @@ rule calibrators_fasta:
         echo ">spikeIn|Cal10 spikeIn 10" >> {output}
         echo UGAUACGGAUGUUAUACGCAGC >> {output}
         
-        echo "SmallRNA Calibrators,NA,NA,{params.date}"
+        echo "SmallRNA Calibrators,NA,NA,`date -I`"
         """
         
 rule calibrators_to_dna:
