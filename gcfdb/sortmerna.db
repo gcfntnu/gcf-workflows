@@ -17,7 +17,6 @@ rule sortmerna_db:
     params:
         out = join(EXT_DIR, 'sortmerna', 'fasta'),
         github = 'https://github.com/biocore/sortmerna.git/trunk/rRNA_databases',
-        date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(EXT_DIR, 'sortmerna', 'fasta', 'silva-arc-16s-id95.fasta'),
         join(EXT_DIR, 'sortmerna', 'fasta', 'silva-arc-23s-id98.fasta'),
@@ -35,7 +34,7 @@ rule sortmerna_db:
         """
         svn co {params.github} {SORTMERNA_TMP}
         mv {SORTMERNA_TMP}/*.fasta {params.out}/
-        echo "SortMeRNA,NA,{params.github},{params.date}" > {log}
+        echo "SortMeRNA,NA,{params.github},`date -I`" > {log}
         """
 rule sortmerna_index:
     input:

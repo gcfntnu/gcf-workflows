@@ -5,7 +5,6 @@ CUSTOM_URL = join(config.get('winecellar', {}).get('url', ''), 'custom_reference
 
 rule custom_genome:
     params:
-        date = datetime.now().strftime("%d-%m-%Y"),
         url = join(CUSTOM_URL, '{organism}', '{assembly}', 'fasta', 'genome.fa'),
         log = join(CUSTOM_URL, '{organism}', '{assembly}', 'logs', 'genome.log'),
         proxy = config.get('proxy', {}).get('wget', '')
@@ -23,7 +22,6 @@ rule custom_genome:
 
 rule custom_gff:
     params:
-        date = datetime.now().strftime("%d-%m-%Y"),
         url = join(CUSTOM_URL, '{organism}', '{assembly}', 'anno', 'genes.gff'),
         log = join(CUSTOM_URL, '{organism}', '{assembly}', 'logs', 'gff.log'),
         proxy = config.get('proxy', {}).get('wget', '')
@@ -41,7 +39,6 @@ rule custom_gff:
 
 rule custom_gtf:
     params:
-        date = datetime.now().strftime("%d-%m-%Y"),
         url = join(CUSTOM_URL, '{organism}', '{assembly}', 'anno', 'genes.gtf'),
         log = join(CUSTOM_URL, '{organism}', '{assembly}', 'logs', 'gtf.log'),
         proxy = config.get('proxy', {}).get('wget', '')

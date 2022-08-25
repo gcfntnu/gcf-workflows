@@ -9,14 +9,16 @@ SALMON, https://combine-lab.github.io/salmon/
 """
 
 SALMON_INTERIM = join(QUANT_INTERIM, 'salmon')
-
+if not 'SALMON_INDEX_TYPE' in locals():
+   SALMON_INDEX_TYPE = config.get('quant', {}).get('salmon', {}).get('index', 'transcriptome')
+   
 include:
     'tximport.smk'
     
 if not 'REF_DIR' in locals():
    raise ValueError
 
-
+   
 if config.get('read_orientation') is None:
    LIB_TYPE = 'A'
 else:
@@ -73,13 +75,13 @@ def sample_args(wildcards):
 rule salmon_map:
     input:
         unpack(get_filtered_fastq),
-        index = join(REF_DIR, 'index', 'transcriptome', 'salmon', 'info.json'),
+        index = join(REF_DIR, 'index', SALMON_INDEX_TYPE, 'salmon', 'info.json'),
         gtf = join(REF_DIR, 'anno', 'genes.gtf')
     params:
         output = join(SALMON_INTERIM, '{sample}'),
         nboot = 100,
         lib_type = LIB_TYPE,
-        index = join(REF_DIR, 'index', 'transcriptome', 'salmon'),
+        index = join(REF_DIR, 'index', SALMON_INDEX_TYPE, 'salmon'),
         sample_args = sample_args,
         unmapped_args = '--writeUnmappedNames --writeMappings=unmapped.sam '
     threads:
@@ -143,8 +145,10 @@ rule salmon_tximport:
         script = srcdir('scripts/tximport.R')
     singularity:
         'docker://' + config['docker']['tximport']
+    threads:
+        48
     output:
-        rds = join(QUANT_INTERIM, 'salmon', 'tximport', 'tx_salmon.rds')
+        rds = join(QUANT_INTERIM, 'salmon', 'tximport', '{}_salmon.rds'.format(SALMON_INDEX_TYPE))
     shell:
         'Rscript {params.script} {input.files} '
         '--txinfo {input.txinfo} '
@@ -156,18 +160,22 @@ rule salmon_tximeta:
     input:
         files = expand(join(SALMON_INTERIM, '{sample}', 'quant.sf'), sample=SAMPLES),
         sample_info = join(INTERIM_DIR, 'sample_info.tsv'),
-        index = join(REF_DIR, 'index', 'transcriptome', 'salmon', 'tximeta.json')
+        index = join(REF_DIR, 'index', '{prefix}', 'salmon', 'tximeta.json')
     params:
         script = srcdir('scripts/tximeta.R'),
-        index_dir = join(REF_DIR, 'index', 'transcriptome', 'salmon')
+        index_dir = join(REF_DIR, 'index', '{prefix}', 'salmon'),
+        cache = join(EXT_CACHE, 'tximeta')
+    threads:
+        48
     singularity:
         'docker://' + config['docker']['tximport']
     output:
-        rds = join(QUANT_INTERIM, 'salmon', 'tximeta', 'tximeta_salmon.rds')
+        rds = join(QUANT_INTERIM, 'salmon', 'tximeta', '{prefix}_salmon.rds')
     shell:
         'Rscript {params.script} {input.files} '
         '--sample-info {input.sample_info} '
         '--txome {input.index} '
+        '--cachedir {params.cache} '
         '-t salmon '
         '--verbose '
         '-o {output} '
@@ -184,6 +192,8 @@ rule salmon_gene_anndata:
         join(QUANT_INTERIM, 'salmon', 'gene_anndata.adh5')
     params:
         script = srcdir('scripts/create_anndata.py')
+    threads:
+        48
     singularity:
         'docker://' + config['docker']['scanpy']
     shell:
@@ -215,6 +225,8 @@ rule terminus_group:
         tolerance = 0.001
     singularity:
         'docker://' + config['docker']['salmon']
+    threads:
+        16       
     output:
         join(QUANT_INTERIM, 'terminus', '{sample}', 'groups.txt')
     shell:
@@ -234,7 +246,7 @@ rule terminus_collapse:
         expand(join(QUANT_INTERIM, 'terminus', '{sample}', 'quant.sf'), sample=SAMPLES),
         expand(join(QUANT_INTERIM, 'terminus', '{sample}', 'clusters.txt'), sample=SAMPLES)
     threads:
-        8  
+        16  
     shell:
         'terminus collapse -c {params.consensus_thresh} -d {params.input_dirs} -o {params.outdir} '
 
@@ -248,6 +260,8 @@ rule terminus_tx2terminus:
         join(QUANT_INTERIM, 'terminus', 'tx2terminus.tsv')
     params:
         script = srcdir('scripts/extract_txp_group.py')
+    threads:
+        16
     shell:
         'python {params.script} {input.quant} {input.clusters} {input.tx2gene} {output}'
        
@@ -260,7 +274,9 @@ rule terminus_tximport:
     singularity:
         'docker://' + config['docker']['tximport']
     output:
-        rds = join(QUANT_INTERIM, 'terminus', 'tximport', 'tx_terminus.rds')
+        rds = join(QUANT_INTERIM, 'terminus', 'tximport', '{}_terminus.rds'.format(SALMON_INDEX_TYPE))
+    threads:
+        48
     shell:
         'Rscript {params.script} {input.files} '
         '--txinfo {input.txinfo} '
@@ -275,5 +291,7 @@ rule terminus_info:
         script = srcdir('scripts/terminus_anno.py')
     output:
         join(QUANT_INTERIM, 'terminus', 'terminus_info.tsv')
+    threads:
+        16
     shell:
         'python {params.script} {input} {output}'

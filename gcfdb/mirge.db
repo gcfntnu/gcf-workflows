@@ -61,7 +61,6 @@ if ORG == 'homo_sapiens':
             url = URLS[MIRGE_ORG],
             out = MIRGE_EXT,
             proxy = config.get('proxy', {}).get('wget', ''),
-            date = datetime.now().strftime("%d-%m-%Y")
         output:
             join(MIRGE_EXT, 'index.Libs', '{}_snorna.3.ebwt'.format(MIRGE_ORG))
         log:
@@ -69,7 +68,7 @@ if ORG == 'homo_sapiens':
         shell:
             """
             wget {params.proxy} -qO- {params.url} | tar xvz --strip-components 1 -C {params.out}
-            echo "mirge,NA,{params.url},{params.date}" > {log}
+            echo "mirge,NA,{params.url},`date -I`" > {log}
             """
 else:
     rule mirge_download_db:
@@ -77,7 +76,6 @@ else:
             url = URLS[MIRGE_ORG],
             out = MIRGE_EXT,
             proxy = config.get('proxy', {}).get('wget', ''),
-            date = datetime.now().strftime("%d-%m-%Y")
         output:
             join(MIRGE_EXT, 'index.Libs', '{}_snorna.3.ebwt'.format(MIRGE_ORG))
         log:
@@ -85,7 +83,7 @@ else:
         shell:
             """
             wget {params.proxy} -qO- {params.url} | tar xvz --strip-components 1 -C {params.out}
-            echo "mirge,NA,{params.url},{params.date}" > {log}
+            echo "mirge,NA,{params.url},`date -I`" > {log}
             """
 
 rule mirge_db_all:

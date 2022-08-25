@@ -151,12 +151,15 @@ rule bfq_level2_umap_yaml:
     shell:
         'python {params.script} {input} -o {output}'
 
+
+
 if config['quant']['method'] == 'star':
     BFQ_LEVEL2_ALL = [rules.bfq_level2_exprs_star.output,
                       rules.bfq_level2_logs_star.output,
                       rules.bfq_level2_aligned.output,
                       rules.bfq_level2_notebooks_star.output,
                       join(BFQ_INTERIM, 'figs', 'umap_all_samples_mqc.png')]
+
 else:
     BFQ_LEVEL2_ALL = [rules.bfq_level2_exprs_cellranger.output,
                       rules.bfq_level2_logs_cellranger.output,
@@ -165,3 +168,4 @@ else:
                       join(BFQ_INTERIM, 'figs', 'umap_all_samples_mqc.png')]
 
 BFQ_ALL.extend(BFQ_LEVEL2_ALL)
+

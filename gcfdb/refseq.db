@@ -118,7 +118,6 @@ rule refseq_genome:
     input:
         REFSEQ_DB
     params:
-        date = datetime.now().strftime("%d-%m-%Y"),
         release = config['db']['refseq']['release'],
         proxy = config.get('proxy', {}).get('wget', ''),
         url = config['db']['refseq'].get('ftp_genome','').split(',')[:2]
@@ -131,13 +130,12 @@ rule refseq_genome:
     run:
         for url in params.url:
             shell("wget {params.proxy} -O- {url} | gunzip -c >> {output.genome}")
-            shell("echo 'Refseq DNA,release-{params.release},{params.url},{params.date}' >> {log}")
+            shell("echo 'Refseq DNA,release-{params.release},{params.url},`date -I`' >> {log}")
 
 rule refseq_gff:
     input:
         REFSEQ_DB
     params:
-        date = datetime.now().strftime("%d-%m-%Y"),
         release = DB_CONF['release'],
         proxy = config.get('proxy', {}).get('wget', ''),
         url = config['db']['refseq'].get('ftp_gff', '').split(',')[:2]
@@ -150,13 +148,12 @@ rule refseq_gff:
     run: 
         for url in params.url:
             shell("wget {params.proxy} -O- {params.url} | gunzip -c  | grep -v '^#' >> {output}")
-            shell("echo 'Refseq GFF,release-{params.release},{params.url},{params.date}' > {log}")
+            shell("echo 'Refseq GFF,release-{params.release},{params.url},`date -I`' > {log}")
             
 rule refseq_gtf:
     input:
         table = REFSEQ_DB
     params:
-        date = datetime.now().strftime("%d-%m-%Y"),
         release = DB_CONF['release'],
         proxy = config.get('proxy', {}).get('wget', ''),
         url = config['db']['refseq'].get('ftp_gtf', '').split(',')[:2]
@@ -169,7 +166,7 @@ rule refseq_gtf:
     run: 
         for url in params.url:
             shell("wget {params.proxy} -O- {params.url} | gunzip -c  | grep -v '^#' >> {output}")
-            shell("echo 'Refseq GTF,release-{params.release},{params.url},{params.date}' > {log}")
+            shell("echo 'Refseq GTF,release-{params.release},{params.url},`date -I`' > {log}")
 
 if config['db']['refseq']['division'] == 'bacteria':
     ruleorder: refseq_gtf_noneukaryot > refseq_symlink_genes

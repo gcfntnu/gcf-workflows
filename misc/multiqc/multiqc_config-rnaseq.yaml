@@ -59,6 +59,9 @@ remove_sections:
 table_columns_visible:
   fastp:
     pct_duplication: False
+  salmon:
+    percent_mapped: False
+    num_mapped: False
 table_columns_placement:
   fastp:
     before_filtering_total_reads: 110

@@ -45,7 +45,6 @@ rule txgenomics_org_prebuild:
     params:
         url = get_10x_url,
         out = get_10x_prefix,
-        date = datetime.now().strftime("%d-%m-%Y"),
         proxy = ''
     output:
         json = join(EXT_DIR, '10xgenomics', 'release-{release}', '{organism}', '{assembly}', 'reference.json'),
@@ -58,5 +57,5 @@ rule txgenomics_org_prebuild:
         """
         curl {params.proxy} {params.url} | tar xvz --strip-components=1 -C {params.out}
         ln -s {params.out}/genes/genes.gtf {params.out}/anno
-        echo "10xGenomics reference,NA,{params.url},{params.date}" > {log}
+        echo "10xGenomics reference,NA,{params.url},`date -I`" > {log}
         """

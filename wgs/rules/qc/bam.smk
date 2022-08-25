@@ -27,7 +27,7 @@ rule qualimap_bamqc:
         6
     shell:
         #'unset DISPLAY; qualimap bamqc --java-mem-size=8G -gff {input.gff} -bam {input.bam} -p {params.strand} -outdir {params.outdir}'
-        'unset DISPLAY; qualimap bamqc --java-mem-size=15G -bam {input.bam} -p {params.strand} -outdir {params.outdir}'
+        'unset DISPLAY; qualimap bamqc --java-mem-size=15G -bam {input.bam} -p {params.strand} -outdir {params.outdir} || true && mkdir -p {output}'
 
 
 rule picard_wgs_metrics:

@@ -20,6 +20,9 @@ parser$add_argument("-t", "--method", type="character", default="salmon",
 parser$add_argument("-o", "--output", default="tximeta.rds",
                     help="Output rds file")
 
+parser$add_argument("-c", "--cachedir", default="/tmp/.cache",
+                    help="Cachedir location")
+
 parser$add_argument("-v", "--verbose", action="store_true",
                     default=FALSE, help="Print extra output")
 
@@ -35,6 +38,7 @@ if (args$verbose == TRUE){
     options(echo=TRUE)
 }
 
+setTximetaBFC(args$cachedir, quiet=TRUE)
 
 tximeta::loadLinkedTxome(args$txome)
 

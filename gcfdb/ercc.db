@@ -9,7 +9,6 @@ ERCC_DIR = join(EXT_DIR, 'spikein')
 rule ercc_files:
     params:
         url = 'https://tools.thermofisher.com/content/sfs/manuals/ERCC92.zip',
-        date = datetime.now().strftime("%d-%m-%Y"),
         proxy = config.get('proxy', {}).get('wget', '')
     output:
         ercc_gtf = temp(join(ERCC_DIR, 'anno', '_ERCC92.gtf')),
@@ -23,7 +22,7 @@ rule ercc_files:
         mv ERCC92.gtf {output.ercc_gtf}
         mv ERCC92.fa {output.ercc_fasta}
         rm ERCC92.zip
-        echo "ERCC,NA,{params.url},{params.date}" > {log}
+        echo "ERCC,NA,{params.url},`date -I`" > {log}
         """
 
 rule ercc_gtf:
@@ -50,7 +49,6 @@ rule ercc_gtf_gene:
 rule ercc_annotations:
     params:
         url = 'http://tools.thermofisher.com/content/sfs/manuals/cms_095046.txt',
-        date = datetime.now().strftime("%d-%m-%Y"),
         proxy = config.get('proxy', {}).get('wget', '')
     output:
         join(ERCC_DIR, 'anno', 'ERCC92.anno')
@@ -59,7 +57,7 @@ rule ercc_annotations:
     shell:
         """
         wget {params.proxy} -O - {params.url} > {output}
-        echo "ERCC annotations,NA,{params.url},{params.date}" > {log}
+        echo "ERCC annotations,NA,{params.url},`date -I`" > {log}
         """
         
 rule ercc_db_all:
