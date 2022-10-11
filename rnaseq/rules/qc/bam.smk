@@ -138,7 +138,8 @@ def get_tin_input(wildcards):
         bam = join(ALIGN_INTERIM, ALIGNER, 'housekeeping_genes', '{sample}.bam')
         bed_fn = 'housekeeping_transcripts_{}.bed12'.format(config['organism'])
         bed = join(EXT_DIR, 'HTA', 'anno', bed_fn)
-    elif subet == 'expressed_genes500':
+    elif subset == 'expressed_genes500':
+        # use 500 expressed genes (from count matrix)
         raise NotImplementedError
     else:
         bam = get_sorted_bam(wildcards)
