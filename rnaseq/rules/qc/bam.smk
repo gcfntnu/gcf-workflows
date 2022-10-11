@@ -10,13 +10,45 @@ Preseq: Software for predicting library complexity and genome coverage in high-t
 http://smithlabresearch.org/software/preseq/
 
 """
+include:
+    join(GCFDB_DIR, 'hrt_atlas.db')
 
+SUBSET = config['qc'].get('bam_subset', '')
+if SUBSET == 'housekeeping_genes':
+    include:
+        join(GCFDB_DIR, 'hrt_atlas.db')
+
+BAM_SUBSET_QC_DIR =  join(ALIGN_INTERIM, ALIGNER, SUBSET, 'qc')
 BAM_QCDIR = join(ALIGN_INTERIM, ALIGNER, 'qc')
 RSEQC_QCDIR = join(BAM_QCDIR, 'rseqc')
 QORT_QCDIR = join(BAM_QCDIR, 'qort')
 PRESEQ_QCDIR = join(BAM_QCDIR, 'preseq')
 PICARD_QCDIR = join(BAM_QCDIR, 'picard')
 QUALIMAP_QCDIR = join(BAM_QCDIR, 'qualimap')
+
+rule subset_housekeeping_genes_bam:
+    input:
+        bam = get_sorted_bam,
+        bed = join(REF_DIR, 'anno', 'genes.bed12')
+    params:
+        a = 10
+    output:
+        join(ALIGN_INTERIM, ALIGNER, 'housekeeping_genes', '{sample}.bam')
+    singularity:
+        'docker://' + config['docker']['bedtools']
+    shell:
+        'bedtools intersect -a {input.bam} -b {input.bed} -wa > {output}'
+
+rule subset_housekeeping_genes_bam_index:
+    input:
+        join(ALIGN_INTERIM, ALIGNER, 'housekeeping_genes', '{sample}.bam')
+    output:
+        join(ALIGN_INTERIM, ALIGNER, 'housekeeping_genes', '{sample}.bam.bai')
+    singularity:
+        'docker://' + config['docker']['samtools']
+    shell:
+        'samtools index {input}'
+    
 
 rule rseqc_read_distribution:
     input:
@@ -100,15 +132,28 @@ rule rseqc_inner_distance_log:
     shell:
         'cp {input} {output} '
 
+def get_tin_input(wildcards):
+    subset = config['qc'].get('bam_subset', '')
+    if subset == 'housekeeping_genes':
+        bam = join(ALIGN_INTERIM, ALIGNER, 'housekeeping_genes', '{sample}.bam')
+        bed_fn = 'housekeeping_transcripts_{}.bed12'.format(config['organism'])
+        bed = join(EXT_DIR, 'HTA', 'anno', bed_fn)
+    elif subet == 'expressed_genes500':
+        raise NotImplementedError
+    else:
+        bam = get_sorted_bam(wildcards)
+        bed = join(REF_DIR, 'anno', 'genes.bed12')
+    bai = bam + '.bai'
+    return {'bam': bam, 'bed': bed, 'bai': bai}
+
 rule rseqc_tin:
     input:
-        bam = join(ALIGN_INTERIM, ALIGNER, '{sample}' + '.sorted.bam'),
-        bed = join(REF_DIR, 'anno', 'genes.bed12')
+        unpack(get_tin_input)
     singularity:
         'docker://' + config['docker']['rseqc']
     output:
-        tin = join(RSEQC_QCDIR, '{sample}.tin.xls'),
-        summary = join(RSEQC_QCDIR, '{sample}.tin.summary.txt')
+        tin = join(BAM_SUBSET_QC_DIR, 'rseqc', '{sample}.tin.xls'),
+        summary = join(BAM_SUBSET_QC_DIR, 'rseqc', '{sample}.summary.txt')
     params:
         tin = lambda wildcards, input: basename(input.bam).replace('.bam', '') + '.tin.xls',
         summary = lambda wildcards, input: basename(input.bam).replace('.bam', '') + '.summary.txt'
@@ -217,7 +262,7 @@ rule picard_rnametrics:
         metrics = join(PICARD_QCDIR, '{sample}.rnaseq.metrics'),
         log = join(PICARD_QCDIR, '{sample}.rnaseq.log')
     params:
-        java_opt='-Xms4g -Xmx4g',
+        java_opt='-Xms1g -Xmx4g',
         strand = picard_strand()
     threads:
         6
