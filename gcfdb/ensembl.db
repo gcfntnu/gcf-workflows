@@ -44,8 +44,11 @@ def ensembl_lookup(fn, organism=None, assembly=None):
         logger.info('species `{}` not found in ensembl lookup file'.format(organism))
         return {'assembly': None, 'division': None, 'species': organism}
     elif len(hits) > 1:
-        logger.error('multiple hits in ensembl lookup file')
-        raise ValueError
+        logger.warning('multiple hits in ensembl lookup file. Using first hit in vertebrates')
+        # some orgs in multiple divisions (c. elegans ,drosophila, yeast)
+        for els in hits:
+            if els['division'] == 'vertebrates':
+               break
     else:
         els = hits[0]
     return els
