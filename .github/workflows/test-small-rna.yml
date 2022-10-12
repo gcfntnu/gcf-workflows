@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ['3.8']
+        python-version: ['3.9.5']
 
     steps:
     - uses: actions/checkout@v2
@@ -21,7 +21,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        python -m pip install snakemake==7.7.0 pyyaml peppy
+        python -m pip install snakemake==7.15.2 pyyaml==6.0 peppy==0.35.2 rich==12.6.0
         python --version
     - name: Dry run bfq_all
       working-directory: ./smallrna/.tests
