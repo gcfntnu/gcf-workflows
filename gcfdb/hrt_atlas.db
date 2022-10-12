@@ -1,0 +1,87 @@
+#-*- mode:snakemake -*-
+"""HRT Atlas: Database of housekeeping genes and reference transcripts
+Nucleic Acids Research, gkaa609, doi: https://doi.org/10.1093/nar/gkaa609
+
+https://housekeeping.unicamp.br/Housekeeping_GenesHuman.csv
+https://housekeeping.unicamp.br/Housekeeping_TranscriptsHuman.csv
+https://housekeeping.unicamp.br/MostStable.csv
+
+
+https://housekeeping.unicamp.br/Housekeeping_TranscriptsMouse.csv
+https://housekeeping.unicamp.br/Housekeeping_GenesMouse.CSV
+https://housekeeping.unicamp.br/MostStable_Mouse.csv
+"""
+
+
+URL = 'https://housekeeping.unicamp.br/'
+
+rule housekeeping_transcripts_homo_sapiens:
+    params:
+        url = URL + 'Housekeeping_TranscriptsHuman.csv',
+        #proxy = config.get('proxy', {}).get('wget', '')
+    output:
+        join(EXT_DIR, 'HTA', 'anno', 'housekeeping_transcripts_homo_sapiens.csv')
+    log:
+        join(EXT_DIR, 'HTA', 'logs', 'housekeeping_transcripts_homo_sapiens.log')
+    shell:
+        """
+        wget  -O- '{params.url}' > {output}
+        echo 'HRT_Atlas Human Transcripts,,{params.url},`date -I`' > {log}
+        """
+
+rule housekeeping_genes_homo_sapiens:
+    params:
+        url = URL + 'Housekeeping_GenesHuman.csv',
+        #proxy = config.get('proxy', {}).get('wget', '')
+    output:
+        join(EXT_DIR, 'HTA', 'anno', 'housekeeping_genes_homo_sapiens.csv')
+    log:
+        join(EXT_DIR, 'HTA', 'logs', 'housekeeping_genes_homo_sapiens.log')
+    shell:
+        """
+        wget  -O- '{params.url}' > {output}
+        echo 'HRT_Atlas Human Genes,,{params.url},`date -I`' > {log}
+        """
+
+rule housekeeping_transcripts_mus_musculus:
+    params:
+        url = URL + 'Housekeeping_TranscriptsMouse.csv',
+        #proxy = config.get('proxy', {}).get('wget', '')
+    output:
+        join(EXT_DIR, 'HTA', 'anno', 'housekeeping_transcripts_mus_musculus.csv')
+    log:
+        join(EXT_DIR, 'HTA', 'logs', 'housekeeping_transcripts_mus_musculus.log')
+    shell:
+        """
+        wget  -O- '{params.url}'  > {output}
+        echo 'HRT_Atlas Mouse Transcripts,,{params.url},`date -I`' > {log}
+        """
+
+rule housekeeping_genes_mus_musculus:
+    params:
+        url = URL + 'Housekeeping_GenesMouse.csv',
+        #proxy = config.get('proxy', {}).get('wget', '')
+    output:
+        join(EXT_DIR, 'HTA', 'anno', 'housekeeping_genes_mus_musculus.csv')
+    log:
+        join(EXT_DIR, 'HTA', 'logs', 'housekeeping_genes_mus_musculus.log')
+    shell:
+        """
+        wget  -O- '{params.url}'  > {output}
+        echo 'HRT_Atlas Mouse Genes,,{params.url},`date -I`' > {log}
+        """
+
+
+rule hta2bed12:
+    input:
+        bed = join(REF_DIR, 'anno', 'genes.bed12'),
+        hta = join(EXT_DIR, 'HTA', 'anno', 'housekeeping_transcripts_{}.csv'.format(ORG))
+    output:
+        join(EXT_DIR, 'HTA', 'anno', 'housekeeping_transcripts_{}.bed12'.format(ORG))
+    params:
+        script = srcdir('scripts/hta_bed12.py')
+    singularity:
+       'docker://' + config['docker']['default']
+    shell:
+        'python {params.script} {input} {output}'
+

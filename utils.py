@@ -3,7 +3,7 @@
 """
 
 import warnings
-from os.path import join, abspath, dirname
+from os.path import join, abspath, dirname, basename
 from os import makedirs, environ
 import sys
 import collections
