@@ -9,7 +9,8 @@ def merge_cmd_R1(input):
     cmd += '{}'.format(input.R1)
     subsample = config['filter'].get('subsample_fastq', 'skip')
     if subsample == 'skip':
-        return cmd + ' {}'.format(input.R1)
+        return cmd
+    cmd += '{}'.format(input.R1)
     if float(subsample) < 1:
         cmd += ' | seqkit sample --rand-seed 1234 --proportion {} '.format(subsample)
     else:
@@ -23,7 +24,7 @@ def merge_cmd_R2(input):
     cmd += '{}'.format(input.R2)
     subsample = config['filter'].get('sample_fastq')
     if subsample is None:
-        return cmd + ' {}'.format(input.R2)
+        return cmd
     if float(subsample) < 1:
         cmd += ' | seqkit sample --rand-seed 1234 --proportion {} '.format(subsample)
     else:
