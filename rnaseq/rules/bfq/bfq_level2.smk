@@ -134,6 +134,25 @@ rule bfq_level2_aligned:
     run:
         for fn in input:
             shell('ln -srfv -t {params.outdir} {fn}')
+
+
+rule bfq_level2_qc_homo_sapiens:
+    input:
+        expand(rules.rseqc_tin.output.summary, sample=SAMPLES)
+    output:
+        expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}.tin.summary.txt'), sample=SAMPLES)
+    run:
+        for src, dst in zip(input, output):
+            shell('ln -srfv {src} {dst}')
+
+rule bfq_level2_qc_mus_musculus:
+    input:
+        expand(rules.rseqc_tin.output.summary, sample=SAMPLES)
+    output:
+        expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}.summary.txt'), sample=SAMPLES)
+    run:
+        for src, dst in zip(input, output):
+            shell('ln -srfv {src} {dst}')
         
 BFQ_LEVEL2_ALL = [join(BFQ_INTERIM, 'figs', 'pca_mqc.yaml'),
                   join(BFQ_INTERIM, 'figs', 'gene_biotypes_mqc.yaml'),
@@ -142,5 +161,13 @@ BFQ_LEVEL2_ALL = [join(BFQ_INTERIM, 'figs', 'pca_mqc.yaml'),
                   rules.bfq_level2_exprs.output,
                   rules.bfq_level2_aligned.output]
 
+# organism specific extra qc
+if config['organism'] == 'homo_sapiens':
+    BFQ_LEVEL2_ALL.extend([rules.bfq_level2_qc_homo_sapiens.output])
+if config['organism'] == 'mus_musculus':
+    BFQ_LEVEL2_ALL.extend([rules.bfq_level2_qc_mus_musculus.output])
 
+    
 BFQ_ALL.extend(BFQ_LEVEL2_ALL)
+
+

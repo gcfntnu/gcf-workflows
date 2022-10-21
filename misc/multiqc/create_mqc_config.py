@@ -72,11 +72,18 @@ def create_mqc_config(args):
 
  
     s_df = pep.sample_table
+    
     s_df = s_df.rename(columns={'sample_name': 'Sample_ID'}).set_index('Sample_ID')
     drop = list(set(['Flowcell_Name', 'Project_ID', 'R1', 'R2', 'subsample_name', 'sample_name', 'Flowcell_ID', 'Lane', 'lane', 'run_number']).intersection(s_df.columns))
     if 'Organism' in s_df.columns and len(set(s_df['Organism'])) == 1:
         drop.append('Organism')
     s_df = s_df.drop(drop, axis=1)
+
+    na_vals = ['nan', 'NAN', 'na', 'NA', 'n/a', 'N/A', 'None', 'none', '<na>', '<NA>']
+    s_df = s_df.replace(na_vals, pd.NA)
+    s_df.dropna(how='all', axis=1, inplace=True)
+    s_df = s_df.round(2)
+    s_df = s_df.fillna('')
     
     COL_SCALE = {
         'RIN': 'RdYlGn',
@@ -111,8 +118,7 @@ def create_mqc_config(args):
         else:
             pass
     
-    s_df.dropna(how='all', axis=1, inplace=True)
-    s_df = s_df.round(2)
+
     s_dict = s_df.to_dict(orient='index')
 
     pconfig = {}

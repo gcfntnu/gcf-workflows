@@ -9,11 +9,24 @@ ORG = config.get('organism', 'homo_sapiens')
 include:
     join(GCFDB_DIR, 'ucsc.db')
 
+
+rule cellranger_sort_bam:
+    input:
+        bam = join(QUANT_INTERIM, 'cellranger', '{sample}', 'outs', 'possorted_genome_bam.bam')
+    output:
+        bam = temp(join(QUANT_INTERIM, 'cellranger', '{sample}', 'outs', 'cellsorted_possorted_genome_bam.bam'))
+    singularity:
+        'docker://' + config['docker']['samtools']
+    threads:
+        8
+    shell:
+        'samtools sort -@{threads} -m1G -t CB -O BAM -o {output.bam} {input.bam}'
+    
 rule velocyto_cellranger:
     input:
         rep_gtf = join(EXT_DIR, 'ucsc', ORG, 'anno', 'rmsk_ensembl.gtf'),
         gtf = join(REF_DIR, 'anno', 'genes.gtf'),
-        h5 = join(QUANT_INTERIM, 'cellranger', '{sample}', 'outs', 'filtered_feature_bc_matrix.h5')
+        bam = join(QUANT_INTERIM, 'cellranger', '{sample}', 'outs', 'cellsorted_possorted_genome_bam.bam')
     params:
         sample = join(QUANT_INTERIM, 'cellranger', '{sample}')
     output:
@@ -21,21 +34,31 @@ rule velocyto_cellranger:
     singularity:
         'docker://'+ config['docker']['velocyto']
     threads:
-        32
+        1
     shell:
         'velocyto run10x '
-        '--samtools-threads 3 '
-        '--samtools-memory 8600 '
         '--verbose '
         '-m {input.rep_gtf} '
         '{params.sample} '
         '{input.gtf} '
 
+rule starsolo_sort_bam:
+    input:
+        bam = join(QUANT_INTERIM, 'star', '{sample}', 'Aligned.sortedByCoord.out.bam')
+    output:
+        bam = temp(join(QUANT_INTERIM, 'star', '{sample}', 'cellsorted_Aligned.sortedByCoord.out.bam'))
+    singularity:
+        'docker://' + config['docker']['samtools']
+    threads:
+        8
+    shell:
+        'samtools sort @{threads} -m8g -t CB -O BAM -o {output.bam} {input.bam}'
+
 rule velocyto_starsolo:
     input:
         rep_gtf = join(EXT_DIR, 'ucsc', ORG, 'anno', 'rmsk_ensembl.gtf'),
         gtf = join(REF_DIR, 'anno', 'genes.gtf'),
-        bam = join(QUANT_INTERIM, 'star', '{sample}', 'Aligned.sortedByCoord.out.bam'),
+        bam = join(QUANT_INTERIM, 'star', '{sample}', 'cellsorted_Aligned.sortedByCoord.out.bam'),
         barcodes = join(QUANT_INTERIM, 'star', '{sample}', 'Solo.out', 'GeneFull', 'filtered', 'barcodes.tsv')
     params:
         outdir = join(QUANT_INTERIM, 'star', '{sample}', 'velocyto')
@@ -44,15 +67,12 @@ rule velocyto_starsolo:
     singularity:
         'docker://'+ config['docker']['velocyto']
     threads:
-        16
+        1
     shell:
         'velocyto run '
         '--bcfile {input.barcodes} '
         '--outputfolder {params.outdir} '
         '--sampleid {wildcards.sample} '
-        '--samtools-threads 16 '
-        '--samtools-memory 29 '
-        '-m {input.gtf} '
         '--verbose '
         '-m {input.rep_gtf} '
         '{input.bam} '
