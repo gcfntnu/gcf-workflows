@@ -1,7 +1,5 @@
 #-*- mode:snakemake -*-
 
-include: 'umitools.smk'
-
 STAR_INTERIM = join(QUANT_INTERIM, 'star')
 READ_LENGTH = config['read_geometry'][-1]
 
@@ -97,7 +95,7 @@ if config['db']['reference_db'] == '10xgenomics':
 else:
     REF_GENOME = join(REF_DIR, 'index', 'genome', 'star', 'r_{}'.format(READ_LENGTH), 'SA')
 
-if config['libprepkit'].startswith('10x'):
+if not config['libprepkit'].startswith('10X'):
     WHITELIST = join(EXT_DIR, config['quant']['starsolo']['whitelist'])
 else:
     WHITELIST = join(EXT_DIR, '10xgenomics', config['quant']['starsolo']['whitelist'])

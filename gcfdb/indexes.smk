@@ -191,7 +191,6 @@ rule salmon_selective_fasta:
         
 ruleorder: salmon_index_selective > salmon_index
 
-
 rule salmon_index_selective:
     input:
         fasta = rules.salmon_selective_fasta.output,
@@ -228,7 +227,7 @@ rule salmon_index:
         'salmon index '
         '--threads {threads} '
         '--index {params.out} '
-        '--transcripts {input}'
+        '--transcripts {input} '
 
 
 rule salmon_index_tximeta:

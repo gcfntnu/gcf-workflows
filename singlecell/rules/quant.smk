@@ -11,15 +11,15 @@ if not config['quant']['aggregate']['skip']:
             AGGR_IDS['all_samples'].append(k)
         else:
             raise ValueError
-        
+include:
+    'quant/umitools.smk'   
 include:
     'quant/cellranger.smk'
 include:
-    'quant/alevin.smk'
-include:
-    'quant/umitools.smk'
-include:
     'quant/star.smk'
+include:
+    'quant/alevin2.smk'
+
 include:
     'quant/velocyto.smk'
 include:

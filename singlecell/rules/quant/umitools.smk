@@ -1,8 +1,5 @@
 #-*- mode:snakemake -*-
 
-include:
-    'cellranger.smk'
-    
 #config
 ORG = config.get('organism', 'homo_sapiens')
 UMI_INTERIM = join(QUANT_INTERIM, 'umitools')

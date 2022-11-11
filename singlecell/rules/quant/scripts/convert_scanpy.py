@@ -143,7 +143,7 @@ def identify_empty_droplets(data, min_cells=3, **kw):
     #adata.X = adata.X.tocsc()
     anndata2ri.activate()
     robj.globalenv["X"] = adata
-    res = robj.r('res <- emptyDrops(assay(X))')
+    res = robj.r('res <- emptyDrops(assay(X), lower = 20, retain = 20)')
     anndata2ri.deactivate()
     keep = res.loc[res.FDR<0.01,:]
     data = data[keep.index,:] 
@@ -276,7 +276,16 @@ def read_alevin(fn, args, **kw):
     sample_id = os.path.basename(dirname)
     data.obs['sample_id'] = [sample_id] * data.obs.shape[0]
     return data
-    
+
+def read_alevin2(fn, args, **kw):
+    import pyroe
+    data = pyroe.load_fry(fn, output_format={'X' : ['S', 'A'], 'unspliced' : ['U'], 'spliced': ['S']})
+    avn_dir = os.path.dirname(fn)
+    dirname = os.path.dirname(avn_dir)
+    sample_id = os.path.basename(dirname)
+    data.obs['sample_id'] = [sample_id] * data.obs.shape[0]
+    return data
+
 def read_umitools(fn, args, **kw):
     data = sc.read_umi_tools(fn)
     sample_id = os.path.dirname(fn).split(os.path.sep)[-1]
@@ -301,6 +310,7 @@ READERS = {'cellranger_aggr': read_cellranger_aggr,
            'star': read_star,
            'umitools': read_umitools,
            'alevin': read_alevin,
+           'alevin2': read_alevin2,
            'velocyto': read_velocyto_loom}
         
 if __name__ == '__main__':
