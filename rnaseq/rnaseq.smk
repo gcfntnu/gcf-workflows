@@ -37,6 +37,8 @@ include:
 include:
     'rules/qc.smk'
 include:
+    'rules/parabricks.smk'
+include:
     'rules/bfq.smk'
 include:
     srcdir('../postprocess.smk')

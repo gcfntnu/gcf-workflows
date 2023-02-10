@@ -64,6 +64,51 @@ rule star_genome_index:
         '--genomeFastaFiles {input.genome} '
         '{params.size_params} '
         
+rule pb_star_genome_index_gtf:
+    input: 
+        genome = join('{ref_dir}', 'fasta', '{prefix}.fa'),
+        gtf = join('{ref_dir}', 'anno', 'genes.gtf')
+    output:
+        index = join('{ref_dir}', 'index', '{prefix}', 'pb_star', 'r_{sjdbOverhang}', 'SA')
+    params:
+        index_dir =  join('{ref_dir}', 'index', '{prefix}', 'star', 'r_{sjdbOverhang}'),
+        sjdbOverhang = '{sjdbOverhang}',
+        size_params = lambda wildcards, input: genome_size_params(input.genome)
+    threads:
+        48
+    singularity:
+        'docker://' + config['docker']['pb_star']
+    shell:
+        'STAR '
+        '--runThreadN {threads} '
+        '--runMode genomeGenerate '
+        '--genomeDir {params.index_dir} '
+        '--genomeFastaFiles {input.genome} '
+        '--sjdbGTFfile {input.gtf} '
+        '--sjdbOverhang {params.sjdbOverhang} '
+        '{params.size_params} '
+
+rule pb_star_genome_index:
+    input: 
+        genome = join('{ref_dir}', 'fasta', '{prefix}.fa')
+    output:
+        index = join('{ref_dir}', 'index', '{prefix}', 'pb_star', 'SA')
+    params:
+        index_dir =  join('{ref_dir}', 'index', '{prefix}', 'star'),
+        sjdbOverhang = '{sjdbOverhang}',
+        size_params = lambda wildcards, input: genome_size_params(input.genome)
+    threads:
+        48
+    singularity:
+        'docker://' + config['docker']['pb_star']
+    shell:
+        'STAR '
+        '--runThreadN {threads} '
+        '--runMode genomeGenerate '
+        '--genomeDir {params.index_dir} '
+        '--genomeFastaFiles {input.genome} '
+        '{params.size_params} '
+
 rule hisat2_genome_index:
     input:
         genome = join('{ref_dir}', 'fasta', '{prefix}.fa')
