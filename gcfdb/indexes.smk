@@ -71,7 +71,7 @@ rule pb_star_genome_index_gtf:
     output:
         index = join('{ref_dir}', 'index', '{prefix}', 'pb_star', 'r_{sjdbOverhang}', 'SA')
     params:
-        index_dir =  join('{ref_dir}', 'index', '{prefix}', 'star', 'r_{sjdbOverhang}'),
+        index_dir =  join('{ref_dir}', 'index', '{prefix}', 'pb_star', 'r_{sjdbOverhang}'),
         sjdbOverhang = '{sjdbOverhang}',
         size_params = lambda wildcards, input: genome_size_params(input.genome)
     threads:
@@ -94,7 +94,7 @@ rule pb_star_genome_index:
     output:
         index = join('{ref_dir}', 'index', '{prefix}', 'pb_star', 'SA')
     params:
-        index_dir =  join('{ref_dir}', 'index', '{prefix}', 'star'),
+        index_dir =  join('{ref_dir}', 'index', '{prefix}', 'pb_star'),
         sjdbOverhang = '{sjdbOverhang}',
         size_params = lambda wildcards, input: genome_size_params(input.genome)
     threads:

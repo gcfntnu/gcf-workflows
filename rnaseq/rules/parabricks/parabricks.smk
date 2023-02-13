@@ -66,7 +66,7 @@ rule pb_rna_align:
         '--out-bam {output.bam} '
         '--output-dir {params.out_dir} '
         '--sjdb-overhang {params.sjdb_rlen} '
-        '--read-files-command zcat '
+        #'--read-files-command zcat '
         '--max-bam-sort-memory 100000000000 '
         '--logfile {output.log} '
 
