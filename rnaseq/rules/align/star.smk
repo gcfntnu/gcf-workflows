@@ -54,9 +54,11 @@ rule star_align:
         bam = temp(join(STAR_INTERIM, '{sample}.Aligned.sortedByCoord.out.bam')),
         log = join(STAR_INTERIM, '{sample}.Log.final.out')
     threads:
-       48
+       24
     singularity:
         'docker://' + config['docker']['star']
+    benchmark:
+        'benchmarks/{sample}/star.txt'
     shell: 
         'STAR '
         '--runThreadN {threads} '

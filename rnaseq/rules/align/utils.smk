@@ -36,6 +36,8 @@ rule picard_mark_duplicates:
         8
     singularity:
         'docker://' + config['docker']['picard_gatk']
+    benchmark:
+        'benchmarks/{sample}/picard_markdups.txt'
     shell:
         'picard MarkDuplicates '
         '{params.java_opt} '

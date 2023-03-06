@@ -51,8 +51,10 @@ rule pb_rna_align:
     output:
         bam = join(PB_STAR_INTERIM, '{sample}', '{sample}.Aligned.sortedByCoord.out.bam'),
         log = join(PB_STAR_INTERIM, '{sample}', '{sample}.STAR.log')
+    resources:
+        gpu=50
     threads:
-       48
+        2
     singularity:
         'docker://' + config['docker']['parabricks']
     benchmark:
