@@ -1,5 +1,6 @@
 
 #-*- mode:snakemake -*-
+from datetime import datetime
 
 # config
 extra_conf_fn = srcdir('mirbase.config')
@@ -23,17 +24,19 @@ MIR_ORG = {'homo_sapiens': 'hsa',
 
 MIRBASE_EXT = join(EXT_DIR, 'mirbase', ORG, 'release-{}'.format(MIRBASE_RELEASE))
 
-URLS = {'hairpin': 'ftp://mirbase.org/pub/mirbase/{}/hairpin.fa.gz'.format(MIRBASE_RELEASE),
-        'mature': 'ftp://mirbase.org/pub/mirbase/{}/mature.fa.gz'.format(MIRBASE_RELEASE),
-        'gff': 'ftp://mirbase.org/pub/mirbase/{}/genomes'.format(MIRBASE_RELEASE),
-        'mirna_str': 'ftp://mirbase.org/pub/mirbase/{}/miRNA.str.gz'.format(MIRBASE_RELEASE)
+URLS = {'hairpin': 'https://mirbase.org/ftp/{}/hairpin.fa.gz'.format(MIRBASE_RELEASE),
+        'mature': 'https://mirbase.org/ftp/{}/mature.fa.gz'.format(MIRBASE_RELEASE),
+        'gff': 'https://mirbase.org/ftp/{}/genomes'.format(MIRBASE_RELEASE),
+        'mirna_str': 'https://mirbase.org/ftp/{}/miRNA.str.gz'.format(MIRBASE_RELEASE)
 }
+
 
 rule mirbase_hairpin_fasta:
     params:
         url = URLS['hairpin'],
         mirbase_org = MIR_ORG[ORG],
         proxy = config.get('proxy', {}).get('wget', ''),
+        date = datetime.now().strftime("%d-%m-%Y")
     output:
         fasta = join(MIRBASE_EXT, 'fasta', 'hairpin.fa')
     log:
@@ -43,7 +46,7 @@ rule mirbase_hairpin_fasta:
     shell:
         """
         wget {params.proxy} {params.url} -O- | gunzip -c | grep -A 1 "^>{params.mirbase_org}" | grep -v "^-" | sed 's/U/T/g' > {output.fasta}
-        echo "Mirbase hairpin,{MIRBASE_RELEASE},{params.url},`date -I`" > {log}
+        echo "Mirbase hairpin,{MIRBASE_RELEASE},{params.url},{params.date}" > {log}
         """
 
 rule mirbase_mature_fasta:
@@ -51,6 +54,7 @@ rule mirbase_mature_fasta:
         url = URLS['mature'],
         mirbase_org = MIR_ORG[ORG],
         proxy = config.get('proxy', {}).get('wget', ''),
+        date = datetime.now().strftime("%d-%m-%Y")
     output:
         fasta = join(MIRBASE_EXT, 'fasta', 'mature.fa')
     log:
@@ -60,7 +64,7 @@ rule mirbase_mature_fasta:
     shell:
         """
         wget {params.proxy} {params.url} -O- | gunzip -c | grep -A 1 "^>{params.mirbase_org}" | grep -v "^-" | sed 's/U/T/g' > {output}
-        echo "Mirbase mature,{MIRBASE_RELEASE},{params.url},`date -I`" > {log}
+        echo "Mirbase mature,{MIRBASE_RELEASE},{params.url},{params.date}" > {log}
         """
 
 rule mirbase_gff:        
@@ -68,6 +72,7 @@ rule mirbase_gff:
         url = URLS['gff'],
         mirbase_org = MIR_ORG[ORG],
         proxy = config.get('proxy', {}).get('wget', ''),
+        date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(MIRBASE_EXT, 'anno', 'genes.gff3')
     log:
@@ -77,7 +82,7 @@ rule mirbase_gff:
     shell:
         """
         wget {params.proxy} -O - {params.url}/{params.mirbase_org}.gff3 > {output}
-        echo "Mirbase gff,{MIRBASE_RELEASE},{params.url},`date -I`" > {log}
+        echo "Mirbase gff,{MIRBASE_RELEASE},{params.url},{params.date}" > {log}
         """
 
 rule mirbase_genes:
@@ -97,6 +102,7 @@ rule mirbase_mirna_str:
         url = URLS['mirna_str'],
         mirbase_org = MIR_ORG[ORG],
         proxy = config.get('proxy', {}).get('wget', ''),
+        date = datetime.now().strftime("%d-%m-%Y")
     output:
         fasta = join(MIRBASE_EXT, 'anno', 'miRNA.str')
     log:
@@ -106,7 +112,7 @@ rule mirbase_mirna_str:
     shell:
         """
         wget {params.proxy} {params.url} -O- | gunzip -c > {output}
-        echo "Mirbase mirna_str,{MIRBASE_RELEASE},{params.url},`date -I`" > {log}
+        echo "Mirbase mirna_str,{MIRBASE_RELEASE},{params.url},{params.date}" > {log}
         """
 
 rule seqbuster_db:
