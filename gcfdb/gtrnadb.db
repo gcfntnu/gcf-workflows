@@ -5,7 +5,7 @@ GTRNADB_VER = {'homo_sapiens': '19',
                'human': '19',
                'mus_musculus': '10',
                'mouse': '10',
-               'rattus_norvegicus': '5',
+               'rattus_norvegicus': '6',
                'rat': '5'}
 GTRNADB_ORG = {'homo_sapiens': 'hg',
                'human': 'hg',
@@ -38,6 +38,7 @@ def gtrnadb_url(wildcards):
 rule gtrnadb_trna:
     params:
         url = gtrnadb_url,
+        date = datetime.now().strftime("%d-%m-%Y"),
         proxy = config.get('proxy', {}).get('wget', ''),
         version = GTRNADB_VER[ORG]
     output:
@@ -47,27 +48,35 @@ rule gtrnadb_trna:
     shell:
         """
         wget {params.proxy} -O {output} {params.url}
-        echo "GtRNAdb,{params.version},{params.url},`date -I`" > {log}
+        echo "GtRNAdb,{params.version},{params.url},{params.date}" > {log}
         """
 
 def gtrnadb2_url(wildcards):
     org = GTRNADB_ORG[ORG]
     name = GTRNADB_NAME[ORG]
     ver = GTRNADB_VER[ORG]
-    url = 'http://gtrnadb.ucsc.edu/GtRNAdb2/genomes/eukaryota/{}{}/{}{}-tRNAs.fa'.format(name, ver, org, ver)
+    url = 'http://gtrnadb.ucsc.edu/GtRNAdb2/genomes/eukaryota/{}{}/{}{}-tRNAs.tar.gz'.format(name, ver, org, ver)
     return url
 
 rule gtrnadb2_trna:
     params:
-        url = gtrnadb2_url,
+        org = GTRNADB_ORG[ORG],
+        name = GTRNADB_NAME[ORG],
+        ver = GTRNADB_VER[ORG]
+        date = datetime.now().strftime("%d-%m-%Y"),
         proxy = config.get('proxy', {}).get('wget', ''),
-        version = GTRNADB_VER[ORG]
+        output_dir = join(EXT_DIR, 'gtrnadb2', ORG, 'release-{}'.format(params.ver))
     output:
-        join(EXT_DIR, 'gtrnadb2', ORG, 'release-{}'.format(GTRNADB_VER[ORG]), 'tRNAs.fa')
+        trna_fasta = join(EXT_DIR, 'gtrnadb2', ORG, 'release-{}'.format(params.ver), '{}{}-tRNAs.fa'.format(params.org, params.ver)),
+        mature_trna_fasta = join(EXT_DIR, 'gtrnadb2', ORG, 'release-{}'.format(params.ver), '{}{}-mature-tRNAs.fa'.format(params.org, params.ver)),
+        bed = join(EXT_DIR, 'gtrnadb2', ORG, 'release-{}'.format(params.ver), '{}{}.bed'.format(params.org, params.ver))
     log:
         join(EXT_DIR, 'gtrnadb2', ORG, 'release-{}'.format(GTRNADB_VER[ORG]), 'logs', 'gtrnadb.log')
     shell:
         """
-        wget {params.proxy} -O {output} {params.url}
-        echo "GtRNAdb2,{params.version},{params.url},`date -I`" > {log}
+        cd {params.outdir}
+        wget {params.proxy} -qO- {params.url} | tar xvz
+        echo "GtRNAdb2,{params.ver},{params.url},{params.date}" > {log}
         """
+
+
