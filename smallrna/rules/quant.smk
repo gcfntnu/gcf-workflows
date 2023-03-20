@@ -3,7 +3,7 @@
 include:
     'quant/quickmirseq.smk'
 include:
-    'quant/mirge.smk'
+    'quant/mirge3.smk'
 include:
     'quant/unitas.smk'
 
@@ -14,7 +14,9 @@ def quant_all(wildcards):
         if m == 'unitas':
             out.extend(rules.unitas_all.input)
         elif m == 'mirge':
-            out.extend(rules.mirge_all.output)
+            out.extend(rules.mirge_all.input)
+        elif m == 'mirge3':
+            out.extend(rules.mirge3_all.input)
         elif m == 'quickmirseq':
             out.extend(rules.quickmirseq_all.output)
         else:

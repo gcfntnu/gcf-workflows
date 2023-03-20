@@ -30,7 +30,7 @@ def fastq_screen_indexes(*args, **kw):
          index = join(EXT_DIR, 'ensembl', 'release-{}'.format(release), org, assembly, 'index', 'genome', 'bowtie2', 'genome.1.bt2')
          INDEXES[org] = index
       elif config['db'].get('reference_db') == 'custom_reference':
-         assembly = config['db']['custom_reference']['assembly']
+         assembly = config['db']['custom_reference'].get('assembly', '')
          index = join(EXT_DIR, 'custom_reference', org, assembly, 'index', 'genome', 'bowtie2', 'genome.1.bt2')
          INDEXES[org] = index
    # contamination (univec minus phiX/Illumina sequences)

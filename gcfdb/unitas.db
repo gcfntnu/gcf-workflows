@@ -20,7 +20,8 @@ _unitas_map = {'homo_sapiens': 'Human',
                'rattus_norvegicus': 'Rat',
                'rat': 'Rat',
                'rno': 'Rat'}
-UNITAS_ORG = _unitas_map[config['organism']]
+UNITAS_ORG = _unitas_map.get(ORG, ORG)
+UNITAS_REF_DIR = join(EXT_DIR, 'unitas', config['db']['unitas']['release'], 'UNITAS_refdump_{}'.format(ORG))
 
 rule unitas_dummy_input:
     output:
@@ -56,7 +57,7 @@ rule unitas_db:
         rules.unitas_dummy_input.output,
         rules.unitas_seqmap.output
     output:
-        db = directory(join(EXT_DIR, 'unitas', config['db']['unitas']['release'],'UNITAS_refdump_{}'.format(ORG))),
+        db = directory(UNITAS_REF_DIR)
     params:
         refdir = join(EXT_DIR, 'unitas', config['db']['unitas']['release']),
         script = srcdir('scripts/format_unitas_dblog.py'),
