@@ -1,0 +1,39 @@
+#-*- mode:snakemake -*-
+
+"""miRge - microRNA alignment software for small RNA-seq data
+
+https://github.com/mhalushka/miRge
+
+
+This is the database download part.
+
+For DB builds: https://github.com/mhalushka/miRge_build
+
+
+"""
+
+URL = 'https://sourceforge.net/projects/mirge3/files/miRge3_Lib/{}.tar.gz/download'
+
+ORG_MAP = {'mus_musculus': 'mouse',
+           'homo_sapiens': 'human',
+           'rattus_norvegicus': 'rat'}
+MIRGE_ORG = ORG_MAP[config['organism']]
+MIRGE3_EXT = join(EXT_DIR, 'mirge3', config['organism'], MIRGE_ORG)
+
+rule mirge3_prebuild:
+    params:
+        url = URL.format(MIRGE_ORG),
+        proxy = config.get('proxy', {}).get('wget', ''),
+        date = datetime.now().strftime("%d-%m-%Y"),
+    output:
+        join(MIRGE3_EXT, 'index.Libs', '{}_snorna.3.ebwt'.format(MIRGE_ORG))
+    log:
+        join(MIRGE3_EXT, 'logs', 'mirge3_reference.log')
+    shell:
+        """
+        wget {params.proxy} -qO- {params.url} | tar xvz --strip-components 1 -C {MIRGE3_EXT}
+        echo "mirge3,NA,{params.url},{params.date}" > {log}
+        """
+
+rule mirge3_build:
+    

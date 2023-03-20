@@ -27,4 +27,4 @@ rule sample_info:
         script = srcdir('scripts/pep_sampleinfo.py'),
         pep = workflow.pepfile
     shell:
-        'python {params.script} {params.pep} > {output}'
+        'python {params.script} {params.pep} {output}'
