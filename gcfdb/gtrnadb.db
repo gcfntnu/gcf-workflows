@@ -52,8 +52,6 @@ rule gtrnadb_trna:
         """
 
 def gtrnadb2_url(wildcards):
-    org = GTRNADB_ORG[ORG]
-    name = GTRNADB_NAME[ORG]
     ver = GTRNADB_VER[ORG]
     url = 'http://gtrnadb.ucsc.edu/GtRNAdb2/genomes/eukaryota/{}{}/{}{}-tRNAs.tar.gz'.format(name, ver, org, ver)
     return url
@@ -62,19 +60,19 @@ rule gtrnadb2_trna:
     params:
         org = GTRNADB_ORG[ORG],
         name = GTRNADB_NAME[ORG],
-        ver = GTRNADB_VER[ORG]
+        ver = GTRNADB_VER[ORG],
         date = datetime.now().strftime("%d-%m-%Y"),
         proxy = config.get('proxy', {}).get('wget', ''),
-        output_dir = join(EXT_DIR, 'gtrnadb2', ORG, 'release-{}'.format(params.ver))
+        output_dir = join(EXT_DIR, 'gtrnadb2', ORG, 'release-{}'.format(GTRNADB_VER[ORG]))
     output:
-        trna_fasta = join(EXT_DIR, 'gtrnadb2', ORG, 'release-{}'.format(params.ver), '{}{}-tRNAs.fa'.format(params.org, params.ver)),
-        mature_trna_fasta = join(EXT_DIR, 'gtrnadb2', ORG, 'release-{}'.format(params.ver), '{}{}-mature-tRNAs.fa'.format(params.org, params.ver)),
-        bed = join(EXT_DIR, 'gtrnadb2', ORG, 'release-{}'.format(params.ver), '{}{}.bed'.format(params.org, params.ver))
+        trna_fasta = join(EXT_DIR, 'gtrnadb2', ORG, 'release-{}'.format(GTRNADB_VER[ORG]), '{}{}-tRNAs.fa'.format(GTRNADB_ORG[ORG], GTRNADB_VER[ORG])),
+        mature_trna_fasta = join(EXT_DIR, 'gtrnadb2', ORG, 'release-{}'.format(GTRNADB_VER[ORG]), '{}{}-mature-tRNAs.fa'.format(GTRNADB_ORG[ORG], GTRNADB_VER[ORG])),
+        bed = join(EXT_DIR, 'gtrnadb2', ORG, 'release-{}'.format(GTRNADB_VER[ORG]), '{}{}.bed'.format(GTRNADB_ORG[ORG], GTRNADB_VER[ORG]))
     log:
         join(EXT_DIR, 'gtrnadb2', ORG, 'release-{}'.format(GTRNADB_VER[ORG]), 'logs', 'gtrnadb.log')
     shell:
         """
-        cd {params.outdir}
+        cd {params.output_dir}
         wget {params.proxy} -qO- {params.url} | tar xvz
         echo "GtRNAdb2,{params.ver},{params.url},{params.date}" > {log}
         """
