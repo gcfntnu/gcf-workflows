@@ -29,13 +29,3 @@ def get_filtered_fastq(wildcards):
         R2 = join(DST_PTH, wildcards.sample + '_R2.fastq')
         return {'R1': R1, 'R2': R2}
     return {'R1': R1}
-
-rule _filter:
-    input:
-        unpack(get_filtered_fastq)
-    output:
-        temp(touch(join(FILTER_INTERIM, '.{sample}.filtered')))
-
-rule filter_all:
-    input:
-        expand(rules._filter.output, sample=SAMPLES)

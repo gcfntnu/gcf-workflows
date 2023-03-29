@@ -116,9 +116,18 @@ if __name__ == "__main__":
     adata = sc.read(args.exprs)
 
     # standard preprocessing
-    sc.pp.filter_cells(adata, min_genes=200)
-    sc.pp.filter_genes(adata, min_cells=10)
-    sc.pp.filter_genes(adata, min_counts=20)
+    try:
+        _adata = sc.pp.filter_cells(adata, min_genes=300, inplace=False)
+        sc.pp.filter_genes(_adata, min_cells=5)
+        sc.pp.filter_genes(_adata, min_counts=1000)
+        if (adata.shape[0] < 100) or (adata.shape[1] < 10):
+            raise ValueError
+        adata = _adata
+    except:
+        # testdata or failed data
+        sc.pp.filter_cells(adata, min_genes=20)
+        sc.pp.filter_genes(adata, min_cells=1)
+        sc.pp.filter_genes(adata, min_counts=3)
     sc.pp.normalize_total(adata, key_added='n_counts_all')
     try:
         f = sc.pp.filter_genes_dispersion(adata.X, flavor='cell_ranger', n_top_genes=1000, log=False)
@@ -157,6 +166,7 @@ if __name__ == "__main__":
 
     if args.output.endswith('_mqc.png'):
         pca_color = ['louvain', 'sample_id', 'nuclear_fraction', 'fraction_mito']
+        pca_color = list(set(pca_color).intersection(adata.obs.columns))
         #if 'Sample_Group' in adata.obs.columns:
         #    pca_color.append('Sample_Group')
         fig = sc.pl.umap(adata, return_fig=True, color=pca_color, ncols=2)

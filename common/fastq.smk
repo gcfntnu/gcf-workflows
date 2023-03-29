@@ -75,9 +75,29 @@ rule merged_interleave_fastq:
 def get_filtered_fastq(wildcards):
     R1 = config['samples'][wildcards.sample].get('R1', '')
     R2 = config['samples'][wildcards.sample].get('R2', '')
-    DST_PTH = join(FILTER_INTERIM, config['filter']['trim']['quantifier'])
-    R1 = join(DST_PTH, wildcards.sample + '_R1.fastq')
+
+    fastq_quantifier = config['filter'].get('trim', {}).get('quantifier', 'fastq')
+    if fastq_quantifier in ['', 'skip', 'NA', 'na', 'None', 'none']:
+        fastq_quantifier = 'fastq'
+    DST_PTH = join(FILTER_INTERIM, fastq_quantifier)
+    
+    FASTQ_EXT = '.fastq'
+    if config.get('fastq_compress_filtered', False):
+        FASTQ_EXT += '.gz'
+        
+    R1 = join(DST_PTH, wildcards.sample + '_R1' + FASTQ_EXT)
     if R2:
-        R2 = join(DST_PTH, wildcards.sample + '_R2.fastq')
+        R2 = join(DST_PTH, wildcards.sample + '_R2' + FASTQ_EXT)
         return {'R1': R1, 'R2': R2}
     return {'R1': R1}
+
+
+rule _filter:
+    input:
+        unpack(get_filtered_fastq)
+    output:
+        temp(touch(join(FILTER_INTERIM, '.{sample}.filtered')))
+
+rule filter_all:
+    input:
+        expand(rules._filter.output, sample=SAMPLES)

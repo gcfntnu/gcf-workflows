@@ -46,7 +46,7 @@ def str_read_geometry(read_geometry):
 
 def create_mqc_config(args):
     pep = peppy.Project(args.pep.name)
-    mqc_conf = yaml.load(args.config_template)
+    mqc_conf = yaml.load(args.config_template, Loader=yaml.Loader)
     title = ','.join(pep.config.get('Project_ID', [args.project_id]))
     mqc_conf['title'] = title
 
