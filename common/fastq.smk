@@ -6,11 +6,10 @@ def merge_cmd_R1(input):
     """merge read 1 files with optional downsampling
     """
     cmd = 'zcat ' if input.R1[0].endswith('gz') else 'cat '
-    cmd += '{}'.format(input.R1)
+    cmd += ' '.join(input.R1)
     subsample = config['filter'].get('subsample_fastq', 'skip')
     if subsample == 'skip':
         return cmd
-    cmd += '{}'.format(input.R1)
     if float(subsample) < 1:
         cmd += ' | seqkit sample --rand-seed 1234 --proportion {} '.format(subsample)
     else:
@@ -21,9 +20,9 @@ def merge_cmd_R2(input):
     """merge read 1 files with optional downsampling
     """
     cmd = 'zcat ' if input.R2[0].endswith('gz') else 'cat '
-    cmd += '{}'.format(input.R2)
-    subsample = config['filter'].get('sample_fastq')
-    if subsample is None:
+    cmd += ' '.join(input.R2)
+    subsample = config['filter'].get('subsample_fastq', 'skip')
+    if subsample == 'skip':
         return cmd
     if float(subsample) < 1:
         cmd += ' | seqkit sample --rand-seed 1234 --proportion {} '.format(subsample)
