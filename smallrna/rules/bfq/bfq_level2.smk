@@ -50,7 +50,7 @@ rule bfq_level2_unitas:
     input:
         expand(rules.unitas.output.html, sample=SAMPLES)
     output:
-        outdir = directory(join(BFQ_INTERIM, 'unitas'))
+        outdir = directory(join(BFQ_INTERIM, 'logs', 'unitas'))
     run:
         for html_result in input:
             sample_name = os.path.basename(os.path.dirname(html_result))

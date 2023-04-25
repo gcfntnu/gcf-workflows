@@ -6,8 +6,7 @@ ORG = config['organism']
 if PE:
     rule bwa_align:
         input:
-            R1 = join(FILTER_INTERIM, 'fastp', '{sample}_R1.fastq'),
-            R2 = join(FILTER_INTERIM, 'fastp', '{sample}_R2.fastq'),
+            unpack(get_filtered_fastq),
             index = join(REF_DIR, 'index', 'genome', 'bwa', 'genome.amb')
         params:
             index = join(REF_DIR, 'index', 'genome', 'bwa', 'genome')
@@ -30,7 +29,7 @@ if PE:
 else:
     rule bwa_align:
         input:
-            R1 = join(FILTER_INTERIM, 'fastp', '{sample}_R1.fastq'),
+            unpack(get_filtered_fastq),
             index = join(REF_DIR, 'index', 'genome', 'bwa', 'genome.amb')
         params:
             index = join(REF_DIR, 'index', 'genome', 'bwa', 'genome')

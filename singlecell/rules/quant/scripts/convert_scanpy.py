@@ -143,7 +143,7 @@ def identify_empty_droplets(data, min_cells=3, **kw):
     #adata.X = adata.X.tocsc()
     anndata2ri.activate()
     robj.globalenv["X"] = adata
-    res = robj.r('res <- emptyDrops(assay(X))')
+    res = robj.r('res <- emptyDrops(assay(X), lower = 20, retain = 20)')
     anndata2ri.deactivate()
     keep = res.loc[res.FDR<0.01,:]
     data = data[keep.index,:] 

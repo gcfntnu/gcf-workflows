@@ -4,9 +4,10 @@
 ruleorder: singlecell_fastqc > fastqc_se
 ruleorder: singlecell_fastq_screen > fastq_screen
 
+
 rule singlecell_fastqc:
     input:
-        unpack(get_filtered_fastq)
+        R2 = rules.merged_fastq_R2.output
     output:
         zip = join(QC_INTERIM, 'fastqc', '{sample}.fastqc.zip'),
         html = join(QC_INTERIM, 'fastqc', '{sample}.fastqc.html')
@@ -18,37 +19,46 @@ rule singlecell_fastqc:
         'docker://' + config['docker']['fastqc']
     shadow:
         'minimal'
+    priority:
+        20
     shell:
         """
-        fastqc -t {threads} -o . {input.R2}
-        mv {wildcards.sample}_S1_L000_R2_001_fastqc.zip {output.zip}
-        mv {wildcards.sample}_S1_L000_R2_001_fastqc.html {output.html}
+        mkdir -p {wildcards.sample}
+        fastqc -t {threads} -o {wildcards.sample} {input.R2}
+        mv {wildcards.sample}/*_fastqc.zip {output.zip}
+        mv {wildcards.sample}/*_fastqc.html {output.html}
         """
 
+
 rule singlecell_fastq_screen:
-   input:
-       unpack(get_filtered_fastq),
-       config = rules.fastq_screen_config.output 
-   output:
-       txt = join(QC_INTERIM, 'fastq_screen', '{sample}_screen.txt'),
-       png = join(QC_INTERIM, 'fastq_screen', '{sample}_screen.png'),
-       html = join(QC_INTERIM, 'fastq_screen', '{sample}_screen.html'),
-   params:
-       args = '-q --force',
-       subset = 400000,
-       outdir = join(QC_INTERIM, 'fastq_screen')
-   threads:
-       4
-   singularity:
-       'docker://' + config['docker']['fastq-screen']
-   shell:
-       'fastq_screen '
-       '--aligner bowtie2 '
-       '--threads {threads} '
-       '--conf {input.config} '
-       '--outdir . '
-       '{params.args} '
-       '{input.R2} '
-       '&& mv {wildcards.sample}*_screen.txt {output.txt} '
-       '&& mv {wildcards.sample}*_screen.png {output.png} '
-       '&& mv {wildcards.sample}*_screen.html {output.html} '
+    input:
+        R2 = rules.merged_fastq_R2.output,
+        config = rules.fastq_screen_config.output 
+    output:
+        txt = join(QC_INTERIM, 'fastq_screen', '{sample}_screen.txt'),
+        png = join(QC_INTERIM, 'fastq_screen', '{sample}_screen.png'),
+        html = join(QC_INTERIM, 'fastq_screen', '{sample}_screen.html'),
+    params:
+        args = '-q --force',
+        subset = 400000,
+        outdir = join(QC_INTERIM, 'fastq_screen')
+    threads:
+        4
+    singularity:
+        'docker://' + config['docker']['fastq-screen']
+    shadow:
+        'minimal'
+    priority:
+        20
+    shell:
+        'fastq_screen '
+        '--subset {params.subset} '
+        '--aligner bowtie2 '
+        '--threads {threads} '
+        '--conf {input.config} '
+        '--outdir . '
+        '{params.args} '
+        '{input.R2} '
+        '&& mv {wildcards.sample}*_screen.txt {output.txt} '
+        '&& mv {wildcards.sample}*_screen.png {output.png} '
+        '&& mv {wildcards.sample}*_screen.html {output.html} '

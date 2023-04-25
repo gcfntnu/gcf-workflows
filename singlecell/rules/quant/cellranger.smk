@@ -73,7 +73,7 @@ rule cellranger_symlink_gtf:
  
 rule cellranger_quant_:
     input:
-        unpack(get_filtered_fastq),
+        unpack(get_raw_fastq),
         genome = join(CR_REF_DIR, 'fasta', 'genome.fa')
     params:
         input = input_fastq_path,
@@ -279,7 +279,7 @@ rule scanpy_cellranger:
 rule cellranger_scanpy_pp_ipynb:
     input:
         #rules.scanpy_aggr_cellranger.output
-        join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}_merge.h5ad'),
+        join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', '{aggr_id}_aggr.h5ad'),
     output:
         preprocessed = join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', '{aggr_id}_preprocessed.h5ad'),
     log:
@@ -293,12 +293,14 @@ rule cellranger_scanpy_pp_ipynb:
 
 rule cellranger_scanpy_pp_ipynb_html:
     input:
-        rules.cellranger_scanpy_pp_ipynb.log
+        rules.cellranger_scanpy_pp_ipynb.output
     output:
         join(QUANT_INTERIM, 'aggregate', 'cellranger', 'notebooks', '{aggr_id}_pp.html')
+    params:
+        notebook = rules.cellranger_scanpy_pp_ipynb.log.notebook
     singularity:
         'docker://' + config['docker']['jupyter-scanpy']
     threads:
         1
     shell:
-        'jupyter nbconvert --to html {input} ' 
+        'jupyter nbconvert --to html {params.notebook} ' 

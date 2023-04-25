@@ -52,9 +52,9 @@ def vsn(adata, method='auto'):
             method = 'deseq2_rlog'
     
     if method == 'deseq2_vst':
-        r('vsd <- varianceStabilizingTransformation(adata+1, fitType="mean")')
+        r('vsd <- varianceStabilizingTransformation(round(adata+1), fitType="mean")')
     elif method == 'deseq2_rlog':
-        r('vsd <- rlogTransformation(adata+1, fitType="mean")')
+        r('vsd <- rlogTransformation(round(adata+1), fitType="mean")')
     else:
         raise ValueError
     X = np.array(r.vsd)
@@ -67,7 +67,7 @@ if __name__ == "__main__":
     args = argparser()
     
     X = pd.read_csv(args.input, sep="\t", index_col=0).T
-    X = X.astype(np.uint64)
+    X = X.astype('f')
     X.columns = X.columns.astype(str)
 
     S = F = None
@@ -88,7 +88,7 @@ if __name__ == "__main__":
             
         F = F.loc[X.columns,:]
 
-    adata = ad.AnnData(X=X, obs=S, var=F)
+    adata = ad.AnnData(X=X, obs=S, var=F, dtype='f')
 
     if args.vsn:
         adata = vsn(adata)

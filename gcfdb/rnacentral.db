@@ -1,12 +1,10 @@
 #-*-mode:snakemake-*-
+"""RNAcentral
+RNAcentral: The non-coding RNA sequence database
 
-# config
-# config
-extra_conf_fn = srcdir('rnacentral.config')
-if os.path.exists(extra_conf_fn):
-    with open(extra_conf_fn) as fh:
-        c  = yaml.load(fh, Loader=Loader) or {}
-        update_config2(config, c)
+https://rnacentral.org/
+
+"""
 
 
 RNACENTRAL_ORG = config['organism'] + '.' + config['db']['assembly']
@@ -31,20 +29,22 @@ rule rnacentral_gff:
     params:
         url = RNACENTRAL_GFF,
         proxy = config.get('proxy', {}).get('wget', ''),
+        date = datetime.now().strftime("%d-%m-%Y")
     output:
-        join(RNACENTRAL_DIR, 'anno', RNACENTRAL_ORG + '.gff')
+        join(RNACENTRAL_DIR, 'anno', RNACENTRAL_ORG + '.gff3')
     log:
-        join(RNACENTRAL_DIR, 'logs', 'gff.log')
+        join(RNACENTRAL_DIR, 'logs', 'gff3.log')
     shell:
         """
         wget {params.proxy} -O - {params.url} | gunzip -c > {output}
-        echo "RNAcentral gff,{RNACENTRAL_RELEASE},{params.url},`date -I`" > {log}
+        echo "RNAcentral gff,{RNACENTRAL_RELEASE},{params.url},{params.date}" > {log}
         """
 
 rule rnacentral_bed:
     params:
         url = RNACENTRAL_BED,
         proxy = config.get('proxy', {}).get('wget', ''),
+        date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(RNACENTRAL_DIR, 'anno', RNACENTRAL_ORG + '.bed')
     log:
@@ -52,7 +52,7 @@ rule rnacentral_bed:
     shell:
         """
         wget {params.proxy} -O - {params.url} | gunzip -c > {output}
-        echo "RNAcentral bed,{RNACENTRAL_RELEASE},{params.url},`date -I`" > {log}
+        echo "RNAcentral bed,{RNACENTRAL_RELEASE},{params.url},{params.date}" > {log}
         """
 
 rule rnacentral_gtf:
@@ -71,6 +71,7 @@ rule rnacentral_fasta:
     params:
         url = RNACENTRAL_FASTA,
         proxy = config.get('proxy', {}).get('wget', ''),
+        date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(RNACENTRAL_DIR, 'fasta', 'rnacentral_active.fa')
     log:
@@ -78,13 +79,14 @@ rule rnacentral_fasta:
     shell:
         """
         wget {params.proxy} -O - {params.url} | gunzip -c > {output}
-        echo "RNAcentral fasta,{RNACENTRAL_RELEASE},{params.url},`date -I`" > {log}
+        echo "RNAcentral fasta,{RNACENTRAL_RELEASE},{params.url},{params.date}" > {log}
         """
         
 rule rnacentral_ids:
     params:
         url = RNACENTRAL_MAP,
         proxy = config.get('proxy', {}).get('wget', ''),
+        date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(RNACENTRAL_DIR, 'id_mapping.tsv')
     log:
@@ -92,7 +94,7 @@ rule rnacentral_ids:
     shell:
         """
         wget {params.proxy} -O - {params.url} | gunzip -c > {output}
-        echo "RNAcentral id_mapping,{RNACENTRAL_RELEASE},{params.url},`date -I`" > {log}
+        echo "RNAcentral id_mapping,{RNACENTRAL_RELEASE},{params.url},{params.date}" > {log}
         """
 
 # example of a specific db id-mapping
@@ -100,6 +102,7 @@ rule rnacentral_mapping:
     params:
         url = join(RNACENTRAL_DBMAP, '{db}.tsv'),
         proxy = config.get('proxy', {}).get('wget', ''),
+        date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(RNACENTRAL_DIR, 'rnacentral_{db}.tsv')
     log:
@@ -107,7 +110,7 @@ rule rnacentral_mapping:
     shell:
         """
         wget {params.proxy} -O - {params.url} > {output}
-        echo "RNAcentral {wildcards.db}_mapping,{RNACENTRAL_RELEASE},{params.url},`date -I`" > {log}
+        echo "RNAcentral {wildcards.db}_mapping,{RNACENTRAL_RELEASE},{params.url},{params.date}" > {log}
         """
 
 rule rnacentral_ensembl:

@@ -29,32 +29,3 @@ else:
             'cp -fL {input} {output} '
 """
 
-rule _filtered_fastq_compress:
-    input:
-        join(FILTER_INTERIM, config['filter']['trim']['quantifier'], '{sample}_{readnum}.fastq')
-    output:
-        join(FILTER_INTERIM, 'fastq', '{sample}_R{readnum}.fastq.gz')
-    shell:
-        'gzip -c {input} > {output}'
-
-def get_filtered_fastq(wildcards):
-    R1 = config['samples'][wildcards.sample].get('R1', '')
-    R2 = config['samples'][wildcards.sample].get('R2', '')
-    DST_PTH = join(FILTER_INTERIM, config['filter']['trim']['quantifier'])
-    R1 = join(DST_PTH, wildcards.sample + '_R1.fastq')
-    if R2:
-        R2 = join(DST_PTH, wildcards.sample + '_R2.fastq')
-        return {'R1': R1, 'R2': R2}
-    return {'R1': R1}
-
-rule _filter:
-    input:
-        unpack(get_filtered_fastq)
-    output:
-        temp(touch(join(FILTER_INTERIM, '.{sample}.filtered')))
-
-rule filter_all:
-    input:
-        expand(rules._filter.output, sample=SAMPLES)
-
-
