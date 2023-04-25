@@ -53,7 +53,8 @@ def get_input(wildcards):
     model = config['models'][wildcards.model_name]
     feature_type = model.get('feature_type', 'gene')
     quant = config['quant']['method']
-    counts = join(QUANT_INTERIM, quant, 'tximport', 'tx_{}.rds'.format(quant))
+    index_type = config.get('quant', {}).get('salmon', {}).get('index', 'transcriptome')
+    counts = join(QUANT_INTERIM, quant, 'tximport', '{}_{}.rds'.format(index_type, quant))
     if feature_type == 'gene':
         meta = join(REF_DIR, 'anno', 'genes.tsv')
     else:
