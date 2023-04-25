@@ -60,12 +60,12 @@ def fastp_adapter_args(input):
 if PE:
     rule fastp:
         input:
-            R1 = join(FILTER_INTERIM, 'fastq', '{sample}_R1.fastq'),
-            R2 = join(FILTER_INTERIM, 'fastq', '{sample}_R2.fastq'),
+            R1 = join(FILTER_INTERIM, 'fastq', '{sample}_R1.fastq.gz'),
+            R2 = join(FILTER_INTERIM, 'fastq', '{sample}_R2.fastq.gz'),
             adapter_fasta = 'fastp_adapters.fa'
         output:
-            R1 = temp(join(FILTER_INTERIM, 'fastp', '{sample}_R1.fastq')),
-            R2 = temp(join(FILTER_INTERIM, 'fastp', '{sample}_R2.fastq')),
+            R1 = temp(join(FILTER_INTERIM, 'fastp', '{sample}_R1.fastq.gz')),
+            R2 = temp(join(FILTER_INTERIM, 'fastp', '{sample}_R2.fastq.gz')),
             log_html = join(FILTER_INTERIM, 'fastp', '{sample}.html'),
             log_json = join(FILTER_INTERIM, 'fastp', '{sample}.json')           
         threads:
@@ -81,10 +81,10 @@ if PE:
 else:
     rule fastp:
         input:
-            R1 = join(FILTER_INTERIM, 'fastq', '{sample}_R1.fastq'),
+            R1 = join(FILTER_INTERIM, 'fastq', '{sample}_R1.fastq.gz'),
             adapter_fasta = 'fastp_adapters.fa'
         output:
-            R1 = temp(join(FILTER_INTERIM, 'fastp', '{sample}_R1.fastq')),
+            R1 = temp(join(FILTER_INTERIM, 'fastp', '{sample}_R1.fastq.gz')),
             log_html = join(FILTER_INTERIM, 'fastp', '{sample}.html'),
             log_json = join(FILTER_INTERIM, 'fastp', '{sample}.json')               
         threads:

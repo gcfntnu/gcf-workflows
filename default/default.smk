@@ -25,10 +25,6 @@ if not 'SAMPLES' in locals():
 include:
     srcdir('../common.smk')
 include:
-    'rules/filter.smk'
-include:
-    'rules/qc.smk'
-include:
     'rules/bfq.smk'
 include:
     srcdir('../postprocess.smk')
