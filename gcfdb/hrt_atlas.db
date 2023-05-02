@@ -25,7 +25,7 @@ rule housekeeping_transcripts_homo_sapiens:
         join(EXT_DIR, 'HTA', 'logs', 'housekeeping_transcripts_homo_sapiens.log')
     shell:
         """
-        wget  -O- '{params.url}' > {output}
+        wget  --no-check-certificate  -O- '{params.url}' > {output}
         echo 'HRT_Atlas Human Transcripts,,{params.url},`date -I`' > {log}
         """
 
@@ -39,7 +39,7 @@ rule housekeeping_genes_homo_sapiens:
         join(EXT_DIR, 'HTA', 'logs', 'housekeeping_genes_homo_sapiens.log')
     shell:
         """
-        wget  -O- '{params.url}' > {output}
+        wget --no-check-certificate  -O- '{params.url}' > {output}
         echo 'HRT_Atlas Human Genes,,{params.url},`date -I`' > {log}
         """
 
@@ -53,7 +53,7 @@ rule housekeeping_transcripts_mus_musculus:
         join(EXT_DIR, 'HTA', 'logs', 'housekeeping_transcripts_mus_musculus.log')
     shell:
         """
-        wget  -O- '{params.url}'  > {output}
+        wget --no-check-certificate  -O- '{params.url}'  > {output}
         echo 'HRT_Atlas Mouse Transcripts,,{params.url},`date -I`' > {log}
         """
 
@@ -67,7 +67,7 @@ rule housekeeping_genes_mus_musculus:
         join(EXT_DIR, 'HTA', 'logs', 'housekeeping_genes_mus_musculus.log')
     shell:
         """
-        wget  -O- '{params.url}'  > {output}
+        wget --no-check-certificate  -O- '{params.url}'  > {output}
         echo 'HRT_Atlas Mouse Genes,,{params.url},`date -I`' > {log}
         """
 
