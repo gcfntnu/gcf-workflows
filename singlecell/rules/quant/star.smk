@@ -115,7 +115,7 @@ rule starsolo_quant:
         umi_start = config['quant']['starsolo']['umi_start'],
         R1 = lambda wildcards, input: input.R1 if isinstance(input.R1, str) else ','.join(input.R1),
         R2 = lambda wildcards, input: input.R2 if isinstance(input.R2, str) else','.join(input.R2),
-        extra_args = '--genomeLoad LoadAndKeep --outFilterMultimapNmax 1 --soloFeatures Gene GeneFull SJ Velocyto Transcript3p ' 
+        extra_args = '--readFilesCommand zcat  --genomeLoad LoadAndKeep --outFilterMultimapNmax 1 --soloFeatures Gene GeneFull SJ Velocyto Transcript3p ' 
     threads:
         48
     output:

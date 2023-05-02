@@ -29,7 +29,7 @@ def get_16s_its_primers(args):
     return {'forward': forward_primers, 'reverse': reverse_primers}
 
 def cutadapt_worker(args, primers):
-    sample = os.path.basename(args.in1).replace('_R1.fastq','')
+    sample = os.path.basename(args.in1).replace('_R1.fastq.gz','')
     forward = primers.get('forward', {})
     reverse = primers.get('reverse', {})
     os.makedirs(os.path.join(args.output_dir, 'rev_comp_log'), exist_ok=True)
