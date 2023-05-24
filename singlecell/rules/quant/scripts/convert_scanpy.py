@@ -7,6 +7,7 @@ import sys
 import os
 import argparse
 import re
+from typing import Dict, Optional
 
 import scanpy  as sc
 import pandas as pd
@@ -14,6 +15,9 @@ import numpy as np
 import anndata
 import scvelo as sv
 from scipy import sparse
+import scipy.sparse as sp
+import tables
+
 
 GENOME = {'homo_sapiens': 'GRCh38',
           'human': 'GRCh38',
@@ -29,7 +33,7 @@ parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.R
 
 parser.add_argument('input', help='input file(s)', nargs='*', default=None)
 parser.add_argument('-o', '--outfile', help='output filename', required=True)
-parser.add_argument('-f', '--input-format', choices=['cellranger_aggr', 'cellranger', 'star', 'alevin', 'umitools', 'velocyto'],
+parser.add_argument('-f', '--input-format', choices=['cellranger_aggr', 'cellranger', 'star', 'alevin', 'alevin2', 'cellbender', 'umitools', 'velocyto'],
                     default='cellranger_aggr', help='input file format')
 parser.add_argument('-F', '--output-format', choices=['anndata', 'loom', 'csvs'], default='anndata', help='output file format')
 parser.add_argument('--aggr-csv', help='aggregation CSV with header and two columns. First column is `sample_id` and second column is path to input file. This is used as a substitute for input files', default=None)
@@ -37,12 +41,14 @@ parser.add_argument('--sample-info', help='samplesheet info, tab seprated file a
 parser.add_argument('--feature-info', help='extra feature info filename, tab seprated file assumes `gene_ids` in header', default=None)
 parser.add_argument('--log', help='logfile', default=None)
 parser.add_argument('--filter-org', help='filter data (genes) by organism', default=None)
-parser.add_argument('--gex-only', help='only keep `Gene Expression` data and ignore other feature types.', default=True)
-parser.add_argument('--normalize', help='normalize depth across the input libraries', default='none', choices=['none', 'mapped'])
+parser.add_argument('--gex-only', help='only keep `Gene Expression` data and ignore other feature types. (only for cellranger)', default=True)
+parser.add_argument('--normalize', help='normalize depth across the input libraries', default='none', choices=['none', 'mapped', 'skip'])
 parser.add_argument('--batch', help='column name in `sample-info` with batch covariate', default=None)
 parser.add_argument('--no-zero-cell-rm', help='do not remove cells with zero counts', action='store_true')
 parser.add_argument('--identify-doublets', help='estimate doublets using Scrublets (Single-Cell Remover of Doublets)', action='store_true')
 parser.add_argument('--identify-empty-droplets', help='estimate empty droplets using emptyDrops (DropletUtils)', action='store_true')
+parser.add_argument('--doublets', help='doublet estimation strategy', default='r_scrublet', choices=['skip', 'scanpy_scrublet', 'r_scrublet'])
+parser.add_argument('--empty-droplets', help='barcode cell identification strategy', default='cr_emptydrops')
 parser.add_argument('-v ', '--verbose', help='verbose output.', action='store_true')
 
 
@@ -102,7 +108,144 @@ def filter_input_by_csv(input, csv_fn, verbose=False):
         print('Filtered input: {}'.format(len(filtered_input)))
     return filtered_input
 
-def identify_doublets(data, **kw):
+
+## code from https://github.com/broadinstitute/CellBender/issues/152
+## def dict_from_h5, def anndata_from_h5, def _fill_adata_slots_automatically
+def dict_from_h5(file: str) -> Dict[str, np.ndarray]:
+    """Read in everything from an h5 file and put into a dictionary."""
+    d = {}
+    with tables.open_file(file) as f:
+        # read in everything
+        for array in f.walk_nodes("/", "Array"):
+            d[array.name] = array.read()
+    return d
+
+def anndata_from_h5(file: str,
+                    analyzed_barcodes_only: bool = True) -> 'anndata.AnnData':
+    """Load an output h5 file into an AnnData object for downstream work.
+    Args:
+        file: The h5 file
+        analyzed_barcodes_only: False to load all barcodes, so that the size of
+            the AnnData object will match the size of the input raw count matrix.
+            True to load a limited set of barcodes: only those analyzed by the
+            algorithm. This allows relevant latent variables to be loaded
+            properly into adata.obs and adata.obsm, rather than adata.uns.
+    Returns:
+        adata: The anndata object, populated with inferred latent variables
+            and metadata.
+    """
+
+    d = dict_from_h5(file)
+    X = sp.csc_matrix((d.pop('data'), d.pop('indices'), d.pop('indptr')),
+                      shape=d.pop('shape')).transpose().tocsr()
+
+    # check and see if we have barcode index annotations, and if the file is filtered
+    barcode_key = [k for k in d.keys() if (('barcode' in k) and ('ind' in k))]
+    if len(barcode_key) > 0:
+        max_barcode_ind = d[barcode_key[0]].max()
+        filtered_file = (max_barcode_ind >= X.shape[0])
+    else:
+        filtered_file = True
+
+    if analyzed_barcodes_only:
+        if filtered_file:
+            # filtered file being read, so we don't need to subset
+            print('Assuming we are loading a "filtered" file that contains only cells.')
+            pass
+        elif 'barcode_indices_for_latents' in d.keys():
+            X = X[d['barcode_indices_for_latents'], :]
+            d['barcodes'] = d['barcodes'][d['barcode_indices_for_latents']]
+        elif 'barcodes_analyzed_inds' in d.keys():
+            X = X[d['barcodes_analyzed_inds'], :]
+            d['barcodes'] = d['barcodes'][d['barcodes_analyzed_inds']]
+        else:
+            print('Warning: analyzed_barcodes_only=True, but the key '
+                  '"barcodes_analyzed_inds" or "barcode_indices_for_latents" '
+                  'is missing from the h5 file. '
+                  'Will output all barcodes, and proceed as if '
+                  'analyzed_barcodes_only=False')
+
+    # Construct the anndata object.
+    adata = anndata.AnnData(X=X,
+                            obs={'barcode': d.pop('barcodes').astype(str)},
+                            var={'gene_name': (d.pop('gene_names') if 'gene_names' in d.keys()
+                                               else d.pop('name')).astype(str)},
+                            dtype=X.dtype)
+    adata.obs.set_index('barcode', inplace=True)
+    adata.var.set_index('gene_name', inplace=True)
+
+    # For CellRanger v2 legacy format, "gene_ids" was called "genes"... rename this
+    if 'genes' in d.keys():
+        d['id'] = d.pop('genes')
+
+    # For purely aesthetic purposes, rename "id" to "gene_id"
+    if 'id' in d.keys():
+        d['gene_id'] = d.pop('id')
+
+    # If genomes are empty, try to guess them based on gene_id
+    if 'genome' in d.keys():
+        if np.array([s.decode() == '' for s in d['genome']]).all():
+            if '_' in d['gene_id'][0].decode():
+                print('Genome field blank, so attempting to guess genomes based on gene_id prefixes')
+                d['genome'] = np.array([s.decode().split('_')[0] for s in d['gene_id']], dtype=str)
+
+    # Add other information to the anndata object in the appropriate slot.
+    _fill_adata_slots_automatically(adata, d)
+
+    # Add a special additional field to .var if it exists.
+    if 'features_analyzed_inds' in adata.uns.keys():
+        adata.var['cellbender_analyzed'] = [True if (i in adata.uns['features_analyzed_inds'])
+                                            else False for i in range(adata.shape[1])]
+
+    if analyzed_barcodes_only:
+        for col in adata.obs.columns[adata.obs.columns.str.startswith('barcodes_analyzed')
+                                     | adata.obs.columns.str.startswith('barcode_indices')]:
+            try:
+                del adata.obs[col]
+            except Exception:
+                pass
+    else:
+        # Add a special additional field to .obs if all barcodes are included.
+        if 'barcodes_analyzed_inds' in adata.uns.keys():
+            adata.obs['cellbender_analyzed'] = [True if (i in adata.uns['barcodes_analyzed_inds'])
+                                                else False for i in range(adata.shape[0])]
+
+    return adata
+
+
+def _fill_adata_slots_automatically(adata, d):
+    """Add other information to the adata object in the appropriate slot."""
+
+    # TODO: what about "features_analyzed_inds"?  If not all features are analyzed, does this work?
+
+    for key, value in d.items():
+        try:
+            if value is None:
+                continue
+            value = np.asarray(value)
+            if len(value.shape) == 0:
+                adata.uns[key] = value
+            elif value.shape[0] == adata.shape[0]:
+                if (len(value.shape) < 2) or (value.shape[1] < 2):
+                    adata.obs[key] = value
+                else:
+                    adata.obsm[key] = value
+            elif value.shape[0] == adata.shape[1]:
+                if value.dtype.name.startswith('bytes'):
+                    adata.var[key] = value.astype(str)
+                else:
+                    adata.var[key] = value
+            else:
+                adata.uns[key] = value
+        except Exception:
+            print('Unable to load data into AnnData: ', key, value, type(value))
+## end of code steal
+
+def _identify_doublets_scanpy(data, **kw):
+    import scanpy.external.ppscanpy.external.pp.scrublet
+    pass
+    
+def _identify_doublets_scrublet(data, **kw):
     """Detect doublets in single-cell RNA-seq data
 
     https://github.com/AllonKleinLab/scrublet
@@ -115,35 +258,57 @@ def identify_doublets(data, **kw):
     keep = col_sum > 3
     adata = adata[:,keep]
     scrub = scr.Scrublet(adata.X, **kw)
-    min_ncomp = min(10, min(adata.X.shape) - 1)
-    doublet_score, predicted_doublets = scrub.scrub_doublets(n_prin_comps=min_ncomp, min_cells=1, min_counts=1)
+    min_ncomp = min(30, min(adata.X.shape) - 1)
+    doublet_score, predicted_doublets = scrub.scrub_doublets(n_prin_comps=min_ncomp, min_cells=3, min_counts=2, min_gene_variability_pctl=85)
     if predicted_doublets is None:
         predicted_doublets = scrub.call_doublets(threshold=0.34)
     data.obs['doublet_score'] =  doublet_score
     data.obs['predicted_doublets'] = predicted_doublets
+    fig, axs = scrub.plot_histogram()
+    fig.savefig('scrublet.pdf')
     return data
 
-def identify_empty_droplets(data, min_cells=3, **kw):
+def identify_doublets(data, strategy='scrublet', **kw):
+    """Detect doublets in single-cell RNA-seq data
+
+    https://github.com/AllonKleinLab/scrublet
+    """
+    if strategy == 'scrublet':
+        return  _identify_doublets_scrublet(data, **kw)
+    elif strategy == 'scanpy':
+        return  _identify_doublets_scanpy(data, **kw)
+    else:
+        raise ValueError
+
+
+
+def identify_empty_droplets(data, min_cells=3, strategy='emptydrops_cr', **kw):
     """Detect empty droplets using DropletUtils
 
     """
     import rpy2.robjects as robj
-    from rpy2.robjects import default_converter
+
     from rpy2.robjects.packages import importr
     import anndata2ri
-    from rpy2.robjects.conversion import localconverter
+
     importr("DropletUtils")
     adata = data.copy()
     col_sum = adata.X.sum(0)
     if hasattr(col_sum, 'A'):
         col_sum = col_sum.A.squeeze()
         
-    keep = col_sum > min_cells
+    keep = col_sum >= min_cells
     adata = adata[:,keep]
     #adata.X = adata.X.tocsc()
     anndata2ri.activate()
     robj.globalenv["X"] = adata
-    res = robj.r('res <- emptyDrops(assay(X), lower = 20, retain = 20)')
+    if strategy == 'emptydrops_cr':
+        cmd = 'res <- emptyDropsCellRanger(assay(X))'
+    elif strategy == 'emptydrops':
+        cmd = 'res <- emptyDrops(assay(X))'
+    else:
+        raise ValueError('strategy option `{}` is not valid'.format(str(strategy)))
+    res = robj.r(cmd)
     anndata2ri.deactivate()
     keep = res.loc[res.FDR<0.01,:]
     data = data[keep.index,:] 
@@ -199,6 +364,8 @@ def read_cellranger_aggr(fn, args, **kw):
     barcodes = [b.split('-')[0] for b in data.obs.index]
     data.obs_names = ['{}-{}'.format(i, j) for i, j in zip(barcodes, samples)]
     return data
+
+
 
 def read_velocyto_loom(fn, args, **kw):
     data = sc.read_loom(fn, var_names='Accession')
@@ -261,7 +428,7 @@ def read_star(fn, args, **kw):
     print(data.obs_names)
     return data
 
-def read_alevin(fn, args, **kw):
+def read_alevin(fn, args, add_sample_id=True, **kw):
     from vpolo.alevin import parser as alevin_parser
     avn_dir = os.path.dirname(fn)
     dirname = os.path.dirname(avn_dir)
@@ -276,7 +443,36 @@ def read_alevin(fn, args, **kw):
     sample_id = os.path.basename(dirname)
     data.obs['sample_id'] = [sample_id] * data.obs.shape[0]
     return data
+
+def read_alevin2(fn, args, **kw):
+    import pyroe
+    avn_dir = os.path.dirname(fn)
+    dirname = os.path.dirname(avn_dir)
+    data = pyroe.load_fry(dirname, output_format='velocity')
+    sample_id = os.path.basename(dirname)
+    data.obs['sample_id'] = [sample_id] * data.obs.shape[0]
+    return data
+
+def read_cellbender(fn, args, add_sample_id=True, **kw):
+    bn = os.path.basename(fn)
+    if '_filtered' in bn:
+        sample_id = bn.split('_filtered')[0]
+    else:
+        sample_id = os.path.splitext(bn)[0]
+    adata = anndata_from_h5(fn)
+    adata.obs['sample_id'] = sample_id
+    barcodes = [b.split('-')[0] for b in adata.obs.index]
+    if len(barcodes) == len(set(barcodes)):
+        adata.obs_names = barcodes
     
+    if add_sample_id:
+        #adata.obs['sample_id'] = adata.obs['sample_id'].astype('category')
+        adata.obs_names = [i + '-' + sample_id for i in adata.obs_names]
+    if 'gene_id' in adata.var.columns and adata.var.index.name=='gene_name':
+        adata.var['gene_name'] = adata.var_names.copy()
+        adata.var_names = adata.var['gene_id']
+    return adata
+
 def read_umitools(fn, args, **kw):
     data = sc.read_umi_tools(fn)
     sample_id = os.path.dirname(fn).split(os.path.sep)[-1]
@@ -301,7 +497,9 @@ READERS = {'cellranger_aggr': read_cellranger_aggr,
            'star': read_star,
            'umitools': read_umitools,
            'alevin': read_alevin,
-           'velocyto': read_velocyto_loom}
+           'alevin2': read_alevin2,
+           'velocyto': read_velocyto_loom,
+           'cellbender': read_cellbender}
         
 if __name__ == '__main__':
     args = parser.parse_args()
@@ -323,7 +521,9 @@ if __name__ == '__main__':
         sample_info = pd.read_csv(args.sample_info, sep='\t')
         if not 'Sample_ID' in sample_info.columns:
             raise ValueError('sample_sheet needs a column called `Sample_ID`')
-        sample_info.index = sample_info['Sample_ID']
+        sample_info.index = list(sample_info['Sample_ID'].astype(str))
+        print(sample_info.head())
+        print(sample_info.dtypes)
         if args.batch is not None:
             batch_categories = sample_info[batch].astype('category')
     else:
@@ -357,29 +557,38 @@ if __name__ == '__main__':
             if args.verbose:
                 print("identify doublets ...")                
             data = identify_doublets(data)
+            print(data.var.head())
+            print(data.var.dtypes)
+            print(data.obs.head())
+            print(data.obs.dtypes)
+            print(data)
         data_list.append(data)
 
     if len(data_list) > 1:
         if args.normalize == 'mapped':
             data_list = downsample_gemgroup(data_list)
 
-    data = data_list.pop(0)
-    if len(data_list) > 0:
-        if batch_categories is not None:
-            data = data.concatenate(*data_list, batch_categories=batch_categories, uns_merge='same')
-        else:
-            data = data.concatenate(*data_list, uns_merge='same', index_unique=None)
+    #data = data_list.pop(0)
+    if len(data_list) > 1:
+        names = [d.obs['sample_id'].values[0] for d in data_list]
+        print(names)
+        data = anndata.concat(data_list, join="outer", merge="first", uns_merge=None)
+        print(data)
+        print(data.var.head())
+        print(data.obs.head())
         if any(i.endswith('-0') for i in data.var.columns):
             remove_duplicate_cols(data.var)
-    
-    if sample_info:
+    else:
+        data = data_list[0]
+        
+    if args.sample_info is not None:
         lib_ids = set(data.obs['sample_id'])
         for l in lib_ids:
             if l not in sample_info.index:
                 raise ValueError('Library `{}` not present in sample_info'.format(l))
         obs = sample_info.loc[data.obs['sample_id'],:]
         obs.index = data.obs.index.copy()
-        data.obs = data.obs.merge(obs, how='left', left_index=True, right_index=True, suffixes=('', '_sample_info'), validate=True)
+        data.obs = data.obs.merge(obs, how='left', left_index=True, right_index=True, suffixes=('', '_sample_info'), validate="one_to_many")
 
     if not args.no_zero_cell_rm:
         row_sum = data.X.sum(1)
@@ -396,15 +605,16 @@ if __name__ == '__main__':
     if isinstance(feature_info, pd.DataFrame):
         print(data.var.head())
         print(feature_info.head())
-        """
         #data.var = data.var.join(feature_info, how='inner')
-        data.var = pd.merge(data.var, feature_info, how='left', left_index=True, right_index=True)
-        print(data.var.head())
-        """
-        print(data.var.index)
-        test = feature_info[feature_info.index.isin(list(data.var.index))].copy()
-        print(len(test))
-        data.var = pd.merge(data.var, subsampled_feature_info, how='left', left_index=True, right_index=True, copy=True)
+        #data.var = pd.merge(data.var, feature_info, how='left', left_index=True, right_index=True)
+        #print(data.var.head())
+        #test = feature_info.index[feature_info.index.isin(list(data.var.index))].copy()
+        #print(len(test))
+
+        if 'gene_symbol' not in feature_info.columns and 'gene_name' in feature_info.columns:
+            feature_info['gene_symbol'] = feature_info['gene_name'].copy()
+            
+        data.var = pd.merge(data.var, feature_info, how='left', left_index=True, right_index=True, copy=True)
         
     if 'gene_symbols' in data.var.columns:
         mito_genes = data.var.gene_symbols.str.lower().str.startswith('mt-')
@@ -419,6 +629,13 @@ if __name__ == '__main__':
 
     data = add_nuclear_fraction(data)
 
+    if 'gene_symbols' not in data.var.columns:
+        aliases = ['gene_name', 'gene_names', 'name', 'name', 'gene_symbol', 'symbol', 'symbols']
+        for col in data.var.columns:
+            if str(col).strip().lower() in aliases:
+                data.var['gene_symbols'] = data.var[col].copy()
+                print(col)
+            
     if args.verbose:
         print(data)
         
