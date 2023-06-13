@@ -12,8 +12,12 @@ CR_CONF = config['quant']['cellranger']
 if not '10xgenomics' in REF_DIR:
     CR_REF_DIR = join(REF_DIR, 'cellranger')
 else:
-    CR_REF_DIR = REF_DIR
-    ruleorder: txgenomics_org_prebuild > cellranger_symlink_gtf
+    if ORG not in ['homo_sapiens', 'mus_musculus', 'homo_sapiens__mus_musculus']:
+        ruleorder: cellranger_symlink_gtf > txgenomics_org_prebuild
+        CR_REF_DIR = join(REF_DIR, 'cellranger')
+    else:
+        ruleorder: txgenomics_org_prebuild > cellranger_symlink_gtf
+        CR_REF_DIR = REF_DIR
 
     
 def input_fastq_path(wildcards, input):
@@ -41,10 +45,13 @@ rule cellranger_gtf:
 
 rule cellranger_mkref:
     input:
-         fasta = join(REF_DIR, 'fasta', 'genome.fa'),
-         gtf = join(REF_DIR, 'anno', 'genes.gtf')
+         #fasta = join(REF_DIR, 'fasta', 'genome.fa'),
+         fasta = rules.ensembl_genome.output,
+         #gtf = join(REF_DIR, 'anno', 'genes.gtf')
+         gtf = rules.ensembl_gtf.output,
     params:
-        out_name = DB_CONF['assembly'],
+        #out_name = DB_CONF['assembly'],
+        out_name = ENS_ASSEMBLY,
         out_dir = join(REF_DIR, 'cellranger')
     output:
         join(CR_REF_DIR, 'reference.json'),
