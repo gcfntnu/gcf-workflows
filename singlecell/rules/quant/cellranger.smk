@@ -45,14 +45,11 @@ rule cellranger_gtf:
 
 rule cellranger_mkref:
     input:
-         #fasta = join(REF_DIR, 'fasta', 'genome.fa'),
          fasta = rules.ensembl_genome.output,
-         #gtf = join(REF_DIR, 'anno', 'genes.gtf')
          gtf = rules.ensembl_gtf.output,
     params:
-        #out_name = DB_CONF['assembly'],
         out_name = ENS_ASSEMBLY,
-        out_dir = join(REF_DIR, 'cellranger')
+        out_dir = CR_REF_DIR,
     output:
         join(CR_REF_DIR, 'reference.json'),
         join(CR_REF_DIR, 'fasta', 'genome.fa'),
