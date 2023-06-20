@@ -9,11 +9,17 @@ ORG = config.get('organism', 'homo_sapiens')
 CR_CONF = config['quant']['cellranger']
 
 
+ruleorder: txgenomics_org_prebuild > cellranger_symlink_gtf
+ruleorder: txgenomics_org_prebuild > cellranger_mkref
 if not '10xgenomics' in REF_DIR:
     CR_REF_DIR = join(REF_DIR, 'cellranger')
 else:
-    CR_REF_DIR = REF_DIR
-    ruleorder: txgenomics_org_prebuild > cellranger_symlink_gtf
+    if ORG not in ['homo_sapiens', 'mus_musculus', 'homo_sapiens__mus_musculus']:
+        ruleorder: cellranger_symlink_gtf > txgenomics_org_prebuild
+        ruleorder: cellranger_mkref > txgenomics_org_prebuild
+        CR_REF_DIR = join(REF_DIR, 'cellranger')
+    else:
+        CR_REF_DIR = REF_DIR
 
     
 def input_fastq_path(wildcards, input):
@@ -41,11 +47,11 @@ rule cellranger_gtf:
 
 rule cellranger_mkref:
     input:
-         fasta = join(REF_DIR, 'fasta', 'genome.fa'),
-         gtf = join(REF_DIR, 'anno', 'genes.gtf')
+         fasta = rules.ensembl_genome.output,
+         gtf = rules.ensembl_gtf.output,
     params:
-        out_name = DB_CONF['assembly'],
-        out_dir = join(REF_DIR, 'cellranger')
+        out_name = ENS_ASSEMBLY,
+        out_dir = CR_REF_DIR,
     output:
         join(CR_REF_DIR, 'reference.json'),
         join(CR_REF_DIR, 'fasta', 'genome.fa'),
@@ -68,13 +74,16 @@ rule cellranger_symlink_gtf:
         join(CR_REF_DIR, 'genes', 'genes.gtf.gz')
     output:
         join(CR_REF_DIR, 'anno', 'genes.gtf')
+    params:
+        gtf = join(CR_REF_DIR, 'genes', 'genes.gtf')
     shell:
-        'gunzip {input} {output}'
+        'gunzip -k {input} && mv {params.gtf} {output}'
  
 rule cellranger_quant_:
     input:
         unpack(get_raw_fastq),
-        genome = join(CR_REF_DIR, 'fasta', 'genome.fa')
+        genome = join(CR_REF_DIR, 'fasta', 'genome.fa'),
+        gtf = join(CR_REF_DIR, 'anno', 'genes.gtf')
     params:
         input = input_fastq_path,
         id = '_tmp_{sample}',
@@ -278,7 +287,6 @@ rule scanpy_cellranger:
         
 rule cellranger_scanpy_pp_ipynb:
     input:
-        #rules.scanpy_aggr_cellranger.output
         join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', '{aggr_id}_aggr.h5ad'),
     output:
         preprocessed = join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', '{aggr_id}_preprocessed.h5ad'),
@@ -304,3 +312,84 @@ rule cellranger_scanpy_pp_ipynb_html:
         1
     shell:
         'jupyter nbconvert --to html {params.notebook} ' 
+
+rule cellranger_cellbender:
+    input:
+        mtx = rules.cellranger_quant.output.raw_mtx,
+        cols = rules.cellranger_quant.output.raw_features,
+        rows = rules.cellranger_quant.output.raw_barcodes,
+    params:
+        input_dir = lambda wildcards, input: os.path.dirname(input.mtx),
+	expected_cells = 10000,
+	epochs = 150,
+	fpr = 0.01,
+	total_droplets_included = 25000,
+	args = '--cuda'
+    singularity:
+        'docker://' + config['docker']['cellbender']
+    benchmark:
+        'benchmarks/cellbender_{sample}.txt'
+    output:
+        h5 = join(QUANT_INTERIM, 'cellranger', '{sample}', 'cellbender', '{sample}.h5'),
+        filtered_h5 = join(QUANT_INTERIM,'cellranger', '{sample}', 'cellbender', '{sample}_filtered.h5'),
+        csv = join(QUANT_INTERIM, 'cellranger', '{sample}', 'cellbender', '{sample}_cell_barcodes.csv'),
+        log = join(QUANT_INTERIM, 'cellranger', '{sample}', 'cellbender', '{sample}.log'),
+        fig = join(QUANT_INTERIM, 'cellranger', '{sample}', 'cellbender', '{sample}.pdf')
+    threads:
+        48
+    shell:
+        'cellbender remove-background '
+        '--input {params.input_dir} '
+        '--output {output.h5} '
+        '--expected-cells {params.expected_cells} '
+        '--total-droplets-included {params.total_droplets_included} '
+        '--fpr {params.fpr} '
+        '--epochs {params.epochs} '
+        '{params.args} '
+
+
+rule cellbender_all:
+    input:
+        expand(rules.cellranger_cellbender.output, sample=SAMPLES)
+        
+rule cellbender_scanpy:
+    input:
+        filtered = expand(rules.cellranger_cellbender.output.filtered_h5, sample=SAMPLES),
+        sample_info = join(INTERIM_DIR, 'sample_info.tsv')
+    params:
+        script = srcdir('scripts/convert_scanpy.py')
+    output:
+        join(QUANT_INTERIM, 'aggregate', 'cellranger', 'cellbender', 'scanpy', 'all_samples_aggr.h5ad'),
+    singularity:
+        'docker://' + config['docker']['scanpy']
+    threads:
+        8
+    shell:
+        'python {params.script} {input.filtered} -v -f cellbender --identify-doublets -o {output} --sample-info {input.sample_info} '
+
+
+rule cellbender_scanpy_pp_ipynb:
+    input:
+        join(QUANT_INTERIM, 'aggregate', 'cellranger', 'cellbender', 'scanpy', 'all_samples_aggr.h5ad')
+    output:
+        preprocessed = join(QUANT_INTERIM, 'aggregate', 'cellranger', 'cellbender', 'scanpy', 'all_samples_preprocessed.h5ad'),
+    log:
+        notebook = join(QUANT_INTERIM, 'aggregate', 'cellranger', 'cellbender', 'notebooks', 'all_samples_pp.ipynb')
+    threads:
+        24
+    singularity:
+        'docker://' + config['docker']['jupyter-scanpy']
+    notebook:
+        'scripts/cellranger_preprocess.py.ipynb'
+
+rule cellbender_scanpy_pp_ipynb_html:
+    input:
+        rules.cellbender_scanpy_pp_ipynb.log
+    output:
+        join(QUANT_INTERIM, 'aggregate', 'cellranger', 'cellbender', 'notebooks', 'all_samples_pp.html')
+    singularity:
+        'docker://' + config['docker']['jupyter-scanpy']
+    threads:
+        1
+    shell:
+        'jupyter nbconvert --to html {input} ' 
