@@ -24,7 +24,7 @@ def fastq_screen_indexes(*args, **kw):
    INDEXES = {'Human': join(EXT_DIR, 'ensembl', 'release-{}'.format(release), 'homo_sapiens', 'GRCh38', 'index', 'genome', 'bowtie2', 'genome.1.bt2')}
    org = config.get('organism')
    if org not in ['homo_sapiens', 'N/A', 'n/a']:
-      if config['db'].get('reference_db') == 'ensembl':
+      if config['db'].get('reference_db') in ['ensembl', '10xgenomics']:
          release = config['db']['ensembl']['release']
          assembly = config['db']['ensembl']['assembly']
          index = join(EXT_DIR, 'ensembl', 'release-{}'.format(release), org, assembly, 'index', 'genome', 'bowtie2', 'genome.1.bt2')

@@ -104,7 +104,12 @@ else:
 if ref in ['refseq', 'custom_reference', '10xgenomics', 'gencode']:
     include: '{}.db'.format(ref)
 
-config['db'][ref] = DB_CONF = config['db'].get(ref, {})
+if (ref == '10xgenomics') and (ORG not in ['homo_sapiens', 'mus_musculus', 'homo_sapiens__mus_musculus']):
+    #Case: use ensembl reference as input reference, but store under 10x reference
+    config['db'][ref] = DB_CONF = config['db'].get('ensembl', {})
+else:
+    config['db'][ref] = DB_CONF = config['db'].get(ref, {})
+
 if REF_DIR is None:
     assembly = DB_CONF.get('assembly')
     release = DB_CONF.get('release')

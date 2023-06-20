@@ -9,11 +9,17 @@ ORG = config.get('organism', 'homo_sapiens')
 CR_CONF = config['quant']['cellranger']
 
 
+ruleorder: txgenomics_org_prebuild > cellranger_symlink_gtf
+ruleorder: txgenomics_org_prebuild > cellranger_mkref
 if not '10xgenomics' in REF_DIR:
     CR_REF_DIR = join(REF_DIR, 'cellranger')
 else:
-    CR_REF_DIR = REF_DIR
-    ruleorder: txgenomics_org_prebuild > cellranger_symlink_gtf
+    if ORG not in ['homo_sapiens', 'mus_musculus', 'homo_sapiens__mus_musculus']:
+        ruleorder: cellranger_symlink_gtf > txgenomics_org_prebuild
+        ruleorder: cellranger_mkref > txgenomics_org_prebuild
+        CR_REF_DIR = join(REF_DIR, 'cellranger')
+    else:
+        CR_REF_DIR = REF_DIR
 
     
 def input_fastq_path(wildcards, input):
@@ -41,11 +47,11 @@ rule cellranger_gtf:
 
 rule cellranger_mkref:
     input:
-         fasta = join(REF_DIR, 'fasta', 'genome.fa'),
-         gtf = join(REF_DIR, 'anno', 'genes.gtf')
+         fasta = rules.ensembl_genome.output,
+         gtf = rules.ensembl_gtf.output,
     params:
-        out_name = DB_CONF['assembly'],
-        out_dir = join(REF_DIR, 'cellranger')
+        out_name = ENS_ASSEMBLY,
+        out_dir = CR_REF_DIR,
     output:
         join(CR_REF_DIR, 'reference.json'),
         join(CR_REF_DIR, 'fasta', 'genome.fa'),
@@ -68,13 +74,16 @@ rule cellranger_symlink_gtf:
         join(CR_REF_DIR, 'genes', 'genes.gtf.gz')
     output:
         join(CR_REF_DIR, 'anno', 'genes.gtf')
+    params:
+        gtf = join(CR_REF_DIR, 'genes', 'genes.gtf')
     shell:
-        'gunzip {input} {output}'
+        'gunzip -k {input} && mv {params.gtf} {output}'
  
 rule cellranger_quant_:
     input:
         unpack(get_raw_fastq),
-        genome = join(CR_REF_DIR, 'fasta', 'genome.fa')
+        genome = join(CR_REF_DIR, 'fasta', 'genome.fa'),
+        gtf = join(CR_REF_DIR, 'anno', 'genes.gtf')
     params:
         input = input_fastq_path,
         id = '_tmp_{sample}',
