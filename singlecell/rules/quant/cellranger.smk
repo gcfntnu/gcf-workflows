@@ -74,8 +74,10 @@ rule cellranger_symlink_gtf:
         join(CR_REF_DIR, 'genes', 'genes.gtf.gz')
     output:
         join(CR_REF_DIR, 'anno', 'genes.gtf')
+    params:
+        gtf = join(CR_REF_DIR, 'genes', 'genes.gtf')
     shell:
-        'gunzip {input} {output}'
+        'gunzip -k {input} && mv {params.gtf} {output}'
  
 rule cellranger_quant_:
     input:
