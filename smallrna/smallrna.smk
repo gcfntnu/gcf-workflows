@@ -55,5 +55,5 @@ onsuccess:
     #config_path = dirname(srcdir('small-rna.config'))
     #final_conf_fn = join(config_path,  final_conf_fn)
     
-    with open(final_conf_fn, 'w') as fh:
-        yaml.dump(config, fh, default_flow_style=False)
+   # with open(final_conf_fn, 'w') as fh:
+   #     yaml.dump(config, fh, default_flow_style=False)
