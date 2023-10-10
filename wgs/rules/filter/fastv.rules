@@ -1,7 +1,8 @@
 
 rule fastv:
     input:
-        unpack(get_raw_fastq),
+        R1 = rules.merged_fastq_R1.output,
+        R2 = rules.merged_fastq_R2.output,
         genome = join(EXT_DIR, config['db']['reference_db'], ORG, 'fasta', 'genome.fa')
     output:
         R1 = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastv', '{sample}_R1.fastq'),
@@ -21,7 +22,8 @@ rule fastv:
 
 rule fastp:
     input:
-        unpack(get_raw_fastq)
+        R1 = rules.merged_fastq_R1.output,
+        R2 = rules.merged_fastq_R2.output
     output:
         R1 = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', '{sample}_R1.fastq'),
         R2 = join(FILTER_INTERIM, 'fastq', 'trimmed', 'fastp', '{sample}_R2.fastq'),

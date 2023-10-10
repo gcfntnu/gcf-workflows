@@ -2,7 +2,8 @@
         
 rule fastv:
     input:
-        unpack(get_raw_fastq),
+        R1 = rules.merged_fastq_R1.output,
+        R2 = rules.merged_fastq_R2.output,
         kmer = join(EXT_DIR, 'opengene', 'SARS-CoV-2.kmer.fa'),
         genome = join(EXT_DIR, 'ncbi', 'NC_045512.2', 'fasta/NC_045512.2.fa')
     output:

@@ -12,7 +12,8 @@ SIGNAL_INTERIM = join(INTERIM_DIR, 'sars-cov2', 'signal')
 
 rule dummy_sample_path:
     input:
-        unpack(get_raw_fastq)
+        R1 = rules.merged_fastq_R1.output,
+        R2 = rules.merged_fastq_R2.output,
     output:
         temp('{sample}.line')
     shell:

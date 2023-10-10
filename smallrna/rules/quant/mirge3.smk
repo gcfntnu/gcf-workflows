@@ -18,7 +18,7 @@ def get_args(wildcards):
 
 rule mirge3_symlink:
     input:
-        unpack(get_raw_fastq)
+        rules.merged_fastq_R1.output
     params:
         join(QUANT_INTERIM, 'mirge3', 'fastq')
     output:
