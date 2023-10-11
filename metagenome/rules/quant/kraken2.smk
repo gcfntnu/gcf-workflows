@@ -10,8 +10,8 @@ K2_DB_DIR = join(EXT_DIR, config['db']['reference_db'], 'release-{}'.format(DB_C
 if PE:
     rule kraken_classify:
         input:
+            unpack(get_filtered_fastq),
             db = rules.langmead_kraken_prebuild.output,
-            unpack(get_filtered_fastq()),
         output:
             report = temp(join(K2_INTERIM, '{sample}', '{sample}.kreport')),
             output = join(K2_INTERIM, '{sample}', '{sample}_kraken.out'),
@@ -36,8 +36,8 @@ if PE:
 else:
     rule kraken_classify:
         input:
+            unpack(get_filtered_fastq),
             db = rules.langmead_kraken_prebuild.output,
-            unpack(get_filtered_fastq()),
         output:
             report = temp(join(K2_INTERIM, '{sample}', '{sample}.kreport')),
             output = join(K2_INTERIM, '{sample}', '{sample}_kraken.out'),
