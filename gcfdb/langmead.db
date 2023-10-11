@@ -11,8 +11,8 @@ BRACKEN_N_MERS = [50, 75, 100, 150, 200, 250, 300] if ASSEMBLY.startswith("k2") 
 rule langmead_kraken_prebuild:
     params:
         proxy = config.get('proxy', {}).get('wget', ''),
-        url = PROTOCOL + "genome-idx.s3.amazonaws.com/kraken/",
-        filename = "k2_{assembly}_{release}.tar.gz".format(assembly=ASSEMBLY, release=RELEASE),
+        url = PROTOCOL + "genome-idx.s3.amazonaws.com/kraken",
+        filename = "{assembly}_{release}.tar.gz".format(assembly=ASSEMBLY, release=RELEASE),
         output = join(EXT_DIR, 'langmead', 'release-{}'.format(RELEASE), "metagenome", ASSEMBLY),
         release = RELEASE
     output:
