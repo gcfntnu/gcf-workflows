@@ -143,6 +143,20 @@ rule krona_html_all:
         rules.kraken_classify_all.output
 
 
+rule kraken_biom:
+    input:
+        reports = expand(rules.bracken.output.report, sample=SAMPLES),
+        sample_info = join(INTERIM_DIR, "sample_info.tsv"),
+    output:
+        join(K2_INTERIM, "all_samples.biom")
+    params:
+        "--fmt json "
+    singularity:
+        "docker://" + config["docker"]["kraken-biom"]
+    threads:
+        1
+    shell:
+        "kraken-biom {input.reports} -m {input.sample_info} {params} -o {output}"
 
 
 
