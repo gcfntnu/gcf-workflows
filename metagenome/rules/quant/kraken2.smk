@@ -35,7 +35,7 @@ if PE:
             shmem = rules.kraken_shmem.output,
         output:
             report = join(K2_INTERIM, '{sample}', '{sample}.kraken.kreport'),
-            output = join(K2_INTERIM, '{sample}', '{sample}i.kraken.out'),
+            output = join(K2_INTERIM, '{sample}', '{sample}.kraken.out'),
         params:
             db = join("/dev/shm", ASSEMBLY),
             params = '--gzip-compressed --memory-mapping --paired'
@@ -101,7 +101,7 @@ rule bracken:
         db = join(K2_DB_DIR, "database{}mers.kmer_distrib".format(N_MER)),
         report = rules.kraken_classify.output.report,
     output:
-        report = temp(join(K2_INTERIM, '{sample}', '{sample}.bracken_kreport')),
+        report = join(K2_INTERIM, '{sample}', '{sample}.bracken_kreport'),
         out = join(K2_INTERIM, '{sample}', '{sample}.bracken_out'),
     params:
         read_length = N_MER,
@@ -199,7 +199,10 @@ rule kraken_biom:
         "kraken-biom {input.reports} -m {input.sample_info} {params} -o {output}"
 
 
-
-
+#for testing
+rule tmp_meta_all:
+    input:
+        rules.kraken_biom.output,
+        expand(rules.krona_html.output, sample=SAMPLES)
 
 
