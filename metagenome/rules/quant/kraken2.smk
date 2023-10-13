@@ -11,16 +11,21 @@ K2_DB_DIR = join(EXT_DIR, config['db']['reference_db'], 'release-{}'.format(DB_C
 
 rule kraken_shmem:
     input:
-        rules.langmead_kraken_prebuild.output,
+        hash = rules.langmead_kraken_prebuild.output.hash,
+        taxo = rules.langmead_kraken_prebuild.output.taxo,
+        opts = rules.langmead_kraken_prebuild.output.opts,
+        seq2tax = rules.langmead_kraken_prebuild.output.seq2tax,
     output:
-        join("/dev/shm", ASSEMBLY, "taxo.k2d")
-    params:
-        src = os.path.dirname(rules.langmead_kraken_prebuild.output.taxo),
-        dst = "/dev/shm/"
+        hash = temp(join("/dev/shm", ASSEMBLY, "hash.k2d")),
+        taxo = temp(join("/dev/shm", ASSEMBLY, "taxo.k2d")),
+        opts = temp(join("/dev/shm", ASSEMBLY, "opts.k2d")),
+        seq2tax = temp(join("/dev/shm", ASSEMBLY, "seqid2taxid.map")),
     threads:
         1
-    shell:
-        "cp -r {params.src} {params.dst} "
+    run:
+        for src, dst in zip(input, output):
+            shell('cp {src} {dst}')
+
         
 
 if PE:
@@ -29,13 +34,13 @@ if PE:
             unpack(get_filtered_fastq),
             shmem = rules.kraken_shmem.output,
         output:
-            report = temp(join(K2_INTERIM, '{sample}', '{sample}_k2.kreport')),
-            output = join(K2_INTERIM, '{sample}', '{sample}_kraken.out'),
+            report = join(K2_INTERIM, '{sample}', '{sample}.kraken.kreport'),
+            output = join(K2_INTERIM, '{sample}', '{sample}i.kraken.out'),
         params:
             db = join("/dev/shm", ASSEMBLY),
             params = '--gzip-compressed --memory-mapping --paired'
         log:
-            join(K2_INTERIM, '{sample}', '{sample}_kraken.log')
+            join(K2_INTERIM, '{sample}', '{sample}.kraken.log')
         threads:
             12
         singularity:
@@ -55,13 +60,13 @@ else:
             unpack(get_filtered_fastq),
             shmem = rules.kraken_shmem.output,
         output:
-            report = temp(join(K2_INTERIM, '{sample}', '{sample}_k2.kreport')),
-            output = join(K2_INTERIM, '{sample}', '{sample}_kraken.out'),
+            report = join(K2_INTERIM, '{sample}', '{sample}.kraken.kreport'),
+            output = join(K2_INTERIM, '{sample}', '{sample}.kraken.out'),
         params:
             db = join("/dev/shm", ASSEMBLY),
             params = '--gzip-compressed --memory-mapping'
         log:
-            join(K2_INTERIM, '{sample}', '{sample}_kraken.log')
+            join(K2_INTERIM, '{sample}', '{sample}.kraken.log')
         threads:
             12
         singularity:
@@ -96,8 +101,8 @@ rule bracken:
         db = join(K2_DB_DIR, "database{}mers.kmer_distrib".format(N_MER)),
         report = rules.kraken_classify.output.report,
     output:
-        report = temp(join(K2_INTERIM, '{sample}', '{sample}.kreport')),
-        out = join(K2_INTERIM, '{sample}', '{sample}_bracken.out'),
+        report = temp(join(K2_INTERIM, '{sample}', '{sample}.bracken_kreport')),
+        out = join(K2_INTERIM, '{sample}', '{sample}.bracken_out'),
     params:
         read_length = N_MER,
         level = "S",
@@ -137,10 +142,45 @@ rule krona_html:
     shell:
         "ktImportTaxonomy {params.params} -tax {params.tax} -o {output} {input.report} "
 
+
 rule krona_html_all:
     input:
         expand(rules.krona_html.output, sample=SAMPLES),
         rules.kraken_classify_all.output
+
+
+rule multi_krona_kraken:
+    input:
+        report = expand(rules.kraken_classify.output.report, sample=SAMPLES),
+        taxa = rules.krona_build_taxa.output,
+    output:
+        join(K2_INTERIM, "krona_all_samples_kraken.html")
+    params:
+        params = '-t 5 -m 3',
+        tax = KRONA_DB_DIR,
+    singularity:
+        "docker://" + config["docker"]["krona"]
+    threads:
+        1
+    shell:
+        "ktImportTaxonomy {params.params} -tax {params.tax} -o {output} {input.report} "
+        
+
+rule multi_krona_bracken:
+    input:
+        report = expand(rules.bracken.output.report, sample=SAMPLES),
+        taxa = rules.krona_build_taxa.output,
+    output:
+        join(K2_INTERIM, "krona_all_samples.html")
+    params:
+        params = '-t 5 -m 3',
+        tax = KRONA_DB_DIR,
+    singularity:
+        "docker://" + config["docker"]["krona"]
+    threads:
+        1
+    shell:
+        "ktImportTaxonomy {params.params} -tax {params.tax} -o {output} {input.report} "
 
 
 rule kraken_biom:
@@ -157,7 +197,6 @@ rule kraken_biom:
         1
     shell:
         "kraken-biom {input.reports} -m {input.sample_info} {params} -o {output}"
-
 
 
 
