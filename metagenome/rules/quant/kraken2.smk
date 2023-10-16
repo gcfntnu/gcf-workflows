@@ -84,12 +84,6 @@ else:
 rule kraken_classify_all:
     input:
         expand(rules.kraken_classify.output, sample=SAMPLES)
-    output:
-        temp(join(K2_INTERIM, "kraken_clean_shmem.done"))
-    params:
-        shmem = join("/dev/shm", ASSEMBLY) 
-    shell:
-        "rm -rf {params.shmem} && touch {output}"
 
 
 N_MER_DIFF = [abs(read_geometry[0] - x) for x in BRACKEN_N_MERS]
@@ -126,7 +120,29 @@ rule bracken_all:
         expand(rules.bracken.output.report, sample=SAMPLES)
 
 
-rule krona_html:
+rule krona_kraken:
+    input:
+        report = rules.kraken_classify.output.report,
+        taxa = rules.krona_build_taxa.output,
+    output:
+        html = join(K2_INTERIM, '{sample}', '{sample}_krona_kraken.html')
+    params:
+        params = '-t 5 -m 3',
+        tax = KRONA_DB_DIR,
+    singularity:
+        "docker://" + config["docker"]["krona"]
+    threads:
+        1
+    shell:
+        "ktImportTaxonomy {params.params} -tax {params.tax} -o {output} {input.report} "
+
+
+rule krona_kraken_all:
+    input:
+        expand(rules.krona_kraken.output, sample=SAMPLES),
+
+
+rule krona_bracken:
     input:
         report = rules.bracken.output.report,
         taxa = rules.krona_build_taxa.output,
@@ -143,10 +159,9 @@ rule krona_html:
         "ktImportTaxonomy {params.params} -tax {params.tax} -o {output} {input.report} "
 
 
-rule krona_html_all:
+rule krona_bracken_all:
     input:
-        expand(rules.krona_html.output, sample=SAMPLES),
-        rules.kraken_classify_all.output
+        expand(rules.krona_bracken.output, sample=SAMPLES),
 
 
 rule multi_krona_kraken:
@@ -171,7 +186,7 @@ rule multi_krona_bracken:
         report = expand(rules.bracken.output.report, sample=SAMPLES),
         taxa = rules.krona_build_taxa.output,
     output:
-        join(K2_INTERIM, "krona_all_samples.html")
+        join(K2_INTERIM, "krona_all_samples_bracken.html")
     params:
         params = '-t 5 -m 3',
         tax = KRONA_DB_DIR,
@@ -199,10 +214,5 @@ rule kraken_biom:
         "kraken-biom {input.reports} -m {input.sample_info} {params} -o {output}"
 
 
-#for testing
-rule tmp_meta_all:
-    input:
-        rules.kraken_biom.output,
-        expand(rules.krona_html.output, sample=SAMPLES)
 
 

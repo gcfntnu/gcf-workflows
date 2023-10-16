@@ -32,8 +32,8 @@ include:
     'rules/quant.smk'
 #include:
 #    'rules/analysis.smk'
-#include:
-#    'rules/bfq.smk'
+include:
+    'rules/bfq.smk'
 include:
     srcdir('../postprocess.smk')
 
