@@ -104,8 +104,24 @@ rule merged_md5sum:
         join(FILTER_INTERIM, 'fastq', '{sample}_{read_num}.md5')
     shell:
         'md5sum {input} > {output}'
-        
 
+def get_merged_fastq(wildcards):
+    DST_PTH = join(FILTER_INTERIM, 'fastq')
+    R1 = join(DST_PTH, wildcards.sample + '_R1.fastq.gz')
+    R1_md5 = join(DST_PTH, wildcards.sample + '_R1.md5')
+    R2 = config['samples'][wildcards.sample].get('R2', '')
+    I1 = config['samples'][wildcards.sample].get('I1', '')
+    if R2:
+        R2 = join(DST_PTH, wildcards.sample + '_R2.fastq.gz')
+        R2_md5 = join(DST_PTH, wildcards.sample + '_R2.md5')
+        if I1:
+            I1 = join(DST_PTH, wildcards.sample + '_I1.fastq.gz')
+            I1_md5 = join(DST_PTH, wildcards.sample + '_I1.md5')
+            return {'R1': R1, 'R2': R2, 'I1': I1, 'R1_md5': R1_md5, 'R2_md5': R2_md5, 'I1_md5': I1_md5}
+        return {'R1': R1, 'R2': R2, 'R1_md5': R1_md5, 'R2_md5': R2_md5}
+    return {'R1': R1, 'R1_md5': R1_md5}
+
+        
 def get_filtered_fastq(wildcards):
     fastq_quantifier = config['filter'].get('trim', {}).get('quantifier', 'fastq')
     if fastq_quantifier in ['', 'skip', 'NA', 'na', 'None', 'none']:
@@ -117,6 +133,7 @@ def get_filtered_fastq(wildcards):
         FASTQ_EXT += '.gz'
         
     R1 = join(DST_PTH, wildcards.sample + '_R1' + FASTQ_EXT)
+    R2 = config['samples'][wildcards.sample].get('R2', '')
     if R2:
         R2 = join(DST_PTH, wildcards.sample + '_R2' + FASTQ_EXT)
         return {'R1': R1, 'R2': R2}
@@ -131,6 +148,16 @@ rule _filter:
     output:
         touch(join(FILTER_INTERIM, '.{sample}.filtered'))
 
-rule filter_all:
+rule fastq_filter_all:
     input:
         expand(rules._filter.output, sample=SAMPLES)
+
+rule _merge:
+    input:
+        unpack(get_merged_fastq)
+    output:
+        touch(join(FILTER_INTERIM, '.{sample}.merged'))
+
+rule fastq_merge_all:
+    input:
+        expand(rules._merge.output, sample=SAMPLES)
