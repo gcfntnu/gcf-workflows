@@ -213,6 +213,18 @@ rule kraken_biom:
     shell:
         "kraken-biom {input.reports} -m {input.sample_info} {params} -o {output}"
 
-
+rule kraken_phyloseq:
+    input:
+        rules.kraken_biom.output,
+    output:
+        join(K2_INTERIM, "physeq.rds"),
+    params:
+        script = srcdir("scripts/kraken2_create_physeq.R")
+    singularity:
+        "docker://" + config["docker"]["phyloseq"]
+    threads:
+        1
+    shell:
+        "Rscript {params.script} {input} {output} "
 
 

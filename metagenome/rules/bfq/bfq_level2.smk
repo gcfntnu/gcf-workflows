@@ -30,11 +30,13 @@ rule bfq_level2_krona:
             shell('ln -srfv {src} {dst}')
 
 
-rule bfq_level2_biom:
+rule bfq_level2_exprs:
     input:
         rules.kraken_biom.output,
+        rules.kraken_phyloseq.output,
     output:
         join(BFQ_INTERIM, 'exprs', 'all_samples.biom'),
+        join(BFQ_INTERIM, 'exprs', 'physeq.rds'),
     run:
         for src, dst in zip(input, output):
             shell('ln -srfv {src} {dst}')
@@ -42,7 +44,7 @@ rule bfq_level2_biom:
 
 BFQ_LEVEL2_ALL = [rules.bfq_level2_classify.output, 
                   rules.bfq_level2_krona.output, 
-                  rules.bfq_level2_biom.output]    
+                  rules.bfq_level2_exprs.output]    
 BFQ_ALL.extend(BFQ_LEVEL2_ALL)
 
 
