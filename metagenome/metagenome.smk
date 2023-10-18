@@ -2,9 +2,9 @@
 """
 This is a part of the pipeline utilities at Genomics Core Facility (GCF),  Trondheim
 
-microbiome-seq
+metagenome-seq
 ===================================
-microbiome-seq Analysis Pipeline.
+metagenome-seq Analysis Pipeline.
 
 """
 include:
