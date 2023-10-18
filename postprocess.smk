@@ -68,6 +68,7 @@ rule geo_template:
 
 rule multiqc_config:
     input:
+        geo = rules.geo_template.output,
         header_template = srcdir(join('misc', 'multiqc', 'mqc_header.txt')),
         config_template = srcdir(join('misc', 'multiqc', 'multiqc_config-{}.yaml'.format(WORKFLOW))),
         sample_info = join(INTERIM_DIR, 'sample_info.tsv'),
