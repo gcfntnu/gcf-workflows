@@ -30,18 +30,19 @@ rule bfq_level2_mirna_high:
 
 rule bfq_level2_exprs:
     input:
-        rules.unitas_mirtable.output,
-        rules.unitas_trftable.output,
-        rules.unitas_isomirtable.output,
-        rules.unitas_isotrftable.output,
-        rules.unitas_annotations.output
+        mir_counts = rules.unitas_mirtable.output,
+        trf_counts = rules.unitas_trftable.output,
+        isomir_counts = rules.unitas_isomirtable.output.counts,
+        isomir_anno = rules.unitas_isomirtable.output.anno,
+        isotrf_counts = rules.unitas_isotrftable.output,
+        anno = rules.unitas_annotations.output
     output:
-        join(BFQ_INTERIM, 'exprs', 'mir_counts.tsv'),
-        join(BFQ_INTERIM, 'exprs', 'trf_counts.tsv'),
-        join(BFQ_INTERIM, 'exprs', 'isomir_counts.tsv'),
-        join(BFQ_INTERIM, 'exprs', 'isomir_counts_anno.tsv'),
-        join(BFQ_INTERIM, 'exprs', 'isotrf_counts.csv'),
-        join(BFQ_INTERIM, 'exprs', 'annotations.tsv')
+        mir_counts = join(BFQ_INTERIM, 'exprs', 'mir_counts.tsv'),
+        trf_counts = join(BFQ_INTERIM, 'exprs', 'trf_counts.tsv'),
+        isomir_counts = join(BFQ_INTERIM, 'exprs', 'isomir_counts.tsv'),
+        isomir_anno = join(BFQ_INTERIM, 'exprs', 'isomir_counts_anno.tsv'),
+        isotrf_counts = join(BFQ_INTERIM, 'exprs', 'isotrf_counts.csv'),
+        anno = join(BFQ_INTERIM, 'exprs', 'annotations.tsv')
     run:
         for src, dst in zip(input, output):
             shell('ln -srf {src} {dst}')
@@ -96,3 +97,5 @@ BFQ_LEVEL2_ALL = [join(BFQ_INTERIM, 'figs', 'pca_mqc.yaml'),
                   rules.bfq_level2_unitas.output,
                   rules.bfq_level2_aligned.output]
 BFQ_ALL.extend(BFQ_LEVEL2_ALL)
+
+GEO_PROCESSED_FILES = [rules.bfq_level2_exprs.output.mir_counts]

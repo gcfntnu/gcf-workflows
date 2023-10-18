@@ -45,7 +45,7 @@ if config.get('mutiple_flowcells', False):
             input:
                 R1 = expand(rules.merged_fastq_R1, sample=SAMPLES),
                 R2 = expand(rules.merged_fastq_R2, sample=SAMPLES),
-                md5_R1 = expand(rules.merged_md5sum_R1, sample=SAMPLES)
+                md5_R1 = expand(rules.merged_md5sum_R1, sample=SAMPLES),
                 md5_R2 = expand(rules.merged_md5sum_R2, sample=SAMPLES)
             output:
                 R1 = expand(join(BFQ_INTERIM, 'fastq', '{sample}_R1.fastq.gz'), sample=SAMPLES),

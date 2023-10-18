@@ -62,30 +62,30 @@ rule bfq_level2_gene_high:
 if len(config['read_geometry']) > 1:
     rule bfq_level2_qc:
         input:
-            expand(rules.picard_rnametrics.output.metrics, sample=SAMPLES),
-            expand(rules.picard_insertsize.output.log, sample=SAMPLES),
-            expand(rules.salmon_map.output.dist_log, sample=SAMPLES),
-            expand(rules.salmon_map.output.meta_log, sample=SAMPLES),
-            expand(rules.star_align.output.log, sample=SAMPLES),
+            sample_picard_metrics = expand(rules.picard_rnametrics.output.metrics, sample=SAMPLES),
+            sample_picard_insertsize = expand(rules.picard_insertsize.output.log, sample=SAMPLES),
+            sample_salmon_dist = expand(rules.salmon_map.output.dist_log, sample=SAMPLES),
+            sample_salmon_meta = expand(rules.salmon_map.output.meta_log, sample=SAMPLES),
+            sample_star_log = expand(rules.star_align.output.log, sample=SAMPLES),
         output:
-            expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}.rnaseq.metrics'), sample=SAMPLES),
-            expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}.insert_size_metric.tsv'), sample=SAMPLES),
-            expand(join(BFQ_INTERIM, 'logs', '{sample}', 'libParams', 'flenDist.txt'), sample=SAMPLES),
-            expand(join(BFQ_INTERIM, 'logs', '{sample}', 'aux_info', 'meta_info.json'), sample=SAMPLES),
-            expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}.Log.final.out'), sample=SAMPLES),
+            sample_picard_metrics = expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}.rnaseq.metrics'), sample=SAMPLES),
+            sample_picard_insertsize = expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}.insert_size_metric.tsv'), sample=SAMPLES),
+            sample_salmon_dist = expand(join(BFQ_INTERIM, 'logs', '{sample}', 'libParams', 'flenDist.txt'), sample=SAMPLES),
+            sample_salmon_meta = expand(join(BFQ_INTERIM, 'logs', '{sample}', 'aux_info', 'meta_info.json'), sample=SAMPLES),
+            sample_star_log = expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}.Log.final.out'), sample=SAMPLES),
         run:
             for src, dst in zip(input, output):
                 shell('ln -srfv {src} {dst}')
 else:
     rule bfq_level2_qc:
         input:
-            expand(rules.picard_rnametrics.output.metrics, sample=SAMPLES),
-            expand(rules.salmon_map.output.meta_log, sample=SAMPLES),
-            expand(rules.star_align.output.log, sample=SAMPLES),
+            sample_picard_metrics = expand(rules.picard_rnametrics.output.metrics, sample=SAMPLES),
+            sample_salmon_meta = expand(rules.salmon_map.output.meta_log, sample=SAMPLES),
+            sample_star_log = expand(rules.star_align.output.log, sample=SAMPLES),
         output:
-            expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}.rnaseq.metrics'), sample=SAMPLES),
-            expand(join(BFQ_INTERIM, 'logs', '{sample}', 'aux_info', 'meta_info.json'), sample=SAMPLES),
-            expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}.Log.final.out'), sample=SAMPLES),
+            sample_picard_metrics = expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}.rnaseq.metrics'), sample=SAMPLES),
+            sample_salmon_meta = expand(join(BFQ_INTERIM, 'logs', '{sample}', 'aux_info', 'meta_info.json'), sample=SAMPLES),
+            sample_star_log = expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}.Log.final.out'), sample=SAMPLES),
         run:
             for src, dst in zip(input, output):
                 shell('ln -srf {src} {dst}')
@@ -122,9 +122,9 @@ rule bfq_level2_exprs:
 
 rule bfq_level2_aligned:
     input:
-        expand(rules.picard_mark_duplicates.output.bam, sample=SAMPLES),
-        expand(rules.picard_mark_duplicates.output.bai, sample=SAMPLES),
-        expand(rules.picard_mark_duplicates.output.md5, sample=SAMPLES)
+        bam = expand(rules.picard_mark_duplicates.output.bam, sample=SAMPLES),
+        bai = expand(rules.picard_mark_duplicates.output.bai, sample=SAMPLES),
+        md5 = expand(rules.picard_mark_duplicates.output.md5, sample=SAMPLES)
     output:
         bam = expand(join(BFQ_INTERIM, 'align', '{sample}.sorted.bam'), sample=SAMPLES),
         bai = expand(join(BFQ_INTERIM, 'align', '{sample}.sorted.bai'), sample=SAMPLES),
@@ -171,3 +171,4 @@ if config['organism'] == 'mus_musculus':
 BFQ_ALL.extend(BFQ_LEVEL2_ALL)
 
 
+GEO_PROCESSED_FILES = [rules.bfq_level2_exprs.output.gene_counts, rules.bfq_level2_exprs.output.transcript_counts]
