@@ -52,6 +52,7 @@ rule geo_template:
         pep = workflow.pepfile,
         assembly = config['db'].get(config['db'].get('reference_db'), {}).get('assembly', 'NA'),
         repo_dir = srcdir(os.path.dirname('main.config')),
+        workflow = config['workflow']
     singularity:
         'docker://' + config['docker']['default']
     shell:
@@ -64,6 +65,7 @@ rule geo_template:
         '--pep {params.pep} '
         '--assembly {params.assembly} '
         '--repo-dir {params.repo_dir}  '
+        '--workflow {params.workflow} '
         '-o {output.geo_filled_template} '
 
 rule multiqc_config:

@@ -287,6 +287,9 @@ def create_parser():
 
     parser.add_argument("--repo-dir", default=None,
                         help="")
+    
+    parser.add_argument("--workflow", default=None, 
+                        help="workflow name")
 
     parser.add_argument("-o", "--output", required=True,
                         help="output excel file")
@@ -308,7 +311,7 @@ if __name__ == '__main__':
             demultiplex_protocol = fh.read().splitlines()
     else:
         demultiplex_protocol = "Sequencing basecalls were demultiplexed and converted into FASTQ using bcl2fastq v2.20.0.422"
-    workflow_protocols = get_workflow_protocols(args.repo_dir, pep.config['workflow'])
+    workflow_protocols = get_workflow_protocols(args.repo_dir, args.workflow)
     processed_data_format = None
     if processed_data_format is None:
         processed_data_format = "Tab seprated files with header and rownames in first column"
