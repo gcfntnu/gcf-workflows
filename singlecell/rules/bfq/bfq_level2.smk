@@ -160,7 +160,7 @@ if config['quant']['method'] == 'star':
                       join(BFQ_INTERIM, 'figs', 'umap_all_samples_mqc.png')]
     GEO_PROCESSED_FILES = [rules.bfq_level2_exprs_star.output.sample_mtx,
                            rules.bfq_level2_exprs_star.output.sample_features,
-                           rules.bfq_level2_exprs_star.output.sample_barcodes
+                           rules.bfq_level2_exprs_star.output.sample_barcodes]
 else:
     BFQ_LEVEL2_ALL = [rules.bfq_level2_exprs_cellranger.output,
                       rules.bfq_level2_logs_cellranger.output,
