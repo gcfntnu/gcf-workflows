@@ -1,0 +1,70 @@
+extra_fn_clean_exts:
+  - '.gz'
+  - '.fastq'
+  - '_screen.txt'
+  - '.namesorted'
+  - '_fastp'
+  - '.fastp'
+  - '.kraken.kreport'
+
+fn_ignore_files:
+  - "*.bracken_kreport"
+
+kraken:
+  top_n: 10
+
+custom_logo:    '/opt/images/logo_ntnu.png'
+custom_logo_url: 'https://www.ntnu.edu/mh/gcf'
+custom_logo_title:      'Genomics Core Facility'
+
+intro_text: "This report is generated for projects run at Genomics Core Facility, NTNU, Trondheim. The results are reported per sample."
+
+fastqscreen_simpleplot: true
+
+read_count_multiplier: 1
+read_count_prefix: ''
+read_count_desc: ''
+
+thousandsSep_format: ' '
+
+base_count_multiplier: 1
+base_count_prefix: ''
+base_count_desc: ''
+
+report_section_order:
+  pca:
+    order: 1000
+  fastp:
+    order: 950
+  fastqc_rnaseq:
+    order: 900
+  fastq_screen:
+    order: 800
+  kraken:
+    order: 700
+remove_sections:
+ - fastqc_rnaseq_sequence_counts
+ - fastqc_rnaseq_per_base_sequence_quality
+ - fastqc_rnaseq_per_sequence_quality_scores
+ - fastqc_rnaseq_per_sequence_gc_content
+ - fastqc_rnaseq_per_base_n_content
+ - fastqc_rnaseq_sequence_duplication_levels
+ - fastqc_rnaseq_status_checks
+ - fastqc_sequence_counts
+ - fastqc_per_base_sequence_quality
+ - fastqc_per_sequence_quality_scores
+ - fastqc_per_sequence_gc_content
+ - fastqc_per_base_n_content
+ - fastqc_sequence_duplication_levels
+ - fastqc_status_checks
+table_columns_visible:
+  fastp:
+    pct_duplication: False
+table_columns_placement:
+  fastp:
+    before_filtering_total_reads: 110
+    pct_surviving: 112
+    pct_adapter: 114
+    after_filtering_gc_content: 116
+ 
+

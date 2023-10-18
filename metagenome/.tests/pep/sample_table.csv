@@ -1,0 +1,3 @@
+sample_name,Project_ID,Organism,Flowcell_Name,Flowcell_ID,R1,R2
+Bact,GCF-2023-901,pteropus_vampyrus,231002_M03942_0070_000000000-L83M5,000000000-L83M5,R1,R2
+Yeast,GCF-2023-901,saccharomyces_cerevisiae,231002_M03942_0070_000000000-L83M5,000000000-L83M5,R1,R2

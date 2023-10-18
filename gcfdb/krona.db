@@ -1,0 +1,53 @@
+#-*- mode:snakemake -*-
+PROTOCOL = 'https://'
+
+KRONA_URL = PROTOCOL + "gcf-winecellar.medisin.ntnu.no/krona"
+
+KRONA_DB_DIR = join(EXT_DIR, "krona")
+
+rule krona_get_taxa:
+    params:
+        url = KRONA_URL,
+        filename = "taxdump.tar.gz",
+        dst = KRONA_DB_DIR
+    output:
+        join(KRONA_DB_DIR, "taxdump.tar.gz")
+    threads: 
+        1
+    log:
+        join(KRONA_DB_DIR, 'logs', 'genome.log')
+    shell:
+        """
+        wget {params.url}/{params.filename} -P {params.dst}
+        echo "Krona taxdump,release-`date -I`,{params.url}/{params.filename},`date -I`" > {log}
+        """
+
+rule krona_build_taxa:
+    input:
+        rules.krona_get_taxa.output,
+    output:
+        img = join(KRONA_DB_DIR, "images.dmp"),
+        taxa = join(KRONA_DB_DIR, "taxonomy.tab")
+    params:
+        db = KRONA_DB_DIR,
+        params = '--only-build --preserve '
+    singularity:
+        "docker://" + config["docker"]["krona"]
+    threads:
+        1
+    shell:
+        "ktUpdateTaxonomy.sh {params.params} {params.db} "
+
+
+
+
+
+
+
+
+
+
+
+
+
+
