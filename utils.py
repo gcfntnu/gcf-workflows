@@ -48,6 +48,7 @@ config['organism'] = ORG
 
 PE = len(config['read_geometry']) > 1
 BFQ_ALL = []
+GEO_PROCESSED_FILES = []
 
 def update_config2(config, extra_config):
     """Recursively update dictionary config with overwrite_config.
@@ -178,17 +179,25 @@ def get_raw_fastq(wildcards):
 
     R1 = config['samples'][wildcards.sample].get('R1', [])
     R2 = config['samples'][wildcards.sample].get('R2', [])
+    I1 = config['samples'][wildcards.sample].get('I1', [])
     if R1 == '':
         R1 = []
     if R2 == '':
         R2 = []
+    if I1 == '':
+        I1 = []
     if R1:
         R1 = R1.split(',')
     if R2:
         R2 = R2.split(',')
-
+    if I1:
+        I1 = I1.split(',')
+        
     R1 = [join(FASTQ_DIR, i) for i in R1]
     if R2:
         R2 = [join(FASTQ_DIR, i) for i in R2]
+        if I1:
+            I1 = [join(FASTQ_DIR, i) for i in I1]
+            return {'R1': R1, 'R2': R2, 'I1': I1}
         return {'R1': R1, 'R2': R2}
     return {'R1': R1}
