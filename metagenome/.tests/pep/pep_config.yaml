@@ -1,0 +1,73 @@
+pep_version: 2.0.0
+sample_table: sample_table.csv
+project_id: &id001
+- GCF-2023-901
+organism: N/A
+experiment_title: *id001
+experiment_summary: NA
+experiment_principal_inverstigator: NA
+workflow: default
+machine: MiSeq StOlav
+read_geometry:
+- 151
+- 151
+adapter: CTGTCTCTTATACACATCT
+adapter2: CTGTCTCTTATACACATCT
+read_orientation: unstranded
+libprepkit: Illumina Nextera XT DNA Library Prep
+library_strategy: WGS
+library_selection: RANDOM
+library_source: genomic
+library_strand: first strand
+protocol:
+  library_construction: ''
+  sequencing: ''
+descriptors:
+  Organism:
+    display_name: Organism
+    dtype: string
+    subtype: organism
+    description: organism name (genus_species)
+    placement: 6
+  Flowcell_ID:
+    display_name: Flowcell ID
+    description: flowcell id tag
+    dtype: categorical
+    placement: 36
+    subtype: constant
+  Project_ID:
+    display_name: GCF Project ID
+    dtype: string
+    subtype: gcf_number
+    description: GCF project ID. (GCF-year-number)
+    placement: 4
+  Flowcell_Name:
+    display_name: Flowcell Name
+    description: flowcell folder name
+    dtype: string
+    subtype: no_conversion
+    placement: 35
+  R1:
+    display_name: Read 1
+    dtype: path
+    description: ' read 1 fastq filename'
+    placement: 1000
+  Sample_ID:
+    display_name: Sample ID
+    dtype: string
+    subtype: no_conversion
+    description: unique sample id
+    placement: 0
+  R2:
+    display_name: Read 2
+    dtype: path
+    description: read 2 fastq filename
+    placement: 1001
+sample_modifiers:
+  derive:
+    attributes:
+    - R1
+    - R2
+    sources:
+      R1: '{Flowcell_Name}/{Project_ID}/{sample_name}_R1.fastq.gz'
+      R2: '{Flowcell_Name}/{Project_ID}/{sample_name}_R2.fastq.gz'
