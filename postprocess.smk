@@ -2,6 +2,7 @@
 PROJECT_ID = config['project_id']
 PROJECT_ID = PROJECT_ID[0] if isinstance(PROJECT_ID, (list, tuple)) else PROJECT_ID
 
+print(GEO_PROCESSED_FILES)
 
 # report on read geometry before any filter steps
 _original_read_geometry = config['read_geometry']
@@ -42,7 +43,6 @@ rule geo_template:
         bfq = BFQ_ALL,
         excel_template =  rules.download_geo_template.output,
         sample_info = join(INTERIM_DIR, 'sample_info.tsv'),
-        processed_data = GEO_PROCESSED_FILES,
         fastq_md5 = rules.geo_md5sum.output
     output:
         geo_filled_template = join(BFQ_INTERIM, 'data_submission', 'geo', 'seq_template_' + PROJECT_ID + '.xlsx')
@@ -52,7 +52,8 @@ rule geo_template:
         pep = workflow.pepfile,
         assembly = config['db'].get(config['db'].get('reference_db'), {}).get('assembly', 'NA'),
         repo_dir = srcdir(os.path.dirname('main.config')),
-        workflow = config['workflow']
+        workflow = config['workflow'],
+        processed_data_arg = '--processed-data {}'.format(' '.join(GEO_PROCESSED_FILES)) if GEO_PROCESSED_FILES else '' 
     singularity:
         'docker://' + config['docker']['default']
     shell:
@@ -60,7 +61,7 @@ rule geo_template:
         '-S {input.sample_info} '
         '--template {input.excel_template} '
         '--md5sum-file {input.fastq_md5} '
-        '--processed-data {input.processed_data} '
+        '{params.processed_data_arg} '
         '--read-geometry {params.read_geometry} '
         '--pep {params.pep} '
         '--assembly {params.assembly} '

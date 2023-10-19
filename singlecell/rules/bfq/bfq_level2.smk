@@ -158,19 +158,22 @@ if config['quant']['method'] == 'star':
                       rules.bfq_level2_aligned.output,
                       rules.bfq_level2_notebooks_star.output,
                       join(BFQ_INTERIM, 'figs', 'umap_all_samples_mqc.png')]
-    GEO_PROCESSED_FILES = [rules.bfq_level2_exprs_star.output.sample_mtx,
-                           rules.bfq_level2_exprs_star.output.sample_features,
-                           rules.bfq_level2_exprs_star.output.sample_barcodes]
+    GEO_PROCESSED_FILES = []
+    GEO_PROCESSED_FILES.extend(rules.bfq_level2_exprs_star.output.sample_mtx)
+    GEO_PROCESSED_FILES.extend(rules.bfq_level2_exprs_star.output.sample_features)
+    GEO_PROCESSED_FILES.extend(rules.bfq_level2_exprs_star.output.sample_barcodes)
 else:
     BFQ_LEVEL2_ALL = [rules.bfq_level2_exprs_cellranger.output,
                       rules.bfq_level2_logs_cellranger.output,
                       rules.bfq_level2_data_cellranger.output,
                       rules.bfq_level2_notebooks_cellranger.output,
                       join(BFQ_INTERIM, 'figs', 'umap_all_samples_mqc.png')]
-    GEO_PROCESSED_FILES = [rules.bfq_level2_exprs_cellranger.output.sample_mtx,
-                           rules.bfq_level2_exprs_cellranger.output.sample_features,
-                           rules.bfq_level2_exprs_cellranger.output.sample_barcodes
-                           ]
+
+    GEO_PROCESSED_FILES = []
+    GEO_PROCESSED_FILES.extend(rules.bfq_level2_exprs_cellranger.output.sample_mtx)
+    GEO_PROCESSED_FILES.extend(rules.bfq_level2_exprs_cellranger.output.sample_features)
+    GEO_PROCESSED_FILES.extend(rules.bfq_level2_exprs_cellranger.output.sample_barcodes)
+                           
 
 BFQ_ALL.extend(BFQ_LEVEL2_ALL)
 
