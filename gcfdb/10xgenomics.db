@@ -52,10 +52,12 @@ rule txgenomics_org_prebuild:
         fasta = join(EXT_DIR, '10xgenomics', 'release-{release}', '{organism}', '{assembly}', 'fasta', 'genome.fa'),
         star_index = join(EXT_DIR, '10xgenomics', 'release-{release}', '{organism}', '{assembly}', 'star', 'SA')
     log:
-        join(EXT_DIR, '10xgenomics', 'release-{release}', '{organism}', '{assembly}', 'logs', '10x-reference.log')
+        genome = join(EXT_DIR, '10xgenomics', 'release-{release}', '{organism}', '{assembly}', 'logs', 'genome.log'),
+        gtf = join(EXT_DIR, '10xgenomics', 'release-{release}', '{organism}', '{assembly}', 'logs', 'gtf.log')
     shell:
         """
         curl {params.proxy} {params.url} | tar xvz --strip-components=1 -C {params.out}
         ln -s {params.out}/genes/genes.gtf {params.out}/anno
-        echo "10xGenomics reference,NA,{params.url},`date -I`" > {log}
+        echo "10xGenomics Genome,release-{wildcards.release},{params.url},`date -I`" > {log.genome}
+        echo "10xGenomics GTF ,release-{wildcards.release},{params.url},`date -I`" > {log.gtf}
         """

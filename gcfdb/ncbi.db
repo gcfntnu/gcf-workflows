@@ -120,6 +120,21 @@ rule ncbi_cervus_elaphus_hippelaphus:
         echo "ncbi genomes,{params.url},`date -I`" > {log}
         """
 
+rule ncbi_geo_submission_form_template:
+    params:
+        url = 'https://www.ncbi.nlm.nih.gov/geo/info/examples/seq_template.xlsx',
+        date = datetime.now().strftime("%d-%m-%Y")
+    output:
+        join(EXT_DIR, 'ncbi', 'GEO', 'seq_template.xlsx')
+    log:
+        join(EXT_DIR, 'ncbi', 'GEO', 'logs', 'seq_template.log')
+    singularity:
+        'docker://' + config['docker']['default']
+    shell:
+        """
+        wget -O {output} {params.url}
+        echo "ncbi GEO submission form template,{params.url}|{params.url},{params.date}" > {log}
+        """    
 
 rule ncbi_db_all:
     input:

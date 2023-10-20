@@ -1,0 +1,33 @@
+#-*- mode:snakemake -*-
+PROTOCOL = 'https://'
+
+
+RELEASE = str(config['db']['langmead']['release'])
+ASSEMBLY = config['db']['langmead']['assembly'] or ''
+
+
+BRACKEN_N_MERS = [50, 75, 100, 150, 200, 250, 300] if ASSEMBLY.startswith("k2") else [100, 150, 200]
+
+rule langmead_kraken_prebuild:
+    params:
+        proxy = config.get('proxy', {}).get('wget', ''),
+        url = PROTOCOL + "genome-idx.s3.amazonaws.com/kraken",
+        filename = "{assembly}_{release}.tar.gz".format(assembly=ASSEMBLY, release=RELEASE),
+        output = join(EXT_DIR, 'langmead', 'release-{}'.format(RELEASE), "metagenome", ASSEMBLY),
+        release = RELEASE
+    output:
+        hash = join(EXT_DIR, 'langmead', 'release-{}'.format(RELEASE), "metagenome", ASSEMBLY, 'hash.k2d'),
+        taxo = join(EXT_DIR, 'langmead', 'release-{}'.format(RELEASE), "metagenome", ASSEMBLY, 'taxo.k2d'),
+        opts = join(EXT_DIR, 'langmead', 'release-{}'.format(RELEASE), "metagenome", ASSEMBLY, 'opts.k2d'),
+        seq2tax = join(EXT_DIR, 'langmead', 'release-{}'.format(RELEASE), "metagenome", ASSEMBLY, 'seqid2taxid.map'),
+        bracken_mers = expand(join(EXT_DIR, 'langmead', 'release-{}'.format(RELEASE), "metagenome", ASSEMBLY, 'database{mers}mers.kmer_distrib'), mers=BRACKEN_N_MERS),
+    threads: 
+        24
+    log:
+        join(EXT_DIR, 'langmead', 'release-{}'.format(RELEASE), "metagenome", ASSEMBLY, 'logs', 'genome.log')
+    shell:
+        """
+        wget -O- {params.url}/{params.filename} | tar zxv -C {params.output}
+        echo "Langmead Prebuild,release-{params.release},{params.url}/{params.filename},`date -I`" > {log}
+        """
+
