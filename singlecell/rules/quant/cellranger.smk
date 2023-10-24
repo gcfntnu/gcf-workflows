@@ -341,7 +341,7 @@ rule cellranger_cellbender:
         'cellbender remove-background '
         '--input {params.input_dir} '
         '--output {output.h5} '
-        '--expected-cells {params.expected_cells} '
+        #'--expected-cells {params.expected_cells} '
         '--total-droplets-included {params.total_droplets_included} '
         '--fpr {params.fpr} '
         '--epochs {params.epochs} '
