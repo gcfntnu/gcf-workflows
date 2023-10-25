@@ -81,8 +81,9 @@ rule cellranger_symlink_gtf:
  
 rule cellranger_quant_:
     input:
-        R1 = rules.merged_fastq_R1.output,
-        R2 = rules.merged_fastq_R2.output,
+        unpack(get_raw_fastq),
+        merged_R1 = rules.merged_fastq_R1.output,
+        merged_R2 = rules.merged_fastq_R2.output,
         genome = join(CR_REF_DIR, 'fasta', 'genome.fa'),
         gtf = join(CR_REF_DIR, 'anno', 'genes.gtf')
     params:
