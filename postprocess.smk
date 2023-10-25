@@ -2,8 +2,6 @@
 PROJECT_ID = config['project_id']
 PROJECT_ID = PROJECT_ID[0] if isinstance(PROJECT_ID, (list, tuple)) else PROJECT_ID
 
-print(GEO_PROCESSED_FILES)
-
 # report on read geometry before any filter steps
 _original_read_geometry = config['read_geometry']
 if 'delta_readlen' in config:
@@ -19,7 +17,7 @@ rule download_geo_template:
     shell:
         'wget {params.proxy} {params.url} -O- > {output} '
 
-rule geo_md5sum_sample:
+rule geo_md5sum_merged_sample:
     input:
         unpack(get_merged_fastq)
     params:
@@ -29,21 +27,27 @@ rule geo_md5sum_sample:
     shell:
         'md5sum {params.fastq_dir}/{wildcards.sample}*fastq.gz > {output}'
         
-rule geo_md5sum:
+rule geo_md5sum_merged:
     input:
-        expand(rules.geo_md5sum_sample.output, sample=SAMPLES)
+        expand(rules.geo_md5sum_merged_sample.output, sample=SAMPLES)
     output:
         temp('fastq.md5')
     shell:
         'cat {input} > {output}'
 
-        
+
+def geo_input():
+    input = {'bfq': BFQ_ALL,
+             'excel_template': rules.download_geo_template.output,
+             'sample_info': join(INTERIM_DIR, 'sample_info.tsv')
+             }
+    if config.get('output_merged_fastq', False):
+        input['fastq_md5'] = rules.geo_md5sum_merged.output
+    return input
+
 rule geo_template:
     input:
-        bfq = BFQ_ALL,
-        excel_template =  rules.download_geo_template.output,
-        sample_info = join(INTERIM_DIR, 'sample_info.tsv'),
-        fastq_md5 = rules.geo_md5sum.output
+        **geo_input()
     output:
         geo_filled_template = join(BFQ_INTERIM, 'data_submission', 'geo', 'seq_template_' + PROJECT_ID + '.xlsx')
     params:
@@ -53,14 +57,15 @@ rule geo_template:
         assembly = config['db'].get(config['db'].get('reference_db'), {}).get('assembly', 'NA'),
         repo_dir = srcdir(os.path.dirname('main.config')),
         workflow = config['workflow'],
-        processed_data_arg = '--processed-data {}'.format(' '.join(GEO_PROCESSED_FILES)) if GEO_PROCESSED_FILES else '' 
+        processed_data_arg = '--processed-data {}'.format(' '.join(GEO_PROCESSED_FILES)) if GEO_PROCESSED_FILES else '',
+        md5_arg = '--md5sum-file {{input.fastq_md5}} ' if config.get('output_merged_fastq', False) else ''
     singularity:
         'docker://' + config['docker']['default']
     shell:
         'python {params.script} '
         '-S {input.sample_info} '
         '--template {input.excel_template} '
-        '--md5sum-file {input.fastq_md5} '
+        '{params.md5_arg} '
         '{params.processed_data_arg} '
         '--read-geometry {params.read_geometry} '
         '--pep {params.pep} '
