@@ -170,9 +170,9 @@ else:
                       join(BFQ_INTERIM, 'figs', 'umap_all_samples_mqc.png')]
 
     GEO_PROCESSED_FILES = []
-    GEO_PROCESSED_FILES.extend(rules.bfq_level2_exprs_cellranger.output.sample_mtx)
-    GEO_PROCESSED_FILES.extend(rules.bfq_level2_exprs_cellranger.output.sample_features)
-    GEO_PROCESSED_FILES.extend(rules.bfq_level2_exprs_cellranger.output.sample_barcodes)
+    GEO_PROCESSED_FILES.extend(rules.bfq_level2_exprs_cellranger.output.aggr_mtx)
+    GEO_PROCESSED_FILES.extend(rules.bfq_level2_exprs_cellranger.output.aggr_features)
+    GEO_PROCESSED_FILES.extend(rules.bfq_level2_exprs_cellranger.output.aggr_barcodes)
                            
 
 BFQ_ALL.extend(BFQ_LEVEL2_ALL)
