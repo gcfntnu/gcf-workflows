@@ -43,7 +43,7 @@ while FASTQ_DIR.endswith(os.path.sep):
 makedirs(FASTQ_DIR, exist_ok=True)
 GCFDB_DIR = srcdir("gcfdb")
 
-ORG = config['organism'].lower().strip().replace(' ', '_')
+ORG = config.get('organism', "N/A").lower().strip().replace(' ', '_')
 config['organism'] = ORG
 
 PE = len(config['read_geometry']) > 1
