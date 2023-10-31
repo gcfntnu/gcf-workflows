@@ -74,7 +74,7 @@ def create_mqc_config(args):
     s_df = pep.sample_table
     
     s_df = s_df.rename(columns={'sample_name': 'Sample_ID'}).set_index('Sample_ID')
-    drop = list(set(['Flowcell_Name', 'Project_ID', 'R1', 'R2', 'subsample_name', 'sample_name', 'Flowcell_ID', 'Lane', 'lane', 'run_number']).intersection(s_df.columns))
+    drop = list(set(['Flowcell_Name', 'Project_ID', 'R1', 'R2', 'subsample_name', 'sample_name', 'Flowcell_ID', 'Lane', 'lane', 'run_number', 'I1', 'I1_md5sum', 'R1_md5sum', 'R2_md5sum', 'I2', 'I2_md5sum']).intersection(s_df.columns))
     if 'Organism' in s_df.columns and len(set(s_df['Organism'])) == 1:
         drop.append('Organism')
     s_df = s_df.drop(drop, axis=1)
