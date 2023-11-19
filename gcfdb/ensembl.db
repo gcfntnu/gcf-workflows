@@ -250,7 +250,14 @@ rule human_ensembl_gtf:
         echo 'Ensembl GTF,release-{params.release},{params.url}/{params.filename},`date -I`' > {log}
         """
 
-
+rule ensembl_chromosome_map: #other reference_db.db file needs to be included
+    input:
+        other_ref_index = join(EXT_DIR, "{other_reference_db}", "release-{other_release}", ORG, ENS_ASSEMBLY, "fasta", "genome.fa.fai"),
+        ens_ref_index = join(EXT_DIR, "ensembl", "release-" + ENS_RELEASE, ORG, ENS_ASSEMBLY, "fasta", "genome.fa.fai")
+    output:
+       join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), ORG, ENS_ASSEMBLY, 'anno', 'ensembl_to_{other_reference_db}_{other_release}_map.txt')
+    shell:
+        'paste <(cut -f1 {input.ens_ref_index}) <(cut -f1 {input.other_ref_index}) > {output} '
 
 
 

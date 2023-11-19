@@ -15,6 +15,7 @@ import numpy as np
 import anndata
 import scvelo as sv
 from scipy import sparse
+from scipy.io import mmwrite
 import scipy.sparse as sp
 import tables
 
@@ -33,9 +34,9 @@ parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.R
 
 parser.add_argument('input', help='input file(s)', nargs='*', default=None)
 parser.add_argument('-o', '--outfile', help='output filename', required=True)
-parser.add_argument('-f', '--input-format', choices=['cellranger_aggr', 'cellranger', 'star', 'alevin', 'alevin2', 'cellbender', 'umitools', 'velocyto'],
+parser.add_argument('-f', '--input-format', choices=['cellranger_aggr', 'cellranger', 'star', 'alevin', 'alevin2', 'cellbender', 'umitools', 'velocyto', 'h5ad'],
                     default='cellranger_aggr', help='input file format')
-parser.add_argument('-F', '--output-format', choices=['anndata', 'loom', 'csvs'], default='anndata', help='output file format')
+parser.add_argument('-F', '--output-format', choices=['anndata', 'loom', 'csvs', 'mtx'], default='anndata', help='output file format')
 parser.add_argument('--aggr-csv', help='aggregation CSV with header and two columns. First column is `sample_id` and second column is path to input file. This is used as a substitute for input files', default=None)
 parser.add_argument('--sample-info', help='samplesheet info, tab seprated file assumes `Sample_ID` in header', default=None)
 parser.add_argument('--feature-info', help='extra feature info filename, tab seprated file assumes `gene_ids` in header', default=None)
@@ -49,6 +50,7 @@ parser.add_argument('--identify-doublets', help='estimate doublets using Scruble
 parser.add_argument('--identify-empty-droplets', help='estimate empty droplets using emptyDrops (DropletUtils)', action='store_true')
 parser.add_argument('--doublets', help='doublet estimation strategy', default='r_scrublet', choices=['skip', 'scanpy_scrublet', 'r_scrublet'])
 parser.add_argument('--empty-droplets', help='barcode cell identification strategy', default='cr_emptydrops')
+parser.add_argument('--barcode-rename', help='barcode postfix naming strategy', default='sample_id', choices=['sample_id', 'numerical', 'trim', 'skip'])
 parser.add_argument('-v ', '--verbose', help='verbose output.', action='store_true')
 
 
@@ -333,16 +335,22 @@ def read_cellranger(fn, args, rm_zero_cells=True, add_sample_id=True, **kw):
         data = sc.read_10x_mtx(mtx_dir, gex_only=args.gex_only, var_names='gene_ids')
         data.var['gene_ids'] = list(data.var_names)
     
-        
+    sample_id = os.path.basename(os.path.dirname(dirname))
+    
     if add_sample_id:
-        barcodes = [b.split('-')[0] for b in data.obs.index]
-        if len(barcodes) == len(set(barcodes)):
-            data.obs_names = barcodes
-        sample_id = os.path.basename(os.path.dirname(dirname))
         data.obs['sample_id'] = sample_id
         data.obs['sample_id'] = data.obs['sample_id'].astype('category')
-        data.obs_names = [i + '-' + sample_id for i in data.obs_names]
-        
+
+    barcodes = [b.split('-')[0] for b in data.obs.index]
+    if args.barcode_rename == 'sample_id':
+        data.obs_names = [b + f'-{sample_id}' for b in barcodes]
+    elif args.barcode_rename == 'numerical':
+        data.obs_names = [b + '-1' for b in barcodes]
+    elif args.barcode_rename == 'trim':
+        assert len(barcodes) == len(set(barcodes))
+        data.obs_names = barcodes
+    else:
+        pass
     return data
         
 def read_cellranger_aggr(fn, args, **kw):
@@ -362,7 +370,14 @@ def read_cellranger_aggr(fn, args, **kw):
     data.obs['sample_id'] = data.obs['sample_id'].astype('category')
     # use sample_id to make barcodes unique
     barcodes = [b.split('-')[0] for b in data.obs.index]
-    data.obs_names = ['{}-{}'.format(i, j) for i, j in zip(barcodes, samples)]
+    if args.barcode_rename == 'sample_id':
+        data.obs_names = ['{}-{}'.format(i, j) for i, j in zip(barcodes, samples)]
+    elif args.barcode_rename == 'numerical':
+        data.obs_names = ['{}-{}'.format(i, j) for i, j in zip(barcodes, barcodes_enum)]
+    elif args.barcode_rename == 'trim':
+        raise ValueError
+    else:
+        pass
     return data
 
 
@@ -414,10 +429,16 @@ def read_star(fn, args, **kw):
     sample_id = os.path.normpath(fn).split(os.path.sep)[-5]
     data.obs['sample_id'] = sample_id
     data.obs['sample_id'] = data.obs['sample_id'].astype('category')
-    barcodes = [b.split('-')[0] for b in barcodes]
-    if len(barcodes) == len(set(barcodes)):
+    barcodes = [b.split('-')[0] for b in data.obs.index]
+    if args.barcode_rename == 'sample_id':
+        data.obs_names = ['{}-{}'.format(i, j) for i, j in zip(barcodes, samples)]
+    elif args.barcode_rename == 'numerical':
+        data.obs_names = ['{}-1'.format(b) for b in barcodes]
+    elif args.barcode_rename == 'trim':
+        assert len(barcodes) == len(set(barcodes))
         data.obs_names = barcodes
-    data.obs_names = [i + '-' + sample_id for i in data.obs_names]
+    else:
+        pass
     if not args.no_zero_cell_rm:
         row_sum = data.X.sum(1)
         if hasattr(row_sum, 'A'):
@@ -459,19 +480,23 @@ def read_cellbender(fn, args, add_sample_id=True, **kw):
         sample_id = bn.split('_filtered')[0]
     else:
         sample_id = os.path.splitext(bn)[0]
-    adata = anndata_from_h5(fn)
-    adata.obs['sample_id'] = sample_id
-    barcodes = [b.split('-')[0] for b in adata.obs.index]
-    if len(barcodes) == len(set(barcodes)):
-        adata.obs_names = barcodes
+    data = anndata_from_h5(fn)
+    data.obs['sample_id'] = sample_id
+    barcodes = [b.split('-')[0] for b in data.obs.index]
+    if args.barcode_rename == 'sample_id':
+        data.obs_names = ['{}-{}'.format(i, j) for i, j in zip(barcodes, samples)]
+    elif args.barcode_rename == 'numerical':
+        data.obs_names = [b + '-1' for b in barcodes]
+    elif args.barcode_rename == 'trim':
+        assert len(barcodes) == len(set(barcodes))
+        data.obs_names = barcodes
+    else:
+        pass
     
-    if add_sample_id:
-        #adata.obs['sample_id'] = adata.obs['sample_id'].astype('category')
-        adata.obs_names = [i + '-' + sample_id for i in adata.obs_names]
-    if 'gene_id' in adata.var.columns and adata.var.index.name=='gene_name':
-        adata.var['gene_name'] = adata.var_names.copy()
-        adata.var_names = adata.var['gene_id']
-    return adata
+    if 'gene_id' in data.var.columns and data.var.index.name=='gene_name':
+        data.var['gene_name'] = data.var_names.copy()
+        data.var_names = data.var['gene_id']
+    return data
 
 def read_umitools(fn, args, **kw):
     data = sc.read_umi_tools(fn)
@@ -479,7 +504,56 @@ def read_umitools(fn, args, **kw):
     data.obs['sample_id'] = sample_id
     return data
 
+def read_h5ad(fn, args, **kw):
+    data = sc.read_h5ad(fn)
+    barcodes = data.obs_names
+    postfix = list(set([b.split('-')[1]  for b in barcodes if '-' in b]))
+    if len(postfix) == 0:
+        postfix_type = 'trimmed'
+    else:
+        try:
+            int(postfix[0])
+            postfix_type = 'numerical'
+        except:
+            postfix_type = 'sample_id'
+        
+    barcodes = [b.split('-')[0] for b in data.obs.index]
+    if args.barcode_rename == 'sample_id' and postfix_type != 'sample_id':
+        if 'sample_id' in kw:
+            sample_id = kw['sample_id']
+            data.obs_names = [b + f'-{sample_id}' for b in barcodes]
+        else:
+            raise ValueError
+    elif args.barcode_rename == 'numerical' and postfix_type != 'numerical':
+        data.obs_names = [b + '-1' for b in barcodes]
+    elif args.barcode_rename == 'trim':
+        assert len(barcodes) == len(set(barcodes))
+        data.obs_names = barcodes
+    else:
+        pass
+    return data
 
+def read_h5ad_aggr(fn, args, **kw):
+    raise NotImplementedError
+
+def write_mtx(data, mtx_file):
+    smtx = data.X.T.tocsr().asfptype()
+    barcodes = data.obs_names
+    features = data.var_names
+    output_dir = os.path.dirname(mtx_file)
+    os.makedirs(output_dir, exist_ok=True)
+    if mtx_file.endswith('.gz'):
+        import gzip
+        with gzip.open(mtx_file, 'wb') as fh:
+            mmwrite(fh, smtx)
+        pd.Series(barcodes).to_csv(os.path.join(output_dir, 'barcodes.tsv.gz'), index=False, header=False, compression="gzip")
+        pd.Series(features).to_csv(os.path.join(output_dir, 'features.tsv.gz'), index=False, header=False, compression="gzip")
+    else:
+        with open(mtx_file, 'w') as fh:
+            mmwrite(fh, smtx)
+        pd.Series(barcodes).to_csv(os.path.join(output_dir, 'barcodes.tsv'), index=False, header=False)
+        pd.Series(features).to_csv(os.path.join(output_dir, 'features.tsv'), index=False, header=False) 
+    
 def add_nuclear_fraction(adata):
     """Estimate nuclear fraction from velocyto params
     """
@@ -499,7 +573,8 @@ READERS = {'cellranger_aggr': read_cellranger_aggr,
            'alevin': read_alevin,
            'alevin2': read_alevin2,
            'velocyto': read_velocyto_loom,
-           'cellbender': read_cellbender}
+           'cellbender': read_cellbender,
+           'h5ad': read_h5ad}
         
 if __name__ == '__main__':
     args = parser.parse_args()
@@ -616,16 +691,18 @@ if __name__ == '__main__':
             
         data.var = pd.merge(data.var, feature_info, how='left', left_index=True, right_index=True, copy=True)
         
-    if 'gene_symbols' in data.var.columns:
+    if 'gene_symbols' in data.var.columns and 'fraction_mito' not in data.obs:
         mito_genes = data.var.gene_symbols.str.lower().str.startswith('mt-')
         try:
             data.obs['fraction_mito'] = np.sum(data[:, mito_genes].X, axis=1).A1 / np.sum(data.X, axis=1).A1
         except:
             data.obs['fraction_mito'] = np.sum(data[:, mito_genes].X, axis=1) / np.sum(data.X, axis=1)
-    try:
-        data.obs['n_counts'] = data.X.sum(axis=1).A1
-    except:
-        data.obs['n_counts'] = data.X.sum(axis=1)
+
+    if 'n_counts' not in data.obs:
+        try:
+            data.obs['n_counts'] = data.X.sum(axis=1).A1
+        except:
+            data.obs['n_counts'] = data.X.sum(axis=1)
 
     data = add_nuclear_fraction(data)
 
@@ -634,7 +711,6 @@ if __name__ == '__main__':
         for col in data.var.columns:
             if str(col).strip().lower() in aliases:
                 data.var['gene_symbols'] = data.var[col].copy()
-                print(col)
             
     if args.verbose:
         print(data)
@@ -645,5 +721,7 @@ if __name__ == '__main__':
         data.write_loom(args.outfile)
     elif args.output_format == 'csvs':
         data.write_csvs(args.outpfile)
+    elif args.output_format == 'mtx':
+        write_mtx(data, mtx_file = args.outfile)
     else:
         raise ValueError("Unknown output format: {}".format(args.output_format))

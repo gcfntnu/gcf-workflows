@@ -61,3 +61,13 @@ rule txgenomics_org_prebuild:
         echo "10xGenomics Genome,release-{wildcards.release},{params.url},`date -I`" > {log.genome}
         echo "10xGenomics GTF ,release-{wildcards.release},{params.url},`date -I`" > {log.gtf}
         """
+
+
+rule txgenomics_chromosome_map: #other reference_db.db file needs to be included and assembly name equal
+    input:
+        other_ref_index = join(EXT_DIR, "{other_reference_db}", "release-{other_release}", ORG, TX_ASSEMBLY, "fasta", "genome.fa.fai"),
+        tx_ref_index = join(EXT_DIR, "10xgenomics", "release-" + TX_RELEASE, ORG, TX_ASSEMBLY, "fasta", "genome.fa.fai")
+    output:
+       join(EXT_DIR, '10xgenomics', 'release-{}'.format(TX_RELEASE), ORG, TX_ASSEMBLY, 'anno', '10xgenomics_to_{other_reference_db}_{other_release}_map.txt')
+    shell:
+        'paste <(cut -f1 {input.tx_ref_index}) <(cut -f1 {input.other_ref_index}) > {output} '
