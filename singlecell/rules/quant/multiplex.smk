@@ -1,3 +1,4 @@
+
 #from os.path import join
 
 include:
@@ -157,7 +158,7 @@ rule cellsnp_pileup_1a: # pileup with defined snps and barcodes (singlecell)
         mtx_other = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'demultiplexing',  'cellsnp', 'cellSNP.tag.OTH.mtx')
     params:
         cellsnp_dir = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'demultiplexing',  'cellsnp'),
-        input_bam = lambda wildcards, input: ','.join(input.bam),
+        input_bam = lambda wildcards, input: input.bam if isinstance(input.bam, str) else ','.join(input.bam),
         p = 20,
         minMAF = 0.1,
         minCOUNT = 20,
@@ -312,7 +313,7 @@ rule freemuxlet_noref:
 rule demuxlet_ref:
     input:
         barcodes = get_barcodes,
-        cel = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'demultiplexing',  'freemuxlet', 'pileup.var.gz'),
+        cel = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'demultiplexing',  'freemuxlet', 'pileup.cel.gz'),
         donor_vcf = rules.cellsnp_donor_vcf.output.vcf
     output:
         join(QUANT_INTERIM, '{quantifier}', '{sample}', 'demultiplexing',  'with_reference', 'demuxlet', 'demuxlet.best')
@@ -343,9 +344,9 @@ def get_demuxafy_methods(test=False):
 
     needs update when I can get souporcell with reference to work
     """
-    if config['quant'].get('multiplex'):
-        n = config['quant']['multiplex'].get('n', 4)
-        if config['quant']['multiplex']['with_reference']:
+    if config['quant'].get('demultiplex'):
+        n = config['quant']['demultiplex'].get('n', 4)
+        if config['quant']['demultiplex']['with_reference']:
             if n < 4:
                 methods = ['demuxlet', 'vireo_ref', 'scds']
             elif n < 16:
@@ -440,12 +441,22 @@ rule sample_aggregate_demux_results:
 
 
 
-demultiplexer = config['quant'].get('multiplex', {}).get('method')
+demultiplexer = config['quant'].get('demultiplex', {}).get('method')
 quantifier = config['quant']['method']
 if demultiplexer == 'demuxafy':
     rule multiplex_all:
         input:
-            expand(rules.sample_aggregate_demux_results.output, quantifier=config['quant']['method'], sample=SAMPLES[0])
+            expand(rules.sample_aggregate_demux_results.output.combined_assigned, quantifier=config['quant']['method'], sample=SAMPLES)
+        output:
+            join(QUANT_INTERIM, 'aggregate',config['quant']['method'] , 'droplet_type.txt')
+        params:
+            script = srcdir("scripts/combine_demultiplex.py")
+        container:
+            'docker://' + config['docker']['default']
+        shell:
+            'python {params.script} '
+            '{input} '
+            '-o {output} '
 
 elif demultiplexer == 'vireo_ref':
     rule multiplex_all:
