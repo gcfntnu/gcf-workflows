@@ -1,0 +1,21 @@
+#-*- mode:snakemake -*-
+"""Custom set of synthetic smallrna calibrators.
+"""
+
+from os.path import join
+from snakemake.workflow import srcdir
+
+CAL_DIR = join(EXT_DIR, 'spikein')
+
+rule qiagen_spikeins:
+    output:
+        join(CAL_DIR, 'fasta', 'qiagen_smallrna_spikeins.fa')
+    params:
+        url = join(config.get('winecellar', {}).get('url', ''), 'qiagen', 'qiagen_smallrna_spikeins.fa'),
+        proxy = config.get('proxy', {}).get('wget', '')
+    log:
+        join(ERCC_DIR, 'logs', 'qiagen_smallrna_spikeins.log')
+    shell:
+        'wget {params.proxy} -qO- {params.url} > {output} '
+        '&& '
+        'echo "Qiagen Spike,NA,{params.url},`date -I`" > {log}'
