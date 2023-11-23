@@ -1,0 +1,46 @@
+#-*- mode:snakemake -*-
+PROTOCOL = 'https://'
+
+K2_sRNA_RELEASE = config['db']['k2_smallrna_custom']['release']
+K2_sRNA_ASSEMBLY = config['db']['k2_smallrna_custom'].get('assembly', '')
+
+URL = join(PROTOCOL, config.get('winecellar', {}).get('url', ''), 'k2_smallrna_custom')
+
+rule k2_smallrna_custom_prebuild:
+    params:
+        url = join(URL, '{release}_{assembly}.tar.gz'.format(release=K2_sRNA_RELEASE, assembly=K2_sRNA_ASSEMBLY)),
+        output = join(EXT_DIR, 'k2_smallrna_custom', 'release-{}'.format(K2_sRNA_RELEASE), 'metagenome', K2_sRNA_ASSEMBLY),
+        release = K2_sRNA_RELEASE,
+    output:
+        hash = join(EXT_DIR, 'k2_smallrna_custom', 'release-{}'.format(K2_sRNA_RELEASE), "metagenome", K2_sRNA_ASSEMBLY, 'hash.k2d'),
+        taxo = join(EXT_DIR, 'k2_smallrna_custom', 'release-{}'.format(K2_sRNA_RELEASE), "metagenome", K2_sRNA_ASSEMBLY, 'taxo.k2d'),
+        opts = join(EXT_DIR, 'k2_smallrna_custom', 'release-{}'.format(K2_sRNA_RELEASE), "metagenome", K2_sRNA_ASSEMBLY, 'opts.k2d'),
+        seq2tax = join(EXT_DIR, 'k2_smallrna_custom', 'release-{}'.format(K2_sRNA_RELEASE), "metagenome", K2_sRNA_ASSEMBLY, 'seqid2taxid.map'),
+	threads:
+		4
+	log:
+		join(EXT_DIR, 'k2_smallrna_custom', 'release-{}'.format(K2_sRNA_RELEASE), "metagenome", K2_sRNA_ASSEMBLY, 'logs', 'genome.log')
+	shell:
+		"""
+		wget -O- {params.url} | tar zxv -C {params.otuput}
+		echo "GCF Kraken2 smallRNA custom prebuild,release-{params.release},{params.url},`date -I`" > {log}
+		"""	
+
+
+rule k2_smallrna_custom_shmem:
+    input:
+        hash = rules.k2_smallrna_custom_prebuild.output.hash,
+        taxo = rules.k2_smallrna_custom_prebuild.output.taxo,
+        opts = rules.k2_smallrna_custom_prebuild.output.opts,
+        seq2tax = rules.k2_smallrna_custom_prebuild.output.seq2tax,
+    output:
+        hash = temp(join("/dev/shm", "k2_smallrna_custom", K2_sRNA_ASSEMBLY, "hash.k2d")),
+        taxo = temp(join("/dev/shm", "k2_smallrna_custom", K2_sRNA_ASSEMBLY, "taxo.k2d")),
+        opts = temp(join("/dev/shm", "k2_smallrna_custom", K2_sRNA_ASSEMBLY, "opts.k2d")),
+        seq2tax = temp(join("/dev/shm", "k2_smallrna_custom", K2_sRNA_ASSEMBLY, "seqid2taxid.map")),
+    threads:
+        1
+    run:
+        for src, dst in zip(input, output):
+            shell('cp {src} {dst}')
+
