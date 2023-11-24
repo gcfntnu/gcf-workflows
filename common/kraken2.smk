@@ -55,7 +55,7 @@ rule k2_screen:
         output = join(QC_INTERIM, 'kraken2', '{sample}.kraken.out'),
     params:
         db = os.path.dirname(K2_SHMEM[0]),
-        params = '--gzip-compressed'
+        params = '--gzip-compressed --memory-mapping'
     threads:
         6
     singularity:
