@@ -1,3 +1,4 @@
+#-*- mode:snakemake -*-
 if PE:
     rule bfq_level1_all:
         input:

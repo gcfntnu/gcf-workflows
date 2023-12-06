@@ -1,18 +1,14 @@
 #-*- mode: snakemake -*-
 """
+
 """
 
-if config['workflow'] not in ['smallrna']:
-    include: 
-        join(GCFDB_DIR, 'langmead.db')
-    K2_DB = join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY)
-    K2_SHMEM = rules.kraken_shmem.output
-else:
-    include:
-        join(GCFDB_DIR, 'k2_smallrna_custom.db')
-    K2_DB = join(EXT_DIR, 'k2_smallrna_custom', 'release-{}'.format(K2_sRNA_RELEASE), 'metagenome', K2_sRNA_ASSEMBLY)
-    K2_SHMEM = rules.k2_smallrna_custom_shmem.output
 
+include:
+    join(GCFDB_DIR, 'langmead.db')
+
+K2_DB = join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY)
+K2_SHMEM = rules.kraken_shmem.output
 
 include:
     join(GCFDB_DIR, 'krona.db')
