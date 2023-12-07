@@ -1,2 +1,4 @@
 .snakemake/
 test/
+*.swp
+*.swo
