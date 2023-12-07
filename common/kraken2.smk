@@ -7,8 +7,10 @@
 include:
     join(GCFDB_DIR, 'langmead.db')
 
+
 K2_DB = join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY)
 K2_SHMEM = rules.kraken_shmem.output
+
 
 include:
     join(GCFDB_DIR, 'krona.db')
@@ -20,13 +22,15 @@ rule k2_subsample_R1:
     output:
         temp(join(FILTER_INTERIM, "subsampled", "{sample}_R1.fastq.gz"))
     params:
-        "--number 1000000 --rand-seed 1234"
+        sample = "--proportion 0.4 --rand-seed 1234",
+        head = "--number 1000000 ",
     threads:
         4
     singularity:
         "docker://" + config["docker"]["seqkit"]
     shell:
-        "zcat {input.R1} | seqkit sample {params} --out-file {output} "
+        "set +o pipefail; zcat {input.R1} | seqkit sample {params.sample} | seqkit head {params.head} --out-file {output} "
+
 
 rule k2_subsample_R2:
     input:
@@ -34,17 +38,25 @@ rule k2_subsample_R2:
     output:
         join(FILTER_INTERIM, "subsampled", "{sample}_R2.fastq.gz")
     params:
-        "--number 1000000 --rand-seed 1234"
+        sample = "--proportion 0.4 --rand-seed 1234",
+        head = "--number 1000000",
     threads:
         4
     singularity:
         "docker://" + config["docker"]["seqkit"]
     shell:
-        "zcat {input.R2} | seqkit sample {params} --out-file {output} "
+        "set +o pipefail; zcat {input.R2} | seqkit sample {params.sample} | seqkit head {params.head} --out-file {output}"
+
+
+if config.get('workflow', '') == 'singlecell':
+    FASTQ = rules.k2_subsample_R2.output
+else:
+    FASTQ = rules.k2_subsample_R1.output
+
 
 rule k2_screen:
     input:
-        R1 = rules.k2_subsample_R1.output,
+        fastq = FASTQ,
         shmem = K2_SHMEM,
     output:
         report = join(QC_INTERIM, 'kraken2', '{sample}.kraken.kreport'),
@@ -63,7 +75,7 @@ rule k2_screen:
         '--report {output.report} '
         '--threads {threads} '
         '{params.params} '
-        '{input.R1} | tee {log} 2>&1 '
+        '{input.fastq} | tee {log} 2>&1 '
 
 
 rule multi_krona_k2_screen:
