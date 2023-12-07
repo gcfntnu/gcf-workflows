@@ -62,6 +62,10 @@ table_columns_visible:
   salmon:
     percent_mapped: False
     num_mapped: False
+  kraken:
+    pct_top_one: False
+    pct_top_n: False
+    pct_unclassified: False
 table_columns_placement:
   fastp:
     before_filtering_total_reads: 110
