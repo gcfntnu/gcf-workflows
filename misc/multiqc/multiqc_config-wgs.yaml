@@ -7,6 +7,7 @@ extra_fn_clean_exts:
   - '.fastp'
   - '_qualimap'
   - '.bwa'
+  - '.kraken.kreport'
 
 custom_logo:    '/opt/images/logo_ntnu.png'
 custom_logo_url: 'https://www.ntnu.edu/mh/gcf'

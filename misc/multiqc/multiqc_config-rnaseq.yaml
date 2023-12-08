@@ -5,6 +5,7 @@ extra_fn_clean_exts:
   - '.namesorted'
   - '_fastp'
   - '.fastp'
+  - '.kraken.kreport'
 
 custom_logo:    '/opt/images/logo_ntnu.png'
 custom_logo_url: 'https://www.ntnu.edu/mh/gcf'
