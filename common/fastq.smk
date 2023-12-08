@@ -108,7 +108,8 @@ def get_filtered_fastq(wildcards):
     
     FASTQ_EXT = '.fastq'
     if config.get('fastq_compress_filtered', True):
-        FASTQ_EXT += '.gz'
+        if config.get('workflow', 'default') != 'smallrna':
+            FASTQ_EXT += '.gz'
         
     R1 = join(DST_PTH, wildcards.sample + '_R1' + FASTQ_EXT)
     print(R1)

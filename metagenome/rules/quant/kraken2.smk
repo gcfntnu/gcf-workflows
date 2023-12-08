@@ -9,24 +9,6 @@ DB_CONF = config['db'][config['db']['reference_db']]
 K2_INTERIM = join(QUANT_INTERIM, 'kraken2', DB_CONF['assembly'])
 K2_DB_DIR = join(EXT_DIR, config['db']['reference_db'], 'release-{}'.format(DB_CONF['release']), ORG, DB_CONF['assembly'])
 
-rule kraken_shmem:
-    input:
-        hash = rules.langmead_kraken_prebuild.output.hash,
-        taxo = rules.langmead_kraken_prebuild.output.taxo,
-        opts = rules.langmead_kraken_prebuild.output.opts,
-        seq2tax = rules.langmead_kraken_prebuild.output.seq2tax,
-    output:
-        hash = temp(join("/dev/shm", ASSEMBLY, "hash.k2d")),
-        taxo = temp(join("/dev/shm", ASSEMBLY, "taxo.k2d")),
-        opts = temp(join("/dev/shm", ASSEMBLY, "opts.k2d")),
-        seq2tax = temp(join("/dev/shm", ASSEMBLY, "seqid2taxid.map")),
-    threads:
-        1
-    run:
-        for src, dst in zip(input, output):
-            shell('cp {src} {dst}')
-
-        
 
 if PE:
     rule kraken_classify:
@@ -37,7 +19,7 @@ if PE:
             report = join(K2_INTERIM, '{sample}', '{sample}.kraken.kreport'),
             output = join(K2_INTERIM, '{sample}', '{sample}.kraken.out'),
         params:
-            db = join("/dev/shm", ASSEMBLY),
+            db = join("/dev/shm", LM_ASSEMBLY),
             params = '--gzip-compressed --memory-mapping --paired'
         log:
             join(K2_INTERIM, '{sample}', '{sample}.kraken.log')
@@ -63,7 +45,7 @@ else:
             report = join(K2_INTERIM, '{sample}', '{sample}.kraken.kreport'),
             output = join(K2_INTERIM, '{sample}', '{sample}.kraken.out'),
         params:
-            db = join("/dev/shm", ASSEMBLY),
+            db = join("/dev/shm", LM_ASSEMBLY),
             params = '--gzip-compressed --memory-mapping'
         log:
             join(K2_INTERIM, '{sample}', '{sample}.kraken.log')

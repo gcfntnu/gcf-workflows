@@ -51,4 +51,3 @@ rule qc_mirtrace:
         '-p {params.protocol} '
         '--title {params.title} '
         '-t {threads} '
-
