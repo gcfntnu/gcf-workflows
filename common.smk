@@ -15,6 +15,8 @@ include:
 include:
     'common/fastqc.smk'
 include:
+    'common/kraken2.smk'
+include:
     'common/fastqscreen.smk'
 
 

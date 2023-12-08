@@ -11,9 +11,11 @@ def get_args(wildcards):
         args += ' --tRNA-frag '
     if config.get('machine', '').lower().startswith('nextseq'):
         args += ' --nextseq-trim '
-        
-    # librep == bioo sci
-    args += ' --uniq-mol-ids  4,4 '
+    if config['filter'].get('spikein', {}).get('ref') is not None:
+        args += ' --spikeIn '
+
+    if config.get('libprepkit', '').startswith('Bioo'): # Bioo scinetific NEXTflex Small RNA
+        args += ' --uniq-mol-ids  4,4 '
     return args
 
 rule mirge3_symlink:
