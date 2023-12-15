@@ -27,6 +27,8 @@ base_count_desc: ''
 report_section_order:
   pca:
     order: 1000
+  umap:
+    order: 1000
   fastp:
     order: 950
   fastqc_rnaseq:
@@ -56,9 +58,13 @@ remove_sections:
  - fastqc_per_base_n_content
  - fastqc_sequence_duplication_levels
  - fastqc_status_checks
+ - star_spliced_reads
 table_columns_visible:
   fastp:
     pct_duplication: False
+  star:
+    total_spliced_percent: False
+    novel_spliced_percent: False
 table_columns_placement:
   fastp:
     before_filtering_total_reads: 110
