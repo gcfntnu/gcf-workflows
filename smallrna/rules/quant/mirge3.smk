@@ -41,7 +41,7 @@ rule mirge3_quant:
         lib = join(EXT_DIR, 'mirge3', ORG),
         org = MIRGE_ORG,
         db = config['quant']['mirge3']['db'],
-        args = '--gff-out --isoform-entropy --AtoI ',
+        args = '--gff-out --isoform-entropy --AtoI --spikeIn ',
 	specific_args = get_args,
         adapter = config['adapter'],
         tmp_out = join(QUANT_INTERIM, 'mirge3', config['quant']['mirge3']['db']),
@@ -53,7 +53,7 @@ rule mirge3_quant:
         umapped = join(QUANT_INTERIM, 'mirge3', 'unmapped.csv'),
         a2i = join(QUANT_INTERIM, 'mirge3', 'a2IEditing.report.newform.csv')
     singularity:
-        'docker://quay.io/biocontainers/mirge3:0.1.4--pyh7cba7a3_0'
+        'docker://quay.io/biocontainers/mirge3:0.1.4--pyh7cba7a3_1'
     threads:
         8
     shell:

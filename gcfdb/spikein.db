@@ -4,23 +4,27 @@ include:
 include:
     'smallrna_calibrators.db'
 include:
+    'qiagen_spike.db'
+include:
     'univec.db'
 
 rule spikein_merged_fasta:
     input:
         join(EXT_DIR, 'spikein', 'fasta', 'ERCC92.fa'),
-        join(EXT_DIR, 'spikein', 'fasta', 'smallrna_calibrators.fa')
+        join(EXT_DIR, 'spikein', 'fasta', 'smallrna_calibrators.fa'),
+        join(EXT_DIR, 'spikein', 'fasta', 'qiagen_smallrna_spikeins.fa')
     output:
         join(EXT_DIR, 'spikein', 'fasta', 'merged_spikein.fa')
     params:
         ercc_log = rules.ercc_files.log,
-        cal_log = rules.calibrators_fasta.log
+        cal_log = rules.calibrators_fasta.log,
+        qiagen_log = rules.qiagen_spikeins.log
     log:
         join(EXT_DIR, 'spikein', 'logs', 'merged_spikein.log')
     shell:
         """
         cat {input} > {output}
-        cat {params} > {log}
+        cat {params.ercc_log} {params.cal_log} {params.qiagen_log} > {log}
         """
 
 rule spikein_db_all:

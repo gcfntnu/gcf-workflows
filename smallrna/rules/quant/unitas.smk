@@ -30,6 +30,8 @@ def get_spikein_fasta():
         return join(EXT_DIR, 'ERCC', 'fasta', 'ERCC92.fa')
     elif ref == 'smallrna_calibrators':
         return join(EXT_DIR, 'spikein', 'fasta', 'smallrna_calibrators.fa')
+    elif ref == 'qiagen':
+        return join(EXT_DIR, 'spikein', 'fasta', 'qiagen_smallrna_spikeins.fa')
     else:
         return join(EXT_DIR, 'spikein', 'fasta', 'merged_spikein.fa')
     
@@ -42,7 +44,7 @@ rule spikein_unitas:
         join(QUANT_INTERIM, 'unitas', '_spikein_unitas_formatted.fa')
     shell:
         'python {params.script} {input} > {output}'
-        
+
 UNITAS_REFSEQ = []
 if config['filter']['spikein']['quantifier'] == 'unitas':
     UNITAS_REFSEQ.append(rules.spikein_unitas.output)
