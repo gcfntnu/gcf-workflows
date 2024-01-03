@@ -19,7 +19,7 @@ if config['quant']['method'] == 'cellranger':
             expand(join(BFQ_INTERIM, 'exprs', 'mtx', '{aggr_id}', 'features.tsv.gz'), aggr_id=AGGR_IDS),
             expand(join(BFQ_INTERIM, 'exprs', 'mtx', '{aggr_id}', 'barcodes.tsv.gz'), aggr_id=AGGR_IDS),
             expand(join(BFQ_INTERIM, 'exprs', 'scanpy', '{sample}_adata.h5ad'), sample=SAMPLES),
-            expand(join(BFQ_INTERIM, 'exprs', 'mtx', '{sample}', 'matrix.mtx,gz'), sample=SAMPLES),
+            expand(join(BFQ_INTERIM, 'exprs', 'mtx', '{sample}', 'matrix.mtx.gz'), sample=SAMPLES),
             expand(join(BFQ_INTERIM, 'exprs', 'mtx', '{sample}', 'features.tsv.gz'), sample=SAMPLES),
             expand(join(BFQ_INTERIM, 'exprs', 'mtx', '{sample}', 'barcodes.tsv.gz'), sample=SAMPLES),
         run:

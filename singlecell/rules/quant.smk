@@ -23,6 +23,8 @@ include:
 include:
     'quant/velocyto.smk'
 include:
+    'quant/doublets.smk'
+include:
     'qc/bam.smk'
     
 QRULES = {'cellranger': rules.cellranger_quant.output,
