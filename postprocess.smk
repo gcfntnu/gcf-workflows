@@ -23,7 +23,7 @@ rule multiqc_config:
         libprep = config['libprepkit'],
         repo_dir = srcdir(os.path.dirname('main.config')),
         pep = workflow.pepfile
-    singularity:
+    container:
         'docker://' + config['docker']['default']
     shell:
         'python {params.script} '
@@ -69,7 +69,7 @@ rule multiqc_report:
         modules = get_mqc_modules(),
         extra_args = '-f -q --interactive ',
         search_paths = lambda wildcards: bfq_search_paths()
-    singularity:
+    container:
         'docker://' + config['docker']['multiqc']
     shell:
         'multiqc '

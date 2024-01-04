@@ -7,7 +7,7 @@ rule tximport_gene_counts:
         txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
         script = srcdir('scripts/tximport2csv.R')
-    singularity:
+    container:
         'docker://' + config['docker']['tximport']
     output:
         join(QUANT_INTERIM, '{quant}', 'tximport', 'gene_counts.tsv')
@@ -26,7 +26,7 @@ rule tximport_gene_lengths:
         txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
         script = srcdir('scripts/tximport2csv.R')
-    singularity:
+    container:
         'docker://' + config['docker']['tximport']
     output:
         join(QUANT_INTERIM, '{quant}', 'tximport', 'gene_lengths.tsv')
@@ -45,7 +45,7 @@ rule tximport_gene_tpm:
         txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
         script = srcdir('scripts/tximport2csv.R')
-    singularity:
+    container:
         'docker://' + config['docker']['tximport']
     threads:
         8
@@ -64,7 +64,7 @@ rule tximport_gene_tpm_scaled:
         txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
         script = srcdir('scripts/tximport2csv.R')
-    singularity:
+    container:
         'docker://' + config['docker']['tximport']
     threads:
         8
@@ -83,7 +83,7 @@ rule tximport_gene_tpm_length_scaled:
         txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
         script = srcdir('scripts/tximport2csv.R')
-    singularity:
+    container:
         'docker://' + config['docker']['tximport']
     threads:
         8
@@ -102,7 +102,7 @@ rule tximport_gene_vst:
         txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
         script = srcdir('scripts/tximport2csv.R')
-    singularity:
+    container:
         'docker://' + config['docker']['tximport']
     threads:
         8
@@ -121,7 +121,7 @@ rule tximport_gene_rlog:
         txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
         script = srcdir('scripts/tximport2csv.R')
-    singularity:
+    container:
         'docker://' + config['docker']['tximport']
     threads:
         8
@@ -140,7 +140,7 @@ rule tximport_transcript_counts:
         txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
         script = srcdir('scripts/tximport2csv.R')
-    singularity:
+    container:
         'docker://' + config['docker']['tximport']
     threads:
         8
@@ -159,7 +159,7 @@ rule tximport_transcript_tpm:
         txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
         script = srcdir('scripts/tximport2csv.R')
-    singularity:
+    container:
         'docker://' + config['docker']['tximport']
     threads:
         8
@@ -178,7 +178,7 @@ rule tximport_transcript_vst:
         txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
         script = srcdir('scripts/tximport2csv.R')
-    singularity:
+    container:
         'docker://' + config['docker']['tximport']
     threads:
         8
@@ -197,7 +197,7 @@ rule tximport_transcript_rlog:
         txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
         script = srcdir('scripts/tximport2csv.R')
-    singularity:
+    container:
         'docker://' + config['docker']['tximport']
     threads:
         8
@@ -217,7 +217,7 @@ rule tximport_gene_info:
         gene_info = join(REF_DIR, 'anno', 'genes.tsv')
     params:
         script = srcdir('scripts/tximport2csv.R')
-    singularity:
+    container:
         'docker://' + config['docker']['tximport']
     threads:
         8
@@ -237,7 +237,7 @@ rule tximport_transcript_info:
         txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
         script = srcdir('scripts/tximport2csv.R')
-    singularity:
+    container:
         'docker://' + config['docker']['tximport']
     threads:
         8
@@ -256,7 +256,7 @@ rule tximport_terminus_info:
         txinfo = join(QUANT_INTERIM, 'terminus', 'terminus_info.tsv')
     params:
         script = srcdir('scripts/tximport2csv.R')
-    singularity:
+    container:
         'docker://' + config['docker']['tximport']
     threads:
         8

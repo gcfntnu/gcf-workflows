@@ -9,7 +9,7 @@ rule gene_intervals:
         genome = join(REF_DIR, 'fasta', 'genome.dict')
     output:
         join(REF_DIR, 'anno', 'genes.intervals')
-    singularity:
+    container:
         'docker://' + config['docker']['picard_gatk']
     shell:
         'gatk BedToIntervalList '
@@ -24,7 +24,7 @@ rule picard_add_rg:
         machine = config.get('machine', 'nextseq500').replace(' ', '')
     output:
         bam = join(VARCALL_INTERIM, '{sample}_RG.bam')
-    singularity:
+    container:
         'docker://' + config['docker']['picard_gatk']
     shell:
         'picard AddOrReplaceReadGroups '
@@ -45,7 +45,7 @@ rule gatk_split_and_trim:
         bam = join(VARCALL_INTERIM, '{sample}.bam.split')
     params:
         '-RF ReassignOneMappingQuality -RMQF 255 -RMQT 60 '
-    singularity:
+    container:
         'docker://' + config['docker']['picard_gatk']
     threads:
         4
@@ -64,7 +64,7 @@ rule gatk_varcall:
         bam = join(VARCALL_INTERIM, '{sample}.bam')
     params:
         '-stand-call-conf 10.0 '
-    singularity:
+    container:
         'docker://' + config['docker']['picard_gatk']
     threads:
         48
@@ -83,7 +83,7 @@ rule gatk_var_filter:
         genome = join(REF_DIR, 'fasta', 'genome.fa')
     output:
         vcf = join(VARCALL_INTERIM, '{sample}.filtered.vcf')
-    singularity:
+    container:
         'docker://' + config['docker']['picard_gatk']
     shell:
         """
@@ -98,7 +98,7 @@ rule gatk_varcall_all:
         vcf = join(VARCALL_INTERIM, 'merged.vcf')
     params:
         vcfs = lambda wildcards, input : '--INPUT ' + ' --INPUT  '.join(input)
-    singularity:
+    container:
         'docker://' + config['docker']['picard_gatk']
     shell:
         'gatk MergeVcfs '

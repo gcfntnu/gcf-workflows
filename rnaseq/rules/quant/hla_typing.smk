@@ -5,7 +5,7 @@ if PE:
     rule arcashla_extract_fastq:
         input:
             get_sorted_bam
-        singularity:
+        container:
             'docker://gcfntnu/arcashla:1.0'
         log:
             'logs/{sample}/arcashla_extract.log'
@@ -29,7 +29,7 @@ else:
     rule arcashla_extract_fastq:
         input:
             get_sorted_bam
-        singularity:
+        container:
             'docker://gcfntnu/arcashla:1.0'
         log:
             'logs/{sample}/arcashla_extract.log'
@@ -58,7 +58,7 @@ rule arcashla_genotype:
         prefix = join(ARCAS_DIR, 'genotype')
     threads:
         8
-    singularity:
+    container:
         'docker://gcfntnu/arcashla:1.0'        
     shell:
         'arcasHLA genotype '
@@ -75,7 +75,7 @@ rule arcashla_partial_genotype:
         prefix = join(ARCAS_DIR, 'genotype')
     threads:
         8
-    singularity:
+    container:
         'docker://gcfntnu/arcashla:1.0'        
     shell:
         'arcasHLA partial '
@@ -86,7 +86,7 @@ rule arcashla_partial_genotype:
 rule arcashla_all:
     input:
         expand(rules.arcashla_genotype.output, sample=SAMPLES)
-    singularity:
+    container:
         'docker://gcfntnu/arcashla:1.0'
     params:
         indir = join(ARCAS_DIR, 'genotype'),

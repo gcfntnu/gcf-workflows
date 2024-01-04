@@ -18,7 +18,7 @@ rule quickmirseq_mirbase_index:
         args = '--cutoff 0 --library stranded --extension5 4 --extension3 5',
         mature_log = rules.mirbase_mature_fasta.log,
         hairpin_log = rules.mirbase_hairpin_fasta.log
-    singularity:
+    container:
         'docker://' + config['docker']['quickmirseq']
     output:
         join(QMSQ_EXT, 'mirna_0_0.fa')
@@ -47,7 +47,7 @@ rule quickmirseq_smallrna_index:
         join(QMSQ_EXT, 'smallRNA.4.ebwt'),
         join(QMSQ_EXT, 'smallRNA.rev.1.ebwt'),
         join(QMSQ_EXT, 'smallRNA.rev.2.ebwt')
-    singularity:
+    container:
         'docker://' + config['docker']['quickmirseq']
     log:
         join(QMSQ_EXT, 'logs', 'quickmirseq_smallrna.log')
@@ -69,7 +69,7 @@ rule quickmirseq_mrna_index:
         join(QMSQ_EXT, 'mrna.2.ebwt'),
         join(QMSQ_EXT, 'mrna.rev.1.ebwt'),
         join(QMSQ_EXT, 'mrna.rev.2.ebwt')
-    singularity:
+    container:
         'docker://' + config['docker']['bowtie_samtools']
     shell:
         """
@@ -91,7 +91,7 @@ rule quickmirseq_genome_index:
         join(QMSQ_EXT, 'genome.rev.2.ebwt')
     log:
         join(QMSQ_EXT, 'logs', 'quickmirseq_dna.log')   
-    singularity:
+    container:
         'docker://' + config['docker']['bowtie_samtools']
     shell:
         """

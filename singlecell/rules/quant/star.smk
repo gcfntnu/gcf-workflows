@@ -63,7 +63,7 @@ rule starsolo_genome_index:
         48
     log:
         join(REF_DIR, 'logs', 'STAR.index.log')
-    singularity:
+    container:
         'docker://' + config['docker']['star']
     shell:
         'STAR '
@@ -82,7 +82,7 @@ rule starsolo_convert_umitools_whitelist:
         join(STAR_INTERIM, '{sample}', 'whitelist.txt')
     threads:
         1
-    singularity:
+    container:
         'docker://' + config['docker']['default']
     shell:
         """
@@ -127,7 +127,7 @@ rule starsolo_quant:
         raw_mtx = join(STAR_INTERIM, '{sample}', 'Solo.out','Gene', 'raw', 'matrix.mtx'),
         barcodes_full = join(STAR_INTERIM, '{sample}', 'Solo.out', 'GeneFull', 'filtered', 'barcodes.tsv'),
         bam = join(STAR_INTERIM, '{sample}', 'Aligned.sortedByCoord.out.bam')
-    singularity:
+    container:
         'docker://' + config['docker']['star']
     benchmark:
         'benchmark/starsolo/{sample}-starsolo.txt'
@@ -167,7 +167,7 @@ rule starsolo_clean_shmem:
         temp(touch(join(STAR_INTERIM, '.starsolo.mem.cleaned')))
     shadow:
         'minimal'
-    singularity:
+    container:
         'docker://' + config['docker']['star']
     shell:
         'STAR --genomeDir {params.genome_dir} --genomeLoad Remove || echo "no shared mem"'
@@ -180,7 +180,7 @@ rule scanpy_starsolo:
         script = srcdir('scripts/convert_scanpy.py')
     output:
         join(STAR_INTERIM, '{sample}', 'scanpy', '{sample}.h5ad')
-    singularity:
+    container:
         'docker://' + config['docker']['scanpy']
     threads:
         48
@@ -197,7 +197,7 @@ rule scanpy_aggr_starsolo:
         norm = config['quant']['aggregate']['norm']
     output:
         join(QUANT_INTERIM, 'aggregate', 'star', 'scanpy', 'all_samples_aggr.h5ad')
-    singularity:
+    container:
         'docker://' + config['docker']['scanpy']
     threads:
         48
@@ -218,7 +218,7 @@ rule starsolo_bam_merge:
         join(QUANT_INTERIM, 'aggregate', 'star', 'sorted.bam')
     threads:
         48
-    singularity:
+    container:
         'docker://' + config['docker']['sambamba']
     shell:
         'sambamba merge -t 8 {output} {input}'
@@ -239,7 +239,7 @@ rule scanpy_pp_ipynb:
         notebook = join(QUANT_INTERIM, 'aggregate', 'star', 'notebooks', '{aggr_id}_pp.ipynb')
     threads:
         24
-    singularity:
+    container:
         'docker://' + config['docker']['jupyter-scanpy']
     notebook:
         'scripts/star_preprocess.py.ipynb'
@@ -250,7 +250,7 @@ rule scanpy_pp_ipynb_html:
         rules.scanpy_pp_ipynb.log
     output:
         join(QUANT_INTERIM, 'aggregate', 'star', 'notebooks', '{aggr_id}_pp.html')
-    singularity:
+    container:
         'docker://' + config['docker']['jupyter-scanpy']
     threads:
         1

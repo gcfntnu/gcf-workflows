@@ -80,7 +80,7 @@ rule hta2bed12:
         join(EXT_DIR, 'HTA', 'anno', 'housekeeping_transcripts_{}.bed12'.format(ORG))
     params:
         script = srcdir('scripts/hta_bed12.py')
-    singularity:
+    container:
        'docker://' + config['docker']['default']
     shell:
         'python {params.script} {input} {output}'

@@ -15,7 +15,7 @@ rule cutadapt_demultiplex:
         libprepconf = srcdir("../../../libprep.config")
     threads: 
         2
-    singularity: 
+    container: 
         'docker://' + config['docker']['cutadapt']
     shell:
         '{params.script} '

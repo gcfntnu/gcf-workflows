@@ -68,7 +68,7 @@ rule fastq_screen:
        outdir = join(QC_INTERIM, 'fastq_screen')
    threads:
        4
-   singularity:
+   container:
        'docker://' + config['docker']['fastq-screen']
    shadow:
        'minimal'

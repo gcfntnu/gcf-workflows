@@ -10,7 +10,7 @@ rule bfq_level2_taxonomy_log:
         viz = join(QIIME2_INTERIM, 'taxa_bar.qzv')
     params:
         outdir = join(BFQ_INTERIM, 'logs', 'taxa')
-    singularity:
+    container:
         'docker://' + config['docker']['qiime2'] 
     output:
         join(BFQ_INTERIM, 'logs', 'taxa', 'level-1.csv'),
@@ -32,7 +32,7 @@ rule bfq_level2_dada2_log_region:
         outdir = join(BFQ_INTERIM, 'logs', 'dada2', '{region}')
     output:
        join(BFQ_INTERIM, 'logs', 'dada2', '{region}', 'metadata.tsv')
-    singularity:
+    container:
         'docker://' + config['docker']['qiime2'] 
     shadow:
         'minimal'
@@ -61,7 +61,7 @@ rule bfq_level2_rpca:
         join(BFQ_INTERIM, 'logs', 'deicode', 'ordination.txt')
     params:
         outdir = join(BFQ_INTERIM, 'logs', 'deicode')
-    singularity:
+    container:
         'docker://' + config['docker']['qiime2'] 
     shadow:
         'minimal'        

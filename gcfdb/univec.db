@@ -82,7 +82,7 @@ rule univec_core_subset:
         rules.contaminants_univec_core_fasta.output
     output:
         join(EXT_DIR, 'univec_subset', 'fasta', 'univec_subset.fa')
-    singularity:
+    container:
         'docker://' + config['docker']['seqkit']
     shell:
         'seqkit grep -n -i -r -v -p spike -p ercc -p control -p illumina -p X174 {input} > {output} '
@@ -92,7 +92,7 @@ rule univec_core_spikeins:
         rules.contaminants_univec_core_fasta.output
     output:
         join(EXT_DIR, 'univec_spikein', 'fasta', 'univec_spikein.fa')
-    singularity:
+    container:
         'docker://' + config['docker']['seqkit']
     shell:
         'seqkit grep -n -i -r -p spike -p ercc -p control {input} > {output} '
@@ -102,7 +102,7 @@ rule univec_core_illumina_seqs:
         rules.contaminants_univec_core_fasta.output
     output:
         join(EXT_DIR, 'univec_illumina', 'fasta', 'univec_illumina.fa')
-    singularity:
+    container:
         'docker://' + config['docker']['seqkit']
     shell:
         'seqkit grep -n -i -r -p illumina {input} > {output} '    

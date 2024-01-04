@@ -31,7 +31,7 @@ rule krona_build_taxa:
     params:
         db = KRONA_DB_DIR,
         params = '--only-build --preserve '
-    singularity:
+    container:
         "docker://" + config["docker"]["krona"]
     threads:
         1

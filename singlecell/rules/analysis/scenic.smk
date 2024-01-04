@@ -33,7 +33,7 @@ rule scenic_grn:
         tf = rules.pyscenic_tf.output
     threads:
         8
-    singularity:
+    container:
         'shub://aertslab/pySCENIC:0.9.9'
     output:
         join(ANALYSIS_INTERIM, 'scenic', '{id}_adj.tsv'),

@@ -109,7 +109,7 @@ rule refseq_lookuptable:
         proxy = config.get('proxy', {}).get('server', {}).get('ftp'),
         kingdoms = 'vertebrate_mammalian,vertebrate_other,plant,archaea,fungi,invertebrate,protozoa,bacteria,viral',
         release = config['db']['refseq']['release']
-    singularity:
+    container:
         'docker://' + config['docker']['default']
     shell:
         'python {params.script} --proxy {params.proxy} --release {params.release} --kingdoms {params.kingdoms}  --output {output}'

@@ -22,7 +22,7 @@ rule alevin_index:
         out = join(REF_DIR, 'salmon')
     threads:
         16
-    singularity:
+    container:
         'docker://' + config['docker']['salmon']
     shell:
         'salmon index '
@@ -44,7 +44,7 @@ rule alevin_1pass:
         ref = join(REF_DIR, 'salmon')
     output:
         join(AVN_INTERIM, '1pass', '{sample}', 'alevin', 'raw_cb_frequency.txt')
-    singularity:
+    container:
         'docker://' + config['docker']['salmon']
     shell:
         'salmon alevin '
@@ -85,7 +85,7 @@ rule alevin_quant:
         ref = join(REF_DIR, 'salmon')
     threads:
         16
-    singularity:
+    container:
         'docker://' + config['docker']['salmon']
     output:
         quant = join(AVN_INTERIM, '{sample}', 'alevin', 'quants_mat.gz'),
@@ -109,7 +109,7 @@ rule alevin_scanpy_convert:
         script = srcdir('scripts/convert_scanpy.py')
     output:
         join(AVN_INTERIM, '{sample}', 'scanpy', 'adata.h5ad')
-    singularity:
+    container:
         'docker://' + config['docker']['scanpy']
     shell:
         'python {params.script} {input} -v -f alevin -o {output} '
@@ -122,7 +122,7 @@ rule alevin_scanpy_aggr:
         norm = config['quant']['aggregate']['norm']
     output:
         join(QUANT_INTERIM, 'aggregate', 'alevin', 'scanpy', 'scanpy_aggr.h5ad')
-    singularity:
+    container:
         'docker://' + config['docker']['scanpy'] 
     shell:
         'python {params.script} '
@@ -140,7 +140,7 @@ rule alevin_qc:
         script = srcdir('scripts/alevinQC.R')
     output:
         html = join(AVN_INTERIM, '{sample}', 'alevinqc', 'qc_report.html')
-    singularity:
+    container:
         'docker://gcfntnu/alevinqc:0.1.1'
     shell:
         'Rscript {params.script} '
@@ -155,7 +155,7 @@ rule alevin_seurat:
         input_dir = join(AVN_INTERIM, '{sample}')
     output:
         join(AVN_INTERIM, 'seurat', '{sample}', '{sample}.rds')
-    singularity:
+    container:
         'docker://' + config['docker']['seurat']
     shell:
         'Rscript {params.script} --input {params.input_dir} --output {output}'

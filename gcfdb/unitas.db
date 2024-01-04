@@ -65,7 +65,7 @@ rule unitas_db:
         versions_info = join(EXT_DIR, 'unitas', config['db']['unitas']['release'],'UNITAS_refdump_{}'.format(ORG),'db_versions.info')
     log:
         join(EXT_DIR, 'unitas', config['db']['unitas']['release'], 'UNITAS_refdump_{}'.format(ORG), 'logs', 'unitas.log')
-    singularity:
+    container:
         'docker://' + config['docker']['default'] 
     shell:
         """

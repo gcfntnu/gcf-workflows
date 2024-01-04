@@ -41,7 +41,7 @@ rule mirbase_hairpin_fasta:
         fasta = join(MIRBASE_EXT, 'fasta', 'hairpin.fa')
     log:
         join(MIRBASE_EXT, 'logs', 'hairpin.log')
-    singularity:
+    container:
         'docker://' + config['docker']['default']
     shell:
         """
@@ -59,7 +59,7 @@ rule mirbase_mature_fasta:
         fasta = join(MIRBASE_EXT, 'fasta', 'mature.fa')
     log:
         join(MIRBASE_EXT, 'logs', 'mature.log')
-    singularity:
+    container:
         'docker://' + config['docker']['default']
     shell:
         """
@@ -77,7 +77,7 @@ rule mirbase_gff:
         join(MIRBASE_EXT, 'anno', 'genes.gff3')
     log:
        join(MIRBASE_EXT, 'logs', 'gff.log')
-    singularity:
+    container:
         'docker://' + config['docker']['default']
     shell:
         """
@@ -92,7 +92,7 @@ rule mirbase_genes:
         script = srcdir('scripts/mirbase_gff2genes.py')
     output:
         join(MIRBASE_EXT, 'anno', 'genes.tsv')
-    singularity:
+    container:
         'docker://' + config['docker']['default']
     shell:
         'python {params.script} {input} > {output}'
@@ -107,7 +107,7 @@ rule mirbase_mirna_str:
         fasta = join(MIRBASE_EXT, 'anno', 'miRNA.str')
     log:
         join(MIRBASE_EXT, 'logs', 'mature.log')
-    singularity:
+    container:
         'docker://' + config['docker']['default']
     shell:
         """

@@ -26,7 +26,7 @@ rule sortmerna_db:
         join(EXT_DIR, 'sortmerna', 'fasta', 'silva-euk-28s-id98.fasta'),
         join(EXT_DIR, 'sortmerna', 'fasta', 'rfam-5.8s-database-id98.fasta'),
         join(EXT_DIR, 'sortmerna', 'fasta', 'rfam-5s-database-id98.fasta')
-    singularity:
+    container:
         'docker://' + config['docker']['default']
     log:
         join(EXT_DIR, 'sortmerna', 'logs', 'sortmerna.log')
@@ -43,7 +43,7 @@ rule sortmerna_index:
         index = join(EXT_DIR, 'sortmerna', 'index', '{db}')
     output:
         join(EXT_DIR, 'sortmerna', 'index', '{db}.stats')
-    singularity:
+    container:
         'docker://' + config['docker']['sortmerna']
     shell:
         'indexdb_rna --ref {input.fasta},{params.index}'

@@ -34,7 +34,7 @@ rule subset_housekeeping_genes_bam:
         a = 10
     output:
         join(ALIGN_INTERIM, ALIGNER, 'housekeeping_genes', '{sample}.bam')
-    singularity:
+    container:
         'docker://' + config['docker']['bedtools']
     shell:
         'bedtools intersect -a {input.bam} -b {input.bed} -wa > {output}'
@@ -44,7 +44,7 @@ rule subset_housekeeping_genes_bam_index:
         join(ALIGN_INTERIM, ALIGNER, 'housekeeping_genes', '{sample}.bam')
     output:
         join(ALIGN_INTERIM, ALIGNER, 'housekeeping_genes', '{sample}.bam.bai')
-    singularity:
+    container:
         'docker://' + config['docker']['samtools']
     shell:
         'samtools index {input}'
@@ -56,7 +56,7 @@ rule rseqc_read_distribution:
         bed = join(REF_DIR, 'anno', 'genes.bed12')
     output:
         join(RSEQC_QCDIR , '{sample}.readdist.txt')
-    singularity:
+    container:
         'docker://' + config['docker']['rseqc']
     shell:
         'read_distribution.py  -i {input.bam} -r {input.bed} > {output}'
@@ -77,7 +77,7 @@ rule rseqc_junction_annotation:
         prefix = join(RSEQC_QCDIR, '{sample}')
     output:
         join(RSEQC_QCDIR, '{sample}.junction.xls')
-    singularity:
+    container:
         'docker://' + config['docker']['rseqc']
     shell:
         'junction_annotation.py  -i {input.bam} -r {input.bed} -o {params.prefix}'
@@ -98,7 +98,7 @@ rule rseqc_junction_saturation:
         prefix = join(RSEQC_QCDIR, '{sample}')
     output:
         join(RSEQC_QCDIR,  '{sample}.junctionSaturation_plot.r')
-    singularity:
+    container:
         'docker://' + config['docker']['rseqc']
     shell:
         'junction_saturation.py  -i {input.bam} -r {input.bed} -o {params.prefix}'
@@ -119,7 +119,7 @@ rule rseqc_inner_distance:
         prefix = join(RSEQC_QCDIR, '{sample}')
     output:
         join(RSEQC_QCDIR, '{sample}.inner_distance.txt')
-    singularity:
+    container:
         'docker://' + config['docker']['rseqc']
     shell:
         'inner_distance.py -i {input.bam} -r {input.bed} -o {params.prefix} '
@@ -150,7 +150,7 @@ def get_tin_input(wildcards):
 rule rseqc_tin:
     input:
         unpack(get_tin_input)
-    singularity:
+    container:
         'docker://' + config['docker']['rseqc']
     output:
         tin = join(BAM_SUBSET_QC_DIR, 'rseqc', '{sample}.tin.xls'),
@@ -188,7 +188,7 @@ rule qorts:
         log = join(QORT_QCDIR, '{sample}', 'QC.summary.txt')
     threads:
         4
-    singularity:
+    container:
         'docker://' + config['docker']['qorts']
     shell:
         'qorts {params.java_opt} QC '
@@ -207,7 +207,7 @@ rule preseq_lc_extrap:
         log = join(PRESEQ_QCDIR, '{sample}.ccurve.txt')
     params:
         '-P -seg_len 9000000 ' if len(config['read_geometry']) > 1 else ''
-    singularity:
+    container:
         'docker://' + config['docker']['preseq']
     threads:
         4
@@ -219,7 +219,7 @@ rule create_ribo_bed:
         gtf = join(REF_DIR, 'anno', 'genes.gtf')
     output:
         join(REF_DIR, 'anno', 'rrna.bed')
-    singularity:
+    container:
         'docker://' + config['docker']['ucsc-scripts']
     shadow:
         'minimal'
@@ -236,7 +236,7 @@ rule create_ribo_intervals:
         genome = join(REF_DIR, 'fasta', 'genome.dict')
     output:
         join(REF_DIR, 'anno', 'rrna.intervals')
-    singularity:
+    container:
         'docker://' + config['docker']['picard_gatk']
     shell:
         'gatk BedToIntervalList '
@@ -267,7 +267,7 @@ rule picard_rnametrics:
         strand = picard_strand()
     threads:
         6
-    singularity:
+    container:
         'docker://' + config['docker']['picard_gatk']
     shell:
         """
@@ -282,7 +282,7 @@ rule picard_insertsize:
         pdf = join(PICARD_QCDIR, '{sample}.insert_size_metric.pdf')
     log:
         'logs/{sample}/{sample}.insert_size_metric.tsv'
-    singularity:
+    container:
         'docker://' + config['docker']['picard_gatk']
     shell:
         """
@@ -312,7 +312,7 @@ rule qualimap_rnaseq:
         cov = join(QUALIMAP_QCDIR, '{sample}', 'raw_data_qualimapReport', 'coverage_profile_along_genes_(total).txt')
     log:
         'logs/{sample}/rnaseq_qc_results.txt'
-    singularity:
+    container:
         'docker://' + config['docker']['qualimap']
     threads:
         8

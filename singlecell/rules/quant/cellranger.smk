@@ -40,7 +40,7 @@ rule cellranger_gtf:
         gtf = join(REF_DIR, 'anno', 'genes.gtf.filtered')
     params:
         ' '.join('--attribute=gene_biotype:{}'.format(bt) for bt in CR_CONF['mkgtf']['gene_biotype'])
-    singularity:
+    container:
         'docker://' + config['docker']['cellranger']
     shell:
         'cellranger mkgtf {input} {output} {params}'
@@ -58,7 +58,7 @@ rule cellranger_mkref:
         join(CR_REF_DIR, 'genes', 'genes.gtf.gz')
     threads:
         48
-    singularity:
+    container:
         'docker://' + config['docker']['cellranger']
     shell:
         'cellranger mkref '
@@ -108,7 +108,7 @@ rule cellranger_quant_:
         filt_mtx = join('_tmp_{sample}', 'outs', 'filtered_feature_bc_matrix', 'matrix.mtx.gz'),
         filt_barcodes = join('_tmp_{sample}', 'outs', 'filtered_feature_bc_matrix', 'barcodes.tsv.gz'),
         filt_features = join('_tmp_{sample}', 'outs', 'filtered_feature_bc_matrix', 'features.tsv.gz')
-    singularity:
+    container:
         'docker://' + config['docker']['cellranger']
     benchmark:
         'benchmark/cellranger/{sample}-cellranger-count.txt'
@@ -205,7 +205,7 @@ rule cellranger_aggr:
         norm = config['quant']['aggregate'].get('norm', 'none')
     threads:
         48
-    singularity:
+    container:
         'docker://' + config['docker']['cellranger']
     shell:
         'cellranger aggr '
@@ -227,7 +227,7 @@ rule cellranger_aggr_bam:
         script = srcdir('scripts/cellranger_merge_bam.py')
     threads:
         48
-    singularity:
+    container:
         'docker://' + config['docker']['sambamba']
     shell:
         'python {params.script} {input} {output}'
@@ -242,7 +242,7 @@ if config['quant']['aggregate'].get('method', 'scanpy') == 'scanpy':
             norm = config['quant']['aggregate']['norm']
         output:
             join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', '{aggr_id}_aggr.h5ad')
-        singularity:
+        container:
             'docker://' + config['docker']['scanpy']
         threads:
             48
@@ -263,7 +263,7 @@ else:
             script = srcdir('scripts/convert_scanpy.py')
         output:
             join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', '{aggr_id}_aggr.h5ad')
-        singularity:
+        container:
             'docker://' + config['docker']['scanpy']
         threads:
             48
@@ -278,7 +278,7 @@ rule scanpy_cellranger:
         genome_name  = DB_CONF['assembly']
     output:
         join(CR_INTERIM, '{sample}', 'scanpy', '{sample}.h5ad')
-    singularity:
+    container:
         'docker://' + config['docker']['scanpy']
     threads:
         48
@@ -294,7 +294,7 @@ rule cellranger_scanpy_pp_ipynb:
         notebook = join(QUANT_INTERIM, 'aggregate', 'cellranger', 'notebooks', '{aggr_id}_pp.ipynb')
     threads:
         24
-    singularity:
+    container:
         'docker://' + config['docker']['jupyter-scanpy']
     notebook:
         'scripts/cellranger_preprocess.py.ipynb'
@@ -306,7 +306,7 @@ rule cellranger_scanpy_pp_ipynb_html:
         join(QUANT_INTERIM, 'aggregate', 'cellranger', 'notebooks', '{aggr_id}_pp.html')
     params:
         notebook = rules.cellranger_scanpy_pp_ipynb.log.notebook
-    singularity:
+    container:
         'docker://' + config['docker']['jupyter-scanpy']
     threads:
         1
@@ -325,7 +325,7 @@ rule cellranger_cellbender:
 	fpr = 0.01,
 	total_droplets_included = 25000,
 	args = '--cuda'
-    singularity:
+    container:
         'docker://' + config['docker']['cellbender']
     benchmark:
         'benchmarks/cellbender_{sample}.txt'
@@ -360,7 +360,7 @@ rule cellbender_scanpy:
         script = srcdir('scripts/convert_scanpy.py')
     output:
         join(QUANT_INTERIM, 'aggregate', 'cellranger', 'cellbender', 'scanpy', 'all_samples_aggr.h5ad'),
-    singularity:
+    container:
         'docker://' + config['docker']['scanpy']
     threads:
         8
@@ -377,7 +377,7 @@ rule cellbender_scanpy_pp_ipynb:
         notebook = join(QUANT_INTERIM, 'aggregate', 'cellranger', 'cellbender', 'notebooks', 'all_samples_pp.ipynb')
     threads:
         24
-    singularity:
+    container:
         'docker://' + config['docker']['jupyter-scanpy']
     notebook:
         'scripts/cellranger_preprocess.py.ipynb'
@@ -387,7 +387,7 @@ rule cellbender_scanpy_pp_ipynb_html:
         rules.cellbender_scanpy_pp_ipynb.log
     output:
         join(QUANT_INTERIM, 'aggregate', 'cellranger', 'cellbender', 'notebooks', 'all_samples_pp.html')
-    singularity:
+    container:
         'docker://' + config['docker']['jupyter-scanpy']
     threads:
         1

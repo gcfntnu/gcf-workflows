@@ -64,7 +64,7 @@ rule merged_fastq_R1:
         cat_cmd = lambda wildcards, input: merge_cmd_R1(input)
     threads:
         4
-    singularity:
+    container:
         'docker://' + config['docker']['seqkit']
     shell:
         '{params.cat_cmd}  {output}'
@@ -78,7 +78,7 @@ rule merged_fastq_R2:
         cat_cmd = lambda wildcards, input: merge_cmd_R2(input)
     threads:
         4
-    singularity:
+    container:
         'docker://' + config['docker']['seqkit']
     shell:
         '{params.cat_cmd} {output}'

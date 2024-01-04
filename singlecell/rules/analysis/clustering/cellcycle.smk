@@ -7,7 +7,7 @@ rule seurat_cellcycle:
     params:
         script = srcdir('scripts/seurat_cellcycle.R'),
         args = '--write-scores -v'
-    singularity:
+    container:
         ''
     shell:
         'Rscript {params.script} '

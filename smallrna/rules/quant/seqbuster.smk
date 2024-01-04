@@ -26,7 +26,7 @@ rule seqbuster_align:
         args = '-sub 1 -trim 3 -add 3'
     output:
         join(QUANT_INTERIM, 'seqbuster', '{sample}.mirna')
-    singularity:
+    container:
         'docker://' + config['docker']['seqbuster']
     threads:
         2
@@ -48,7 +48,7 @@ rule seqbuster_mirtop:
         species = MIR_ORG[config['organism']]
     output:
         join(QUANT_INTERIM, 'seqbuster', '{sample}.gff')
-    singularity:
+    container:
         'docker://' + config['docker']['seqbuster']
     threads:
         2
@@ -78,7 +78,7 @@ rule seqbuster_isomir:
        join(QUANT_INTERIM, 'seqbuster', 'isomirs', 'isomir_vst.txt'),
        join(QUANT_INTERIM, 'seqbuster', 'isomirs', 'mir_anno.txt'),
        join(QUANT_INTERIM, 'seqbuster', 'isomirs', 'isomir_anno.txt')
-    singularity:
+    container:
         'docker://' + config['docker']['seqbuster']    
     shell:
         'Rscript {params.script} '

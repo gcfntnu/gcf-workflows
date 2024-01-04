@@ -16,7 +16,7 @@ if PE:
             32
         log:
             join(ALIGN_INTERIM, 'bwa', 'logs', '{sample}.bwa.log')
-        singularity:
+        container:
             'docker://' + config['docker']['bwa_samtools']
         shell:
             'bwa mem '
@@ -39,7 +39,7 @@ else:
             32
         log:
             join(ALIGN_INTERIM, 'bwa', 'logs', '{sample}.bwa.log')
-        singularity:
+        container:
             'docker://' + config['docker']['bwa_samtools']
         shell:
             'bwa mem '

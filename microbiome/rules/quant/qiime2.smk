@@ -70,7 +70,7 @@ rule qiime2_import:
         join(QIIME2_INTERIM, 'qiime2_manifest', '{region}.tsv')
     output:
         join(QIIME2_INTERIM, 'demultiplexed_{region}.qza')
-    singularity:
+    container:
         'docker://' + config['docker']['qiime2']
     params:
         input_format = 'PairedEndFastqManifestPhred33V2' if PE else 'SingleEndFastqManifestPhred33V2',
@@ -89,7 +89,7 @@ rule qiime2_demux_summary:
         join(QIIME2_INTERIM, 'demultiplexed_{region}.qza')
     output:
         join(QIIME2_INTERIM, 'demultiplexed_{region}.qzv')
-    singularity:
+    container:
         'docker://' + config['docker']['qiime2']    
     shell:
         'qiime demux summarize '
@@ -103,7 +103,7 @@ rule qiime2_quality_filter_deblur:
     output:
         filtered = join(QIIME2_INTERIM, 'deblur', 'filtered_{region}.qza'),
         stats = join(QIIME2_INTERIM, 'deblur', 'stats_{region}.qza')
-    singularity:
+    container:
         'docker://' + config['docker']['qiime2']
     shell:
         'qiime quality-filter q-score ' 
@@ -118,7 +118,7 @@ rule qiime2_denoise_deblur:
         rep_seqs = join(QIIME2_INTERIM, 'deblur', 'rep-seqs_{region}.qza'),
         table = join(QIIME2_INTERIM, 'deblur', 'table_{region}.qza'),
         stats = join(QIIME2_INTERIM, 'deblur', 'stats_{region}.qza')
-    singularity:
+    container:
         'docker://' + config['docker']['qiime2']
     params:
         trim_length = 250
@@ -139,7 +139,7 @@ rule qiime2_vis_stats_deblur:
         join(QIIME2_INTERIM, 'deblur', 'stats_{region}.qza')
     output:
         join(QIIME2_INTERIM, 'deblur', 'stats_{region}.qzv')
-    singularity:
+    container:
         'docker://' + config['docker']['qiime2']
     threads:
         1
@@ -155,7 +155,7 @@ rule qiime2_denoise_dada2:
         rep_seq = join(QIIME2_INTERIM, 'dada2', 'rep-seqs_{region}.qza'),
         stats = join(QIIME2_INTERIM, 'dada2', 'stats_{region}.qza'),
         table = join(QIIME2_INTERIM, 'dada2', 'table_{region}.qza')
-    singularity:
+    container:
         'docker://' + config['docker']['qiime2']
     threads:
         48
@@ -182,7 +182,7 @@ rule qiime2_vis_stats_dada2:
         join(QIIME2_INTERIM, 'dada2', 'stats_{region}.qza')
     output:
         join(QIIME2_INTERIM, 'dada2', 'stats_{region}.qzv')
-    singularity:
+    container:
        'docker://' + config['docker']['qiime2'] 
     shell:
         'qiime metadata tabulate '
@@ -204,7 +204,7 @@ rule qiime2_feature_table_summarize:
         table = join(QIIME2_INTERIM, '{denoiser}', 'table_{region}.qza')
     output:
         join(QIIME2_INTERIM, '{denoiser}', 'table_{region}.qzv')
-    singularity:
+    container:
        'docker://' + config['docker']['qiime2'] 
     shell:
         'qiime feature-table summarize '
@@ -217,7 +217,7 @@ rule qiime2_feature_table_tabulate:
         join(QIIME2_INTERIM, '{denoiser}', 'rep-seqs_{region}.qza')
     output:
         join(QIIME2_INTERIM, '{denoiser}', 'rep-seqs_{region}.qzv')
-    singularity:
+    container:
        'docker://' + config['docker']['qiime2'] 
     shell:
         'qiime feature-table tabulate-seqs '
@@ -230,7 +230,7 @@ rule qiime2_taxa_classifier:
         rep_seq = join(QIIME2_INTERIM, '{denoiser}', 'rep-seqs_{region}.qza')
     output:
         join(QIIME2_INTERIM, '{denoiser}', '{db}', 'taxonomy_{region}.qza')
-    singularity:
+    container:
        'docker://' + config['docker']['qiime2']
     threads:
         1
@@ -248,7 +248,7 @@ rule qiime2_taxa_barplot:
         sample_info = join(QIIME2_INTERIM, 'sample_info.tsv')
     output:
         join(QIIME2_INTERIM, '{denoiser}', '{db}', 'taxonomy_{region}.qzv')
-    singularity:
+    container:
        'docker://' + config['docker']['qiime2']
     shell:
         'qiime taxa barplot '
@@ -262,7 +262,7 @@ rule qiime2_export_table_biom:
         table = join(QIIME2_INTERIM, '{denoiser}', 'table_{region}.qza')
     output:
         table = temp(join(QIIME2_INTERIM, '{denoiser}', '{region}', 'feature-table.biom')),
-    singularity:
+    container:
        'docker://' + config['docker']['qiime2']    
     threads:
         1
@@ -276,7 +276,7 @@ rule qiime2_export_taxa_tsv:
         taxa = join(QIIME2_INTERIM, '{denoiser}', '{db}', '{region}', 'taxonomy.qza')
     output:
         taxa =  join(QIIME2_INTERIM, '{denoiser}', '{db}', '{region}', 'taxonomy.tsv')
-    singularity:
+    container:
        'docker://' + config['docker']['qiime2']    
     params:
         out_dir = join(QIIME2_INTERIM, '{denoiser}', '{db}', '{region}')
@@ -297,7 +297,7 @@ rule qiime2_add_taxa_to_biom:
         taxa = join(QIIME2_INTERIM, '{denoiser}', '{region}', '{db}', '_taxonomy.biomtsv')
     output:
         join(QIIME2_INTERIM, '{denoiser}', '{db}', '{region}_table.biom')
-    singularity:
+    container:
        'docker://' + config['docker']['qiime2']    
     shell:
         'biom add-metadata '
@@ -321,7 +321,7 @@ rule qiime2_convert_biom:
         sample_info = join(QIIME2_INTERIM, '_sample_info_biom.txt')
     output:
         join(QIIME2_INTERIM, '{denoiser}', '{db}', '{region}_json_table.biom')
-    singularity:
+    container:
         'docker://' + config['docker']['qiime2']
     params:
         '--table-type="OTU table" --to-json'
@@ -333,7 +333,7 @@ rule qiime2_align:
         join(QIIME2_INTERIM, '{denoiser}', 'rep-seqs_{region}.qza')
     output:
         temp(join(QIIME2_INTERIM, '{denoiser}', '_aligned-rep-seqs_{region}.qza'))
-    singularity:
+    container:
        'docker://' + config['docker']['qiime2']
     shell:
         'qiime alignment mafft '
@@ -345,7 +345,7 @@ rule qiime2_align_mask:
         join(QIIME2_INTERIM, '{denoiser}', '_aligned-rep-seqs_{region}.qza')
     output:
         temp(join(QIIME2_INTERIM, '{denoiser}', '_masked-aligned-rep-seqs_{region}.qza'))
-    singularity:
+    container:
        'docker://' + config['docker']['qiime2']
     shell:
         'qiime alignment mask '
@@ -357,7 +357,7 @@ rule qiime2_fasttree:
         join(QIIME2_INTERIM, '{denoiser}', '_masked-aligned-rep-seqs_{region}.qza')
     output:
         temp(join(QIIME2_INTERIM, '{denoiser}', 'unrooted-tree_{region}.qza'))
-    singularity:
+    container:
        'docker://' + config['docker']['qiime2']    
     threads:
         1
@@ -371,7 +371,7 @@ rule qiime2_midpoint_root:
         join(QIIME2_INTERIM, '{denoiser}', 'unrooted-tree_{region}.qza')
     output:
         join(QIIME2_INTERIM, '{denoiser}', 'rooted-tree_{region}.qza')
-    singularity:
+    container:
        'docker://' + config['docker']['qiime2']    
     threads:
         1
@@ -385,7 +385,7 @@ rule qiime2_export_phylo_tree:
         join(QIIME2_INTERIM, '{denoiser}', 'rooted-tree._{region}qza')
     output:
         join(QIIME2_INTERIM, '{denoiser}', '{region}', 'tree.nwk')
-    singularity:
+    container:
        'docker://' + config['docker']['qiime2'] 
     threads:
         1
@@ -401,7 +401,7 @@ rule qiime2_repseq_fasta:
         join(QIIME2_INTERIM, '{denoiser}', '{region}', 'dna-sequences.fasta')
     params:
         out = join(QIIME2_INTERIM, '{denoiser}', '{region}')
-    singularity:
+    container:
        'docker://' + config['docker']['qiime2'] 
     shell:
         'qiime tools export --input-path {input} --output-path {params.out}'
@@ -415,7 +415,7 @@ rule qiime2_biom_to_phyloseq:
         join(QIIME2_INTERIM, '{denoiser}', '{db}', '{region}_physeq.rds')
     params:
         script = srcdir('scripts/qiime2_create_physeq.R')
-    singularity:
+    container:
        'docker://' + config['docker']['qiime2'] 
     shell:
         'Rscript {params.script} {input} {output} {wildcards.db}'
@@ -425,7 +425,7 @@ rule qiime2_biom_to_tsv:
         biom = join(QIIME2_INTERIM, '{denoiser}', '{db}', 'table.biom')
     output:
         join(QIIME2_INTERIM, '{denoiser}', '{db}', 'table.tsv')
-    singularity:
+    container:
        'docker://' + config['docker']['qiime2'] 
     shell:
         'biom convert -i {input} -o {output} --to-tsv '

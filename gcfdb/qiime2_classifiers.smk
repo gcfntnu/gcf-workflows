@@ -63,7 +63,7 @@ rule build_q2_classifer:
         script = srcdir('scripts/train_classifier.py')
     output:
         join(EXT_DIR, '{db}', '{release}', 'qiime2', 'classifiers', '{level}_{fwd}-{rev}.qza')
-    singularity:
+    container:
         'docker://' + config['docker']['qiime2']
     threads:
         24
@@ -84,7 +84,7 @@ rule export_classifier:
         join(EXT_DIR, '{db}', '{release}', 'qiime2', 'classifiers', 'export', '{level}_{region}', 'sklearn_pipeline.tar')
     params:
         outdir = join(EXT_DIR, '{db}', '{release}', 'qiime2', 'classifiers', 'export', '{level}_{region}')
-    singularity:
+    container:
         'docker://' + config['docker']['qiime2']
     shell:
         'qiime tools export --input-path {input} --output-path {params.outdir}'

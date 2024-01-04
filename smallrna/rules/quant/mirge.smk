@@ -34,7 +34,7 @@ rule mirge_quant:
         annotation = join(QUANT_INTERIM, 'mirge', 'annotation.report.csv'),
         umapped = join(QUANT_INTERIM, 'mirge', 'unmapped.csv'),
         a2i = join(QUANT_INTERIM, 'mirge', 'a2IEditing.report.newform.csv')
-    singularity:
+    container:
         'docker://gcfntnu/mirge:2.0'
     threads:
         8

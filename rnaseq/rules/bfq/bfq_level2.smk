@@ -5,7 +5,7 @@ rule bfq_level2_pca:
         sample_info =  join(INTERIM_DIR, 'sample_info.tsv')
     params:
         script = srcdir('scripts/plotpca.py')
-    singularity:
+    container:
         'docker://' + config['docker']['bfq_plot']
     output:
         join(BFQ_INTERIM, 'figs', 'pca_mqc.yaml'),
@@ -21,7 +21,7 @@ rule bfq_level2_gene_biotypes:
         gene_lengths = join(QUANT_INTERIM, config['quant']['method'], 'tximport', 'gene_lengths.tsv')
     params:
         script = srcdir('scripts/counts_qc.py')
-    singularity:
+    container:
         'docker://' + config['docker']['bfq_plot']
     output:
         join(BFQ_INTERIM, 'figs', 'gene_biotypes_mqc.yaml'),
@@ -44,7 +44,7 @@ rule bfq_level2_gene_high:
         feature_info = join(REF_DIR, 'anno', 'genes.tsv')
     params:
         script = srcdir('scripts/counts_qc.py')
-    singularity:
+    container:
         'docker://' + config['docker']['bfq_plot']
     output:
         join(BFQ_INTERIM, 'figs', 'gene_high_mqc.yaml')

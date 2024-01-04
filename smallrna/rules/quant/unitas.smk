@@ -105,7 +105,7 @@ rule unitas:
         mirtable = join(QUANT_INTERIM, 'unitas', 'unitas', '{sample}', 'miR-table_{}.simplified.txt'.format(UNITAS_ORG)),
         pirna = join(QUANT_INTERIM, 'unitas', 'unitas', '{sample}', 'unitas.piRcandidates-tails_{}.txt'.format(UNITAS_ORG)),
         mirtable_ext= join(QUANT_INTERIM, 'unitas', 'unitas', '{sample}', 'unitas.miR-table_{}.txt'.format(UNITAS_ORG))
-    singularity:
+    container:
         'docker://' + config['docker']['unitas']
     threads:
         2
@@ -237,7 +237,7 @@ rule unitas_mirna_anndata:
         join(QUANT_INTERIM, 'unitas', 'adata.h5ad')
     params:
         script = srcdir('scripts/create_anndata.py')
-    singularity:
+    container:
         'docker://' + config['docker']['scanpy']
     shell:
         'python {params.script} '

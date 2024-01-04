@@ -23,7 +23,7 @@ include:
 rule sample_info:
     output:
         join(INTERIM_DIR, 'sample_info.tsv')
-    singularity:
+    container:
         'docker://' + config['docker']['default']
     params:
         script = srcdir('scripts/pep_sampleinfo.py'),

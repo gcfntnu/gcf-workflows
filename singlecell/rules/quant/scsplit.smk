@@ -36,7 +36,7 @@ rule picard_mark_duplicates:
         dup_args = optical_dup_args()
     threads:
         8
-    singularity:
+    container:
         'docker://' + config['docker']['picard_gatk']
     shell:
         'picard MarkDuplicates '
@@ -53,7 +53,7 @@ rule clean_bam:
         bam = join(STAR_INTERIM, '{sample}', 'Aligned.sortedByCoord.out.bam'),
     output:
         bam = join(SCSPLIT_INTERIM, '{sample}', 'filtered.bam')
-    singularity:
+    container:
         'docker://' + config['docker']['bowtie2_samtools']
     params:
         '-q 10 -F 3844 '
@@ -68,7 +68,7 @@ rule umitools_dedup:
         bam = join(SCSPLIT_INTERIM, '{sample}', 'filtered.bam')
     output:
         bam = join(SCSPLIT_INTERIM, '{sample}', 'dedup.bam')
-    singularity:
+    container:
         'docker://' + config['docker']['umi_tools']
     log:
         join(SCSPLIT_INTERIM, 'logs', '{sample}.umitools.dedup.txt')
@@ -82,7 +82,7 @@ rule sort_bam:
         bam = join(SCSPLIT_INTERIM, '{sample}', 'dedup.bam')
     output:
         bam = join(SCSPLIT_INTERIM, '{sample}', 'sorted.bam')
-    singularity:
+    container:
         'docker://' + config['docker']['bowtie2_samtools']
     shell:
         'samtools sort {input} -o {output}'
@@ -92,7 +92,7 @@ rule index_bam:
         bam = join(SCSPLIT_INTERIM, '{sample}', 'sorted.bam') 
     output:
         bai = join(SCSPLIT_INTERIM, '{sample}', 'sorted.bam.bai')
-    singularity:
+    container:
         'docker://' + config['docker']['bowtie2_samtools']
     shell:
         'samtools index {input}'
@@ -135,7 +135,7 @@ rule scsplit_count:
         out_dir = join(SCSPLIT_INTERIM, '{sample}')
     threads:
         24
-    singularity:
+    container:
         'docker://gcfntnu/scsplit:1.0.8'
     shell:
         'scSplit count -v {input.vcf} -i {input.bam} -c {input.common_snvs} -b {input.whitelist} '
@@ -156,7 +156,7 @@ rule scsplit_run:
         PA = join(SCSPLIT_INTERIM, '{sample}', 'scSplit_PA_matrix.csv'),
         P_s_c = join(SCSPLIT_INTERIM, '{sample}', 'scSplit_P_s_c.csv'),
         log = join(SCSPLIT_INTERIM, '{sample}', 'scSplit.log')
-    singularity:
+    container:
         'docker://gcfntnu/scsplit:1.0.8'
     threads:
         24
@@ -172,7 +172,7 @@ rule scsplit_genotype:
         out_dir = join(SCSPLIT_INTERIM, '{sample}')
     output:
         join(SCSPLIT_INTERIM, '{sample}', 'scSplit.vcf')
-    singularity:
+    container:
         'docker://gcfntnu/scsplit:1.0.8'
     shell:
         'scSplit genotype -r {input.ref} -a {input.alt} -o {params.out_dir} -p {input.P_s_c} '        

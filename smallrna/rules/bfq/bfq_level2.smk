@@ -6,7 +6,7 @@ rule bfq_level2_pca:
         join(BFQ_INTERIM, 'figs', 'pca_mqc.yaml')
     params:
         script = srcdir('scripts/plotpca.py')
-    singularity:
+    container:
         'docker://' + config['docker']['scanpy']    
     shell:
         'python {params.script} '
@@ -19,7 +19,7 @@ rule bfq_level2_mirna_high:
         exprs = join(QUANT_INTERIM, 'unitas', 'adata.h5ad')
     params:
         script = srcdir('scripts/plot_highly_expressed.py')
-    singularity:
+    container:
         'docker://' + config['docker']['scanpy']
     output:
         join(BFQ_INTERIM, 'figs', 'gene_high_mqc.yaml')

@@ -31,7 +31,7 @@ rule spikein_filter_bowtie:
     output:
         R1 = temp(join(FILTER_INTERIM, 'spikein', 'bowtie', '{sample}_R1.fastq')),
         counts = join(FILTER_INTERIM, 'spikein', 'bowtie', '{sample}.counts')
-    singularity:
+    container:
         'docker://' + config['docker']['bowtie_samtools']
     params:
         args = '-n 0 -k 1 -l 18 -q --best --norc -S ',

@@ -8,7 +8,7 @@ rule bfq_level1_region_summary:
         script = srcdir('scripts/qiaseq_region_summary.py')
     threads:
         1
-    singularity:
+    container:
         'docker://' + config['docker']['default']
     shell:
         'python {params.script} {input} > {output} '

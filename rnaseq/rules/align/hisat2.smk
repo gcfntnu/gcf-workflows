@@ -52,7 +52,7 @@ rule hisat2_align:
         sam = temp(join(HISAT_INTERIM, '{sample}.out.sam'))
     threads:
         24
-    singularity:
+    container:
         'docker://' + config['docker']['hisat2']
     log:
         join('logs', '{sample}', '{sample}.hisat2.log')
