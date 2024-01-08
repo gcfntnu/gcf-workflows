@@ -19,14 +19,13 @@ include:
 include:
     'common/fastqscreen.smk'
 
-
 rule sample_info:
     output:
         join(INTERIM_DIR, 'sample_info.tsv')
     singularity:
         'docker://' + config['docker']['default']
     params:
-        script = srcdir('scripts/pep_sampleinfo.py'),
-        pep = workflow.pepfile
+        script = srcdir('scripts/create_sampleinfo.py'),
+        pep = 'config.yaml' if config.get('skip_peppy', False) else workflow.pepfile
     shell:
         'python {params.script} {params.pep} {output}'
