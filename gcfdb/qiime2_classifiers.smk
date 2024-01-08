@@ -6,7 +6,7 @@
 from os.path import join
 # libprep
 
-libprep_conf_fn = srcdir('../libprep.config')
+libprep_conf_fn = source_path('../libprep.config')
 if os.path.exists(libprep_conf_fn):
     with open(libprep_conf_fn) as fh:
         ALL_LIBPREP  = yaml.load(fh, Loader=Loader) or {}
@@ -60,7 +60,7 @@ rule build_q2_classifer:
         ref = join(EXT_DIR, '{db}', '{release}', 'fasta', '{level}', 'otus.fa'),
         taxa = join(EXT_DIR, '{db}', '{release}', 'anno', '{level}', 'otus_taxonomy.txt')
     params:
-        script = srcdir('scripts/train_classifier.py')
+        script = source_path('scripts/train_classifier.py')
     output:
         join(EXT_DIR, '{db}', '{release}', 'qiime2', 'classifiers', '{level}_{fwd}-{rev}.qza')
     container:

@@ -24,7 +24,7 @@ checkpoint qiime2_run_regions:
         R1 = expand(join(FILTER_INTERIM, 'fastp', '{sample}_R1.fastq'), sample=SAMPLES),
         R2 = expand(join(FILTER_INTERIM, 'fastp', '{sample}_R2.fastq'), sample=SAMPLES)
     params:
-        script = srcdir('scripts/run_qiime2.py'),
+        script = source_path('scripts/run_qiime2.py'),
         libprep = config['libprep_name'],
 	#regions = ','.join(list(config['db']['primers'].keys())),
         regions = 'None',
@@ -34,7 +34,7 @@ checkpoint qiime2_run_regions:
         filter_region_count = 500,
         min_confidence = 0.8,
         output_dir = join(QIIME2_INTERIM),
-        libprep_conf = srcdir('../../../libprep.config')
+        libprep_conf = source_path('../../../libprep.config')
     threads:
         48
     container:
@@ -104,7 +104,7 @@ rule qiime2_biom_to_phyloseq:
     output:
         join(QIIME2_INTERIM, 'physeq.rds')
     params:
-        script = srcdir('scripts/qiime2_create_physeq.R'),
+        script = source_path('scripts/qiime2_create_physeq.R'),
         db = config['db']['reference_db']
     container:
        'docker://' + config['docker']['phyloseq'] 

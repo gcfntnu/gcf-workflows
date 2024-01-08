@@ -185,7 +185,7 @@ rule scsplit_scanpy:
     output:
         h5ad = join(SCSPLIT_INTERIM, 'scannpy_scsplit.h5ad')
     params:
-        script = srcdir('scripts/scsplit_scanpy.py')
+        script = source_path('scripts/scsplit_scanpy.py')
     shell:
         'python {params.script} '
         '--scsplit {input.res} '

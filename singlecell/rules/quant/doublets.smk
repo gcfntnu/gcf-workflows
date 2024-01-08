@@ -2,7 +2,7 @@ container: 'docker://gcfntnu/doublet-detection:4.2'
 DBL_DIR = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets')
 SAMPLE_MULTIPLEXING = config['quant'].get('demultiplex', {}).get('method') not in [None, 'skip']
 if SAMPLE_MULTIPLEXING:
-    if os.path.exists(srcdir("multiplex.smk")):
+    if os.path.exists(source_path("multiplex.smk")):
         include:
             'multiplex.smk'
     else:
@@ -32,7 +32,7 @@ rule dbl_doubletdetection:
     output:
         join(DBL_DIR,  'doubletdetection', 'doublet_type.tsv')
     params:
-        script = srcdir('scripts/run_doubletdetection.py')
+        script = source_path('scripts/run_doubletdetection.py')
     threads:
         8
     shell:
@@ -47,7 +47,7 @@ rule dbl_scdblfinder:
     output:
         join(DBL_DIR,  'scdblfinder', 'doublet_type.tsv')
     params:
-        script = srcdir('scripts/scdblfinder.R')
+        script = source_path('scripts/scdblfinder.R')
     shell:
         '{params.script} '
         '-i {input.counts} '
@@ -59,7 +59,7 @@ rule dbl_scds:
     output:
         join(DBL_DIR,  'scds', 'doublet_type.tsv')
     params:
-        script = srcdir('scripts/scds.R')
+        script = source_path('scripts/scds.R')
     shell:
         '{params.script} '
         '-i {input.counts} '
@@ -71,7 +71,7 @@ rule scrublet:
     output:
         join(DBL_DIR,  'scrublet', 'doublet_type.tsv')
     params:
-        script = srcdir('scripts/run_scrublet.py')
+        script = source_path('scripts/run_scrublet.py')
     threads:
         8
     shell:
@@ -130,7 +130,7 @@ rule dbl_solo_summary:
     output:
         join(DBL_DIR,  'solo', 'doublet_type.tsv')
     params:
-        script = srcdir('scripts/solo_summary.py')
+        script = source_path('scripts/solo_summary.py')
     container:
         'docker://gcfntnu/solo-sc:1.2'
     shell:
@@ -166,7 +166,7 @@ rule dbl_socube_summary:
     output:
         join(DBL_DIR,  'socube', 'doublet_type.tsv')
     params:
-        script = srcdir('scripts/socube_summary.py')
+        script = source_path('scripts/socube_summary.py')
     container:
         'docker://' + config['docker']['default']
     shell:
@@ -220,7 +220,7 @@ rule dbl_majority_vote_per_sample:
     input:
         get_doublet_output()
     params:
-        script = srcdir("scripts/combine_doublets.py"),
+        script = source_path("scripts/combine_doublets.py"),
         args = '--plot-figure '
     output:
         combined = join(DBL_DIR, 'droplet_type.txt')
@@ -245,7 +245,7 @@ rule dbl_aggr:
     output:
         join(QUANT_INTERIM, 'aggregate', config['quant']['method'] , '{aggr_id}_droplet_type.tsv')
     params:
-        script = srcdir("scripts/combine_demultiplex.py")
+        script = source_path("scripts/combine_demultiplex.py")
     container:
         'docker://' + config['docker']['default']
     shell:

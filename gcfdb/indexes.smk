@@ -239,7 +239,7 @@ rule salmon_index_tximeta:
     output:
         json = join('{ref_dir}', 'index', '{prefix}', 'salmon', 'tximeta.json')
     params:
-        script = srcdir('scripts/make_linked_txome.R'),
+        script = source_path('scripts/make_linked_txome.R'),
         org = config['organism'],
         db = lambda x: 'GCF_' + config['db']['reference_db'],
         release = lambda x: DB_CONF['release'],

@@ -12,7 +12,7 @@ rule scenic_hda5_counts_mtx:
     params:
         out =  join(ANALYSIS_INTERIM, 'scenic', '{id}')
     params:
-        script = srcdir('scripts/pyscenic_grn_input.py {input} {params.out}')
+        script = source_path('scripts/pyscenic_grn_input.py {input} {params.out}')
     shell:
         'python {params.script} {input} {output} '
 
@@ -23,7 +23,7 @@ rule scenic_hda5_exprs_mtx:
     output:
         join(ANALYSIS_INTERIM, 'scenic', '{id}', 'norm', 'exprs.mtx') 
     params:
-        script = srcdir('scripts/pyscenic_grn_input.py')
+        script = source_path('scripts/pyscenic_grn_input.py')
     shell:
         'python {params.script} --use-norm-exprs {input} {params.out} '
 

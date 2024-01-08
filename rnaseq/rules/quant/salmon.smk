@@ -142,7 +142,7 @@ rule salmon_tximport:
         files = expand(join(SALMON_INTERIM, '{sample}', 'quant.sf'), sample=SAMPLES),
         txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
-        script = srcdir('scripts/tximport.R')
+        script = source_path('scripts/tximport.R')
     container:
         'docker://' + config['docker']['tximport']
     threads:
@@ -162,7 +162,7 @@ rule salmon_tximeta:
         sample_info = join(INTERIM_DIR, 'sample_info.tsv'),
         index = join(REF_DIR, 'index', '{prefix}', 'salmon', 'tximeta.json')
     params:
-        script = srcdir('scripts/tximeta.R'),
+        script = source_path('scripts/tximeta.R'),
         index_dir = join(REF_DIR, 'index', '{prefix}', 'salmon'),
         cache = join(EXT_CACHE, 'tximeta')
     threads:
@@ -191,7 +191,7 @@ rule salmon_gene_anndata:
     output:
         join(QUANT_INTERIM, 'salmon', 'gene_anndata.adh5')
     params:
-        script = srcdir('scripts/create_anndata.py')
+        script = source_path('scripts/create_anndata.py')
     threads:
         48
     container:
@@ -259,7 +259,7 @@ rule terminus_tx2terminus:
     output:
         join(QUANT_INTERIM, 'terminus', 'tx2terminus.tsv')
     params:
-        script = srcdir('scripts/extract_txp_group.py')
+        script = source_path('scripts/extract_txp_group.py')
     threads:
         16
     shell:
@@ -270,7 +270,7 @@ rule terminus_tximport:
         files = expand(join(SALMON_INTERIM, '{sample}', 'quant.sf'), sample=SAMPLES),
         txinfo = join(QUANT_INTERIM, 'terminus', 'tx2terminus.tsv')
     params:
-        script = srcdir('scripts/tximport.R')
+        script = source_path('scripts/tximport.R')
     container:
         'docker://' + config['docker']['tximport']
     output:
@@ -288,7 +288,7 @@ rule terminus_info:
         txinfo = join(REF_DIR, 'anno', 'transcripts.tsv'),
         tx2terminus = join(QUANT_INTERIM, 'terminus', 'tx2terminus.tsv')
     params:
-        script = srcdir('scripts/terminus_anno.py')
+        script = source_path('scripts/terminus_anno.py')
     output:
         join(QUANT_INTERIM, 'terminus', 'terminus_info.tsv')
     threads:

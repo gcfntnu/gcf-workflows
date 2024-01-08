@@ -54,7 +54,7 @@ rule featurecounts_quant:
         gene_info = join(REF_DIR, 'anno', 'genes.tsv')
     params:
         output = join(FC_INTERIM, 'featurecounts'),
-        script = srcdir('scripts/gene_quant.R')
+        script = source_path('scripts/gene_quant.R')
     container:
         'docker://' + config['docker']['tximport']
     output:

@@ -26,7 +26,7 @@ URL = 'https://www.arb-silva.de/fileadmin/silva_databases/qiime/Silva_132_releas
 LEVELS = [90, 94, 97, 99]
 EVIDENCE = ['consensus', 'majority']
 
-libprep_conf_fn = srcdir('../libprep.config')
+libprep_conf_fn = source_path('../libprep.config')
 if os.path.exists(libprep_conf_fn):
     with open(libprep_conf_fn) as fh:
         ALL_LIBPREP  = yaml.load(fh, Loader=Loader) or {}

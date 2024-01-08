@@ -82,7 +82,7 @@ rule velocyto_scanpy:
     input:
         join(QUANT_INTERIM, '{quant}', '{sample}', 'velocyto', '{sample}.loom')
     params:
-        script = srcdir('scripts/convert_scanpy.py')
+        script = source_path('scripts/convert_scanpy.py')
     output:
         join(QUANT_INTERIM, '{quant}', '{sample}', 'velocyto', '{sample}.h5ad')
     container:
@@ -96,7 +96,7 @@ rule velocyto_aggr_scanpy:
     input:
         loom = expand(join(QUANT_INTERIM, '{{quant}}', '{sample}', 'velocyto', '{sample}.loom'), sample=SAMPLES),
     params:
-        script = srcdir('scripts/convert_scanpy.py')
+        script = source_path('scripts/convert_scanpy.py')
     output:
         join(QUANT_INTERIM, 'aggregate', '{quant}', 'velocyto', 'all_samples_aggr.h5ad')
     container:
@@ -113,7 +113,7 @@ rule velocyto_merge_aggr:
     output:
         join(QUANT_INTERIM, 'aggregate', '{quant}', '{aggr_id}_merge.h5ad')
     params:
-        script = srcdir('scripts/merge_scanpy.py')
+        script = source_path('scripts/merge_scanpy.py')
     container:
         'docker://'+ config['docker']['scanpy']
     threads:
@@ -128,7 +128,7 @@ rule velocyto_merge:
     output:
         join(QUANT_INTERIM, '{quant}', '{sample}', '{sample}.h5ad')
     params:
-        script = srcdir('scripts/merge_scanpy.py')
+        script = source_path('scripts/merge_scanpy.py')
     container:
         'docker://'+ config['docker']['scanpy']
     threads:

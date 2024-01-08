@@ -174,7 +174,7 @@ rule cellranger_aggr_csv:
         sample_info = join(INTERIM_DIR, 'sample_info.tsv'),
         mol_h5 = expand(join(CR_INTERIM, '{sample}', 'outs', 'molecule_info.h5'), sample=SAMPLES)
     params:
-        script = srcdir('scripts/cellranger_aggr_csv.py'),
+        script = source_path('scripts/cellranger_aggr_csv.py'),
         groupby = config['quant']['aggregate'].get('groupby', 'all_samples'),
         outdir = join(QUANT_INTERIM, 'aggregate', 'description')
     output:
@@ -224,7 +224,7 @@ rule cellranger_aggr_bam:
     output:
         bam = join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}', 'outs', 'possorted_genome_bam.bam')
     params:
-        script = srcdir('scripts/cellranger_merge_bam.py')
+        script = source_path('scripts/cellranger_merge_bam.py')
     threads:
         48
     container:
@@ -238,7 +238,7 @@ if config['quant']['aggregate'].get('method', 'scanpy') == 'scanpy':
             input = expand(rules.cellranger_quant.output.filt_h5, sample=SAMPLES),
             csv = join(QUANT_INTERIM, 'aggregate', 'description', '{aggr_id}_aggr.csv')
         params:
-            script = srcdir('scripts/convert_scanpy.py'),
+            script = source_path('scripts/convert_scanpy.py'),
             norm = config['quant']['aggregate']['norm']
         output:
             join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', '{aggr_id}_aggr.h5ad')
@@ -260,7 +260,7 @@ else:
         input:
             join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}', 'outs', 'count', 'filtered_feature_bc_matrix.h5')
         params:
-            script = srcdir('scripts/convert_scanpy.py')
+            script = source_path('scripts/convert_scanpy.py')
         output:
             join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', '{aggr_id}_aggr.h5ad')
         container:
@@ -274,7 +274,7 @@ rule scanpy_cellranger:
     input:
         join(CR_INTERIM, '{sample}', 'outs', 'filtered_feature_bc_matrix.h5')
     params:
-        script = srcdir('scripts/convert_scanpy.py'),
+        script = source_path('scripts/convert_scanpy.py'),
         genome_name  = DB_CONF['assembly']
     output:
         join(CR_INTERIM, '{sample}', 'scanpy', '{sample}.h5ad')
@@ -357,7 +357,7 @@ rule cellbender_scanpy:
         filtered = expand(rules.cellranger_cellbender.output.filtered_h5, sample=SAMPLES),
         sample_info = join(INTERIM_DIR, 'sample_info.tsv')
     params:
-        script = srcdir('scripts/convert_scanpy.py')
+        script = source_path('scripts/convert_scanpy.py')
     output:
         join(QUANT_INTERIM, 'aggregate', 'cellranger', 'cellbender', 'scanpy', 'all_samples_aggr.h5ad'),
     container:

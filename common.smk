@@ -26,7 +26,7 @@ rule sample_info:
     container:
         'docker://' + config['docker']['default']
     params:
-        script = srcdir('scripts/pep_sampleinfo.py'),
+        script = source_path('scripts/pep_sampleinfo.py'),
         pep = workflow.pepfile
     shell:
         'python {params.script} {params.pep} {output}'

@@ -7,7 +7,7 @@ rule seqbuster_tabular:
     output:
         join(FILTER_INTERIM, 'seqbuster', '{sample}_R1.tsv')
     params:
-        script = srcdir('scripts/seqbuster_tabular.py')
+        script = source_path('scripts/seqbuster_tabular.py')
     shell:
         'python {params.script} {input} > {output}'
 
@@ -66,7 +66,7 @@ rule seqbuster_isomir:
         aligned = expand(join(QUANT_INTERIM, 'seqbuster', '{sample}.mirna'), sample=SAMPLES),
         sample_info = 'data/tmp/sample_info.tsv'
     params:
-        script = srcdir('scripts/seqbuster_count.R'),
+        script = source_path('scripts/seqbuster_count.R'),
         args = '--output-expression --output-psi ',
         outdir = join(QUANT_INTERIM, 'seqbuster', 'isomirs')
     threads:

@@ -5,7 +5,7 @@ rule seurat_cellcycle:
     output:
         'seurat_cellcycle.rds'
     params:
-        script = srcdir('scripts/seurat_cellcycle.R'),
+        script = source_path('scripts/seurat_cellcycle.R'),
         args = '--write-scores -v'
     container:
         ''

@@ -32,7 +32,7 @@ rule contaminants_unitas:
     input:
         join(EXT_DIR, 'univec_core', 'fasta', 'univec_core.fa')
     params:
-        script = srcdir('scripts/contaminants_unitas.py')
+        script = source_path('scripts/contaminants_unitas.py')
     output:
         temp(join(INTERIM_DIR, '_contaminants_unitas_formatted.fa'))
     shell:
@@ -60,7 +60,7 @@ rule unitas_db:
         db = directory(UNITAS_REF_DIR)
     params:
         refdir = join(EXT_DIR, 'unitas', config['db']['unitas']['release']),
-        script = srcdir('scripts/format_unitas_dblog.py'),
+        script = source_path('scripts/format_unitas_dblog.py'),
         url = join(config.get('winecellar', {}).get('url', ''), 'unitas', config['db']['unitas']['release'], 'UNITAS_refdump_{}.tar.gz'.format(ORG)),
         versions_info = join(EXT_DIR, 'unitas', config['db']['unitas']['release'],'UNITAS_refdump_{}'.format(ORG),'db_versions.info')
     log:

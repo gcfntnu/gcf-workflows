@@ -7,9 +7,9 @@ small-rna
 small-rna Analysis Pipeline.
 """
 include:
-    srcdir('../utils.py')
+    source_path('../utils.py')
 
-extra_conf_fn = srcdir('smallrna.config')
+extra_conf_fn = source_path('smallrna.config')
 if os.path.exists(extra_conf_fn):
     with open(extra_conf_fn) as fh:
         c  = yaml.load(fh, Loader=Loader) or {}
@@ -19,7 +19,7 @@ if not 'SAMPLES' in locals():
     SAMPLES = [str(name) for name in config.get('samples', {}).keys()]
 
 include:
-    srcdir('../common.smk')
+    source_path('../common.smk')
 include:
     'rules/gcfdb.smk'
 include:
@@ -33,7 +33,7 @@ include:
 include:
     'rules/bfq.smk'
 include:
-    srcdir('../postprocess.smk')
+    source_path('../postprocess.smk')
     
 onsuccess:
     # write config
@@ -52,7 +52,7 @@ onsuccess:
     if os.path.exists(final_conf_fn):
         raise ValueError('this is just too many runs on the same day')
     
-    #config_path = dirname(srcdir('small-rna.config'))
+    #config_path = dirname(source_path('small-rna.config'))
     #final_conf_fn = join(config_path,  final_conf_fn)
     
    # with open(final_conf_fn, 'w') as fh:

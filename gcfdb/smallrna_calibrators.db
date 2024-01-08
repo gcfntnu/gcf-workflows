@@ -3,7 +3,7 @@
 """
 
 from os.path import join
-from snakemake.workflow import srcdir
+from snakemake.workflow import source_path
 
 CAL_DIR = join(EXT_DIR, 'spikein')
     
@@ -57,7 +57,7 @@ rule calibrators_extend:
     output:
         join(CAL_DIR, 'fasta', 'smallrna_calibrators.extended.fa')
     params:
-        script = srcdir('scripts/extend_calibrators.py')
+        script = source_path('scripts/extend_calibrators.py')
     shell:
         'python {params.script} {input} {output}'
 
