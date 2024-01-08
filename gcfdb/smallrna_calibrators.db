@@ -3,7 +3,7 @@
 """
 
 from os.path import join
-from snakemake.workflow import workflow.source_path
+#from snakemake.workflow import workflow.source_path
 
 CAL_DIR = join(EXT_DIR, 'spikein')
     

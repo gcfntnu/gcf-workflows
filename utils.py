@@ -22,7 +22,7 @@ from datetime import datetime
 
 
 from snakemake.logging import logger
-from snakemake.workflow import workflow.source_path
+#from snakemake.workflow import workflow.source_path
 from snakemake.utils import update_config, min_version
 
 min_version("5.10.0")
