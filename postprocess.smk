@@ -10,18 +10,18 @@ if 'delta_readlen' in config:
     
 rule multiqc_config:
     input:
-        header_template = source_path(join('misc', 'multiqc', 'mqc_header.txt')),
-        config_template = source_path(join('misc', 'multiqc', 'multiqc_config-{}.yaml'.format(WORKFLOW))),
+        header_template = workflow.source_path(join('misc', 'multiqc', 'mqc_header.txt')),
+        config_template = workflow.source_path(join('misc', 'multiqc', 'multiqc_config-{}.yaml'.format(WORKFLOW))),
         sample_info = join(INTERIM_DIR, 'sample_info.tsv'),
     output:
         mqc_config = join(BFQ_INTERIM, '.multiqc_config.yaml')
     params:
-        script = source_path('misc/multiqc/create_mqc_config.py'),
+        script = workflow.source_path('misc/multiqc/create_mqc_config.py'),
         project_id = PROJECT_ID,
         machine = config['machine'],
         read_geometry = ','.join([str(x) for x in _original_read_geometry]),
         libprep = config['libprepkit'],
-        repo_dir = source_path(os.path.dirname('main.config')),
+        repo_dir = workflow.source_path(os.path.dirname('main.config')),
         pep = workflow.pepfile
     container:
         'docker://' + config['docker']['default']

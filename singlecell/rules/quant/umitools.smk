@@ -130,7 +130,7 @@ rule umitools_scanpy:
     input:
         rules.umitools_quant.output
     params:
-        script = source_path('scripts/convert_scanpy.py'),
+        script = workflow.source_path('scripts/convert_scanpy.py'),
         format = 'umitools',
     output:
         join(UMI_INTERIM, '{sample}', 'scanpy', 'adata.h5ad')
@@ -147,7 +147,7 @@ rule umitools_scanpy_aggr:
         h5ad = expand(join(UMI_INTERIM, '{sample}', 'scanpy', 'adata.h5ad'), sample=SAMPLES),
         counts = expand(rules.umitools_quant.output, sample=SAMPLES),
     params:
-        script = source_path('scripts/convert_scanpy.py'),
+        script = workflow.source_path('scripts/convert_scanpy.py'),
         format = 'umitools',
         norm = config['quant']['aggregate']['norm'],
     output:
@@ -168,7 +168,7 @@ rule umitools_seurat:
     input:
       rules.umitools_quant.output
     params:
-        script = source_path('scripts/umitools_seurat.R')
+        script = workflow.source_path('scripts/umitools_seurat.R')
     output:
         join(UMI_INTERIM, 'seurat', '{sample}', '{sample}.rds')
     container:

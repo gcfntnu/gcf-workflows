@@ -70,7 +70,7 @@ rule fastp_log:
     output:
         json = join(FILTER_INTERIM, 'fastp', '{sample}.json')
     params:
-        script = source_path('scripts/merge_fastp.py')
+        script = workflow.source_path('scripts/merge_fastp.py')
     shell:
         'python {params.script} {input} > {output} '
 

@@ -3,7 +3,7 @@
 from datetime import datetime
 
 # config
-extra_conf_fn = source_path('mirbase.config')
+extra_conf_fn = workflow.source_path('mirbase.config')
 if os.path.exists(extra_conf_fn):
     with open(extra_conf_fn) as fh:
         c  = yaml.load(fh, Loader=Loader) or {}
@@ -89,7 +89,7 @@ rule mirbase_genes:
     input:
         rules.mirbase_gff.output
     params:
-        script = source_path('scripts/mirbase_gff2genes.py')
+        script = workflow.source_path('scripts/mirbase_gff2genes.py')
     output:
         join(MIRBASE_EXT, 'anno', 'genes.tsv')
     container:

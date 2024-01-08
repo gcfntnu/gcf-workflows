@@ -32,7 +32,7 @@ checkpoint qiime2_region_split:
     output:
         directory(join(QIIME2_INTERIM, 'split_region', '{sample}'))
     params:
-        script = source_path('scripts/region_demultiplex.py')
+        script = workflow.source_path('scripts/region_demultiplex.py')
     log:
         join(QIIME2_INTERIM, 'split_region', '{sample}.log')
     shell:
@@ -60,7 +60,7 @@ rule qiime2_manifest:
     output:
         join(QIIME2_INTERIM, 'qiime2_manifest', '{region}.tsv')
     params:
-        script = source_path('scripts/make_manifest_qiime2.py')
+        script = workflow.source_path('scripts/make_manifest_qiime2.py')
     shell:
         'python {params.script} --region {wildcards.region} --outdir {output} {input} '
 
@@ -414,7 +414,7 @@ rule qiime2_biom_to_phyloseq:
     output:
         join(QIIME2_INTERIM, '{denoiser}', '{db}', '{region}_physeq.rds')
     params:
-        script = source_path('scripts/qiime2_create_physeq.R')
+        script = workflow.source_path('scripts/qiime2_create_physeq.R')
     container:
        'docker://' + config['docker']['qiime2'] 
     shell:

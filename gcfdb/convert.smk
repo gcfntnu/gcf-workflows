@@ -106,7 +106,7 @@ rule convert_gtf2transcript_info:
         gtf = join('{ref_dir}', 'anno', 'genes.gtf'),
         fasta = join('{ref_dir}', 'fasta', 'transcriptome.fa')
     params:
-        script = source_path('scripts/gtf2tsv.py')
+        script = workflow.source_path('scripts/gtf2tsv.py')
     output:
         tsv = join('{ref_dir}', 'anno', 'transcripts.tsv')
     container:
@@ -146,7 +146,7 @@ rule convert_gtf2gene_info:
         gtf = join('{ref_dir}', 'anno', 'genes.gtf'),
         fasta = join('{ref_dir}', 'fasta', 'exons.fa')
     params:
-        script = source_path('scripts/gtf2tsv.py'),
+        script = workflow.source_path('scripts/gtf2tsv.py'),
     output:
         tsv = join('{ref_dir}', 'anno', 'genes.tsv')
     container:

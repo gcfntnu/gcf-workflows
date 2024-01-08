@@ -177,7 +177,7 @@ rule scanpy_starsolo:
         mat = join(STAR_INTERIM, '{sample}', 'Solo.out', 'Gene', 'raw', 'matrix.mtx'),
         mem_clean = rules.starsolo_clean_shmem.output
     params:
-        script = source_path('scripts/convert_scanpy.py')
+        script = workflow.source_path('scripts/convert_scanpy.py')
     output:
         join(STAR_INTERIM, '{sample}', 'scanpy', '{sample}.h5ad')
     container:
@@ -193,7 +193,7 @@ rule scanpy_aggr_starsolo:
         mem_clean = rules.starsolo_clean_shmem.output,
         #feature_info = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
-        script = source_path('scripts/convert_scanpy.py'),
+        script = workflow.source_path('scripts/convert_scanpy.py'),
         norm = config['quant']['aggregate']['norm']
     output:
         join(QUANT_INTERIM, 'aggregate', 'star', 'scanpy', 'all_samples_aggr.h5ad')

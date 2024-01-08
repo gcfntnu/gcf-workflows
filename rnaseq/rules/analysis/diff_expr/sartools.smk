@@ -65,7 +65,7 @@ rule sartools_deseq2_run:
     input:
         unpack(get_input)
     params:
-        script = source_path('scripts/template_script_DESeq2_CL.r'),
+        script = workflow.source_path('scripts/template_script_DESeq2_CL.r'),
         args = get_params
     container:
        'docker://' + config['docker']['sartools']
@@ -86,7 +86,7 @@ rule sartools_deseq2:
     output:
         directory(join(QUANT_INTERIM, '{quant}', 'sartools', '{model_name}', 'tables', 'excel_format'))
     params:
-        script = source_path('scripts/tables2excel.py')
+        script = workflow.source_path('scripts/tables2excel.py')
     container:
         'docker://' + config['docker']['default']
     shell:

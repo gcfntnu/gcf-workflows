@@ -90,7 +90,7 @@ rule merged_interleave_fastq:
     output:
         pipe(join(FILTER_INTERIM, 'interleaved_fastq', '{sample}.fastq'))
     params:
-        script = source_path('scripts/interleave_fastq.sh'),
+        script = workflow.source_path('scripts/interleave_fastq.sh'),
         merged_R1 = lambda wildcards, input: merge_cmd_R1(input),
         merged_R2 = lambda wildcards, input: merge_cmd_R2(input)
     shell:

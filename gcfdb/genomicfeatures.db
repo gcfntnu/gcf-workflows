@@ -6,7 +6,7 @@ rule create_txdb:
     output:
         db = join(REF_DIR, 'anno', 'txdb.sqlite')
     params:
-        script = source_path('scripts/create_txdb.R'),
+        script = workflow.source_path('scripts/create_txdb.R'),
         organism = config['organism'],
         db = config['db']['reference_db']
     shell:

@@ -5,7 +5,7 @@ rule bfq_level1_region_summary:
     output:
         join(QC_INTERIM, 'figs', 'qiaseq_regions_mqc.yaml')
     params:
-        script = source_path('scripts/qiaseq_region_summary.py')
+        script = workflow.source_path('scripts/qiaseq_region_summary.py')
     threads:
         1
     container:

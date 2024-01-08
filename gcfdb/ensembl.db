@@ -65,7 +65,7 @@ def init_ensembl(els):
     return config
 
 ENS_RELEASE = str(config['db']['ensembl']['release'])
-config = init_ensembl(ensembl_lookup(source_path('tables/ensembl-{}.gz'.format(ENS_RELEASE))))
+config = init_ensembl(ensembl_lookup(workflow.source_path('tables/ensembl-{}.gz'.format(ENS_RELEASE))))
 ENS_DIVISION = config['db']['ensembl']['division'] or ''
 ENS_ASSEMBLY = config['db']['ensembl']['assembly'] or ''
 if not ENS_ASSEMBLY:

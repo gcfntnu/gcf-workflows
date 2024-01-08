@@ -106,7 +106,7 @@ rule alevin_scanpy_convert:
     input:
         join(AVN_INTERIM, '{sample}', 'alevin', 'quants_mat.gz')
     params:
-        script = source_path('scripts/convert_scanpy.py')
+        script = workflow.source_path('scripts/convert_scanpy.py')
     output:
         join(AVN_INTERIM, '{sample}', 'scanpy', 'adata.h5ad')
     container:
@@ -118,7 +118,7 @@ rule alevin_scanpy_aggr:
     input:
         mat = expand(rules.alevin_quant.output.csv, sample=SAMPLES)
     params:
-        script = source_path('scripts/convert_scanpy.py'),
+        script = workflow.source_path('scripts/convert_scanpy.py'),
         norm = config['quant']['aggregate']['norm']
     output:
         join(QUANT_INTERIM, 'aggregate', 'alevin', 'scanpy', 'scanpy_aggr.h5ad')
@@ -137,7 +137,7 @@ rule alevin_qc:
         rules.alevin_quant.output
     params:
         input_dir = rules.alevin_quant.params.output,
-        script = source_path('scripts/alevinQC.R')
+        script = workflow.source_path('scripts/alevinQC.R')
     output:
         html = join(AVN_INTERIM, '{sample}', 'alevinqc', 'qc_report.html')
     container:
@@ -151,7 +151,7 @@ rule alevin_seurat:
     input:
         rules.alevin_quant.output.csv
     params:
-        script = source_path('scripts/alevin_seurat.R'),
+        script = workflow.source_path('scripts/alevin_seurat.R'),
         input_dir = join(AVN_INTERIM, '{sample}')
     output:
         join(AVN_INTERIM, 'seurat', '{sample}', '{sample}.rds')

@@ -6,7 +6,7 @@ rule scanpy_concat:
     output:
         join(ANALYSIS_INTERIM, 'preprocess', 'scanpy', 'data.5ahd')
     params:
-        script = source_path('scripts/scanpy_read.py')
+        script = workflow.source_path('scripts/scanpy_read.py')
     shell:
         'python {params.script} '
         '-i {input} '

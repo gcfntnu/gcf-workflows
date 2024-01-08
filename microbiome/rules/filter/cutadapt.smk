@@ -8,11 +8,11 @@ rule cutadapt_demultiplex:
         R2 = temp(join(FILTER_INTERIM, 'cutadapt_demultiplex', '{sample}_R2.fastq')),
         log = join(FILTER_INTERIM, 'cutadapt_demultiplex', 'log', '{sample}_qiaseq_demultiplex.log'),
     params:
-        script = source_path('scripts/demultiplex_16s_its.py'),
+        script = workflow.source_path('scripts/demultiplex_16s_its.py'),
         outdir = join(FILTER_INTERIM, 'cutadapt_demultiplex'),
         logdir = join(FILTER_INTERIM, 'cutadapt_demultiplex', 'log'),
         libkit = config["libprepkit"] + (" PE" if len(config["read_geometry"]) > 1 else " SE"),
-        libprepconf = source_path("../../../libprep.config")
+        libprepconf = workflow.source_path("../../../libprep.config")
     threads: 
         2
     container: 
