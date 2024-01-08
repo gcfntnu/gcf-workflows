@@ -15,8 +15,6 @@ include:
 include:
     'common/fastqc.smk'
 include:
-    'common/kraken2.smk'
-include:
     'common/fastqscreen.smk'
 
 
@@ -26,7 +24,7 @@ rule sample_info:
     singularity:
         'docker://' + config['docker']['default']
     params:
-        script = srcdir('scripts/pep_sampleinfo.py'),
-        pep = workflow.pepfile
+        script = srcdir('scripts/create_sampleinfo.py'),
+        pep = 'config.yaml' if config.get('skip_peppy', False) else workflow.pepfile
     shell:
         'python {params.script} {params.pep} {output}'
