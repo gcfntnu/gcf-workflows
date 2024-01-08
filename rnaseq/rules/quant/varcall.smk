@@ -1,7 +1,5 @@
 # -*- mode: snakemake -*-
-
 VARCALL_INTERIM = join(ALIGN_INTERIM, ALIGNER, 'varcall')
-    
 
 rule gene_intervals:
     input:
@@ -104,5 +102,94 @@ rule gatk_varcall_all:
         'gatk MergeVcfs '
         '{params.vcfs} '
         '--OUTPUT {output} '
-        
-        
+
+rule donor_list:
+    output:
+        join(VARCALL_INTERIM, 'donor_cellsnp', '{aggr_id}', 'donor_list.txt')
+    params:
+        donor_ids = lambda wildcards: r'\n'.join(AGGR_IDS.get(wildcards.aggr_id, []))
+    shell:
+        'echo -e "{params.donor_ids}" > {output}'
+
+
+def get_aggr_bam(wildcards):
+    sub_samples = AGGR_ID[wildcards.aggr_id]
+    ALIGNER = config.get('align', {}).get('genome', {}).get('aligner', 'star')
+    return expand(join(ALIGN_INTERIM, ALIGNER, '{sample}.sorted.bam'), sample=sub_samples)
+    
+
+rule cellsnp_pileup_1b_aggr: # pileup with defined variants (bulk)
+    input:
+        bam = get_aggr_bam,
+        vcf = join(REF_DIR, 'anno', 'common_variants.vcf'),
+        donor_list = join(VARCALL_INTERIM, 'aggregate', 'cellsnp', '{aggr_id}', 'donor_list.txt')
+    output:
+        vcf_base = join(VARCALL_INTERIM, 'aggregate', 'cellsnp', '{aggr_id}', 'cellSNP.base.vcf'),
+        vcf = join(VARCALL_INTERIM, 'aggregate', 'cellsnp', '{aggr_id}', 'cellSNP.cells.vcf'),
+        samples = join(VARCALL_INTERIM, 'aggregate', 'cellsnp', '{aggr_id}', 'cellSNP.samples.tsv'),
+        mtx_ad = join(VARCALL_INTERIM, 'aggregate', 'cellsnp', '{aggr_id}', 'cellSNP.tag.AD.mtx'),
+        mtx_dp = join(VARCALL_INTERIM, 'aggregate', 'cellsnp', '{aggr_id}', 'cellSNP.tag.DP.mtx'),
+        mtx_other = join(VARCALL_INTERIM, 'aggregate', 'cellsnp', '{aggr_id}', 'cellSNP.tag.OTH.mtx')
+    params:
+        cellsnp_dir = join(VARCALL_INTERIM,  'aggregate', 'cellsnp', '{aggr_id}'),
+        input_bam = lambda wildcards, input: ','.join(input.bam),
+        minMAF = 0.1,
+        minCOUNT = 20,
+        args = '--genotype --cellTAG None --UMItag None '
+    threads:
+        24
+    container:
+        'docker://gcfntnu/cellsnp-lite:1.2.3'
+    shell:
+        'cellsnp-lite '
+        '-s {params.input_bam} '
+        '-I {input.donor_list} '
+        '-R {input.vcf} '
+        '-O {params.cellsnp_dir} '
+        '--minMAF {params.minMAF} '
+        '--minCOUNT {params.minCOUNT} '
+        ' {params.args} '
+        '--nproc {threads} '
+
+rule index_donor_vcf:
+    input:
+        donor_vcf = join(VARCALL_INTERIM,  'aggregate', 'cellsnp', '{aggr_id}', 'cellSNP.cells.vcf')
+    output:
+        donor_vcf_index = join(VARCALL_INTERIM,  'aggregate', 'cellsnp', '{aggr_id}', 'cellSNP.cells.vcf.gz.tbi'),
+        donor_vcf =  join(VARCALL_INTERIM,  'aggregate', 'cellsnp', '{aggr_id}', 'cellSNP.cells.vcf.gz')
+    container:
+        'docker://gcfntnu/vcftools:1.18'
+    threads:
+        4
+    shell:
+        'bgzip --threads {threads} --stdout --index --index-name {output.donor_vcf_index} {input.donor_vcf} > {output.donor_vcf} '
+
+
+rule chrom_conversion:
+    output:
+        join(REF_DIR, 'anno', 'chrom_map.txt')
+    shell:
+        """
+        for i in {1..22} X Y MT
+        do
+        echo "$i chr$i" > {output}
+        """
+
+rule cellsnp_donor_vcf:
+    input:
+        vcf = join(DEMUX_DIR,  'donor_cellsnp', '{aggr_id}', 'cellSNP.cells.vcf.gz'),
+        chrom_map = join(REF_DIR, 'anno', 'chrom_map.txt')
+    output:
+        vcf = join(DEMUX_DIR,  'donor_cellsnp', '{aggr_id}', 'cellSNP.cells.chr.vcf')
+    singularity:
+        'docker://gcfntnu/vcftools:1.18'
+    shell:
+        'bcftools annotate --rename-chrs {input.chrom_map} {input.vcf} -Ov -o {output.vcf} '
+                                      
+
+
+rule cellsnp_all:
+        input:
+            expand(rules.index_donor_vcf, aggr_ids = AGGR_IDS)
+                                      
+                                      
