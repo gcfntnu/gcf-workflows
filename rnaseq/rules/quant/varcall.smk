@@ -1,4 +1,9 @@
 # -*- mode: snakemake -*-
+"""
+
+fixme: cellsnp-lite lacks implmentation of non-aggregated path
+fixme: cellsnp-lite assumes reference_db is ensembl (or has ensemble type chromosome names with no chr-prefix)
+"""
 VARCALL_INTERIM = join(ALIGN_INTERIM, ALIGNER, 'varcall')
 
 rule gene_intervals:
