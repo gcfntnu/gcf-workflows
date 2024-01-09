@@ -3,7 +3,7 @@
 """
 if not config['quant'].get('aggregate', {}).get('skip', False):
     AGGR_IDS = collections.defaultdict(list)
-    groupby = config['quant'].get('aggregate', {}).get('groupby')
+    groupby = config['quant'].get('aggregate', {}).get('groupby', 'all_samples')
     for k, v in config['samples'].items():
         if groupby in v:
             for aggr_id in v[groupby].split(','):
