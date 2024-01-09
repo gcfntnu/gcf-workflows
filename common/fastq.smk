@@ -112,7 +112,6 @@ def get_filtered_fastq(wildcards):
             FASTQ_EXT += '.gz'
         
     R1 = join(DST_PTH, wildcards.sample + '_R1' + FASTQ_EXT)
-    print(R1)
     if R2:
         R2 = join(DST_PTH, wildcards.sample + '_R2' + FASTQ_EXT)
         return {'R1': R1, 'R2': R2}
