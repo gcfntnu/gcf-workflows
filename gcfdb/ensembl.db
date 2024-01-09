@@ -251,17 +251,6 @@ rule human_ensembl_gtf:
         """
 
 
-rule human_ensembl_common_snps:
-    params:
-        proxy = config.get('proxy', {}).get('wget', ''),
-        date = datetime.now().strftime("%d-%m-%Y"), 
-        url = 'https://gcf-winecellar.medisin.ntnu.no/thousand_genomes/common_variants_grch38_nochr.vcf'
-    output:
-        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), 'homo_sapiens', 'GRCh38', 'anno', 'common_variants.vcf')
-    log:
-        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), 'homo_sapiens', 'GRCh38', 'logs', 'common_variants.log')
-    shell:
-        'wget {params.proxy} -O {output} {params.url} && '
-        'echo "1000genomes common snps,NA,{params.url},{params.date}" > {log} '
-    
+
+
 
