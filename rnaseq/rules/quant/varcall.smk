@@ -34,7 +34,6 @@ rule picard_add_rg:
         'RGPU={params.machine} '
         'RGSM={wildcards.sample} '
     
-
 rule gatk_split_and_trim:
     input:
         bam = join(VARCALL_INTERIM, '{sample}_RG.bam'),
@@ -74,7 +73,6 @@ rule gatk_varcall:
         '-O {output.vcf} '
         '-bamout {output.bam} '
 
-        
 rule gatk_var_filter:
     input:
         vcf = join(VARCALL_INTERIM, '{sample}_all.vcf'),
@@ -87,7 +85,6 @@ rule gatk_var_filter:
         """
         gatk VariantFiltration --R {input.genome} --V {input.vcf} --window 35 --cluster 3 --filter-name "FS" --filter "FS > 30.0" --filter-name "QD" --filter "QD < 2.0" -O {output.vcf}
         """
-
 
 rule gatk_varcall_all:
     input:
@@ -105,19 +102,17 @@ rule gatk_varcall_all:
 
 rule donor_list:
     output:
-        join(VARCALL_INTERIM, 'donor_cellsnp', '{aggr_id}', 'donor_list.txt')
+        join(VARCALL_INTERIM, 'aggregate', 'cellsnp', '{aggr_id}', 'donor_list.txt')
     params:
         donor_ids = lambda wildcards: r'\n'.join(AGGR_IDS.get(wildcards.aggr_id, []))
     shell:
         'echo -e "{params.donor_ids}" > {output}'
 
-
 def get_aggr_bam(wildcards):
-    sub_samples = AGGR_ID[wildcards.aggr_id]
+    sub_samples = AGGR_IDS[wildcards.aggr_id]
     ALIGNER = config.get('align', {}).get('genome', {}).get('aligner', 'star')
     return expand(join(ALIGN_INTERIM, ALIGNER, '{sample}.sorted.bam'), sample=sub_samples)
     
-
 rule cellsnp_pileup_1b_aggr: # pileup with defined variants (bulk)
     input:
         bam = get_aggr_bam,
@@ -139,11 +134,11 @@ rule cellsnp_pileup_1b_aggr: # pileup with defined variants (bulk)
     threads:
         24
     container:
-        'docker://gcfntnu/cellsnp-lite:1.2.3'
+        'docker://' + config['docker']['cellsnp-lite']
     shell:
         'cellsnp-lite '
         '-s {params.input_bam} '
-        '-I {input.donor_list} '
+        '-i {input.donor_list} '
         '-R {input.vcf} '
         '-O {params.cellsnp_dir} '
         '--minMAF {params.minMAF} '
@@ -158,38 +153,49 @@ rule index_donor_vcf:
         donor_vcf_index = join(VARCALL_INTERIM,  'aggregate', 'cellsnp', '{aggr_id}', 'cellSNP.cells.vcf.gz.tbi'),
         donor_vcf =  join(VARCALL_INTERIM,  'aggregate', 'cellsnp', '{aggr_id}', 'cellSNP.cells.vcf.gz')
     container:
-        'docker://gcfntnu/vcftools:1.18'
+        'docker://' + config['docker']['vcftools']
     threads:
         4
     shell:
         'bgzip --threads {threads} --stdout --index --index-name {output.donor_vcf_index} {input.donor_vcf} > {output.donor_vcf} '
 
-
-rule chrom_conversion:
+rule chrom_conversion_chr:
     output:
-        join(REF_DIR, 'anno', 'chrom_map.txt')
-    shell:
-        """
-        for i in {1..22} X Y MT
-        do
-        echo "$i chr$i" > {output}
-        """
+        txt = join(REF_DIR, 'anno', 'chrom_map.txt')
+    run:
+        chrom = [str(i) for i in range(1, 23)]
+        chrom.extend(['X', 'Y', 'MT'])
+        with open(output.txt, 'w') as fh:
+            for c in chrom:
+                line = '{}\t{}\n'.format(c, 'chr'+c)
+                fh.write(line)
 
-rule cellsnp_donor_vcf:
+rule cellsnp_donor_vcf_chr:
     input:
-        vcf = join(DEMUX_DIR,  'donor_cellsnp', '{aggr_id}', 'cellSNP.cells.vcf.gz'),
+        vcf = join(VARCALL_INTERIM,  'aggregate', 'cellsnp', '{aggr_id}', 'cellSNP.cells.vcf.gz'),
         chrom_map = join(REF_DIR, 'anno', 'chrom_map.txt')
     output:
-        vcf = join(DEMUX_DIR,  'donor_cellsnp', '{aggr_id}', 'cellSNP.cells.chr.vcf')
+        vcf = join(VARCALL_INTERIM,  'aggregate', 'cellsnp', '{aggr_id}', 'cellSNP.cells.chr.vcf')
     singularity:
-        'docker://gcfntnu/vcftools:1.18'
+        'docker://' + config['docker']['vcftools']
     shell:
         'bcftools annotate --rename-chrs {input.chrom_map} {input.vcf} -Ov -o {output.vcf} '
                                       
-
+rule index_donor_vcf_chr:
+    input:
+        donor_vcf = join(VARCALL_INTERIM,  'aggregate', 'cellsnp', '{aggr_id}', 'cellSNP.cells.chr.vcf')
+    output:
+        donor_vcf_index = join(VARCALL_INTERIM,  'aggregate', 'cellsnp', '{aggr_id}', 'cellSNP.cells.chr.vcf.gz.tbi'),
+        donor_vcf =  join(VARCALL_INTERIM,  'aggregate', 'cellsnp', '{aggr_id}', 'cellSNP.cells.chr.vcf.gz')
+    container:
+        'docker://' + config['docker']['vcftools']
+    threads:
+        4
+    shell:
+        'bgzip --threads {threads} --stdout --index --index-name {output.donor_vcf_index} {input.donor_vcf} > {output.donor_vcf} '
 
 rule cellsnp_all:
         input:
-            expand(rules.index_donor_vcf, aggr_ids = AGGR_IDS)
+            expand(rules.index_donor_vcf_chr.output.donor_vcf, aggr_id = AGGR_IDS)
                                       
                                       
