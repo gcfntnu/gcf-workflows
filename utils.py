@@ -41,6 +41,12 @@ FASTQ_DIR = config.get("fastq_dir") or environ.get("GCF_FASTQ", "data/raw/fastq"
 while FASTQ_DIR.endswith(os.path.sep):
     FASTQ_DIR = FASTQ_DIR[:-1]
 makedirs(FASTQ_DIR, exist_ok=True)
+
+GCF_SRC_DIR = "src/gcf-workflow"
+
+def src_gcf(pth):
+    return join(workflow.basedir, GCF_SRC_DIR, pth)
+
 GCFDB_DIR = workflow.source_path("gcfdb")
 
 ORG = config.get('organism', "N/A").lower().strip().replace(' ', '_')
