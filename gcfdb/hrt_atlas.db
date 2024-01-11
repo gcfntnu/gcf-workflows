@@ -79,7 +79,7 @@ rule hta2bed12:
     output:
         join(EXT_DIR, 'HTA', 'anno', 'housekeeping_transcripts_{}.bed12'.format(ORG))
     params:
-        script = workflow.source_path('scripts/hta_bed12.py')
+        script = src_gcf('scripts/hta_bed12.py')
     container:
        'docker://' + config['docker']['default']
     shell:

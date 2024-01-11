@@ -11,9 +11,9 @@ Authors:
 Arnar Flatberg / flatberg <arnar.flatberg@ntnu.no>
 """
 include:
-    workflow.source_path('../utils.py')
+    src_gcf('../utils.py')
 
-extra_conf_fn = workflow.source_path('singlecell.config')
+extra_conf_fn = src_gcf('singlecell.config')
 if os.path.exists(extra_conf_fn):
     with open(extra_conf_fn) as fh:
         c  = yaml.load(fh, Loader=Loader) or {}
@@ -23,7 +23,7 @@ if not 'SAMPLES' in locals():
     SAMPLES = list(config.get('samples', {}).keys())
 
 include:
-    workflow.source_path('../common.smk')
+    src_gcf('../common.smk')
 include:
     'rules/gcfdb.smk'
 include:
@@ -35,7 +35,7 @@ include:
 include:
     'rules/bfq.smk'
 include:
-    workflow.source_path('../postprocess.smk') 
+    src_gcf('../postprocess.smk') 
 
 
 onsuccess:

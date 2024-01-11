@@ -201,7 +201,7 @@ rule kraken_phyloseq:
     output:
         join(K2_INTERIM, "physeq.rds"),
     params:
-        script = workflow.source_path("scripts/kraken2_create_physeq.R")
+        script = src_gcf("scripts/kraken2_create_physeq.R")
     container:
         "docker://" + config["docker"]["phyloseq"]
     threads:

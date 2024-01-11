@@ -6,7 +6,7 @@ Rules for calling the Signal workflow, https://github.com/jaleezyy/covid-19-sign
 
 PROTOCOL = config['protocol']
 REFERENCE = config['virale_reference']
-SIGNAL_SM = workflow.source_path('../external_pipelines/covid-19-signal/Snakefile_{}'.format(PROTOCOL))
+SIGNAL_SM = src_gcf('../external_pipelines/covid-19-signal/Snakefile_{}'.format(PROTOCOL))
 
 SIGNAL_INTERIM = join(INTERIM_DIR, 'sars-cov2', 'signal')
 

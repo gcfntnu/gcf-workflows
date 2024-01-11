@@ -8,7 +8,7 @@ rule swift_align:
         R2 = expand(join(FILTER_INTERIM, 'cleaned', '{sample}_R2.fastq'), sample=SAMPLES),
         genome = join(EXT_DIR, 'ncbi', 'NC_045512.2', 'fasta/NC_045512.2.fa')
     params:
-        script = workflow.source_path('scripts//swift_amplicon_analysis_sarscov2.sh'),
+        script = src_gcf('scripts//swift_amplicon_analysis_sarscov2.sh'),
         input_dir = join(FILTER_INTERIM, 'cleaned')
     output:
         ''

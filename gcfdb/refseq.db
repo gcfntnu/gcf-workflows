@@ -17,7 +17,7 @@ def init_refseq(config):
     """
     release = config['db']['refseq']['release']
     config['db']['refseq']['multi_assembly'] = False
-    fn = workflow.source_path('tables/refseq-{}.tsv'.format(release))
+    fn = src_gcf('tables/refseq-{}.tsv'.format(release))
     if not os.path.exists(fn):
         logger.info('refseq lookupfile for release {} is missing!'.format(release))
         logger.info('expected: {}'.format(fn))
@@ -99,13 +99,13 @@ config = init_refseq(config)
 if config['db']['refseq']['multi_assembly']:
     config['db']['refseq']['assembly'] = 'merged_assemblies'
 
-REFSEQ_DB = workflow.source_path('tables/refseq-{}.tsv.gz'.format(config['db']['refseq']['release']))
+REFSEQ_DB = src_gcf('tables/refseq-{}.tsv.gz'.format(config['db']['refseq']['release']))
 
 rule refseq_lookuptable:
     output:
         REFSEQ_DB
     params:
-        script = workflow.source_path('scripts/build_refseq_lookup.py'),
+        script = src_gcf('scripts/build_refseq_lookup.py'),
         proxy = config.get('proxy', {}).get('server', {}).get('ftp'),
         kingdoms = 'vertebrate_mammalian,vertebrate_other,plant,archaea,fungi,invertebrate,protozoa,bacteria,viral',
         release = config['db']['refseq']['release']
@@ -177,7 +177,7 @@ rule refseq_gtf_noneukaryot:
     output:
         join(EXT_DIR, 'refseq', 'release-{release}', '{organism}', '{assembly}', 'anno', 'genes.gtf')
     params:
-        script = workflow.source_path('scripts/refseq_gtf.py')
+        script = src_gcf('scripts/refseq_gtf.py')
     shell:
         'python {params.script} {input} {output}'
 

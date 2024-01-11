@@ -5,7 +5,7 @@ rule seurat_cellcycle:
     output:
         'seurat_cellcycle.rds'
     params:
-        script = workflow.source_path('scripts/seurat_cellcycle.R'),
+        script = src_gcf('scripts/seurat_cellcycle.R'),
         args = '--write-scores -v'
     container:
         ''

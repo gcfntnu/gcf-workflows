@@ -31,7 +31,7 @@ rule rockhopper_all:
         counts = join(QUANT_INTERIM, 'rockhopper', 'gene_counts.tsv'),
         anno = join(QUANT_INTERIM, 'rockhopper', 'gene_info.tsv')
     params:
-        script = workflow.source_path('scripts/rh_parse_tx.py'),
+        script = src_gcf('scripts/rh_parse_tx.py'),
         outdir = join(QUANT_INTERIM, 'rockhopper')
     shell:
         'python {params.script} '
@@ -47,7 +47,7 @@ rule rockhopper_anndata:
     output:
         join(QUANT_INTERIM, 'rockhopper', 'adata.h5ad')
     params:
-        script = workflow.source_path('src/gcf-workflows/rnaseq/rules/quant/scripts/create_anndata.py')
+        script = src_gcf('src/gcf-workflows/rnaseq/rules/quant/scripts/create_anndata.py')
     container:
         'docker://' + config['docker']['scanpy']
     shell:
