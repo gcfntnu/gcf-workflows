@@ -8,7 +8,7 @@ microbiome-seq Analysis Pipeline.
 
 """
 include:
-    src_gcf('../utils.py')
+    '../utils.py'
 
 extra_conf_fn = src_gcf('microbiome.config')
 if os.path.exists(extra_conf_fn):
@@ -21,7 +21,7 @@ if not 'SAMPLES' in locals():
 
 
 include:
-    src_gcf('../common.smk')
+    '../common.smk'
 include:
     'rules/reference_db.smk'
 include:
@@ -35,7 +35,7 @@ include:
 include:
     'rules/bfq.smk'
 include:
-    src_gcf('../postprocess.smk')
+    '../postprocess.smk'
 
 
 onsuccess:

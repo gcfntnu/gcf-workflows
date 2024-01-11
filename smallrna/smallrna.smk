@@ -7,7 +7,7 @@ small-rna
 small-rna Analysis Pipeline.
 """
 include:
-    src_gcf('../utils.py')
+    '../utils.py'
 
 extra_conf_fn = src_gcf('smallrna.config')
 if os.path.exists(extra_conf_fn):
@@ -19,7 +19,7 @@ if not 'SAMPLES' in locals():
     SAMPLES = [str(name) for name in config.get('samples', {}).keys()]
 
 include:
-    src_gcf('../common.smk')
+    '../common.smk'
 include:
     'rules/gcfdb.smk'
 include:
@@ -33,7 +33,7 @@ include:
 include:
     'rules/bfq.smk'
 include:
-    src_gcf('../postprocess.smk')
+    '../postprocess.smk'
     
 onsuccess:
     # write config
