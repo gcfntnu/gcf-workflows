@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ['3.9.12']
+        python-version: ['3.11']
 
     steps:
     - uses: actions/checkout@v2
@@ -21,9 +21,9 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        python -m pip install snakemake==7.15.2 pyyaml==6.0 peppy==0.35.2 rich==12.6.0
+        python -m pip install snakemake==8.1.1 pyyaml==6.0 peppy rich pulp==2.7.0
         python --version
     - name: Dry run bfq_all
       working-directory: ./rnaseq/.tests
       run: |
-        snakemake -n -p -j1 bfq_all
+        snakemake -n -p --cores 1 multiqc_report
