@@ -13,7 +13,7 @@ rule fastv:
     params:
         args = '--cut_front --cut_tail --cut_mean_quality 30 --qualified_quality_phred 30 --unqualified_percent_limit 10 --length_required 50 --trim_poly_x '
         adapter_arg = lambda wildcards, input: fastp_adapter_args(input)
-    singularity:
+    container:
         'docker://' + config['docker']['fastv']
     shell:
         'fastv -i {input.R1} -I {input.R2} -g {input.genome} -o {output.R1} -O {output.R2} -j {output.log_json} -h {output.log_html} --thread {threads} {params} '
@@ -32,7 +32,7 @@ rule fastp:
     params:
         args = '--cut_front --cut_tail --cut_mean_quality 30 --qualified_quality_phred 30 --unqualified_percent_limit 10 --length_required 50 --trim_poly_x '
         adapter_arg = lambda wildcards, input: fastp_adapter_args(input)
-    singularity:
+    container:
         'docker://' + config['docker']['fastp']
     shell:
         'fastp -i {input.R1} -I {input.R2} -o {output.R1} -O {output.R2} -j {output.log_json} -h {output.log_html} --thread {threads} {params} '

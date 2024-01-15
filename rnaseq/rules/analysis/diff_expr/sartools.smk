@@ -65,9 +65,9 @@ rule sartools_deseq2_run:
     input:
         unpack(get_input)
     params:
-        script = srcdir('scripts/template_script_DESeq2_CL.r'),
+        script = src_gcf('scripts/template_script_DESeq2_CL.r'),
         args = get_params
-    singularity:
+    container:
        'docker://' + config['docker']['sartools']
     output:
         join(QUANT_INTERIM, '{quant}', 'sartools', '{model_name}', '{model_name}_report.html')
@@ -86,8 +86,8 @@ rule sartools_deseq2:
     output:
         directory(join(QUANT_INTERIM, '{quant}', 'sartools', '{model_name}', 'tables', 'excel_format'))
     params:
-        script = srcdir('scripts/tables2excel.py')
-    singularity:
+        script = src_gcf('scripts/tables2excel.py')
+    container:
         'docker://' + config['docker']['default']
     shell:
         'python {params.script} {input} {output}'

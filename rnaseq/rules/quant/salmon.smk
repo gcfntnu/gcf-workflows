@@ -86,7 +86,7 @@ rule salmon_map:
         unmapped_args = '--writeUnmappedNames --writeMappings=unmapped.sam '
     threads:
         24
-    singularity:
+    container:
         'docker://' + config['docker']['salmon']
     output:
         quant = join(SALMON_INTERIM, '{sample}', 'quant.sf'),
@@ -127,7 +127,7 @@ rule salmon_unmapped_fastq:
     params:
         args = unmapped_sample_args,
         prefix = join(SALMON_INTERIM, '{sample}', 'unmapped')
-    singularity:
+    container:
         'docker://' + config['docker']['salmon']
     output:
         join(SALMON_INTERIM, '{sample}', 'unmapped_1.fa.gz')
@@ -142,8 +142,8 @@ rule salmon_tximport:
         files = expand(join(SALMON_INTERIM, '{sample}', 'quant.sf'), sample=SAMPLES),
         txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
-        script = srcdir('scripts/tximport.R')
-    singularity:
+        script = src_gcf('scripts/tximport.R')
+    container:
         'docker://' + config['docker']['tximport']
     threads:
         48
@@ -162,12 +162,12 @@ rule salmon_tximeta:
         sample_info = join(INTERIM_DIR, 'sample_info.tsv'),
         index = join(REF_DIR, 'index', '{prefix}', 'salmon', 'tximeta.json')
     params:
-        script = srcdir('scripts/tximeta.R'),
+        script = src_gcf('scripts/tximeta.R'),
         index_dir = join(REF_DIR, 'index', '{prefix}', 'salmon'),
         cache = join(EXT_CACHE, 'tximeta')
     threads:
         48
-    singularity:
+    container:
         'docker://' + config['docker']['tximport']
     output:
         rds = join(QUANT_INTERIM, 'salmon', 'tximeta', '{prefix}_salmon.rds')
@@ -191,10 +191,10 @@ rule salmon_gene_anndata:
     output:
         join(QUANT_INTERIM, 'salmon', 'gene_anndata.adh5')
     params:
-        script = srcdir('scripts/create_anndata.py')
+        script = src_gcf('scripts/create_anndata.py')
     threads:
         48
-    singularity:
+    container:
         'docker://' + config['docker']['scanpy']
     shell:
         'python {params.script} '
@@ -223,7 +223,7 @@ rule terminus_group:
         outdir = join(QUANT_INTERIM, 'terminus'),
         m = 0.05,
         tolerance = 0.001
-    singularity:
+    container:
         'docker://' + config['docker']['salmon']
     threads:
         16       
@@ -236,7 +236,7 @@ rule terminus_collapse:
     input:
        salmon = expand(rules.terminus_group.input, sample=SAMPLES),
        groups = expand(rules.terminus_group.output, sample=SAMPLES)
-    singularity:
+    container:
         'docker://' + config['docker']['salmon']
     params:
         input_dirs = lambda wildcards, input: ' '.join([os.path.dirname(n) for n in input.salmon]),
@@ -259,7 +259,7 @@ rule terminus_tx2terminus:
     output:
         join(QUANT_INTERIM, 'terminus', 'tx2terminus.tsv')
     params:
-        script = srcdir('scripts/extract_txp_group.py')
+        script = src_gcf('scripts/extract_txp_group.py')
     threads:
         16
     shell:
@@ -270,8 +270,8 @@ rule terminus_tximport:
         files = expand(join(SALMON_INTERIM, '{sample}', 'quant.sf'), sample=SAMPLES),
         txinfo = join(QUANT_INTERIM, 'terminus', 'tx2terminus.tsv')
     params:
-        script = srcdir('scripts/tximport.R')
-    singularity:
+        script = src_gcf('scripts/tximport.R')
+    container:
         'docker://' + config['docker']['tximport']
     output:
         rds = join(QUANT_INTERIM, 'terminus', 'tximport', '{}_terminus.rds'.format(SALMON_INDEX_TYPE))
@@ -288,7 +288,7 @@ rule terminus_info:
         txinfo = join(REF_DIR, 'anno', 'transcripts.tsv'),
         tx2terminus = join(QUANT_INTERIM, 'terminus', 'tx2terminus.tsv')
     params:
-        script = srcdir('scripts/terminus_anno.py')
+        script = src_gcf('scripts/terminus_anno.py')
     output:
         join(QUANT_INTERIM, 'terminus', 'terminus_info.tsv')
     threads:

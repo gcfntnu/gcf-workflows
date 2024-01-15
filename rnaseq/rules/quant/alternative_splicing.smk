@@ -7,7 +7,7 @@ rule yanagi_preprocess:
         tx = join(QUANT_INTERIM, 'yanagi', 'preprocess', 'txs2bins.tsv')
     params:
         outdir = join(QUANT_INTERIM, 'yanagi', 'preprocess')
-    singularity:
+    container:
         'docker://gcfntnu/yanagi:0.1'
     shell:
         """

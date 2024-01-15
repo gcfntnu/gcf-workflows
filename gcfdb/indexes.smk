@@ -31,7 +31,7 @@ rule star_genome_index_gtf:
         size_params = lambda wildcards, input: genome_size_params(input.genome)
     threads:
         48
-    singularity:
+    container:
         'docker://' + config['docker']['star']
     shell:
         'STAR '
@@ -54,7 +54,7 @@ rule star_genome_index:
         size_params = lambda wildcards, input: genome_size_params(input.genome)
     threads:
         48
-    singularity:
+    container:
         'docker://' + config['docker']['star']
     shell:
         'STAR '
@@ -76,7 +76,7 @@ rule hisat2_genome_index:
         48
     log:
         join('{ref_dir}', 'logs', 'HISAT2.{prefix}.index.log')
-    singularity:
+    container:
         'docker://' + config['docker']['hisat2']
     shell:
         'hisat2-build '
@@ -90,7 +90,7 @@ rule hisat2_splicesites:
         gtf = join('{ref_dir}', 'anno', 'genes.gtf')
     output:
         join('{ref_dir}', 'anno', 'splicesites.txt')
-    singularity:
+    container:
        'docker://' + config['docker']['hisat2'] 
     shell:
         'hisat2_extract_splice_sites.py {input.gtf} > {output}'
@@ -107,7 +107,7 @@ rule bwa_index:
     params:
         output_dir = join('{ref_dir}', 'index', '{prefix}', 'bwa'),
         input_dir = join('{ref_dir}', 'fasta')
-    singularity:
+    container:
         'docker://' + config['docker']['bwa_samtools']
     shell:
         """
@@ -132,7 +132,7 @@ rule bowtie_index:
         join('{ref_dir}', 'index', '{prefix}', 'bowtie', '{prefix}.rev.2.ebwt')
     params:
         index = join('{ref_dir}', 'index', '{prefix}', 'bowtie', '{prefix}')
-    singularity:
+    container:
         'docker://' + config['docker']['bowtie']
     shell:
         'bowtie-build {input} {params.index}'
@@ -151,7 +151,7 @@ rule bowtie2_index:
         index = join('{ref_dir}', 'index', '{prefix}', 'bowtie2', '{prefix}')
     threads:
         48
-    singularity:
+    container:
         'docker://' + config['docker']['bowtie2']
     shell:
         'bowtie2-build --threads {threads} {input} {params.index}'
@@ -163,7 +163,7 @@ rule bbmap_index:
         join('{ref_dir}', 'index', '{prefix}', 'bbmap', 'ref', '{prefix}', '1', 'info.txt')
     params:
         index = join('{ref_dir}', 'index', '{prefix}', 'bbmap')
-    singularity:
+    container:
         'docker://' + config['docker']['bbmap']
     shell:
         'bbmap.sh ref={input} path={params.index}'
@@ -204,7 +204,7 @@ rule salmon_index_selective:
         16
     priority:
         1
-    singularity:
+    container:
         'docker://' + config['docker']['salmon']
     shell:
         'salmon index '
@@ -222,7 +222,7 @@ rule salmon_index:
         out = join('{ref_dir}', 'index', '{prefix}', 'salmon')
     threads:
         16
-    singularity:
+    container:
         'docker://' + config['docker']['salmon']
     shell:
         'salmon index '
@@ -239,7 +239,7 @@ rule salmon_index_tximeta:
     output:
         json = join('{ref_dir}', 'index', '{prefix}', 'salmon', 'tximeta.json')
     params:
-        script = srcdir('scripts/make_linked_txome.R'),
+        script = src_gcf('scripts/make_linked_txome.R'),
         org = config['organism'],
         db = lambda x: 'GCF_' + config['db']['reference_db'],
         release = lambda x: DB_CONF['release'],
@@ -247,7 +247,7 @@ rule salmon_index_tximeta:
         cache = join(EXT_CACHE, 'tximeta')
     threads:
         16
-    singularity:
+    container:
         'docker://' + config['docker']['tximport']
     shell:
         'Rscript {params.script} -v '

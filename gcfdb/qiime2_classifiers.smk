@@ -6,7 +6,7 @@
 from os.path import join
 # libprep
 
-libprep_conf_fn = srcdir('../libprep.config')
+libprep_conf_fn = src_gcf('../libprep.config')
 if os.path.exists(libprep_conf_fn):
     with open(libprep_conf_fn) as fh:
         ALL_LIBPREP  = yaml.load(fh, Loader=Loader) or {}
@@ -60,10 +60,10 @@ rule build_q2_classifer:
         ref = join(EXT_DIR, '{db}', '{release}', 'fasta', '{level}', 'otus.fa'),
         taxa = join(EXT_DIR, '{db}', '{release}', 'anno', '{level}', 'otus_taxonomy.txt')
     params:
-        script = srcdir('scripts/train_classifier.py')
+        script = src_gcf('scripts/train_classifier.py')
     output:
         join(EXT_DIR, '{db}', '{release}', 'qiime2', 'classifiers', '{level}_{fwd}-{rev}.qza')
-    singularity:
+    container:
         'docker://' + config['docker']['qiime2']
     threads:
         24
@@ -84,7 +84,7 @@ rule export_classifier:
         join(EXT_DIR, '{db}', '{release}', 'qiime2', 'classifiers', 'export', '{level}_{region}', 'sklearn_pipeline.tar')
     params:
         outdir = join(EXT_DIR, '{db}', '{release}', 'qiime2', 'classifiers', 'export', '{level}_{region}')
-    singularity:
+    container:
         'docker://' + config['docker']['qiime2']
     shell:
         'qiime tools export --input-path {input} --output-path {params.outdir}'

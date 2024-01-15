@@ -20,7 +20,7 @@ if PE:
             args = '--overrepresentation_analysis --overrepresentation_sampling 10000 ',
             adapter_arg = lambda wildcards, input: fastp_adapter_args(input),
             kit_args = config['filter']['trim'].get('fastp', {}).get('params', ' ')
-        singularity:
+        container:
             'docker://' + config['docker']['fastp']
         shell:
             'fastp -i {input.R1} -I {input.R2} -o {output.R1} -O {output.R2} -j {output.log_json} -h {output.log_html} --thread {threads} {params} '
@@ -39,7 +39,7 @@ else:
             args = '--overrepresentation_analysis --overrepresentation_sampling 10000 ',
             adapter_arg = lambda wildcards, input: fastp_adapter_args(input),
             kit_args = config['filter']['trim'].get('fastp', {}).get('params', '')
-        singularity:
+        container:
             'docker://' + config['docker']['fastp']
         shell:
             'fastp -i {input.R1} -o {output.R1} -j {output.log_json} -h {output.log_html} --thread {threads} {params} '

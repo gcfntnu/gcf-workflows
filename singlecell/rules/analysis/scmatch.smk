@@ -5,7 +5,7 @@ rule sc_match:
 
     output:
         
-    singularity:
+    container:
         'docker://biagii/scmatch:latest'
     shell:
         'python scMatch.py --refDS refDB/FANTOM5 --dFormat 10x --testDS '

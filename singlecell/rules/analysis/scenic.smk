@@ -12,7 +12,7 @@ rule scenic_hda5_counts_mtx:
     params:
         out =  join(ANALYSIS_INTERIM, 'scenic', '{id}')
     params:
-        script = srcdir('scripts/pyscenic_grn_input.py {input} {params.out}')
+        script = src_gcf('scripts/pyscenic_grn_input.py {input} {params.out}')
     shell:
         'python {params.script} {input} {output} '
 
@@ -23,7 +23,7 @@ rule scenic_hda5_exprs_mtx:
     output:
         join(ANALYSIS_INTERIM, 'scenic', '{id}', 'norm', 'exprs.mtx') 
     params:
-        script = srcdir('scripts/pyscenic_grn_input.py')
+        script = src_gcf('scripts/pyscenic_grn_input.py')
     shell:
         'python {params.script} --use-norm-exprs {input} {params.out} '
 
@@ -33,7 +33,7 @@ rule scenic_grn:
         tf = rules.pyscenic_tf.output
     threads:
         8
-    singularity:
+    container:
         'shub://aertslab/pySCENIC:0.9.9'
     output:
         join(ANALYSIS_INTERIM, 'scenic', '{id}_adj.tsv'),

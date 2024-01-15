@@ -9,7 +9,7 @@ rule ivar_consensus:
         outdir = join(ALIGN_INTERIM, 'ivar', '{sample}'),
         min_depth = 2,
         header = '{sample}'
-    singularity:
+    container:
         'docker://' + config['docker']['ivar']
     shell:
         'samtools mpileup -d 1000 -A -aa -Q 0 {input.bam} '

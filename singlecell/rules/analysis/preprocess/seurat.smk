@@ -1,17 +1,17 @@
 
 
 rule seurat_filter_cells:
-    singularity:
+    container:
         'docker://quay.io/biocontainers/r-seurat-scripts:0.0.3--r341_0'
         
 rule seurat_filter_genes:
-    singularity:
+    container:
         'docker://quay.io/biocontainers/r-seurat-scripts:0.0.3--r341_0'
 
 rule seurat_normalize:
-    singularity:
+    container:
         'docker://quay.io/biocontainers/r-seurat-scripts:0.0.3--r341_0'
 
 rule seurat_variable_genes:
-    singularity:
+    container:
         'docker://quay.io/biocontainers/r-seurat-scripts:0.0.3--r341_0'

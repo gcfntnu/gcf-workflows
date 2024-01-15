@@ -6,7 +6,7 @@ rule cellbrowser_cellranger:
         join(QUANT_INTERIM, 'cellbrowser', 'cellranger')
     params:
         name = config['project_id']
-    singularity:
+    container:
         'docker://' + config['docker']['cellbrowser']
     shell:
         'cbImportCellranger -i {input} -o {output} --name {params.name}'
@@ -18,7 +18,7 @@ rule cellbrowser_scanpy:
         join(QUANT_INTERIM, 'cellbrowser', 'scanpy')
     params:
         name = config['project_id']
-    singularity:
+    container:
         'docker://' + config['docker']['cellbrowser']
     shell:
         'cbImportCellranger -i {input} -o {output} --name {params.name}'

@@ -52,7 +52,7 @@ rule mirge3_quant:
         annotation = join(QUANT_INTERIM, 'mirge3', 'annotation.report.csv'),
         umapped = join(QUANT_INTERIM, 'mirge3', 'unmapped.csv'),
         a2i = join(QUANT_INTERIM, 'mirge3', 'a2IEditing.report.newform.csv')
-    singularity:
+    container:
         'docker://quay.io/biocontainers/mirge3:0.1.4--pyh7cba7a3_0'
     threads:
         8

@@ -7,7 +7,7 @@ rule gwena_nb:
         directory(GWENA_INTERIM)
     log:
         notebook = join(GWENA_INTERIM, 'notebooks', 'gwena.ipynb')
-    singularity:
+    container:
         'docker://' + config['docker']['jupyter-co-exprs']
     notebook:
         'scripts/gwena.ipynb'

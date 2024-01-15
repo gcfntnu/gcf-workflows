@@ -26,7 +26,7 @@ rule k2_subsample_R1:
         head = "--number 1000000 ",
     threads:
         4
-    singularity:
+    container:
         "docker://" + config["docker"]["seqkit"]
     shell:
         "set +o pipefail; zcat {input.R1} | seqkit sample {params.sample} | seqkit head {params.head} --out-file {output} "
@@ -42,7 +42,7 @@ rule k2_subsample_R2:
         head = "--number 1000000",
     threads:
         4
-    singularity:
+    container:
         "docker://" + config["docker"]["seqkit"]
     shell:
         "set +o pipefail; zcat {input.R2} | seqkit sample {params.sample} | seqkit head {params.head} --out-file {output}"
@@ -66,7 +66,7 @@ rule k2_screen:
         params = '--gzip-compressed --memory-mapping'
     threads:
         6
-    singularity:
+    container:
         'docker://' + config['docker']['kraken2']
     shell:
         'kraken2 '
@@ -87,7 +87,7 @@ rule multi_krona_k2_screen:
     params:
         params = '-t 5 -m 3',
         tax = KRONA_DB_DIR,
-    singularity:
+    container:
         "docker://" + config["docker"]["krona"]
     threads:
         1

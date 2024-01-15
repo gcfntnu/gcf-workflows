@@ -10,7 +10,7 @@ rule convert_gtf2txg:
         join('{ref_dir}', 'anno', 'tx2gene.tsv')
     shadow:
         'minimal'
-    singularity:
+    container:
         'docker://' + config['docker']['default']
     shell:
         'csvcut -t -c transcript_id,gene_id {input} > dummy.csv && csvformat -T dummy.csv > {output}'
@@ -20,7 +20,7 @@ rule convert_fasta2sequence_dict:
         join('{ref_dir}', 'fasta', 'genome.fa')
     output:
         join('{ref_dir}', 'fasta', 'genome.dict')
-    singularity:
+    container:
         'docker://' + config['docker']['picard_gatk']
     shell:
         'picard CreateSequenceDictionary REFERENCE={input} OUTPUT={output}'
@@ -30,7 +30,7 @@ rule convert_gtf2bed12:
         join('{ref_dir}', 'anno', 'genes.gtf')
     output:
         join('{ref_dir}', 'anno', 'genes.bed12')
-    singularity:
+    container:
         'docker://' + config['docker']['ucsc-scripts']
     shadow:
         'minimal'
@@ -53,7 +53,7 @@ rule convert_gtf2refflat:
         join('{ref_dir}', 'anno', 'genes.gtf')
     output:
          join('{ref_dir}', 'anno', 'genes.refflat.gz')
-    singularity:
+    container:
         'docker://' + config['docker']['ucsc-scripts']
     shadow:
         'minimal'
@@ -72,7 +72,7 @@ rule convert_gtf_transcriptome_gffread:
         genome = join('{ref_dir}', 'fasta', 'genome.fa')
     output:
         join('{ref_dir}', 'fasta', 'gtf.gffread.transcripts.fa')
-    singularity:
+    container:
         'docker://' + config['docker']['gffread']
     shell:
         'gffread -w {output} -g {input.genome} {input.gtf}'
@@ -83,7 +83,7 @@ rule convert_gtf_transcriptome_rsem:
         genome = join('{ref_dir}', 'fasta', 'genome.fa')
     params:
         base = join('{ref_dir}', 'fasta', 'gtf.rsem')
-    singularity:
+    container:
         'docker://' + config['docker']['rsem']
     output:
         join('{ref_dir}', 'fasta', 'gtf.rsem.transcripts.fa')
@@ -106,10 +106,10 @@ rule convert_gtf2transcript_info:
         gtf = join('{ref_dir}', 'anno', 'genes.gtf'),
         fasta = join('{ref_dir}', 'fasta', 'transcriptome.fa')
     params:
-        script = srcdir('scripts/gtf2tsv.py')
+        script = src_gcf('scripts/gtf2tsv.py')
     output:
         tsv = join('{ref_dir}', 'anno', 'transcripts.tsv')
-    singularity:
+    container:
         'docker://' + config['docker']['gcf-bio']
     shell:
         'python {params.script} '
@@ -124,7 +124,7 @@ rule exon_gtf:
        join('{ref_dir}', 'anno', 'genes.gtf')
     output:
         join('{ref_dir}', 'anno', 'exons.gtf')
-    singularity:
+    container:
         'docker://' + config['docker']['default']        
     shell:
         """awk '$3=="exon"' {input} > {output}"""
@@ -135,7 +135,7 @@ rule exon_fasta:
         gtf = join('{ref_dir}', 'anno', 'exons.gtf')
     output:
         join('{ref_dir}', 'fasta', 'exons.fa')
-    singularity:
+    container:
         'docker://' + config['docker']['gcf-bio']        
     shell:
         'bedtools getfasta -fi {input.genome} -fo {output} -bed {input.gtf} '    
@@ -146,10 +146,10 @@ rule convert_gtf2gene_info:
         gtf = join('{ref_dir}', 'anno', 'genes.gtf'),
         fasta = join('{ref_dir}', 'fasta', 'exons.fa')
     params:
-        script = srcdir('scripts/gtf2tsv.py'),
+        script = src_gcf('scripts/gtf2tsv.py'),
     output:
         tsv = join('{ref_dir}', 'anno', 'genes.tsv')
-    singularity:
+    container:
         'docker://' + config['docker']['gcf-bio']
     shell:
         'python {params.script} '

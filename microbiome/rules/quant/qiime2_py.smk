@@ -24,7 +24,7 @@ checkpoint qiime2_run_regions:
         R1 = expand(join(FILTER_INTERIM, 'fastp', '{sample}_R1.fastq'), sample=SAMPLES),
         R2 = expand(join(FILTER_INTERIM, 'fastp', '{sample}_R2.fastq'), sample=SAMPLES)
     params:
-        script = srcdir('scripts/run_qiime2.py'),
+        script = src_gcf('scripts/run_qiime2.py'),
         libprep = config['libprep_name'],
 	#regions = ','.join(list(config['db']['primers'].keys())),
         regions = 'None',
@@ -34,10 +34,10 @@ checkpoint qiime2_run_regions:
         filter_region_count = 500,
         min_confidence = 0.8,
         output_dir = join(QIIME2_INTERIM),
-        libprep_conf = srcdir('../../../libprep.config')
+        libprep_conf = src_gcf('../../../libprep.config')
     threads:
         48
-    singularity:
+    container:
        'docker://' + config['docker']['qiime2']
     log:
         stdout = join(QIIME2_INTERIM, 'logs', 'dada2.stdout'),
@@ -77,7 +77,7 @@ rule qiime2_export_phylo_tree:
         join(QIIME2_INTERIM, 'tree.qza')
     output:
         join(QIIME2_INTERIM, 'tree.nwk')
-    singularity:
+    container:
        'docker://' + config['docker']['qiime2']
     shell:
         'qiime tools export --input-path {input} --output-path {QIIME2_INTERIM}'
@@ -90,7 +90,7 @@ rule qiime2_repseq_fasta:
         join(QIIME2_INTERIM, 'dna-sequences.fasta')
     params:
         out_dir = QIIME2_INTERIM
-    singularity:
+    container:
        'docker://' + config['docker']['qiime2'] 
     shell:
         'qiime tools export --input-path {input} --output-path {params.out_dir}'
@@ -104,9 +104,9 @@ rule qiime2_biom_to_phyloseq:
     output:
         join(QIIME2_INTERIM, 'physeq.rds')
     params:
-        script = srcdir('scripts/qiime2_create_physeq.R'),
+        script = src_gcf('scripts/qiime2_create_physeq.R'),
         db = config['db']['reference_db']
-    singularity:
+    container:
        'docker://' + config['docker']['phyloseq'] 
     shell:
         'Rscript {params.script} {input} {output} {params.db}'

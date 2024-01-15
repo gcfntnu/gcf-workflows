@@ -51,7 +51,7 @@ rule star_align:
         log = join(STAR_INTERIM, '{sample}.Log.final.out')
     threads:
        16
-    singularity:
+    container:
         'docker://' + config['docker']['star']
     shell: 
         'STAR '
@@ -68,7 +68,7 @@ rule star_all:
         genome_dir = star_genome_dir()
     output:
         temp(touch('.star.align.finalized'))
-    singularity:
+    container:
         'docker://' + config['docker']['star']
     priority:
         0

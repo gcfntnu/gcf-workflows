@@ -36,7 +36,7 @@ rule qc_mirtrace:
         protocol = config['filter']['trim']['mirtrace']['protocol'],
         species = mirtrace_species(),
         title = config.get('project_id', 'GCF-0000-00')
-    singularity:
+    container:
         'docker://' + config['docker']['mirtrace']
     threads:
         8

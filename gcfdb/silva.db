@@ -26,7 +26,7 @@ URL = 'https://www.arb-silva.de/fileadmin/silva_databases/qiime/Silva_132_releas
 LEVELS = [90, 94, 97, 99]
 EVIDENCE = ['consensus', 'majority']
 
-libprep_conf_fn = srcdir('../libprep.config')
+libprep_conf_fn = src_gcf('../libprep.config')
 if os.path.exists(libprep_conf_fn):
     with open(libprep_conf_fn) as fh:
         ALL_LIBPREP  = yaml.load(fh, Loader=Loader) or {}
@@ -48,7 +48,7 @@ rule silva_rescript_db:
         version = '{release}',
         outdir = join(EXT_DIR, 'silva', '{release}'),
         target = silva_target
-    singularity:
+    container:
         'docker://' + config['docker']['qiime2']
     output:
         seqs = join(EXT_DIR, 'silva', '{release}', 'fasta', '{level}', 'allseqs.qza'),
@@ -66,7 +66,7 @@ rule silva_rescript_cull:
         rules.silva_rescript_db.output.seqs
     output:
         seqs = join(EXT_DIR, 'silva', '{release}', 'fasta', '{level}', 'cleaned-seqs.qza')
-    singularity:
+    container:
         'docker://' + config['docker']['qiime2']
     shell:
         'qiime rescript cull-seqs '
@@ -80,7 +80,7 @@ rule silva_rescript_filter_seq:
     output:
         seqs = join(EXT_DIR, 'silva', '{release}', 'fasta', '{level}', 'filtered-seqs.qza'),
         discarded = join(EXT_DIR, 'silva', '{release}', 'fasta', '{level}', 'discarded-seqs.qza')
-    singularity:
+    container:
         'docker://' + config['docker']['qiime2']
     shell:
         'qiime rescript filter-seqs-length-by-taxon '
@@ -101,7 +101,7 @@ rule silva_rescript_derep_seqs:
         taxa = join(EXT_DIR, 'silva', '{release}', 'anno', '{level}', 'dedup-taxa.qza')
     params:
         """--p-rank-handles 'silva' --p-mode 'uniq' """
-    singularity:
+    container:
         'docker://' + config['docker']['qiime2']
     shell:
         'qiime rescript dereplicate '
@@ -120,7 +120,7 @@ rule silva_rescript_extract_regions:
         fwd_primer = lambda wildcards: wildcards.region.split('-')[0],
         rev_primer = lambda wildcards: wildcards.region.split('-')[1],
         args = '--p-read-orientation forward '
-    singularity:
+    container:
         'docker://' + config['docker']['qiime2']
     threads:
         2
@@ -142,7 +142,7 @@ rule silva_rescript_derep_region:
         taxa = join(EXT_DIR, 'silva', '{release}', 'anno', '{level}', '{region}', 'region-dedup-taxa.qza')
     params:
         args = '--p-rank-handles silva  --p-mode uniq '
-    singularity:
+    container:
         'docker://' + config['docker']['qiime2']
     shell:
         'qiime rescript dereplicate '
@@ -158,7 +158,7 @@ rule silva_rescript_classfifier:
         taxa = join(EXT_DIR, 'silva', '{release}', 'anno', '{level}', '{region}', 'region-dedup-taxa.qza')
     output:
         join(EXT_DIR, 'silva', '{release}', 'qiime2', 'classifiers', '{level}_{region}.qza')
-    singularity:
+    container:
         'docker://' + config['docker']['qiime2']
     threads:
         48
@@ -175,7 +175,7 @@ rule silva_classifier_export:
         join(EXT_DIR, 'silva', '{release}', 'qiime2', 'classifiers', 'export', '{level}_{region}', 'sklearn_pipeline.tar')
     params:
         outdir = join(EXT_DIR, 'silva', '{release}', 'qiime2', 'classifiers', 'export', '{level}_{region}')
-    singularity:
+    container:
         'docker://' + config['docker']['qiime2']
     shell:
         'qiime tools export --input-path {input} --output-path {params.outdir}'

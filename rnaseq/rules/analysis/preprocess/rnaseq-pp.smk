@@ -10,7 +10,7 @@ rule preprocess_nb:
         directory(PP_INTERIM)
     log:
         notebook = join(PP_INTERIM, 'notebooks', 'rnaseq-pp.py.ipynb')
-    singularity:
+    container:
         'docker://' + config['docker']['jupyter-rnaseq']
     notebook:
         'scripts/rnaseq-pp.py.ipynb'

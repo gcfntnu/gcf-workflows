@@ -37,7 +37,7 @@ rule ncbi_homo_sapiens_rrna:
         fasta = join(EXT_DIR, 'ncbi', 'homo_sapiens', 'fasta', 'rrna.fa')
     log:
         join(EXT_DIR, 'ncbi', 'homo_sapiens', 'logs', 'rrna.log')
-    singularity:
+    container:
         'docker://' + config['docker']['entrez-direct']
     shell:
         """
@@ -54,7 +54,7 @@ rule ncbi_mus_musculus_rrna:
         join(EXT_DIR, 'ncbi', 'mus_musculus', 'fasta', 'rrna.fa')
     log:
         join(EXT_DIR, 'ncbi', 'mus_musculus', 'logs', 'rrna.log')
-    singularity:
+    container:
         'docker://' + config['docker']['entrez-direct']
     shell:
         """
@@ -70,7 +70,7 @@ rule ncbi_sars_cov2:
         join(EXT_DIR, 'ncbi', 'NC_045512.2', 'fasta', 'NC_045512.2.fa')
     log:
         join(EXT_DIR, 'ncbi', 'NC_045512.2', 'logs', 'NC_045512.2.log')
-    singularity:
+    container:
         'docker://' + config['docker']['entrez-direct']
     shell:
         """
@@ -128,7 +128,7 @@ rule ncbi_geo_submission_form_template:
         join(EXT_DIR, 'ncbi', 'GEO', 'seq_template.xlsx')
     log:
         join(EXT_DIR, 'ncbi', 'GEO', 'logs', 'seq_template.log')
-    singularity:
+    container:
         'docker://' + config['docker']['default']
     shell:
         """

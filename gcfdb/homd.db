@@ -39,7 +39,7 @@ rule homdb_seq_import:
         rules.homdb_db.output.fasta
     output:
         join(EXT_DIR, 'homdb', '{release}', 'fasta', 'allseqs.qza')
-    singularity:
+    container:
         'docker://' + 'gcfntnu/qiime2:2020.8'
     shell:
         'qiime tools import '
@@ -52,7 +52,7 @@ rule homdb_taxa_import:
         rules.homdb_db.output.taxa
     output:
         join(EXT_DIR, 'homdb', '{release}', 'anno', 'taxa.qza')
-    singularity:
+    container:
         'docker://' + 'gcfntnu/qiime2:2020.8'
     shell:
         'qiime tools import '
@@ -74,7 +74,7 @@ rule homdb_extract_regions:
         fwd_primer = lambda wildcards: wildcards.region.split('-')[0],
         rev_primer = lambda wildcards: wildcards.region.split('-')[1],
         args = '--p-read-orientation forward '
-    singularity:
+    container:
         'docker://' + 'gcfntnu/qiime2:2020.8'
     threads:
         2
@@ -98,7 +98,7 @@ rule homdb_rescript_classfifier:
         taxa = join(EXT_DIR, 'homdb', '{release}', 'anno', 'taxa.qza')
     output:
         join(EXT_DIR, 'homdb', '{release}', 'qiime2', 'classifiers', '{region}.qza')
-    singularity:
+    container:
         'docker://' + 'gcfntnu/qiime2:2020.8'
     threads:
         48
@@ -115,7 +115,7 @@ rule homdb_classifier_export:
         join(EXT_DIR, 'homdb', '{release}', 'qiime2', 'classifiers', 'export', '{region}', 'sklearn_pipeline.tar')
     params:
         outdir = join(EXT_DIR, 'homdb', '{release}', 'qiime2', 'classifiers', 'export', '{region}')
-    singularity:
+    container:
         'docker://' + 'gcfntnu/qiime2:2020.8'
     shell:
         'qiime tools export --input-path {input} --output-path {params.outdir}'

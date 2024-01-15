@@ -15,7 +15,7 @@ rule bowtie2_align:
     params:
         args = '--local -q --very-sensitive-local ',
         index = join(REF_DIR, 'index', 'genome', 'bowtie2', 'genome')
-    singularity:
+    container:
         'docker://' + config['docker']['bowtie2_samtools']
     threads:
         4

@@ -60,7 +60,7 @@ rule rnacentral_gtf:
         rules.rnacentral_gff.output
     output:
         join(RNACENTRAL_DIR, 'anno', RNACENTRAL_ORG + '.gtf')
-    singularity:
+    container:
         'docker://' + config['docker']['gffread']
     log:
         rules.rnacentral_gff.log

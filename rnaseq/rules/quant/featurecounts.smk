@@ -34,7 +34,7 @@ rule featurecounts:
         paired_end = featurecounts_paired_end
     threads:
         16
-    singularity:
+    container:
         'docker://' + config['docker']['subread']
     output:
         counts = join(FC_INTERIM, '{sample}', 'counts.txt'),
@@ -54,8 +54,8 @@ rule featurecounts_quant:
         gene_info = join(REF_DIR, 'anno', 'genes.tsv')
     params:
         output = join(FC_INTERIM, 'featurecounts'),
-        script = srcdir('scripts/gene_quant.R')
-    singularity:
+        script = src_gcf('scripts/gene_quant.R')
+    container:
         'docker://' + config['docker']['tximport']
     output:
         gene_counts = join(FC_INTERIM, 'featurecounts.gene.quant'),

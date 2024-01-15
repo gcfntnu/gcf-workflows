@@ -75,7 +75,7 @@ rule quickmirseq_quant:
         unmapped = join(QUANT_INTERIM, 'quickmirseq', 'unmapped.csv')
     threads:
         8
-    singularity:
+    container:
         'docker://' + config['docker']['quickmirseq']
     shell:
         'perl  $QuickMIRSeq/QuickMIRSeq.pl  '
@@ -89,7 +89,7 @@ rule quickmirseq_report:
         outdir = join(QUANT_INTERIM, 'quickmirseq')
     output:
         join(QUANT_INTERIM, 'quickmirseq', 'miRNA-reads.json')
-    singularity:
+    container:
         'docker://' + config['docker']['quickmirseq']
     shell:
         """

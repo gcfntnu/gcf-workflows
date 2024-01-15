@@ -36,7 +36,7 @@ rule souporcell_run:
         out_dir = join(SPC_INTERIM, '{sample}')
     output:
         join(SPC_INTERIM, '{sample}', 'cluster_genotypes.vcf')
-    singularity:
+    container:
         'docker://gcfntnu/souporcell:2.0'
     threads:
         24

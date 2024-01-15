@@ -11,9 +11,9 @@ Authors:
 Arnar Flatberg / flatberg <arnar.flatberg@ntnu.no>
 """
 include:
-    srcdir('../utils.py')
+    '../utils.py'
 
-extra_conf_fn = srcdir('default.config')
+extra_conf_fn = src_gcf('default.config')
 if os.path.exists(extra_conf_fn):
     with open(extra_conf_fn) as fh:
         c  = yaml.load(fh, Loader=Loader) or {}
@@ -23,11 +23,11 @@ if not 'SAMPLES' in locals():
     SAMPLES = [str(name) for name in config.get('samples', {}).keys()]
 
 include:
-    srcdir('../common.smk')
+    '../common.smk'
 include:
     'rules/bfq.smk'
 include:
-    srcdir('../postprocess.smk')
+    '../postprocess.smk'
 
 
 onsuccess:

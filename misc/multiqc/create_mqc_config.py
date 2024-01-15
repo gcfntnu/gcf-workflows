@@ -114,7 +114,7 @@ def create_mqc_config(args):
     # ommit {'Contact E-mail': contact},
     report_header = [
         {'Sequencing Platform': pep.config.get('machine', args.machine)},
-        {'Read Geometry': str_read_geometry(pep.config.read_geometry)},
+        {'Read Geometry': str_read_geometry(pep.config['read_geometry'])},
         {'Organism': pep.config.get('organism', args.organism).replace('_', ' ').title()},
         {'Lib prep kit': pep.config.get('libprepkit', args.libkit)},
         {'Workflow': pep.config.get('workflow', args.workflow)}
@@ -122,7 +122,7 @@ def create_mqc_config(args):
 
     mqc_conf['report_header_info'] = report_header
 
-    if len(pep.config.read_geometry) == 1:
+    if len(pep.config['read_geometry']) == 1:
         mqc_conf['extra_fn_clean_exts'].append('_R1')
 
  

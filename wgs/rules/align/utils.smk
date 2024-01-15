@@ -33,7 +33,7 @@ rule picard_mark_duplicates:
         dup_args = optical_dup_args()
     threads:
         6
-    singularity:
+    container:
         'docker://' + config['docker']['picard_gatk']
     shell:
         'picard MarkDuplicates '
@@ -56,7 +56,7 @@ rule bam_namesort:
         temp(join(ALIGN_INTERIM, '{aligner}', '{sample}.namesorted.bam'))
     threads:
         8
-    singularity:
+    container:
         'docker://' + config['docker']['sambamba']
     shell:
         'sambamba sort -N -p -m 20G -t 8 -o {output} {input.bam}'

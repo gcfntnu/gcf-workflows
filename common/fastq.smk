@@ -64,7 +64,7 @@ rule merged_fastq_R1:
         cat_cmd = lambda wildcards, input: merge_cmd_R1(input)
     threads:
         4
-    singularity:
+    container:
         'docker://' + config['docker']['seqkit']
     shell:
         '{params.cat_cmd}  {output}'
@@ -78,7 +78,7 @@ rule merged_fastq_R2:
         cat_cmd = lambda wildcards, input: merge_cmd_R2(input)
     threads:
         4
-    singularity:
+    container:
         'docker://' + config['docker']['seqkit']
     shell:
         '{params.cat_cmd} {output}'
@@ -90,7 +90,7 @@ rule merged_interleave_fastq:
     output:
         pipe(join(FILTER_INTERIM, 'interleaved_fastq', '{sample}.fastq'))
     params:
-        script = srcdir('scripts/interleave_fastq.sh'),
+        script = src_gcf('scripts/interleave_fastq.sh'),
         merged_R1 = lambda wildcards, input: merge_cmd_R1(input),
         merged_R2 = lambda wildcards, input: merge_cmd_R2(input)
     shell:

@@ -25,7 +25,7 @@ if PE:
             join(K2_INTERIM, '{sample}', '{sample}.kraken.log')
         threads:
             12
-        singularity:
+        container:
             'docker://' + config['docker']['kraken2']
         shell:
             'kraken2 '
@@ -51,7 +51,7 @@ else:
             join(K2_INTERIM, '{sample}', '{sample}.kraken.log')
         threads:
             12
-        singularity:
+        container:
             'docker://' + config['docker']['kraken2']
         shell:
             'kraken2 '
@@ -85,7 +85,7 @@ rule bracken:
         db = K2_DB_DIR,
     threads:
         12
-    singularity:
+    container:
         "docker://" + config['docker']['bracken']
     shell:
         'bracken '
@@ -111,7 +111,7 @@ rule krona_kraken:
     params:
         params = '-t 5 -m 3',
         tax = KRONA_DB_DIR,
-    singularity:
+    container:
         "docker://" + config["docker"]["krona"]
     threads:
         1
@@ -133,7 +133,7 @@ rule krona_bracken:
     params:
         params = '-t 5 -m 3',
         tax = KRONA_DB_DIR,
-    singularity:
+    container:
         "docker://" + config["docker"]["krona"]
     threads:
         1
@@ -155,7 +155,7 @@ rule multi_krona_kraken:
     params:
         params = '-t 5 -m 3',
         tax = KRONA_DB_DIR,
-    singularity:
+    container:
         "docker://" + config["docker"]["krona"]
     threads:
         1
@@ -172,7 +172,7 @@ rule multi_krona_bracken:
     params:
         params = '-t 5 -m 3',
         tax = KRONA_DB_DIR,
-    singularity:
+    container:
         "docker://" + config["docker"]["krona"]
     threads:
         1
@@ -188,7 +188,7 @@ rule kraken_biom:
         join(K2_INTERIM, "all_samples.biom")
     params:
         "--fmt json "
-    singularity:
+    container:
         "docker://" + config["docker"]["kraken-biom"]
     threads:
         1
@@ -201,8 +201,8 @@ rule kraken_phyloseq:
     output:
         join(K2_INTERIM, "physeq.rds"),
     params:
-        script = srcdir("scripts/kraken2_create_physeq.R")
-    singularity:
+        script = src_gcf("scripts/kraken2_create_physeq.R")
+    container:
         "docker://" + config["docker"]["phyloseq"]
     threads:
         1

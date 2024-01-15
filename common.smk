@@ -22,10 +22,10 @@ include:
 rule sample_info:
     output:
         join(INTERIM_DIR, 'sample_info.tsv')
-    singularity:
+    container:
         'docker://' + config['docker']['default']
     params:
-        script = srcdir('scripts/create_sampleinfo.py'),
+        script = src_gcf('scripts/create_sampleinfo.py'),
         pep = 'config.yaml' if config.get('skip_peppy', False) else workflow.pepfile
     shell:
         'python {params.script} {params.pep} {output}'

@@ -4,7 +4,7 @@
 rule qiime2_sample_filter:
     input:
         table = join(QIIME2_INTERIM, 'table.qza')
-    singularity:
+    container:
         'docker://' + config['docker']['qiime2']    
     output:
         temp(join(QIIME2_INTERIM, 'filtered', '_table.qza'))
@@ -18,7 +18,7 @@ rule qiime2_sample_filter:
 rule qiime2_feature_filter:
     input:
         table = join(QIIME2_INTERIM, 'filtered', '_table.qza')
-    singularity:
+    container:
         'docker://' + config['docker']['qiime2']    
     output:
         temp(join(QIIME2_INTERIM, 'filtered', '__table.qza'))
@@ -33,7 +33,7 @@ rule qiime2_taxa_filter:
     input:
         table = join(QIIME2_INTERIM, 'filtered', '__table.qza'),
         taxa = join(QIIME2_INTERIM, 'taxonomy.qza')
-    singularity:
+    container:
         'docker://' + config['docker']['qiime2']
     output:
         join(QIIME2_INTERIM, 'filtered', 'table.qza')
