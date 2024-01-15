@@ -253,7 +253,6 @@ if config['quant']['aggregate'].get('method', 'scanpy') == 'scanpy':
             '-o {output} '
             '-f cellranger '
             '--normalize {params.norm} '
-            '--identify-doublets '
             '-v '
 else:
     rule scanpy_aggr_cellranger:
@@ -268,7 +267,7 @@ else:
         threads:
             48
         shell:
-            'python {params.script} {input} -o {output} -v -f cellranger_aggr --identify-doublets '
+            'python {params.script} {input} -o {output} -v -f cellranger_aggr '
     
 rule scanpy_cellranger:
     input:
@@ -347,12 +346,36 @@ rule cellranger_cellbender:
         '--epochs {params.epochs} '
         '{params.args} '
 
-
-rule cellbender_all:
+rule scanpy_cellbender:
     input:
-        expand(rules.cellranger_cellbender.output, sample=SAMPLES)
+        join(CR_INTERIM, '{sample}', 'cellbender', '{sample}.h5')
+    params:
+        script = srcdir('scripts/convert_scanpy.py'),
+        genome_name  = DB_CONF['assembly']
+    output:
+        join(CR_INTERIM, '{sample}', 'cellbender', 'scanpy', '{sample}.h5ad')
+    singularity:
+        'docker://' + config['docker']['scanpy']
+    threads:
+        48
+    shell:
+        'python {params.script} {input} -o {output} -v -f cellbender --barcode-rename numerical'
+
+rule scanpy_cellbender_mtx:
+    input:
+       join(CR_INTERIM, '{sample}', 'cellbender', 'scanpy', '{sample}.h5ad')
+    output:
+       join(CR_INTERIM, '{sample}', 'cellbender', 'scanpy', 'matrix', 'matrix.mtx.gz')
+    params:
+        script = srcdir('scripts/convert_scanpy.py')    
+    singularity:
+        'docker://' + config['docker']['scanpy']
+    threads:
+        48
+    shell:
+        'python {params.script} {input} -o {output} -v -f h5ad -F mtx --barcode-rename numerical'    
         
-rule cellbender_scanpy:
+rule scanpy_aggr_cellbender:
     input:
         filtered = expand(rules.cellranger_cellbender.output.filtered_h5, sample=SAMPLES),
         sample_info = join(INTERIM_DIR, 'sample_info.tsv')
@@ -365,9 +388,13 @@ rule cellbender_scanpy:
     threads:
         8
     shell:
-        'python {params.script} {input.filtered} -v -f cellbender --identify-doublets -o {output} --sample-info {input.sample_info} '
+        'python {params.script} {input.filtered} -v -f cellbender -o {output} --sample-info {input.sample_info} '
 
-
+rule cellbender_all:
+    input:
+        rules.scanpy_aggr_cellbender.output,
+        expand(rules.scanpy_cellbender.output, sample=SAMPLES)
+        
 rule cellbender_scanpy_pp_ipynb:
     input:
         join(QUANT_INTERIM, 'aggregate', 'cellranger', 'cellbender', 'scanpy', 'all_samples_aggr.h5ad')
