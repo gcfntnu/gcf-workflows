@@ -350,7 +350,7 @@ rule scanpy_cellbender:
     input:
         join(CR_INTERIM, '{sample}', 'cellbender', '{sample}.h5')
     params:
-        script = srcdir('scripts/convert_scanpy.py'),
+        script = src_gcf('scripts/convert_scanpy.py'),
         genome_name  = DB_CONF['assembly']
     output:
         join(CR_INTERIM, '{sample}', 'cellbender', 'scanpy', '{sample}.h5ad')
@@ -367,7 +367,7 @@ rule scanpy_cellbender_mtx:
     output:
        join(CR_INTERIM, '{sample}', 'cellbender', 'scanpy', 'matrix', 'matrix.mtx.gz')
     params:
-        script = srcdir('scripts/convert_scanpy.py')    
+        script = src_gcf('scripts/convert_scanpy.py')    
     singularity:
         'docker://' + config['docker']['scanpy']
     threads:
