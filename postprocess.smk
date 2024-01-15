@@ -22,7 +22,7 @@ rule multiqc_config:
         read_geometry = ','.join([str(x) for x in _original_read_geometry]),
         libprep = config['libprepkit'],
         repo_dir = src_gcf(os.path.dirname('main.config')),
-        pep = workflow.pepfile
+        pep = 'config.yaml' if config.get('skip_peppy', False) else workflow.pepfile
     container:
         'docker://' + config['docker']['default']
     shell:

@@ -7,7 +7,7 @@ READ_LENGTH = config['read_geometry'][-1]
 
 rule txgenomics_whitelist_v1:
     params:
-        url = 'https://gcf-winecellar.medisin.ntnu.no/10xgenomics/whitelists/737K-april-2014_rc.txt',
+        url = join(config.get('winecellar', {}).get('url', ''), '10xgenomics', 'whitelists', '737K-april-2014_rc.txt'),
         date = datetime.now().strftime("%d-%m-%Y"),
         proxy = config.get('proxy', {}).get('wget', ''),
     output:
@@ -22,7 +22,7 @@ rule txgenomics_whitelist_v1:
 
 rule txgenomics_whitelist_v2:
     params:
-        url = 'https://gcf-winecellar.medisin.ntnu.no/10xgenomics/whitelists/737K-august-2016.txt',
+        url = join(config.get('winecellar', {}).get('url', ''), '10xgenomics', 'whitelists', '737K-august-2016.txt'),
         date = datetime.now().strftime("%d-%m-%Y"),
         proxy = config.get('proxy', {}).get('wget', '')
     output:
@@ -37,7 +37,7 @@ rule txgenomics_whitelist_v2:
 
 rule txgenomics_whitelist_v3:
     params:
-        url = 'https://gcf-winecellar.medisin.ntnu.no/10xgenomics/whitelists/3M-february-2018.txt',
+        url = join(config.get('winecellar', {}).get('url', ''), '10xgenomics', 'whitelists', '3M-february-2018.txt'),
         date = datetime.now().strftime("%d-%m-%Y"),
         proxy = config.get('proxy', {}).get('wget', '')
     output:
