@@ -8,6 +8,8 @@ read_geometry:
 - 56
 machine: NextSeq 500
 quant:
+  aggregate:
+    method: cellranger
   batch:
     method: skip
 fastq_dir: data/raw/fastq

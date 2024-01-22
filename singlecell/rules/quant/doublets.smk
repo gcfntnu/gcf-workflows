@@ -223,7 +223,7 @@ rule dbl_majority_vote_per_sample:
         script = src_gcf("scripts/combine_doublets.py"),
         args = '--plot-figure '
     output:
-        combined = join(DBL_DIR, 'droplet_type.txt')
+        combined = join(DBL_DIR, 'asdasdasdasdasd.tsv')
     container:
         'docker://' + config['docker']['default']
     shell:
@@ -237,13 +237,14 @@ def dbl_aggr_input(wildcards):
     input_files = expand(rules.dbl_majority_vote_per_sample.output.combined,
                          quantifier=config['quant']['method'],
                          sample=samples_by_aggr_id)
+    print(input_files)
     return input_files
     
 rule dbl_aggr:
     input:
         dbl_aggr_input
     output:
-        join(QUANT_INTERIM, 'aggregate', config['quant']['method'] , '{aggr_id}_droplet_type.tsv')
+        join(QUANT_INTERIM, 'aggregate', config['quant']['method'] , '{aggr_id}_droplet_classification.tsv')
     params:
         script = src_gcf("scripts/combine_demultiplex.py")
     container:
@@ -256,4 +257,10 @@ rule dbl_aggr:
 
 rule dbl_all:
     input:
-        join(QUANT_INTERIM, 'aggregate', config['quant']['method'] , 'all_samples_droplet_type.tsv')
+        join(QUANT_INTERIM, 'aggregate', config['quant']['method'] , 'all_samples_droplet_classification.tsv')
+
+
+
+
+join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}', 'outs', 'count','filtered_feature_bc_matrix.h5')
+join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}', 'outs', 'count','filtered_feature_bc_matrix.h5')

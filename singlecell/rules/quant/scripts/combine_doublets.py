@@ -146,7 +146,7 @@ if __name__ == "__main__":
     droplet_type = dbl_merged[["singlet_majority_vote"]]
     droplet_type.columns = ['droplet_type']
     if donor_merged is not None:
-        donor_call = droplet_type["droplet_type"]
+        donor_call = droplet_type["droplet_type"].copy()
         donor_call[donor_call=="singlet"] = donor_merged.loc[donor_call=="singlet", "donor_id_majority_vote"]
         if any(donor_call=="unassigned") and "best_singlet_donor_majority_vote" in donor_merged.columns:
             # the doublet callers may win vote over demuxers. Pick demuxer's `best_singlet` in this case
