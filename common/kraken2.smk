@@ -9,7 +9,7 @@ include:
 
 
 K2_DB = join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY)
-K2_SHMEM = rules.kraken_shmem.output
+K2_SHMEM = rules.langmead_shmem.output
 
 
 include:

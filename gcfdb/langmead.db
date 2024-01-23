@@ -6,43 +6,68 @@ LM_RELEASE = str(config['db']['langmead']['release'])
 LM_ASSEMBLY = config['db']['langmead']['assembly'] or ''
 
 
-BRACKEN_N_MERS = [50, 75, 100, 150, 200, 250, 300] if LM_ASSEMBLY.startswith("k2") else [100, 150, 200]
-
-rule langmead_kraken_prebuild:
-    params:
-        proxy = config.get('proxy', {}).get('wget', ''),
-        url = PROTOCOL + "genome-idx.s3.amazonaws.com/kraken",
-        filename = "{assembly}_{release}.tar.gz".format(assembly=LM_ASSEMBLY, release=LM_RELEASE),
-        output = join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY),
-        release = LM_RELEASE
-    output:
-        hash = join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY, 'hash.k2d'),
-        taxo = join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY, 'taxo.k2d'),
-        opts = join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY, 'opts.k2d'),
-        seq2tax = join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY, 'seqid2taxid.map'),
-        bracken_mers = expand(join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY, 'database{mers}mers.kmer_distrib'), mers=BRACKEN_N_MERS),
-    threads: 
-        24
-    log:
-        join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY, 'logs', 'genome.log')
-    shell:
-        """
-        wget -O- {params.url}/{params.filename} | tar zxv -C {params.output}
-        echo "Langmead Prebuild,release-{params.release},{params.url}/{params.filename},`date -I`" > {log}
-        """
+BRACKEN_N_MERS = [50, 75, 100, 150, 200, 250, 300] if LM_ASSEMBLY.startswith("k2") else [100, 150, 200, 250]
 
 
-rule kraken_shmem:
+if LM_ASSEMBLY.startswith("k2"):
+    rule langmead_kraken_prebuild:
+        params:
+            proxy = config.get('proxy', {}).get('wget', ''),
+            url = PROTOCOL + "genome-idx.s3.amazonaws.com/kraken",
+            filename = "{assembly}_{release}.tgz".format(assembly=LM_ASSEMBLY, release=LM_RELEASE),
+            output = join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY),
+            release = LM_RELEASE
+        output:
+            hash = join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY, 'hash.k2d'),
+            taxo = join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY, 'taxo.k2d'),
+            opts = join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY, 'opts.k2d'),
+            seq2tax = join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY, 'seqid2taxid.map'),
+            bracken_mers = expand(join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY, 'database{mers}mers.kmer_distrib'), mers=BRACKEN_N_MERS),
+        threads: 
+            24
+        log:
+            join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY, 'logs', 'genome.log')
+        shell:
+            """
+            wget -O- {params.url}/{params.filename} | tar zxv -C {params.output}
+            echo "Langmead Prebuild,release-{params.release},{params.url}/{params.filename},`date -I`" > {log}
+            """
+
+else: #Assume silva 16S
+
+    rule langmead_kraken_prebuild:
+        params:
+            proxy = config.get('proxy', {}).get('wget', ''),
+            url = PROTOCOL + "genome-idx.s3.amazonaws.com/kraken",
+            filename = "{assembly}_{release}.tgz".format(assembly=LM_ASSEMBLY, release=LM_RELEASE),
+            output = join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY),
+            release = LM_RELEASE,
+            dl_dir = join(EXT_DIR, 'tmp')
+        output:
+            hash = join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY, 'hash.k2d'),
+            taxo = join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY, 'taxo.k2d'),
+            opts = join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY, 'opts.k2d'),
+            bracken_mers = expand(join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY, 'database{mers}mers.kmer_distrib'), mers=BRACKEN_N_MERS),
+        threads: 
+            24
+        log:
+            join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY, 'logs', 'genome.log')
+        shell:
+            """
+            wget -O- {params.url}/{params.filename} | tar zxv -C {params.dl_dir} && mv {params.dl_dir}/16S_SILVA138_k2db/* {params.output}
+            echo "Langmead Prebuild,release-{params.release},{params.url}/{params.filename},`date -I`" > {log}
+            """
+
+
+rule langmead_shmem:
     input:
         hash = rules.langmead_kraken_prebuild.output.hash,
         taxo = rules.langmead_kraken_prebuild.output.taxo,
         opts = rules.langmead_kraken_prebuild.output.opts,
-        seq2tax = rules.langmead_kraken_prebuild.output.seq2tax,
     output:
         hash = temp(join("/dev/shm", LM_ASSEMBLY, "hash.k2d")),
         taxo = temp(join("/dev/shm", LM_ASSEMBLY, "taxo.k2d")),
         opts = temp(join("/dev/shm", LM_ASSEMBLY, "opts.k2d")),
-        seq2tax = temp(join("/dev/shm", LM_ASSEMBLY, "seqid2taxid.map")),
     threads:
         1
     run:

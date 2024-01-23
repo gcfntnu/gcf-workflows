@@ -2,6 +2,7 @@
 """Snakemake rules for kraken2 workflow of metagenomic data
 """
 import glob
+import pandas as pd
 
 include: join(GCFDB_DIR, "krona.db")
 
@@ -9,12 +10,17 @@ DB_CONF = config['db'][config['db']['reference_db']]
 K2_INTERIM = join(QUANT_INTERIM, 'kraken2', DB_CONF['assembly'])
 K2_DB_DIR = join(EXT_DIR, config['db']['reference_db'], 'release-{}'.format(DB_CONF['release']), ORG, DB_CONF['assembly'])
 
+if config['db']['reference_db'] == 'langmead':
+    DB_SHMEM = rules.langmead_shmem.output
+elif config['db']['reference_db'] == 'ncbi_16s':
+    DB_SHMEM = rules.ncbi_16s_shmem.output
+
 
 if PE:
     rule kraken_classify:
         input:
             unpack(get_filtered_fastq),
-            shmem = rules.kraken_shmem.output,
+            shmem = DB_SHMEM,
         output:
             report = join(K2_INTERIM, '{sample}', '{sample}.kraken.kreport'),
             output = join(K2_INTERIM, '{sample}', '{sample}.kraken.out'),
@@ -40,13 +46,13 @@ else:
     rule kraken_classify:
         input:
             unpack(get_filtered_fastq),
-            shmem = rules.kraken_shmem.output,
+            shmem = DB_SHMEM,
         output:
             report = join(K2_INTERIM, '{sample}', '{sample}.kraken.kreport'),
             output = join(K2_INTERIM, '{sample}', '{sample}.kraken.out'),
         params:
             db = join("/dev/shm", LM_ASSEMBLY),
-            params = '--gzip-compressed --memory-mapping'
+            params = '--gzip-compressed --memory-mapping '
         log:
             join(K2_INTERIM, '{sample}', '{sample}.kraken.log')
         threads:
@@ -71,6 +77,13 @@ rule kraken_classify_all:
 N_MER_DIFF = [abs(read_geometry[0] - x) for x in BRACKEN_N_MERS]
 N_MER = BRACKEN_N_MERS[N_MER_DIFF.index(min(N_MER_DIFF))]
 
+def get_bracken_level(input):
+    df = pd.read_table(input.report, header=None, index_col=None)
+    LEVELS = ['S', 'G', 'F', 'O', 'C', 'P', 'K']
+    for lvl in LEVELS:
+        if lvl in df[3].values:
+            return lvl
+    raise ValueError("None of the levels {} exists in {}".format(", ".join(LEVELS), input.report))
 
 rule bracken:
     input:
@@ -81,10 +94,10 @@ rule bracken:
         out = join(K2_INTERIM, '{sample}', '{sample}.bracken_out'),
     params:
         read_length = N_MER,
-        level = "S",
+        level = lambda wildcards, input: get_bracken_level(input),
         db = K2_DB_DIR,
     threads:
-        12
+        4
     container:
         "docker://" + config['docker']['bracken']
     shell:
@@ -95,7 +108,6 @@ rule bracken:
         '-w {output.report} '
         '-r {params.read_length} '
         '-l {params.level} '
-        '-t {threads} '
 
 rule bracken_all:
     input:
@@ -123,22 +135,30 @@ rule krona_kraken_all:
     input:
         expand(rules.krona_kraken.output, sample=SAMPLES),
 
-
-rule krona_bracken:
+rule bracken_to_krona_text:
     input:
-        report = rules.bracken.output.report,
-        taxa = rules.krona_build_taxa.output,
+        rules.bracken.output.report
     output:
-        html = join(K2_INTERIM, '{sample}', '{sample}_krona.html')
-    params:
-        params = '-t 5 -m 3',
-        tax = KRONA_DB_DIR,
+        join(K2_INTERIM, '{sample}', '{sample}.bracken.krona')
     container:
         "docker://" + config["docker"]["krona"]
     threads:
         1
     shell:
-        "ktImportTaxonomy {params.params} -tax {params.tax} -o {output} {input.report} "
+        "kreport2krona.py -r {input} -o {output}"
+
+
+rule krona_bracken:
+    input:
+        rules.bracken_to_krona_text.output
+    output:
+        html = join(K2_INTERIM, '{sample}', '{sample}_krona.html')
+    container:
+        "docker://" + config["docker"]["krona"]
+    threads:
+        1
+    shell:
+        "ktImportText {input}  -o {output}"
 
 
 rule krona_bracken_all:
@@ -165,19 +185,15 @@ rule multi_krona_kraken:
 
 rule multi_krona_bracken:
     input:
-        report = expand(rules.bracken.output.report, sample=SAMPLES),
-        taxa = rules.krona_build_taxa.output,
+        report = expand(rules.bracken_to_krona_text.output, sample=SAMPLES),
     output:
         join(K2_INTERIM, "krona_all_samples_bracken.html")
-    params:
-        params = '-t 5 -m 3',
-        tax = KRONA_DB_DIR,
     container:
         "docker://" + config["docker"]["krona"]
     threads:
         1
     shell:
-        "ktImportTaxonomy {params.params} -tax {params.tax} -o {output} {input.report} "
+        "ktImportText {input} -o {output}"
 
 
 rule kraken_biom:
