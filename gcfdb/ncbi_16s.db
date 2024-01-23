@@ -15,7 +15,7 @@ rule get_ncbi_16s_fasta:
         bact = join(NCBI_16S_DB, 'bacteria.16SrRNA.fna'),
         arch = join(NCBI_16S_DB, 'archaea.16SrRNA.fna'),
     params:
-        url = join(config.get('winecellar', {}).get('url', ''), 'ncbi_16s', 'release-{}'.format(NCBI_16S_RELEASE), 'TargetedLoci'),
+        url = join(config['winecellar']['url'], 'ncbi_16s', 'release-{}'.format(NCBI_16S_RELEASE), 'TargetedLoci'),
     threads:
         1
     shell:
