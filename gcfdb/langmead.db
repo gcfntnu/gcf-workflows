@@ -6,7 +6,7 @@ LM_RELEASE = str(config['db']['langmead']['release'])
 LM_ASSEMBLY = config['db']['langmead']['assembly'] or ''
 
 
-BRACKEN_N_MERS = [50, 75, 100, 150, 200, 250, 300] if LM_ASSEMBLY.startswith("k2") else [100, 150, 200, 250]
+LM_BRACKEN_N_MERS = [50, 75, 100, 150, 200, 250, 300] if LM_ASSEMBLY.startswith("k2") else [100, 150, 200, 250]
 
 
 if LM_ASSEMBLY.startswith("k2"):
@@ -22,7 +22,7 @@ if LM_ASSEMBLY.startswith("k2"):
             taxo = join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY, 'taxo.k2d'),
             opts = join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY, 'opts.k2d'),
             seq2tax = join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY, 'seqid2taxid.map'),
-            bracken_mers = expand(join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY, 'database{mers}mers.kmer_distrib'), mers=BRACKEN_N_MERS),
+            bracken_mers = expand(join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY, 'database{mers}mers.kmer_distrib'), mers=LM_BRACKEN_N_MERS),
         threads: 
             24
         log:
@@ -47,7 +47,7 @@ else: #Assume silva 16S
             hash = join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY, 'hash.k2d'),
             taxo = join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY, 'taxo.k2d'),
             opts = join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY, 'opts.k2d'),
-            bracken_mers = expand(join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY, 'database{mers}mers.kmer_distrib'), mers=BRACKEN_N_MERS),
+            bracken_mers = expand(join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY, 'database{mers}mers.kmer_distrib'), mers=LM_BRACKEN_N_MERS),
         threads: 
             24
         log:

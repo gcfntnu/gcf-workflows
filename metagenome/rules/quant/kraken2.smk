@@ -12,8 +12,10 @@ K2_DB_DIR = join(EXT_DIR, config['db']['reference_db'], 'release-{}'.format(DB_C
 
 if config['db']['reference_db'] == 'langmead':
     DB_SHMEM = rules.langmead_shmem.output
+    BRACKEN_N_MERS = LM_BRACKEN_N_MERS
 elif config['db']['reference_db'] == 'ncbi_16s':
     DB_SHMEM = rules.ncbi_16s_shmem.output
+    BRACKEN_N_MERS = NCBI_BRACKEN_N_MERS
 
 
 if PE:

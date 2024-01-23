@@ -3,9 +3,9 @@
 PROTOCOL = 'https://'
 
 NCBI_16S_RELEASE = config['db']['ncbi_16s']['release']
-NCBI_16S_ASSEMBLY = config['db']['ncbi_16s'].get('assembly', '')
+NCBI_16S_ASSEMBLY = config['db']['ncbi_16s']['assembly']
 
-BRACKEN_N_MERS = [100, 150, 200, 250]
+NCBI_BRACKEN_N_MERS = [100, 150, 200, 250]
 
 NCBI_16S_DB = join(EXT_DIR, 'ncbi_16s', 'release-{}'.format(NCBI_16S_RELEASE), 'metagenome', NCBI_16S_ASSEMBLY)
 
@@ -22,6 +22,8 @@ rule get_ncbi_16s_fasta:
         'wget -O - {params.url}/archaea.16SrRNA.fna.gz | gunzip -c > {output.arch} && '
         'wget -O - {params.url}/bacteria.16SrRNA.fna.gz | gunzip -c > {output.bact} '
 
+FTP_PROXY = config.get('proxy', {}).get('server', {}).get('ftp', '')
+
 rule ncbi_16s_download_taxonomy:
     input:
         rules.get_ncbi_16s_fasta.output,
@@ -29,14 +31,14 @@ rule ncbi_16s_download_taxonomy:
         join(NCBI_16S_DB, 'taxonomy', 'names.dmp')
     params:
         db = NCBI_16S_DB,
-        ftp = config.get('proxy', {}).get('server', {}).get('ftp', '')
+        ftp = 'export ftp_proxy={}'.format(FTP_PROXY) if FTP_PROXY else ''
     threads:
         1
     container:
         'docker://' + config['docker']['kraken2']
     shell:
         'cd {params.db} && '
-        'export ftp_proxy={params.ftp} && '
+        '{params.ftp} && '
         'kraken2-build --download-taxonomy --db {params.db} --use-ftp'
 
 rule ncbi_16s_add_library:
@@ -74,23 +76,19 @@ rule ncbi_16s_kraken_build:
         'kraken2-build --build --threads {threads} --db {params.db} '
 
 rule ncbi_16s_shmem:
-	input:
-		hash = rules.ncbi_16s_kraken_build.output.hash,
-		taxo = rules.ncbi_16s_kraken_build.output.taxo,
-		opts = rules.ncbi_16s_kraken_build.output.opts,
-		#seq2tax = rules.ncbi_16s_kraken_build.output.seq2tax,
-	output:
-		hash = temp(join("/dev/shm", NCBI_16S_ASSEMBLY, "hash.k2d")),
-		taxo = temp(join("/dev/shm", NCBI_16S_ASSEMBLY, "taxo.k2d")),
-		opts = temp(join("/dev/shm", NCBI_16S_ASSEMBLY, "opts.k2d")),
-		#seq2tax = temp(join("/dev/shm", NCBI_16S_ASSEMBLY, "seqid2taxid.map")),
-	threads:
-		1
-	run:
-		for src, dst in zip(input, output):
-			shell('cp {src} {dst}')
-
-
+    input:
+        hash = rules.ncbi_16s_kraken_build.output.hash,
+	taxo = rules.ncbi_16s_kraken_build.output.taxo,
+        opts = rules.ncbi_16s_kraken_build.output.opts,
+    output:
+        hash = temp(join("/dev/shm", NCBI_16S_ASSEMBLY, "hash.k2d")),
+        taxo = temp(join("/dev/shm", NCBI_16S_ASSEMBLY, "taxo.k2d")),
+        opts = temp(join("/dev/shm", NCBI_16S_ASSEMBLY, "opts.k2d")),
+    threads:
+        1
+    run:
+        for src, dst in zip(input, output):
+            shell('cp {src} {dst}')
 
 rule ncbi_16s_bracken:
     input:
@@ -109,20 +107,6 @@ rule ncbi_16s_bracken:
 
 rule ncbi_16s_all:
     input:
-        expand(rules.ncbi_16s_bracken.output, n_mer=BRACKEN_N_MERS)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+        expand(rules.ncbi_16s_bracken.output, n_mer=NCBI_BRACKEN_N_MERS)
 
 
