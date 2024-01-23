@@ -10,6 +10,8 @@ elif 'reference_db' in config['db']:
     ref = config['db']['reference_db']
     if ref == 'langmead':
         include: join(GCFDB_DIR, 'langmead.db')
+    elif ref == 'ncbi_16s':
+        include: join(GCFDB_DIR, 'ncbi_16s.db')
     DB_CONF = config['db'][ref]
     REF_DIR = join(EXT_DIR, ref, DB_CONF['release'])
 else:
@@ -21,5 +23,3 @@ if not 'ref' in locals():
     config['db']['reference_db'] = ref
     config['db'][ref] = {}
 
-#include:
-#    join(GCFDB_DIR,  'qiime2_classifiers.smk')

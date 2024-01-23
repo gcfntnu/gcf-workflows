@@ -55,12 +55,7 @@ class DummyPep:
         if col.isnull().all():
             return True
         return False
-    
-    def from_configfile(self, fn)
-         with open(fn) as fh:
-             self.config = yaml.safe_load(fh)
-        self.set_sample_table()
-        
+
     def set_sample_table():
         samples = self.config['samples']
         for sample_id, sample_conf in self.config['samples'].items():
@@ -76,7 +71,12 @@ class DummyPep:
             if ',' in sample_conf.get('Flowcell_ID', ''):
                 if len(set(sample_conf['Flowcell_ID'].split(','))) > 1: 
                     multiple_flowcells = True
-        
+
+    def from_configfile(self, fn):
+        with open(fn) as fh:
+            self.config = yaml.safe_load(fh)
+        self.set_sample_table()
+
         df = pd.DataFrame.from_dict(samples, orient='index')
         if subsamples:
             drop_cols = [i for i in df.columns if i.endswith('_md5sum')]
