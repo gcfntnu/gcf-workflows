@@ -1,3 +1,4 @@
+#-*- mode: snakemake -*-
 
 rule bfq_level1_region_summary:
     input:
