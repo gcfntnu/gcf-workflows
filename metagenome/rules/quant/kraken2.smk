@@ -27,7 +27,7 @@ if PE:
             report = join(K2_INTERIM, '{sample}', '{sample}.kraken.kreport'),
             output = join(K2_INTERIM, '{sample}', '{sample}.kraken.out'),
         params:
-            db = join("/dev/shm", LM_ASSEMBLY),
+            db = dirname(DB_SHMEM[0]),
             params = '--gzip-compressed --memory-mapping --paired'
         log:
             join(K2_INTERIM, '{sample}', '{sample}.kraken.log')
@@ -53,7 +53,7 @@ else:
             report = join(K2_INTERIM, '{sample}', '{sample}.kraken.kreport'),
             output = join(K2_INTERIM, '{sample}', '{sample}.kraken.out'),
         params:
-            db = join("/dev/shm", LM_ASSEMBLY),
+            db = dirname(DB_SHMEM[0]),
             params = '--gzip-compressed --memory-mapping '
         log:
             join(K2_INTERIM, '{sample}', '{sample}.kraken.log')
