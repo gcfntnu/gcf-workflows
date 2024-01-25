@@ -108,7 +108,7 @@ def get_filtered_fastq(wildcards):
     
     FASTQ_EXT = '.fastq'
     if config.get('fastq_compress_filtered', True):
-        if config.get('workflow', 'default') != 'smallrna':
+        if config.get('workflow', 'default') not in ['smallrna', 'microbiome']:
             FASTQ_EXT += '.gz'
         
     R1 = join(DST_PTH, wildcards.sample + '_R1' + FASTQ_EXT)
