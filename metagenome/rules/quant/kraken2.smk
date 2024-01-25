@@ -81,11 +81,11 @@ N_MER = BRACKEN_N_MERS[N_MER_DIFF.index(min(N_MER_DIFF))]
 
 def get_bracken_level(input):
     df = pd.read_table(input.report, header=None, index_col=None)
-    LEVELS = ['S', 'G', 'F', 'O', 'C', 'P', 'K']
+    LEVELS = ['S', 'G', 'F', 'O', 'C', 'P', 'K', 'U']
     for lvl in LEVELS:
         if lvl in df[3].values:
             return lvl
-    raise ValueError("None of the levels {} exists in {}".format(", ".join(LEVELS), input.report))
+    return lvl
 
 rule bracken:
     input:
@@ -98,18 +98,14 @@ rule bracken:
         read_length = N_MER,
         level = lambda wildcards, input: get_bracken_level(input),
         db = K2_DB_DIR,
+        script = src_gcf("scripts/run_bracken.py")
     threads:
         4
     container:
         "docker://" + config['docker']['bracken']
     shell:
-        'bracken '
-        '-d {params.db} '
-        '-i {input.report} '
-        '-o {output.out} '
-        '-w {output.report} '
-        '-r {params.read_length} '
-        '-l {params.level} '
+        "python {params.script} -d {params.db} -i {input.report} -o {output.out} -w {output.report} -r {params.read_length} -l {params.level} "
+
 
 rule bracken_all:
     input:
