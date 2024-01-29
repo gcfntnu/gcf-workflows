@@ -14,7 +14,7 @@ if LM_ASSEMBLY.startswith("k2"):
         params:
             proxy = config.get('proxy', {}).get('wget', ''),
             url = PROTOCOL + "genome-idx.s3.amazonaws.com/kraken",
-            filename = "{assembly}_{release}.tgz".format(assembly=LM_ASSEMBLY, release=LM_RELEASE),
+            filename = "{assembly}_{release}.tar.gz".format(assembly=LM_ASSEMBLY, release=LM_RELEASE),
             output = join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY),
             release = LM_RELEASE
         output:

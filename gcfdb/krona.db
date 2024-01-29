@@ -1,7 +1,7 @@
 #-*- mode:snakemake -*-
 PROTOCOL = 'https://'
 
-KRONA_URL = PROTOCOL + join(config.get('winecellar', {}).get('url', ''), "krona")
+KRONA_URL = join(config.get('winecellar', {}).get('url', ''), "krona")
 
 KRONA_DB_DIR = join(EXT_DIR, "krona")
 
