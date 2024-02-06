@@ -28,6 +28,9 @@ if __name__=='__main__':
             if not order in ranks:
                 continue
 
+            if order == 'D': #new domain, start with new branch
+                nodes = {0: root}
+
             taxa_name = taxa_entry.strip()
             index = ranks.index(order)
             #Certain levels don't exist everywhere, e.g. no K in Bacteria
