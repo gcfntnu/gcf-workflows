@@ -212,9 +212,37 @@ rule kraken_biom:
     shell:
         "kraken-biom {input.reports} -m {input.sample_info} {params} -o {output}"
 
+rule bracken_merged_reports:
+    input:
+        expand(rules.bracken.output.report, sample=SAMPLES)
+    output:
+        join(K2_INTERIM, "all_samples.bracken")
+    container:
+        "docker://" + config["docker"]["krona"]
+    threads:
+        1
+    shell:
+        "combine_kreports.py -r {input} -o {output} --only-combined --no-headers"
+
+rule bracken_to_tree:
+    input:
+        rules.bracken_merged_reports.output
+    output:
+        join(K2_INTERIM, "all_samples.nw")
+    params:
+        script = src_gcf("scripts/kraken2tree.py")
+    container:
+        "docker://" + config["docker"]["krona"]
+    threads:
+        1
+    shell:
+        "python {params.script} -i {input} -o {output}"
+
+
 rule kraken_phyloseq:
     input:
-        rules.kraken_biom.output,
+        biom = rules.kraken_biom.output,
+        tree = rules.bracken_to_tree.output, 
     output:
         join(K2_INTERIM, "physeq.rds"),
     params:
@@ -224,6 +252,6 @@ rule kraken_phyloseq:
     threads:
         1
     shell:
-        "Rscript {params.script} {input} {output} "
+        "Rscript {params.script} {input.biom} {input.tree} {output} "
 
 
