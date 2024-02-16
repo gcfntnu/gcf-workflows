@@ -111,22 +111,29 @@ rule bracken_all:
     input:
         expand(rules.bracken.output.report, sample=SAMPLES)
 
-
-rule krona_kraken:
+rule kraken_to_krona_text:
     input:
-        report = rules.kraken_classify.output.report,
-        taxa = rules.krona_build_taxa.output,
+        rules.kraken_classify.output.report
     output:
-        html = join(K2_INTERIM, '{sample}', '{sample}_krona_kraken.html')
-    params:
-        params = '-t 5 -m 3',
-        tax = KRONA_DB_DIR,
+        temp(join(K2_INTERIM, '{sample}', '{sample}.kraken.krona'))
     container:
         "docker://" + config["docker"]["krona"]
     threads:
         1
     shell:
-        "ktImportTaxonomy {params.params} -tax {params.tax} -o {output} {input.report} "
+        "kreport2krona.py -r {input} -o {output}"
+
+rule krona_kraken:
+    input:
+        report = rules.kraken_to_krona_text.output,
+    output:
+        html = join(K2_INTERIM, '{sample}', '{sample}_krona_kraken.html')
+    container:
+        "docker://" + config["docker"]["krona"]
+    threads:
+        1
+    shell:
+        "ktImportText {input}  -o {output}"
 
 
 rule krona_kraken_all:
@@ -166,19 +173,15 @@ rule krona_bracken_all:
 
 rule multi_krona_kraken:
     input:
-        report = expand(rules.kraken_classify.output.report, sample=SAMPLES),
-        taxa = rules.krona_build_taxa.output,
+        report = expand(rules.kraken_to_krona_text.output, sample=SAMPLES),
     output:
         join(K2_INTERIM, "krona_all_samples_kraken.html")
-    params:
-        params = '-t 5 -m 3',
-        tax = KRONA_DB_DIR,
     container:
         "docker://" + config["docker"]["krona"]
     threads:
         1
     shell:
-        "ktImportTaxonomy {params.params} -tax {params.tax} -o {output} {input.report} "
+        "ktImportText {input} -o {output}"
         
 
 rule multi_krona_bracken:
@@ -209,9 +212,37 @@ rule kraken_biom:
     shell:
         "kraken-biom {input.reports} -m {input.sample_info} {params} -o {output}"
 
+rule bracken_merged_reports:
+    input:
+        expand(rules.bracken.output.report, sample=SAMPLES)
+    output:
+        join(K2_INTERIM, "all_samples.bracken")
+    container:
+        "docker://" + config["docker"]["krona"]
+    threads:
+        1
+    shell:
+        "combine_kreports.py -r {input} -o {output} --only-combined --no-headers"
+
+rule bracken_to_tree:
+    input:
+        rules.bracken_merged_reports.output
+    output:
+        join(K2_INTERIM, "all_samples.nw")
+    params:
+        script = src_gcf("scripts/kraken2tree.py")
+    container:
+        "docker://" + config["docker"]["krona"]
+    threads:
+        1
+    shell:
+        "python {params.script} -i {input} -o {output}"
+
+
 rule kraken_phyloseq:
     input:
-        rules.kraken_biom.output,
+        biom = rules.kraken_biom.output,
+        tree = rules.bracken_to_tree.output, 
     output:
         join(K2_INTERIM, "physeq.rds"),
     params:
@@ -221,6 +252,6 @@ rule kraken_phyloseq:
     threads:
         1
     shell:
-        "Rscript {params.script} {input} {output} "
+        "Rscript {params.script} {input.biom} {input.tree} {output} "
 
 
