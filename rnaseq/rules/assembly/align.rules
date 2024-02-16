@@ -41,7 +41,7 @@ rule assembly_star_align:
         bam = temp(join(ASBY_ALIGN_INTERIM, 'star', '{sample}.Aligned.sortedByCoord.out.bam'))
     threads:
         48
-    singularity:
+    container:
         'docker://' + config['docker']['star']
     shell: 
         'STAR '
@@ -100,7 +100,7 @@ rule assembly_hisat2_align:
         sam = temp(join(ASBY_ALIGN_INTERIM, 'hisat2', '{sample}.out.sam'))
     threads:
         24
-    singularity:
+    container:
         'docker://' + config['docker']['hisat2']
     shell:
         'hisat2 '
@@ -117,7 +117,7 @@ rule assembly_hisat2_sorted_bam:
         bam = temp(join(ASBY_ALIGN_INTERIM, 'hisat2', '{sample}.sorted.bam'))
     threads:
         4
-    singularity:
+    container:
         'docker://' + config['docker']['sambamba']
     shell:
          'cat {input.sam} | sambamba view -S -f bam /dev/stdin | sambamba sort -m 24G -t {threads} -o {output.bam} /dev/stdin '

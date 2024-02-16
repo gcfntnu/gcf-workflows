@@ -65,7 +65,7 @@ def init_ensembl(els):
     return config
 
 ENS_RELEASE = str(config['db']['ensembl']['release'])
-config = init_ensembl(ensembl_lookup(srcdir('tables/ensembl-{}.gz'.format(ENS_RELEASE))))
+config = init_ensembl(ensembl_lookup(src_gcf('tables/ensembl-{}.gz'.format(ENS_RELEASE))))
 ENS_DIVISION = config['db']['ensembl']['division'] or ''
 ENS_ASSEMBLY = config['db']['ensembl']['assembly'] or ''
 if not ENS_ASSEMBLY:
@@ -251,6 +251,17 @@ rule human_ensembl_gtf:
         """
 
 
-
-
+rule human_ensembl_common_snps:
+    params:
+        proxy = config.get('proxy', {}).get('wget', ''),
+        date = datetime.now().strftime("%d-%m-%Y"),
+        url = join(config.get('winecellar', {}).get('url', ''), 'thousand_genomes', 'common_variants_grch38_chr_nochr.vcf')
+    output:
+        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), 'homo_sapiens', 'GRCh38', 'anno', 'common_variants.vcf')
+    log:
+        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), 'homo_sapiens', 'GRCh38', 'logs', 'common_variants.log')
+    shell:
+        'wget {params.proxy} -O {output} {params.url} && '
+        'echo "1000genomes common snps,NA,{params.url},{params.date}" > {log} '
+    
 

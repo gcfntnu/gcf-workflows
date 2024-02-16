@@ -12,7 +12,7 @@ rule rockhopper:
         4
     output:
         join(QUANT_INTERIM, 'rockhopper', '{sample}', 'summary.txt')
-    singularity:
+    container:
         'docker://' + config['docker']['rockhopper']
     shell:
         'java {params.java_opts} /opt/rockhopper/Rockhopper.jar Rockhopper '
@@ -31,7 +31,7 @@ rule rockhopper_all:
         counts = join(QUANT_INTERIM, 'rockhopper', 'gene_counts.tsv'),
         anno = join(QUANT_INTERIM, 'rockhopper', 'gene_info.tsv')
     params:
-        script = srcdir('scripts/rh_parse_tx.py'),
+        script = src_gcf('scripts/rh_parse_tx.py'),
         outdir = join(QUANT_INTERIM, 'rockhopper')
     shell:
         'python {params.script} '
@@ -47,8 +47,8 @@ rule rockhopper_anndata:
     output:
         join(QUANT_INTERIM, 'rockhopper', 'adata.h5ad')
     params:
-        script = srcdir('src/gcf-workflows/rnaseq/rules/quant/scripts/create_anndata.py')
-    singularity:
+        script = src_gcf('src/gcf-workflows/rnaseq/rules/quant/scripts/create_anndata.py')
+    container:
         'docker://' + config['docker']['scanpy']
     shell:
         'python {params.script} '

@@ -114,7 +114,7 @@ def filter_assemblies(df, organism=None, kingdom=None):
 
     keep_cols = [i for i in keep_cols if i in out.columns]
     out = out[keep_cols]
-    out.columns = ['division', 'species', 'taxon_id', 'strain', 'assembly', 'accession', 'refseq_category', 'refseq_assembly_level', 'ftp_genome', 'ftp_gtf', 'ftp_gff']
+    #out.columns = ['division', 'species', 'taxon_id', 'strain', 'assembly', 'accession', 'refseq_category', 'refseq_assembly_level', 'ftp_genome', 'ftp_gtf', 'ftp_gff']
     
     return out
 
@@ -146,4 +146,4 @@ if __name__ == '__main__':
     
     out = pd.concat(df_list, axis=0)
     
-    out.to_csv(args.output, sep='\t', index=False, compression='infer'))
+    out.to_csv(args.output, sep='\t', index=False, compression='infer')

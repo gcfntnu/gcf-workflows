@@ -6,7 +6,7 @@ rule scanpy_concat:
     output:
         join(ANALYSIS_INTERIM, 'preprocess', 'scanpy', 'data.5ahd')
     params:
-        script = srcdir('scripts/scanpy_read.py')
+        script = src_gcf('scripts/scanpy_read.py')
     shell:
         'python {params.script} '
         '-i {input} '
@@ -17,7 +17,7 @@ rule scanpy_filter_cells:
         rules.scanpy_concat.output
     output:
         join(ANALYSIS_INTERIM, 'preprocess', 'scanpy', 'filtered1.5ahd')
-    singularity:
+    container:
         'quay.io/biocontainers/scanpy-scripts:0.0.4--py37_1'
     shell:
         'scanpy-filter-cells.py '
@@ -31,17 +31,17 @@ rule scanpy_filter_genes:
         rules.scanpy_filter_cells.output
     output:
         join(ANALYSIS_INTERIM, 'preprocess', 'scanpy', 'filtered2.5ahd')
-    singularity:
+    container:
         'quay.io/biocontainers/scanpy-scripts:0.0.4--py37_1'
     shell:
         'scanpy-filter-genes.py '
         '-i {input} '
         
 rule scanpy_normalize:
-    singularity:
+    container:
         'quay.io/biocontainers/scanpy-scripts:0.0.4--py37_1'
 
 rule scanpy_variable_genes:
-    singularity:
+    container:
         'quay.io/biocontainers/scanpy-scripts:0.0.4--py37_1'
 

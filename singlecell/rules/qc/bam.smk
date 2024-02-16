@@ -7,7 +7,7 @@ rule create_ribo_bed:
         gtf = join(REF_DIR, 'anno', 'genes.gtf')
     output:
         temp('rrna.bed')
-    singularity:
+    container:
         'docker://' + config['docker']['ucsc-scripts']
     shell:
         """
@@ -23,7 +23,7 @@ rule create_ribo_intervals:
         genome = join(REF_DIR, 'fasta', 'genome.dict')
     output:
         join(REF_DIR, 'anno', 'rrna.intervals')
-    singularity:
+    container:
         'docker://' + config['docker']['picard_gatk']
     shell:
         'gatk BedToIntervalList '
@@ -45,7 +45,7 @@ rule picard_rnametrics_star:
         java_opt='-Xms4g -Xmx4g'
     threads:
         2
-    singularity:
+    container:
         'docker://' + config['docker']['picard_gatk']
     shell:
         """
@@ -67,7 +67,7 @@ rule picard_rnametrics_cellranger:
         java_opt='-Xms4g -Xmx4g'
     threads:
         2
-    singularity:
+    container:
         'docker://' + config['docker']['picard_gatk']
     shell:
         """

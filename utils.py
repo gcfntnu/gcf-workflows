@@ -22,7 +22,7 @@ from datetime import datetime
 
 
 from snakemake.logging import logger
-from snakemake.workflow import srcdir
+#from snakemake.workflow import src_gcf
 from snakemake.utils import update_config, min_version
 
 min_version("5.10.0")
@@ -41,7 +41,11 @@ FASTQ_DIR = config.get("fastq_dir") or environ.get("GCF_FASTQ", "data/raw/fastq"
 while FASTQ_DIR.endswith(os.path.sep):
     FASTQ_DIR = FASTQ_DIR[:-1]
 makedirs(FASTQ_DIR, exist_ok=True)
-GCFDB_DIR = srcdir("gcfdb")
+
+def src_gcf(pth):
+    return join(workflow.current_basedir, pth)
+
+GCFDB_DIR = src_gcf("gcfdb")
 
 ORG = config.get('organism', "N/A").lower().strip().replace(' ', '_')
 config['organism'] = ORG
@@ -101,7 +105,7 @@ for section in default_config_sections:
         config[section] = {}
 
 # default config
-main_fn = srcdir("main.config")
+main_fn = src_gcf("main.config")
 with open(main_fn) as fh:
     CONF = yaml.load(fh, Loader=Loader) or {}
 
@@ -112,7 +116,7 @@ if GCF_SECRET:
     update_config(CONF, SECRETS)
 
 # library preparation kit specific configuration
-libprep_fn = srcdir("libprep.config")
+libprep_fn = src_gcf("libprep.config")
 with open(libprep_fn) as fh:
     LIBPREP_CONF = yaml.load(fh, Loader=Loader) or {}
 kit = config.get("libprepkit")
@@ -158,7 +162,7 @@ ANALYSIS_INTERIM = join(INTERIM_DIR, WORKFLOW, "analysis")
 
 
 # docker images
-docker_fn = srcdir("docker.config")
+docker_fn = src_gcf("docker.config")
 with open(docker_fn) as fh:
     DOCKER_CONF = yaml.load(fh, Loader=Loader) or {}
     update_config2(config, DOCKER_CONF)

@@ -16,7 +16,7 @@ rule dedup_nextflex:
         outdir = join(FILTER_INTERIM, 'dedup')
     threads:
         2
-    singularity:
+    container:
         'docker://' + config['docker']['bioseqzip']
     shell:
         'bioseqzip_collapse -i {input.R1} --csv-report -f fastq -o {params.outdir} -t {threads}'
@@ -33,7 +33,7 @@ rule smallrna_trim_fastp:
         adapter_arg = lambda wildcards, input: fastp_adapter_args(input),
     threads:
         4
-    singularity:
+    container:
         'docker://' + config['docker']['fastp']
     shell:
         'fastp '
@@ -53,7 +53,7 @@ rule smallrna_fastp:
         args = config['filter']['trim']['fastp']['args']
     threads:
         4
-    singularity:
+    container:
         'docker://' + config['docker']['fastp']
     shell:
         'fastp '
@@ -70,7 +70,7 @@ rule fastp_log:
     output:
         json = join(FILTER_INTERIM, 'fastp', '{sample}.json')
     params:
-        script = srcdir('scripts/merge_fastp.py')
+        script = src_gcf('scripts/merge_fastp.py')
     shell:
         'python {params.script} {input} > {output} '
 
@@ -109,7 +109,7 @@ rule filter_mirtrace:
         species = mirtrace_species(),
         title = config.get('project_id', 'GCF-0000-00'),
         args = '--write-fasta --comment Created by GCF. -f '
-    singularity:
+    container:
         'docker://' + config['docker']['mirtrace']
     threads:
         48

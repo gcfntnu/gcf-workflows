@@ -132,8 +132,8 @@ rule bfq_level2_umap_png:
     output:
         join(BFQ_INTERIM, 'figs', 'umap_all_samples_mqc.png')
     params:
-        script = srcdir('scripts/plotpca.py')
-    singularity:
+        script = src_gcf('scripts/plotpca.py')
+    container:
         'docker://' + config['docker']['scanpy']
     shell:
         'python {params.script} {input} -o {output}'
@@ -145,8 +145,8 @@ rule bfq_level2_umap_yaml:
     output:
         join(BFQ_INTERIM, 'figs', 'all_samples_mqc.yaml')
     params:
-        script = srcdir('scripts/plotpca.py')
-    singularity:
+        script = src_gcf('scripts/plotpca.py')
+    container:
         'docker://' + config['docker']['scanpy']
     shell:
         'python {params.script} {input} -o {output}'

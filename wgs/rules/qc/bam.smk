@@ -21,7 +21,7 @@ rule qualimap_bamqc:
         outdir = join(QUALIMAP_DIR, '{sample}')
     output:
         odir = directory(join(QUALIMAP_DIR, '{sample}')),
-    singularity:
+    container:
         'docker://' + config['docker']['qualimap']
     threads:
         6
@@ -36,7 +36,7 @@ rule picard_wgs_metrics:
         reference = join(REF_DIR, 'fasta', 'genome.fa'),
     output:
         join(PICARD_DIR, '{sample}', 'wgs_metrics.txt')
-    singularity:
+    container:
         'docker://' + config['docker']['picard_gatk']
     shell:
         """
@@ -49,7 +49,7 @@ rule picard_alignment_summary_metrics:
         reference = join(REF_DIR, 'fasta', 'genome.fa'),
     output:
         join(PICARD_DIR, '{sample}', 'alignment_summary_metrics.txt')
-    singularity:
+    container:
         'docker://' + config['docker']['picard_gatk']
     shell:
         """

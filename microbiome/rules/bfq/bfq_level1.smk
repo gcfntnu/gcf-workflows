@@ -1,3 +1,4 @@
+#-*- mode: snakemake -*-
 
 rule bfq_level1_region_summary:
     input:
@@ -5,10 +6,10 @@ rule bfq_level1_region_summary:
     output:
         join(QC_INTERIM, 'figs', 'qiaseq_regions_mqc.yaml')
     params:
-        script = srcdir('scripts/qiaseq_region_summary.py')
+        script = src_gcf('scripts/qiaseq_region_summary.py')
     threads:
         1
-    singularity:
+    container:
         'docker://' + config['docker']['default']
     shell:
         'python {params.script} {input} > {output} '

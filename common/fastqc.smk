@@ -15,7 +15,7 @@ rule fastqc_pe:
         out = join(QC_INTERIM, 'fastqc')
     threads:
         2
-    singularity:
+    container:
         'docker://' + config['docker']['fastqc']
     shell:
         'fastqc -t {threads} -o {params.out} {input.R1} {input.R2} '
@@ -30,7 +30,7 @@ rule fastqc_se:
         out = join(QC_INTERIM, 'fastqc')
     threads:
         2
-    singularity:
+    container:
         'docker://' + config['docker']['fastqc']
     shadow:
         'minimal'

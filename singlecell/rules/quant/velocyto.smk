@@ -15,7 +15,7 @@ rule cellranger_sort_bam:
         bam = join(QUANT_INTERIM, 'cellranger', '{sample}', 'outs', 'possorted_genome_bam.bam')
     output:
         bam = temp(join(QUANT_INTERIM, 'cellranger', '{sample}', 'outs', 'cellsorted_possorted_genome_bam.bam'))
-    singularity:
+    container:
         'docker://' + config['docker']['samtools']
     threads:
         8
@@ -31,7 +31,7 @@ rule velocyto_cellranger:
         sample = join(QUANT_INTERIM, 'cellranger', '{sample}')
     output:
         join(QUANT_INTERIM, 'cellranger', '{sample}', 'velocyto', '{sample}.loom')
-    singularity:
+    container:
         'docker://'+ config['docker']['velocyto']
     threads:
         1
@@ -47,7 +47,7 @@ rule starsolo_sort_bam:
         bam = join(QUANT_INTERIM, 'star', '{sample}', 'Aligned.sortedByCoord.out.bam')
     output:
         bam = temp(join(QUANT_INTERIM, 'star', '{sample}', 'cellsorted_Aligned.sortedByCoord.out.bam'))
-    singularity:
+    container:
         'docker://' + config['docker']['samtools']
     threads:
         8
@@ -64,7 +64,7 @@ rule velocyto_starsolo:
         outdir = join(QUANT_INTERIM, 'star', '{sample}', 'velocyto')
     output:
         join(QUANT_INTERIM, 'star', '{sample}', 'velocyto', '{sample}.loom')
-    singularity:
+    container:
         'docker://'+ config['docker']['velocyto']
     threads:
         1
@@ -82,10 +82,10 @@ rule velocyto_scanpy:
     input:
         join(QUANT_INTERIM, '{quant}', '{sample}', 'velocyto', '{sample}.loom')
     params:
-        script = srcdir('scripts/convert_scanpy.py')
+        script = src_gcf('scripts/convert_scanpy.py')
     output:
         join(QUANT_INTERIM, '{quant}', '{sample}', 'velocyto', '{sample}.h5ad')
-    singularity:
+    container:
         'docker://'+ config['docker']['scanpy']
     threads:
         48
@@ -96,10 +96,10 @@ rule velocyto_aggr_scanpy:
     input:
         loom = expand(join(QUANT_INTERIM, '{{quant}}', '{sample}', 'velocyto', '{sample}.loom'), sample=SAMPLES),
     params:
-        script = srcdir('scripts/convert_scanpy.py')
+        script = src_gcf('scripts/convert_scanpy.py')
     output:
         join(QUANT_INTERIM, 'aggregate', '{quant}', 'velocyto', 'all_samples_aggr.h5ad')
-    singularity:
+    container:
         'docker://'+ config['docker']['scanpy']
     threads:
         48
@@ -113,8 +113,8 @@ rule velocyto_merge_aggr:
     output:
         join(QUANT_INTERIM, 'aggregate', '{quant}', '{aggr_id}_merge.h5ad')
     params:
-        script = srcdir('scripts/merge_scanpy.py')
-    singularity:
+        script = src_gcf('scripts/merge_scanpy.py')
+    container:
         'docker://'+ config['docker']['scanpy']
     threads:
         48
@@ -128,8 +128,8 @@ rule velocyto_merge:
     output:
         join(QUANT_INTERIM, '{quant}', '{sample}', '{sample}.h5ad')
     params:
-        script = srcdir('scripts/merge_scanpy.py')
-    singularity:
+        script = src_gcf('scripts/merge_scanpy.py')
+    container:
         'docker://'+ config['docker']['scanpy']
     threads:
         48

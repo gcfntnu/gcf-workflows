@@ -61,3 +61,18 @@ rule txgenomics_org_prebuild:
         echo "10xGenomics Genome,release-{wildcards.release},{params.url},`date -I`" > {log.genome}
         echo "10xGenomics GTF ,release-{wildcards.release},{params.url},`date -I`" > {log.gtf}
         """
+
+
+rule human_txgenomics_common_snps:
+    params:
+        proxy = config.get('proxy', {}).get('wget', ''),
+        date = datetime.now().strftime("%d-%m-%Y"), 
+        url = join(config.get('winecellar', {}).get('url', ''), 'thousand_genomes', 'common_variants_grch38_chr.vcf')
+    output:
+        join(EXT_DIR, '10xgenomics', 'release-{}'.format(TX_RELEASE), 'homo_sapiens', 'GRCh38', 'anno', 'common_variants.vcf')
+    log:
+        join(EXT_DIR, '10xgenomics', 'release-{}'.format(TX_RELEASE), 'homo_sapiens', 'GRCh38', 'logs', 'common_variants.log')
+    shell:
+        'wget {params.proxy} -O {output} {params.url} && '
+        'echo "1000genomes common snps,NA,{params.url},{params.date}" > {log} '
+        

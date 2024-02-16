@@ -37,7 +37,7 @@ rule spikein_unitas:
     input:
         get_spikein_fasta()
     params:
-        script = srcdir('scripts/spikein_unitas.py')
+        script = src_gcf('scripts/spikein_unitas.py')
     output:
         join(QUANT_INTERIM, 'unitas', '_spikein_unitas_formatted.fa')
     shell:
@@ -105,7 +105,7 @@ rule unitas:
         mirtable = join(QUANT_INTERIM, 'unitas', 'unitas', '{sample}', 'miR-table_{}.simplified.txt'.format(UNITAS_ORG)),
         pirna = join(QUANT_INTERIM, 'unitas', 'unitas', '{sample}', 'unitas.piRcandidates-tails_{}.txt'.format(UNITAS_ORG)),
         mirtable_ext= join(QUANT_INTERIM, 'unitas', 'unitas', '{sample}', 'unitas.miR-table_{}.txt'.format(UNITAS_ORG))
-    singularity:
+    container:
         'docker://' + config['docker']['unitas']
     threads:
         2
@@ -121,7 +121,7 @@ rule unitas_annotation2yaml:
     input:
         rules.unitas.output.annotation
     params:
-        script = srcdir('scripts/unitas_annotation2json.py')
+        script = src_gcf('scripts/unitas_annotation2json.py')
     output:
         join(QUANT_INTERIM, 'unitas', '{sample}', 'annotation_summary.json')
     shell:
@@ -131,7 +131,7 @@ rule unitas_mirtable:
     input:
         expand(rules.unitas.output.mirtable, sample=SAMPLES)
     params:
-        script = srcdir('scripts/unitas_mirtable.py')
+        script = src_gcf('scripts/unitas_mirtable.py')
     output:
         counts = join(QUANT_INTERIM, 'unitas', 'mir_counts.tsv')
     shell:
@@ -141,7 +141,7 @@ rule unitas_isomirtable:
     input:
         expand(rules.unitas.output.mirtable_ext, sample=SAMPLES)
     params:
-        script = srcdir('scripts/unitas_isomirtable.py'),
+        script = src_gcf('scripts/unitas_isomirtable.py'),
         min_count = 0
     output:
         counts = join(QUANT_INTERIM, 'unitas', 'isomir_counts.tsv'),
@@ -153,7 +153,7 @@ rule unitas_trftable:
     input:
         expand(rules.unitas.output.trftable, sample=SAMPLES)
     params:
-        script = srcdir('scripts/unitas_trftable.py')
+        script = src_gcf('scripts/unitas_trftable.py')
     output:
         join(QUANT_INTERIM, 'unitas', 'trf_counts.tsv')
     shell:
@@ -163,7 +163,7 @@ rule unitas_isotrftable:
     input:
         expand(rules.unitas.output.trftable_ext, sample=SAMPLES)
     params:
-        script = srcdir('scripts/unitas_isotrftable.py')
+        script = src_gcf('scripts/unitas_isotrftable.py')
     output:
         join(QUANT_INTERIM, 'unitas', 'isotrf_counts.csv')
     shell:
@@ -173,7 +173,7 @@ rule unitas_allhits:
     input:
         expand(rules.unitas.output.target_hits, sample=SAMPLES)
     params:
-        script = srcdir('scripts/unitas_allhits.py') 
+        script = src_gcf('scripts/unitas_allhits.py') 
     output:
         join(QUANT_INTERIM, 'unitas', 'allhits.tsv')
     shell:
@@ -183,7 +183,7 @@ rule unitas_modifications:
     input:
         expand(rules.unitas.output.modifications, sample=SAMPLES)
     params:
-        script = srcdir('scripts/unitas_modifications.py'),
+        script = src_gcf('scripts/unitas_modifications.py'),
         outdir = join(QUANT_INTERIM, 'unitas')
     output:
         join(QUANT_INTERIM, 'unitas', 'modification_per_position.tsv'),
@@ -197,7 +197,7 @@ rule unitas_annotations:
     input:
         expand(rules.unitas.output.annotation, sample=SAMPLES)
     params:
-        script = srcdir('scripts/unitas_annotations.py')
+        script = src_gcf('scripts/unitas_annotations.py')
     output:
         join(QUANT_INTERIM, 'unitas', 'annotations.tsv')
     shell:
@@ -207,7 +207,7 @@ rule unitas_allfeatures:
     input:
         expand(rules.unitas.output.full_annotation, sample=SAMPLES)
     params:
-        script = srcdir('scripts/unitas_feature_counts.py') 
+        script = src_gcf('scripts/unitas_feature_counts.py') 
     output:
         join(QUANT_INTERIM, 'unitas', 'allfeatures.tsv')
     shell:
@@ -220,7 +220,7 @@ rule unitas_isomir_tximport:
     output:
        join(QUANT_INTERIM, 'unitas', 'tximport.rds')
     params:
-        script = srcdir('scripts/isomir2tximport.R')
+        script = src_gcf('scripts/isomir2tximport.R')
     shell:
         'Rscript {params.script} '
         '--input {input.counts} '
@@ -236,8 +236,8 @@ rule unitas_mirna_anndata:
     output:
         join(QUANT_INTERIM, 'unitas', 'adata.h5ad')
     params:
-        script = srcdir('scripts/create_anndata.py')
-    singularity:
+        script = src_gcf('scripts/create_anndata.py')
+    container:
         'docker://' + config['docker']['scanpy']
     shell:
         'python {params.script} '

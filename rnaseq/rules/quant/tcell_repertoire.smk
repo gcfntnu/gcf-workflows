@@ -2,7 +2,7 @@
 rule mixcr_analyze:
     input:
         unpack(get_filtered_fastq)
-    singularity:
+    container:
         'docker://milaboratory/mixcr:3.0.11-imgt'
     params:
         prefix = join(QUANT_INTERIM, 'mixcr', '{sample}')

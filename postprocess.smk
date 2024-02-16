@@ -10,20 +10,20 @@ if 'delta_readlen' in config:
     
 rule multiqc_config:
     input:
-        header_template = srcdir(join('misc', 'multiqc', 'mqc_header.txt')),
-        config_template = srcdir(join('misc', 'multiqc', 'multiqc_config-{}.yaml'.format(WORKFLOW))),
+        header_template = src_gcf(join('misc', 'multiqc', 'mqc_header.txt')),
+        config_template = src_gcf(join('misc', 'multiqc', 'multiqc_config-{}.yaml'.format(WORKFLOW))),
         sample_info = join(INTERIM_DIR, 'sample_info.tsv'),
     output:
         mqc_config = join(BFQ_INTERIM, '.multiqc_config.yaml')
     params:
-        script = srcdir('misc/multiqc/create_mqc_config.py'),
+        script = src_gcf('misc/multiqc/create_mqc_config.py'),
         project_id = PROJECT_ID,
         machine = config['machine'],
         read_geometry = ','.join([str(x) for x in _original_read_geometry]),
         libprep = config['libprepkit'],
-        repo_dir = srcdir(os.path.dirname('main.config')),
-        pep = workflow.pepfile
-    singularity:
+        repo_dir = src_gcf(os.path.dirname('main.config')),
+        pep = 'config.yaml' if config.get('skip_peppy', False) else workflow.pepfile
+    container:
         'docker://' + config['docker']['default']
     shell:
         'python {params.script} '
@@ -69,7 +69,7 @@ rule multiqc_report:
         modules = get_mqc_modules(),
         extra_args = '-f -q --interactive ',
         search_paths = lambda wildcards: bfq_search_paths()
-    singularity:
+    container:
         'docker://' + config['docker']['multiqc']
     shell:
         'multiqc '

@@ -15,7 +15,7 @@ rule bwa_align:
         4
     log:
         join(ALIGN_INTERIM, 'bwa', 'logs', '{sample}.bwa.log')
-    singularity:
+    container:
         'docker://' + config['docker']['bwa_samtools']
     shell:
         'bwa mem '
@@ -32,7 +32,7 @@ rule namesort_sam:
         join(ALIGN_INTERIM, 'bwa', '{sample}.aligned.bam')
     output:
         join(ALIGN_INTERIM, 'bwa', '{sample}.namesorted.sam')
-    singularity:
+    container:
         'docker://' + config['docker']['bwa_samtools']
     shell:
         'samtools view {input} > {output} '
@@ -46,7 +46,7 @@ rule swift_primerclip:
         join(ALIGN_INTERIM, 'bwa', '{sample}.primerclipped.sam')
     log:
        join(ALIGN_INTERIM, 'bwa', 'logs', '{sample}.primerclip.log')
-    singularity:
+    container:
         'docker://' + config['docker']['primerclip']
     shell:
         'primerclip {input.sam} {input.master_fn} {output} '
@@ -65,7 +65,7 @@ rule swift_picard_sort:
         java_opt="-Xms4g -Xmx4g "
     threads:
         8
-    singularity:
+    container:
         'docker://' + config['docker']['picard_gatk']
     shell:
         'picard AddOrReplaceReadGroups '

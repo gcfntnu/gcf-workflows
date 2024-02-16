@@ -6,6 +6,7 @@ extra_fn_clean_exts:
   - '_fastp'
   - '.fastp'
   - '.kraken.kreport'
+  - '.bracken'
 
 fn_ignore_files:
   - "*.bracken_kreport"
@@ -40,6 +41,8 @@ report_section_order:
     order: 900
   fastq_screen:
     order: 800
+  bracken:
+    order: 710
   kraken:
     order: 700
 remove_sections:
@@ -57,14 +60,23 @@ remove_sections:
  - fastqc_per_base_n_content
  - fastqc_sequence_duplication_levels
  - fastqc_status_checks
+ - kraken-top-n
 table_columns_visible:
   fastp:
     pct_duplication: False
+  kraken:
+    pct_top_one: false
+    pct_top_n: false
 table_columns_placement:
   fastp:
     before_filtering_total_reads: 110
     pct_surviving: 112
     pct_adapter: 114
     after_filtering_gc_content: 116
+  bracken:
+    pct_top_one: 200
+    pct_top_n: 210
+  kraken:
+    pct_unclassified: 220
  
 

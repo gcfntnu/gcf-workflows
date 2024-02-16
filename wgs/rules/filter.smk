@@ -13,7 +13,7 @@ if len(config['read_geometry']) > 3:
         output:
             R1 = join(FILTER_INTERIM, 'cleaned', '{sample}_R1.fastq'),
             R2 = join(FILTER_INTERIM, 'cleaned', '{sample}_R2.fastq')
-        singularity:
+        container:
             'docker://' + config['docker']['fastq_pair']
         shell:
             fastq_pair {input}

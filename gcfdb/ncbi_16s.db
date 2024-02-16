@@ -1,0 +1,112 @@
+#-*- mode:snakemake -*-
+
+PROTOCOL = 'https://'
+
+NCBI_16S_RELEASE = config['db']['ncbi_16s']['release']
+NCBI_16S_ASSEMBLY = config['db']['ncbi_16s']['assembly']
+
+NCBI_BRACKEN_N_MERS = [100, 150, 200, 250]
+
+NCBI_16S_DB = join(EXT_DIR, 'ncbi_16s', 'release-{}'.format(NCBI_16S_RELEASE), 'metagenome', NCBI_16S_ASSEMBLY)
+
+
+rule get_ncbi_16s_fasta:
+    output:
+        bact = join(NCBI_16S_DB, 'bacteria.16SrRNA.fna'),
+        arch = join(NCBI_16S_DB, 'archaea.16SrRNA.fna'),
+    params:
+        url = join(config['winecellar']['url'], 'ncbi_16s', 'release-{}'.format(NCBI_16S_RELEASE), 'TargetedLoci'),
+    threads:
+        1
+    shell:
+        'wget -O - {params.url}/archaea.16SrRNA.fna.gz | gunzip -c > {output.arch} && '
+        'wget -O - {params.url}/bacteria.16SrRNA.fna.gz | gunzip -c > {output.bact} '
+
+FTP_PROXY = config.get('proxy', {}).get('server', {}).get('ftp', '')
+
+rule ncbi_16s_download_taxonomy:
+    input:
+        rules.get_ncbi_16s_fasta.output,
+    output:
+        join(NCBI_16S_DB, 'taxonomy', 'names.dmp')
+    params:
+        db = NCBI_16S_DB,
+        ftp = 'export ftp_proxy={}'.format(FTP_PROXY) if FTP_PROXY else ''
+    threads:
+        1
+    container:
+        'docker://' + config['docker']['kraken2']
+    shell:
+        'cd {params.db} && '
+        '{params.ftp} && '
+        'kraken2-build --download-taxonomy --db {params.db} --use-ftp'
+
+rule ncbi_16s_add_library:
+    input:
+        rules.ncbi_16s_download_taxonomy.output,
+    output:
+        join(NCBI_16S_DB, 'library', 'added', 'libraries.added')
+    params:
+        db = NCBI_16S_DB,
+    threads:
+        1
+    container:
+        'docker://' + config['docker']['kraken2']
+    shell:
+        'cd {params.db} && '
+        'for f in *.fna; do kraken2-build --add-to-library $f --db {params.db}; done && '
+        'touch {output} '
+
+rule ncbi_16s_kraken_build:
+    input:
+        rules.ncbi_16s_add_library.output,
+    output:
+        hash = join(NCBI_16S_DB, 'hash.k2d'),
+        opts = join(NCBI_16S_DB, 'opts.k2d'),
+        taxo = join(NCBI_16S_DB, 'taxo.k2d'),
+        seq2tax = join(NCBI_16S_DB, 'seqid2taxid.map'),
+    params:
+        db = NCBI_16S_DB,
+    threads:
+        48
+    container:
+        'docker://' + config['docker']['kraken2']
+    shell:
+        'cd {params.db} && '
+        'kraken2-build --build --threads {threads} --db {params.db} '
+
+rule ncbi_16s_shmem:
+    input:
+        hash = rules.ncbi_16s_kraken_build.output.hash,
+	taxo = rules.ncbi_16s_kraken_build.output.taxo,
+        opts = rules.ncbi_16s_kraken_build.output.opts,
+    output:
+        hash = temp(join("/dev/shm", NCBI_16S_ASSEMBLY, "hash.k2d")),
+        taxo = temp(join("/dev/shm", NCBI_16S_ASSEMBLY, "taxo.k2d")),
+        opts = temp(join("/dev/shm", NCBI_16S_ASSEMBLY, "opts.k2d")),
+    threads:
+        1
+    run:
+        for src, dst in zip(input, output):
+            shell('cp {src} {dst}')
+
+rule ncbi_16s_bracken:
+    input:
+        rules.ncbi_16s_kraken_build.output,
+    output:
+        kraken = join(NCBI_16S_DB, 'database{n_mer}mers.kraken'),
+        kmer_distr = join(NCBI_16S_DB, 'database{n_mer}mers.kmer_distrib'),
+    params:
+        db = NCBI_16S_DB,
+    threads:
+        16
+    container:
+        'docker://' + config['docker']['bracken']
+    shell:
+        'bracken-build -d {params.db} -t {threads} -k 35 -l {wildcards.n_mer} '
+
+rule ncbi_16s_all:
+    input:
+        expand(rules.ncbi_16s_bracken.output, n_mer=NCBI_BRACKEN_N_MERS)
+
+

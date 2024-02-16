@@ -94,6 +94,6 @@ rule ensembl_build_lookuptable:
     input:
         expand(rules.ensembl_filter.output, release=ENS_RELEASE, division=DIVISIONS)
     output:
-        srcdir('tables/ensembl-{}.gz'.format(ENS_RELEASE))
+        src_gcf('tables/ensembl-{}.gz'.format(ENS_RELEASE))
     shell:
         'gzip -c {input} > {output}'

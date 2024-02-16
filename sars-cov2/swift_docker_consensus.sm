@@ -4,7 +4,7 @@
 
 rule signal_run_ivar_consensus:
     conda: 'conda_envs/ivar.yaml'
-    singularity: 'docker://gcfntnu/signal-ivar'
+    container: 'docker://gcfntnu/signal-ivar'
     output:
         'ivar_consensus/{sample}.consensus.fa'
     input:

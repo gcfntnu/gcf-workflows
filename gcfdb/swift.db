@@ -17,7 +17,7 @@ rule swift_sars_cov2_panels_v2_masterfile:
         master = join(SWIFT_EXT, 'v2', 'anno', 'sarscov2_v2_masterfile.txt')
     log:
         join(SWIFT_EXT, 'logs', 'sarscov2_v2.log')
-    singularity:
+    container:
         'docker://' + config['docker']['default']
     shadow:
         'shallow'
@@ -33,7 +33,7 @@ rule swift_sars_cov2_panels_v2_bed_non_merged:
         join(SWIFT_EXT, 'v2', 'anno', 'sarscov2_v2_masterfile.txt')
     output:
         join(SWIFT_EXT, 'v2', 'anno', 'sarscov2_v2_nonmerged.bed')
-    singularity:
+    container:
         'docker://' + config['docker']['default']
     shell:
         """
@@ -45,7 +45,7 @@ rule swift_sars_cov2_panels_v2_bed_merged:
         join(SWIFT_EXT, 'v2', 'anno', 'sarscov2_v2_nonmerged.bed')
     output:
         join(SWIFT_EXT, 'v2', 'anno', 'sarscov2_v2_merged.bed')
-    singularity:
+    container:
         'docker://' + config['docker']['bedtools']
     shell:
         """
@@ -57,7 +57,7 @@ rule swift_swift_sars_cov2_panels_v2_primers_bed:
         join(SWIFT_EXT, 'v2', 'anno', 'sarscov2_v2_masterfile.txt')
     output:
         join(SWIFT_EXT, 'v2', 'anno', 'sarscov2_v2_primers.bed')
-    singularity:
+    container:
         'docker://' + config['docker']['default']
     shell:
         """

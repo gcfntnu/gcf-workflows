@@ -8,7 +8,6 @@ import yaml
 import json
 import subprocess
 
-import peppy
 from matplotlib import cm, colors
 
 
@@ -43,9 +42,65 @@ def str_read_geometry(read_geometry):
         rg_str = 'Paired end - forward read length (R1): {}, reverse read length (R2): {}'.format(read_geometry[0], read_geometry[1])
     return rg_str
 
+class DummyPep:
+    def __init__(self):
+        self.config = {}
+        self.sample_table = None
 
+    def _empty_col(self, col):
+        if all(col==''):
+            return True
+        if col.isna().all():
+            return True
+        if col.isnull().all():
+            return True
+        return False
+
+    def set_sample_table():
+        samples = self.config['samples']
+        for sample_id, sample_conf in self.config['samples'].items():
+            if 'I1' in sample_conf:
+                single_cell = True
+            if ',' in sample_conf.get('R1', ''):
+                subsamples = True
+            if ',' in sample_conf.get('R2', ''):
+                subsamples = True
+            if ',' in sample_conf.get('Project_ID', ''):
+                if len(set(sample_conf['Project_ID'].split(','))) > 1: 
+                    multiple_projects = True
+            if ',' in sample_conf.get('Flowcell_ID', ''):
+                if len(set(sample_conf['Flowcell_ID'].split(','))) > 1: 
+                    multiple_flowcells = True
+
+    def from_configfile(self, fn):
+        with open(fn) as fh:
+            self.config = yaml.safe_load(fh)
+        self.set_sample_table()
+
+        df = pd.DataFrame.from_dict(samples, orient='index')
+        if subsamples:
+            drop_cols = [i for i in df.columns if i.endswith('_md5sum')]
+            if multiple_flowcell:
+                drop_cols.extend(['Flowcell_Name', 'Flowcell_ID'])
+            else:
+                df['Flowcell_Name'] = df['Flowcell_Name'].apply(lambda x: x.split(',')[0])
+                df['Flowcell_ID'] = df['Flowcell_ID'].apply(lambda x: x.split(',')[0])
+            if multiple_projects:
+                drop_cols.append('Project_ID')
+            else:
+                df['Project_ID'] = df['Project_ID'].apply(lambda x: x.split(',')[0])
+        df = df.drop(drop_cols, axis=1, errors='ignore')
+        df = df.set_index('Sample_ID')
+        df = df.reset_index()
+        df = df.rename(columns={'Sample_ID': 'sample_name'})
+        self.sample_table = df
+        
 def create_mqc_config(args):
-    pep = peppy.Project(args.pep.name)
+    if args.pep == 'config.yaml':
+        pep = DummyPep().from_config(args.pep)
+    else:
+        import peppy
+        pep = peppy.Project(args.pep.name)
     mqc_conf = yaml.load(args.config_template, Loader=yaml.Loader)
     title = ','.join(pep.config.get('Project_ID', [args.project_id]))
     mqc_conf['title'] = title
@@ -59,7 +114,7 @@ def create_mqc_config(args):
     # ommit {'Contact E-mail': contact},
     report_header = [
         {'Sequencing Platform': pep.config.get('machine', args.machine)},
-        {'Read Geometry': str_read_geometry(pep.config.read_geometry)},
+        {'Read Geometry': str_read_geometry(pep.config['read_geometry'])},
         {'Organism': pep.config.get('organism', args.organism).replace('_', ' ').title()},
         {'Lib prep kit': pep.config.get('libprepkit', args.libkit)},
         {'Workflow': pep.config.get('workflow', args.workflow)}
@@ -67,7 +122,7 @@ def create_mqc_config(args):
 
     mqc_conf['report_header_info'] = report_header
 
-    if len(pep.config.read_geometry) == 1:
+    if len(pep.config['read_geometry']) == 1:
         mqc_conf['extra_fn_clean_exts'].append('_R1')
 
  
@@ -170,7 +225,7 @@ if __name__ == '__main__':
     parser.add_argument("--repo-dir",  help="Path to git repo of workflow.", required=True)
     parser.add_argument("--header-template",  help="Path to multiqc header template.", type=argparse.FileType('r'), required=True)
     parser.add_argument("--config-template",  help="Path to multiqc config template.", type=argparse.FileType('r'), required=True)
-    parser.add_argument("--pep",  help="Path to peppy project", type=argparse.FileType('r'), required=True)
+    parser.add_argument("--pep",  help="Path to peppy project (can also be config.yaml)", type=argparse.FileType('r'), required=True)
 
     args = parser.parse_args()
 

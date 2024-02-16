@@ -31,7 +31,7 @@ rule ercc_gtf:
     output:
         join(ERCC_DIR, 'anno', 'ERCC92.gtf')
     params:
-        script = srcdir('scripts/fix_ercc_gtf.py')
+        script = src_gcf('scripts/fix_ercc_gtf.py')
     shell:
         'python {params.script} {input} > {output}'
 
@@ -41,7 +41,7 @@ rule ercc_gtf_gene:
     output:
         join(ERCC_DIR, 'anno', 'ERCC92.gene.gtf')
     params:
-        script = srcdir('scripts/fix_ercc_gtf.py')
+        script = src_gcf('scripts/fix_ercc_gtf.py')
     shell:
         'python {params.script} {input} --exon2gene > {output}'    
 

@@ -19,7 +19,7 @@ rule umitools_whitelist:
         extra_args = '--plot-prefix ' + UMI_INTERIM + '/{sample}/{sample}'
     output:
         join(UMI_INTERIM, '{sample}','whitelist.txt')
-    singularity:
+    container:
         'docker://' + config['docker']['umi_tools']
     shell:
         'umi_tools whitelist '
@@ -38,7 +38,7 @@ rule umitools_extract:
     output:
         R1 = join(UMI_INTERIM, '{sample}', '{sample}_R1.fastq.gz'),
         R2 = join(UMI_INTERIM, '{sample}', '{sample}_R2.fastq.gz')
-    singularity:
+    container:
         'docker://' + config['docker']['umi_tools']
     shell:
         'umi_tools extract '
@@ -55,7 +55,7 @@ rule umitools_align_star:
         ref = join(star_genome_dir(), 'SA')
     output:
         bam = join(UMI_INTERIM, '{sample}', '{sample}.Aligned.sortedByCoord.out.bam')
-    singularity:
+    container:
         'docker://' + config['docker']['star']
     params:
         ref = star_genome_dir(),
@@ -75,7 +75,7 @@ rule umitools_assign_genes:
     input:
         bam = join(UMI_INTERIM, '{sample}', '{sample}.Aligned.sortedByCoord.out.bam'),
         gtf = join(REF_DIR, 'anno', 'genes.gtf')
-    singularity:
+    container:
         'docker://' + config['docker']['subread']
     output:
         out = join(UMI_INTERIM, '{sample}', '{sample}.gene_assignment.txt'),
@@ -95,7 +95,7 @@ rule umitools_sort_bam:
         join(UMI_INTERIM, '{sample}', '{sample}.Aligned.sortedByCoord.out.bam.featureCounts.bam')
     output:
         join(UMI_INTERIM, '{sample}', '{sample}.Assigned.sorted.bam')
-    singularity:
+    container:
         'docker://' + config['docker']['samtools']
     shell:
         'samtools sort {input} -o {output}'
@@ -105,7 +105,7 @@ rule umitools_index_bam:
         join(UMI_INTERIM, '{sample}', '{sample}.Assigned.sorted.bam')
     output:
         join(UMI_INTERIM, '{sample}', '{sample}.Assigned.sorted.bam.bai')
-    singularity:
+    container:
         'docker://' + config['docker']['samtools']
     shell:
         'samtools index {input}'
@@ -118,7 +118,7 @@ rule umitools_quant:
         join(UMI_INTERIM,'{sample}' ,'counts.tsv.gz')
     params:
         '--per-gene --gene-tag=XT --assigned-status-tag=XS --per-cell '
-    singularity:
+    container:
         'docker://' + config['docker']['umi_tools']
     shell:
         'umi_tools count '
@@ -130,11 +130,11 @@ rule umitools_scanpy:
     input:
         rules.umitools_quant.output
     params:
-        script = srcdir('scripts/convert_scanpy.py'),
+        script = src_gcf('scripts/convert_scanpy.py'),
         format = 'umitools',
     output:
         join(UMI_INTERIM, '{sample}', 'scanpy', 'adata.h5ad')
-    singularity:
+    container:
         'docker://' + config['docker']['scanpy']
     shell:
         'python {params.script} '
@@ -147,12 +147,12 @@ rule umitools_scanpy_aggr:
         h5ad = expand(join(UMI_INTERIM, '{sample}', 'scanpy', 'adata.h5ad'), sample=SAMPLES),
         counts = expand(rules.umitools_quant.output, sample=SAMPLES),
     params:
-        script = srcdir('scripts/convert_scanpy.py'),
+        script = src_gcf('scripts/convert_scanpy.py'),
         format = 'umitools',
         norm = config['quant']['aggregate']['norm'],
     output:
         join(QUANT_INTERIM, 'aggregate', 'umitools', 'scanpy', '{aggr_id}_aggr.h5ad')
-    singularity:
+    container:
         'docker://' + config['docker']['scanpy']
     shell:
         'python {params.script} '
@@ -168,10 +168,10 @@ rule umitools_seurat:
     input:
       rules.umitools_quant.output
     params:
-        script = srcdir('scripts/umitools_seurat.R')
+        script = src_gcf('scripts/umitools_seurat.R')
     output:
         join(UMI_INTERIM, 'seurat', '{sample}', '{sample}.rds')
-    singularity:
+    container:
         'docker://' + config['docker']['seurat']
     shell:
         'Rscript {params.script} -i {input} -o {output} '

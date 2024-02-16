@@ -6,8 +6,8 @@ rule tximport_gene_counts:
         rds = join(QUANT_INTERIM, '{quant}', 'tximport', SALMON_INDEX_TYPE + '_{quant}.rds'),
         txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
-        script = srcdir('scripts/tximport2csv.R')
-    singularity:
+        script = src_gcf('scripts/tximport2csv.R')
+    container:
         'docker://' + config['docker']['tximport']
     output:
         join(QUANT_INTERIM, '{quant}', 'tximport', 'gene_counts.tsv')
@@ -25,8 +25,8 @@ rule tximport_gene_lengths:
         rds = join(QUANT_INTERIM, '{quant}', 'tximport', SALMON_INDEX_TYPE + '_{quant}.rds'),
         txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
-        script = srcdir('scripts/tximport2csv.R')
-    singularity:
+        script = src_gcf('scripts/tximport2csv.R')
+    container:
         'docker://' + config['docker']['tximport']
     output:
         join(QUANT_INTERIM, '{quant}', 'tximport', 'gene_lengths.tsv')
@@ -44,8 +44,8 @@ rule tximport_gene_tpm:
         rds = join(QUANT_INTERIM, '{quant}', 'tximport', SALMON_INDEX_TYPE + '_{quant}.rds'),
         txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
-        script = srcdir('scripts/tximport2csv.R')
-    singularity:
+        script = src_gcf('scripts/tximport2csv.R')
+    container:
         'docker://' + config['docker']['tximport']
     threads:
         8
@@ -63,8 +63,8 @@ rule tximport_gene_tpm_scaled:
         rds = join(QUANT_INTERIM, '{quant}', 'tximport', SALMON_INDEX_TYPE + '_{quant}.rds'),
         txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
-        script = srcdir('scripts/tximport2csv.R')
-    singularity:
+        script = src_gcf('scripts/tximport2csv.R')
+    container:
         'docker://' + config['docker']['tximport']
     threads:
         8
@@ -82,8 +82,8 @@ rule tximport_gene_tpm_length_scaled:
         rds = join(QUANT_INTERIM, '{quant}', 'tximport', SALMON_INDEX_TYPE + '_{quant}.rds'),
         txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
-        script = srcdir('scripts/tximport2csv.R')
-    singularity:
+        script = src_gcf('scripts/tximport2csv.R')
+    container:
         'docker://' + config['docker']['tximport']
     threads:
         8
@@ -101,8 +101,8 @@ rule tximport_gene_vst:
         rds = join(QUANT_INTERIM, '{quant}', 'tximport', SALMON_INDEX_TYPE + '_{quant}.rds'),
         txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
-        script = srcdir('scripts/tximport2csv.R')
-    singularity:
+        script = src_gcf('scripts/tximport2csv.R')
+    container:
         'docker://' + config['docker']['tximport']
     threads:
         8
@@ -120,8 +120,8 @@ rule tximport_gene_rlog:
         rds = join(QUANT_INTERIM, '{quant}', 'tximport', SALMON_INDEX_TYPE + '_{quant}.rds'),
         txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
-        script = srcdir('scripts/tximport2csv.R')
-    singularity:
+        script = src_gcf('scripts/tximport2csv.R')
+    container:
         'docker://' + config['docker']['tximport']
     threads:
         8
@@ -139,8 +139,8 @@ rule tximport_transcript_counts:
         rds = join(QUANT_INTERIM, '{quant}', 'tximport', SALMON_INDEX_TYPE + '_{quant}.rds'),
         txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
-        script = srcdir('scripts/tximport2csv.R')
-    singularity:
+        script = src_gcf('scripts/tximport2csv.R')
+    container:
         'docker://' + config['docker']['tximport']
     threads:
         8
@@ -158,8 +158,8 @@ rule tximport_transcript_tpm:
         rds = join(QUANT_INTERIM, '{quant}', 'tximport', SALMON_INDEX_TYPE + '_{quant}.rds'),
         txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
-        script = srcdir('scripts/tximport2csv.R')
-    singularity:
+        script = src_gcf('scripts/tximport2csv.R')
+    container:
         'docker://' + config['docker']['tximport']
     threads:
         8
@@ -177,8 +177,8 @@ rule tximport_transcript_vst:
         rds = join(QUANT_INTERIM, '{quant}', 'tximport', SALMON_INDEX_TYPE + '_{quant}.rds'),
         txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
-        script = srcdir('scripts/tximport2csv.R')
-    singularity:
+        script = src_gcf('scripts/tximport2csv.R')
+    container:
         'docker://' + config['docker']['tximport']
     threads:
         8
@@ -196,8 +196,8 @@ rule tximport_transcript_rlog:
         rds = join(QUANT_INTERIM, '{quant}', 'tximport', SALMON_INDEX_TYPE + '_{quant}.rds'),
         txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
-        script = srcdir('scripts/tximport2csv.R')
-    singularity:
+        script = src_gcf('scripts/tximport2csv.R')
+    container:
         'docker://' + config['docker']['tximport']
     threads:
         8
@@ -216,8 +216,8 @@ rule tximport_gene_info:
         txinfo = join(REF_DIR, 'anno', 'transcripts.tsv'),
         gene_info = join(REF_DIR, 'anno', 'genes.tsv')
     params:
-        script = srcdir('scripts/tximport2csv.R')
-    singularity:
+        script = src_gcf('scripts/tximport2csv.R')
+    container:
         'docker://' + config['docker']['tximport']
     threads:
         8
@@ -236,8 +236,8 @@ rule tximport_transcript_info:
         rds = join(QUANT_INTERIM, 'salmon', 'tximport', SALMON_INDEX_TYPE + '_salmon.rds'),
         txinfo = join(REF_DIR, 'anno', 'transcripts.tsv')
     params:
-        script = srcdir('scripts/tximport2csv.R')
-    singularity:
+        script = src_gcf('scripts/tximport2csv.R')
+    container:
         'docker://' + config['docker']['tximport']
     threads:
         8
@@ -255,8 +255,8 @@ rule tximport_terminus_info:
         rds = join(QUANT_INTERIM, 'terminus', 'tximport', SALMON_INDEX_TYPE + '_terminus.rds'),
         txinfo = join(QUANT_INTERIM, 'terminus', 'terminus_info.tsv')
     params:
-        script = srcdir('scripts/tximport2csv.R')
-    singularity:
+        script = src_gcf('scripts/tximport2csv.R')
+    container:
         'docker://' + config['docker']['tximport']
     threads:
         8
