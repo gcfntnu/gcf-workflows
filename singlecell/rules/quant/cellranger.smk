@@ -254,6 +254,7 @@ if config['quant']['aggregate'].get('method', 'scanpy') == 'scanpy':
             '-f cellranger '
             '--normalize {params.norm} '
             '-v '
+            '--barcode-rename numerical'
 else:
     rule scanpy_aggr_cellranger:
         input:
@@ -267,7 +268,7 @@ else:
         threads:
             48
         shell:
-            'python {params.script} {input} -o {output} -v -f cellranger_aggr '
+            'python {params.script} {input} -o {output} -v -f cellranger_aggr --barcode-rename numerical'
     
 rule scanpy_cellranger:
     input:
