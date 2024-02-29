@@ -293,7 +293,9 @@ rule scanpy_cellranger:
     input:
         input_files = join(CR_INTERIM, '{sample}', 'outs', 'filtered_feature_bc_matrix.h5'),
         sample_info = join(INTERIM_DIR, 'sample_info.tsv'),
-        feature_info = join(CR_REF_DIR, 'anno', 'genes.tsv')
+        feature_info = join(CR_REF_DIR, 'anno', 'genes.tsv'),
+        aggr = join(QUANT_INTERIM, 'aggregate', 'description', 'all_samples_aggr.csv'),
+        barcode_info = join(QUANT_INTERIM, 'aggregate', 'cellranger', 'all_samples_droplet_classification.tsv')
     params:
         script = src_gcf('scripts/convert_scanpy.py'),
         genome_name  = DB_CONF['assembly']
@@ -306,8 +308,10 @@ rule scanpy_cellranger:
     shell:
         'python {params.script} ' 
         '{input.input_files} '
+        '--aggr-csv {input.aggr} '
         '--sample-info {input.sample_info} '
         '--feature-info {input.feature_info} '
+        '--barcode-info {input.barcode_info} '
         '-o {output} '
         '-v '
         '--identify-empty-droplets '
@@ -378,7 +382,9 @@ rule scanpy_cellbender:
     input:
         input_files = join(CR_INTERIM, '{sample}', 'cellbender', '{sample}.h5'),
         sample_info = join(INTERIM_DIR, 'sample_info.tsv'),
-        feature_info = join(CR_REF_DIR, 'anno', 'genes.tsv')
+        feature_info = join(CR_REF_DIR, 'anno', 'genes.tsv'),
+        aggr = join(QUANT_INTERIM, 'aggregate', 'description', 'all_samples_aggr.csv'),
+        barcode_info = join(QUANT_INTERIM, 'aggregate', 'cellranger', 'all_samples_droplet_classification.tsv')
     params:
         script = src_gcf('scripts/convert_scanpy.py'),
         genome_name  = DB_CONF['assembly']
@@ -391,8 +397,10 @@ rule scanpy_cellbender:
     shell:
         'python {params.script} ' 
         '{input.input_files} '
+        '--aggr-csv {input.aggr} '
         '--sample-info {input.sample_info} '
         '--feature-info {input.feature_info} '
+        '--barcode-info {input.barcode_info} '
         '-o {output} '
         '-v '
         '-f cellbender '

@@ -8,8 +8,8 @@ DEMUX_DIR = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'demultiplexing')
 
 def get_singlecell_barcodes(wildcards):
     if wildcards.quantifier == 'cellranger':
-        if config['quant'].get('cellbender_filter', True):
-            return rules.cellranger_cellbender.output.csv
+        if config['quant'].get('cellbender_filter', False):
+            return rules.cellranger_cellbender.output.aggr
         return rules.cellranger.output.filtered_barcodes
     elif wildcards.quantifier == 'starsolo':
         return rules.starsolo_quant.output.barcodes
@@ -58,7 +58,7 @@ rule sorted_vcf:
         vcf = join(DEMUX_DIR, 'common_variants_sorted.vcf.gz'),
         vcf2 = join(DEMUX_DIR, 'common_variants_sorted.vcf')
     params:
-        script = srcdir('scripts/sort_vcf_as_bam.py')
+        script = src_gcf('scripts/sort_vcf_as_bam.py')
     threads:
         4
     container:
@@ -173,7 +173,7 @@ rule vireo_droplet_type:
     output:
         join('{anything}', 'vireo', 'droplet_type.tsv')
     params:
-        script = srcdir('scripts/vireo_summary.py')
+        script = src_gcf('scripts/vireo_summary.py')
     container:
         'docker://' + config['docker']['default']
     shell:
@@ -243,7 +243,7 @@ rule souporcell_droplet_type:
     output:
         join('{anything}', 'souporcell', 'droplet_type.tsv')
     params:
-        script = srcdir('scripts/souporcell_summary.py')
+        script = src_gcf('scripts/souporcell_summary.py')
     container:
         'docker://' + config['docker']['default']
     shell:
@@ -276,7 +276,7 @@ rule freemuxlet_droplet_type:
     output:
         join('{anything}', 'freemuxlet', 'droplet_type.tsv')
     params:
-        script = srcdir('scripts/freemuxlet_summary.py')
+        script = src_gcf('scripts/freemuxlet_summary.py')
     container:
         'docker://' + config['docker']['default']
     shell:
@@ -314,7 +314,7 @@ rule demuxlet_droplet_type:
     output:
         join('{anything}', 'demuxlet', 'droplet_type.tsv')
     params:
-        script = srcdir('scripts/freemuxlet_summary.py')
+        script = src_gcf('scripts/freemuxlet_summary.py')
     container:
         'docker://' + config['docker']['default']
     shell:
@@ -328,7 +328,7 @@ rule demuxalot_noref:
     output:
         join(DEMUX_DIR,  'demuxalot', 'droplet_type.tsv')
     params:
-        script = srcdir('scripts/run_demuxalot.py')
+        script = src_gcf('scripts/run_demuxalot.py')
     threads:
         12
     container:
@@ -348,7 +348,7 @@ rule demuxalot_ref:
     output:
         join(DEMUX_DIR,  'with_reference', 'demuxalot', 'droplet_type.tsv')
     params:
-        script = srcdir('scripts/run_demuxalot.py')
+        script = src_gcf('scripts/run_demuxalot.py')
     threads:
         12
     container:

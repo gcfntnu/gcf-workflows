@@ -115,6 +115,8 @@ rule dbl_solo:
     shell:
         'rm -rf {params.out_dir}/* '
         '&& '
+        'rm -rf {params.tmp_out} '
+        '&& '
         'solo '
         '-d {input.counts} '
         '-o {params.tmp_out} '
@@ -223,7 +225,7 @@ rule dbl_majority_vote_per_sample:
         script = src_gcf("scripts/combine_doublets.py"),
         args = '--plot-figure '
     output:
-        combined = join(DBL_DIR, 'asdasdasdasdasd.tsv')
+        combined = join(DBL_DIR, 'doublet_majority_vote.tsv')
     container:
         'docker://' + config['docker']['default']
     shell:
@@ -237,21 +239,24 @@ def dbl_aggr_input(wildcards):
     input_files = expand(rules.dbl_majority_vote_per_sample.output.combined,
                          quantifier=config['quant']['method'],
                          sample=samples_by_aggr_id)
-    print(input_files)
-    return input_files
+    aggr_file = join(QUANT_INTERIM, 'aggregate', 'description', wildcards.aggr_id + '_aggr.csv')
+    return {'input_files': input_files, 'aggr_csv': aggr_file}
     
 rule dbl_aggr:
     input:
-        dbl_aggr_input
+        unpack(dbl_aggr_input)
     output:
         join(QUANT_INTERIM, 'aggregate', config['quant']['method'] , '{aggr_id}_droplet_classification.tsv')
     params:
-        script = src_gcf("scripts/combine_demultiplex.py")
+        script = src_gcf("scripts/combine_demultiplex.py"),
+        barcode_postfix = 'numerical'
     container:
         'docker://' + config['docker']['default']
     shell:
         'python {params.script} '
-        '{input} '
+        '{input.input_files} '
+        '--aggr-csv {input.aggr_csv} '
+        '--barcode-rename {params.barcode_postfix} '
         '-o {output} '
 
 
@@ -259,8 +264,3 @@ rule dbl_all:
     input:
         join(QUANT_INTERIM, 'aggregate', config['quant']['method'] , 'all_samples_droplet_classification.tsv')
 
-
-
-
-join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}', 'outs', 'count','filtered_feature_bc_matrix.h5')
-join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}', 'outs', 'count','filtered_feature_bc_matrix.h5')
