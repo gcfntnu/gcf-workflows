@@ -9,7 +9,7 @@ include:
 
 
 K2_DB = join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY)
-K2_SHMEM = rules.kraken_shmem.output
+K2_SHMEM = rules.langmead_shmem.output
 
 
 include:
@@ -78,20 +78,29 @@ rule k2_screen:
         '{input.fastq} | tee {log} 2>&1 '
 
 
-rule multi_krona_k2_screen:
+rule k2_screen_krona_text:
     input:
-        report = expand(rules.k2_screen.output.report, sample=SAMPLES),
-        taxa = rules.krona_build_taxa.output,
+        rules.k2_screen.output.report
     output:
-        join(QC_INTERIM, "krona_all_samples_kraken.html")
-    params:
-        params = '-t 5 -m 3',
-        tax = KRONA_DB_DIR,
+        temp(join(QC_INTERIM, "kraken2", "{sample}.kraken.krona"))
     container:
         "docker://" + config["docker"]["krona"]
     threads:
         1
     shell:
-        "ktImportTaxonomy {params.params} -tax {params.tax} -o {output} {input.report} "
+        "kreport2krona.py -r {input} -o {output} "
+
+
+rule multi_krona_k2_screen:
+    input:
+        expand(rules.k2_screen_krona_text.output, sample=SAMPLES),
+    output:
+        join(QC_INTERIM, "krona_all_samples_kraken.html")
+    container:
+        "docker://" + config["docker"]["krona"]
+    threads:
+        1
+    shell:
+        "ktImportText {input} -o {output}"
 
 

@@ -2,7 +2,7 @@
 
 rule cutadapt_demultiplex:
     input:
-        unpack(get_raw_fastq)
+        unpack(get_filtered_fastq)
     output:
         R1 = temp(join(FILTER_INTERIM, 'cutadapt_demultiplex', '{sample}_R1.fastq')),
         R2 = temp(join(FILTER_INTERIM, 'cutadapt_demultiplex', '{sample}_R2.fastq')),

@@ -1,7 +1,7 @@
 #-*- mode:snakemake -*-
 PROTOCOL = 'https://'
 
-KRONA_URL = PROTOCOL + join(config.get('winecellar', {}).get('url', ''), "krona")
+KRONA_URL = join(config.get('winecellar', {}).get('url', ''), "krona")
 
 KRONA_DB_DIR = join(EXT_DIR, "krona")
 
@@ -29,14 +29,13 @@ rule krona_build_taxa:
         img = join(KRONA_DB_DIR, "images.dmp"),
         taxa = join(KRONA_DB_DIR, "taxonomy.tab")
     params:
-        db = KRONA_DB_DIR,
-        params = '--only-build --preserve '
+        args = '--only-build --preserve '
     container:
         "docker://" + config["docker"]["krona"]
     threads:
         1
     shell:
-        "ktUpdateTaxonomy.sh {params.params} {params.db} "
+        "ktUpdateTaxonomy.sh {params.args} {KRONA_DB_DIR} "
 
 
 

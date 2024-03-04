@@ -1,3 +1,4 @@
+#-*- mode: snakemake -*-
 if PE:
     rule bfq_level1_all:
         input:
@@ -33,4 +34,25 @@ else:
             for src, dst in zip(input, output):
                 shell('ln -srf {src} {dst}')
 
+ 
+
+
 BFQ_ALL.extend(rules.bfq_level1_all.output)
+
+
+if config['db'].get('primers', {}):
+    rule bfq_level1_region_summary:
+        input:
+            expand(rules.cutadapt_demultiplex.output.log, sample=SAMPLES)
+        output:
+            join(BFQ_INTERIM, 'figs', 'qiaseq_regions_mqc.yaml')
+        params:
+            script = src_gcf('scripts/qiaseq_region_summary.py')
+        threads:
+            1
+        container:
+            'docker://' + config['docker']['default']
+        shell:
+            'python {params.script} {input} > {output} '
+
+    BFQ_ALL.extend(rules.bfq_level1_region_summary.output)

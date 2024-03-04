@@ -24,8 +24,8 @@ include:
     '../common.smk'
 include:
     'rules/reference_db.smk'
-#include:
-#    'rules/filter.smk'
+include:
+    'rules/filter.smk'
 #include:
 #    'rules/qc.smk'
 include:
