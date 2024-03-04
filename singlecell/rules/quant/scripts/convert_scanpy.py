@@ -58,6 +58,8 @@ def _feature_info_reader(fn):
     return feature_info
 
 def _barcode_info_reader(fn):
+    if os.path.splitext(fn)[-1] == '.dummy':
+        return None
     fn = pathlib.Path(fn)
     barcode_info = pd.read_csv(fn, sep='\t')
     barcode_info.columns = barcode_info.columns.str.lower()
@@ -85,6 +87,8 @@ def barcode_index_rename(obj, barcode_rename='numerical', aggr_csv=None, sample_
     This function translates between the two where the mapping betwwen postfixes is given by sample_id and row number
     in aggr_csv
     """
+    if barcode_rename == 'skip':
+        return obj
     if isinstance(obj, sc.AnnData):
         df = obj.obs.copy()
         is_anndata = True
@@ -567,11 +571,12 @@ def read_h5ad_aggr(fn, args, **kw):
     raise NotImplementedError
 
 def write_mtx(data, mtx_file):
-    smtx = data.X.T.tocsr().asfptype()
+    smtx = data.X.T.tocoo().asfptype()
     barcodes = data.obs_names
     features = data.var_names
     output_dir = os.path.dirname(mtx_file)
-    os.makedirs(output_dir, exist_ok=True)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
     if str(mtx_file).endswith('.gz'):
         import gzip
         with gzip.open(mtx_file, 'wb') as fh:
@@ -579,8 +584,8 @@ def write_mtx(data, mtx_file):
         pd.Series(barcodes).to_csv(os.path.join(output_dir, 'barcodes.tsv.gz'), index=False, header=False, compression="gzip")
         pd.Series(features).to_csv(os.path.join(output_dir, 'features.tsv.gz'), index=False, header=False, compression="gzip")
     else:
-        with open(mtx_file, 'w') as fh:
-            mmwrite(fh, smtx)
+        with open(mtx_file, 'wb') as fh:
+            mmwrite(fh, smtx, field='integer')
         pd.Series(barcodes).to_csv(os.path.join(output_dir, 'barcodes.tsv'), index=False, header=False)
         pd.Series(features).to_csv(os.path.join(output_dir, 'features.tsv'), index=False, header=False) 
     

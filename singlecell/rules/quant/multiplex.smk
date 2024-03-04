@@ -10,7 +10,7 @@ def get_singlecell_barcodes(wildcards):
     if wildcards.quantifier == 'cellranger':
         if config['quant'].get('cellbender_filter', False):
             return rules.cellranger_cellbender.output.aggr
-        return rules.cellranger.output.filtered_barcodes
+        return rules.cellranger_quant.output.filt_barcodes
     elif wildcards.quantifier == 'starsolo':
         return rules.starsolo_quant.output.barcodes
     else:

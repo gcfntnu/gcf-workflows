@@ -417,7 +417,7 @@ rule scanpy_cellbender_mtx:
     threads:
         48
     shell:
-        'python {params.script} {input} -o {output} -v -f h5ad -F mtx'    
+        'python {params.script} {input} -o {output} -v -f h5ad -F mtx --barcode-rename skip '    
         
 rule scanpy_aggr_cellbender:
     input:

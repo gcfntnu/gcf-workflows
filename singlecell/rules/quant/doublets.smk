@@ -8,10 +8,43 @@ if SAMPLE_MULTIPLEXING:
     else:
        SAMPLE_MULTIPLEXING = False 
 
+rule barcode_dummy:
+    output:
+        temp('barcode_info.dummy')
+    shell:
+        'touch {output}'
+
+## below are some tmp count-table rules with a dummy barcode_info input
+use rule scanpy_cellranger as dbl_scanpy_cellranger with:
+    input:
+        input_files = join(CR_INTERIM, '{sample}', 'outs', 'filtered_feature_bc_matrix.h5'),
+        sample_info = join(INTERIM_DIR, 'sample_info.tsv'),
+        feature_info = join(CR_REF_DIR, 'anno', 'genes.tsv'),
+        aggr = join(QUANT_INTERIM, 'aggregate', 'description', 'all_samples_aggr.csv'),
+        barcode_info = 'barcode_info.dummy'
+    output:
+        temp('{sample}/cr_{sample}.h5ad')
+
+use rule scanpy_cellbender as dbl_scanpy_cellbender with:
+    input:
+        input_files = join(CR_INTERIM, '{sample}', 'cellbender', '{sample}.h5'),
+        sample_info = join(INTERIM_DIR, 'sample_info.tsv'),
+        feature_info = join(CR_REF_DIR, 'anno', 'genes.tsv'),
+        aggr = join(QUANT_INTERIM, 'aggregate', 'description', 'all_samples_aggr.csv'),
+        barcode_info = 'barcode_info.dummy'
+    output:
+        h5ad = temp('{sample}/cb_adata.h5ad')
+
+use rule scanpy_cellbender_mtx as dbl_scanpy_cellbender_mtx with:
+    input:
+        rules.dbl_scanpy_cellbender.output.h5ad
+    output:
+        temp('{sample}/matrix.mtx.gz')
+        
 def dbl_get_mtx_counts(wildcards):
     if wildcards.quantifier == 'cellranger':
         if config['quant'].get('cellbender_filter', True):
-            return rules.scanpy_cellbender_mtx.output
+            return rules.dbl_scanpy_cellbender_mtx.output
         return rules.cellranger.output.filt_mtx
     if wildcards.quantifier == 'starsolo':
         return os.path.dirname(rules.starsolo_quant.output.mtx)
@@ -21,11 +54,12 @@ def dbl_get_mtx_counts(wildcards):
 def dbl_get_h5ad(wildcards):
     if wildcards.quantifier == 'cellranger':
         if config['quant'].get('cellbender_filter', True):
-            return rules.scanpy_cellbender.output
-        return rules.scanpy_cellranger.output
+            return rules.dbl_scanpy_cellbender.output
+        return rules.dbl_scanpy_cellranger.output
     else:
         raise ValueError
-
+##
+        
 rule dbl_doubletdetection:
     input:
         counts = dbl_get_h5ad,
@@ -107,7 +141,7 @@ rule dbl_solo:
     params:
         out_dir = join(DBL_DIR,  'solo'),
         n_doub = 1000, # enforce number of doublets
-        tmp_out = './_solo_{quantifier}_{sample}_tmp'
+        tmp_out = '{sample}/_solo_{quantifier}_{sample}_tmp'
     threads:
         24
     container:
@@ -146,7 +180,8 @@ rule dbl_socube:
     output:
         join(DBL_DIR,  'socube', 'final_result_0.5.csv')
     params:
-        dummy_dir = './dummy',
+        dummy_dir = 'dummy/dir',
+        input_data = lambda wildcards, input: os.path.abspath(input.counts[0]),
         out_dir = join(DBL_DIR,  'socube')
     threads:
         48
@@ -155,9 +190,10 @@ rule dbl_socube:
     container:
         'docker://gcszhn/socube:latest'
     shell:
+        'mkdir -p {params.dummy_dir} && ' 
         'socube '
         '-i {input.counts} '
-        '-o {params.dummy_dir} '
+        '-o ./{params.dummy_dir} '
         '--gpu-ids 0 --enable-multiprocess '
         '&& '
         'mv {params.dummy_dir}/outputs/*/*.csv {params.out_dir}/'
@@ -239,12 +275,13 @@ def dbl_aggr_input(wildcards):
     input_files = expand(rules.dbl_majority_vote_per_sample.output.combined,
                          quantifier=config['quant']['method'],
                          sample=samples_by_aggr_id)
-    aggr_file = join(QUANT_INTERIM, 'aggregate', 'description', wildcards.aggr_id + '_aggr.csv')
-    return {'input_files': input_files, 'aggr_csv': aggr_file}
+    return input_files
+    
     
 rule dbl_aggr:
     input:
-        unpack(dbl_aggr_input)
+        input_files = dbl_aggr_input,
+        aggr_csv = join(QUANT_INTERIM, 'aggregate', 'description', '{aggr_id}_aggr.csv')
     output:
         join(QUANT_INTERIM, 'aggregate', config['quant']['method'] , '{aggr_id}_droplet_classification.tsv')
     params:
