@@ -59,6 +59,18 @@ def dbl_get_h5ad(wildcards):
     else:
         raise ValueError
 ##
+
+rule dbl_skip_doubletdetection:
+    input:
+        counts = dbl_get_mtx_counts,
+    output:
+        join(DBL_DIR,  'skip', 'doublet_type.tsv')
+    params:
+        script = src_gcf('scripts/skip_doubletdetection.py')
+    shell:
+        'python {params.script} '
+        '-i {input.counts} '
+        '-o {output}'
         
 rule dbl_doubletdetection:
     input:
@@ -246,9 +258,7 @@ def get_doublet_output(test_all=False):
     if doublet_methods is None or doublet_methods == 'default':
         doublet_methods = _get_default_methods()
     elif doublet_methods == 'demuxafy':
-        return _get_demuxafy_methods()
-    elif doublet_methods[0] == 'skip':
-        raise NotImplementedError
+        doublet_methods = _get_demuxafy_methods()
     else:
         doublet_methods = doublet_methods.split(',')
     return expand(join(QUANT_INTERIM, '{{quantifier}}', '{{sample}}', 'doublets', '{method}', 'doublet_type.tsv'), method=doublet_methods)
@@ -296,7 +306,7 @@ rule dbl_aggr:
         '--barcode-rename {params.barcode_postfix} '
         '-o {output} '
 
-
+join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}_droplet_classification.tsv') 
 rule dbl_all:
     input:
         join(QUANT_INTERIM, 'aggregate', config['quant']['method'] , 'all_samples_droplet_classification.tsv')
