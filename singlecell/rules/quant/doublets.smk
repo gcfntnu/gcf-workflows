@@ -23,7 +23,7 @@ use rule scanpy_cellranger as dbl_scanpy_cellranger with:
         aggr = join(QUANT_INTERIM, 'aggregate', 'description', 'all_samples_aggr.csv'),
         barcode_info = 'barcode_info.dummy'
     output:
-        temp('{sample}/cr_{sample}.h5ad')
+        temp('bstmp/{sample}/cr_{sample}.h5ad')
 
 use rule scanpy_cellbender as dbl_scanpy_cellbender with:
     input:
@@ -33,19 +33,19 @@ use rule scanpy_cellbender as dbl_scanpy_cellbender with:
         aggr = join(QUANT_INTERIM, 'aggregate', 'description', 'all_samples_aggr.csv'),
         barcode_info = 'barcode_info.dummy'
     output:
-        h5ad = temp('{sample}/cb_adata.h5ad')
+        h5ad = temp('bstmp/{sample}/cb_adata.h5ad')
 
 use rule scanpy_cellbender_mtx as dbl_scanpy_cellbender_mtx with:
     input:
         rules.dbl_scanpy_cellbender.output.h5ad
     output:
-        temp('{sample}/matrix.mtx.gz')
+        temp('bstmp/{sample}/matrix.mtx.gz')
         
 def dbl_get_mtx_counts(wildcards):
     if wildcards.quantifier == 'cellranger':
-        if config['quant'].get('cellbender_filter', True):
+        if config['quant'].get('cellbender_filter', False):
             return rules.dbl_scanpy_cellbender_mtx.output
-        return rules.cellranger.output.filt_mtx
+        return rules.cellranger_quant.output.filt_mtx
     if wildcards.quantifier == 'starsolo':
         return os.path.dirname(rules.starsolo_quant.output.mtx)
     else:
