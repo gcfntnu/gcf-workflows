@@ -29,7 +29,7 @@ def argparser():
 
 def vsn(adata, method='auto'):
     import anndata2ri
-    from anndata2ri.rpy2_ext import importr
+    from rpy2.robjects.packages import importr
     from rpy2.robjects import r
     from rpy2.robjects import globalenv
     from rpy2.robjects.conversion import localconverter
