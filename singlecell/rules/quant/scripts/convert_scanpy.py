@@ -570,10 +570,41 @@ def read_h5ad(fn, args, **kw):
 def read_h5ad_aggr(fn, args, **kw):
     raise NotImplementedError
 
-def write_mtx(data, mtx_file):
+def _mtx_features(data, version=3, feature_type='Gene Expression'):
+    if version < 3:
+        features = pd.Series(data.var_names)
+    else:
+        keep_cols = []
+        if 'gene_id' in data.var.columns:
+            keep_cols = ['gene_id']
+        gene_name_present = False
+        for gene_alias in ['gene_symbol', 'gene_symbols', 'gene_name', 'gene_names', 'name', 'names']:
+            if gene_alias in data.var.columns:
+                keep_cols.append(gene_alias)
+                gene_name_present = True
+                break
+        if keep_cols:
+            features = data.var[keep_cols].copy()
+            if not 'gene_id' in features:
+                features['gene_id'] = data.var_names
+            if not gene_name_present:
+                features = features[['gene_id', 'gene_id']]
+            else:
+                features = features[['gene_id', gene_alias]]
+        else:
+            features = pd.DataFrame(data.var_names, columns=["gene_id"])
+            features["gene_name"] = data.var_names
+    if 'feature_type' in data.var.columns:
+        features['feature_type'] = data.var['feature_type'].copy()
+    else:
+        features['featue_type'] = feature_type
+        
+    return features
+
+def write_mtx(data, mtx_file, feature_type="Gene Expression"):
     smtx = data.X.T.tocoo().asfptype()
-    barcodes = data.obs_names
-    features = data.var_names
+    barcodes = pd.Series(data.obs_names)
+    features = pd.Series(data.var_names)
     output_dir = os.path.dirname(mtx_file)
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
@@ -582,12 +613,14 @@ def write_mtx(data, mtx_file):
         with gzip.open(mtx_file, 'wb') as fh:
             mmwrite(fh, smtx)
         pd.Series(barcodes).to_csv(os.path.join(output_dir, 'barcodes.tsv.gz'), index=False, header=False, compression="gzip")
-        pd.Series(features).to_csv(os.path.join(output_dir, 'features.tsv.gz'), index=False, header=False, compression="gzip")
+        features = _mtx_features(data, version=3)
+        features.to_csv(os.path.join(output_dir, 'features.tsv.gz'), index=False, header=False, compression="gzip", sep="\t")
     else:
         with open(mtx_file, 'wb') as fh:
             mmwrite(fh, smtx, field='integer')
         pd.Series(barcodes).to_csv(os.path.join(output_dir, 'barcodes.tsv'), index=False, header=False)
-        pd.Series(features).to_csv(os.path.join(output_dir, 'features.tsv'), index=False, header=False) 
+        features = _mtx_features(data, version=2)
+        features.to_csv(os.path.join(output_dir, 'features.tsv'), index=False, header=False) 
     
 def add_nuclear_fraction(adata):
     """Estimate nuclear fraction from velocyto params
