@@ -47,5 +47,15 @@ def get_quant(wildcards):
             files = expand(rules.cellranger_aggr_scanpy.output, aggr_id=AGGR_IDS[wildcards.aggr_id])
     return files
 
-            
-                
+
+def get_feature_info():
+    """
+    """
+    return join(REF_DIR, 'anno', 'genes.tsv')
+
+def get_barcode_info():
+    if config['quant'].get('doublet_detection', {}).get('method') not in [None, 'skip']:
+        #config['quant'].get('demultiplex', {}).get('method') not in [None, 'skip']
+        doublets = join(QUANT_INTERIM, 'aggregate', config['quant']['method'] , 'all_samples_droplet_type.tsv')
+        return doublets
+    return None
