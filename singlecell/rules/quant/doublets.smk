@@ -53,7 +53,7 @@ def dbl_get_mtx_counts(wildcards):
 
 def dbl_get_h5ad(wildcards):
     if wildcards.quantifier == 'cellranger':
-        if config['quant'].get('cellbender_filter', True):
+        if config['quant'].get('cellbender_filter', False):
             return rules.dbl_scanpy_cellbender.output
         return rules.dbl_scanpy_cellranger.output
     else:
