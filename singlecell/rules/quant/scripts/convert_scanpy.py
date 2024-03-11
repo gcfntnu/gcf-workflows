@@ -382,6 +382,8 @@ def identify_empty_droplets(data, min_cells=3, strategy='emptydrops_cr', **kw):
     #adata.X = adata.X.tocsc()
     anndata2ri.activate()
     robj.globalenv["X"] = adata
+
+    strategy = 'emptydrops' if os.environ.get("BFQ_TEST", None) else strategy
     if strategy == 'emptydrops_cr':
         cmd = 'res <- emptyDropsCellRanger(assay(X))'
     elif strategy == 'emptydrops':
