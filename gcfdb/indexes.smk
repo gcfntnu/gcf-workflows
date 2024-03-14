@@ -261,4 +261,35 @@ rule salmon_index_tximeta:
         '--assembly {params.assembly} '
         '-o {output.json} '
         '--verbose '
+       
+rule parse_index:
+    input:
+        genome = join('{ref_dir}', 'fasta', 'genome.fa'),
+        gtf = join('{ref_dir}', 'anno', 'genes.gtf'),
+    output:
+        index =  join('{ref_dir}', 'index', '{prefix}', 'parse', 'SA')
+    params:
+        name = ENS_ASSEMBLY,
+        out_dir = join('{ref_dir}', 'index', '{prefix}', 'parse')
+    threads:
+        32
+    container:
+        'docker://' + config['docker']['parse']
+    shell:
+        'split-pipe '
+        '--genome_name {params.name} '
+        '--fastq {input.fastq} '
+        '--genes {input.gtf} '
+        '--output_dir {params.out_dir} '
         
+        
+
+
+
+
+
+
+
+
+
+

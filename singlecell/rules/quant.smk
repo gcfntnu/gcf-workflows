@@ -15,6 +15,8 @@ if not config['quant']['aggregate']['skip']:
 include:
     'quant/cellranger.smk'
 include:
+    'quant/parse.smk'
+include:
     'quant/alevin.smk'
 include:
     'quant/umitools.smk'
