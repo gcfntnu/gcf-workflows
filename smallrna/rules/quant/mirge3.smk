@@ -10,11 +10,11 @@ def get_args(wildcards):
     if config['organism'] == 'homo_sapiens':
         args += ' --tRNA-frag '
     if config.get('machine', '').lower().startswith('nextseq'):
-        args += ' --nextseq-trim '
+        args += ' --nextseq-trim 10 '
     if config['filter'].get('spikein', {}).get('ref') is not None:
         args += ' --spikeIn '
 
-    if config.get('libprepkit', '').startswith('Bioo'): # Bioo scinetific NEXTflex Small RNA
+    if config.get('libprepkit', '') == 'Bioo Scientific NEXTflex Small RNA-Seq Kit v3':
         args += ' --uniq-mol-ids  4,4 '
     return args
 
