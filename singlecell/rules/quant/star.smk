@@ -100,7 +100,7 @@ else:
 if config['libprepkit'].startswith('10x'):
     WHITELIST = join(EXT_DIR, config['quant']['starsolo']['whitelist'])
 else:
-    WHITELIST = join(EXT_DIR, '10xgenomics', config['quant']['starsolo']['whitelist'])
+    WHITELIST = join(EXT_DIR, '10xgenomics', config['quant'].get('starsolo', {}).get('whitelist', 'none'))
 
 rule starsolo_quant:
     input:
@@ -110,9 +110,9 @@ rule starsolo_quant:
     params:
         outdir = join(STAR_INTERIM, '{sample}') + '/',
         genome_dir = os.path.dirname(REF_GENOME),
-        cb_len = config['quant']['starsolo']['cb_len'],
-        umi_len = config['quant']['starsolo']['umi_len'],
-        umi_start = config['quant']['starsolo']['umi_start'],
+        cb_len = config['quant'].get('starsolo', {}).get('cb_len', 'none'),
+        umi_len = config['quant'].get('starsolo', {}).get('umi_len', 'none'),
+        umi_start = config['quant'].get('starsolo', {}).get('umi_start', 'none'),
         R1 = lambda wildcards, input: input.R1 if isinstance(input.R1, str) else ','.join(input.R1),
         R2 = lambda wildcards, input: input.R2 if isinstance(input.R2, str) else','.join(input.R2),
         extra_args = '--readFilesCommand zcat  --genomeLoad LoadAndKeep --outFilterMultimapNmax 1 --soloFeatures Gene GeneFull SJ Velocyto Transcript3p ' 

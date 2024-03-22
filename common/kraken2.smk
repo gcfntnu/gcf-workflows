@@ -48,7 +48,7 @@ rule k2_subsample_R2:
         "set +o pipefail; zcat {input.R2} | seqkit sample {params.sample} | seqkit head {params.head} --out-file {output}"
 
 
-if config.get('workflow', '') == 'singlecell':
+if config['libprepkit'].startswith("10X Genomics"):
     FASTQ = rules.k2_subsample_R2.output
 else:
     FASTQ = rules.k2_subsample_R1.output

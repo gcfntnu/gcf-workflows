@@ -32,11 +32,21 @@ report_section_order:
     order: 1000
   umap_all_samples:
     order: 990
+  umap_all_samples_leiden:
+    order: 990
+  umap_samples:
+    order: 980
+  cells_per_well_round1:
+    order: 970
   cellranger:
+    order: 960
+  parse:
     order: 960
   fastp:
     order: 950
   fastqc_rnaseq:
+    order: 900
+  fastqc:
     order: 900
   fastq_screen:
     order: 800

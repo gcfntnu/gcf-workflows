@@ -53,25 +53,26 @@ rule picard_rnametrics_star:
         cp {output.metrics} {log.metrics}
         """
 
-rule picard_rnametrics_cellranger:
-    input:
-        bam = rules.cellranger_bam.output,
-        ref_flat = join(REF_DIR, 'anno', 'genes.refflat.gz'),
-        rrna = rules.create_ribo_intervals.output
-    output:
-        metrics = join(CR_PICARD_QCDIR, '{sample}.rnaseq.metrics')
-    log:
-        metrics = 'logs/{sample}/picard_cellranger/{sample}.rnaseq.metrics',
-        log_out = 'logs/{sample}/picard_cellranger/{sample}.log'
-    params:
-        java_opt='-Xms4g -Xmx4g'
-    threads:
-        2
-    container:
-        'docker://' + config['docker']['picard_gatk']
-    shell:
-        """
-        picard CollectRnaSeqMetrics {params.java_opt} INPUT={input.bam} OUTPUT={output.metrics} REF_FLAT={input.ref_flat} STRAND=FIRST_READ_TRANSCRIPTION_STRAND ASSUME_SORTED=TRUE RIBOSOMAL_INTERVALS={input.rrna} VALIDATION_STRINGENCY=SILENT 2> {log.log_out}
-        cp {output.metrics} {log.metrics}
-        """
+if config['libprepkit'].startswith("10X Genomics"):
+    rule picard_rnametrics_cellranger:
+        input:
+            bam = rules.cellranger_bam.output,
+            ref_flat = join(REF_DIR, 'anno', 'genes.refflat.gz'),
+            rrna = rules.create_ribo_intervals.output
+        output:
+            metrics = join(CR_PICARD_QCDIR, '{sample}.rnaseq.metrics')
+        log:
+            metrics = 'logs/{sample}/picard_cellranger/{sample}.rnaseq.metrics',
+            log_out = 'logs/{sample}/picard_cellranger/{sample}.log'
+        params:
+            java_opt='-Xms4g -Xmx4g'
+        threads:
+            2
+        container:
+            'docker://' + config['docker']['picard_gatk']
+        shell:
+            """
+            picard CollectRnaSeqMetrics {params.java_opt} INPUT={input.bam} OUTPUT={output.metrics} REF_FLAT={input.ref_flat} STRAND=FIRST_READ_TRANSCRIPTION_STRAND ASSUME_SORTED=TRUE RIBOSOMAL_INTERVALS={input.rrna} VALIDATION_STRINGENCY=SILENT 2> {log.log_out}
+            cp {output.metrics} {log.metrics}
+            """
 

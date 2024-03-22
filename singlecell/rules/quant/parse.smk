@@ -9,7 +9,7 @@ ORG = config['organism']
 
 rule parse_quant:
     input:
-        get_raw_fastq(),
+        unpack(get_raw_fastq),
         genome = join(REF_DIR, 'index', 'genome', 'parse', 'SA'),
     output:
         summary_html = join(PARSE_INTERIM, '{sample}', 'all-sample_analysis_summary.html'),
@@ -38,6 +38,7 @@ rule parse_quant:
     shell:
         'split-pipe '
         '--mode all '
+        '--nthreads {threads} '
         '--chemistry {params.chemistry} '
         '--genome_dir {params.genome_dir} ' 
         '--output_dir {params.out_dir} '
@@ -60,8 +61,9 @@ rule parse_aggr:
         all_sample_raw_meta = join(PARSE_AGGR, 'all-sample', 'DGE_unfiltered', 'cell_metadata.csv'),
         all_sample_raw_mtx = join(PARSE_AGGR, 'all-sample', 'DGE_unfiltered', 'count_matrix.mtx'),
         agg_summary_csv = join(PARSE_AGGR, 'agg_samp_ana_summary.csv'),
-        umap_cluster = join(PARSE_AGGR, 'all-sample', 'figures', 'umap_cluster.png'),
-        umap_sample = join(PARSE_AGGR, 'all-sample', 'figures', 'umap_sample.png'),
+        umap_cluster = join(PARSE_AGGR, 'all-sample', 'figures', 'fig_umap_cluster.png'),
+        umap_sample = join(PARSE_AGGR, 'all-sample', 'figures', 'fig_umap_sample.png'),
+        rnd_1_wells = join(PARSE_AGGR, 'all-sample', 'figures', 'fig_cell_by_rnd1_well.png'),
     params:
         sublibs = lambda wildcards, input: ' '.join([os.path.dirname(s) for s in input.summary_csv]),
         out_dir = PARSE_AGGR
@@ -72,5 +74,6 @@ rule parse_aggr:
     shell:
         'split-pipe '
         '--mode comb '
+        '--nthreads {threads} '
         '--sublibraries {params.sublibs} '
         '--output_dir {params.out_dir} '

@@ -1,7 +1,5 @@
 #-*- mode:snakemake -*-
 
-include:
-    'cellranger.smk'
     
 #config
 ORG = config.get('organism', 'homo_sapiens')
@@ -15,7 +13,7 @@ rule umitools_whitelist:
     input:
         unpack(get_filtered_fastq)
     params:
-        bc_pattern = config['quant']['umi_tools']['chemistry'],
+        bc_pattern = config['quant'].get('umi_tools', {}).get('chemistry', 'none'),
         extra_args = '--plot-prefix ' + UMI_INTERIM + '/{sample}/{sample}'
     output:
         join(UMI_INTERIM, '{sample}','whitelist.txt')
@@ -34,7 +32,7 @@ rule umitools_extract:
         unpack(get_filtered_fastq),
         whitelist = rules.umitools_whitelist.output
     params:
-        '--bc-pattern={} --filter-cell-barcode '.format(config['quant']['umi_tools']['chemistry'])
+        '--bc-pattern={} --filter-cell-barcode '.format(config['quant'].get('umi_tools', {}).get('chemistry', 'none'))
     output:
         R1 = join(UMI_INTERIM, '{sample}', '{sample}_R1.fastq.gz'),
         R2 = join(UMI_INTERIM, '{sample}', '{sample}_R2.fastq.gz')

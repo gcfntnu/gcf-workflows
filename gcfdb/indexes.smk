@@ -277,8 +277,10 @@ rule parse_index:
         'docker://' + config['docker']['parse']
     shell:
         'split-pipe '
+        '--mode mkref '
+        '--nthreads {threads} '
         '--genome_name {params.name} '
-        '--fastq {input.fastq} '
+        '--fasta {input.genome} '
         '--genes {input.gtf} '
         '--output_dir {params.out_dir} '
         
