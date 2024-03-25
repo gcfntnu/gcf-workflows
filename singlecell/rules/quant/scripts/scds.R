@@ -19,7 +19,9 @@ sce <- as(sce, "SingleCellExperiment")
 
 sce = cxds_bcds_hybrid(sce, estNdbl=TRUE)
 
-results <- data.frame("Barcode"=rownames(colData(sce)),
+barcodes <- sapply(strsplit(rownames(colData(sce)), "-"), function(x) x[[1]])
+barcodes.enum <- paste(barcodes, "1", sep="-")
+results <- data.frame("Barcode"=barcodes.enum,
 		      "doublet" = ifelse(colData(sce)$hybrid_call, "doublet", "singlet"),
 		      "doublet_score"=colData(sce)$hybrid_score
 		      )

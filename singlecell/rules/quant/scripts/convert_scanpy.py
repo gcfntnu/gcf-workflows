@@ -7,17 +7,17 @@ import sys
 import os
 import argparse
 import re
+import pathlib
 from typing import Dict, Optional
 
 import scanpy  as sc
 import pandas as pd
 import numpy as np
 import anndata
-import scvelo as sv
 from scipy import sparse
 from scipy.io import mmwrite
 import scipy.sparse as sp
-import tables
+
 
 
 GENOME = {'homo_sapiens': 'GRCh38',
@@ -30,29 +30,151 @@ GENOME = {'homo_sapiens': 'GRCh38',
           'GRCm38': 'mm10'
 }
 
-parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+SAMPLE_INFO_BLACKLIST = ['flowcell_id', 'r1', 'r2']
+FEATURE_INFO_BLACKLIST = ['source', 'start', 'end', 'strand', 'gene_version', 'level', 'hgnc_id',
+                          'havana_gene', 'transcript_type', 'havana_transcript', 'ccdsid', 'ont']
 
-parser.add_argument('input', help='input file(s)', nargs='*', default=None)
-parser.add_argument('-o', '--outfile', help='output filename', required=True)
-parser.add_argument('-f', '--input-format', choices=['cellranger_aggr', 'cellranger', 'star', 'alevin', 'alevin2', 'cellbender', 'umitools', 'velocyto', 'h5ad'],
-                    default='cellranger_aggr', help='input file format')
-parser.add_argument('-F', '--output-format', choices=['anndata', 'loom', 'csvs', 'mtx'], default='anndata', help='output file format')
-parser.add_argument('--aggr-csv', help='aggregation CSV with header and two columns. First column is `sample_id` and second column is path to input file. This is used as a substitute for input files', default=None)
-parser.add_argument('--sample-info', help='samplesheet info, tab seprated file assumes `Sample_ID` in header', default=None)
-parser.add_argument('--feature-info', help='extra feature info filename, tab seprated file assumes `gene_ids` in header', default=None)
-parser.add_argument('--log', help='logfile', default=None)
-parser.add_argument('--filter-org', help='filter data (genes) by organism', default=None)
-parser.add_argument('--gex-only', help='only keep `Gene Expression` data and ignore other feature types. (only for cellranger)', default=True)
-parser.add_argument('--normalize', help='normalize depth across the input libraries', default='none', choices=['none', 'mapped', 'skip'])
-parser.add_argument('--batch', help='column name in `sample-info` with batch covariate', default=None)
-parser.add_argument('--no-zero-cell-rm', help='do not remove cells with zero counts', action='store_true')
-parser.add_argument('--identify-doublets', help='estimate doublets using Scrublets (Single-Cell Remover of Doublets)', action='store_true')
-parser.add_argument('--identify-empty-droplets', help='estimate empty droplets using emptyDrops (DropletUtils)', action='store_true')
-parser.add_argument('--doublets', help='doublet estimation strategy', default='r_scrublet', choices=['skip', 'scanpy_scrublet', 'r_scrublet'])
-parser.add_argument('--empty-droplets', help='barcode cell identification strategy', default='cr_emptydrops')
-parser.add_argument('--barcode-rename', help='barcode postfix naming strategy', default='sample_id', choices=['sample_id', 'numerical', 'trim', 'skip'])
-parser.add_argument('-v ', '--verbose', help='verbose output.', action='store_true')
 
+
+def _sample_info_reader(fn):
+    fn = pathlib.Path(fn)
+    sample_info = pd.read_csv(fn, sep='\t')
+    if not 'Sample_ID' in sample_info.columns:
+        raise ValueError('sample_sheet needs a column called `Sample_ID`')
+    sample_info.rename(columns={"Sample_ID": "sample_id"}, inplace=True)
+    sample_info.set_index('sample_id', inplace=True)
+    keep_cols = [i for i in sample_info.columns if i.lower() not in SAMPLE_INFO_BLACKLIST]
+    sample_info = sample_info[keep_cols]
+    return sample_info
+
+def _feature_info_reader(fn):
+    fn = pathlib.Path(fn)
+    feature_info = pd.read_csv(fn, sep='\t')
+    if not 'gene_id' in feature_info.columns:
+        raise ValueError('feature_info needs a column called `gene_id`')
+    feature_info.set_index('gene_id', inplace=True)
+    keep_cols = [i for i in feature_info.columns if i.lower() not in FEATURE_INFO_BLACKLIST]
+    feature_info = feature_info[keep_cols]
+    return feature_info
+
+def _barcode_info_reader(fn):
+    if os.path.splitext(fn)[-1] == '.dummy':
+        return None
+    fn = pathlib.Path(fn)
+    barcode_info = pd.read_csv(fn, sep='\t')
+    barcode_info.columns = barcode_info.columns.str.lower()
+    if not 'barcode' in barcode_info.columns:
+        raise ValueError('barcode_info needs a column called `barcode`')
+    barcode_info.set_index('barcode', inplace=True)
+    return barcode_info
+
+def barcode_postfix_type(barcodes):
+    postfix = list(set([b.split('-')[1]  for b in barcodes if '-' in b]))
+    if len(postfix) == 0:
+        postfix_type = 'trimmed'
+    else:
+        try:
+            int(postfix[0])
+            postfix_type = 'numerical'
+        except:
+            postfix_type = 'sample_id'
+    return postfix_type
+
+def barcode_index_rename(obj, barcode_rename='numerical', aggr_csv=None, sample_id=None):
+    """barcode postfix renamer
+
+    A barcode is on the form GTAACACCACGCCACA-[postfix], where the postfix is either an integer or the sample-id. 
+    This function translates between the two where the mapping betwwen postfixes is given by sample_id and row number
+    in aggr_csv
+    """
+    if barcode_rename == 'skip':
+        return obj
+    if isinstance(obj, sc.AnnData):
+        df = obj.obs.copy()
+        is_anndata = True
+    else:
+        df = obj
+        is_anndata = False
+    if sample_id is None:
+        # aggregated data file
+        df_postfix =  barcode_postfix_type(list(df.index))
+    else:
+        df_postfix = 'sample_id'
+    assert df_postfix in ['numerical', 'sample_id']
+
+    barcodes = [b.split('-')[0] for b in df.index]
+    if barcode_rename == 'sample_id':
+        if sample_id is not None:
+            postfix = [sample_id] * len(barcodes)
+        else: #aggr data
+            if df_postfix == 'numerical':
+                sample_map = dict((str(i+1), n) for i, n in enumerate(aggr_csv.iloc[:,0]))
+                postfix_numerical = [i.split('-')[1] for i in df.index]
+                postfix  = [sample_map[i] for i in postfix_numerical]
+                
+            else: #sample_id aggr
+                postfix = [b.split('-')[1] for b in df.index]
+            
+    elif barcode_rename == 'numerical':
+        sample_map = dict((n, str(i+1)) for i, n in enumerate(aggr_csv.iloc[:,0]))
+        if sample_id is not None:
+            postfix_sample_id = [sample_id] * len(barcodes)
+            postfix  = [sample_map[i] for i in postfix_sample_id]
+        else: #aggr data
+            if df_postfix == 'sample_id':
+                # aggr data
+                postfix_sample_id = [i.split('-')[1] for i in df.index]
+                postfix  = [sample_map[i] for i in postfix_sample_id]
+            else: #numerical aggr
+                postfix = [b.split('-')[1] for b in df.index]
+    df.index = ['{}-{}'.format(i, j) for i, j in zip(barcodes, postfix)]
+    
+    if is_anndata:
+        if not all(obj.obs_names == df.index):
+            obj.obs_names = df.index
+        return obj
+    return df
+
+def _aggr_csv_reader(fn):
+    fn = pathlib.Path(fn)
+    aggr_info = pd.read_csv(fn, dtype=str)
+    return aggr_info
+
+
+def create_parser():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+
+    parser.add_argument('input', nargs='*', type=pathlib.Path, default=None,
+                        help='input file(s)')
+    parser.add_argument('-o', '--outfile', required=True, type=pathlib.Path,
+                        help='output filename')
+    parser.add_argument('-f', '--input-format', choices=['cellranger_aggr', 'cellranger', 'star', 'alevin', 'alevin2', 'cellbender', 'umitools', 'velocyto', 'h5ad'], default='cellranger_aggr',
+                        help='input file format')
+    parser.add_argument('-F', '--output-format', choices=['anndata', 'loom', 'csvs', 'mtx'], default='anndata',
+                        help='output file format')
+    parser.add_argument('--aggr-csv', default=None, required=False, type=_aggr_csv_reader,
+                        help='aggregation csv with header and two columns. First column is `sample_id` and second column is path to input file')
+    parser.add_argument('--sample-info', default=None, required=False, type=_sample_info_reader,
+                        help='samplesheet info, tab seprated file assumes `Sample_ID` in header')
+    parser.add_argument('--feature-info',  required=False, type=_feature_info_reader,
+                        help='extra feature info filename, tab seprated file assumes `gene_id` in header')
+    parser.add_argument('--barcode-info', default=None, required=False, type=_barcode_info_reader,
+                        help='extra barcode info filename, tab seprated file assumes `barcode` in header')
+    parser.add_argument('--no-gex-only', action='store_true',
+                        help='only keep `Gene Expression` data and ignore other feature types. (only for cellranger)')
+    parser.add_argument('--normalize', default='none', choices=['none', 'mapped'],
+                        help='normalize depth across the input libraries')
+    parser.add_argument('--no-zero-cell-rm', action='store_true',
+                        help='do not remove cells with zero counts')
+    parser.add_argument('--identify-empty-droplets', action='store_true',
+                        help='estimate empty droplets using emptyDrops (DropletUtils)')
+    parser.add_argument('--empty-droplets', choices=['cr_emptydrops'], default='cr_emptydrops',
+                        help='barcode cell identification strategy')
+    parser.add_argument('--barcode-rename', default='numerical', choices=['numerical', 'sample_id', 'trim', 'skip'],
+                        help='barcode postfix naming strategy')
+    parser.add_argument('-v ', '--verbose', action='store_true',
+                        help='verbose output')
+    return parser
 
 def downsample_gemgroup(data_list):
     """downsample data total read count to gem group with lowest total count
@@ -86,27 +208,22 @@ def remove_duplicate_cols(df, copy=False):
     if copy:
         return df
 
-def filter_input_by_csv(input, csv_fn, verbose=False):
+def filter_input_by_csv(input_files, aggr_df, verbose=False):
     """Filter input files based on match with Sample_ID in input path.
 
     Matching Sample_ID is first column in CSV file.
     """
     filtered_input = []
-    with open(csv_fn) as fh:
-        txt = fh.read().splitlines()
-        csv_rows = []
-        for line in txt[1:]:
-            csv_rows.append(line.split(','))
-    for row in csv_rows:
-        sample_id = row[0]
+    for n, row in aggr_df.iterrows():
+        sample_id = row.iloc[0]
         patt = os.path.sep + sample_id + os.path.sep
-        for pth in input:
-            if patt in pth:
+        for pth in input_files:
+            if patt in str(pth):
                 filtered_input.append(pth)
             else:
                 print(pth, sample_id)
     if verbose:
-        print('Total input: {}'.format(len(input)))
+        print('Total input: {}'.format(len(input_files)))
         print('Filtered input: {}'.format(len(filtered_input)))
     return filtered_input
 
@@ -115,6 +232,7 @@ def filter_input_by_csv(input, csv_fn, verbose=False):
 ## def dict_from_h5, def anndata_from_h5, def _fill_adata_slots_automatically
 def dict_from_h5(file: str) -> Dict[str, np.ndarray]:
     """Read in everything from an h5 file and put into a dictionary."""
+    import tables
     d = {}
     with tables.open_file(file) as f:
         # read in everything
@@ -214,7 +332,6 @@ def anndata_from_h5(file: str,
 
     return adata
 
-
 def _fill_adata_slots_automatically(adata, d):
     """Add other information to the adata object in the appropriate slot."""
 
@@ -226,7 +343,8 @@ def _fill_adata_slots_automatically(adata, d):
                 continue
             value = np.asarray(value)
             if len(value.shape) == 0:
-                adata.uns[key] = value
+                #adata.uns[key] = value
+                pass
             elif value.shape[0] == adata.shape[0]:
                 if (len(value.shape) < 2) or (value.shape[1] < 2):
                     adata.obs[key] = value
@@ -243,57 +361,17 @@ def _fill_adata_slots_automatically(adata, d):
             print('Unable to load data into AnnData: ', key, value, type(value))
 ## end of code steal
 
-def _identify_doublets_scanpy(data, **kw):
-    import scanpy.external.ppscanpy.external.pp.scrublet
-    pass
-    
-def _identify_doublets_scrublet(data, **kw):
-    """Detect doublets in single-cell RNA-seq data
-
-    https://github.com/AllonKleinLab/scrublet
-    """
-    import scrublet as scr
-    adata = data.copy()
-    col_sum = adata.X.sum(0)
-    if hasattr(col_sum, 'A'):
-        col_sum = col_sum.A.squeeze()
-    keep = col_sum > 3
-    adata = adata[:,keep]
-    scrub = scr.Scrublet(adata.X, **kw)
-    min_ncomp = min(30, min(adata.X.shape) - 1)
-    doublet_score, predicted_doublets = scrub.scrub_doublets(n_prin_comps=min_ncomp, min_cells=3, min_counts=2, min_gene_variability_pctl=85)
-    if predicted_doublets is None:
-        predicted_doublets = scrub.call_doublets(threshold=0.34)
-    data.obs['doublet_score'] =  doublet_score
-    data.obs['predicted_doublets'] = predicted_doublets
-    fig, axs = scrub.plot_histogram()
-    fig.savefig('scrublet.pdf')
-    return data
-
-def identify_doublets(data, strategy='scrublet', **kw):
-    """Detect doublets in single-cell RNA-seq data
-
-    https://github.com/AllonKleinLab/scrublet
-    """
-    if strategy == 'scrublet':
-        return  _identify_doublets_scrublet(data, **kw)
-    elif strategy == 'scanpy':
-        return  _identify_doublets_scanpy(data, **kw)
-    else:
-        raise ValueError
-
-
-
 def identify_empty_droplets(data, min_cells=3, strategy='emptydrops_cr', **kw):
     """Detect empty droplets using DropletUtils
 
     """
+    import os
+    os.environ['R_HOME'] = '/opt/conda/lib/R'
     import rpy2.robjects as robj
-
     from rpy2.robjects.packages import importr
     import anndata2ri
-
     importr("DropletUtils")
+    
     adata = data.copy()
     col_sum = adata.X.sum(0)
     if hasattr(col_sum, 'A'):
@@ -304,6 +382,8 @@ def identify_empty_droplets(data, min_cells=3, strategy='emptydrops_cr', **kw):
     #adata.X = adata.X.tocsc()
     anndata2ri.activate()
     robj.globalenv["X"] = adata
+
+    strategy = 'emptydrops' if os.environ.get("BFQ_TEST", None) else strategy
     if strategy == 'emptydrops_cr':
         cmd = 'res <- emptyDropsCellRanger(assay(X))'
     elif strategy == 'emptydrops':
@@ -313,81 +393,62 @@ def identify_empty_droplets(data, min_cells=3, strategy='emptydrops_cr', **kw):
     res = robj.r(cmd)
     anndata2ri.deactivate()
     keep = res.loc[res.FDR<0.01,:]
-    data = data[keep.index,:] 
-    data.obs['empty_FDR'] = keep['FDR']
+    data = data[keep.index,:]
+    obs = data.obs.copy()
+    obs['empty_FDR'] = keep['FDR']
+    data.obs = obs
     
     return data
 
-def read_cellranger(fn, args, rm_zero_cells=True, add_sample_id=True, **kw):
+def read_cellranger(fn, args, add_sample_id=True, **kw):
     """read cellranger results
 
     Assumes the Sample_ID may be extracted from cellranger output dirname, 
     e.g ` ... /Sample_ID/outs/filtered_feature_bc_matrix.h5 `
     """
-    if fn.endswith('.h5'):
-        dirname = os.path.dirname(fn)
+    
+    if str(fn).endswith('.h5'):
+        dir_name = os.path.dirname(fn)
         data = sc.read_10x_h5(fn)
-        data.var['gene_symbols'] = list(data.var_names)
+        data.var['gene_symbol'] = list(data.var_names)
         data.var_names = list(data.var['gene_ids'])
+        data.var.index.name = 'gene_id'
     else:
         mtx_dir = os.path.dirname(fn)
-        dirname = os.path.dirname(mtx_dir)
-        data = sc.read_10x_mtx(mtx_dir, gex_only=args.gex_only, var_names='gene_ids')
+        dir_name = os.path.dirname(mtx_dir)
+        data = sc.read_10x_mtx(mtx_dir, gex_only=args.no_gex_only==False, var_names='gene_ids')
         data.var['gene_ids'] = list(data.var_names)
-    
-    sample_id = os.path.basename(os.path.dirname(dirname))
-    
-    if add_sample_id:
-        data.obs['sample_id'] = sample_id
-        data.obs['sample_id'] = data.obs['sample_id'].astype('category')
+        data.var.index.name = 'gene_id'
 
-    barcodes = [b.split('-')[0] for b in data.obs.index]
-    if args.barcode_rename == 'sample_id':
-        data.obs_names = [b + f'-{sample_id}' for b in barcodes]
-    elif args.barcode_rename == 'numerical':
-        data.obs_names = [b + '-1' for b in barcodes]
-    elif args.barcode_rename == 'trim':
-        assert len(barcodes) == len(set(barcodes))
-        data.obs_names = barcodes
-    else:
-        pass
+    sample_id = None
+    if add_sample_id:
+        sample_id = os.path.basename(os.path.dirname(dir_name))
+        data.obs['sample_id'] = sample_id
+    barcode_rename = kw.get('barcode_rename', args.barcode_rename)
+    if barcode_rename != 'skip':
+        data = barcode_index_rename(data, barcode_rename=barcode_rename, sample_id=sample_id, aggr_csv=args.aggr_csv)
+    
     return data
         
-def read_cellranger_aggr(fn, args, **kw):
-    data = read_cellranger(fn, args, add_sample_id=False)
-    #if 'sample_id' in data.obs:
-    #    data.obs.rename(index=str, columns={'sample_id': 'group'}, inplace=True)
-    dirname = os.path.dirname(fn)
-    if not fn.endswith('.h5'):
-        dirname = os.path.dirname(dirname)
+def read_cellranger_aggr(fn, args):
+    """read cellranger-aggr output
 
-    aggr_csv = os.path.join(os.path.dirname(dirname), 'aggregation.csv')
-    aggr_csv = pd.read_csv(aggr_csv)
-    sample_map = dict((str(i+1), n) for i, n in enumerate(aggr_csv['sample_id']))
-    barcodes_enum = [i.split('-')[1] for i in data.obs_names]
-    samples = [sample_map[i] for i in barcodes_enum]
+    cellranger aggr outputs barcodes with integer postfix. The ints match row number in args.aggr_csv
+    """
+    data = read_cellranger(fn, args, add_sample_id=False, barcode_rename='skip')
+    sample_map = dict((str(i+1), n) for i, n in enumerate(args.aggr_csv.iloc[:,0]))
+    postfix_numerical = [i.split('-')[1] for i in data.obs_names]
+    samples = [sample_map[i] for i in postfix_numerical]
     data.obs['sample_id'] = samples
-    data.obs['sample_id'] = data.obs['sample_id'].astype('category')
-    # use sample_id to make barcodes unique
-    barcodes = [b.split('-')[0] for b in data.obs.index]
-    if args.barcode_rename == 'sample_id':
-        data.obs_names = ['{}-{}'.format(i, j) for i, j in zip(barcodes, samples)]
-    elif args.barcode_rename == 'numerical':
-        data.obs_names = ['{}-{}'.format(i, j) for i, j in zip(barcodes, barcodes_enum)]
-    elif args.barcode_rename == 'trim':
-        raise ValueError
-    else:
-        pass
+    data = barcode_index_rename(data, barcode_rename=args.barcode_rename, sample_id=None, aggr_csv=args.aggr_csv)
     return data
 
-
-
 def read_velocyto_loom(fn, args, **kw):
+    import scvelo as sc
     data = sc.read_loom(fn, var_names='Accession')
-    data.var.rename(columns={'Gene': 'gene_symbols'}, inplace=True)
+    data.var.rename(columns={'Gene': 'gene_symbol'}, inplace=True)
     sample_id = os.path.splitext(os.path.basename(fn))[0]
     data.obs['sample_id'] = sample_id
-    data.obs['sample_id'] = data.obs['sample_id'].astype('category')
     sv.utils.clean_obs_names(data)
     data.obs_names = [i + '-' + sample_id for i in data.obs_names]
     data.var.index.name = 'gene_ids'
@@ -428,7 +489,7 @@ def read_star(fn, args, **kw):
     data.var['gene_symbols'] = genes[1].values
     sample_id = os.path.normpath(fn).split(os.path.sep)[-5]
     data.obs['sample_id'] = sample_id
-    data.obs['sample_id'] = data.obs['sample_id'].astype('category')
+    data.obs['sample_id'] = data.obs['sample_id']
     barcodes = [b.split('-')[0] for b in data.obs.index]
     if args.barcode_rename == 'sample_id':
         data.obs_names = ['{}-{}'.format(i, j) for i, j in zip(barcodes, samples)]
@@ -452,25 +513,25 @@ def read_star(fn, args, **kw):
 def read_alevin(fn, args, add_sample_id=True, **kw):
     from vpolo.alevin import parser as alevin_parser
     avn_dir = os.path.dirname(fn)
-    dirname = os.path.dirname(avn_dir)
-    if fn.endswith('.gz'):
-        df = alevin_parser.read_quants_bin(dirname)
+    dir_name = os.path.dirname(avn_dir)
+    if str(fn).endswith('.gz'):
+        df = alevin_parser.read_quants_bin(dir_name)
     else:
         df = alevin_parser.read_quants_csv(avn_dir)
     row = {'row_names': df.index.values.astype(str)}
     col = {'col_names': np.array(df.columns, dtype=str)}
     data = anndata.AnnData(df.values, row, col, dtype=np.float32)
     data.var['gene_ids'] = list(data.var_names)
-    sample_id = os.path.basename(dirname)
+    sample_id = os.path.basename(dir_name)
     data.obs['sample_id'] = [sample_id] * data.obs.shape[0]
     return data
 
 def read_alevin2(fn, args, **kw):
     import pyroe
     avn_dir = os.path.dirname(fn)
-    dirname = os.path.dirname(avn_dir)
-    data = pyroe.load_fry(dirname, output_format='velocity')
-    sample_id = os.path.basename(dirname)
+    dir_name = os.path.dirname(avn_dir)
+    data = pyroe.load_fry(dir_name, output_format='velocity')
+    sample_id = os.path.basename(dir_name)
     data.obs['sample_id'] = [sample_id] * data.obs.shape[0]
     return data
 
@@ -481,21 +542,16 @@ def read_cellbender(fn, args, add_sample_id=True, **kw):
     else:
         sample_id = os.path.splitext(bn)[0]
     data = anndata_from_h5(fn)
-    data.obs['sample_id'] = sample_id
-    barcodes = [b.split('-')[0] for b in data.obs.index]
-    if args.barcode_rename == 'sample_id':
-        data.obs_names = ['{}-{}'.format(i, j) for i, j in zip(barcodes, samples)]
-    elif args.barcode_rename == 'numerical':
-        data.obs_names = [b + '-1' for b in barcodes]
-    elif args.barcode_rename == 'trim':
-        assert len(barcodes) == len(set(barcodes))
-        data.obs_names = barcodes
-    else:
-        pass
+    if add_sample_id:
+        data.obs['sample_id'] = sample_id
     
     if 'gene_id' in data.var.columns and data.var.index.name=='gene_name':
         data.var['gene_name'] = data.var_names.copy()
         data.var_names = data.var['gene_id']
+
+    data = barcode_index_rename(data, barcode_rename=kw.get('barcode_rename', args.barcode_rename),
+                                sample_id=sample_id, aggr_csv=args.aggr_csv)
+    
     return data
 
 def read_umitools(fn, args, **kw):
@@ -506,53 +562,67 @@ def read_umitools(fn, args, **kw):
 
 def read_h5ad(fn, args, **kw):
     data = sc.read_h5ad(fn)
-    barcodes = data.obs_names
-    postfix = list(set([b.split('-')[1]  for b in barcodes if '-' in b]))
-    if len(postfix) == 0:
-        postfix_type = 'trimmed'
-    else:
-        try:
-            int(postfix[0])
-            postfix_type = 'numerical'
-        except:
-            postfix_type = 'sample_id'
-        
-    barcodes = [b.split('-')[0] for b in data.obs.index]
-    if args.barcode_rename == 'sample_id' and postfix_type != 'sample_id':
-        if 'sample_id' in kw:
-            sample_id = kw['sample_id']
-            data.obs_names = [b + f'-{sample_id}' for b in barcodes]
-        else:
-            raise ValueError
-    elif args.barcode_rename == 'numerical' and postfix_type != 'numerical':
-        data.obs_names = [b + '-1' for b in barcodes]
-    elif args.barcode_rename == 'trim':
-        assert len(barcodes) == len(set(barcodes))
-        data.obs_names = barcodes
-    else:
-        pass
+    obs = data.obs.copy()
+    obs = barcode_index_rename(obs, barcode_rename=args.barcode_rename, aggr_csv=args.aggr_csv)
+    if not all(data.obs_names == obs.index):
+        data.obs_names = obs.index
+    data.obs = obs
     return data
 
 def read_h5ad_aggr(fn, args, **kw):
     raise NotImplementedError
 
-def write_mtx(data, mtx_file):
-    smtx = data.X.T.tocsr().asfptype()
-    barcodes = data.obs_names
-    features = data.var_names
+def _mtx_features(data, version=3, feature_type='Gene Expression'):
+    if version < 3:
+        features = pd.Series(data.var_names)
+    else:
+        keep_cols = []
+        if 'gene_id' in data.var.columns:
+            keep_cols = ['gene_id']
+        gene_name_present = False
+        for gene_alias in ['gene_symbol', 'gene_symbols', 'gene_name', 'gene_names', 'name', 'names']:
+            if gene_alias in data.var.columns:
+                keep_cols.append(gene_alias)
+                gene_name_present = True
+                break
+        if keep_cols:
+            features = data.var[keep_cols].copy()
+            if not 'gene_id' in features:
+                features['gene_id'] = data.var_names
+            if not gene_name_present:
+                features = features[['gene_id', 'gene_id']]
+            else:
+                features = features[['gene_id', gene_alias]]
+        else:
+            features = pd.DataFrame(data.var_names, columns=["gene_id"])
+            features["gene_name"] = data.var_names
+    if 'feature_type' in data.var.columns:
+        features['feature_type'] = data.var['feature_type'].copy()
+    else:
+        features['featue_type'] = feature_type
+        
+    return features
+
+def write_mtx(data, mtx_file, feature_type="Gene Expression"):
+    smtx = data.X.T.tocoo().asfptype()
+    barcodes = pd.Series(data.obs_names)
+    features = pd.Series(data.var_names)
     output_dir = os.path.dirname(mtx_file)
-    os.makedirs(output_dir, exist_ok=True)
-    if mtx_file.endswith('.gz'):
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+    if str(mtx_file).endswith('.gz'):
         import gzip
         with gzip.open(mtx_file, 'wb') as fh:
             mmwrite(fh, smtx)
         pd.Series(barcodes).to_csv(os.path.join(output_dir, 'barcodes.tsv.gz'), index=False, header=False, compression="gzip")
-        pd.Series(features).to_csv(os.path.join(output_dir, 'features.tsv.gz'), index=False, header=False, compression="gzip")
+        features = _mtx_features(data, version=3)
+        features.to_csv(os.path.join(output_dir, 'features.tsv.gz'), index=False, header=False, compression="gzip", sep="\t")
     else:
-        with open(mtx_file, 'w') as fh:
-            mmwrite(fh, smtx)
+        with open(mtx_file, 'wb') as fh:
+            mmwrite(fh, smtx, field='integer')
         pd.Series(barcodes).to_csv(os.path.join(output_dir, 'barcodes.tsv'), index=False, header=False)
-        pd.Series(features).to_csv(os.path.join(output_dir, 'features.tsv'), index=False, header=False) 
+        features = _mtx_features(data, version=2)
+        features.to_csv(os.path.join(output_dir, 'features.tsv'), index=False, header=False) 
     
 def add_nuclear_fraction(adata):
     """Estimate nuclear fraction from velocyto params
@@ -577,47 +647,18 @@ READERS = {'cellranger_aggr': read_cellranger_aggr,
            'h5ad': read_h5ad}
         
 if __name__ == '__main__':
+    parser = create_parser()
     args = parser.parse_args()
-
-    if args.aggr_csv is not None:
+    
+    if args.aggr_csv is not None and len(args.input) > 1:
         args.input = filter_input_by_csv(args.input, args.aggr_csv, verbose=args.verbose)
         
     reader = READERS.get(args.input_format.lower())
     if reader is None:
         raise ValueError('{} is not a supported input format'.format(args.input_format))
-    for fn in args.input:
-        if not os.path.exists(fn):
-            raise IOError('file does not exist! {}'.format(fn))
     n_input = len(args.input)
     if n_input > 1:
         assert(args.input_format != 'cellranger_aggr')
-            
-    if args.sample_info is not None:
-        sample_info = pd.read_csv(args.sample_info, sep='\t')
-        if not 'Sample_ID' in sample_info.columns:
-            raise ValueError('sample_sheet needs a column called `Sample_ID`')
-        sample_info.index = list(sample_info['Sample_ID'].astype(str))
-        print(sample_info.head())
-        print(sample_info.dtypes)
-        if args.batch is not None:
-            batch_categories = sample_info[batch].astype('category')
-    else:
-        sample_info = None
-        if args.batch is not None:
-            raise ValueError('cannot use option `batch` when option `--sample-info` not used')
-        batch_categories = None
-        
-    if args.feature_info is not None:
-        feature_info = pd.read_csv(args.feature_info, sep='\t')
-        if 'gene_id' in feature_info.columns:
-            feature_info.rename(columns={"gene_id": "gene_ids"}, inplace=True)
-        if not 'gene_ids' in feature_info.columns:
-            raise ValueError('feature_info needs a column called `gene_ids`')
-        
-        feature_info.index = feature_info['gene_ids']
-        feature_info.index.name = "index"
-    else:
-        feature_info = None
     
     data_list = []
     for i, fn in enumerate(args.input):
@@ -627,44 +668,31 @@ if __name__ == '__main__':
             if args.verbose:
                 print("identify empty droplets ...")
             data = identify_empty_droplets(data)
-            print(data.shape)
-        if args.identify_doublets:
             if args.verbose:
-                print("identify doublets ...")                
-            data = identify_doublets(data)
-            print(data.var.head())
-            print(data.var.dtypes)
-            print(data.obs.head())
-            print(data.obs.dtypes)
-            print(data)
+                print(data.shape)
         data_list.append(data)
 
     if len(data_list) > 1:
         if args.normalize == 'mapped':
             data_list = downsample_gemgroup(data_list)
 
-    #data = data_list.pop(0)
     if len(data_list) > 1:
-        names = [d.obs['sample_id'].values[0] for d in data_list]
-        print(names)
-        data = anndata.concat(data_list, join="outer", merge="first", uns_merge=None)
-        print(data)
-        print(data.var.head())
-        print(data.obs.head())
+        data = anndata.concat(data_list, join="outer", merge="unique", uns_merge=None)
         if any(i.endswith('-0') for i in data.var.columns):
             remove_duplicate_cols(data.var)
     else:
         data = data_list[0]
-        
+    
     if args.sample_info is not None:
-        lib_ids = set(data.obs['sample_id'])
+        lib_ids = pd.unique(data.obs['sample_id'])
         for l in lib_ids:
-            if l not in sample_info.index:
+            if l not in args.sample_info.index:
                 raise ValueError('Library `{}` not present in sample_info'.format(l))
-        obs = sample_info.loc[data.obs['sample_id'],:]
+        obs = args.sample_info.loc[data.obs['sample_id'],:]        
         obs.index = data.obs.index.copy()
-        data.obs = data.obs.merge(obs, how='left', left_index=True, right_index=True, suffixes=('', '_sample_info'), validate="one_to_many")
-
+        merged_obs = data.obs.merge(obs, how='left', left_index=True, right_index=True, suffixes=('', '_sample_info'), validate="one_to_one")
+        data.obs = merged_obs
+        
     if not args.no_zero_cell_rm:
         row_sum = data.X.sum(1)
         if hasattr(row_sum, 'A'):
@@ -676,44 +704,47 @@ if __name__ == '__main__':
             col_sum = col_sum.A.squeeze()
         keep = col_sum > 0
         data = data[:,keep]
+        if args.verbose:
+            n_orig_features = len(keep)
+            n_features = sum(keep)
+            removed_features = sum(keep==False)
+            print(f"adata has {removed_features} features with zero reads")
+            print(f"adata prior filter: {n_orig_features}")
+            print(f"adata after filter: {n_features}")
         
-    if isinstance(feature_info, pd.DataFrame):
-        print(data.var.head())
-        print(feature_info.head())
-        #data.var = data.var.join(feature_info, how='inner')
-        #data.var = pd.merge(data.var, feature_info, how='left', left_index=True, right_index=True)
-        #print(data.var.head())
-        #test = feature_info.index[feature_info.index.isin(list(data.var.index))].copy()
-        #print(len(test))
-
-        if 'gene_symbol' not in feature_info.columns and 'gene_name' in feature_info.columns:
-            feature_info['gene_symbol'] = feature_info['gene_name'].copy()
-            
-        data.var = pd.merge(data.var, feature_info, how='left', left_index=True, right_index=True, copy=True)
+    if isinstance(args.feature_info, pd.DataFrame):        
+        data.var = data.var.merge(args.feature_info, how='left', left_index=True, right_index=True, suffixes=('', '_feature_info'), validate="one_to_one")
+        data.var = data.var.T.drop_duplicates().T.infer_objects()
         
-    if 'gene_symbols' in data.var.columns and 'fraction_mito' not in data.obs:
-        mito_genes = data.var.gene_symbols.str.lower().str.startswith('mt-')
-        try:
-            data.obs['fraction_mito'] = np.sum(data[:, mito_genes].X, axis=1).A1 / np.sum(data.X, axis=1).A1
-        except:
-            data.obs['fraction_mito'] = np.sum(data[:, mito_genes].X, axis=1) / np.sum(data.X, axis=1)
-
-    if 'n_counts' not in data.obs:
-        try:
-            data.obs['n_counts'] = data.X.sum(axis=1).A1
-        except:
-            data.obs['n_counts'] = data.X.sum(axis=1)
-
+    if 'gene_symbol' not in data.var.columns:
+        for alias in ['gene_symbols', 'gene_name', 'gene_names', 'name', 'names', 'symbol', 'symbols']:
+            for col_name in data.var.columns:
+                if col_name.strip().lower() == alias:
+                    data.var['gene_symbol'] = data.var[col_name].copy()
+        keep_cols = [i for i in data.var.columns if i not in alias]
+        data.var = data.var[keep_cols]
+    
+    if 'gene_symbol' in data.var.columns:
+        data.var["mt"] = data.var.gene_symbol.str.lower().str.startswith("mt-")
+        data.var["ribo"] = data.var.gene_symbol.str.lower().str.startswith(("rps", "rpl"))
+        data.var["hb"] = data.var.gene_symbol.str.lower().str.contains(("^hb[^(p)]"))
+        
     data = add_nuclear_fraction(data)
 
-    if 'gene_symbols' not in data.var.columns:
-        aliases = ['gene_name', 'gene_names', 'name', 'name', 'gene_symbol', 'symbol', 'symbols']
-        for col in data.var.columns:
-            if str(col).strip().lower() in aliases:
-                data.var['gene_symbols'] = data.var[col].copy()
-            
+    if isinstance(args.barcode_info, pd.DataFrame):
+        args.barcode_info = barcode_index_rename(args.barcode_info, barcode_rename=args.barcode_rename, aggr_csv=args.aggr_csv)
+        data.obs = data.obs.merge(args.barcode_info, how='left', left_index=True, right_index=True, suffixes=('', '_barcode_info'), validate="one_to_one")
+        data.obs = data.obs.T.drop_duplicates().T.infer_objects()
+
+
     if args.verbose:
         print(data)
+        print(data.var.head())
+        print(data.var.dtypes)
+        print(data.obs.head())
+        print(data.obs.dtypes)
+
+    data.uns.clear()
         
     if args.output_format == 'anndata':
         data.write(args.outfile)

@@ -2,7 +2,7 @@ import sys
 import yaml
 import peppy
 import pandas as pd
-
+import peppy
 
 def col_is_empty(col):
     if all(col==''):
@@ -34,7 +34,7 @@ def sampleinfo_from_peppy(fn):
     pep = peppy.Project(fn)
     df = pep.sample_table
     df = df.loc[:,df.convert_dtypes().dtypes != 'object']
-    if 'sample_name' in df.columns:
+    if 'sample_name' in df.columns and 'Sample_ID' not in df.columns:
         df = df.rename(columns={'sample_name':'Sample_ID'})
     return df
 

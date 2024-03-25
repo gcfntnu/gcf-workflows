@@ -39,7 +39,7 @@ rule alevin_1pass:
     threads:
         16
     params:
-        args = '--dumpFeatures --noQuant -l ISR ' + '--{} '.format(config['quant']['alevin']['chemistry']),
+        args = '--dumpFeatures --noQuant -l ISR ' + '--{} '.format(config['quant'].get('alevin', {}).get('chemistry', 'none')),
         out = join(AVN_INTERIM, '1pass', '{sample}'),
         ref = join(REF_DIR, 'salmon')
     output:
@@ -80,7 +80,7 @@ rule alevin_quant:
         ref = join(REF_DIR, 'salmon', 'refInfo.json'),
         t2g = 'tx2gene.tsv'
     params:
-        args = '-l ISR --dumpCsvCounts --dumpFeatures ' + '--{} '.format(config['quant']['alevin']['chemistry']),
+        args = '-l ISR --dumpCsvCounts --dumpFeatures ' + '--{} '.format(config['quant'].get('alevin', {}).get('chemistry', 'none')),
         output = join(AVN_INTERIM, '{sample}'),
         ref = join(REF_DIR, 'salmon')
     threads:

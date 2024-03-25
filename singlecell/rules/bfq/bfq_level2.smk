@@ -1,3 +1,4 @@
+#-*- mode:snakemake -*-
 
 if config['quant']['method'] == 'cellranger':
     rule bfq_level2_exprs_cellranger:
@@ -65,7 +66,7 @@ if config['quant']['method'] == 'cellranger':
             for src, dst  in zip(input, output):
                 shell('ln -sr {src} {dst}')
 
-else:
+elif config['quant']['method'] == 'starsolo':
     rule bfq_level2_exprs_star:
         input:
             #expand(rules.velocyto_merge_aggr.output, quant=['star'], aggr_id=AGGR_IDS),
@@ -116,6 +117,51 @@ else:
             for src, dst  in zip(input, output):
                 shell('ln -sr {src} {dst}')
 
+
+elif config['quant']['method'] == 'parse':
+    rule bfq_level2_exprs_parse:
+        input:
+            join(PARSE_AGGR, 'all-sample', 'DGE_filtered', 'all_genes.csv'),
+            join(PARSE_AGGR, 'all-sample', 'DGE_filtered', 'cell_metadata.csv'),
+            join(PARSE_AGGR, 'all-sample', 'DGE_filtered', 'count_matrix.mtx'),
+            join(PARSE_AGGR, 'all-sample', 'DGE_filtered', 'anndata.h5ad'),
+        output:
+            join(BFQ_INTERIM, 'exprs', 'mtx', 'all_samples', 'all_genes.csv'),
+            join(BFQ_INTERIM, 'exprs', 'mtx', 'all_samples', 'cell_metadata.csv'),
+            join(BFQ_INTERIM, 'exprs', 'mtx', 'all_samples', 'count_matrix.mtx'),
+            join(BFQ_INTERIM, 'exprs', 'scanpy', 'all_samples_adata.h5ad'),
+        run:
+            for src, dst  in zip(input, output):
+                shell('ln -sr {src} {dst}')
+
+    rule bfq_level2_logs_parse:
+        input:
+            join(PARSE_AGGR, 'all-sample_analysis_summary.html'),
+            expand(join(PARSE_INTERIM, '{sample}', 'all-sample_analysis_summary.html'), sample=SAMPLES),
+            expand(join(PARSE_INTERIM, '{sample}', 'agg_samp_ana_summary.csv'), sample=SAMPLES),
+        output:
+            join(BFQ_INTERIM, 'summaries', 'all_samples_analysis_summary.html'),
+            expand(join(BFQ_INTERIM, 'summaries', '{sample}_analysis_summary.html'), sample=SAMPLES),
+            expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}.agg_samp_ana_summary.csv'), sample=SAMPLES),
+        run:
+            for src, dst  in zip(input, output):
+                shell('ln -sr {src} {dst}')
+
+    rule bfq_level2_figs_parse:
+        input:
+            join(PARSE_AGGR, 'all-sample', 'figures', 'fig_umap_cluster.png'),
+            join(PARSE_AGGR, 'all-sample', 'figures', 'fig_umap_sample.png'),
+            join(PARSE_AGGR, 'all-sample', 'figures', 'fig_cell_by_rnd1_well.png'),
+        output:
+            join(BFQ_INTERIM, 'figs', 'umap_all_samples_leiden_mqc.png'),
+            join(BFQ_INTERIM, 'figs', 'umap_samples_mqc.png'),
+            join(BFQ_INTERIM, 'figs', 'cells_per_well_round1_mqc.png'),
+        run:
+            for src, dst  in zip(input, output):
+                shell('ln -sr {src} {dst}')
+
+
+
 rule bfq_level2_aligned:
     input:
         bam = expand(join(QUANT_INTERIM, '{quant}', '{sample}', 'Aligned.sortedByCoord.out.bam'), sample=SAMPLES, quant=config['quant']['method'])
@@ -160,12 +206,17 @@ if config['quant']['method'] == 'star':
                       rules.bfq_level2_notebooks_star.output,
                       join(BFQ_INTERIM, 'figs', 'umap_all_samples_mqc.png')]
 
-else:
+elif config['quant']['method'] == 'cellranger':
     BFQ_LEVEL2_ALL = [rules.bfq_level2_exprs_cellranger.output,
                       rules.bfq_level2_logs_cellranger.output,
                       rules.bfq_level2_data_cellranger.output,
                       rules.bfq_level2_notebooks_cellranger.output,
                       join(BFQ_INTERIM, 'figs', 'umap_all_samples_mqc.png')]
+
+elif config['quant']['method'] == 'parse':
+    BFQ_LEVEL2_ALL = [rules.bfq_level2_exprs_parse.output,
+                      rules.bfq_level2_logs_parse.output,
+                      rules.bfq_level2_figs_parse.output]
 
 BFQ_ALL.extend(BFQ_LEVEL2_ALL)
 

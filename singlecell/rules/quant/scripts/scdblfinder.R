@@ -21,7 +21,9 @@ sce <- as(sce, "SingleCellExperiment")
 doublet_ratio <- ncol(sce)/1000*0.008
 sce <- scDblFinder(sce, dbr=doublet_ratio)
 
-results <- data.frame("Barcode"=rownames(colData(sce)),
+barcodes <- rownames(colData(sce))
+barcodes.numerical <- paste0(sapply(strsplit(barcodes, split="-"), function(c) c[[1]]), "-1")
+results <- data.frame("Barcode"=barcodes.numerical,
                       "doublet"=sce$scDblFinder.class,
 		      "doublet_score"=sce$scDblFinder.score)
 
