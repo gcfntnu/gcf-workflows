@@ -90,7 +90,7 @@ rule cellranger_quant_:
         sample = '{sample}',
         genome_dir = CR_REF_DIR,
         ncells = config['quant']['cellranger'].get('ncells', 5000),
-        chemistry = config['quant']['cellranger']['chemistry'],
+        chemistry = config['quant'].get('cellranger', {}).get('chemistry', 'none'),
         extra_args = '--nopreflight --disable-ui '
     threads:
         48
