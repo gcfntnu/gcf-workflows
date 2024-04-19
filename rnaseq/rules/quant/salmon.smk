@@ -200,7 +200,7 @@ rule salmon_gene_anndata:
         'python {params.script} '
         '--gene-counts {input.gene_counts} '
         '--tpm {input.gene_tpm} '
-        '--vsn {input.gene_vst} '
+        '--vst {input.gene_vst} '
         '--abundance {input.gene_abundance} '
         '--output {output} '
 

@@ -58,19 +58,19 @@ if __name__ == "__main__":
     if args.gene_vst:
         X = pd.read_csv(args.gene_vst, sep="\t", index_col=0).T
         X.columns = X.columns.astype(str)
-        adata = adata.layers['vsn'] = X
+        adata.layers['vsn'] = X
     if args.gene_tpm:
         X = pd.read_csv(args.gene_tpm, sep="\t", index_col=0).T
         X.columns = X.columns.astype(str)
-        adata = adata.layers['TPM'] = X 
+        adata.layers['TPM'] = X 
     if args.gene_abundance:
         X = pd.read_csv(args.gene_abundance, sep="\t", index_col=0).T
         X.columns = X.columns.astype(str)
-        adata = adata.layers['length_scaled_TPM'] = X
+        adata.layers['length_scaled_TPM'] = X
     if args.gene_lengths:
         X = pd.read_csv(args.gene_lengths, sep="\t", index_col=0).T
         X.columns = X.columns.astype(str)
-        adata = adata.layers['gene_lengths'] = X   
+        adata.layers['gene_lengths'] = X   
         
     adata.write(filename=args.output)
     
