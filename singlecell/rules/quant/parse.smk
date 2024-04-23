@@ -6,11 +6,26 @@ PARSE_INTERIM = join(QUANT_INTERIM, 'parse')
 
 ORG = config['organism']
 
+WELLS = config['wells'].keys()
+
+rule parse_sample_list:
+    output:
+        join(PARSE_INTERIM, 'parse_sample_list.txt'),
+    params:
+        config = 'config.yaml',
+        script = src_gcf('scripts/create_parse_sample_list.py')
+    threads:
+        1
+    container:
+        'docker://' + config['docker']['default']
+    shell:
+        'python {params.script} {params.config} {output}'
 
 rule parse_quant:
     input:
         unpack(get_raw_fastq),
         genome = join(REF_DIR, 'index', 'genome', 'parse', 'SA'),
+        sample_list = rules.parse_sample_list.output
     output:
         summary_html = join(PARSE_INTERIM, '{sample}', 'all-sample_analysis_summary.html'),
         all_sample_filtered_genes = join(PARSE_INTERIM, '{sample}', 'all-sample', 'DGE_filtered', 'all_genes.csv'),
@@ -44,6 +59,7 @@ rule parse_quant:
         '--output_dir {params.out_dir} '
         '--fq1 {input.R1} '
         '--fq2 {input.R2} '
+        '--samp_list {input.sample_list} '
 
 
 PARSE_AGGR = join(QUANT_INTERIM, 'aggregate', 'parse')
@@ -64,6 +80,14 @@ rule parse_aggr:
         umap_cluster = join(PARSE_AGGR, 'all-sample', 'figures', 'fig_umap_cluster.png'),
         umap_sample = join(PARSE_AGGR, 'all-sample', 'figures', 'fig_umap_sample.png'),
         rnd_1_wells = join(PARSE_AGGR, 'all-sample', 'figures', 'fig_cell_by_rnd1_well.png'),
+        well_summary_html = expand(join(PARSE_AGGR, '{well}_analysis_summary.html'), well=WELLS),
+        filtered_genes = expand(join(PARSE_AGGR, '{well}', 'DGE_filtered', 'all_genes.csv'), well=WELLS),
+        filtered_meta = expand(join(PARSE_AGGR, '{well}', 'DGE_filtered', 'cell_metadata.csv'), well=WELLS),
+        filtered_mtx = expand(join(PARSE_AGGR, '{well}', 'DGE_filtered', 'count_matrix.mtx'), well=WELLS),
+        filtered_anndata = expand(join(PARSE_AGGR, '{well}', 'DGE_filtered', 'anndata.h5ad'), well=WELLS),
+        raw_genes = expand(join(PARSE_AGGR, '{well}', 'DGE_unfiltered', 'all_genes.csv'), well=WELLS),
+        raw_meta = expand(join(PARSE_AGGR, '{well}', 'DGE_unfiltered', 'cell_metadata.csv'), well=WELLS),
+        raw_mtx = expand(join(PARSE_AGGR, '{well}', 'DGE_unfiltered', 'count_matrix.mtx'), well=WELLS),
     params:
         sublibs = lambda wildcards, input: ' '.join([os.path.dirname(s) for s in input.summary_csv]),
         out_dir = PARSE_AGGR
