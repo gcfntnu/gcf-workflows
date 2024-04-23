@@ -125,11 +125,19 @@ elif config['quant']['method'] == 'parse':
             join(PARSE_AGGR, 'all-sample', 'DGE_filtered', 'cell_metadata.csv'),
             join(PARSE_AGGR, 'all-sample', 'DGE_filtered', 'count_matrix.mtx'),
             join(PARSE_AGGR, 'all-sample', 'DGE_filtered', 'anndata.h5ad'),
+	    expand(join(PARSE_AGGR, '{well}', 'DGE_filtered', 'all_genes.csv'), well=WELLS),
+	    expand(join(PARSE_AGGR, '{well}', 'DGE_filtered', 'cell_metadata.csv'), well=WELLS),
+	    expand(join(PARSE_AGGR, '{well}', 'DGE_filtered', 'count_matrix.mtx'), well=WELLS),
+	    expand(join(PARSE_AGGR, '{well}', 'DGE_filtered', 'anndata.h5ad'), well=WELLS),
         output:
             join(BFQ_INTERIM, 'exprs', 'mtx', 'all_samples', 'all_genes.csv'),
             join(BFQ_INTERIM, 'exprs', 'mtx', 'all_samples', 'cell_metadata.csv'),
             join(BFQ_INTERIM, 'exprs', 'mtx', 'all_samples', 'count_matrix.mtx'),
             join(BFQ_INTERIM, 'exprs', 'scanpy', 'all_samples_adata.h5ad'),
+	    expand(join(BFQ_INTERIM, 'exprs', 'mtx', '{well}', 'all_genes.csv'), well=WELLS),
+	    expand(join(BFQ_INTERIM, 'exprs', 'mtx', '{well}', 'cell_metadata.csv'), well=WELLS),
+	    expand(join(BFQ_INTERIM, 'exprs', 'mtx', '{well}', 'count_matrix.mtx'), well=WELLS),
+	    expand(join(BFQ_INTERIM, 'exprs', 'scanpy', '{well}_adata.h5ad'), well=WELLS),
         run:
             for src, dst  in zip(input, output):
                 shell('ln -sr {src} {dst}')
@@ -137,12 +145,14 @@ elif config['quant']['method'] == 'parse':
     rule bfq_level2_logs_parse:
         input:
             join(PARSE_AGGR, 'all-sample_analysis_summary.html'),
-            expand(join(PARSE_INTERIM, '{sample}', 'all-sample_analysis_summary.html'), sample=SAMPLES),
-            expand(join(PARSE_INTERIM, '{sample}', 'agg_samp_ana_summary.csv'), sample=SAMPLES),
+	    expand(join(PARSE_AGGR, '{well}_analysis_summary.html'), well=WELLS),
+	    expand(join(PARSE_INTERIM, '{sample}', 'all-sample_analysis_summary.html'), sample=SAMPLES),
+	    expand(join(PARSE_INTERIM, '{sample}', 'agg_samp_ana_summary.csv'), sample=SAMPLES),
         output:
             join(BFQ_INTERIM, 'summaries', 'all_samples_analysis_summary.html'),
-            expand(join(BFQ_INTERIM, 'summaries', '{sample}_analysis_summary.html'), sample=SAMPLES),
-            expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}.agg_samp_ana_summary.csv'), sample=SAMPLES),
+	    expand(join(BFQ_INTERIM, 'summaries', '{well}_analysis_summary.html'), well=WELLS),
+	    expand(join(BFQ_INTERIM, 'summaries', '{sample}_analysis_summary.html'), sample=SAMPLES),
+	    expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}.agg_samp_ana_summary.csv'), sample=SAMPLES),
         run:
             for src, dst  in zip(input, output):
                 shell('ln -sr {src} {dst}')
