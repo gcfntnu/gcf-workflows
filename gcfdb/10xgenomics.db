@@ -6,8 +6,8 @@ support.10xgenomics.com/single-cell-gene-expression/software/downloads
 """
 
 _ASSEMBLY = {'homo_sapiens': 'GRCh38',
-             'mus_musculus': 'GRCm38',
-             'homo_sapiens__mus_musculus': 'GRCh38_GRCm38'}
+             'mus_musculus': 'GRCm39',
+             'homo_sapiens__mus_musculus': 'GRCh38_GRCm39'}
 
 # config
 ORG = config['organism']
@@ -25,12 +25,12 @@ def get_10x_url(wildcards):
             raise KeyError('10x homo sapiens genome is only GRCh38 assembly')
         fn = 'refdata-gex-{}-{}.tar.gz'.format(wildcards.assembly, wildcards.release)
     elif wildcards.organism == 'mus_musculus':
-        if not wildcards.assembly == 'GRCm38':
-            raise KeyError('10x mus musculus genome is only GRCm38 assembly')
-        assembly = 'mm10'
+        if not wildcards.assembly == 'GRCm39':
+            raise KeyError('10x mus musculus genome is only GRCm39 assembly')
+        assembly = 'GRCm39'
         fn = 'refdata-gex-{}-{}.tar.gz'.format(assembly, wildcards.release)
     elif wildcards.organism == 'homo_sapiens__mus_musculus':
-        fn = 'refdata-gex-GRCh38-and-mm10-2020-A.tar.gz'
+        fn = 'refdata-gex-GRCh38-and-GRCm39-2024-A.tar.gz'
     else:
         raise ValueError('`{}` is not a supported organism for 10x prebuilds'.format(wildcards.organism))
     return join(base, fn)
