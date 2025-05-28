@@ -3,6 +3,7 @@
 """
 import os
 import sys
+import re
 import argparse
 
 import pandas as pd
@@ -10,7 +11,7 @@ import pandas as pd
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 parser.add_argument("input", help="input file(s)", nargs="*", default=None)
 parser.add_argument("-o", "--outfile", help="output filename", required=True)
-parser.add_argument("--barcode-rename", help="barcode postfix naming strategy", default="numerical", choices=["sample_id", "numerical", "trim", "skip"])
+parser.add_argument("--barcode-rename", help="barcode postfix naming strategy", default="numerical", choices=["sample_id", "numerical", "trim", "parsebio", "skip"])
 parser.add_argument("--aggr-csv", help="cellranger aggregation csv file. sample_id to numerical lookup or vice versa", default=None)
 
 def is_numerical_postfix(barcodes, sep="-"):
@@ -42,6 +43,10 @@ if __name__ == "__main__":
             barcodes = [f"{b}-{postfix_numerical}" for b in barcodes]
         elif args.barcode_rename == "trim":
             pass # trimmed barcodes is starting point
+        elif args.barcode_rename == "parsebio":
+            sublib_number = sample_id.split("sublib")[-1]
+            if not re.match(r'.*__s\d+$', barcodes[0]):
+                barcodes = [f"{b}__s{sublib_number}" for b in barcodes]
         elif args.barcode_rename == "skip":
             barcodes = df.index # keep original barocdes
         else:

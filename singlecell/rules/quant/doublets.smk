@@ -8,75 +8,61 @@ if SAMPLE_MULTIPLEXING:
     else:
        SAMPLE_MULTIPLEXING = False 
 
-rule barcode_dummy:
-    output:
-        temp('barcode_info.dummy')
-    shell:
-        'touch {output}'
 
-## below are some tmp count-table rules with a dummy barcode_info input
-use rule scanpy_cellranger as dbl_scanpy_cellranger with:
-    input:
-        input_files = join(CR_INTERIM, '{sample}', 'outs', 'filtered_feature_bc_matrix.h5'),
-        sample_info = join(INTERIM_DIR, 'sample_info.tsv'),
-        feature_info = join(CR_REF_DIR, 'anno', 'genes.tsv'),
-        aggr = join(QUANT_INTERIM, 'aggregate', 'description', 'all_samples_aggr.csv'),
-        barcode_info = 'barcode_info.dummy'
-    output:
-        temp('bstmp/{sample}/cr_{sample}.h5ad')
-
-use rule scanpy_cellbender as dbl_scanpy_cellbender with:
-    input:
-        input_files = join(CR_INTERIM, '{sample}', 'cellbender', '{sample}.h5'),
-        sample_info = join(INTERIM_DIR, 'sample_info.tsv'),
-        feature_info = join(CR_REF_DIR, 'anno', 'genes.tsv'),
-        aggr = join(QUANT_INTERIM, 'aggregate', 'description', 'all_samples_aggr.csv'),
-        barcode_info = 'barcode_info.dummy'
-    output:
-        h5ad = temp('bstmp/{sample}/cb_adata.h5ad')
-
-use rule scanpy_cellbender_mtx as dbl_scanpy_cellbender_mtx with:
-    input:
-        rules.dbl_scanpy_cellbender.output.h5ad
-    output:
-        temp('bstmp/{sample}/matrix.mtx.gz')
-        
 def dbl_get_mtx_counts(wildcards):
-    if wildcards.quantifier == 'cellranger':
-        if config['quant'].get('cellbender_filter', False):
-            return rules.dbl_scanpy_cellbender_mtx.output
-        return rules.cellranger_quant.output.filt_mtx
-    if wildcards.quantifier == 'starsolo':
-        return os.path.dirname(rules.starsolo_quant.output.mtx)
+    method = wildcards.quantifier
+    
+    if method == 'cellranger':
+        return join(QUANT_INTERIM, 'cellranger', '{sample}', 'outs', 'filtered_feature_bc_matrix', 'matrix.mtx.gz')
+    elif method == 'cellranger_cellbender':
+        raise NotImplementedError
+    elif method == 'splitpipe':
+        return join(QUANT_INTERIM, 'splitpipe', '{sample}', 'all-sample', 'DGE_filtered', 'count_matrix.mtx')
+    elif method == 'splitpipe_cellbender':
+        return join(QUANT_INTERIM, 'splitpipe_cellbender', '{sample}', 'matrix', 'matrix.mtx')
+    elif method == 'parsebio_starsolo':
+        return join(QUANT_INTERIM, 'parsebio_starsolo', '{sample}', 'Solo.out', 'GeneFull_Ex50pAS', 'filtered', 'matrix.mtx')
+    elif method == 'parsebio_starsolo_cellbender':
+        return join(QUANT_INTERIM, 'parsebio_starsolo_cellbender', '{sample}', 'matrix', 'matrix.mtx')
+    elif method == '10x_starsolo':
+        return join(QUANT_INTERIM, '10x_starsolo', '{sample}', 'Solo.out','Gene', 'filtered', 'matrix.mtx')
+    elif method == '10x_starsolo_cellbender':
+        raise NotImplementedError
     else:
         raise ValueError
 
-def dbl_get_h5ad(wildcards):
-    if wildcards.quantifier == 'cellranger':
-        if config['quant'].get('cellbender_filter', False):
-            return rules.dbl_scanpy_cellbender.output
-        return rules.dbl_scanpy_cellranger.output
-    else:
-        raise ValueError
-##
+rule dbl_clean_input_data:
+    input:
+        mtx = dbl_get_mtx_counts,
+    output:
+        anndata = temp('_tmp/{quantifier}/{sample}/anndata.h5ad'),
+        mtx = temp('_tmp/{quantifier}/{sample}/matrix.mtx')
+    params:
+        script = src_gcf('scripts/vanilla_mtx2h5ad.py')
+    threads:
+        8
+    shell:
+        'python {params.script} {input.mtx} {output.anndata} '
+
 
 rule dbl_skip_doubletdetection:
     input:
-        counts = dbl_get_mtx_counts,
+        counts = '_tmp/{quantifier}/{sample}/matrix.mtx',
     output:
-        join(DBL_DIR,  'skip', 'doublet_type.tsv')
+        join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets',  'skip', 'doublet_type.tsv')
     params:
         script = src_gcf('scripts/skip_doubletdetection.py')
     shell:
         'python {params.script} '
         '-i {input.counts} '
         '-o {output}'
-        
+
+
 rule dbl_doubletdetection:
     input:
-        counts = dbl_get_h5ad,
+        counts = '_tmp/{quantifier}/{sample}/anndata.h5ad',
     output:
-        join(DBL_DIR,  'doubletdetection', 'doublet_type.tsv')
+        join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets',  'doubletdetection', 'doublet_type.tsv')
     params:
         script = src_gcf('scripts/run_doubletdetection.py')
     threads:
@@ -86,36 +72,46 @@ rule dbl_doubletdetection:
         '-i {input.counts} '
         '-o {output} '
         '--threads {threads} '
-        
+
+
 rule dbl_scdblfinder:
     input:
-        counts = dbl_get_mtx_counts,
+        counts = '_tmp/{quantifier}/{sample}/matrix.mtx',
     output:
-        join(DBL_DIR,  'scdblfinder', 'doublet_type.tsv')
+        join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets', 'scdblfinder', 'doublet_type.tsv')
     params:
         script = src_gcf('scripts/scdblfinder.R')
+    threads:
+        8
     shell:
-        '{params.script} '
-        '-i {input.counts} '
-        '-o {output}'
+        'Rscript {params.script} '
+        '--input {input.counts} '
+        '--output {output} '
+        '--threads {threads}'
         
+
 rule dbl_scds:
     input:
-        counts = dbl_get_mtx_counts,
+        counts = '_tmp/{quantifier}/{sample}/matrix.mtx',
     output:
-        join(DBL_DIR,  'scds', 'doublet_type.tsv')
+        join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets', 'scds', 'doublet_type.tsv')
     params:
-        script = src_gcf('scripts/scds.R')
+        script = src_gcf('scripts/scds.R'),
+        threshold = 0.5 
+    threads: 8
     shell:
-        '{params.script} '
-        '-i {input.counts} '
-        '-o {output} '
+        'Rscript {params.script} '
+        '--input {input.counts} '
+        '--output {output} '
+        '--threads {threads} '
+        '--threshold {params.threshold}'
+
 
 rule scrublet:
     input:
-        counts = dbl_get_h5ad,
+        counts = '_tmp/{quantifier}/{sample}/anndata.h5ad',
     output:
-        join(DBL_DIR,  'scrublet', 'doublet_type.tsv')
+        join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets',  'scrublet', 'doublet_type.tsv')
     params:
         script = src_gcf('scripts/run_scrublet.py')
     threads:
@@ -124,6 +120,7 @@ rule scrublet:
         'python {params.script} '
         '-i {input.counts} '
         '-o {output} '
+
 
 rule dbl_solo_model:
     output:
@@ -143,17 +140,18 @@ rule dbl_solo_model:
         with open(output.json, 'w') as fh:
             json.dump(m, fh, indent=6)
         
+
 rule dbl_solo:
     input:
-        counts = dbl_get_h5ad,
+        counts = '_tmp/{quantifier}/{sample}/anndata.h5ad',
         model = rules.dbl_solo_model.output
     output:
-        pred = join(DBL_DIR,  'solo', 'is_doublet.npy'),
-        adata = join(DBL_DIR,  'solo', 'soloed.h5ad')
+        pred = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets',  'solo', 'is_doublet.npy'),
+        adata = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets',  'solo', 'soloed.h5ad')
     params:
-        out_dir = join(DBL_DIR,  'solo'),
+        out_dir = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets',  'solo'),
         n_doub = 1000, # enforce number of doublets
-        tmp_out = '{sample}/_solo_{quantifier}_{sample}_tmp'
+        tmp_out = '_solo_{quantifier}_{sample}_tmp/'
     threads:
         24
     container:
@@ -172,11 +170,12 @@ rule dbl_solo:
         'cp -r --force {params.tmp_out}/* {params.out_dir}/ '
         '&& rm -rf {params.tmp_out} '
 
+
 rule dbl_solo_summary:
     input:
-        adata =  join(DBL_DIR,  'solo', 'soloed.h5ad')
+        adata =  join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets',  'solo', 'soloed.h5ad')
     output:
-        join(DBL_DIR,  'solo', 'doublet_type.tsv')
+        join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets',  'solo', 'doublet_type.tsv')
     params:
         script = src_gcf('scripts/solo_summary.py')
     container:
@@ -186,23 +185,25 @@ rule dbl_solo_summary:
         '-i {input.adata} '
         '-o {output} '
 
+
 rule dbl_socube:
     input:
-        counts = dbl_get_h5ad,
+        counts = '_tmp/{quantifier}/{sample}/anndata.h5ad',
     output:
-        join(DBL_DIR,  'socube', 'final_result_0.5.csv')
+        join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets',  'socube', 'final_result_0.5.csv')
     params:
         dummy_dir = 'dummy/dir',
         input_data = lambda wildcards, input: os.path.abspath(input.counts[0]),
-        out_dir = join(DBL_DIR,  'socube')
+        out_dir = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets',  'socube')
     threads:
-        48
+        80
     shadow:
         'minimal'
     container:
         'docker://gcszhn/socube:latest'
     shell:
-        'mkdir -p {params.dummy_dir} && ' 
+        'mkdir -p {params.dummy_dir} && '
+        'export NUMEXPR_MAX_THREADS=4 && '
         'socube '
         '-i {input.counts} '
         '-o ./{params.dummy_dir} '
@@ -210,17 +211,19 @@ rule dbl_socube:
         '&& '
         'mv {params.dummy_dir}/outputs/*/*.csv {params.out_dir}/'
 
+
 rule dbl_socube_summary:
     input:
-        join(DBL_DIR,  'socube', 'final_result_0.5.csv')
+        join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets',  'socube', 'final_result_0.5.csv')
     output:
-        join(DBL_DIR,  'socube', 'doublet_type.tsv')
+        join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets',  'socube', 'doublet_type.tsv')
     params:
         script = src_gcf('scripts/socube_summary.py')
     container:
         'docker://' + config['docker']['default']
     shell:
         'python {params.script} {input} > {output}'
+
 
 def _get_demuxafy_methods():
     """returns the best combo of doublet detection methods accordign to demuxafy."""
@@ -244,7 +247,7 @@ def get_doublet_output(test_all=False):
     example_config
     --------------
     quant:
-      doublet:
+      doublet_detection:
         method: 'scds,socube'
 
     method=='demuxafy' will choose a demuxafy specific combination of methods
@@ -271,7 +274,7 @@ rule dbl_majority_vote_per_sample:
         script = src_gcf("scripts/combine_doublets.py"),
         args = '--plot-figure '
     output:
-        combined = join(DBL_DIR, 'doublet_majority_vote.tsv')
+        combined = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets', 'doublet_majority_vote.tsv')
     container:
         'docker://' + config['docker']['default']
     shell:
@@ -280,33 +283,78 @@ rule dbl_majority_vote_per_sample:
         '--out {output.combined} '
         '{params.args} '
 
-def dbl_aggr_input(wildcards):
-    samples_by_aggr_id = AGGR_IDS.get(wildcards.aggr_id, SAMPLES[0])
-    input_files = expand(rules.dbl_majority_vote_per_sample.output.combined,
-                         quantifier=config['quant']['method'],
-                         sample=samples_by_aggr_id)
-    return input_files
-    
-    
-rule dbl_aggr:
-    input:
-        input_files = dbl_aggr_input,
-        aggr_csv = join(QUANT_INTERIM, 'aggregate', 'description', '{aggr_id}_aggr.csv')
-    output:
-        join(QUANT_INTERIM, 'aggregate', config['quant']['method'] , '{aggr_id}_droplet_classification.tsv')
-    params:
-        script = src_gcf("scripts/combine_demultiplex.py"),
-        barcode_postfix = 'numerical'
-    container:
-        'docker://' + config['docker']['default']
-    shell:
-        'python {params.script} '
-        '{input.input_files} '
-        '--aggr-csv {input.aggr_csv} '
-        '--barcode-rename {params.barcode_postfix} '
-        '-o {output} '
 
-join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}_droplet_classification.tsv') 
+rule dbl_doublet_notebook:
+    input:
+        expand(get_doublet_output(), sample='{sample}', quantifier="{quantifier}")
+    output:
+        combined = join(QUANT_INTERIM, '{quantifier}', '{sample}' , 'doublets', 'doublet_rank_aggr.tsv'),
+        figure = join(QUANT_INTERIM, '{quantifier}', '{sample}' , 'doublets', 'doublet_rank_aggr.pdf')
+    params:
+        method = "RRA",
+        top_k = 10000
+    container:
+        'docker://gcfntnu/jupyterlab-doublet-detection:4.2.2'
+    log:
+        notebook = join(QUANT_INTERIM, '{quantifier}', '{sample}' , 'doublets', 'doublet_rank_aggr.ipynb')
+    threads:
+        24
+    notebook:
+        'notebooks/doublets_rob_rank_aggr.py.ipynb'
+
+
+rule dbl_doublet_html:
+    input:
+        rules.dbl_doublet_notebook.output
+    params:
+        log = rules.dbl_doublet_notebook.log
+    output:
+         join(QUANT_INTERIM, '{quantifier}', '{sample}' , 'doublets', 'doublet_rank_aggr.html')
+    container:
+        'docker://' + config['docker']['jupyter-scanpy']
+    threads:
+        1
+    shell:
+        'jupyter nbconvert --to html {params.log} '
+
+
+def dbl_aggr_input(wildcards):
+    samples_by_aggr_id = AGGR_IDS.get(wildcards.aggr_id)
+    input_files = expand(rules.dbl_doublet_notebook.output.combined,
+                         quantifier=wildcards.method,
+                         sample=samples_by_aggr_id)
+    if wildcards.method.startswith('cellranger'):
+        aggr_csv = join(QUANT_INTERIM, 'aggregate', 'description', f'{wildcards.aggr_id}_aggr.csv')
+        return {'input_files': input_files, 'aggr_csv': aggr_csv}
+    else:
+        return {'input_files': input_files}
+    
+def dbl_aggr_args(wildcards):
+    args = ''
+    if wildcards.method.startswith('splitpipe') or wildcards.method.startswith('parsebio'):
+        args += ' --barcode-rename parsebio '
+    else:
+        #cellranger stuff
+        args += ' --barcode-rename numerical --aggr-csv {input.aggr_csv} '
+    return args
+
+
+rule dbl_aggr:
+        input:
+            unpack(dbl_aggr_input),
+        output:
+            join(QUANT_INTERIM, 'aggregate', '{method}' , '{aggr_id}_droplet_classification.tsv')
+        params:
+            script = src_gcf("scripts/combine_demultiplex.py"),
+            args = dbl_aggr_args
+        container:
+            'docker://' + config['docker']['default']
+        shell:
+            'python {params.script} '
+            '{input.input_files} '
+            '{params.args} '
+            '-o {output} ' 
+            
 rule dbl_all:
     input:
         join(QUANT_INTERIM, 'aggregate', config['quant']['method'] , 'all_samples_droplet_classification.tsv')

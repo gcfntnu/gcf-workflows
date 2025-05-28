@@ -1,7 +1,6 @@
 #-*- mode:snakemake -*-
-
+AGGR_IDS = collections.defaultdict(list)
 if not config['quant']['aggregate']['skip']:
-    AGGR_IDS = collections.defaultdict(list)
     groupby = config['quant']['aggregate'].get('groupby', 'all_samples')
     for k, v in config['samples'].items():
         if groupby in v:
@@ -15,7 +14,9 @@ if not config['quant']['aggregate']['skip']:
 if config['libprepkit'].startswith("10X Genomics"):
     include: 'quant/cellranger.smk'
 if config['libprepkit'].startswith('Parse Biosciences'):
-    include: 'quant/parse.smk'
+    include: 'quant/splitpipe.smk'
+    if 'starsolo' in config['quant'].get('method', ''):
+        include: 'quant/star_parsebio.smk'
 include:
     'quant/alevin.smk'
 include:
@@ -24,8 +25,10 @@ include:
     'quant/star.smk'
 include:
     'quant/velocyto.smk'
-if config['libprepkit'].startswith("10X Genomics"):
+if config['libprepkit'].startswith("10X Genomics") or config['libprepkit'].startswith("Parse"):
     include: 'quant/doublets.smk'
+    include: 'quant/auto_qc.smk'
+    include: 'quant/auto_annotation.smk'
 include:
     'qc/bam.smk'
 
@@ -63,3 +66,5 @@ def get_barcode_info():
         doublets = join(QUANT_INTERIM, 'aggregate', config['quant']['method'] , 'all_samples_droplet_type.tsv')
         return doublets
     return None
+
+        

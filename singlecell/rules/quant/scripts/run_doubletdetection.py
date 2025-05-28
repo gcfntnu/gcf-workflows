@@ -1,5 +1,9 @@
 #!/usr/bin/env python
 import argparse
+import warnings
+warnings.filterwarnings("ignore")
+
+
 import scanpy as sc
 import pandas as pd
 import numpy as np
@@ -36,7 +40,7 @@ adata.obs["doublet"] = doublet_type
 adata.obs["doublet_score"] = score
 
 df = adata.obs[["doublet", "doublet_score"]]
-df.index = [i.split("-")[0] + "-1" for i in df.index]
+#df.index = [i.split("-")[0] + "-1" for i in df.index]
 df.index.name = "Barcode"
 df = df.reset_index()
 df.to_csv(args.output, sep="\t", index=False)

@@ -262,19 +262,19 @@ rule salmon_index_tximeta:
         '-o {output.json} '
         '--verbose '
        
-rule parse_index:
+rule splitpipe_index:
     input:
         genome = join('{ref_dir}', 'fasta', 'genome.fa'),
         gtf = join('{ref_dir}', 'anno', 'genes.gtf'),
     output:
-        index =  join('{ref_dir}', 'index', '{prefix}', 'parse', 'SA')
+        index =  join('{ref_dir}', 'index', '{prefix}', 'splitpipe', 'SA')
     params:
         name = lambda wildcards: os.path.basename(wildcards.ref_dir),
-        out_dir = join('{ref_dir}', 'index', '{prefix}', 'parse')
+        out_dir = join('{ref_dir}', 'index', '{prefix}', 'splitpipe')
     threads:
         32
     container:
-        'docker://' + config['docker']['parse']
+        'docker://' + config['docker']['splitpipe']
     shell:
         'split-pipe '
         '--mode mkref '

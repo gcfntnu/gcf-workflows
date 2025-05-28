@@ -1,4 +1,5 @@
 #-*- mode:snakemake -*-
+BFQ_LEVEL2_ALL = []
 
 if config['quant']['method'] == 'cellranger':
     rule bfq_level2_exprs_cellranger:
@@ -118,50 +119,48 @@ elif config['quant']['method'] == 'starsolo':
                 shell('ln -sr {src} {dst}')
 
 
-elif config['quant']['method'] == 'parse':
-    rule bfq_level2_exprs_parse:
+elif config['quant']['method'].startswith('splitpipe'):
+    rule bfq_level2_exprs_splitpipe:
         input:
-            join(PARSE_AGGR, 'all-sample', 'DGE_filtered', 'all_genes.csv'),
-            join(PARSE_AGGR, 'all-sample', 'DGE_filtered', 'cell_metadata.csv'),
-            join(PARSE_AGGR, 'all-sample', 'DGE_filtered', 'count_matrix.mtx'),
-            join(PARSE_AGGR, 'all-sample', 'DGE_filtered', 'anndata.h5ad'),
-            expand(join(PARSE_AGGR, '{well}', 'DGE_filtered', 'all_genes.csv'), well=WELLS),
-            expand(join(PARSE_AGGR, '{well}', 'DGE_filtered', 'cell_metadata.csv'), well=WELLS),
-            expand(join(PARSE_AGGR, '{well}', 'DGE_filtered', 'count_matrix.mtx'), well=WELLS),
-            expand(join(PARSE_AGGR, '{well}', 'DGE_filtered', 'anndata.h5ad'), well=WELLS),
+            join(SPLITPIPE_AGGR, 'all-sample', 'DGE_filtered', 'all_genes.csv'),
+            join(SPLITPIPE_AGGR, 'all-sample', 'DGE_filtered', 'all_genes.csv'),
+            join(SPLITPIPE_AGGR, 'all-sample', 'DGE_filtered', 'cell_metadata.csv'),
+            join(SPLITPIPE_AGGR, 'all-sample', 'DGE_filtered', 'count_matrix.mtx'),
+            expand(join(SPLITPIPE_AGGR, '{sample}', 'DGE_filtered', 'all_genes.csv'), sample=PARSEBIO_SAMPLES),
+            expand(join(SPLITPIPE_AGGR, '{sample}', 'DGE_filtered', 'cell_metadata.csv'), sample=PARSEBIO_SAMPLES),
+            expand(join(SPLITPIPE_AGGR, '{sample}', 'DGE_filtered', 'count_matrix.mtx'), sample=PARSEBIO_SAMPLES),
+            
         output:
             join(BFQ_INTERIM, 'exprs', 'mtx', 'all_samples', 'all_genes.csv'),
             join(BFQ_INTERIM, 'exprs', 'mtx', 'all_samples', 'cell_metadata.csv'),
             join(BFQ_INTERIM, 'exprs', 'mtx', 'all_samples', 'count_matrix.mtx'),
-            join(BFQ_INTERIM, 'exprs', 'scanpy', 'all_samples_adata.h5ad'),
-            expand(join(BFQ_INTERIM, 'exprs', 'mtx', '{well}', 'all_genes.csv'), well=WELLS),
-            expand(join(BFQ_INTERIM, 'exprs', 'mtx', '{well}', 'cell_metadata.csv'), well=WELLS),
-            expand(join(BFQ_INTERIM, 'exprs', 'mtx', '{well}', 'count_matrix.mtx'), well=WELLS),
-            expand(join(BFQ_INTERIM, 'exprs', 'scanpy', '{well}_adata.h5ad'), well=WELLS),
+            expand(join(BFQ_INTERIM, 'exprs', 'mtx', '{sample}', 'all_genes.csv'), sample=PARSEBIO_SAMPLES),
+            expand(join(BFQ_INTERIM, 'exprs', 'mtx', '{sample}', 'cell_metadata.csv'), sample=PARSEBIO_SAMPLES),
+            expand(join(BFQ_INTERIM, 'exprs', 'mtx', '{sample}', 'count_matrix.mtx'), sample=PARSEBIO_SAMPLES),
         run:
             for src, dst  in zip(input, output):
                 shell('ln -sr {src} {dst}')
 
-    rule bfq_level2_logs_parse:
+    rule bfq_level2_logs_splitpipe:
         input:
-            join(PARSE_AGGR, 'all-sample_analysis_summary.html'),
-            expand(join(PARSE_AGGR, '{well}_analysis_summary.html'), well=WELLS),
-            expand(join(PARSE_INTERIM, '{sample}', 'all-sample_analysis_summary.html'), sample=SAMPLES),
-            expand(join(PARSE_INTERIM, '{sample}', 'agg_samp_ana_summary.csv'), sample=SAMPLES),
+            join(SPLITPIPE_AGGR, 'all-sample_analysis_summary.html'),
+            expand(join(SPLITPIPE_AGGR, '{sample}_analysis_summary.html'), sample=PARSEBIO_SAMPLES),
+            expand(join(QUANT_INTERIM, 'splitpipe', '{sublib}', 'all-sample_analysis_summary.html'), sublib=SUBLIBS),
+            expand(join(QUANT_INTERIM, 'splitpipe', '{sublib}', 'agg_samp_ana_summary.csv'), sublib=SUBLIBS),
         output:
             join(BFQ_INTERIM, 'summaries', 'all_samples_analysis_summary.html'),
-            expand(join(BFQ_INTERIM, 'summaries', '{well}_analysis_summary.html'), well=WELLS),
-            expand(join(BFQ_INTERIM, 'summaries', '{sample}_analysis_summary.html'), sample=SAMPLES),
-            expand(join(BFQ_INTERIM, 'logs', '{sample}', '{sample}.agg_samp_ana_summary.csv'), sample=SAMPLES),
+            expand(join(BFQ_INTERIM, 'summaries', '{sample}_analysis_summary.html'), sample=PARSEBIO_SAMPLES),
+            expand(join(BFQ_INTERIM, 'summaries', '{sublib}_analysis_summary.html'), sublib=SUBLIBS),
+            expand(join(BFQ_INTERIM, 'logs', '{sublib}.agg_samp_ana_summary.csv'), sublib=SUBLIBS),
         run:
             for src, dst  in zip(input, output):
                 shell('ln -sr {src} {dst}')
 
-    rule bfq_level2_figs_parse:
+    rule bfq_level2_figs_splitpipe:
         input:
-            join(PARSE_AGGR, 'all-sample', 'figures', 'fig_umap_cluster.png'),
-            join(PARSE_AGGR, 'all-sample', 'figures', 'fig_umap_sample.png'),
-            join(PARSE_AGGR, 'all-sample', 'figures', 'fig_cell_by_rnd1_well.png'),
+            join(SPLITPIPE_AGGR, 'all-sample', 'figures', 'fig_umap_cluster.png'),
+            join(SPLITPIPE_AGGR, 'all-sample', 'figures', 'fig_umap_sample.png'),
+            join(SPLITPIPE_AGGR, 'all-sample', 'figures', 'fig_cell_by_rnd1_well.png'),
         output:
             join(BFQ_INTERIM, 'figs', 'umap_all_samples_leiden_mqc.png'),
             join(BFQ_INTERIM, 'figs', 'umap_samples_mqc.png'),
@@ -170,7 +169,16 @@ elif config['quant']['method'] == 'parse':
             for src, dst  in zip(input, output):
                 shell('ln -sr {src} {dst}')
 
-
+    rule bfq_level2_notebooks_splitpipe:
+        input:
+            expand(join(QUANT_INTERIM, 'aggregate', config['quant']['method'], 'scanpy', 'notebooks', '{aggr_id}_pp.html'), aggr_id=AGGR_IDS),
+            expand(join(QUANT_INTERIM, 'aggregate', config['quant']['method'], 'scanpy', 'notebooks', '{aggr_id}_pp.ipynb'), aggr_id=AGGR_IDS),
+        output:
+            expand(join(BFQ_INTERIM, 'notebooks', '{aggr_id}_preprocess.html'), aggr_id=AGGR_IDS),
+            expand(join(BFQ_INTERIM, 'notebooks', '{aggr_id}_preprocess.ipynb'), aggr_id=AGGR_IDS),
+        run:
+            for src, dst  in zip(input, output):
+                shell('ln -sr {src} {dst}')
 
 rule bfq_level2_aligned:
     input:
@@ -208,7 +216,6 @@ rule bfq_level2_umap_yaml:
         'python {params.script} {input} -o {output}'
 
 
-
 if config['quant']['method'] == 'star':
     BFQ_LEVEL2_ALL = [rules.bfq_level2_exprs_star.output,
                       rules.bfq_level2_logs_star.output,
@@ -223,10 +230,11 @@ elif config['quant']['method'] == 'cellranger':
                       rules.bfq_level2_notebooks_cellranger.output,
                       join(BFQ_INTERIM, 'figs', 'umap_all_samples_mqc.png')]
 
-elif config['quant']['method'] == 'parse':
-    BFQ_LEVEL2_ALL = [rules.bfq_level2_exprs_parse.output,
-                      rules.bfq_level2_logs_parse.output,
-                      rules.bfq_level2_figs_parse.output]
+elif config['quant']['method'].startswith('splitpipe'):
+    BFQ_LEVEL2_ALL = [rules.bfq_level2_exprs_splitpipe.output,
+                      rules.bfq_level2_logs_splitpipe.output,
+                      rules.bfq_level2_figs_splitpipe.output,
+                      rules.bfq_level2_notebooks_splitpipe.output]
 
 BFQ_ALL.extend(BFQ_LEVEL2_ALL)
 
