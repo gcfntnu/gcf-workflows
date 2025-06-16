@@ -269,7 +269,7 @@ rule parse_index:
     output:
         index =  join('{ref_dir}', 'index', '{prefix}', 'parse', 'SA')
     params:
-        name = ENS_ASSEMBLY,
+        name = lambda wildcards: os.path.basename(wildcards.ref_dir),
         out_dir = join('{ref_dir}', 'index', '{prefix}', 'parse')
     threads:
         32
