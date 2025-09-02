@@ -9,31 +9,9 @@ if SAMPLE_MULTIPLEXING:
        SAMPLE_MULTIPLEXING = False 
 
 
-def dbl_get_mtx_counts(wildcards):
-    method = wildcards.quantifier
-    
-    if method == 'cellranger':
-        return join(QUANT_INTERIM, 'cellranger', '{sample}', 'outs', 'filtered_feature_bc_matrix', 'matrix.mtx.gz')
-    elif method == 'cellranger_cellbender':
-        raise NotImplementedError
-    elif method == 'splitpipe':
-        return join(QUANT_INTERIM, 'splitpipe', '{sample}', 'all-sample', 'DGE_filtered', 'count_matrix.mtx')
-    elif method == 'splitpipe_cellbender':
-        return join(QUANT_INTERIM, 'splitpipe_cellbender', '{sample}', 'matrix', 'matrix.mtx')
-    elif method == 'parsebio_starsolo':
-        return join(QUANT_INTERIM, 'parsebio_starsolo', '{sample}', 'Solo.out', 'GeneFull_Ex50pAS', 'filtered', 'matrix.mtx')
-    elif method == 'parsebio_starsolo_cellbender':
-        return join(QUANT_INTERIM, 'parsebio_starsolo_cellbender', '{sample}', 'matrix', 'matrix.mtx')
-    elif method == '10x_starsolo':
-        return join(QUANT_INTERIM, '10x_starsolo', '{sample}', 'Solo.out','Gene', 'filtered', 'matrix.mtx')
-    elif method == '10x_starsolo_cellbender':
-        raise NotImplementedError
-    else:
-        raise ValueError
-
 rule dbl_clean_input_data:
     input:
-        mtx = dbl_get_mtx_counts,
+        unpack(get_filtered_mtx)
     output:
         anndata = temp('_tmp/{quantifier}/{sample}/anndata.h5ad'),
         mtx = temp('_tmp/{quantifier}/{sample}/matrix.mtx')
@@ -107,7 +85,7 @@ rule dbl_scds:
         '--threshold {params.threshold}'
 
 
-rule scrublet:
+rule dbl_scrublet:
     input:
         counts = '_tmp/{quantifier}/{sample}/anndata.h5ad',
     output:
@@ -224,49 +202,69 @@ rule dbl_socube_summary:
     shell:
         'python {params.script} {input} > {output}'
 
+# Doublet Detection Helpers
 
-def _get_demuxafy_methods():
-    """returns the best combo of doublet detection methods accordign to demuxafy."""
-    #fixme: dumuxafy combo based on number of droplets of specific sample
-    n_cells = 10000
-    if n_cells < 10000:
-        methods = ['scrublet', 'scds', 'scdblfinder']
-    elif n_cells < 20000:
-        methods = ['scrublet', 'scds', 'scdblfinder', 'doubletdetection']
-    else:
-        methods = ['scrublet', 'scds', 'doubletdetection', 'solo']
-    return methods
+# List of *all* possible detectors
+_ALL_METHODS = ['scds','solo','scrublet','doubletdetection','scdblfinder','socube']
+
+def _get_demuxafy_methods(n_cells, small_thresh=10000, mid_thresh=20000):
+    """
+    Return doublet methods based on the number of cells:
+    - < small_thresh  → ['scrublet','scds','scdblfinder']
+    - < mid_thresh    → ['scrublet','scds','scdblfinder','doubletdetection']
+    - ≥ mid_thresh    → ['scrublet','scds','doubletdetection','solo']
+    """
+    if n_cells < small_thresh:
+        return ['scrublet','scds','scdblfinder']
+    if n_cells < mid_thresh:
+        return ['scrublet','scds','scdblfinder','doubletdetection']
+    return ['scrublet','scds','doubletdetection','solo']
 
 def _get_default_methods():
-    methods = ['socube', 'scds', 'scdblfinder']
-    return methods
+    """Return the default doublet methods if none specified."""
+    return ['socube','scds','scdblfinder']
 
-def get_doublet_output(test_all=False):
-    """fetch doublet methods from config
-    
-    example_config
-    --------------
-    quant:
-      doublet_detection:
-        method: 'scds,socube'
-
-    method=='demuxafy' will choose a demuxafy specific combination of methods
-    method==None or missing will choose a default combination of methods
+def get_doublet_output(test_all=False, n_cells=None):
     """
+    Return a list of file‐path templates for each requested method.
+    
+    - If sample_multiplexing==True: delegate to get_multiplex_methods(test_all).
+    - If test_all==True: return all methods in _ALL_METHODS.
+    - Else: read raw = config['quant']['doublet_detection']['method']:
+        * None or 'default' → _get_default_methods()
+        * 'demuxafy'       → _get_demuxafy_methods(n_cells)
+        * string (comma-separated) → split(',')
+        * list/tuple           → use as is
+    """
+    # Multiplex overrides everything
     if SAMPLE_MULTIPLEXING:
         return get_multiplex_methods(test_all=test_all)
-    if test_all:
-        doublet_methods = ['scds', 'solo', 'scrublet', 'doubletdetection', 'scdblfinder', 'socube']
-    doublet_methods = config['quant'].get('doublet_detection', {}).get('method')
-    if doublet_methods is None or doublet_methods == 'default':
-        doublet_methods = _get_default_methods()
-    elif doublet_methods == 'demuxafy':
-        doublet_methods = _get_demuxafy_methods()
-    else:
-        doublet_methods = doublet_methods.split(',')
-    return expand(join(QUANT_INTERIM, '{{quantifier}}', '{{sample}}', 'doublets', '{method}', 'doublet_type.tsv'), method=doublet_methods)
 
-        
+    # If forced to test every method
+    if test_all:
+        doublet_methods = _ALL_METHODS
+    else:
+        raw = config['quant'].get('doublet_detection', {}).get('method')
+        if raw is None or raw == 'default':
+            doublet_methods = _get_default_methods()
+        elif raw == 'demuxafy':
+            n_cells = n_cells or config['quant'].get('doublet_detection', {}).get('n_expected_cells')
+            if n_cells is None:
+                raise ValueError("demuxafy requires n_cells argument")
+            doublet_methods = _get_demuxafy_methods(n_cells=n_cells)
+        elif isinstance(raw, str):
+            doublet_methods = raw.split(',')
+        elif isinstance(raw, (list, tuple)):
+            doublet_methods = raw
+        else:
+            raise ValueError(f"Unrecognized doublet_detection.method: {raw!r}")
+
+    return expand(
+        join(QUANT_INTERIM, '{{quantifier}}', '{{sample}}', 'doublets', '{method}', 'doublet_type.tsv'),
+        method=doublet_methods
+    )
+
+
 rule dbl_majority_vote_per_sample:
     input:
         get_doublet_output()
@@ -332,7 +330,7 @@ def dbl_aggr_input(wildcards):
 def dbl_aggr_args(wildcards):
     args = ''
     if wildcards.method.startswith('splitpipe') or wildcards.method.startswith('parsebio'):
-        args += ' --barcode-rename parsebio '
+        args += ' --barcode-rename parsebio --sample-id ' + ','.join(AGGR_IDS.get(wildcards.aggr_id))
     else:
         #cellranger stuff
         args += ' --barcode-rename numerical --aggr-csv {input.aggr_csv} '
@@ -345,7 +343,7 @@ rule dbl_aggr:
         output:
             join(QUANT_INTERIM, 'aggregate', '{method}' , '{aggr_id}_droplet_classification.tsv')
         params:
-            script = src_gcf("scripts/combine_demultiplex.py"),
+            script = src_gcf("scripts/aggr_barcode_info.py"),
             args = dbl_aggr_args
         container:
             'docker://' + config['docker']['default']
@@ -353,9 +351,10 @@ rule dbl_aggr:
             'python {params.script} '
             '{input.input_files} '
             '{params.args} '
-            '-o {output} ' 
+            '--output {output} ' 
             
 rule dbl_all:
     input:
-        join(QUANT_INTERIM, 'aggregate', config['quant']['method'] , 'all_samples_droplet_classification.tsv')
+        expand(join(QUANT_INTERIM, 'aggregate', '{quantifier}' , '{aggr_id}_droplet_classification.tsv'),
+               quantifier=config['quant']['method'].split(','), aggr_id='all_samples')
 

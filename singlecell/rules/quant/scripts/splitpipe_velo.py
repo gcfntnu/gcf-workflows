@@ -14,6 +14,58 @@ logging.basicConfig(
 )
 
 
+def _make_index_maps(barcode_cats: list[str], gene_cats: list[str]) -> tuple[pl.DataFrame, pl.DataFrame]:
+    bc_map = (
+        pl.DataFrame({"bc_wells": barcode_cats})
+        .with_row_index("bc_ix")
+        .with_columns(pl.col("bc_ix").cast(pl.UInt32))
+    )
+    gene_map = (
+        pl.DataFrame({"gene": gene_cats})
+        .with_row_index("gene_ix")
+        .with_columns(pl.col("gene_ix").cast(pl.UInt32))
+    )
+    return bc_map, gene_map
+
+def _remap_to_indices(X: pl.DataFrame, bc_map: pl.DataFrame, gene_map: pl.DataFrame) -> pl.DataFrame:
+    # Ensure join key dtypes match maps
+    X = X.with_columns(
+        pl.col("bc_wells").cast(pl.Utf8),
+        pl.col("gene").cast(pl.Utf8),
+        pl.col("count").cast(pl.Int64),
+    )
+
+    # Do the joins to get stable 0..n-1 indices
+    Y = (
+        X.join(bc_map, on="bc_wells", how="left")
+         .join(gene_map, on="gene", how="left")
+         .select(
+             pl.col("count"),
+             pl.col("bc_ix").alias("bc_wells_coord"),
+             pl.col("gene_ix").alias("gene_coord"),
+         )
+    )
+
+    # Correct null check (sum all nulls across all columns)
+    total_nulls = int(Y.null_count().select(pl.sum_horizontal(pl.all())).item())
+    if total_nulls > 0:
+        # Diagnose which side failed
+        bad_bc_df = X.join(bc_map, on="bc_wells", how="anti")
+        bad_ge_df = X.join(gene_map, on="gene", how="anti")
+        n_bad_bc  = int(bad_bc_df.select(pl.col("bc_wells").n_unique()).item())
+        n_bad_ge  = int(bad_ge_df.select(pl.col("gene").n_unique()).item())
+        # Show a few examples to make it actionable
+        sample_bc = bad_bc_df.select(pl.col("bc_wells").unique().head(5)).to_series(0).to_list() if n_bad_bc else []
+        sample_ge = bad_ge_df.select(pl.col("gene").unique().head(5)).to_series(0).to_list() if n_bad_ge else []
+        raise ValueError(
+            f"Remap failed: {n_bad_bc} unmapped barcodes (e.g., {sample_bc}) and "
+            f"{n_bad_ge} unmapped genes (e.g., {sample_ge}). "
+            "Ensure TSV orders and dtypes match."
+        )
+
+    return Y
+
+
 def create_enums(fn):
     """
     Creates enumerations for barcodes and genes using Polars' Enum support.
@@ -28,49 +80,41 @@ def create_enums(fn):
     pl.Enum, pl.Enum, int
         Barcode enumeration, gene enumeration, and the number of unique barcodes.
     """
-    bc = pl.read_csv(fn, columns=["bc_wells", "gene"])
-    uniq_bc = bc.select(["bc_wells"]).unique()
-    num_barcodes = uniq_bc.shape[0]
-    barcode_enum = pl.Enum(uniq_bc)
-    gene_enum = pl.Enum(bc.select(["gene"]).unique())
-    return barcode_enum, gene_enum, num_barcodes
+    lf = (
+        pl.scan_csv(fn)
+        .select(["bc_wells", "gene"])
+        .with_columns(
+            pl.col("bc_wells").cast(pl.Utf8),
+            pl.col("gene").cast(pl.Utf8),
+        )
+    )
+    barcode_cats = lf.select(pl.col("bc_wells").unique(maintain_order=True)).collect().get_column("bc_wells").to_list()
+    gene_cats    = lf.select(pl.col("gene").unique(maintain_order=True)).collect().get_column("gene").to_list()
+    return barcode_cats, gene_cats
 
-
-def read_transcripts(fn, schema, exonic=True):
+def read_transcripts(fn: str, schema: dict, exonic: bool = True) -> pl.DataFrame:
     """
-    Reads transcript data from a compressed CSV file, filters, and groups it.
-
-    Parameters
-    ----------
-    fn : str
-        Path to the input compressed CSV file.
-    schema : dict
-        Schema for reading the file.
-    exonic : bool, optional
-        Whether to filter for exonic transcripts (default is True).
-
-    Returns
-    -------
-    pl.DataFrame
-        Processed transcript data.
+    Read, filter, and group counts for either exonic or intronic reads.
+    Returns (bc_wells, gene, count) with string keys and int counts.
     """
     return (
-        pl.scan_csv(fn, schema=schema)
-        .filter((pl.col("rt_type") == "R") | (pl.col("rt_type") == "T"))
+        pl.scan_csv(fn, schema=schema)  # keeps pushdowns lazy
+        .select(["bc_wells", "gene", "count", "rt_type", "exonic"])
+        .filter(pl.col("rt_type").is_in(["R", "T"]))
         .filter(pl.col("exonic") == exonic)
-        .group_by(["bc_wells", "gene"])
-        .agg(pl.col("count").sum())
+        # ensure keys are strings so they match bc_map/gene_map (which are built from lists of strings)
         .with_columns(
-            [
-                pl.col("bc_wells").to_physical().alias("bc_wells_coord"),
-                pl.col("gene").to_physical().alias("gene_coord"),
-            ]
+            pl.col("bc_wells").cast(pl.Utf8),
+            pl.col("gene").cast(pl.Utf8),
+            pl.col("count").cast(pl.Int64),
         )
-        .collect()
+        .group_by(["bc_wells", "gene"])
+        .agg(pl.col("count").sum().alias("count"))
+        .collect(streaming=True)  # streaming-friendly; falls back if unsupported
     )
 
 
-def to_sparse(X, delta_enum):
+def to_sparse(X: pl.DataFrame, n_barcodes: int, n_genes: int) -> sp.csr_matrix:
     """
     Converts a DataFrame to a sparse matrix.
 
@@ -78,18 +122,11 @@ def to_sparse(X, delta_enum):
     ----------
     X : pl.DataFrame
         Input DataFrame containing counts and coordinates.
-    delta_enum : int
-        Offset for gene coordinates.
-
-    Returns
-    -------
-    scipy.sparse.csr_matrix
-        Sparse matrix representation.
     """
-    data = X.select(pl.col("count")).to_numpy().squeeze()
-    coords = X.select(pl.col("bc_wells_coord", "gene_coord")).to_numpy().astype(int)
-    coords[:, 1] = coords[:, 1] - delta_enum  # Reset gene Enum to 0-index
-    return sp.csr_matrix((data, coords.T))
+    data = X.select("count").to_numpy().ravel()
+    rows = X.select("bc_wells_coord").to_numpy().ravel().astype(int)
+    cols = X.select("gene_coord").to_numpy().ravel().astype(int)
+    return sp.csr_matrix((data, (rows, cols)), shape=(n_barcodes, n_genes))
 
 
 def write_mtx(X, barcodes, features, mtx_file, enforce_float=False):
@@ -155,12 +192,14 @@ def main():
 
     # Step 1: Define schema
     logging.info("Defining schema...")
-    barcode_enum, gene_enum, num_barcodes = create_enums(input_file)
-
+    barcode_cats, gene_cats = create_enums(input_file)
+    n_barcodes, n_genes = len(barcode_cats), len(gene_cats)
+    # Build maps once
+    bc_map, gene_map = _make_index_maps(barcode_cats, gene_cats)
     schema = {
-        "bc_wells": barcode_enum,
+        "bc_wells": pl.Utf8,
         "genome": pl.Categorical,
-        "gene": gene_enum,
+        "gene": pl.Utf8,
         "gene_name": pl.Categorical,
         "count": pl.Int64,
         "exonic": pl.Boolean,
@@ -175,11 +214,16 @@ def main():
     S = read_transcripts(input_file, schema, exonic=True)
     U = read_transcripts(input_file, schema, exonic=False)
 
+    # Remap to deterministic indices (ignore .to_physical() columns)
+    S_idx = _remap_to_indices(S, bc_map, gene_map)
+    U_idx = _remap_to_indices(U, bc_map, gene_map)
+
+    
     # Step 3: Convert to sparse matrices
     logging.info("Converting to sparse matrices...")
-    spS = to_sparse(S, delta_enum=num_barcodes)
-    spU = to_sparse(U, delta_enum=num_barcodes)
-
+    spS = to_sparse(S_idx, n_barcodes, n_genes)
+    spU = to_sparse(U_idx, n_barcodes, n_genes)
+    
     # Step 4: Check if output directory exists, and create if not
     if not os.path.isdir(output_dir):
         logging.info(f"Output directory '{output_dir}' does not exist. Creating it...")
@@ -189,14 +233,14 @@ def main():
     logging.info(f"Writing outputs to {output_dir}...")
     write_mtx(
         spS,
-        barcode_enum.categories,
-        gene_enum.categories,
+        barcode_cats,
+        gene_cats,
         os.path.join(output_dir, "spliced.mtx"),
     )
     write_mtx(
         spU,
-        barcode_enum.categories,
-        gene_enum.categories,
+        barcode_cats,
+        gene_cats,
         os.path.join(output_dir, "unspliced.mtx"),
     )
 

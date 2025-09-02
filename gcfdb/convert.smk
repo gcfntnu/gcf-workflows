@@ -129,16 +129,26 @@ rule exon_gtf:
     shell:
         """awk '$3=="exon"' {input} > {output}"""
 
+rule exon_bed:
+    input:
+       join('{ref_dir}', 'anno', 'exons.gtf')
+    output:
+        join('{ref_dir}', 'anno', 'exons.bed')
+    container:
+        'docker://' + config['docker']['default']        
+    shell:
+        """awk '$3 == "exon" {{OFS="\t"; print $1, $4-1, $5, $9, ".", $7}}'  {input} > {output}"""
+        
 rule exon_fasta:
     input:
         genome = join('{ref_dir}', 'fasta', 'genome.fa'),
-        gtf = join('{ref_dir}', 'anno', 'exons.gtf')
+        bed = join('{ref_dir}', 'anno', 'exons.bed')
     output:
         join('{ref_dir}', 'fasta', 'exons.fa')
     container:
         'docker://' + config['docker']['gcf-bio']        
     shell:
-        'bedtools getfasta -fi {input.genome} -fo {output} -bed {input.gtf} '    
+        'bedtools getfasta -fi {input.genome} -fo {output} -bed {input.bed} '    
 
         
 rule convert_gtf2gene_info:

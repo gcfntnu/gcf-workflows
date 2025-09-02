@@ -10,10 +10,16 @@ from contextlib import redirect_stdout
 import numpy as np
 import scanpy as sc
 import pandas as pd
+import anndata as ad
 from scipy.special import logit, expit
 import sctk
 
 warnings.filterwarnings("ignore")
+
+try:
+    ad.settings.allow_write_nullable_strings = True
+except Exception:
+    pass
 
 def setup_logger():
     #fixme: this does not vibe very well with capture_prints_to_logger

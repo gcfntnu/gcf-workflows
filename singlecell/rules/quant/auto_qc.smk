@@ -28,6 +28,7 @@ rule autoqc_sampleqc:
         aggr_raw_h5ad = join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_filtered.h5ad')
     output:
         passed_tsv = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', '{aggr_id}_sampleqc_autoqc_mask.tsv')
+        
 
 rule autoqc_validrops:
     input:

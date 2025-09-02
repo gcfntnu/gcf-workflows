@@ -67,7 +67,7 @@ if config['quant']['method'] == 'cellranger':
             for src, dst  in zip(input, output):
                 shell('ln -sr {src} {dst}')
 
-elif config['quant']['method'] == 'starsolo':
+elif config['quant']['method'] == 'star':
     rule bfq_level2_exprs_star:
         input:
             #expand(rules.velocyto_merge_aggr.output, quant=['star'], aggr_id=AGGR_IDS),
@@ -236,5 +236,8 @@ elif config['quant']['method'].startswith('splitpipe'):
                       rules.bfq_level2_figs_splitpipe.output,
                       rules.bfq_level2_notebooks_splitpipe.output]
 
+elif config['quant']['method'] == 'parsebio_starsolo_cellbender':
+    pass
+    
 BFQ_ALL.extend(BFQ_LEVEL2_ALL)
 
