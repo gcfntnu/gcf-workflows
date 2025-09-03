@@ -1636,7 +1636,8 @@ if __name__ == "__main__":
 
     if args.aggr_csv is not None and len(args.input) > 1:
         args.input = filter_input_by_csv(args.input, args.aggr_csv, verbose=args.verbose)
-
+        
+    base_fmt = args.input_format
     effective_fmt = f"{base_fmt}_cellbender" if args.enable_cellbender else base_fmt
     reader = READERS.get(effective_fmt)
     if reader is None:

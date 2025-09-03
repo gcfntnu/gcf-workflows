@@ -226,7 +226,7 @@ rule scanpy_aggr:
     input:
         unpack(scanpy_aggr_inputs)
     params:
-        script    = src_gcf("scripts/convert_scanpy.py"),
+        script    = src_gcf("quant/scripts/convert_scanpy.py"),
         bc_type   = lambda wc: BC_RENAME.get(wc.method, "numerical"),
         enable_cb = "--enable-cellbender" if CB_OUTPUT  else "",
     output:
