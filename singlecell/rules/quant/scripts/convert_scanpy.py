@@ -803,11 +803,12 @@ def read_starsolo(fn, args, **kw):
 
     sample_id = os.path.normpath(fn).split(os.path.sep)[-5]
     data.obs["sample_id"] = sample_id
-    data.obs["sublib"] = pd.Categorical([sample_id] * data.n_obs)
+    data.obs["sublib"] = [sample_id] * data.n_obs
+
     barcode_rename = kw.get("barcode_rename", args.barcode_rename)
     data = barcode_index_rename(data, barcode_rename=barcode_rename, sample_id=sample_id, aggr_csv=args.aggr_csv)
-    if args.input_format in ['parsebio_starsolo']:
-        data.obs.rename(columns={"sample_id": "sublib"}, inplace=True)
+    #if args.input_format in ['parsebio_starsolo']:
+    #    data.obs.rename(columns={"sample_id": "sublib"}, inplace=True)
     return data
 
 
@@ -1419,8 +1420,14 @@ def read_quantifier_cellbender(fn, quantifier, args=None, **kw):
 
 
 def _ci_identical(a: pd.Series, b: pd.Series) -> bool:
+    """
+    Compare two pandas Series for case-insensitive equality, including NaNs.
+    Convert categoricals to strings to handle mismatched categories.
+    """
+    # If either series is categorical, convert to object for comparison
+    a = a.astype(object) if is_categorical_dtype(a) else a
+    b = b.astype(object) if is_categorical_dtype(b) else b
     return ((a == b) | (a.isna() & b.isna())).all()
-
 
 def _drop_ci_identical_to_existing(new_df: pd.DataFrame, existing_df: pd.DataFrame) -> pd.DataFrame:
     """From new_df, drop columns whose lowercase name already exists in existing_df
@@ -1434,7 +1441,7 @@ def _drop_ci_identical_to_existing(new_df: pd.DataFrame, existing_df: pd.DataFra
         if lc in exist_map:
             kept = exist_map[lc]
             s1, s2 = existing_df[kept], new_df[col]
-            if ((s1 == s2) | (s1.isna() & s2.isna())).all():
+            if _ci_identical(s1, s2):
                 to_drop.append(col)
     return new_df.drop(columns=to_drop) if to_drop else new_df
 
