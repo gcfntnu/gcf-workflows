@@ -45,7 +45,14 @@ rule cellbender_run:
     input:
         unpack(get_raw_mtx)
     output:
-        
+        h5 = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}.h5'),
+        filtered_h5 = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}_filtered.h5'),
+        #raw_h5 = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}_raw.h5'),
+        aggr = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}_cell_barcodes.csv'),
+        posterior = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}_posterior.h5'),
+        log = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}.log'),
+        fig = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}.pdf'),
+        report = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}_report.html')
     params:
         input_dir = lambda wildcards, input: os.path.dirname(input['mtx']),
         epochs = 150,
@@ -56,7 +63,7 @@ rule cellbender_run:
     container:
         'docker://' + config['docker']['cellbender']
     benchmark:
-        'benchmarks/cellbender_{quantifier}_{sublib}.txt'
+        'benchmarks/cellbender_{method}_{sublib}.txt'
     threads:
         48
     shell:
@@ -74,15 +81,15 @@ rule cellbender_run:
 
 rule cellbender_to_10x_mtx:
     input:
-        h5 = join(QUANT_INTERIM, '{quantifier}', '{sublib}', 'cellbender', '{sublib}_{dge_type}.h5'),
+        h5 = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}_{dge_type}.h5'),
     params:
         script = src_gcf('scripts/convert_scanpy.py')
     container:
         'docker://' + config['docker']['cellbender']
     output:
-        mtx = join(QUANT_INTERIM, '{quantifier}', 'cellbender', '{sublib}', '{dge_type}', 'matrix', 'matrix.mtx'),
-        barcodes = join(QUANT_INTERIM, '{quantifier}', '{sublib}', 'cellbender', '{dge_type}', 'matrix', 'barcodes.tsv'),
-        features = join(QUANT_INTERIM, '{quantifier}', '{sublib}', 'cellbender', '{dge_type}', 'matrix', 'genes.tsv')
+        mtx = join(QUANT_INTERIM, '{method}', 'cellbender', '{sublib}', '{dge_type}', 'matrix', 'matrix.mtx'),
+        barcodes = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{dge_type}', 'matrix', 'barcodes.tsv'),
+        features = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{dge_type}', 'matrix', 'genes.tsv')
     threads:
         24
     shell:
@@ -96,10 +103,10 @@ rule cellbender_to_10x_mtx:
 #FIXME: The posterior maybe based on coordinates from unfiltered mtx -> check!
 rule cellbender_expression_presence:
     input:
-        mtx = join(QUANT_INTERIM, '{quantifier}', 'cellbender', '{sublib}', 'filtered', 'matrix', 'matrix.mtx'),
-        posterior = join(QUANT_INTERIM, '{quantifier}', '{sublib}', 'cellbender', '{sublib}_posterior.h5')
+        mtx = join(QUANT_INTERIM, '{method}', 'cellbender', '{sublib}', 'filtered', 'matrix', 'matrix.mtx'),
+        posterior = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}_posterior.h5')
     output:
-        tsv = join(QUANT_INTERIM, '{quantifier}', '{sublib}', 'cellbender', '{sublib}_expression_presence.tsv')
+        tsv = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}_expression_presence.tsv')
     params:
         script = src_gcf("scripts/cellbender_feature_expression_presence.py"),
         subset = config["quant"].get("cellbender_call", {}).get("subset", "GeneA,GeneB"),
@@ -110,7 +117,7 @@ rule cellbender_expression_presence:
     container:
         "docker://" + config["docker"]["cellbender"]
     benchmark:
-        "benchmarks/{quantifier}_cellbender_expression_presence_{sublib}.txt"
+        "benchmarks/{method}_cellbender_expression_presence_{sublib}.txt"
     threads:
         24
     shell:
@@ -139,7 +146,7 @@ rule splitpipe_cellbender_expression_presence_aggr:
     input:
         get_expression_presence_inputs
     output:
-        merged = join(QUANT_INTERIM, "aggregate", "{quantifier}", "cellbender", "{aggr_id}_expression_presence.tsv")
+        merged = join(QUANT_INTERIM, "aggregate", "{method}", "cellbender", "{aggr_id}_expression_presence.tsv")
     params:
         script = src_gcf("scripts/aggr_barcode_info.py"),
         sample_ids = get_sample_ids_str,
@@ -147,7 +154,7 @@ rule splitpipe_cellbender_expression_presence_aggr:
     container:
         "docker://" + config["docker"]["scanpy"]
     benchmark:
-        join("benchmarks", "{aggr_id}_{quantifier}_cellbender_expression_presence.txt")
+        join("benchmarks", "{aggr_id}_{method}_cellbender_expression_presence.txt")
     threads:
         4
     shell:
