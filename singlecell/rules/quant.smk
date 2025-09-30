@@ -9,7 +9,8 @@ AGGR_IDS = collections.defaultdict(list)
 METHODS = [m.strip() for m in config['quant']['method'].split(',') if m.strip()]
 CB_FLAG = config.get("quant", {}).get("cellbender", {}).get("enabled", False)
 CB_OUTPUT = CB_FLAG and config.get("quant", {}).get("cellbender", {}).get("use_outputs", False)
-STARSOLO_MODE = "GeneFull_Ex50pAS"
+STARSOLO_FEATURES = "GeneFull_Ex50pAS"
+STARSOLO_MM = "EM"
 BC_RENAME = {"splitpipe": "parsebio", "parsebio_starsolo": "parsebio"}
 
 if not config['quant']['aggregate'].get('skip', False):
@@ -36,20 +37,27 @@ def get_raw_mtx(wildcards):
         base_dir = join(QUANT_INTERIM, base, sublib, "outs", "raw_feature_bc_matrix")
         cols = join(base_dir, "features.tsv.gz")
         rows = join(base_dir, "barcodes.tsv.gz")
+        mtx = join(base_dir, "matrix.mtx.gz")
     elif base == "splitpipe":
         base_dir = join(QUANT_INTERIM, base, sublib, "all-sample", "DGE_unfiltered", "matrix")
         cols = join(base_dir, "genes.tsv")
         rows = join(base_dir, "barcodes.tsv")
+        mtx =   join(base_dir, "matrix.mtx")
     elif base in ("parsebio_starsolo", "10x_starsolo"):
-        base_dir = join(QUANT_INTERIM, base, sublib, "Solo.out", "GeneFull_Ex50pAS", "raw")
+        base_dir = join(QUANT_INTERIM, base, sublib, "Solo.out", STARSOLO_FEATURES, "raw")
         # starsolo typically writes uncompressed:
-        cols = join(base_dir, "features.tsv")
+        cols = join(base_dir, "genes.tsv")
         rows = join(base_dir, "barcodes.tsv")
+        if STARSOLO_MM in ["EM", "Uniform", "Rescue", "PropUnique"]:
+            mtx = "UniqueAndMult" + "-" + STARSOLO_MM + ".mtx"
+        else:
+            mtx = "matrix.mtx"
+        mtx = join(base_dir, mtx)
     else:
         raise ValueError(f"Unsupported method for raw MTX: {method}")
 
     return {
-        "mtx":  join(base_dir, "matrix.mtx"),
+        "mtx":  mtx, 
         "cols": cols,
         "rows": rows,
     }
