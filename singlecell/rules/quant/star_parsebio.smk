@@ -4,16 +4,18 @@
 --soloCBmatchWLtype 1MM multi Nbase pseudocounts (matches best with CellRanger >= 3.0.0 )
 """
 
-
+PRE_TSO_SEQ = "AACGCAGAGTGAATGGG"
 CHEM = config['quant']['splitpipe']['chemistry']
 KIT = config['libprep_name'].split('Parse_Biosciences_Evercode_')[-1]
 KIT = KIT.replace(f'_{CHEM}_PE', '').lower()
-STAR_ARGS = "--readFilesCommand zcat --genomeLoad LoadAndKeep --soloFeatures GeneFull_Ex50pAS Velocyto --soloCellReadStats Standard  --soloMultiMappers EM --soloBarcodeReadLength 0 --soloCBmatchWLtype EditDist_2 --outSAMattributes NH HI nM AS CR UR CB UB GX GN sS sQ sM --outSAMtype BAM SortedByCoordinate --limitBAMsortRAM 24000000000 "
-STAR_ARGS = "--genomeLoad LoadAndKeep --soloFeatures Gene GeneFull_Ex50pAS Velocyto --soloCellReadStats Standard  --soloMultiMappers EM --soloBarcodeReadLength 0 --soloCBmatchWLtype EditDist_2 --outSAMtype None --soloStrand Forward --soloCellFilter EmptyDrops_CR "
+#STAR_ARGS = "--readFilesCommand zcat --genomeLoad LoadAndKeep --soloFeatures GeneFull_Ex50pAS Velocyto --soloCellReadStats Standard  --soloMultiMappers EM --soloBarcodeReadLength 0 --soloCBmatchWLtype EditDist_2 --outSAMattributes NH HI nM AS CR UR CB UB GX GN sS sQ sM --outSAMtype BAM SortedByCoordinate --limitBAMsortRAM 24000000000 "
 
-##--clip3pAdapterSeq GAGGTGGTTGGA 
+STAR_ARGS = "--genomeLoad LoadAndKeep --soloCellReadStats Standard  --soloBarcodeReadLength 0 --soloCBmatchWLtype EditDist_2 --outSAMtype None --soloStrand Forward --soloCellFilter EmptyDrops_CR "
 
-
+if STARSOLO_FEATURES:
+    STAR_ARGS += f" --soloFeatures Gene {STARSOLO_FEATURES} Velocyto "
+if STARSOLO_MM:
+     STAR_ARGS += f" --soloMultiMappers {STARSOLO_MM} "
 
 def get_preprocessed_fastq(wildcards):
     pp = config['quant'].get('starsolo', {}).get('preprocessor')
@@ -40,7 +42,7 @@ rule parsebio_ext:
         echo "Parse Biosciences {params.name},NA,{params.url},`date -I`" > {log}
         """
 
-        
+
 rule parsebio_starsolo_barcode_info:
     input:
         bc1 = join(EXT_DIR, 'parsebio', 'wellmap_T_bc1_{}_{}.txt'.format(KIT, CHEM)),
@@ -118,7 +120,7 @@ rule parsebio_starsolo_quant:
         genome_dir = join(REF_DIR, 'index', 'genome', 'splitpipe'),
         soloCBposition  = config['quant']['starsolo']['soloCBposition'],
         soloUMIposition = config['quant']['starsolo']['soloUMIposition'],
-        clip5pAdapterSeq = config['quant']['starsolo'].get('clip5pAdapterSeq', 'AACGCAGAGTGAATGGG'),
+        clip5pAdapterSeq = config['quant']['starsolo'].get('clip5pAdapterSeq', PRE_TSO_SEQ),
         clip3pAdapterSeq = config['quant']['starsolo'].get('clip3pAdapterSeq', 'GAGGTGGTTGGA'),
         extra_args = STAR_ARGS if config['quant'].get('starsolo', {}).get('preprocessor') else "--readFilesCommand zcat " + STAR_ARGS
     output:
@@ -157,6 +159,15 @@ rule parsebio_starsolo_quant:
         '--clipAdapterType CellRanger4 --clip5pAdapterSeq {params.clip5pAdapterSeq} '
         '--runThreadN {threads} '
         '{params.extra_args} '    
+
+
+rule parsebio_starsolo_mtx_v2_fix:
+    input:
+        join(QUANT_INTERIM, 'parsebio_starsolo', '{sublib}', 'Solo.out', 'GeneFull_Ex50pAS', '{dge_type}', 'features.tsv')
+    output:
+        temp(join(QUANT_INTERIM, 'parsebio_starsolo', '{sublib}', 'Solo.out', 'GeneFull_Ex50pAS', '{dge_type}', 'genes.tsv'))
+    shell:
+        "cp {input} {output}"
 
 
 rule parsebio_starsolo_clean_shmem:

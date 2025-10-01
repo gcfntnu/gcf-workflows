@@ -230,7 +230,7 @@ def scanpy_aggr_output(wc):
         return join(base, "scanpy", f"{wc.aggr_id}_filtered.h5ad")
 
     
-rule scanpy_aggr:
+rule scanpy_aggr_filtered:
     input:
         unpack(scanpy_aggr_inputs)
     params:
@@ -260,4 +260,4 @@ rule scanpy_aggr:
 
 rule quant_all:
     input:
-        expand(rules.scanpy_aggr.output, method=config["quant"]["method"].split(","), aggr_id="all_samples")
+        expand(rules.scanpy_aggr_filtered.output, method=config["quant"]["method"].split(","), aggr_id="all_samples")

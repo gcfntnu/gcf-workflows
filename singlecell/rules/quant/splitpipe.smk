@@ -14,12 +14,14 @@ rule splitpipe_barcode_info:
         'docker://' + config['docker']['default']
     params:
         script = src_gcf('scripts/splitpipe_barcode_info.py'),
-        config = workflow.configfiles[0]
+        config = workflow.configfiles[0],
+        sublibs = " ".join(SUBLIBS)
     shell:
         'python {params.script} '
         '--cell-metadata {input.cell_metadata} '
         '--configfile {params.config} '
         '--output {output} '
+        '--sublibs {params.sublibs} '
 
 
 rule splitpipe_sample_list:
