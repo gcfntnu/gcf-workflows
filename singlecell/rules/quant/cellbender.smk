@@ -11,7 +11,7 @@
 # CellBender expects a folder containing:
 #   - matrix.mtx            (raw count matrix in Matrix Market format)
 #   - barcodes.tsv(.gz)     (barcode identifiers)
-#   - features.tsv(.gz) or genes.tsv (gene/feature identifiers)
+#   - features.gz or genes.tsv (gene/feature identifiers)
 # The folder is passed using the --input <folder> argument.
 #
 # The rule is parameterized by the `method` and `sublib` wildcards.
@@ -66,6 +66,8 @@ rule cellbender_run:
         'benchmarks/cellbender_{method}_{sublib}.txt'
     threads:
         48
+    shadow:
+        'shallow'
     shell:
         'cellbender remove-background '
         '--input {params.input_dir} '
@@ -75,9 +77,17 @@ rule cellbender_run:
         '--epochs {params.epochs} '
         '{params.args} '
         '{params.extra_args} '
-        ' && rm ckpt.tar.gz '
-        ' && ln -s {output.h5} {output.raw_h5} '
+        #' && rm ckpt.tar.gz '
+        #' && ln -s {output.h5} {output.raw_h5} '
 
+
+rule cellbender_rename_raw:
+    input:
+        h5 = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}.h5')
+    output:
+        h5 = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}_raw.h5')
+    shell:
+        'ln -sr {input} {output}'
 
 rule cellbender_to_10x_mtx:
     input:
@@ -87,7 +97,7 @@ rule cellbender_to_10x_mtx:
     container:
         'docker://' + config['docker']['cellbender']
     output:
-        mtx = join(QUANT_INTERIM, '{method}', 'cellbender', '{sublib}', '{dge_type}', 'matrix', 'matrix.mtx'),
+        mtx      = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{dge_type}', 'matrix', 'matrix.mtx'),
         barcodes = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{dge_type}', 'matrix', 'barcodes.tsv'),
         features = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{dge_type}', 'matrix', 'genes.tsv')
     threads:
@@ -97,18 +107,19 @@ rule cellbender_to_10x_mtx:
         '{input.h5} '
         '-o {output.mtx} '
         '--barcode-rename skip '
+        '--no-zero-cell-rm '
         '-v '
         '-f cellbender -F v2_mtx '
 
 #FIXME: The posterior maybe based on coordinates from unfiltered mtx -> check!
 rule cellbender_expression_presence:
     input:
-        mtx = join(QUANT_INTERIM, '{method}', 'cellbender', '{sublib}', 'filtered', 'matrix', 'matrix.mtx'),
+        mtx = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', 'raw', 'matrix', 'matrix.mtx'),
         posterior = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}_posterior.h5')
     output:
         tsv = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}_expression_presence.tsv')
     params:
-        script = src_gcf("scripts/cellbender_feature_expression_presence.py"),
+        script = src_gcf("scripts/cellbender_feature_presence.py"),
         subset = config["quant"].get("cellbender_call", {}).get("subset", "GeneA,GeneB"),
         threshold = config["quant"].get("cellbender_call", {}).get("threshold", 0.5),
         method = config["quant"].get("cellbender_call", {}).get("method", "AND"),

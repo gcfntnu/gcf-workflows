@@ -66,10 +66,32 @@ def create_argparser():
     return parser.parse_args()
 
 def read_matrix(path):
-    X = scipy.io.mmread(os.path.join(path, 'matrix.mtx')).tocsr()
-    barcodes = pd.read_csv(os.path.join(path, 'barcodes.tsv'), header=None)[0].tolist()
-    genes = pd.read_csv(os.path.join(path, 'genes.tsv'), header=None, sep='\t')
-    return X, barcodes, genes
+    mtx_path = os.path.join(path, 'matrix.mtx')
+    X = scipy.io.mmread(mtx_path)
+
+    # 10x MTX is genes x barcodes; convert to CSR and transpose to cells x genes
+    if sp.issparse(X):
+        X = X.tocsr().T
+    else:
+        X = sp.csr_matrix(X).T
+
+    # barcodes
+    barcodes = pd.read_csv(os.path.join(path, 'barcodes.tsv'), header=None, sep='\t')[0].tolist()
+
+    # genes/features (support both names)
+    genes_path = None
+    for cand in ('features.tsv.gz','features.tsv','genes.tsv.gz','genes.tsv'):
+        p = os.path.join(path, cand)
+        if os.path.exists(p):
+            genes_path = p
+            break
+    if genes_path is None:
+        raise FileNotFoundError("features.tsv(.gz) or genes.tsv(.gz) not found")
+
+    # read with sep and gzip auto
+    genes_df = pd.read_csv(genes_path, header=None, sep='\t', compression='infer')
+
+    return X, barcodes, genes_df
 
 def load_posterior(path):
     posterior = Posterior(dataset_obj=None, vi_model=None)
@@ -102,9 +124,22 @@ def main():
     genes_to_check = args.subset.split(',')
     X, barcodes, genes_df = read_matrix(args.counts)
     posterior = load_posterior(args.posterior)
-    ic = IndexConverter(*X.shape)
 
-    gene_names = genes_df.iloc[:, 1].tolist()
+    n_cells, n_genes = X.shape
+    ic = IndexConverter(n_cells, n_genes)
+    m_inds = posterior._noise_count_posterior_coo.row
+    if m_inds.max() >= n_cells * n_genes:
+        raise RuntimeError(
+            f"Posterior m_inds exceed matrix size: max={m_inds.max()} vs n_cells*n_genes={n_cells*n_genes}. "
+            "You’re likely not pointing --counts at the exact raw matrix CellBender used."
+        )
+
+    # choose gene names column
+    if genes_df.shape[1] >= 2:
+        gene_names = genes_df.iloc[:, 1].astype(str).tolist()
+    else:
+        gene_names = genes_df.iloc[:, 0].astype(str).tolist()
+
     matched_genes = match_genes(genes_to_check, gene_names, allow_fuzzy=args.allow_fuzzy_gene_match)
     gene_indices = [gene_names.index(g) for g in matched_genes]
 
