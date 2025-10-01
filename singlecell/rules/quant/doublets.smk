@@ -287,6 +287,7 @@ rule dbl_doublet_notebook:
         expand(get_doublet_output(), sample='{sample}', quantifier="{quantifier}")
     output:
         combined = join(QUANT_INTERIM, '{quantifier}', '{sample}' , 'doublets', 'doublet_rank_aggr.tsv'),
+        rankdata = join(QUANT_INTERIM, '{quantifier}', '{sample}' , 'doublets', 'doublet_rank_aggr_rankdata.tsv'),
         figure = join(QUANT_INTERIM, '{quantifier}', '{sample}' , 'doublets', 'doublet_rank_aggr.pdf')
     params:
         method = "RRA",
