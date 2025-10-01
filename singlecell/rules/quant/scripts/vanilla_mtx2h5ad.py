@@ -8,6 +8,7 @@ import logging
 import pandas as pd
 import numpy as np
 import anndata
+from scipy.sparse import csr_matrix, issparse
 from scipy.io import mmwrite, mmread
 try:
     from anndata.io import read_mtx
@@ -74,7 +75,26 @@ def main(mtx_filename, output_filename):
     features = load_metadata(pth, FEATURE_FILES_HEADER, FEATURE_FILES)
     assert(features.shape[0] == adata.shape[1])
     adata.var.index = features.iloc[:, 0].values
+
+    # Validate values
+    if np.isnan(adata.X.data).any() or np.isinf(adata.X.data).any():
+        raise ValueError("Matrix contains NaN/Inf")
+    if (adata.X.data < 0).any():
+        raise ValueError("Negative counts detected")
     
+    # Drop all-zero cells/genes
+    cell_sum = np.asarray(adata.X.sum(axis=1)).ravel()
+    gene_sum = np.asarray(adata.X.sum(axis=0)).ravel()
+    adata = adata[cell_sum > 0, :].copy()
+    adata = adata[:, gene_sum > 0].copy()
+    
+    # Optional: remove extreme outliers that destabilize training (rare but real)
+    cell_sum = np.asarray(adata.X.sum(axis=1)).ravel()
+    hi = np.quantile(cell_sum, 0.999) if adata.n_obs > 1000 else cell_sum.max()
+    too_big = cell_sum > max(hi, 1e6)
+    if too_big.any():
+        adata = adata[~too_big, :].copy()
+
     # Save AnnData object
     n_obs, n_features = adata.shape
     logging.info(f"Saving AnnData (n_cells: {n_obs}, n_features: {n_features}) object to {output_filename}")
