@@ -60,27 +60,55 @@ FEATURE_INFO_BLACKLIST = ["source", "start", "end", "strand", "gene_version", "l
                           "havana_gene", "transcript_type", "havana_transcript", "ccdsid", "ont", "gene_source", "gene_name"]
 BARCODE_INFO_BLACKLIST = ["flowcell_id", "r1", "r2", "wells"]
 
-# Set up logging
-def setup_logger(verbose: bool) -> logging.Logger:
-    """Set up a logger for the script.
 
-    Parameters
-    ----------
-    verbose : bool
-        Whether to enable verbose logging.
-
-    Returns
-    -------
-    logging.Logger
-        Configured logger.
+def setup_logging(verbose: bool = False,
+                  log_file: Optional[str] = None):
     """
-    logger = logging.getLogger(__name__)
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-    logger.setLevel(logging.DEBUG if verbose else logging.WARNING)
-    return logger
+    - If handlers already exist (e.g., Snakemake), do NOT replace them.
+      Just raise their levels to the requested threshold.
+    - If no handlers exist (CLI use), create a stderr stream handler.
+    - Optionally add a FileHandler to `log_file`.
+    """
+    level = logging.DEBUG if verbose else logging.INFO
+    root = logging.getLogger()
+
+    # 1) Always set logger threshold
+    root.setLevel(level)
+
+    # 2) If no handlers (typical CLI), add one to stderr
+    if not root.handlers:
+        h = logging.StreamHandler(sys.stderr)
+        h.setLevel(level)
+        h.setFormatter(logging.Formatter(
+            "%(asctime)s - %(levelname)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        ))
+        root.addHandler(h)
+    else:
+        # Snakemake or something else already configured logging.
+        # Just make sure all handlers will emit at the requested level.
+        for h in root.handlers:
+            # Don’t reduce a handler’s level if the user wanted less verbosity
+            h.setLevel(min(h.level or level, level))
+
+    # 3) Optional file handler (works in both CLI and Snakemake)
+    if log_file:
+        # Ensure parent exists (Snakemake usually creates it when you use `log:`,
+        # but this is harmless if it already exists)
+        os.makedirs(os.path.dirname(log_file), exist_ok=True)
+        fh = logging.FileHandler(log_file, mode="a", encoding="utf-8")
+        fh.setLevel(level)
+        fh.setFormatter(logging.Formatter(
+            "%(asctime)s - %(levelname)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        ))
+        root.addHandler(fh)
+
+    # Optional: silence very noisy libs unless verbose
+    if not verbose:
+        logging.getLogger("matplotlib").setLevel(logging.WARNING)
+        logging.getLogger("numba").setLevel(logging.WARNING)
+
 
 def _sample_info_reader(fn):
     """
@@ -1012,7 +1040,7 @@ def read_splitpipe(fn, args, **kw):
         sublib = "".join(m.groups())
     else:
        raise ValueError(f"expected filename to indicate sublib-id in file: {fn}") 
-    mtx = sp.csr_matrix(mmread(fn))
+    mtx = sp.csr_matrix(mmread(fn)).T.tocsr()
     features = None
     for feature_fn in "all_genes.csv target_genes.csv all_guides.csv".split():
         pth = os.path.join(dir_name, feature_fn)
@@ -1637,10 +1665,9 @@ READERS = {
 if __name__ == "__main__":
     parser = create_parser()
     args = parser.parse_args()
-
-    # Set up logger
-    logger = setup_logger(args.verbose)
-
+    setup_logging(verbose = args.verbose)
+    logger = logging.getLogger(__name__)
+    
     if args.aggr_csv is not None and len(args.input) > 1:
         args.input = filter_input_by_csv(args.input, args.aggr_csv, verbose=args.verbose)
         
