@@ -963,7 +963,7 @@ def read_alevin2(fn, args, **kw):
     data.obs["sample_id"] = [sample_id] * data.obs.shape[0]
     return data
 
-def read_cellbender(fn, args, analyzed_barcodes_only=True, **kw):
+def read_cellbender(fn, args, analyzed_barcodes_only=False, **kw):
     """
     Read CellBender data.
 
@@ -985,6 +985,8 @@ def read_cellbender(fn, args, analyzed_barcodes_only=True, **kw):
     bn = os.path.basename(fn)
     if "_filtered" in bn:
         sample_id = bn.split("_filtered")[0]
+    elif "_raw" in bn:
+        sample_id = bn.split("_raw")[0]
     else:
         sample_id = os.path.splitext(bn)[0]
     logger.info(f"Reading cellbender h5 file: {fn}")
