@@ -229,7 +229,37 @@ def scanpy_aggr_output(wc):
     else:
         return join(base, "scanpy", f"{wc.aggr_id}_filtered.h5ad")
 
-    
+
+# used by cellbender/nb_barcode_ranks/annotation
+rule tmp_lightweight_raw:
+    input:
+        unpack(get_raw_mtx)
+    output:
+        anndata = temp('_tmp/{quantifier}/raw/{sample}/anndata.h5ad'),
+        mtx = temp('_tmp/{quantifier}/raw/{sample}/matrix.mtx')
+    params:
+        script = src_gcf('quant/scripts/vanilla_mtx2h5ad.py')
+    threads:
+        8
+    shell:
+        'python {params.script} {input.mtx} {output.anndata} '
+
+# used by doublets/autoqc/annotation
+rule tmp_lightweight_filtered:
+    input:
+        unpack(get_filtered_mtx)
+    output:
+        anndata = temp('_tmp/{quantifier}/filtered/{sample}/anndata.h5ad'),
+        mtx = temp('_tmp/{quantifier}/filtered/{sample}/matrix.mtx')
+    params:
+        script = src_gcf('quant/scripts/vanilla_mtx2h5ad.py')
+    threads:
+        8
+    shell:
+        'python {params.script} {input.mtx} {output.anndata} '
+
+
+
 rule scanpy_aggr_filtered:
     input:
         unpack(scanpy_aggr_inputs)
