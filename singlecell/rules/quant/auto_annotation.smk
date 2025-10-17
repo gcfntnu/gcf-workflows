@@ -55,7 +55,7 @@ rule mapmycells_clean_premap_input:
         unpack(get_filtered_mtx),
         gene_map = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'annotation', 'orthogene', 'orthologs.tsv')
     output:
-        tiny_h5ad = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'annotation', 'mapmycells', '_tiny.h5ad')
+        tiny_h5ad = temp(join(QUANT_INTERIM, '{quantifier}', '{sample}', 'annotation', 'mapmycells', '_tiny.h5ad'))
     params:
         script = src_gcf('scripts/mapmycells_input.py'),
         src_organism = config['organism'],
@@ -80,12 +80,13 @@ rule mapmycells_premap_from_specified_markers:
         anno_csv = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'annotation',  'mapmycells', 'annotation.csv'),
         anno_json = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'annotation',  'mapmycells', 'annotation.json')
     params:
-        args = '--type_assignment.bootstrap_factor 0.5 --type_assignment.bootstrap_iteration 100 --type_assignment.normalization raw --type_assignment.rng_seed 661123 '
+        args = '--type_assignment.chunk_size 3000 --type_assignment.bootstrap_factor 0.5 --type_assignment.bootstrap_iteration 100 --type_assignment.normalization raw --type_assignment.rng_seed 661123 '
     container:
         'docker://gcfntnu/mapmycells:1.5.1'
     threads:
-        80
+        48
     shell:
+        'export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1; '
         'python -m cell_type_mapper.cli.from_specified_markers '
         '--precomputed_stats.path {input.pre_stats_h5} '
         '--query_markers.serialized_lookup {input.markers_json} '
@@ -93,6 +94,7 @@ rule mapmycells_premap_from_specified_markers:
         '--query_path {input.tiny_h5ad} '
         '--extended_result_path {output.anno_json} '
         '--csv_result_path {output.anno_csv} '
+        '--tmp_dir /dev/shm/mapmycells_{wildcards.sample} '
         ' {params.args} '
 
 
