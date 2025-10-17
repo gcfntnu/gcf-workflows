@@ -43,18 +43,17 @@ def get_cellbender_outputs(wildcards):
 
 rule cellbender_run:
     input:
-        unpack(get_raw_mtx)
+        h5ad_light = '_tmp/{method}/raw/{sublib}/anndata.h5ad'
     output:
         h5 = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}.h5'),
         filtered_h5 = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}_filtered.h5'),
-        #raw_h5 = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}_raw.h5'),
         aggr = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}_cell_barcodes.csv'),
         posterior = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}_posterior.h5'),
         log = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}.log'),
         fig = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}.pdf'),
         report = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}_report.html')
     params:
-        input_dir = lambda wildcards, input: os.path.dirname(input['mtx']),
+        #input_dir = lambda wildcards, input: os.path.dirname(input['mtx']),
         epochs = 150,
         fpr = 0.01,
         num_training_tries = 3,
@@ -67,10 +66,10 @@ rule cellbender_run:
     threads:
         48
     shadow:
-        'shallow'
+        'shallow' #sandbox checkpoints
     shell:
         'cellbender remove-background '
-        '--input {params.input_dir} '
+        '--input {input.h5ad_light} '
         '--output {output.h5} '
         '--num-training-tries {params.num_training_tries} '
         '--fpr {params.fpr} '
@@ -114,17 +113,17 @@ rule cellbender_to_10x_mtx:
 #FIXME: The posterior maybe based on coordinates from unfiltered mtx -> check!
 rule cellbender_expression_presence:
     input:
-        mtx = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', 'raw', 'matrix', 'matrix.mtx'),
-        posterior = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}_posterior.h5')
+        h5ad = rules.cellbender_run.input.h5ad_light,
+        cb_h5 = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}.h5'),
+        cb_posterior = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}_posterior.h5')
     output:
         tsv = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}_expression_presence.tsv')
     params:
-        script = src_gcf("scripts/cellbender_feature_presence.py"),
+        script = src_gcf("scripts/cellbender_feature_presence_new.py"),
         subset = config["quant"].get("cellbender_call", {}).get("subset", "GeneA,GeneB"),
         threshold = config["quant"].get("cellbender_call", {}).get("threshold", 0.5),
         method = config["quant"].get("cellbender_call", {}).get("method", "AND"),
-        allow_fuzzy = "--allow-fuzzy-gene-match" if config["quant"].get("cellbender_call", {}).get("allow_fuzzy", False) else "",
-        counts_dir = lambda wildcards, input: os.path.dirname(input.mtx)
+        allow_fuzzy = "--allow-fuzzy-gene-match" if config["quant"].get("cellbender_call", {}).get("allow_fuzzy", False) else ""
     container:
         "docker://" + config["docker"]["cellbender"]
     benchmark:
@@ -133,8 +132,9 @@ rule cellbender_expression_presence:
         24
     shell:
         "python {params.script} "
-        "--counts {params.counts_dir} "
-        "--posterior {input.posterior} "
+        "--raw-h5ad {input.h5ad} "
+        "--cb-out-h5 {input.cb_h5} "
+        "--posterior {input.cb_posterior} "
         "--subset \"{params.subset}\"  "
         "--output {output.tsv} "
         "--methods {params.method} "
