@@ -3,8 +3,9 @@
 """
 
 import sys
-import os
-import logging
+import os, logging, gzip
+from pathlib import Path
+from typing import Optional
 import pandas as pd
 import numpy as np
 import anndata
@@ -39,17 +40,147 @@ def load_mtx_data(mtx_filename):
     X = mmread(mtx_filename).T.astype('f').asformat('csr')
     return anndata.AnnData(X=X)
 
-def load_metadata(pth, file_headers, file_no_headers):
-    """Loads metadata (barcodes or features) from potential filenames."""
-    file_path = find_existing_file(pth, file_headers)
-    if file_path is None:
-        file_path = find_existing_file(pth, file_no_headers)
-    
-    if file_path is None:
-        raise FileNotFoundError("No valid metadata file found.")
-    header = None if os.path.basename(file_path) in file_no_headers else "infer"
-    logging.info(f"Loading metafile: {file_path}")
-    return pd.read_csv(file_path, header=header)
+def _exists(p: Path) -> bool:
+    return p.is_file()
+
+def _with_gz(p: Path) -> Path:
+    return p if p.suffix == ".gz" else p.with_suffix(p.suffix + ".gz")
+
+def _detect_sep(sample: str) -> str:
+    # prefer tab if any tabs present; else comma; else whitespace
+    if "\t" in sample:
+        return "\t"
+    if "," in sample:
+        return ","
+    return r"\s+"
+
+def _peek_text(path: Path, nbytes: int = 4096) -> str:
+    if str(path).endswith(".gz"):
+        with gzip.open(path, "rt", errors="ignore") as fh:
+            return fh.read(nbytes)
+    with open(path, "rt", errors="ignore") as fh:
+        return fh.read(nbytes)
+
+def _read_table(path: Path, header_hint, dtype=None) -> pd.DataFrame:
+    sample = _peek_text(path)
+    sep = _detect_sep(sample)
+    # header_hint: None (no header) or "infer"
+    return pd.read_csv(
+        path,
+        sep=sep,
+        header=None if header_hint is None else "infer",
+        compression="infer",
+        dtype=dtype,
+        low_memory=False
+    )
+
+def _normalize_features_df(df: pd.DataFrame) -> pd.DataFrame:
+    # STARsolo/Parse "features" typically has 3 columns: id, name, type
+    if df.shape[1] == 3:
+        df.columns = ["gene_id", "gene_name", "feature_type"]
+    elif df.shape[1] == 2:
+        df.columns = ["feature_id", "feature_name"]
+    elif df.shape[1] == 1:
+        df.columns = ["feature"]
+    else:
+        # leave as-is but make columns strings
+        df.columns = [str(c) for c in range(df.shape[1])]
+    return df
+
+def _normalize_barcodes_df(df: pd.DataFrame) -> pd.DataFrame:
+    # STARsolo/Parse barcodes is usually single column
+    if df.shape[1] == 1:
+        df.columns = ["barcode"]
+    else:
+        df.columns = [c if isinstance(c, str) else f"col{c}" for c in df.columns]
+        # common second column in some tools is "count" or similar; keep it
+    return df
+
+def load_metadata(
+    pth,
+    file_headers=("features.tsv", "features.txt", "barcodes.tsv", "barcodes.txt"),
+    file_no_headers=("features.tsv.gz", "features.txt.gz", "barcodes.tsv.gz", "barcodes.txt.gz"),
+    kind: Optional[str] = None,
+    normalize: bool = True,
+    dtype=None
+) -> pd.DataFrame:
+    """
+    Load STARsolo/Parse metadata (features or barcodes) robustly.
+
+    Args:
+        pth: directory or full path; if directory, candidate filenames will be searched.
+        file_headers: filenames expected to contain a header row.
+        file_no_headers: filenames expected to have no header row.
+        kind: optional hint {"features","barcodes"} for normalization; autodetected if None.
+        normalize: if True, standardize columns for known schemas.
+        dtype: optional dtype dict passed to pandas.
+
+    Returns:
+        pandas.DataFrame with normalized columns when possible.
+    """
+    p = Path(pth)
+    candidates = []
+
+    if p.is_dir():
+        # Try explicit names (and their .gz variants) first, then any matching pattern in dir
+        for name in list(file_headers) + list(file_no_headers):
+            candidates.append(p / name)
+            gz = _with_gz(p / name)
+            if gz != p / name:
+                candidates.append(gz)
+        # Fallback: common names regardless of compression
+        for stem in ("features", "barcodes"):
+            for ext in (".tsv", ".txt", ".csv"):
+                for gz in ("", ".gz"):
+                    candidates.append(p / f"{stem}{ext}{gz}")
+    else:
+        # p is a file; try it and its gz variant
+        candidates = [p, _with_gz(p)]
+
+    # Deduplicate while preserving order
+    seen = set()
+    unique_candidates = []
+    for c in candidates:
+        if c not in seen:
+            seen.add(c)
+            unique_candidates.append(c)
+
+    # Find the first existing file and infer header based on the list membership or extension
+    chosen = None
+    header_hint = "infer"
+    for c in unique_candidates:
+        if _exists(c):
+            chosen = c
+            base = c.name
+            if base in file_no_headers or base.endswith(".tsv.gz") or base.endswith(".txt.gz"):
+                header_hint = None  # many .gz distribs come without headers
+            elif base in file_headers:
+                header_hint = "infer"
+            # If extension is .csv assume header unless told otherwise
+            break
+
+    if chosen is None:
+        raise FileNotFoundError(f"No valid metadata file found under: {pth}")
+
+    logging.info(f"Loading metadata: {chosen}")
+    df = _read_table(chosen, header_hint=header_hint, dtype=dtype)
+
+    # Autodetect kind if not supplied
+    if kind is None:
+        # Heuristic: features usually has >=2 columns; barcodes usually 1
+        if df.shape[1] >= 2:
+            kind = "features"
+        else:
+            kind = "barcodes"
+
+    if normalize:
+        if kind == "features":
+            df = _normalize_features_df(df)
+        elif kind == "barcodes":
+            df = _normalize_barcodes_df(df)
+
+    return df
+
 
 def main(mtx_filename, output_filename):
     """Main function to process MTX files and save as AnnData format."""
