@@ -31,21 +31,20 @@ try:
         anndata_from_h5,
         load_anndata_from_input_and_output,
     )
-    HAVE_CELLBENDER = True
+    _HAVE_CELLBENDER = True
 except ImportError:
     anndata_from_h5 = None
     load_anndata_from_input_and_output = None
-    HAVE_CELLBENDER = False
+    _HAVE_CELLBENDER = False
 
 try:
     anndata.settings.allow_write_nullable_strings = True
 except:
     pass
 
-USE_VELO = True
+_USE_VELO = True
 
-# Constants
-GENOME = {
+_GENOME = {
     "homo_sapiens": "GRCh38",
     "human": "GRCh38",
     "hg38": "GRCh38",
@@ -55,10 +54,11 @@ GENOME = {
     "mm10": "mm10",
     "GRCm38": "mm10"
 }
-SAMPLE_INFO_BLACKLIST = ["flowcell_id", "r1", "r2", "wells"]
-FEATURE_INFO_BLACKLIST = ["source", "start", "end", "strand", "gene_version", "level", "hgnc_id", "expression_type", "feature_type",
+_SAMPLE_INFO_BLACKLIST = ["flowcell_id", "r1", "r2", "wells"]
+_FEATURE_INFO_BLACKLIST = ["source", "start", "end", "strand", "gene_version", "level", "hgnc_id", "expression_type", "feature_type",
                           "havana_gene", "transcript_type", "havana_transcript", "ccdsid", "ont", "gene_source", "gene_name"]
-BARCODE_INFO_BLACKLIST = ["flowcell_id", "r1", "r2", "wells"]
+_BARCODE_INFO_BLACKLIST = ["flowcell_id", "r1", "r2", "wells"]
+_GENE_SYMBOL_ALIASES = ["gene_symbols", "gene_symbol", "gene_name", "gene_names", "names", "name", "symbols", "symbol"]
 
 
 def setup_logging(verbose: bool = False,
@@ -131,7 +131,7 @@ def _sample_info_reader(fn):
     sample_info.rename(columns={"Sample_ID": "sample_id"}, inplace=True)
     sample_info.set_index("sample_id", inplace=True)
     sample_info.index = [str(i) for i in sample_info.index]
-    keep_cols = [i for i in sample_info.columns if i.lower() not in SAMPLE_INFO_BLACKLIST]
+    keep_cols = [i for i in sample_info.columns if i.lower() not in _SAMPLE_INFO_BLACKLIST]
     sample_info = sample_info[keep_cols]
     return sample_info
 
@@ -196,8 +196,8 @@ def _feature_info_reader(
         df.drop(columns=[c for c in to_drop if c in df.columns], inplace=True, errors="ignore")
 
     # Apply your blacklist if defined
-    if "FEATURE_INFO_BLACKLIST" in globals():
-        keep_cols = [c for c in df.columns if c.lower() not in FEATURE_INFO_BLACKLIST]
+    if "_FEATURE_INFO_BLACKLIST" in globals():
+        keep_cols = [c for c in df.columns if c.lower() not in _FEATURE_INFO_BLACKLIST]
         df = df[keep_cols]
 
     # Index: lowercase name, string type, unique
@@ -236,8 +236,8 @@ def _barcode_info_reader(
         df.rename(columns={cols_lower["barcode"]: "barcode"}, inplace=True)
 
     # Apply your blacklist if defined
-    if "BARCODE_INFO_BLACKLIST" in globals():
-        keep_cols = [c for c in df.columns if c.lower() not in BARCODE_INFO_BLACKLIST]
+    if "_BARCODE_INFO_BLACKLIST" in globals():
+        keep_cols = [c for c in df.columns if c.lower() not in _BARCODE_INFO_BLACKLIST]
         df = df[keep_cols]
 
     # Index: lowercase name, string type, unique
@@ -405,7 +405,7 @@ def create_parser():
                         help="output filename")
     parser.add_argument("-f", "--input-format", choices=["cellranger_aggr", "cellranger", "alevin", "alevin2", "cellbender", "umitools", "velocyto", "h5ad", "splitpipe", "splitpipe_aggr", "parsebio_starsolo"], default="cellranger_aggr",
                         help="input file format")
-    parser.add_argument("-F", "--output-format", choices=["anndata", "loom", "csvs", "v2_mtx", "v3_mtx", "parsebio"], default="anndata",
+    parser.add_argument("-F","--output-format", nargs="+", choices=["anndata","anndata_lightweight","loom","csvs","v2_mtx","v3_mtx"], default=["anndata"],
                         help="output file format")
     parser.add_argument("--aggr-csv", default=None, required=False, type=_aggr_csv_reader,
                         help="aggregation csv with header and two columns. First column is `sample_id` and second column is path to input file")
@@ -430,6 +430,8 @@ def create_parser():
     parser.add_argument("--enable-cellbender", action="store_true",
                         help="Use CellBender outputs instead of raw count matrices for the chosen format.",
                         )
+    parser.add_argument("--cellbender-mode", choices=["off","raw","denoised","both"], default="off")
+    parser.add_argument("--mtx-from", choices=["raw","none"], default="raw")
     parser.add_argument("-v", "--verbose", action="store_true",
                         help="verbose output")
     return parser
@@ -817,7 +819,7 @@ def read_starsolo(fn, args, **kw):
         if quant_model in mtx_dir:
             velocyto_dir = mtx_dir.replace(os.path.sep + quant_model + os.path.sep, os.path.sep + "Velocyto" + os.path.sep)
             logger.debug(velocyto_dir)
-    if velocyto_dir and os.path.exists(velocyto_dir) and USE_VELO:
+    if velocyto_dir and os.path.exists(velocyto_dir) and _USE_VELO:
         velocyto_dir = velocyto_dir.replace("filtered", "raw")
         usa_barcodes = pd.read_csv(join(velocyto_dir, "barcodes.tsv"), header=None).iloc[:, 0]
         usa_index = [i for i, bc in enumerate(usa_barcodes) if bc in data.obs_names]
@@ -860,7 +862,7 @@ def read_star(fn, args, **kw):
     data = sc.read(fn).T
     gene_quant = kw.get("gene_quant", "Gene")
     velocyto_dir = mtx_dir.replace(f"{gene_quant}/raw", "Velocyto/raw")
-    if not os.path.exists(velocyto_dir) and USE_VELO:
+    if not os.path.exists(velocyto_dir) and _USE_VELO:
         logger.debug(velocyto_dir)
         warnings.warn("Velocyto directory not found - Proceeding without velocity data")
     else:
@@ -979,7 +981,7 @@ def read_cellbender(fn, args, analyzed_barcodes_only=False, **kw):
     sc.AnnData
         AnnData object containing the CellBender data.
     """
-    if not HAVE_CELLBENDER:
+    if not _HAVE_CELLBENDER:
         raise ImportError("CellBender support is not available. Please install `cellbender`.")
 
     bn = os.path.basename(fn)
@@ -1084,7 +1086,7 @@ def read_splitpipe(fn, args, **kw):
     if os.path.exists(velocyto_dir):
         for velo_name in ["spliced", "unspliced", "ambigious"]:
             velo_fn = pathlib.Path(join(velocyto_dir, f"{velo_name}.mtx"))
-            if velo_fn.exists() and USE_VELO:
+            if velo_fn.exists() and _USE_VELO:
                 S = mmread(velo_fn).T
                 logger.debug(f"found velo data at {velo_fn}. Shape ({S.shape[0]}, {S.shape[1]})")
                 barcodes = np.loadtxt(join(velocyto_dir, "barcodes.tsv"), dtype=str)
@@ -1232,7 +1234,7 @@ def _mtx_features(data, version=3, feature_type="Gene Expression"):
         if "gene_id" in data.var.columns:
             keep_cols = ["gene_id"]
         gene_name_present = False
-        for gene_alias in ["gene_symbols", "gene_symbol", "gene_name", "gene_names", "name", "names"]:
+        for gene_alias in _GENE_SYMBOL_ALIASES:
             if gene_alias in data.var.columns:
                 keep_cols.append(gene_alias)
                 gene_name_present = True
@@ -1330,122 +1332,119 @@ def add_nuclear_fraction(data):
         data.obs["nuclear_fraction"] = nuclear_fraction
     return data
 
+def _align_barcodes_superverbose(data, cb_data, *, quantifier: str, logger):
+    cb_idx  = pd.Index(cb_data.obs.index.astype(str), name="barcode")
+    raw_idx = pd.Index(data.obs.index.astype(str),    name="barcode")
+    n_cb, n_raw = cb_idx.size, raw_idx.size
+    logger.info(f"[align] barcodes: CB={n_cb}, RAW={n_raw}")
+    dup_cb  = cb_idx[cb_idx.duplicated(keep=False)]
+    dup_raw = raw_idx[raw_idx.duplicated(keep=False)]
+    if dup_cb.size:
+        logger.warning(f"[align] CB duplicated barcodes={dup_cb.unique().size}; ex: {dup_cb[:5].tolist()}")
+    if dup_raw.size:
+        logger.warning(f"[align] RAW duplicated barcodes={dup_raw.unique().size}; ex: {dup_raw[:5].tolist()}")
+    common = cb_idx.intersection(raw_idx)  # preserves CB order
+    n_common = common.size
+    if n_common == 0:
+        raise RuntimeError("No overlapping barcodes between CellBender and raw counts.")
+    logger.info(f"[align] common={n_common} ({n_common/n_cb:.1%} of CB; {n_common/n_raw:.1%} of RAW)")
+    only_cb  = cb_idx.difference(common)
+    only_raw = raw_idx.difference(common)
+    if only_cb.size or only_raw.size or not cb_idx.equals(raw_idx):
+        logger.info(f"[align] unique_to_CB={only_cb.size}, unique_to_RAW={only_raw.size}, "
+                    f"reorder_required={not cb_idx.equals(raw_idx)}")
+        if only_cb.size:  logger.debug(f"[align] ex only CB:  {only_cb[:5].tolist()}")
+        if only_raw.size: logger.debug(f"[align] ex only RAW: {only_raw[:5].tolist()}")
+    cb_aligned   = cb_data[common].copy()
+    data_aligned = data[common].copy()
+    assert data_aligned.n_obs == cb_aligned.n_obs
+    assert (data_aligned.obs_names == cb_aligned.obs_names).all()
+    logger.info(f"[align] OK: aligned n_obs={data_aligned.n_obs}")
+    return data_aligned, cb_aligned
 
-def read_quantifier_cellbender(fn, quantifier, args=None, **kw):
-    """
-    Read CellBender data for different quantifiers (ParseBio StarSolo, 10x StarSolo, SplitPipe, CellRanger).
 
-    Parameters
-    ----------
-    fn : str
-        Path to the CellBender output file.
-    quantifier : str
-        Name of the quantifier ('parsebio_starsolo', '10x_starsolo', 'splitpipe', or 'cellranger').
-    args : argparse.Namespace, optional
-        Arguments passed to the script.
+def _align_genes_superverbose(A, B, *, prefer="A", logger=None):
+    idxA = pd.Index(A.var.index, name="gene_id")
+    idxB = pd.Index(B.var.index, name="gene_id")
+    common = idxA.intersection(idxB) if prefer == "A" else idxB.intersection(idxA)
+    if common.size == 0:
+        raise RuntimeError("No overlapping genes between matrices.")
+    if logger:
+        logger.info(f"[genes] A={idxA.size}, B={idxB.size}, common={common.size} "
+                    f"({common.size/idxA.size:.1%} of A; {common.size/idxB.size:.1%} of B)")
+        onlyA = idxA.difference(common); onlyB = idxB.difference(common)
+        if onlyA.size or onlyB.size:
+            logger.info(f"[genes] unique_to_A={onlyA.size}, unique_to_B={onlyB.size}")
+            logger.debug(f"[genes] ex only A: {onlyA[:5].tolist()}")
+            logger.debug(f"[genes] ex only B: {onlyB[:5].tolist()}")
+    return A[:, common].copy(), B[:, common].copy()
 
-    Returns
-    -------
-    sc.AnnData
-        AnnData object containing the CellBender-corrected data.
-    """
-    
-    # Extract sublibrary ID (not needed for CellRanger)
-    m = re.search(r"/([^/\d]+)(\d+)/\1\2.*\.h5$", fn)
-    if m:
-        prefix, sublib_num = m.groups()
-        sublib = f'{prefix}{sublib_num}'
-    else:
-        if quantifier == "cellranger":
-            #fixme
-            pass
-        else:
-            raise ValueError
-    
-    # Define file path structure and read functions for raw counts quantifier
+
+def read_quantifier_cellbender(fn, quantifier, args=None, *, cb_mode: str = "raw", logger=None, **kw):
+    if logger is None:
+        import logging as _logging
+        logger = _logging.getLogger(__name__)
+
     file_patterns = {
-        "parsebio_starsolo": (
-            f"../../../parsebio_starsolo/{sublib}/Solo.out/GeneFull_Ex50pAS/raw/matrix.mtx",
-            read_starsolo
-        ),
-        "10x_starsolo": (
-            f"../../../10x_starsolo/{sublib}/Solo.out/GeneFull_Ex50pAS/raw/matrix.mtx",
-            read_starsolo  # Uses the same function as ParseBio StarSolo
-        ),
-        "splitpipe": (
-            f"../../../splitpipe/{sublib}/all-sample/DGE_unfiltered/count_matrix.mtx",
-            read_splitpipe
-        ),
-        "cellranger": (
-            "../outs/raw_feature_bc_matrix.h5",
-            read_cellranger
-        ),
+        "parsebio_starsolo": ("Solo.out/Gene/raw/matrix.mtx",  read_parsebio_starsolo),
+        "10x_starsolo":      ("Solo.out/Gene/raw/matrix.mtx",  read_10x_starsolo),
+        "splitpipe":         ("Solo.out/Gene/raw/matrix.mtx",  read_splitpipe),
+        "cellranger":        ("outs/raw_feature_bc_matrix.h5", read_cellranger),
     }
-    
-    if quantifier not in file_patterns:
-        raise ValueError(f"Unsupported quantifier '{quantifier}'. Choose from {list(file_patterns.keys())}.")
+    rel_raw, read_fn = file_patterns[quantifier]
+    data = read_fn(os.path.normpath(os.path.join(fn, rel_raw)), args)
+    logger.info(f"[{quantifier}] raw counts: {data.shape}, dtype={data.X.dtype}")
 
-    if not HAVE_CELLBENDER:
-        raise ImportError("CellBender support is not available. Please install `cellbender`.")
-
-    raw_relative_data_path, read_function = file_patterns[quantifier]
-    raw_data_path = os.path.normpath(os.path.join(fn, raw_relative_data_path))
-    # Read raw quantifier data
-    data = read_function(raw_data_path, args)
-    logger.info(f"Raw reads added to cellbender data. Shape: ({data.shape[0]}, {data.shape[1]})")
     cb_data = read_cellbender(fn, analyzed_barcodes_only=False, args=args)
-    
-    if data.obs.shape[0] != cb_data.obs.shape[0]:
-        n, n_cb = data.obs.shape[0], cb_data.obs.shape[0]
-        logger.info(f"Barcode number mismatch between cellbender counts {n_cb} and original counts {n}. Using Cellbender index")
-        logger.info(f"Subsetting original count data to match Cellbender data ...")
-        new_index = cb_data.obs.index.astype(str)
-        common_barcodes = list(set(new_index).intersection(data.obs.index.astype(str)))
-        n_common = len(common_barcodes)
-        logger.info(f"Cellbender barcodes ({n_cb}), {quantifier} barcodes ({n}). Common barcodes: {n_common}")
-        data = data[common_barcodes,:].copy()
-    # Ensure barcodes match
-    if (cb_data.obs.index != data.obs.index).any():
-        logger.info(f"Barcode index mismatch between cellbender counts and original counts. Using Cellbender index ...")
-        new_index = cb_data.obs.index.astype(str).copy()
-        data.obs.index = new_index
+    logger.info(f"[cellbender] analyzed: {cb_data.shape}, dtype={cb_data.X.dtype}")
 
-    # Define layers dynamically based on quantifier
-    data.layers[quantifier] = data.X.copy()
-    data.layers[f"{quantifier}_cellbender"] = cb_data.X.copy()
-    data.X = cb_data.X.copy()
+    data, cb_data = _align_barcodes_superverbose(data, cb_data, quantifier=quantifier, logger=logger)
+    if not data.var.index.equals(cb_data.var.index):
+        logger.info("[genes] mismatch; aligning by intersection.")
+        data, cb_data = _align_genes_superverbose(data, cb_data, prefer="A", logger=logger)
 
-    # Move variable data from CellBender to `var`
-    move2var = {'ambient_expression': 0, 'cellbender_analyzed': None}
-    for k, fillna in move2var.items():
+    # var metadata
+    for k in ("ambient_expression", "cellbender_analyzed"):
         if k in cb_data.var:
-            c = pd.DataFrame(cb_data.var[k], index=cb_data.var.index)
-            key = f"{quantifier}_{k}"  # Needs quantifier-specific key for later concatenation
-            c.columns = [key]
-            data.var = data.var.merge(c, how="left", right_index=True, left_index=True, validate="one_to_one")
-            logger.info(f"Integrated '{k}' from CellBender var data")
-            if fillna is not None:
-                data.var[key].fillna(fillna, inplace=True)
+            data.var[k] = pd.Series(cb_data.var[k], index=cb_data.var.index, name=k)
 
-    # Move observation data from CellBender to `obs`
-    move2obs = {'background_fraction': 1, 'cell_probability': 0, 'cell_size': 0, 'droplet_efficiency': 0}
-    for k, fillna in move2obs.items():
-        if k in cb_data.uns:
-            c = pd.DataFrame(cb_data.uns[k], index=cb_data.uns['barcodes_analyzed'].astype(str))
-            c.columns = [k]
-            data.obs = data.obs.merge(c, how="left", right_index=True, left_index=True, validate="one_to_one")
-            logger.info(f"Integrated '{k}' from CellBender obs data")
-            if fillna is not None:
-                data.obs[k].fillna(value=fillna, inplace=True)
+    # obs metadata (from cb_data.uns)
+    if "barcodes_analyzed" in cb_data.uns:
+        ba = pd.Index(cb_data.uns["barcodes_analyzed"]).astype(str)
+        idx = pd.Index(data.obs.index.astype(str))
+        obs_cols = {}
+        for k, default in (("background_fraction", 1.0),
+                           ("cell_probability", 0.0),
+                           ("cell_size", 0.0),
+                           ("droplet_efficiency", 0.0)):
+            if k in cb_data.uns:
+                ser = pd.Series(cb_data.uns[k], index=ba, name=k)
+                obs_cols[k] = ser.reindex(idx)
+            else:
+                obs_cols[k] = pd.Series(default, index=idx, name=k)
+        obs_df = pd.DataFrame(obs_cols, index=idx)
+        for c in obs_df.columns:
+            data.obs[c] = obs_df[c].values
+        analyzed = pd.Series(False, index=idx, name="barcodes_analyzed")
+        analyzed.loc[ba.intersection(idx)] = True
+        data.obs["barcodes_analyzed"] = analyzed.values
+        logger.info("[meta] attached CellBender obs metrics.")
+    else:
+        logger.info("[meta] no 'barcodes_analyzed' in cb_data.uns; skipped.")
 
-    # Track analyzed barcodes
-    barcodes_analyzed = pd.Series(False, index=data.obs.index)
-    common = set(cb_data.uns['barcodes_analyzed']).intersection(data.obs.index)
-    barcodes_analyzed.loc[list(common)] = True
-    logger.debug(barcodes_analyzed.value_counts())
-    data.obs['barcodes_analyzed'] = barcodes_analyzed
-    data.obs["sublib"] = pd.Categorical([sublib] * adata.n_obs)
-    
+    # matrix placement
+    data.layers["cb_raw"] = data.X           # raw counts from quantifier
+    data.layers["cb_denoised"] = cb_data.X   # posterior from CB
+    if cb_mode == "raw":
+        data.X = data.layers["cb_raw"]
+    elif cb_mode == "denoised":
+        data.X = data.layers["cb_denoised"]
+    elif cb_mode == "both":
+        data.X = data.layers["cb_raw"]
+    else:
+        raise ValueError("cb_mode must be 'raw', 'denoised', or 'both'")
+
+    logger.info(f"[cb_mode={cb_mode}] X dtype={data.X.dtype}; layers={list(data.layers.keys())}")
     return data
 
 
@@ -1604,43 +1603,96 @@ def anndata_friendly_dtypes(df: pd.DataFrame,
     out = drop_ci_identical_same_name(out)
     return out
 
+def _is_integral_array(x, tol=1e-6) -> bool:
+    if sp.issparse(x):
+        data = x.data
+    else:
+        x = np.asarray(x)
+        data = x[np.isfinite(x)]
+    if data.size == 0:
+        return True
+    return np.all(np.abs(data - np.round(data)) <= tol)
 
 
 def _zeros_fraction_dense(a: np.ndarray) -> float:
     return 1.0 - (np.count_nonzero(a) / a.size if a.size else 0.0)
 
 
-def optimize_X_layers(adata, float32=False, sparse_threshold=0.5, counts_in="X"):
-    """
-    - Keep X counts sparse CSR int32 or float32
-    - Put counts either in X or layers['counts'] (but not both)
-    - Downcast float to float32 if requested
-    - Convert dense to sparse if sufficiently sparse
-    """
-    # Normalize X sparsity/dtype
+def optimize_X_layers(adata,
+                      *,
+                      sparse_threshold: float = 0.5,
+                      counts_in: str = "X",          # 'X' or 'layers'
+                      counts_layer_name: str = "counts",
+                      allow_layers: bool = True,
+                      ) -> None:
     X = adata.X
-    if sp.issparse(X):
-        if X.format != "csr":
-            X = X.tocsr()
-        if np.issubdtype(X.dtype, np.floating) and float32:
-            X = X.astype(np.float32)
-        elif np.issubdtype(X.dtype, np.integer):
-            X = X.astype(np.int32)
-    else:
-        # dense
-        if _zeros_fraction_dense(X) >= sparse_threshold:
-            X = sp.csr_matrix(X)
-            if np.issubdtype(X.dtype, np.floating) and float32:
-                X = X.astype(np.float32)
-            elif np.issubdtype(X.dtype, np.integer):
-                X = X.astype(np.int32)
+    if not sp.issparse(X) and _zeros_fraction_dense(X) >= sparse_threshold:
+        X = sp.csr_matrix(X)
+    elif sp.issparse(X) and X.format != "csr":
+        X = X.tocsr()
+    target_dtype = np.int32 if _is_integral_array(X) else np.float32
+    if X.dtype != target_dtype:
+        X = X.astype(target_dtype)
+    if counts_in == "X" or not allow_layers:
+        if counts_layer_name in getattr(adata, "layers", {}):
+            del adata.layers[counts_layer_name]
+        adata.X = X if sp.issparse(X) else sp.csr_matrix(X)
+    elif counts_in == "layers":
+        if not allow_layers:
+            adata.X = X if sp.issparse(X) else sp.csr_matrix(X)
         else:
-            if np.issubdtype(X.dtype, np.floating) and float32:
-                X = X.astype(np.float32)
-            elif np.issubdtype(X.dtype, np.integer):
-                X = X.astype(np.int32)
-    adata.X = X
+            adata.layers[counts_layer_name] = X if sp.issparse(X) else sp.csr_matrix(X)
+            adata.X = adata.layers[counts_layer_name]
+    else:
+        raise ValueError("counts_in must be 'X' or 'layers'")
+    if sp.issparse(adata.X) and adata.X.format != "csr":
+        adata.X = adata.X.tocsr()
 
+def to_anndata_lightweight(adata):
+    var = adata.var.copy()
+    if var.index.name != "gene_id":
+        var.index.name = "gene_id"
+    sym = next((c for c in _GENE_SYMBOL_ALIASES if c in var.columns), None)
+    var_min = pd.DataFrame(index=var.index)
+    var_min["gene_symbol"] = var[sym].astype(object) if sym else var.index.astype(object)
+    obs_min = pd.DataFrame(index=adata.obs_names)
+    X = adata.X
+    if not sp.issparse(X): X = sp.csr_matrix(X)
+    elif X.format != "csr": X = X.tocsr()
+    lw = anndata.AnnData(X=X, obs=obs_min, var=var_min)
+    lw.var.index.name = "gene_id"
+    lw.uns.clear(); lw.layers.clear(); lw.obsm.clear(); lw.varm.clear(); lw.obsp.clear()
+    return lw
+
+def _derive_outputs(base_outfile: pathlib.Path, formats) -> dict:
+    fmt_set = set(formats)
+    single = (len(formats) == 1)
+    is_mtx_like = base_outfile.suffix == ".mtx" or base_outfile.name == "matrix.mtx"
+    if single:
+        f = formats[0]
+        if f in ("anndata","anndata_lightweight"): return {f: base_outfile.with_suffix(".h5ad")}
+        if f == "loom":  return {f: base_outfile.with_suffix(".loom")}
+        if f == "csvs":  return {f: base_outfile.with_suffix("").parent / (base_outfile.with_suffix("").name + ".csvs")}
+        if f in ("v2_mtx","v3_mtx"):
+            if is_mtx_like: return {f: base_outfile}
+            stem = base_outfile.with_suffix("").name; parent = base_outfile.parent
+            sub = f"{stem}.mtx_v2" if f=="v2_mtx" else f"{stem}.mtx_v3"
+            return {f: parent / sub / "matrix.mtx"}
+    base_root = base_outfile.with_suffix(""); parent = base_root.parent; stem = base_root.name
+    out = {}
+    if "anndata" in fmt_set: out["anndata"] = parent / f"{stem}.h5ad"
+    if "anndata_lightweight" in fmt_set: out["anndata_lightweight"] = parent / f"{stem}.light.h5ad"
+    if "loom" in fmt_set: out["loom"] = parent / f"{stem}.loom"
+    if "csvs" in fmt_set: out["csvs"] = parent / f"{stem}.csvs"
+    if "v2_mtx" in fmt_set: out["v2_mtx"] = parent / f"{stem}.mtx_v2" / "matrix.mtx"
+    if "v3_mtx" in fmt_set: out["v3_mtx"] = parent / f"{stem}.mtx_v3" / "matrix.mtx"
+    return out
+
+def _mtx_export_from_raw_or_fail(adata, mtx_path: pathlib.Path, version: str = "v3"):
+    if not np.issubdtype(adata.X.dtype, np.integer):
+        raise RuntimeError("MTX export requires integer raw counts in X. Use --cellbender-mode raw and/or --mtx-from raw.")
+    mtx_path.parent.mkdir(parents=True, exist_ok=True)
+    write_mtx(adata, mtx_file=str(mtx_path), version=version)
 
 
 READERS = {
@@ -1662,108 +1714,135 @@ READERS = {
     "h5ad": read_h5ad
 }
 
-
-
 if __name__ == "__main__":
+    # -------------------------
+    # Parse & init logging
+    # -------------------------
     parser = create_parser()
     args = parser.parse_args()
-    setup_logging(verbose = args.verbose)
+    setup_logging(verbose=args.verbose)
     logger = logging.getLogger(__name__)
-    
+    logger.info("=== convert_scanpy.py starting ===")
+    _USE_VELO = _USE_VELO and "anndata" in args.output_format
+
+    # -------------------------
+    # Filter inputs by aggr CSV (optional)
+    # -------------------------
     if args.aggr_csv is not None and len(args.input) > 1:
+        logger.info(f"Filtering {len(args.input)} inputs by aggr CSV: {args.aggr_csv}")
         args.input = filter_input_by_csv(args.input, args.aggr_csv, verbose=args.verbose)
-        
+        logger.info(f"Remaining inputs after filter: {len(args.input)}")
+
+    # -------------------------
+    # Choose reader (with/without CellBender)
+    # -------------------------
     base_fmt = args.input_format
     effective_fmt = f"{base_fmt}_cellbender" if args.enable_cellbender else base_fmt
     reader = READERS.get(effective_fmt)
     if reader is None:
         raise ValueError(f"Unsupported format: {effective_fmt}")
-    n_input = len(args.input)
-    if n_input > 1:
-        assert (args.input_format != "cellranger_aggr")
+    if len(args.input) > 1:
+        assert args.input_format != "cellranger_aggr", "cellranger_aggr expects a single aggregated input"
 
+    logger.info(f"Reader: {effective_fmt}  |  inputs: {len(args.input)}")
+    if args.enable_cellbender:
+        logger.info(f"CellBender mode: {args.cellbender_mode} (raw|denoised|both)")
+
+    # -------------------------
+    # Read all inputs (per-file)
+    # -------------------------
     data_list = []
-    for i, fn in enumerate(args.input):
-        fn = os.path.abspath(fn)
-        data = reader(fn, args)
+    for i, fn in enumerate(args.input, 1):
+        abs_fn = os.path.abspath(fn)
+        logger.info(f"[{i}/{len(args.input)}] Reading: {abs_fn}")
+        data = reader(abs_fn, args)  # for *_cellbender readers, ensure they pass cb_mode=args.cellbender_mode
+
         if args.identify_empty_droplets:
-            if args.verbose:
-                logger.debug("identify empty droplets ...")
+            logger.info("Identify empty droplets ...")
             data = identify_empty_droplets(data)
             if args.verbose:
-                logger.debug(fn)
-                logger.debug(data.shape)
-                logger.debug(data)
+                logger.debug(f"Post-empty-droplet: shape={data.shape}")
+
         data_list.append(data)
 
-    if len(data_list) > 1:
-        if args.normalize == "mapped":
-            data_list = downsample_gemgroup(data_list)
+    # -------------------------
+    # Optional per-gemgroup downsampling for normalization
+    # -------------------------
+    if len(data_list) > 1 and args.normalize == "mapped":
+        logger.info("Downsampling gemgroups (normalize=mapped) ...")
+        data_list = downsample_gemgroup(data_list)
 
+    # -------------------------
+    # Concatenate (if multiple datasets)
+    # -------------------------
     if len(data_list) > 1:
-        logger.info(f"Concatenating {len(data_list)} data files")
+        logger.info(f"Concatenating {len(data_list)} AnnData objects")
         data = anndata.concat(data_list, join="outer", merge="unique", uns_merge=None)
-        if any(i.endswith("-0") for i in data.var.columns):
+        # Drop accidental duplicate columns generated by concat naming
+        if any(c.endswith("-0") for c in data.var.columns):
+            logger.info("Removing duplicate columns in .var (suffix -0)")
             remove_duplicate_cols(data.var)
     else:
         data = data_list[0]
 
+    # -------------------------
+    # Remove all-zero cells & genes (unless opted out)
+    # -------------------------
     if not args.no_zero_cell_rm:
-        logger.info(f"Removing cells/features with all zeros ...")
+        logger.info("Removing cells/features with all zeros ...")
+        # cells
         row_sum = data.X.sum(1)
-        if hasattr(row_sum, "A"):
-            row_sum = row_sum.A.squeeze()
-        keep = row_sum > 0
-        data = data[keep, :]
-        if args.verbose:
-            n_orig_cells = len(keep)
-            n_cells_kept = sum(keep)
-            removed_cells = n_orig_cells - n_cells_kept
-            logger.debug(f"Removed {removed_cells} cells after requiring counts > 0")
+        if hasattr(row_sum, "A"): row_sum = row_sum.A.squeeze()
+        keep_obs = row_sum > 0
+        removed_cells = int(keep_obs.size - keep_obs.sum())
+        data = data[keep_obs, :]
+        logger.info(f"Removed {removed_cells} empty cells; remaining cells: {data.n_obs}")
+
+        # genes
         col_sum = data.X.sum(0)
-        if hasattr(col_sum, "A"):
-            col_sum = col_sum.A.squeeze()
-        keep = col_sum > 0
-        data = data[:, keep]
-        if args.verbose:
-            n_orig_features = len(keep)
-            n_features = sum(keep)
-            removed_features = n_orig_features - n_features
-            logger.debug(f"Removed {removed_features} genes after requiring counts > 0 ")
-        if 'barcodes_analyzed' in data.obs.columns:
-            logger.debug(data.obs.barcodes_analyzed.value_counts())
-        
+        if hasattr(col_sum, "A"): col_sum = col_sum.A.squeeze()
+        keep_var = col_sum > 0
+        removed_genes = int(keep_var.size - keep_var.sum())
+        data = data[:, keep_var]
+        logger.info(f"Removed {removed_genes} empty genes; remaining genes: {data.n_vars}")
+
+        if args.verbose and "barcodes_analyzed" in data.obs.columns:
+            logger.debug("barcodes_analyzed counts:\n" + str(data.obs["barcodes_analyzed"].value_counts()))
+
+    # -------------------------
+    # Merge sample_info (optional)
+    # -------------------------
     if args.sample_info is not None:
-        logger.info(f"Merging sample info ...")
-        obs_names = data.obs.columns.copy()
-        n_obs = obs_names.shape[0]
+        logger.info("Merging sample_info into .obs ...")
+        prev_cols = set(data.obs.columns)
         sample_id_key = "sample_id" if "sample_id" in data.obs.columns else "sublib"
         sample_ids = [str(i) for i in data.obs[sample_id_key]]
         lib_ids = pd.unique(sample_ids)
         for l in lib_ids:
             if l not in args.sample_info.index:
                 raise ValueError(f"Library `{l}` not present in sample_info")
+
         obs = args.sample_info.loc[sample_ids, :]
         obs.index = data.obs.index.copy()
-        logger.info(f"Adding {obs.shape[1]} meta columns to data.obs ({data.obs.shape[1]})")
-        data.obs = data.obs.merge(obs, how="left", left_index=True, right_index=True, suffixes=("", "_sample_info"), validate="one_to_one")
-        if n_obs != data.obs.shape[1]:
-            added_cols = ", ".join([i for i in data.obs.columns if i not in obs_names])
-            logger.info(f"Added {added_cols} to obs")
-        logger.debug(data)
 
+        logger.info(f"Adding {obs.shape[1]} meta columns to .obs (had {len(prev_cols)} columns)")
+        data.obs = data.obs.merge(
+            obs, how="left", left_index=True, right_index=True,
+            suffixes=("", "_sample_info"), validate="one_to_one"
+        )
+        added = [c for c in data.obs.columns if c not in prev_cols]
+        if added:
+            logger.info(f"Added columns to .obs: {', '.join(added)}")
 
+    # -------------------------
+    # Merge feature_info (optional)
+    # -------------------------
     if isinstance(args.feature_info, pd.DataFrame):
         args.feature_info = [args.feature_info]
-
     if args.feature_info:
-        logger.info(f"Merging {len(args.feature_info)} feature-info file(s) ...")
+        logger.info(f"Merging {len(args.feature_info)} feature-info DataFrame(s) into .var ...")
         for i, fi in enumerate(args.feature_info, 1):
-            # align rows to current var index
             fi = fi.reindex(data.var.index)
-
-            # PRE-merge: drop columns that are case-insensitively same-named
-            # and value-identical to existing var columns
             fi = _drop_ci_identical_to_existing(fi, data.var)
             if fi is None or fi.empty:
                 logger.info(f"[feature-info {i}] nothing to add (all columns identical to existing)")
@@ -1771,37 +1850,45 @@ if __name__ == "__main__":
 
             before = set(data.var.columns)
             data.var = data.var.merge(
-                fi,
-                how="left",
-                left_index=True,
-                right_index=True,
-                suffixes=("", f"_feature_info{i}"),  # suffix only where same exact name but different values
+                fi, how="left",
+                left_index=True, right_index=True,
+                suffixes=("", f"_feature_info{i}"),
                 validate="one_to_one",
             )
-
             added = [c for c in data.var.columns if c not in before]
             if added:
-                logger.info(f"[feature-info {i}] added {len(added)} column(s): {', '.join(added[:8])}{'…' if len(added)>8 else ''}")
-        # POST-merge: drop case-insensitive identical dup columns, then coerce dtypes for AnnData
+                logger.info(f"[feature-info {i}] added {len(added)} column(s): {', '.join(added[:12])}{'…' if len(added)>12 else ''}")
+
+        # Clean identical dups; coerce dtypes for AnnData friendliness
         data.var = drop_ci_identical_same_name(data.var)
-        data.var = anndata_friendly_dtypes(data.var, protect_cols=("gene_id", "feature_id", "id"), allow_string_dtype=False) # sctk has old anndata, no pd string type
+        data.var = anndata_friendly_dtypes(
+            data.var,
+            protect_cols=("gene_id", "feature_id", "id"),
+            allow_string_dtype=False  # old anndata in sctk dislikes pd.StringDtype
+        )
 
+    # -------------------------
+    # Add simple feature flags if gene_symbols present
+    # -------------------------
     if "gene_symbols" in data.var.columns:
-        data.var["mt"] = data.var["gene_symbols"].str.lower().str.startswith("mt-")
-        data.var["ribo"] = data.var["gene_symbols"].str.lower().str.startswith(("rps", "rpl"))
-        data.var["hb"] = data.var["gene_symbols"].str.lower().str.contains("^hb[^(p)]")
+        gs = data.var["gene_symbols"].astype(str).str.lower()
+        data.var["mt"] = gs.str.startswith("mt-")
+        data.var["ribo"] = gs.str.startswith(("rps", "rpl"))
+        data.var["hb"] = gs.str.contains("^hb(?!p)", regex=True)
 
+    # -------------------------
+    # Ensure var index name
+    # -------------------------
     if data.var.index.name != "gene_id":
         data.var.index.name = "gene_id"
-    
 
+    # -------------------------
+    # Merge barcode_info (optional)
+    # -------------------------
     if args.barcode_info:
-        logger.info(f"Merging {len(args.barcode_info)} barcode-info file(s) ...")
+        logger.info(f"Merging {len(args.barcode_info)} barcode-info DataFrame(s) into .obs ...")
         for i, bi in enumerate(args.barcode_info, 1):
             bi = bi.reindex(data.obs.index)
-
-            # PRE-merge: drop columns that are case-insensitively same-named
-            # and value-identical to existing obs columns
             bi = _drop_ci_identical_to_existing(bi, data.obs)
             if bi is None or bi.empty:
                 logger.info(f"[barcode-info {i}] nothing to add (all columns identical to existing)")
@@ -1809,74 +1896,106 @@ if __name__ == "__main__":
 
             before = set(data.obs.columns)
             data.obs = data.obs.merge(
-                bi,
-                how="left",
-                left_index=True,
-                right_index=True,
+                bi, how="left",
+                left_index=True, right_index=True,
                 suffixes=("", f"_barcode_info{i}"),
                 validate="one_to_one",
             )
-
             added = [c for c in data.obs.columns if c not in before]
             if added:
-                logger.info(f"[barcode-info {i}] added {len(added)} column(s): {', '.join(added[:8])}{'…' if len(added)>8 else ''}")
+                logger.info(f"[barcode-info {i}] added {len(added)} column(s): {', '.join(added[:12])}{'…' if len(added)>12 else ''}")
 
-        # POST-merge: drop case-insensitive identical dup columns, then coerce dtypes for AnnData
         data.obs = drop_ci_identical_same_name(data.obs)
         data.obs = anndata_friendly_dtypes(data.obs, protect_cols=("barcode",), allow_string_dtype=False)
-        
-    keep_cols = [i for i in data.var.columns if i.lower() not in FEATURE_INFO_BLACKLIST]
+
+    # -------------------------
+    # Drop blacklisted feature-info columns (case-insensitive)
+    # -------------------------
+    keep_cols = [c for c in data.var.columns if c.lower() not in _FEATURE_INFO_BLACKLIST]
     if len(keep_cols) != data.var.shape[1]:
-        logger.info(f"Removing features present in FEATURE_INFO_BLACKLIST ({data.var.shape[1] - len(keep_cols)})")
+        logger.info(f"Removing {_FEATURE_INFO_BLACKLIST} columns from .var "
+                    f"({data.var.shape[1] - len(keep_cols)} removed)")
         data.var = data.var[keep_cols]
 
-
+    # -------------------------
+    # Extra QC features (optional) then normalize storage/dtype
+    # -------------------------
     data = add_nuclear_fraction(data)
-    
-    optimize_X_layers(data)
 
-    if args.verbose:
-        logger.info("\n")
-        logger.info(data)
-        logger.info(data.var.dtypes)
-        logger.info(data.var.head(n=3))
-        logger.info(data.obs.dtypes)
-        logger.info(data.obs.head(n=3))
-        logger.info(f"X dtype: {str(data.X.dtype)}")
-        for l in data.layers.keys():
-            logger.info(f"layer {l} dtype: {str(data.layers[l].dtype)}")
+    allow_layers = (args.cellbender_mode == "both")
+    logger.info(f"Normalizing storage: sparse_threshold=0.5, counts_in='X', allow_layers={allow_layers}")
+    optimize_X_layers(data, sparse_threshold=0.5, counts_in="X", allow_layers=allow_layers)
 
-    uns_keys = ','.join(data.uns.keys())
-    logger.info("Clearing all keys in .uns: " + uns_keys)
+    # -------------------------
+    # Plan outputs
+    # -------------------------
+    out_map = _derive_outputs(pathlib.Path(args.outfile), args.output_format)
+    for k, p in out_map.items():
+        logger.info(f"Planned output: {k:>21} -> {p}")
+
+    # -------------------------
+    # Summarize current AnnData before writing
+    # -------------------------
+    nnz = int(data.X.nnz) if sp.issparse(data.X) else int((data.X != 0).sum())
+    logger.info("=== AnnData summary before write ===")
+    logger.info(f"shape: {data.n_obs} cells × {data.n_vars} genes | X: {data.X.__class__.__name__} {data.X.dtype} | nnz≈{nnz}")
+    logger.info(f".obs columns ({data.obs.shape[1]}): {', '.join(list(data.obs.columns)[:12])}{'…' if data.obs.shape[1]>12 else ''}")
+    logger.info(f".var columns ({data.var.shape[1]}): {', '.join(list(data.var.columns)[:12])}{'…' if data.var.shape[1]>12 else ''}")
+    if data.layers:
+        layer_summ = ", ".join([f"{k}:{str(v.dtype)}" for k, v in data.layers.items()])
+        logger.info(f"layers ({len(data.layers)}): {layer_summ}")
+    else:
+        logger.info("layers: [none]")
+    uns_keys = ",".join(list(data.uns.keys()))
+    logger.info("Clearing .uns keys: " + (uns_keys if uns_keys else "[none]"))
     data.uns.clear()
 
+    # -------------------------
+    # Build lightweight (optional)
+    # -------------------------
+    lw = to_anndata_lightweight(data) if "anndata_lightweight" in args.output_format else None
+    if lw is not None:
+        nnz_lw = int(lw.X.nnz) if sp.issparse(lw.X) else int((lw.X != 0).sum())
+        logger.info(f"Lightweight: {lw.n_obs}×{lw.n_vars} | X: {lw.X.__class__.__name__} {lw.X.dtype} | nnz≈{nnz_lw}")
+
+    # -------------------------
+    # Write outputs (with MTX guard)
+    # -------------------------
+    for fmt in args.output_format:
+        target = out_map[fmt]
+        logger.info(f"Writing [{fmt}] -> {target}")
+
+        if fmt == "anndata":
+            target.parent.mkdir(parents=True, exist_ok=True)
+            data.write(target, compression="gzip")
+
+        elif fmt == "anndata_lightweight":
+            target.parent.mkdir(parents=True, exist_ok=True)
+            lw.write(target, compression="gzip")
+
+        elif fmt == "loom":
+            target.parent.mkdir(parents=True, exist_ok=True)
+            data.write_loom(target)
+
+        elif fmt == "csvs":
+            target.mkdir(parents=True, exist_ok=True)
+            data.write_csvs(target)
+
+        elif fmt == "v2_mtx":
+            if args.mtx_from != "raw":
+                raise RuntimeError("MTX export disabled (--mtx-from none).")
+            _mtx_export_from_raw_or_fail(data, target, version="v2")
+
+        elif fmt == "v3_mtx":
+            if args.mtx_from != "raw":
+                raise RuntimeError("MTX export disabled (--mtx-from none).")
+            _mtx_export_from_raw_or_fail(data, target, version="v3")
+
+        else:
+            raise ValueError(f"Unknown output format: {fmt}")
+    logger.info("=== convert_scanpy.py done ===")
     
-    logger.info(f"Writing outputfile {args.outfile} ... ")
-    for col in data.obs.columns:
-        if data.obs[col].dtype == 'object':
-            unique_types = set(map(type, data.obs[col].dropna()))
-            if len(unique_types) == 1 and str in unique_types:
-                # OK: all strings
-                continue
-            elif len(unique_types) == 1 and bool in unique_types:
-                data.obs[col] = data.obs[col].astype('bool')
-            elif len(unique_types) == 1 and int in unique_types:
-                data.obs[col] = data.obs[col].astype('int')
-            elif len(unique_types) == 1 and float in unique_types:
-                data.obs[col] = data.obs[col].astype('float')
-            else:
-                # fallback: cast everything to string
-                data.obs[col] = data.obs[col].astype(str)
-    
-    if args.output_format == "anndata":
-        data.write(args.outfile, compression="gzip")
-    elif args.output_format == "loom":
-        data.write_loom(args.outfile)
-    elif args.output_format == "csvs":
-        data.write_csvs(args.outfile)
-    elif args.output_format == "v2_mtx":
-        write_mtx(data, mtx_file=args.outfile, version="v2")
-    elif args.output_format == "v3_mtx":
-        write_mtx(data, mtx_file=args.outfile, version="v3")
-    else:
-        raise ValueError(f"Unknown output format: {args.output_format}")
+
+
+
+
