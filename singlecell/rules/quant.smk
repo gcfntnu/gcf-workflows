@@ -9,8 +9,8 @@ AGGR_IDS = collections.defaultdict(list)
 METHODS = [m.strip() for m in config['quant']['method'].split(',') if m.strip()]
 CB_FLAG = config.get("quant", {}).get("cellbender", {}).get("enabled", False)
 CB_OUTPUT = CB_FLAG and config.get("quant", {}).get("cellbender", {}).get("use_outputs", False)
-STARSOLO_FEATURES = "GeneFull_Ex50pAS"
-STARSOLO_MM = "EM"
+STARSOLO_FEATURES = config["quant"].get("starsolo", {}).get("feature_count", "GeneFull_Ex50pAS")
+STARSOLO_MM = config["quant"].get("starsolo", {}).get("mm", "Unique")
 BC_RENAME = {"splitpipe": "parsebio", "parsebio_starsolo": "parsebio"}
 
 if not config['quant']['aggregate'].get('skip', False):
