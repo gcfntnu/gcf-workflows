@@ -233,31 +233,48 @@ def scanpy_aggr_output(wc):
 # used by cellbender/nb_barcode_ranks/annotation
 rule tmp_lightweight_raw:
     input:
-        unpack(get_raw_mtx)
+        unpack(get_raw_mtx),
+        feature_info = join(REF_DIR, 'anno', 'genes.tsv')
     output:
-        anndata = temp('_tmp/{quantifier}/raw/{sample}/anndata.h5ad'),
-        mtx = temp('_tmp/{quantifier}/raw/{sample}/matrix.mtx')
+        anndata = temp('_tmp/{quantifier}/raw/{sample}/anndata.light.h5ad'),
+        mtx     = temp('_tmp/{quantifier}/raw/{sample}/anndata.mtx_v2/matrix.mtx')
     params:
-        script = src_gcf('quant/scripts/vanilla_mtx2h5ad.py')
+        script = src_gcf('quant/scripts/convert_scanpy.py'),
+        base   = '_tmp/{quantifier}/filtered/{sample}/anndata'
     threads:
         8
     shell:
-        'python {params.script} {input.mtx} {output.anndata} '
+        'python {params.script} ' 
+        '{input.mtx} '
+        '--feature-info {input.feature_info} '
+        '--barcode-rename skip '
+        '-o {output.anndata} '
+        '-v '
+        '-f {wildcards.quantifier} '
+        '-F anndata_lightweight v2_mtx '
 
 # used by doublets/autoqc/annotation
 rule tmp_lightweight_filtered:
     input:
-        unpack(get_filtered_mtx)
+        unpack(get_filtered_mtx),
+        feature_info = join(REF_DIR, 'anno', 'genes.tsv')
     output:
-        anndata = temp('_tmp/{quantifier}/filtered/{sample}/anndata.h5ad'),
-        mtx = temp('_tmp/{quantifier}/filtered/{sample}/matrix.mtx')
+        anndata = temp('_tmp/{quantifier}/filtered/{sample}/anndata.light.h5ad'),
+        mtx     = temp('_tmp/{quantifier}/filtered/{sample}/anndata.mtx_v2/matrix.mtx')
     params:
-        script = src_gcf('quant/scripts/vanilla_mtx2h5ad.py')
+        script = src_gcf('quant/scripts/convert_scanpy.py'),
+        base   = '_tmp/{quantifier}/filtered/{sample}/anndata'
     threads:
         8
     shell:
-        'python {params.script} {input.mtx} {output.anndata} '
-
+        'python {params.script} ' 
+        '{input.mtx} '
+        '--feature-info {input.feature_info} '
+        '--barcode-rename skip '
+        '-o {output.anndata} '
+        '-v '
+        '-f {wildcards.quantifier} '
+        '-F anndata_lightweight v2_mtx '
 
 
 rule scanpy_aggr_filtered:
