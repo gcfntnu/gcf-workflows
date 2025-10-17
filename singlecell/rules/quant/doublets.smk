@@ -9,23 +9,10 @@ if SAMPLE_MULTIPLEXING:
        SAMPLE_MULTIPLEXING = False 
 
 
-rule dbl_clean_input_data:
-    input:
-        unpack(get_filtered_mtx)
-    output:
-        anndata = temp('_tmp/{quantifier}/{sample}/anndata.h5ad'),
-        mtx = temp('_tmp/{quantifier}/{sample}/matrix.mtx')
-    params:
-        script = src_gcf('scripts/vanilla_mtx2h5ad.py')
-    threads:
-        8
-    shell:
-        'python {params.script} {input.mtx} {output.anndata} '
-
 
 rule dbl_skip_doubletdetection:
     input:
-        counts = '_tmp/{quantifier}/{sample}/matrix.mtx',
+        counts = '_tmp/{quantifier}/filtered/{sample}/anndata.mtx_v2/matrix.mtx',
     output:
         join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets',  'skip', 'doublet_type.tsv')
     params:
@@ -38,7 +25,7 @@ rule dbl_skip_doubletdetection:
 
 rule dbl_doubletdetection:
     input:
-        counts = '_tmp/{quantifier}/{sample}/anndata.h5ad',
+        counts = '_tmp/{quantifier}/filtered/{sample}/anndata.light.h5ad',
     output:
         join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets',  'doubletdetection', 'doublet_type.tsv')
     params:
@@ -54,7 +41,7 @@ rule dbl_doubletdetection:
 
 rule dbl_scdblfinder:
     input:
-        counts = '_tmp/{quantifier}/{sample}/matrix.mtx',
+        counts = '_tmp/{quantifier}/filtered/{sample}/anndata.mtx_v2/matrix.mtx',
     output:
         join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets', 'scdblfinder', 'doublet_type.tsv')
     params:
@@ -70,7 +57,7 @@ rule dbl_scdblfinder:
 
 rule dbl_scds:
     input:
-        counts = '_tmp/{quantifier}/{sample}/matrix.mtx',
+        counts = '_tmp/{quantifier}/filtered/{sample}/anndata.mtx_v2/matrix.mtx',
     output:
         join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets', 'scds', 'doublet_type.tsv')
     params:
@@ -87,7 +74,7 @@ rule dbl_scds:
 
 rule dbl_scrublet:
     input:
-        counts = '_tmp/{quantifier}/{sample}/anndata.h5ad',
+        counts = '_tmp/{quantifier}/filtered/{sample}/anndata.light.h5ad',
     output:
         join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets',  'scrublet', 'doublet_type.tsv')
     params:
@@ -121,7 +108,7 @@ rule dbl_solo_model:
 
 rule dbl_solo:
     input:
-        counts = '_tmp/{quantifier}/{sample}/anndata.h5ad',
+        counts = '_tmp/{quantifier}/filtered/{sample}/anndata.light.h5ad',
         model = rules.dbl_solo_model.output
     output:
         pred = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets',  'solo', 'is_doublet.npy'),
@@ -166,7 +153,7 @@ rule dbl_solo_summary:
 
 rule dbl_socube:
     input:
-        counts = '_tmp/{quantifier}/{sample}/anndata.h5ad',
+        counts = '_tmp/{quantifier}/filtered/{sample}/anndata.light.h5ad',
     output:
         join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets',  'socube', 'final_result_0.5.csv')
     params:
