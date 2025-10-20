@@ -18,6 +18,7 @@ Notes
 """
 
 import argparse
+import os
 import re
 import sys
 from pathlib import Path
@@ -55,26 +56,73 @@ def _require(df: pd.DataFrame, cols: list[str], name: str) -> None:
 
 
 def expand_well(well_str: str) -> list[str]:
-    """Expand tokens like 'A1-A12,B1-B12,C3' → ['A1','A2',...,'A12','B1',...,'B12','C3']."""
+    """
+    Expand tokens like 'A1-A12,B1-B12,C3' → ['A1','A2',...,'A12','B1',...,'B12','C3'].
+    Supports row-changing ranges such as 'A1-B12' and 'A3-C5' in row-major order.
+    Plate width defaults to 12 (96-well); override with env var PLATE_WIDTH (e.g., 24 for 384-well).
+    """
+
+    def _row_to_idx(lbl: str) -> int:
+        # Spreadsheet-style base-26: A→0, B→1, ... Z→25, AA→26, etc.
+        v = 0
+        for ch in lbl:
+            if not ("A" <= ch <= "Z"):
+                raise ValueError(f"Malformed row label: {lbl!r}")
+            v = v * 26 + (ord(ch) - 64)  # A=1
+        return v - 1
+
+    def _mk(lbl: str, start_col: int, end_col: int) -> list[str]:
+        return [f"{lbl}{c}" for c in range(start_col, end_col + 1)]
+
+    width_env = os.getenv("PLATE_WIDTH", "12")
+    try:
+        PLATE_WIDTH = int(width_env)
+    except ValueError:
+        raise ValueError(f"PLATE_WIDTH must be an integer, got {width_env!r}")
+
     out: list[str] = []
+    pat = re.compile(r"^([A-Z]+)(\d+)$")
     for seg in str(well_str).split(","):
         s = seg.strip()
         if not s:
             continue
         if "-" in s:
-            a, b = [x.strip() for x in s.split("-")]
-            m1 = re.match(r"^([A-Z]+)(\d+)$", a)
-            m2 = re.match(r"^([A-Z]+)(\d+)$", b)
+            a, b = [x.strip() for x in s.split("-", 1)]
+            m1 = pat.match(a)
+            m2 = pat.match(b)
             if not (m1 and m2):
-                raise ValueError(f"Malformed well range: '{s}'")
+                raise ValueError(f"Malformed well range: {s!r}")
             r1, c1 = m1.groups()
             r2, c2 = m2.groups()
-            if r1 != r2:
-                raise NotImplementedError(f"Row-changing ranges not supported: '{s}' ({r1}->{r2})")
-            out.extend([f"{r1}{i}" for i in range(int(c1), int(c2) + 1)])
+            c1, c2 = int(c1), int(c2)
+
+            i1 = _row_to_idx(r1)
+            i2 = _row_to_idx(r2)
+            if i2 < i1:
+                raise ValueError(f"Decreasing row ranges not supported: {s!r}")
+
+            for i in range(i1, i2 + 1):
+                # Convert index back to label
+                j = i + 1
+                lbl = ""
+                while j > 0:
+                    j, rem = divmod(j - 1, 26)
+                    lbl = chr(65 + rem) + lbl
+
+                if i == i1 and i == i2:
+                    if c2 < c1:
+                        raise ValueError(f"End column < start column in {s!r}")
+                    out.extend(_mk(lbl, c1, c2))
+                elif i == i1:
+                    out.extend(_mk(lbl, c1, PLATE_WIDTH))
+                elif i == i2:
+                    out.extend(_mk(lbl, 1, c2))
+                else:
+                    out.extend(_mk(lbl, 1, PLATE_WIDTH))
         else:
-            if not re.match(r"^[A-Z]+[0-9]+$", s):
-                raise ValueError(f"Malformed well token: '{s}'")
+            m = pat.match(s)
+            if not m:
+                raise ValueError(f"Malformed well token: {s!r}")
             out.append(s)
     return out
 
@@ -259,7 +307,8 @@ def main() -> int:
     ]
     remainder = [c for c in out.columns if c not in base]
     out = out[base + remainder].sort_values("barcode", kind="stable").reset_index(drop=True)
-
+    out = out.loc[:, ~out.columns.duplicated(keep="first")]
+    
     out_path = a.output or f"barcode_info_{library_id}.tsv"
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     out.to_csv(out_path, sep="\t", index=False)
