@@ -43,7 +43,7 @@ def get_cellbender_outputs(wildcards):
 
 rule cellbender_run:
     input:
-        h5ad_light = '_tmp/{method}/raw/{sublib}/anndata.h5ad'
+        h5ad_light = '_tmp/{method}/filtered/{sample}/anndata.light.h5ad'
     output:
         h5 = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}.h5'),
         filtered_h5 = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}_filtered.h5'),
