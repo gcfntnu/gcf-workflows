@@ -3,9 +3,11 @@
 """
 
 """
+
 groupname = "_star_"
 
 import tempfile
+import time
 from typing import Iterable, Optional, Tuple, List
 
 
@@ -30,77 +32,73 @@ def _tso_window_args(tso: str, kmax: int = 15) -> str:
     return " ".join([f"-g TSO{k}=^{'N'*k}{tso}" for k in range(kmax + 1)])
 
 
-def star_extra_args(config):
-    """
-    Build STAR/STARsolo args (no read-order logic).
-
-    Modes (config['quant']['starsolo']['trim']):
-      - 'cutadapt' : trimming is upstream; STAR gets no adapter flags.
-      - 'starsolo'      : STAR trims in CellRanger4 mode with ONLY 5' adapter (Parse TSO).
-    """
+def star_extra_args(config, n_sublibs=None):
     q  = config["quant"]
     ss = q.get("starsolo", {})
 
-    kit = q["kit"].lower() # 'wt' | 'wt_mega' | 'wt_mini'
-    preprocessor = ss.get("preprocessor", "").lower() # 'none' | 'rt_merge' | 'splitcode' 
-    trimmer = ss.get("trimmer", "").lower() # 'none' | 'cutadapt' | 'starsolo'
-    use_velo   = ss.get("use_velo", False)
-    feature    = ss.get("feature_count", "GeneFull_Ex50pAS") # 'Gene', 'GeneFull_Ex50pAS'
-    multimaps  = ss.get("multi_mappers", "Unique")  # 'Unique', 'EM'
-    output_bam = ss.get("output_bam", False)
+    kit = q["kit"].lower()                         # 'wt' | 'wt_mega' | 'wt_mini'
+    preprocessor = ss.get("preprocessor", "").lower()  # 'none' | 'rt_merge' | 'splitcode'
+    trimmer      = ss.get("trimmer", "").lower()       # 'none' | 'cutadapt' | 'starsolo'
+    use_velo     = ss.get("use_velo", False)
+    feature      = ss.get("feature_count", "GeneFull_Ex50pAS")   # 'Gene' or 'GeneFull_Ex50pAS'
+    multimaps    = ss.get("multi_mappers", "Unique")             # 'Unique' | 'EM'
+    output_bam   = ss.get("output_bam", False)
 
-    # expected cells (kit-level, with optional override)
+    # expected cells
     n_by_kit = {"wt": 100_000, "wt_mega": 1_000_000, "wt_mini": 20_000}
     n_expected = int(q.get("n_expected_cells", n_by_kit[kit]))
-    n_expected = int(n_expected/(len(SUBLIBS) * 1.1))
 
-    args = ["--genomeLoad", "LoadAndKeep",
-            "--soloCellReadStats", "Standard",
-            "--soloBarcodeReadLength", "0",
-            "--outSAMtype", "None",
-            "--soloStrand", "Unstranded",
-            "--soloCellFilter", "None"]
+    if n_sublibs is None:
+        # falls back to global SUBLIBS length if present
+        try:
+            n_sublibs = len(SUBLIBS)  # noqa: F821
+        except NameError:
+            n_sublibs = 1
+    n_expected = max(1, int(n_expected / (n_sublibs * 1.1)))
 
-    # --soloFeatures: always include Gene; add feature if not 'Gene'; optionally add Velocyto
-    feat_tokens = ["Gene"]
+    out_tmp = f"/dev/shm/star.{int(time.time())}"
+
+    args = [
+        "--genomeLoad", "LoadAndKeep",
+        "--soloCellReadStats", "Standard",
+        "--soloBarcodeReadLength", "0",
+        "--soloStrand", "Unstranded",
+        "--soloCellFilter", "None",
+        "--limitBAMsortRAM", str(64_000_000_000),   # ~80 GB; safe for our /dev/shm=158G
+        "--outTmpDir", out_tmp
+    ]
+
+    # --soloFeatures
+    solo_feats = ["Gene"]
     if feature and feature != "Gene":
-        # STAR expects tokens like 'GeneFull_Ex50pAS' as a single token
-        feat_tokens.append(feature)
-    args += ["--soloFeatures", *feat_tokens]
+        solo_feats.append(feature)
     if use_velo:
-        args.append("Velocyto")
-        
-    if multimaps:
-        args += ["--soloMultiMappers", str(multimaps)]
+        solo_feats.append("Velocyto")
+    args += ["--soloFeatures", *solo_feats]
 
+    # Multi-mappers
+    if multimaps:
+        args += ["--soloMultiMappers", str(multimaps)]  # 'Unique' or 'EM'
+
+    # BAM output
     if output_bam:
-        args += ["--outSAMtype",  "BAM"]
-        
-    # format {preprocessor}
+        args += ["--outSAMtype", "BAM", "SortedByCoordinate"]
+    else:
+        args += ["--outSAMtype", "None"]
+
+    # CB whitelist matching mode by pipeline mode
     mode = f"{preprocessor}_{trimmer}"
-    if mode == "_":
+    if mode in {"_", "_cutadapt", "_starsolo", "rt_merge_cutadapt", "rt_merge_starsolo"}:
         args += ["--soloCBmatchWLtype", "EditDist_2"]
-    elif mode == "_cutadapt":
-        args += ["--soloCBmatchWLtype", "EditDist_2"]
-    elif mode == "_starsolo":
-        args += ["--soloCBmatchWLtype", "EditDist_2"]
-        args += ["--clipAdapterType", "CellRanger4",
-                 "--clip5pAdapterSeq", PRE_TSO_SEQ]
-    elif mode == "rt_merge_cutadapt":
-        args += ["--soloCBmatchWLtype", "EditDist_2"]
-    elif mode == "rt_merge_starsolo":
-        args += ["--soloCBmatchWLtype", "EditDist_2"]
-        args += ["--clipAdapterType", "CellRanger4",
-                 "--clip5pAdapterSeq", PRE_TSO_SEQ]
+        if mode.endswith("_starsolo"):
+            args += ["--clipAdapterType", "CellRanger4", "--clip5pAdapterSeq", PRE_TSO_SEQ]
     elif mode == "splitcode_starsolo":
-        args += ["--soloCBmatchWLtype", "Exact"]
-        args += ["--clipAdapterType", "CellRanger4",
-                 "--clip5pAdapterSeq", PRE_TSO_SEQ]
+        args += ["--soloCBmatchWLtype", "Exact",
+                 "--clipAdapterType", "CellRanger4", "--clip5pAdapterSeq", PRE_TSO_SEQ]
     elif mode == "splitcode_cutadapt":
         args += ["--soloCBmatchWLtype", "1MM"]
-    
     else:
-        ValueError(f"Unsupported trim mode for {preprocessor} preprocessor: {trimmer}")
+        raise ValueError(f"Unsupported trim mode: preprocessor={preprocessor}, trimmer={trimmer}")
 
     return args
 
@@ -227,7 +225,7 @@ rule parsebio_fastq_rt_merge:
     log:
         "data/tmp/singlecell/fastq/rt_merge/{sublib}.log" 
     threads:
-        4
+        12
     group:
         groupname
     container:
