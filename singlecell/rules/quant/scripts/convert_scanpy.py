@@ -815,22 +815,57 @@ def read_starsolo(fn, args, **kw):
     data = anndata.AnnData(X=X, var=features, obs=barcodes)
 
     velocyto_dir = None
-    for quant_model in ["Gene", "GeneFull", "GeneFull_Ex50pAS"]:
+    for quant_model in ["GeneFull_Ex50pAS", "GeneFull", "Gene"]:
         if quant_model in mtx_dir:
             velocyto_dir = mtx_dir.replace(os.path.sep + quant_model + os.path.sep, os.path.sep + "Velocyto" + os.path.sep)
+            break
+    if velocyto_dir and _USE_VELO:
+        velocyto_dir = velocyto_dir.replace(os.path.sep + "filtered", os.path.sep + "raw")
+        if os.path.exists(velocyto_dir):
             logger.debug(velocyto_dir)
-    if velocyto_dir and os.path.exists(velocyto_dir) and _USE_VELO:
-        velocyto_dir = velocyto_dir.replace("filtered", "raw")
-        usa_barcodes = pd.read_csv(join(velocyto_dir, "barcodes.tsv"), header=None).iloc[:, 0]
-        usa_index = [i for i, bc in enumerate(usa_barcodes) if bc in data.obs_names]
-        # let sparse be the old spmatrix format for time being (missing/partial support for sparrays in pandas, pytorch, sckikit learn)
-        S = mmread(join(velocyto_dir, "spliced.mtx")).T.tocsr()
-        U = mmread(join(velocyto_dir, "unspliced.mtx")).T.tocsr()
-        A = mmread(join(velocyto_dir, "ambiguous.mtx")).T.tocsr()
-        data.layers["spliced"] = S[usa_index, :]
-        data.layers["unspliced"] = U[usa_index, :]
-        data.layers["ambiguous"] = A[usa_index, :]
+            # --- read USA (cells×genes) + their indices ---
+            S = mmread(join(velocyto_dir, "spliced.mtx")).T.tocsr()
+            U = mmread(join(velocyto_dir, "unspliced.mtx")).T.tocsr()
+            A = mmread(join(velocyto_dir, "ambiguous.mtx")).T.tocsr()
 
+            usa_barcodes = pd.Index(pd.read_csv(join(velocyto_dir, "barcodes.tsv"), header=None).iloc[:,0].astype(str))
+            usa_feat     = pd.Index(pd.read_csv(join(velocyto_dir, "features.tsv"), sep="\t", header=None).iloc[:,0].astype(str))
+
+            # --- target spaces: data.obs_names / data.var_names ---
+            obs_idx = pd.Index(data.obs_names.astype(str))   # length = n_obs
+            var_idx = pd.Index(data.var_names.astype(str))   # length = n_vars
+
+            # ROW mapping: USA cells -> data cells (zero-pad missing)
+            row_pos = obs_idx.get_indexer(usa_barcodes)       # size n_usa_cells; -1 for not present
+            row_keep = row_pos >= 0
+            # R maps USA rows into data rows: shape (n_obs, n_usa_cells)
+            R = sp.csr_matrix(
+                (np.ones(row_keep.sum(), dtype=np.int8),
+                 (row_pos[row_keep], np.flatnonzero(row_keep))),
+                shape=(obs_idx.size, usa_barcodes.size),
+            )
+
+            # COL mapping: USA genes -> data genes (zero-pad missing)
+            col_pos = var_idx.get_indexer(usa_feat)           # size n_usa_genes; -1 for not present
+            col_keep = col_pos >= 0
+            # C maps USA cols into data cols: shape (n_usa_genes, n_vars)
+            C = sp.csr_matrix(
+                (np.ones(col_keep.sum(), dtype=np.int8),
+                 (np.flatnonzero(col_keep), col_pos[col_keep])),
+                shape=(usa_feat.size, var_idx.size),
+            )
+
+            # Apply both mappings: (R * USA) * C  -> shape (n_obs, n_vars)
+            S_full = (R @ S @ C).astype(np.int32)
+            U_full = (R @ U @ C).astype(np.int32)
+            A_full = (R @ A @ C).astype(np.int32)
+            
+            data.layers["spliced"]   = S_full
+            data.layers["unspliced"] = U_full
+            data.layers["ambiguous"] = A_full
+
+
+            
     sample_id = os.path.normpath(fn).split(os.path.sep)[-5]
     data.obs["sample_id"] = sample_id
     data.obs["sublib"] = [sample_id] * data.n_obs
@@ -874,9 +909,9 @@ def read_star(fn, args, **kw):
         shapeS = np.loadtxt(os.path.join(velocyto_dir, "spliced.mtx"), skiprows=2, max_rows=1, delimiter=" ")[0:2].astype(int)
         shapeA = np.loadtxt(os.path.join(velocyto_dir, "ambiguous.mtx"), skiprows=2, max_rows=1, delimiter=" ")[0:2].astype(int)
 
-        spliced = sparse.csr_matrix((mtxS[:, 2], (mtxS[:, 0] - 1, mtxS[:, 1] - 1)), shape=shapeS).transpose()
-        unspliced = sparse.csr_matrix((mtxU[:, 2], (mtxU[:, 0] - 1, mtxU[:, 1] - 1)), shape=shapeU).transpose()
-        ambiguous = sparse.csr_matrix((mtxA[:, 2], (mtxA[:, 0] - 1, mtxA[:, 1] - 1)), shape=shapeA).transpose()
+        spliced = sp.csr_matrix((mtxS[:, 2], (mtxS[:, 0] - 1, mtxS[:, 1] - 1)), shape=shapeS).transpose()
+        unspliced = sp.csr_matrix((mtxU[:, 2], (mtxU[:, 0] - 1, mtxU[:, 1] - 1)), shape=shapeU).transpose()
+        ambiguous = sp.csr_matrix((mtxA[:, 2], (mtxA[:, 0] - 1, mtxA[:, 1] - 1)), shape=shapeA).transpose()
         data.layers = {
             "spliced": spliced,
             "unspliced": unspliced,
