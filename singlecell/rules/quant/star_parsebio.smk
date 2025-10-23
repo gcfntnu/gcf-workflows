@@ -65,7 +65,7 @@ def star_extra_args(config, n_sublibs=None):
         "--soloStrand", "Unstranded",
         "--soloCellFilter", "None",
         "--limitBAMsortRAM", str(64_000_000_000),   # ~80 GB; safe for our /dev/shm=158G
-        "--outTmpDir", out_tmp
+        #"--outTmpDir", out_tmp
     ]
 
     # --soloFeatures
@@ -86,6 +86,18 @@ def star_extra_args(config, n_sublibs=None):
     else:
         args += ["--outSAMtype", "None"]
 
+    # Annotate BAM with single-cell and gene tags
+    if output_bam:
+        base_tags = [
+            "NH", "HI", "nM", "AS",     # core alignment tags
+            "CR", "UR", "CB", "UB",     # cell / UMI barcodes (raw + corrected)
+            "GX", "GN"                  # gene / transcript names and IDs
+        ]
+        if use_velo:
+            base_tags += ["sQ", "sM"]  # spliced / unspliced counts for velocyto mode
+
+        args += ["--outSAMattributes", *base_tags]
+    
     # CB whitelist matching mode by pipeline mode
     mode = f"{preprocessor}_{trimmer}"
     if mode in {"_", "_cutadapt", "_starsolo", "rt_merge_cutadapt", "rt_merge_starsolo"}:
