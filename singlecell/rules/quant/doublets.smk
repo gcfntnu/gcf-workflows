@@ -78,7 +78,7 @@ rule dbl_scrublet:
     output:
         join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets',  'scrublet', 'doublet_type.tsv')
     params:
-        script = src_gcf('scripts/run_scrublet.py')
+        script = src_gcf('scripts/run_scanpy_scrublet.py')
     threads:
         8
     shell:
