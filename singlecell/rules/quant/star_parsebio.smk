@@ -140,16 +140,16 @@ rule parsebio_whitelists:
         kit        = KIT,
         chemistry  = CHEM,
         trimmer    = config.get("quant",{}).get("starsolo",{}).get("trim","starsolo"),
-        outdir     = "data/tmp/singlecell/whitelists/",
+        outdir     = join(INTERIM_DIR, "singlecell/whitelists/"),
     output:
-        r1_R       = "data/tmp/singlecell/whitelists/r1_R.txt",
-        r1_T       = "data/tmp/singlecell/whitelists/r1_T.txt",
-        r1         = "data/tmp/singlecell/whitelists/r1.txt",
-        r2         = "data/tmp/singlecell/whitelists/r2.txt",
-        r3         = "data/tmp/singlecell/whitelists/r3.txt",
-        r1_wm      = "data/tmp/singlecell/whitelists/r1_wellmap.txt",
-        r2_wm      = "data/tmp/singlecell/whitelists/r2_wellmap.txt",
-        r3_wm      = "data/tmp/singlecell/whitelists/r3_wellmap.txt",  
+        r1_R       = join(INTERIM_DIR, "singlecell/whitelists/r1_R.txt"),
+        r1_T       = join(INTERIM_DIR, "singlecell/whitelists/r1_T.txt"),
+        r1         = join(INTERIM_DIR, "singlecell/whitelists/r1.txt"),
+        r2         = join(INTERIM_DIR, "singlecell/whitelists/r2.txt"),
+        r3         = join(INTERIM_DIR, "singlecell/whitelists/r3.txt"),
+        r1_wm      = join(INTERIM_DIR, "singlecell/whitelists/r1_wellmap.txt"),
+        r2_wm      = join(INTERIM_DIR, "singlecell/whitelists/r2_wellmap.txt"),
+        r3_wm      = join(INTERIM_DIR, "singlecell/whitelists/r3_wellmap.txt"),  
     shell:
         "python {params.script} "
         "--kit {params.kit} "
@@ -160,17 +160,17 @@ rule parsebio_whitelists:
 # Reformat (existing) → config.txt
 rule parsebio_splitcode_config_reformat:
     input:
-        r1_R = "data/tmp/singlecell/whitelists/r1_R.txt",
-        r1_T = "data/tmp/singlecell/whitelists/r1_T.txt",
-        r2   = "data/tmp/singlecell/whitelists/r2.txt",
-        r3   = "data/tmp/singlecell/whitelists/r3.txt",
+        r1_R = join(INTERIM_DIR, "singlecell/whitelists/r1_R.txt"),
+        r1_T = join(INTERIM_DIR, "singlecell/whitelists/r1_T.txt"),
+        r2   = join(INTERIM_DIR, "singlecell/whitelists/r2.txt"),
+        r3   = join(INTERIM_DIR, "singlecell/whitelists/r3.txt"),
     params:
         script    = src_gcf("scripts/splitcode_config.py"),
         chemistry = CHEM,
-        outdir    = "data/tmp/singlecell/fastq/splitcode/",
+        outdir    = join(INTERIM_DIR, "singlecell/fastq/splitcode"),
         read_idx  = 1,     # R2 in paired runs
     output:
-        config = "data/tmp/singlecell/fastq/splitcode/config.txt",
+        config = join(INTERIM_DIR, "singlecell/fastq/splitcode/config.txt"),
     shell:
         """
         python {params.script} \
@@ -187,16 +187,16 @@ rule parsebio_splitcode_config_reformat:
 # Convert R→T (new) → config_rt.txt
 rule parsebio_splitcode_config_rt:
     input:
-        r1_R = "data/tmp/singlecell/whitelists/r1_R.txt",
-        r1_T = "data/tmp/singlecell/whitelists/r1_T.txt",
+        r1_R = join(INTERIM_DIR, "singlecell/whitelists/r1_R.txt"),
+        r1_T = join(INTERIM_DIR, "singlecell/whitelists/r1_T.txt"),
     params:
         script    = src_gcf("scripts/splitcode_config.py"),
         chemistry = CHEM,
-        outdir    = "data/tmp/singlecell/fastq/rt_merge",
+        outdir    = join(INTERIM_DIR, "singlecell/fastq/rt_merge"),
         read_idx  = 1,   # keep consistent; override to 0 if running R2-only
         dist      = 1,
     output:
-        config_rt = "data/tmp/singlecell/fastq/rt_merge/config.txt",
+        config_rt = join(INTERIM_DIR, "singlecell/fastq/rt_merge/config.txt")
     shell:
         """
         python {params.script} \
@@ -218,8 +218,8 @@ rule parsebio_fastq_raw:
     input:
         unpack(get_raw_fastq)
     output:
-        R1 = "data/tmp/singlecell/fastq/{sublib}_R1.fastq.gz",
-        R2 = "data/tmp/singlecell/fastq/{sublib}_R2.fastq.gz",
+        R1 = join(INTERIM_DIR, "singlecell/fastq/{sublib}_R1.fastq.gz"),
+        R2 = join(INTERIM_DIR, "singlecell/fastq/{sublib}_R2.fastq.gz"),
     wildcard_constraints:
         sublib = r"[^/]+"
     shell:
@@ -227,16 +227,16 @@ rule parsebio_fastq_raw:
 
 rule parsebio_fastq_rt_merge:
     input:
-        R1 = "data/tmp/singlecell/fastq/{sublib}_R1.fastq.gz",
-        R2 = "data/tmp/singlecell/fastq/{sublib}_R2.fastq.gz",
-        conf = "data/tmp/singlecell/fastq/rt_merge/config.txt"
+        R1 = join(INTERIM_DIR, "singlecell/fastq/{sublib}_R1.fastq.gz"),
+        R2 = join(INTERIM_DIR, "singlecell/fastq/{sublib}_R2.fastq.gz"),
+        conf = join(INTERIM_DIR, "singlecell/fastq/rt_merge/config.txt")
     output:
-        R1 = temp("data/tmp/singlecell/fastq/rt_merge/{sublib}_R1.fastq.gz"),
-        R2 = temp("data/tmp/singlecell/fastq/rt_merge/{sublib}_R2.fastq.gz")
+        R1 = temp(join(INTERIM_DIR, "singlecell/fastq/rt_merge/{sublib}_R1.fastq.gz")),
+        R2 = temp(join(INTERIM_DIR, "singlecell/fastq/rt_merge/{sublib}_R2.fastq.gz"))
     wildcard_constraints:
         sublib = r"[^/]+"
     log:
-        "data/tmp/singlecell/fastq/rt_merge/{sublib}.log" 
+        join(INTERIM_DIR, "singlecell/fastq/rt_merge/{sublib}.log") 
     threads:
         12
     group:
@@ -248,16 +248,16 @@ rule parsebio_fastq_rt_merge:
 
 rule parsebio_fastq_splitcode:
     input:
-        R1 = "data/tmp/singlecell/fastq/{sublib}_R1.fastq.gz",
-        R2 = "data/tmp/singlecell/fastq/{sublib}_R2.fastq.gz",
-        conf = "data/tmp/singlecell/fastq/splitcode/config.txt"
+        R1 = join(INTERIM_DIR, "singlecell/fastq/{sublib}_R1.fastq.gz"),
+        R2 = join(INTERIM_DIR, "singlecell/fastq/{sublib}_R2.fastq.gz"),
+        conf = join(INTERIM_DIR, "singlecell/fastq/splitcode/config.txt")
     output:
-        R1 = temp("data/tmp/singlecell/fastq/splitcode/{sublib}_R1.fastq.gz"),
-        R2 = temp("data/tmp/singlecell/fastq/splitcode/{sublib}_R2.fastq.gz")
+        R1 = temp(join(INTERIM_DIR, "singlecell/fastq/splitcode/{sublib}_R1.fastq.gz")),
+        R2 = temp(join(INTERIM_DIR, "singlecell/fastq/splitcode/{sublib}_R2.fastq.gz"))
     wildcard_constraints:
         sublib = r"[^/]+"
     log:
-        "data/tmp/singlecell/fastq/splitcode/{sublib}.log" 
+        join(INTERIM_DIR, "singlecell/fastq/splitcode/{sublib}.log") 
     threads:
         4
     group:
@@ -270,12 +270,12 @@ rule parsebio_fastq_splitcode:
 
 rule parsebio_fastq_trim_cutadapt:
     input:
-        R1 = join("data/tmp/singlecell/fastq", PREP, "{sublib}_R1.fastq.gz"),
-        R2 = join("data/tmp/singlecell/fastq", PREP, "{sublib}_R2.fastq.gz")
+        R1 = join(INTERIM_DIR, "singlecell/fastq", PREP, "{sublib}_R1.fastq.gz"),
+        R2 = join(INTERIM_DIR, "singlecell/fastq", PREP, "{sublib}_R2.fastq.gz")
     output:
-        R1 = temp(join("data/tmp/singlecell/fastq", PREP, "cutadapt", "{sublib}_R1.fastq.gz")),
-        R2 = temp(join("data/tmp/singlecell/fastq", PREP, "cutadapt", "{sublib}_R2.fastq.gz")),
-        json = "data/tmp/singlecell/fastq/cutadapt/{sublib}.log.json"
+        R1 = temp(join(INTERIM_DIR, "singlecell/fastq", PREP, "cutadapt", "{sublib}_R1.fastq.gz")),
+        R2 = temp(join(INTERIM_DIR, "singlecell/fastq", PREP, "cutadapt", "{sublib}_R2.fastq.gz")),
+        json = join(INTERIM_DIR, "singlecell/fastq/cutadapt/{sublib}.log.json")
     wildcard_constraints:
         sublib = r"[^/]+"
     params:
@@ -284,7 +284,7 @@ rule parsebio_fastq_trim_cutadapt:
         l12    = LINKER_RC,
         minlen_R1 = config["quant"]["starsolo"].get("min_r1_len", 25),
         minlen_R2 = config['read_geometry'][1],
-        dirname = "data/tmp/singlecell/fastq/cutadapt/{sublib}"
+        dirname = join(INTERIM_DIR, "singlecell/fastq/cutadapt/{sublib}")
     threads:
         12
     group:
@@ -308,13 +308,13 @@ rule parsebio_fastq_trim_cutadapt:
 
 rule parsebio_starsolo_quant:
     input:
-        R1 = join("data/tmp/singlecell/fastq", PREP, TRIMMER, "{sublib}_R1.fastq.gz"),
-        R2 = join("data/tmp/singlecell/fastq", PREP, TRIMMER, "{sublib}_R2.fastq.gz"),
+        R1 = join(INTERIM_DIR, "singlecell/fastq", PREP, TRIMMER, "{sublib}_R1.fastq.gz"),
+        R2 = join(INTERIM_DIR, "singlecell/fastq", PREP, TRIMMER, "{sublib}_R2.fastq.gz"),
         genome = join(REF_DIR, 'index', 'genome', 'splitpipe', 'SA'),
-        wl_1 = "data/tmp/singlecell/whitelists/r1.txt",
-        wl_2 = "data/tmp/singlecell/whitelists/r2.txt",
-        wl_3 = "data/tmp/singlecell/whitelists/r3.txt",
-        #conf = "data/tmp/singlecell/fastq/splitcode/config_rt.txt"
+        wl_1 = join(INTERIM_DIR, "singlecell/whitelists/r1.txt"),
+        wl_2 = join(INTERIM_DIR, "singlecell/whitelists/r2.txt"),
+        wl_3 = join(INTERIM_DIR, "singlecell/whitelists/r3.txt"),
+        #conf = join(INTERIM_DIR, "singlecell/fastq/splitcode/config_rt.txt")
     threads:
         48
     params:
@@ -411,9 +411,9 @@ rule parsebio_starsolo_clean_shmem:
 
 rule parsebio_starsolo_barcode_sublib:
     input:
-        r1_wm      = "data/tmp/singlecell/whitelists/r1_wellmap.txt",
-        r2_wm      = "data/tmp/singlecell/whitelists/r2_wellmap.txt",
-        r3_wm      = "data/tmp/singlecell/whitelists/r3_wellmap.txt",
+        r1_wm      = join(INTERIM_DIR, "singlecell/whitelists/r1_wellmap.txt"),
+        r2_wm      = join(INTERIM_DIR, "singlecell/whitelists/r2_wellmap.txt"),
+        r3_wm      = join(INTERIM_DIR, "singlecell/whitelists/r3_wellmap.txt"),
         barcodes = join(QUANT_INTERIM, "parsebio_starsolo", "{sublib}", "Solo.out", STARSOLO_FEATURE, "raw", "barcodes.tsv")
     output:
         info = join(QUANT_INTERIM, "parsebio_starsolo", "{sublib}", "barcode_info.tsv")

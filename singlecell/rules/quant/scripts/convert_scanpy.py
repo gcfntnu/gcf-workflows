@@ -11,6 +11,7 @@ import re
 import pathlib
 import csv
 import logging
+import gzip
 from typing import Dict, Optional
 from os.path import join, dirname
 
@@ -1244,92 +1245,89 @@ def read_h5ad_aggr(fn, args, **kw):
     """
     raise NotImplementedError
 
+
 def _mtx_features(data, version=3, feature_type="Gene Expression"):
     """
-    Extract features for mtx file.
+    Build features table for MTX export.
 
-    Parameters
-    ----------
-    data : sc.AnnData
-        AnnData object containing the data.
-    version : int, optional
-        Version of the mtx file, by default 3.
-    feature_type : str, optional
-        Type of feature, by default "Gene Expression".
-
-    Returns
-    -------
-    pd.DataFrame
-        DataFrame containing the features.
+    version < 3  -> genes.tsv     : gene_id, gene_name
+    version >= 3 -> features.tsv  : gene_id, gene_name, feature_type
     """
-    if version < 3:
-        features = pd.Series(data.var_names)
+    # gene_id
+    if "gene_id" in data.var.columns:
+        gene_id = data.var["gene_id"].astype(str).copy()
     else:
-        keep_cols = []
-        if "gene_id" in data.var.columns:
-            keep_cols = ["gene_id"]
-        gene_name_present = False
-        for gene_alias in _GENE_SYMBOL_ALIASES:
-            if gene_alias in data.var.columns:
-                keep_cols.append(gene_alias)
-                gene_name_present = True
-                break
-        if keep_cols:
-            features = data.var[keep_cols].copy()
-            if "gene_id" not in features:
-                features["gene_id"] = data.var_names
-            if not gene_name_present:
-                features = features[["gene_id", "gene_id"]]
-            else:
-                features = features[["gene_id", gene_alias]]
-        else:
-            features = pd.DataFrame(data.var_names, columns=["gene_id"])
-            features["gene_name"] = data.var_names
-            if "feature_type" in data.var.columns:
-                features["feature_type"] = data.var["feature_type"].copy()
+        gene_id = pd.Series(data.var_names.astype(str), index=data.var.index, name="gene_id")
 
-    return features
+    # gene_name (pick first alias found; else mirror gene_id)
+    symbol_col = next((a for a in _GENE_SYMBOL_ALIASES if a in data.var.columns), None)
+    if symbol_col is not None:
+        gene_name = data.var[symbol_col].astype(str).copy()
+    else:
+        gene_name = gene_id.copy()
+
+    if version < 3:
+        out = pd.DataFrame({"gene_id": gene_id.values, "gene_name": gene_name.values})
+        return out
+
+    # v3: include feature_type (prefer column if present; else parameter)
+    if "feature_type" in data.var.columns:
+        ft = data.var["feature_type"].astype(str).copy()
+    else:
+        ft = pd.Series([feature_type] * data.var.shape[0], index=data.var.index, name="feature_type")
+
+    out = pd.DataFrame({
+        "gene_id": gene_id.values,
+        "gene_name": gene_name.values,
+        "feature_type": ft.values,
+    })
+    return out
 
 def write_mtx(data, mtx_file, feature_type="Gene Expression", enforce_float=False, version="v2"):
-    """
-    Write data to mtx file.
 
-    Parameters
-    ----------
-    data : sc.AnnData
-        AnnData object containing the data.
-    mtx_file : str
-        Path to the output mtx file.
-    feature_type : str, optional
-        Type of feature, by default "Gene Expression".
-    enforce_float : bool, optional
-        Whether to enforce float type, by default False.
-    version : str, optional
-        Version of the mtx file, by default "v2".
-    """
+    assert version in {"v2","v3"}
+    compress = str(mtx_file).endswith(".gz")
+
+    X = data.X
+    smtx = sp.coo_matrix(X.T) if not sp.issparse(X) else X.T.tocoo()
     if enforce_float:
-        smtx = data.X.T.tocoo().asfptype()
+        smtx = smtx.asfptype(); field = "real"
     else:
-        smtx = data.X.T.tocoo()
+        field = "integer" if np.issubdtype(smtx.dtype, np.integer) else "real"
 
-    barcodes = pd.Series(data.obs_names)
-    features = pd.Series(data.var_names)
     output_dir = os.path.dirname(mtx_file)
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
-    if str(mtx_file).endswith(".gz"):
-        import gzip
+
+    # matrix.mtx(.gz)
+    if compress:
         with gzip.open(mtx_file, "wb") as fh:
-            mmwrite(fh, smtx, field="integer")
-        pd.Series(barcodes).to_csv(os.path.join(output_dir, "barcodes.tsv.gz"), index=False, header=False, compression="gzip")
-        features = _mtx_features(data, version=3)
-        features.to_csv(os.path.join(output_dir, "features.tsv.gz"), index=False, header=False, compression="gzip", sep="\t")
+            mmwrite(fh, smtx, field=field)
     else:
         with open(mtx_file, "wb") as fh:
-            mmwrite(fh, smtx, field="integer")
-        pd.Series(barcodes).to_csv(os.path.join(output_dir, "barcodes.tsv"), index=False, header=False)
-        features = _mtx_features(data, version=2)
-        features.to_csv(os.path.join(output_dir, "genes.tsv"), index=False, header=False)
+            mmwrite(fh, smtx, field=field)
+
+    # barcodes
+    bc_name = "barcodes.tsv.gz" if compress else "barcodes.tsv"
+    pd.Series(data.obs_names.astype(str)).to_csv(
+        os.path.join(output_dir, bc_name), index=False, header=False, sep="\t",
+        compression=("gzip" if compress else None)
+    )
+
+    # features/genes per schema
+    if version == "v3":
+        ft_name = "features.tsv.gz" if compress else "features.tsv"
+        feats = _mtx_features(data, version=3, feature_type=feature_type)
+    else:
+        ft_name = "genes.tsv.gz" if compress else "genes.tsv"
+        feats = _mtx_features(data, version=2, feature_type=feature_type)
+
+    feats.to_csv(
+        os.path.join(output_dir, ft_name),
+        index=False, header=False, sep="\t",
+        compression=("gzip" if compress else None)
+    )
+
 
 def write_parse_biosciences(data, mtx_filename):
     """
