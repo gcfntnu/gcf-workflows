@@ -55,6 +55,21 @@ def argparser() -> argparse.Namespace:
     return p.parse_args()
 
 
+def robust_well_dict(conf):
+    """Parsebio's split-pipe does not like int-like as sammple-ids and prefixes outputs with `sample_`
+    """
+    renamed = {}
+    for k, v in conf['wells'].items():
+        try:
+            i = int(k)
+            pb_id = f"sample_{i}"
+            if 'Sample_ID' in v:
+                v['Sample_ID'] = pb_id
+            renamed[pb_id] =  v
+        except (ValueError, TypeError):
+            renamed[k] = v
+    print(renamed)
+    return renamed
 
 def main() -> int:
     """Entry point.
@@ -73,7 +88,8 @@ def main() -> int:
         raise ValueError("configfile must contain a 'wells' mapping (Sample_ID → sample metadata)")
 
     # Sample metadata table (index = Sample_ID)
-    sample_info = pd.DataFrame.from_dict(conf["wells"], orient="index")
+    well_dict =  robust_well_dict(conf)
+    sample_info = pd.DataFrame.from_dict(well_dict, orient="index")
 
     # Read SplitPipe cell metadata
     cm = pd.read_csv(args.cell_metadata, index_col=0)

@@ -1,7 +1,18 @@
 #-*- mode:snakemake -*-
+def rename_ints_to_samples(items):
+    """Parsebio's split-pipe does not like int-like as sammple-ids and prefixes outputs with `sample_`
+    """
+    renamed = []
+    for x in items:
+        try:
+            i = int(x)
+            renamed.append(f"sample_{i}")
+        except (ValueError, TypeError):
+            renamed.append(x)
+    return renamed
 
 SUBLIBS = SAMPLES
-PARSEBIO_SAMPLES = list(config['wells'].keys())
+PARSEBIO_SAMPLES = rename_ints_to_samples(list(config['wells'].keys()))
 SPLITPIPE_AGGR = join(QUANT_INTERIM, 'aggregate', 'splitpipe')
 
 
@@ -63,8 +74,8 @@ rule splitpipe_quant:
     params:
         genome_dir = join(REF_DIR, 'index', 'genome', 'splitpipe'),
         out_dir = join(QUANT_INTERIM, 'splitpipe', '{sublib}'),
-        chemistry = config['quant']['splitpipe']['chemistry'],
-        kit = config['quant']['splitpipe']['kit']
+        chemistry = config['quant']['chemistry'],
+        kit = config['quant']['kit']
     threads:
         12
     priority:
