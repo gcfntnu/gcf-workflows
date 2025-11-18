@@ -51,7 +51,7 @@ make_option(c("-R", "--templateFile"),
             help="path to the directory R markdown template [default: %default]."),
 
 make_option(c("-F", "--featuresToRemove"),
-            default="alignment_not_unique,ambiguous,no_feature,not_aligned,too_low_aQual",
+            default=NULL,
             dest="FTR",
             help="names of the features to be removed, more than once can be specified [default: %default]"),
 
@@ -135,15 +135,23 @@ parser <- OptionParser(usage="usage: %prog [options]",
 					   epilogue="For comments, bug reports etc... please contact Hugo Varet <hugo.varet@pasteur.fr>")
 opt <- parse_args(parser, args=commandArgs(trailingOnly=TRUE), positional_arguments=0)$options
 
-# get options and arguments
-workDir <- getwd()
-projectName <- opt$projectName                       # name of the project
-author <- opt$author	                             # author of the statistical analysis/report
-targetFile <- opt$targetFile                         # path to the design/target file
-rawDir <- "."       						 # path to the directory containing raw counts files
-countsFile <- opt$countsFile
+workDir <- getwd()  # original project root
+projectName <- opt$projectName
+author <- opt$author
+
+## make inputs absolute so they still work after setwd()
+targetFile <- normalizePath(opt$targetFile)
+countsFile <- normalizePath(opt$countsFile)
+metaFile   <- normalizePath(opt$metaFile)
+templateFile <- normalizePath(opt$templateFile)
+
+rawDir <- "."  ## leave as ".", used only in checkParameters in original wd
 output <- opt$output
-featuresToRemove <- unlist(strsplit(opt$FTR, ","))   # names of the features to be removed (specific HTSeq-count information and rRNA for example)
+featuresToRemove <- if (is.null(opt$FTR) || opt$FTR == "") {
+    NULL
+} else {
+    unlist(strsplit(opt$FTR, ","))
+}
 varInt <- opt$varInt                                 # factor of interest
 condRef <- opt$condRef                               # reference biological condition
 batch <- opt$batch                                   # blocking factor: NULL (default) or "batch" for example
@@ -296,10 +304,12 @@ txi.f <- lapply(txi, function(x) if(is.matrix(x)) return(x[,rownames(target)]) e
 
 
 ## load features meta info
-info <- read.delim(opt$metaFile, sep="\t", check.names=FALSE, as.is=TRUE)
+info <- read.delim(metaFile, sep="\t", check.names=FALSE, as.is=TRUE)
+print(head(info))
 if (opt$featureType == "gene"){
     i <- grep("gene_id.?", colnames(info))[1]
     rownames(info) <- info[,i]
+    print(head(info))
     keep.cols <- intersect(c("gene_id", "gene_name", "gene_biotype", "seqname"), colnames(info))
 }
 
@@ -311,6 +321,12 @@ if (opt$featureType == "transcript"){
 
 info <- info[,keep.cols]
 info <- info[rownames(counts),]
+
+## from here on, write everything directly into `output`
+dir.create(output, recursive = TRUE, showWarnings = FALSE)
+setwd(output)
+workDir <- getwd() 
+
 
 ## description plots
 majSequences <- descriptionPlots(counts=counts, group=target[,varInt], col=colors)
@@ -390,8 +406,6 @@ exportResults.DESeq2 <- function(out.DESeq2, group, alpha=0.05, info=NULL, expor
     
   dds <- out.DESeq2$dds
   results <- out.DESeq2$results
-  
-  # comptages bruts et normalis?s
   counts <- data.frame(Id=rownames(counts(dds)), counts(dds), round(counts(dds, normalized=TRUE)))
   colnames(counts) <- c("Id", colnames(counts(dds)), paste0("norm.", colnames(counts(dds))))
   # baseMean avec identifiant
@@ -406,7 +420,6 @@ exportResults.DESeq2 <- function(out.DESeq2, group, alpha=0.05, info=NULL, expor
   complete <- list()
   for (name in names(results)){
     complete.name <- base
-
     # ajout d'elements depuis results
     res.name <- data.frame(Id=rownames(results[[name]]),
                            FoldChange=round(2^(results[[name]][,"log2FoldChange"]), 3),
@@ -466,7 +479,6 @@ for (name in names(summaryResults$complete)){
 }
 Gene_ID <- rownames(metacore)
 metacore <- cbind(Gene_ID, metacore)
-print(head(metacore))
 
 
 # save image of the R session
@@ -478,14 +490,15 @@ writeReport.DESeq2 <- function(target, counts, out.DESeq2, summaryResults, majSe
                                featuresToRemove, varInt, condRef, batch, fitType,
                                cooksCutoff, independentFiltering, alpha, pAdjustMethod,
                                typeTrans, locfunc, colors, info=NULL){
-  rmarkdown::render(input=opt$templateFile,
+  rmarkdown::render(input=templateFile,
                     output_file=paste0(projectName, "_report.html"),
                     output_dir=workDir,
                     intermediates_dir=workDir,
                     knit_root_dir=workDir,
                     run_pandoc=TRUE,
                     quiet=TRUE,
-                    clean=TRUE)
+                    clean=TRUE
+		    )
   cat("HTML report created\n")
 }
 
@@ -504,19 +517,7 @@ writeReport.DESeq2(target=target, counts=viz.counts, out.DESeq2=out.DESeq2, summ
                    typeTrans=typeTrans, locfunc=locfunc, colors=colors)
 
 
-## mv to output folder
-if (!dir.exists(output)){
-    dir.create(output, showWarnings=TRUE, recursive=TRUE)
-}
 
-metacore.fn <- file.path(output, "metacore_input.txt")
-write.table(metacore, file=metacore.fn, sep="\t", row.names=FALSE, dec=".", quote=FALSE)
-file.rename("tables", file.path(output, "tables"))
-file.rename("figures", file.path(output, "figures"))
-report.name <- paste(projectName, "report.html", sep="_")
-file.rename(report.name, file.path(output, report.name))
 
-#unlink("tables", recursive = TRUE)
-#unlink("figures", recursive = TRUE)
-#unlink(report.name)
+write.table(metacore, file="metacore_input.txt", sep="\t", row.names=FALSE, dec=".", quote=FALSE)
 
