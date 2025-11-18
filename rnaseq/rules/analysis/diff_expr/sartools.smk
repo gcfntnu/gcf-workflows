@@ -91,3 +91,7 @@ rule sartools_deseq2:
         'docker://' + config['docker']['default']
     shell:
         'python {params.script} {input} {output}'
+
+rule sartools_all:
+    input:
+        expand(join(QUANT_INTERIM, '{quant}', 'sartools', '{model_name}', 'tables', 'excel_format'), model_name=config['models'].keys(), quant=config['quant']['method'])
