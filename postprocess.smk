@@ -67,7 +67,7 @@ rule multiqc_report:
         report = join(BFQ_INTERIM, 'multiqc_{}.html'.format(PROJECT_ID)),
     params:
         modules = get_mqc_modules(),
-        extra_args = '-f -q --interactive ',
+        extra_args = '-f --interactive ',
         search_paths = lambda wildcards: bfq_search_paths()
     container:
         'docker://' + config['docker']['multiqc']

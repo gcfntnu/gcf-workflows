@@ -29,9 +29,8 @@ def get_software_versions(args):
         branch = head_fh.read().split('/')[-1].rstrip()
     with open(os.path.join(args.repo_dir, ".git", "refs", "heads", branch), 'r') as commit_fh:
         commit = commit_fh.read().rstrip()
-    versions["Analysis pipeline"] = "github.com/gcfntnu/gcf-workflows/tree/{} commit {}".format(branch, commit).encode()
-    #version["Workflow"] = args.workflow
-    software = '\n'.join('{}: {}'.format(key,val) for (key,val) in versions.items())
+    versions["Analysis pipeline"] = "github.com/gcfntnu/gcf-workflows/tree/{} commit {}".format(branch, commit)
+    software = '\n'.join(f"{key}: {val}" for key, val in versions.items())
     return software
 
 
@@ -42,69 +41,137 @@ def str_read_geometry(read_geometry):
         rg_str = 'Paired end - forward read length (R1): {}, reverse read length (R2): {}'.format(read_geometry[0], read_geometry[1])
     return rg_str
 
+
 class DummyPep:
     def __init__(self):
         self.config = {}
+        self.samples = {}
         self.sample_table = None
 
-    def _empty_col(self, col):
-        if all(col==''):
-            return True
-        if col.isna().all():
-            return True
-        if col.isnull().all():
-            return True
-        return False
+        # flags
+        self.subsamples = False
+        self.multiple_flowcells = False
+        self.multiple_projects = False
+        self.single_cell = False
 
-    def set_sample_table():
-        samples = self.config['samples']
-        for sample_id, sample_conf in self.config['samples'].items():
-            if 'I1' in sample_conf:
+    def _empty_col(self, col):
+        """Return True if a pandas Series is entirely empty / NA / ''."""
+        # col == '' will be False for non-string entries
+        return ((col == '') | col.isna()).all()
+
+    def set_sample_table(self):
+        samples = self.config.get("samples", {}) or {}
+        self.samples = samples
+
+        subsamples = False
+        multiple_flowcells = False
+        multiple_projects = False
+        single_cell = False
+
+        for sample_id, sample_conf in samples.items():
+            # Treat presence of I1 as single-cell (or adjust logic as needed)
+            if sample_conf.get("I1"):
                 single_cell = True
-            if ',' in sample_conf.get('R1', ''):
+
+            r1 = sample_conf.get("R1", "")
+            r2 = sample_conf.get("R2", "")
+            proj = sample_conf.get("Project_ID", "")
+            flow = sample_conf.get("Flowcell_ID", "")
+
+            # Any comma in R1/R2 means subsamples
+            if "," in r1 or "," in r2:
                 subsamples = True
-            if ',' in sample_conf.get('R2', ''):
-                subsamples = True
-            if ',' in sample_conf.get('Project_ID', ''):
-                if len(set(sample_conf['Project_ID'].split(','))) > 1: 
+
+            # Multiple projects if project list has >1 unique entries
+            if "," in proj:
+                if len(set(proj.split(","))) > 1:
                     multiple_projects = True
-            if ',' in sample_conf.get('Flowcell_ID', ''):
-                if len(set(sample_conf['Flowcell_ID'].split(','))) > 1: 
+
+            # Multiple flowcells if flowcell list has >1 unique entries
+            if "," in flow:
+                if len(set(flow.split(","))) > 1:
                     multiple_flowcells = True
+
+        self.subsamples = subsamples
+        self.multiple_flowcells = multiple_flowcells
+        self.multiple_projects = multiple_projects
+        self.single_cell = single_cell
 
     def from_configfile(self, fn):
         with open(fn) as fh:
             self.config = yaml.safe_load(fh)
+
         self.set_sample_table()
 
-        df = pd.DataFrame.from_dict(samples, orient='index')
-        if subsamples:
-            drop_cols = [i for i in df.columns if i.endswith('_md5sum')]
-            if multiple_flowcell:
-                drop_cols.extend(['Flowcell_Name', 'Flowcell_ID'])
-            else:
-                df['Flowcell_Name'] = df['Flowcell_Name'].apply(lambda x: x.split(',')[0])
-                df['Flowcell_ID'] = df['Flowcell_ID'].apply(lambda x: x.split(',')[0])
-            if multiple_projects:
-                drop_cols.append('Project_ID')
-            else:
-                df['Project_ID'] = df['Project_ID'].apply(lambda x: x.split(',')[0])
-        df = df.drop(drop_cols, axis=1, errors='ignore')
-        df = df.set_index('Sample_ID')
-        df = df.reset_index()
-        df = df.rename(columns={'Sample_ID': 'sample_name'})
-        self.sample_table = df
-        
-def create_mqc_config(args):
-    if args.pep == 'config.yaml':
-        pep = DummyPep().from_config(args.pep)
-    else:
-        import peppy
-        pep = peppy.Project(args.pep.name)
-    mqc_conf = yaml.load(args.config_template, Loader=yaml.Loader)
-    title = ','.join(pep.config.get('Project_ID', [args.project_id]))
-    mqc_conf['title'] = title
+        # samples is a dict mapping Sample_ID -> dict of attributes
+        df = pd.DataFrame.from_dict(self.samples, orient="index")
 
+        # If the index is actually Sample_ID, keep that knowledge
+        if df.index.name is None:
+            df.index.name = "Sample_ID"
+
+        if self.subsamples:
+            drop_cols = [c for c in df.columns if c.endswith("_md5sum")]
+
+            # Flowcell columns
+            if "Flowcell_Name" in df.columns or "Flowcell_ID" in df.columns:
+                if self.multiple_flowcells:
+                    # Can't safely collapse; just drop these
+                    drop_cols.extend(
+                        [c for c in ("Flowcell_Name", "Flowcell_ID") if c in df.columns]
+                    )
+                else:
+                    # Collapse comma-separated flowcell entries to first element
+                    if "Flowcell_Name" in df.columns:
+                        df["Flowcell_Name"] = df["Flowcell_Name"].astype(str).str.split(",").str[0]
+                    if "Flowcell_ID" in df.columns:
+                        df["Flowcell_ID"] = df["Flowcell_ID"].astype(str).str.split(",").str[0]
+
+            # Project column
+            if "Project_ID" in df.columns:
+                if self.multiple_projects:
+                    drop_cols.append("Project_ID")
+                else:
+                    df["Project_ID"] = df["Project_ID"].astype(str).str.split(",").str[0]
+
+            df = df.drop(columns=drop_cols, errors="ignore")
+
+        # Normalize to have a 'sample_name' column
+        if "Sample_ID" in df.columns:
+            # Sample_ID was in columns (unlikely with orient="index", but safe)
+            df = df.set_index("Sample_ID")
+        else:
+            # Use index as Sample_ID
+            df = df.copy()
+            df.index.name = "Sample_ID"
+
+        df = df.reset_index().rename(columns={"Sample_ID": "sample_name"})
+        self.sample_table = df
+        return self
+
+def create_mqc_config(args):
+    pep_path = args.pep.name
+    if os.path.basename(pep_path) == "pep_config.yaml":
+        import peppy
+        pep = peppy.Project(pep_path)
+    else:
+        pep = DummyPep().from_configfile(pep_path)
+    
+    mqc_conf = yaml.load(args.config_template, Loader=yaml.Loader)
+    project_id = pep.config.get('Project_ID', args.project_id)
+    if isinstance(project_id, str):
+        title = project_id
+    else:
+        title = ",".join(map(str, project_id))
+    mqc_conf['title'] = title
+    rg = pep.config.get("read_geometry", args.read_geometry)
+    # normalize to list of ints/strings
+    if isinstance(rg, str):
+        # e.g. "151,151" → ["151","151"]
+        rg = [x.strip() for x in rg.split(",")]
+    elif not isinstance(rg, (list, tuple)):
+        rg = [rg]
+    
     header_text = args.header_template.read()
     mqc_conf['intro_text'] = header_text.format(pname=title)
     software = get_software_versions(args)
@@ -114,7 +181,7 @@ def create_mqc_config(args):
     # ommit {'Contact E-mail': contact},
     report_header = [
         {'Sequencing Platform': pep.config.get('machine', args.machine)},
-        {'Read Geometry': str_read_geometry(pep.config['read_geometry'])},
+        {'Read Geometry': str_read_geometry(rg)},
         {'Organism': pep.config.get('organism', args.organism).replace('_', ' ').title()},
         {'Lib prep kit': pep.config.get('libprepkit', args.libkit)},
         {'Workflow': pep.config.get('workflow', args.workflow)}
@@ -122,7 +189,7 @@ def create_mqc_config(args):
 
     mqc_conf['report_header_info'] = report_header
 
-    if len(pep.config['read_geometry']) == 1:
+    if len(rg) == 1:
         mqc_conf['extra_fn_clean_exts'].append('_R1')
 
  
@@ -139,7 +206,7 @@ def create_mqc_config(args):
     s_df.dropna(how='all', axis=1, inplace=True)
     s_df = s_df.round(2)
     s_df = s_df.fillna('')
-    
+
     COL_SCALE = {
         'RIN': 'RdYlGn',
         '260/230': 'BuGn',
@@ -147,11 +214,13 @@ def create_mqc_config(args):
         'Concentration': 'BuGn'
     }
     
+
     def _get_colors(df, col_name, scale='pairs'):
-        if not col_name in df.columns:
+        if col_name not in df.columns:
             return None
         col = df[col_name]
         levels = col.astype('category').cat.categories
+
         if scale == 'pairs':
             cols = list(map(colors.to_hex, cm.tab20.colors))[1:15:2]
         else:
@@ -159,10 +228,9 @@ def create_mqc_config(args):
                 cols = list(map(colors.to_hex, cm.tab10.colors))
             else:
                 cols = list(map(colors.to_hex, cm.tab20.colors))
-                
-        
-        levels = col.astype('category').cat.categories
-        return {k:cols[i] for i,k in enumerate(levels)}
+
+        return {k: cols[i] for i, k in enumerate(levels)}
+
 
     BGCOLS = {}
     for col_name in s_df.columns:
@@ -172,42 +240,39 @@ def create_mqc_config(args):
             BGCOLS[col_name] = _get_colors(s_df, col_name, scale='pairs')
         else:
             pass
-    
 
-    s_dict = s_df.to_dict(orient='index')
+    if s_df.shape[-1] > 0: # only if any extra cols exists
+        pconfig = {}
+        #pconfig['title'] = 'GCF'
+        desc = pep.config.get('descriptors', {})
+        for col in list(s_df.columns.values):
+            pconfig[col] = {'format': '{}', 'namespace': 'gcf'}
+            if col not in desc.keys():
+                continue
+            if 'max' in desc[col]:
+                pconfig[col]['max'] = desc[col]['max']
+            if 'min' in desc[col]:
+                pconfig[col]['min'] = desc[col]['min']
+            if 'placement' in desc[col]:
+                pconfig[col]['placement'] = desc[col]['placement']
+            if 'display_name' in desc[col]:
+                pconfig[col]['title'] = desc[col]['display_name']
+            if 'description' in desc[col]:
+                pconfig[col]['description'] = desc[col]['description']
+            if 'suffix' in desc[col]:
+                pconfig[col]['suffix'] = ' ' + desc[col]['suffix']
+            if col in COL_SCALE:
+                pconfig[col]['scale'] = COL_SCALE[col]
+            if col in BGCOLS:
+                pconfig[col]['bgcols'] = BGCOLS[col]
 
-    pconfig = {}
-    #pconfig['title'] = 'GCF'
-    desc = pep.config.get('descriptors', {})
-    for col in list(s_df.columns.values):
-        pconfig[col] = {'format': '{}', 'namespace': 'gcf'}
-        if col not in desc.keys():
-            continue
-        if 'max' in desc[col]:
-            pconfig[col]['max'] = desc[col]['max']
-        if 'min' in desc[col]:
-            pconfig[col]['min'] = desc[col]['min']
-        if 'placement' in desc[col]:
-            pconfig[col]['placement'] = desc[col]['placement']
-        if 'display_name' in desc[col]:
-            pconfig[col]['title'] = desc[col]['display_name']
-        if 'description' in desc[col]:
-            pconfig[col]['description'] = desc[col]['description']
-        if 'suffix' in desc[col]:
-            pconfig[col]['suffix'] = ' ' + desc[col]['suffix']
-        if col in COL_SCALE:
-            pconfig[col]['scale'] = COL_SCALE[col]
-        if col in BGCOLS:
-            pconfig[col]['bgcols'] = BGCOLS[col]
-
-    general_statistics = {
-        'plot_type': 'generalstats',
-        'pconfig': [pconfig],
-        'data': s_df.to_dict(orient='index')
-    }
-    custom_data = {'general_statistics': general_statistics}
-
-    mqc_conf['custom_data'] = custom_data
+        general_statistics = {
+            'plot_type': 'generalstats',
+            'pconfig': [pconfig],
+            'data': s_df.to_dict(orient='index')
+        }
+        custom_data = {'general_statistics': general_statistics}
+        mqc_conf['custom_data'] = custom_data
 
     return mqc_conf
 

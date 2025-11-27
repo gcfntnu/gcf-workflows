@@ -213,7 +213,7 @@ rule splitpipe_to_10x_mtx:
 
 rule splitpipe_scanpy_pp_ipynb:
     input:
-        get_filtered_anndata
+        join(QUANT_INTERIM, 'aggregate', 'splitpipe', 'scanpy', '{aggr_id}_filtered.h5ad')
     output:
         preprocessed = join(QUANT_INTERIM, 'aggregate', 'splitpipe', 'scanpy', '{aggr_id}_preprocessed.h5ad'),
     log:
@@ -228,11 +228,11 @@ rule splitpipe_scanpy_pp_ipynb:
 
 rule splitpipe_scanpy_pp_ipynb_html:
     input:
-        join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_preprocessed.h5ad')
+        join(QUANT_INTERIM, 'aggregate', 'splitpipe', 'scanpy', '{aggr_id}_preprocessed.h5ad')
     output:
-        join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', 'notebooks', '{aggr_id}_pp.html')
+        join(QUANT_INTERIM, 'aggregate', 'splitpipe', 'scanpy', 'notebooks', '{aggr_id}_pp.html')
     params:
-        notebook = join(QUANT_INTERIM, 'aggregate', '{method}' 'scanpy', 'notebooks', '{aggr_id}_pp.ipynb')
+        notebook = join(QUANT_INTERIM, 'aggregate', 'splitpipe', 'scanpy', 'notebooks', '{aggr_id}_pp.ipynb')
     container:
         'docker://' + config['docker']['jupyter-scanpy']
     threads:

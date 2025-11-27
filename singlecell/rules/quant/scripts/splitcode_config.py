@@ -97,9 +97,30 @@ def write_rt_convert_config(out_path: str, chem: str,
         for r, t in zip(r_list, t_list):
             fh.write("\t".join([r, t, str(distance), f"{read_index},{r1_s},{r1_e}"]) + "\n")
 
+
+def write_error_correct_bc1(out_path: str, chem: str,
+                            r1_R_path: str, r1_T_path: str,
+                            read_index: int, distance: int):
+    amp = CHEM_TO_AMP.get(chem)
+    if not amp:
+        sys.exit(f"[error] No amplicon template for {chem}")
+    locs = derive_locations_from_amp(amp)
+    (r1_s, r1_e) = locs["1"]  # bc1 locus
+
+    r_list = read_whitelist(r1_R_path)
+    t_list = read_whitelist(r1_T_path)
+    if len(r_list) != len(t_list):
+        sys.exit(f"[error] r1_R and r1_T length mismatch: {len(r_list)} vs {len(t_list)}")
+
+    with open(out_path, "w", encoding="utf-8") as fh:
+        fh.write("\t".join(["tags","subs","distances","locations"]) + "\n")
+        for r, t in zip(r_list, t_list):
+            fh.write("\t".join([r, '.', str(distance), f"{read_index},{r1_s},{r1_e}"]) + "\n")
+            fh.write("\t".join([t, '.', str(distance), f"{read_index},{r1_s},{r1_e}"]) + "\n")
+        
 def main():
     p = argparse.ArgumentParser(description="Generate Splitcode config (reformat | rt-convert)")
-    p.add_argument("--mode", choices=["reformat","rt-convert"], required=True)
+    p.add_argument("--mode", choices=["reformat","rt-convert". "error-correct-bc1"], required=True)
     p.add_argument("--chem", required=True)
     p.add_argument("--outdir", required=True)
     # shared tunables
@@ -135,7 +156,7 @@ def main():
             read_index=args.read_index,
             extract_line=extract_line,
         )
-    else:  # rt-convert
+    elif args.mode == "rt-convert":  # rt-convert
         r1_T = args.r1_T or os.path.join(outdir, "r1_T.txt")
         r1_R = args.r1_R or os.path.join(outdir, "r1_R.txt")
         for pth in (r1_T, r1_R):
@@ -148,6 +169,21 @@ def main():
             read_index=args.read_index,
             distance=args.rt_distance,
         )
+    elif: args.mode == "error-correct-bc1":
+        r1_T = args.r1_T or os.path.join(outdir, "r1_T.txt")
+        r1_R = args.r1_R or os.path.join(outdir, "r1_R.txt")
+        for pth in (r1_T, r1_R):
+            if not os.path.isfile(pth):
+                sys.exit(f"[error] Missing whitelist: {pth}")
+        write_error_correct_bc1(
+            out_path=os.path.join(outdir, "config.txt"),
+            chem=norm_chem(args.chem),
+            r1_R_path=r1_R, r1_T_path=r1_T,
+            read_index=args.read_index,
+            distance=args.rt_distance,
+        )
+    else:
+        raise ValueError
     print("[ok] wrote config(s) to", outdir)
 
 if __name__ == "__main__":
