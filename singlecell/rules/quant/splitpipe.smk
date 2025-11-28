@@ -128,6 +128,24 @@ rule splitpipe_nuclear_fraction_bam:
         '{output.nuclear_fraction} '
         '--threads {threads}'
 
+
+rule splitpipe_nuclear_fraction_bam_aggr:
+    input:
+        expand(join(QUANT_INTERIM, 'splitpipe', '{sublib}', 'nuclear_fraction.tsv'), sublib=SUBLIBS)
+    output:
+        "data/tmp/singlecell/quant/aggregate/splitpipe/{aggr_id}_nuclear_fraction.tsv"
+    params:
+        script = src_gcf("scripts/aggr_barcode_info.py"),
+        args = lambda wc : ' --barcode-rename parsebio --sample-id ' + ','.join(AGGR_IDS.get(wc.aggr_id))
+    container:
+        'docker://' + config['docker']['default']
+    shell:
+        'python {params.script} '
+        '{input} '
+        '{params.args} '
+        '--output {output} '
+        
+        
 rule splitpipe_splice_from_tscp:
     input:
         join(QUANT_INTERIM, 'splitpipe', '{sublib}', 'process', 'tscp_assignment.csv.gz')
