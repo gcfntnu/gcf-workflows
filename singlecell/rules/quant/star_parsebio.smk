@@ -41,7 +41,7 @@ def star_extra_args(config, n_sublibs=None):
     kit = q["kit"].lower()                         # 'wt' | 'wt_mega' | 'wt_mini'
     preprocessor = ss.get("preprocessor", "").lower()  # 'none' | 'rt_merge' | 'splitcode'
     trimmer      = ss.get("trimmer", "").lower()       # 'none' | 'cutadapt' | 'starsolo'
-    use_velo     = ss.get("use_velo", False)
+    use_velo     = q.get("use_velo", False)
     feature      = ss.get("feature_count", "GeneFull_Ex50pAS")   # 'Gene' or 'GeneFull_Ex50pAS'
     multimaps    = ss.get("multi_mappers", "Unique")             # 'Unique' | 'EM'
     output_bam   = ss.get("output_bam", False)
@@ -103,7 +103,7 @@ def star_extra_args(config, n_sublibs=None):
     
     # CB whitelist matching mode by pipeline mode
     mode = f"{preprocessor}_{trimmer}"
-    if mode in {"skip_skip", "skip_cutadapt", "skip_starsolo", "rt_merge_cutadapt", "rt_merge_starsolo"}:
+    if mode in {"skip_skip", "skip_cutadapt", "skip_starsolo", "rt_merge_cutadapt", "rt_merge_starsolo", "error_correct_bc1_cutadapt", "error_coorect_bc1_starsolo"}:
         args += ["--soloCBmatchWLtype", "EditDist_2"]
         if mode.endswith("_starsolo"):
             args += ["--clipAdapterType", "CellRanger4", "--clip5pAdapterSeq", PRE_TSO_SEQ]

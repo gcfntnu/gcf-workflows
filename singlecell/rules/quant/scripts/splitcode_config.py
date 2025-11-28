@@ -120,7 +120,7 @@ def write_error_correct_bc1(out_path: str, chem: str,
         
 def main():
     p = argparse.ArgumentParser(description="Generate Splitcode config (reformat | rt-convert)")
-    p.add_argument("--mode", choices=["reformat","rt-convert". "error-correct-bc1"], required=True)
+    p.add_argument("--mode", choices=["reformat","rt-convert", "error-correct-bc1"], required=True)
     p.add_argument("--chem", required=True)
     p.add_argument("--outdir", required=True)
     # shared tunables
@@ -169,7 +169,7 @@ def main():
             read_index=args.read_index,
             distance=args.rt_distance,
         )
-    elif: args.mode == "error-correct-bc1":
+    elif args.mode == "error-correct-bc1":
         r1_T = args.r1_T or os.path.join(outdir, "r1_T.txt")
         r1_R = args.r1_R or os.path.join(outdir, "r1_R.txt")
         for pth in (r1_T, r1_R):
