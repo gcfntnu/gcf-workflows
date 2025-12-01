@@ -9,7 +9,7 @@ AGGR_IDS = collections.defaultdict(list)
 METHODS = [m.strip() for m in config['quant']['method'].split(',') if m.strip()]
 CB_FLAG = config.get("quant", {}).get("cellbender", {}).get("enabled", False)
 CB_OUTPUT = CB_FLAG and config.get("quant", {}).get("cellbender", {}).get("use_outputs", False)
-VELO_OUTPUT = config.get("quant", {}).get("use_velo", False)
+VELO_OUTPUT = config.get("quant", {}).get("use_velo", False) 
 STARSOLO_FEATURES = config["quant"].get("starsolo", {}).get("feature_count", "GeneFull_Ex50pAS")
 STARSOLO_MM = config["quant"].get("starsolo", {}).get("mm", "Unique")
 BC_RENAME = {"splitpipe": "parsebio", "parsebio_starsolo": "parsebio"}
@@ -115,7 +115,6 @@ def get_barcode_info_list(wc):
     dd_method = qcfg.get("doublet_detection", {}).get("method")  # truthy means “on”
     anno_method = config.get("celltype_annotation", {}).get("method")
     cb_subset = qcfg.get("cellbender_call", {}).get("subset")
-    use_velo = qcfg.get("use_velo", True)
     
     if hasattr(wc, "aggr_id"):
         aggr_dir = join(QUANT_INTERIM, "aggregate", wc.method)
@@ -126,7 +125,7 @@ def get_barcode_info_list(wc):
                 items.append(join(aggr_dir, f"{wc.aggr_id}_premap_annotation.tsv"))
         if cb_subset:
             items.append(join(aggr_dir, "cellbender", f"{wc.aggr_id}_expression_presence.tsv"))
-        if use_velo:
+        if VELO_OUTPUT:
             pass
             #items.append(join(aggr_dir, f"{wc.aggr_id}_nuclear_fraction.tsv"))
     else:
@@ -223,7 +222,7 @@ def scanpy_aggr_inputs(wc):
         "inputs": inputs,
         "feature_info": get_feature_info_list(wc),
         "barcode_info": get_barcode_info_list(wc)}
-    if VELO_OUTPUT:
+    if VELO_OUTPUT and wc.method == "splitpipe":
         output["velo_files"] = [join(QUANT_INTERIM, wc.method, s, "velo", "spliced.mtx") for s in sublibs]
     return output
 
