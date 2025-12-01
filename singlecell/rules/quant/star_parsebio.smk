@@ -35,6 +35,10 @@ def _tso_window_args(tso: str, kmax: int = 15) -> str:
 
 
 def star_extra_args(config, n_sublibs=None):
+    db_conf = config['db'][config['db']['reference_db']]
+    assembly = db_conf.get("assembly", config['db'].get("assembly"))
+    if not assembly:
+        raise ValueError("No 'assembly' found for selected reference_db in config")
     q  = config["quant"]
     ss = q.get("starsolo", {})
 
@@ -68,9 +72,17 @@ def star_extra_args(config, n_sublibs=None):
         "--soloCellFilter", "None",
         "--outSAMmultNmax", "3", 
         "--limitBAMsortRAM", str(64_000_000_000),   # ~80 GB; safe for our /dev/shm=158G
-        #"--outTmpDir", out_tmp
     ]
 
+    if assembly:
+        # splitpipe-style: GRCh38_chrM / GRCh38_M / GRCh38_MT
+        mito_names = [f"{assembly}_{mt_name}" for mt_name in ("chrM", "M", "MT")]
+    else:
+        # standard human-style names
+        mito_names = ["chrM", "M", "MT"]
+
+    args += ["--genomeChrSetMitochondrial", *mito_names]
+    
     # --soloFeatures
     solo_feats = ["Gene"]
     if feature and feature != "Gene":
@@ -519,7 +531,8 @@ rule parsebio_starsolo_barcode_info:
     shell:
         r"""awk 'FNR==1 && NR!=1 {{next}}; 1' {input} > {output.info}"""
 
-        
+
+
 rule parsebio_starsolo_scanpy_pp_ipynb:
     input:
         join(QUANT_INTERIM, 'aggregate', 'parsebio_starsolo', 'scanpy', '{aggr_id}_filtered.h5ad')
