@@ -16,11 +16,9 @@ Notes
 - bc2/bc3 wellmaps must contain: sequence, well
 - Config must have 'wells' mapping: {Sample_ID: {Wells: 'A1-A12,B1-B12', ...extra fields}}
 """
-
-import argparse
 import os
-import re
 import sys
+import argparse
 from pathlib import Path
 from typing import Dict, Tuple
 
@@ -165,16 +163,35 @@ def _compute_seq2wind(df, name: str) -> dict[str, str]:
         seq2wind[seq] = str(wind).zfill(2)
     return seq2wind
 
-def _build_bc1_maps(df: pd.DataFrame) -> tuple[dict[str,str], dict[str,str], dict[str,str]]:
-    _require(df, ["sequence","well","stype"], "r1 wellmap")
+def _build_bc1_maps(df: pd.DataFrame) -> tuple[dict[str,str], dict[str,str], dict[str,str], dict[str,str]]:
+    _require(df, ["sequence", "well", "stype"], "r1 wellmap")
     df = df.reset_index(drop=True)
     if df["sequence"].duplicated().any():
         raise ValueError("r1 wellmap has duplicated sequences")
-    seq = df["sequence"].astype(str)
-    seq2well  = dict(zip(seq, df["well"].astype(str)))
-    seq2stype = dict(zip(seq, df["stype"].astype(str)))
-    seq2idx   = _compute_seq2wind(df, "r1 wellmap")     # <<< CHANGED
-    return seq2well, seq2idx, seq2stype
+
+    df["sequence"] = df["sequence"].astype(str)
+    df["well"] = df["well"].astype(str)
+    df["stype"] = df["stype"].astype(str)
+
+    seq = df["sequence"]
+
+    seq2well  = dict(zip(seq, df["well"]))
+    seq2stype = dict(zip(seq, df["stype"]))
+    seq2idx   = _compute_seq2wind(df, "r1 wellmap")
+
+    # Map each well to its T-type sequence (one per well)
+    well2Tseq: dict[str, str] = {}
+    t_rows = df[df["stype"] == "T"]
+    for _, row in t_rows.iterrows():
+        w = row["well"]
+        s = row["sequence"]
+        prev = well2Tseq.get(w)
+        if prev is not None and prev != s:
+            raise ValueError(f"Well {w!r} has multiple T-type sequences: {prev!r} vs {s!r}")
+        well2Tseq[w] = s
+
+    return seq2well, seq2idx, seq2stype, well2Tseq
+
 
 def _build_map(df: pd.DataFrame, name: str) -> tuple[dict[str,str], dict[str,str]]:
     _require(df, ["sequence","well"], name)
@@ -230,7 +247,7 @@ def main() -> int:
     r2 = pd.read_table(a.r2_wellmap, dtype=str)
     r3 = pd.read_table(a.r3_wellmap, dtype=str)
 
-    r1_seq2well, r1_seq2idx, r1_seq2stype = _build_bc1_maps(r1)
+    r1_seq2well, r1_seq2idx, r1_seq2stype, r1_well2Tseq = _build_bc1_maps(r1)
     r2_seq2well, r2_seq2idx = _build_map(r2, "r2 wellmap")
     r3_seq2well, r3_seq2idx = _build_map(r3, "r3 wellmap")
 
@@ -267,6 +284,24 @@ def main() -> int:
         parsebio_bc = f"{idx1}_{idx2}_{idx3}__s{library_idx}"
         barcode_out = f"{bc}__s{library_idx}"
 
+        # Build T-mapped barcode: replace bc1 sequence with T-type from same well
+        mapped_barcode_T = None
+        if stype == "R":
+            t_seq = r1_well2Tseq.get(bc1_well)
+            if t_seq is None:
+                raise ValueError(
+                    f"R-type bc1 in well {bc1_well!r} but no corresponding T-type sequence in r1 wellmap"
+                )
+            if a.order == "r3_r2_r1":
+                # Raw barcodes are r3_r2_r1
+                mapped_core = f"{r3_seq}_{r2_seq}_{t_seq}"
+            else:  # r1_r2_r3
+                mapped_core = f"{t_seq}_{r2_seq}_{r3_seq}"
+            mapped_barcode_T = f"{mapped_core}__s{library_idx}"
+        else:
+            # For T (and any other stype) just mirror original barcode format
+            mapped_barcode_T = barcode_out
+        
         # map bc1 well → Sample_ID; extras joined later
         sample_id = well_to_sample.get(bc1_well)
         if sample_id is None:
@@ -274,6 +309,7 @@ def main() -> int:
 
         rows.append({
             "barcode": barcode_out,
+            "barcode_Tmapped": mapped_barcode_T,
             "stype": stype,
             "bc1_well": bc1_well,
             "bc2_well": bc2_well,
@@ -302,7 +338,7 @@ def main() -> int:
 
     # Order canonical columns first, then append any extra metadata columns
     base = [
-        "barcode", "stype", "bc1_well", "bc2_well", "bc3_well",
+        "barcode", "stype", "bc1_well", "bc2_well", "bc3_well","barcode_Tmapped",
         "parsebio_bc", "library_id", "library_idx", "Sample_ID", "Sample_Group"
     ]
     remainder = [c for c in out.columns if c not in base]
