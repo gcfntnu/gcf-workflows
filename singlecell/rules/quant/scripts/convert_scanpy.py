@@ -773,6 +773,175 @@ def read_velocyto_loom(fn, args, **kw):
     data.var.index.name = "gene_id"  # standardize (see note below)
     return data
 
+def _starsolo_derived_cell_stats(df):
+    """
+    Derive per-cell QC metrics from STARsolo CellReads.stats-style columns.
+
+    Assumes one row per cell/barcode with at least:
+      genomeU, genomeM,
+      featureU, featureM,
+      exonic, intronic, exonicAS, intronicAS,
+      countedU, countedM,
+      nUMIunique, nUMImulti,
+      nGenesUnique, nGenesMulti,
+      mito
+
+    The derived metrics cover five main QC axes valid for any scRNA-seq protocol
+    (nuclei or whole-cell):
+
+      1. RNA vs genomic background
+      2. Gene-body composition (exonic vs intronic)
+      3. Mitochondrial signal / contamination
+      4. Counting efficiency and complexity (reads → UMIs → genes)
+      5. Multimapper load (repeats / reference issues)
+
+    Added columns
+    -------------
+
+    total_genome
+        Total aligned reads (unique + multi) per cell.
+
+    feature_reads
+        Reads overlapping any annotated gene feature (unique + multi).
+
+    tx_reads
+        Sum of exonic + intronic (+ AS) reads; convenience for fractions.
+
+    nUMI_total
+        Total UMIs per cell (unique + multi).
+
+    nGenes_total
+        Total genes detected per cell (unique + multi).
+
+    frac_in_genes
+        feature_reads / total_genome
+        Fraction of aligned reads inside gene bodies.
+        Low → genomic DNA, poor annotation, or heavy intergenic noise.
+
+    dna_fraction
+        1 - frac_in_genes
+        Fraction of aligned reads in intergenic regions.
+        Direct scalar for DNA contamination / background genomic signal.
+
+    frac_exonic
+        exonic / (exonic + intronic + exonicAS + intronicAS)
+        Exonic proportion among gene-body reads.
+        Whole-cell: expected to be high; nuclei: expected to be lower.
+
+    frac_intronic
+        intronic / (exonic + intronic + exonicAS + intronicAS)
+        Intronic proportion among gene-body reads.
+        Nuclei: expected to be high; whole-cell: modest.
+
+    frac_mito_reads
+        mito / total_genome
+        Read-level mitochondrial load. Detects mito DNA/RNA carryover and,
+        depending on protocol, stressed/dying cells.
+
+    frac_counted_of_genome
+        counted_reads / total_genome
+        Overall efficiency: how many aligned reads become counted UMIs.
+
+    frac_counted_of_features
+        counted_reads / feature_reads
+        Chemistry / counting efficiency restricted to gene-overlapping reads.
+        Less sensitive to intergenic noise than frac_counted_of_genome.
+
+    umis_per_gene
+        nUMI_total / nGenes_total
+        Complexity metric; very low → collapsed/poor libraries, very high →
+        oversaturated libraries or strange gene calling.
+
+    reads_per_umi
+        counted_reads / nUMI_total
+        Redundancy / saturation metric; high values indicate heavy duplication.
+
+    frac_multimapper_reads
+        genomeM / (genomeU + genomeM)
+        Load of multimapping reads across the genome. High → repeats,
+        reference problems, or low-complexity contamination.
+
+    frac_multimapper_features
+        featureM / (featureU + featureM)
+        Multimapper load restricted to gene regions. Sensitive to pseudogene
+        families, rRNA-like content, or mis-annotated references.
+
+    frac_multimapper_counted
+        countedM / (countedU + countedM)
+        Fraction of counted reads that were multi-mappers (only meaningful
+        if STARsolo is run in EM mode; near-zero in Unique mode).
+
+    Returns
+    -------
+    pandas.DataFrame
+        The same `df` with QC columns added in-place.
+
+    Note
+    ----
+    frac_mito_reads is conceptually different from Scanpy's pct_counts_mt:
+
+    - frac_mito_reads is a read-level metric:
+          mito / (genomeU + genomeM)
+      Numerator = all reads aligned to the mitochondrial chromosome.
+      Denominator = all aligned reads (unique + multi).
+      It detects mitochondrial DNA/RNA contamination and subcellular leakage
+      that may never appear in pct_counts_mt because UMI collapsing removes
+      redundant reads.
+
+    - pct_counts_mt is a UMI-level metric:
+          mitochondrial UMIs / total UMIs
+      It detects cells whose transcriptomes are mito-heavy (e.g. stressed or
+      dying cells), but is less sensitive to mito DNA contamination and is
+      often noisy or near-zero in nuclei protocols.
+    """
+    
+    # base aggregates
+    total_genome  = df["genomeU"] + df["genomeM"]
+    feature_reads = df["featureU"] + df["featureM"]
+    tx_reads      = df[["exonic", "intronic", "exonicAS", "intronicAS"]].sum(axis=1)
+    counted_reads = df["countedU"] + df["countedM"]
+    umis          = df["nUMIunique"] + df["nUMImulti"]
+    genes         = df["nGenesUnique"] + df["nGenesMulti"]
+
+    # store raw aggregates for possible debugging
+    df["total_genome"]  = total_genome
+    df["feature_reads"] = feature_reads
+    df["tx_reads"]      = tx_reads
+    df["nUMI_total"]    = umis
+    df["nGenes_total"]  = genes
+
+    # protect denominators
+    total_genome_safe  = total_genome.replace(0, np.nan)
+    feature_reads_safe = feature_reads.replace(0, np.nan)
+    tx_reads_safe      = tx_reads.replace(0, np.nan)
+    umis_safe          = umis.replace(0, np.nan)
+    genes_safe         = genes.replace(0, np.nan)
+
+    # RNA vs DNA
+    df["frac_in_genes"] = feature_reads_safe / total_genome_safe
+    df["dna_fraction"]  = 1.0 - df["frac_in_genes"]
+
+    # exonic vs intronic composition
+    df["frac_exonic"]   = df["exonic"]   / tx_reads_safe
+    df["frac_intronic"] = df["intronic"] / tx_reads_safe
+
+    # mitochondrial
+    df["frac_mito_reads"] = df["mito"] / total_genome_safe
+
+    # counting efficiency
+    df["frac_counted_of_genome"]   = counted_reads / total_genome_safe
+    df["frac_counted_of_features"] = counted_reads / feature_reads_safe
+
+    # complexity
+    df["umis_per_gene"] = umis_safe / genes_safe
+    df["reads_per_umi"] = counted_reads / umis_safe
+
+    # multimapper load
+    df["frac_multimapper_reads"] = df["genomeM"] / total_genome_safe
+    df["frac_multimapper_features"] = df["featureM"] / feature_reads_safe
+    df["frac_multimapper_counted"] = df["countedM"] / counted_reads.replace(0, np.nan)
+
+    return df
 
 def read_starsolo(fn, args, **kw):
     """
@@ -866,13 +1035,11 @@ def read_starsolo(fn, args, **kw):
             data.layers["ambiguous"] = A_full
 
 
-            
-    sample_id = os.path.normpath(fn).split(os.path.sep)[-5]
-    data.obs["sample_id"] = sample_id
-    data.obs["sublib"] = [sample_id] * data.n_obs
-
+    
+    
+    library_id = os.path.normpath(fn).split(os.path.sep)[-5] #library_id
     barcode_rename = kw.get("barcode_rename", args.barcode_rename)
-    data = barcode_index_rename(data, barcode_rename=barcode_rename, sample_id=sample_id, aggr_csv=args.aggr_csv)
+    data = barcode_index_rename(data, barcode_rename=barcode_rename, sample_id=library_id, aggr_csv=args.aggr_csv)
     #if args.input_format in ['parsebio_starsolo']:
     #    data.obs.rename(columns={"sample_id": "sublib"}, inplace=True)
     return data
@@ -1959,7 +2126,7 @@ if __name__ == "__main__":
     logger.info(f"Normalizing storage: sparse_threshold=0.5, counts_in='X', allow_layers={allow_layers}")
     optimize_X_layers(data, sparse_threshold=0.5, counts_in="X", allow_layers=allow_layers)
 
-    # -------------------------
+    #-----------
     # Plan outputs
     # -------------------------
     out_map = _derive_outputs(pathlib.Path(args.outfile), args.output_format)
