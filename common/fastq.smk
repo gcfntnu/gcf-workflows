@@ -5,52 +5,60 @@
 def merge_cmd_R1(input):
     """merge read 1 files with optional downsampling
     """
-    single_fastq = len(input.R1) == 1
-    ext = os.path.splitext(input.R1[0])
+    ext = os.path.splitext(input.R1[0])[-1]
     subsample = config['filter'].get('subsample_fastq', 'skip')
-    
+    single_fastq = len(input.R1) == 1
+    if single_fastq:
+        input_files = input.R1[0]
+    else:
+        input_files = ' '.join(input.R1)
     if subsample == 'skip':
         if single_fastq:
-            return 'ln -srf {} '.format(input.R1[0])
+            return f'ln -srf {input_files} '
         else:
-           return 'cat ' + ' '.join(input.R1) + ' > ' 
+            return f'cat {input_files} > '
     
     else:
         if float(subsample) < 1:
-            subsample_param = '--proportion {} '.format(subsample)
+            subsample_param = f'sample --proportion {subsample} --rand-seed 1234 '
         else:
-            subsample_param = '--number {} '.format(subsample)
+            subsample_param = f'head -n  {subsample} '
 
         if single_fastq:
-            cmd = 'seqkit sample {} --rand-seed 1234 {} --out-file '.format(input.R1[0], subsample_param)
+            cmd = f'seqkit {subsample_param} {input_files}  --out-file '
         else:
-            cmd = 'zcat {} | seqkit sample --rand-seed 1234 {} --out-file '.format(' '.join(input.R1), subsample_param)
+            cat_cmd = 'zcat' if ext == ".gz" else 'cat'
+            #fixme: this will prob fail with sigpipe
+            cmd = f'set +o pipefail; {cat_cmd} {input_files} | seqkit {subsample_param} --out-file '
         
     return cmd
    
 def merge_cmd_R2(input):
-    """merge read 1 files with optional downsampling
+    """merge read 2 files with optional downsampling
     """
-    single_fastq = len(input.R2) == 1
-    ext = os.path.splitext(input.R2[0])
+    ext = os.path.splitext(input.R2[0])[-1]
     subsample = config['filter'].get('subsample_fastq', 'skip')
-    
+    single_fastq = len(input.R2) == 1
+    if single_fastq:
+        input_files = input.R2[0]
+    else:
+        input_files = ' '.join(input.R2)
     if subsample == 'skip':
         if single_fastq:
-            return 'ln -srf {} '.format(input.R2[0])
+            return f'ln -srf {input_files} '
         else:
-           return 'cat ' + ' '.join(input.R2) + ' > ' 
+            return f'cat {input_files} > ' 
     
     else:
         if float(subsample) < 1:
-            subsample_param = '--proportion {} '.format(subsample)
+            subsample_param = f'sample --proportion {subsample} --rand-seed 1234 '
         else:
-            subsample_param = '--number {} '.format(subsample)
-
+            subsample_param = f'head -n  {subsample} '
         if single_fastq:
-            cmd = 'seqkit sample {} --rand-seed 1234 {} --out-file '.format(input.R2[0], subsample_param)
+            cmd = f'seqkit {subsample_param} {input_files} --out-file '
         else:
-            cmd = 'zcat {} | seqkit sample --rand-seed 1234 {} --out-file '.format(' '.join(input.R2), subsample_param)
+            cat_cmd = 'zcat' if ext == ".gz" else 'cat'
+            cmd = f'set +o pipefail; {cat_cmd} {input_files} | seqkit {subsample_param} --out-file '
         
     return cmd
 
@@ -59,11 +67,13 @@ rule merged_fastq_R1:
     input:
         unpack(get_raw_fastq)
     output:
-        temp(join(FILTER_INTERIM, 'fastq', '{sample}_R1.fastq.gz'))
+        join(FILTER_INTERIM, 'fastq', '{sample}_R1.fastq.gz')
     params:
         cat_cmd = lambda wildcards, input: merge_cmd_R1(input)
     threads:
         4
+    wildcard_constraints:
+        sample = r"[^/]+"
     container:
         'docker://' + config['docker']['seqkit']
     shell:
@@ -73,11 +83,13 @@ rule merged_fastq_R2:
     input:
         unpack(get_raw_fastq)
     output:
-        temp(join(FILTER_INTERIM, 'fastq', '{sample}_R2.fastq.gz'))
+        join(FILTER_INTERIM, 'fastq', '{sample}_R2.fastq.gz')
     params:
         cat_cmd = lambda wildcards, input: merge_cmd_R2(input)
     threads:
         4
+    wildcard_constraints:
+        sample = r"[^/]+"        
     container:
         'docker://' + config['docker']['seqkit']
     shell:

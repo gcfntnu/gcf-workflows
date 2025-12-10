@@ -2,9 +2,6 @@
 PARSEBIO_INTERIM = join(QUANT_INTERIM, 'parsebio')
 PARSEBIO_AGGR = join(QUANT_INTERIM, 'aggregate', 'parsebio')
 
-SUBLIBS = SAMPLES
-PARSEBIO_SAMPLES = list(config['wells'].keys())
-
 
 rule parsebio_barcode_info:
     input:

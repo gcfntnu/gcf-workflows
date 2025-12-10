@@ -312,4 +312,4 @@ rule scanpy_aggr_filtered:
 
 rule quant_all:
     input:
-        expand(rules.scanpy_aggr_filtered.output, method=config["quant"]["method"].split(","), aggr_id="all_samples")
+        expand(join(QUANT_INTERIM, "aggregate", "{method}", "scanpy", "{aggr_id}_filtered.h5ad"), method=config["quant"]["method"].split(","), aggr_id="all_samples")

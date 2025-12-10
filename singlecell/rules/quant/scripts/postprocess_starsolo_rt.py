@@ -42,7 +42,7 @@ from pandas.api.types import is_extension_array_dtype, is_numeric_dtype
 
 import scanpy as sc
 import anndata
-
+import scipy.sparse as sp
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +78,65 @@ STARSOLO_DERIVED_COLS = [
     "frac_multimapper_counted",
 ]
 
+def _agg_sparse_by_group(mat, groupby_values):
+    """
+    Aggregate rows of `mat` by summing within groups defined by `groupby_values`.
+
+    - If `mat` is sparse, keep it sparse and avoid any dense n_groups x n_vars allocation.
+    - If `mat` is dense, fall back to a dense pandas groupby (this may still explode in RAM
+      for huge matrices, but at that point the representation itself is the problem).
+
+    Returns
+    -------
+    aggregated_matrix, group_index
+    """
+    # Convert grouping to ndarray
+    if isinstance(groupby_values, pd.Series):
+        groups = groupby_values.to_numpy()
+    else:
+        groups = np.asarray(groupby_values)
+
+    # Mask out NA groups
+    mask = pd.notna(groups)
+    groups = groups[mask]
+
+    if sp.isspmatrix(mat):
+        mat = mat.tocsr()
+        mat = mat[mask, :]
+    else:
+        # dense path; still dangerous at this scale
+        mat = np.asarray(mat)[mask, :]
+
+    # Factorize groups -> integer codes
+    codes, uniques = pd.factorize(groups, sort=False)
+    n_groups = len(uniques)
+
+    if sp.isspmatrix(mat):
+        # Build new sparse matrix via COO construction:
+        # for each nonzero, move it to row = group_code[row_idx]
+        indptr = mat.indptr
+        n_obs, n_vars = mat.shape
+
+        # row index for each nonzero
+        row_indices = np.repeat(
+            np.arange(n_obs, dtype=np.int64),
+            np.diff(indptr)
+        )
+        new_rows = codes[row_indices]
+        new_cols = mat.indices
+        new_data = mat.data
+
+        agg = sp.coo_matrix(
+            (new_data, (new_rows, new_cols)),
+            shape=(n_groups, n_vars),
+        ).tocsr()
+        return agg, pd.Index(uniques)
+
+    # Dense fallback (will be memory-heavy)
+    df = pd.DataFrame(mat)
+    gb = df.groupby(codes, sort=False)
+    out = gb.sum().to_numpy()
+    return out, pd.Index(uniques)
 
 # ---------------------------------------------------------------------------
 # STARsolo-derived QC metrics (pure function on a DataFrame)
@@ -238,7 +297,6 @@ def starsolo_add_rt_qc(adata: anndata.AnnData) -> anndata.AnnData:
 # ---------------------------------------------------------------------------
 # Aggregation to per-biological-cell AnnData
 # ---------------------------------------------------------------------------
-
 def aggregate_starsolo_cells(
     adata: anndata.AnnData,
     groupby: str = "barcode_Tmapped",
@@ -246,52 +304,37 @@ def aggregate_starsolo_cells(
     """
     Aggregate a STARsolo+Parse AnnData to one row per biological cell.
 
-    Rules
-    -----
-    - Group key = adata.obs[groupby] (e.g. 'barcode_Tmapped').
-    - X and all layers are summed per group via scanpy.get.aggregate(..., by=groupby, func="sum").
-    - Raw STARsolo stats (STARSOLO_STATS_COLS) are summed per group and stored.
-    - Derived QC metrics (STARSOLO_DERIVED_COLS) are NOT stored; they can be recomputed later
-      using starsolo_derived_cell_stats on the aggregated stats.
-    - obs aggregation:
-        * Columns in STARSOLO_STATS_COLS, STARSOLO_DERIVED_COLS, groupby, and 'stype' are not
-          aggregated in _aggregate_group (stats and stype handled separately).
-        * For every other column c:
-              - if group has exactly one non-NA unique value of c: use that scalar
-              - else: use value from canonical row
-                  canonical row = row where starsolo_barcodes == group_key if available,
-                                  otherwise first row in group.
-        * Adds n_barcodes_in_cell.
-        * Adds stype_pattern ("R", "T", or "RT") and stype_canonical:
-              - "T" if any 'T' present in group
-              - "R" if only 'R' present
-              - "" otherwise.
-        * Adds frac_reads_R/T and frac_umis_R/T per biological cell (from raw stats).
-
-    Recomputes nuclear_fraction on the aggregated object from layers "spliced"/"unspliced".
+    Same semantics as before, but:
+    - X and layers are aggregated with a sparse-safe helper, not scanpy.get.aggregate,
+      to avoid building a dense (n_groups x n_genes) array.
     """
     if groupby not in adata.obs.columns:
         raise KeyError(f"Key '{groupby}' not in adata.obs")
 
     obs = adata.obs
-    logger.info(f"[aggregate] aggregating {adata.n_obs} obs into {obs[groupby].nunique()} groups by '{groupby}'")
+    group_vals = obs[groupby]
+    n_groups = group_vals.nunique(dropna=True)
 
-    # 1) Aggregate X via scanpy.get.aggregate
-    agg_X = sc.get.aggregate(adata, by=groupby, func="sum")
-    if "sum" not in agg_X.layers and agg_X.X is None:
-        raise RuntimeError("[aggregate] sc.get.aggregate returned no 'sum' layer and X is None for X.")
-    X_new = agg_X.layers["sum"] if "sum" in agg_X.layers else agg_X.X
-    group_index = agg_X.obs_names  # group labels in order
+    logger.info(
+        f"[aggregate] aggregating {adata.n_obs} obs into {n_groups} groups by "
+        f"'{groupby}'"
+    )
+
+    # 1) Aggregate X using sparse-safe helper
+    X_new, group_index = _agg_sparse_by_group(adata.X, group_vals)
 
     # 2) Aggregate all layers
-    layers_new: dict[str, np.ndarray] = {}
-    for lname in adata.layers.keys():
-        ag = sc.get.aggregate(adata, by=groupby, layer=lname, func="sum")
-        mat = ag.layers["sum"] if "sum" in ag.layers else ag.X
-        if mat is None:
-            logger.warning(f"[aggregate] layer '{lname}' produced no aggregated data; skipping this layer.")
-            continue
-        layers_new[lname] = mat
+    layers_new: dict[str, sp.spmatrix | np.ndarray] = {}
+    for lname, layer_mat in adata.layers.items():
+        logger.info(f"[aggregate] aggregating layer '{lname}'")
+        agg_layer, gi_layer = _agg_sparse_by_group(layer_mat, group_vals)
+
+        # Sanity: group order from helper must match that of X_new
+        if not np.array_equal(gi_layer.to_numpy(), group_index.to_numpy()):
+            raise RuntimeError(
+                f"[aggregate] group index mismatch for layer '{lname}'"
+            )
+        layers_new[lname] = agg_layer
 
     # 3) Sum raw stats per group (no derived QC stored at this stage)
     missing_stats = [c for c in STARSOLO_STATS_COLS if c not in obs.columns]
@@ -303,7 +346,7 @@ def aggregate_starsolo_cells(
         stats_raw = None
     else:
         stats_raw = (
-            obs.groupby(groupby, observed=True)[STARSOLO_STATS_COLS]
+            obs.groupby(groupby, observed=True, sort=False)[STARSOLO_STATS_COLS]
                .sum(min_count=1)
         )
 
@@ -336,7 +379,7 @@ def aggregate_starsolo_cells(
         return pd.Series(res)
 
     meta = (
-        obs.groupby(groupby, observed=True)
+        obs.groupby(groupby, observed=True, sort=False)
            .apply(_aggregate_group, include_groups=False)
     )
     meta.index.name = groupby
@@ -348,7 +391,7 @@ def aggregate_starsolo_cells(
 
     if "stype" in obs.columns:
         stype_pattern = (
-            obs.groupby(groupby, observed=True)["stype"]
+            obs.groupby(groupby, observed=True, sort=False)["stype"]
                .agg(_stype_pattern)
         )
         stype_pattern.name = "stype_pattern"
@@ -376,7 +419,7 @@ def aggregate_starsolo_cells(
         df = df[df["stype"].isin(["R", "T"])]
         if not df.empty:
             grouped_rt = (
-                df.groupby([groupby, "stype"], observed=True)[STARSOLO_STATS_COLS]
+                df.groupby([groupby, "stype"], observed=True, sort=False)[STARSOLO_STATS_COLS]
                   .sum(min_count=1)
             )
             wide = grouped_rt.unstack("stype", fill_value=0)
@@ -413,6 +456,7 @@ def aggregate_starsolo_cells(
     if stats_raw is not None:
         obs_new = obs_new.join(stats_raw, how="left")
 
+    # Reindex meta to match sparse aggregation order
     obs_new = obs_new.reindex(group_index)
 
     if rt_df is not None:
@@ -469,8 +513,8 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description="Post-process convert_scanpy STARsolo output with R/T QC and optional aggregation."
     )
-    p.add_argument("input", help="Input .h5ad from convert_scanpy.py")
-    p.add_argument("output", help="Output .h5ad")
+    p.add_argument("--input", "-i", help="Input .h5ad from convert_scanpy.py")
+    p.add_argument("--output" "-o", help="Output .h5ad")
 
     p.add_argument(
         "--add-rt-qc",

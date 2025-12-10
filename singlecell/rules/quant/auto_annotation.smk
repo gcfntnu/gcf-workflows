@@ -12,7 +12,7 @@ MM_ORG = config.get('celltype_annotation', {}).get('orthologs')
 MM_ORG = MM_ORG or config['organism']
 
 PRE_ANNO = True
-
+_AGGR_ID = config['quant']['aggregate']['groupby']
 
 rule orthogene_premap:
     input:
@@ -38,9 +38,9 @@ rule orthogene_premap:
 
 rule orthogene_premap_aggr:
     input:
-        expand(join(QUANT_INTERIM, '{{quantifier}}', '{sample}', 'annotation',  'orthogene', 'orthologs.tsv'), sample=AGGR_IDS['all_samples'])
+        expand(join(QUANT_INTERIM, '{{quantifier}}', '{sample}', 'annotation',  'orthogene', 'orthologs.tsv'), sample=AGGR_IDS[_AGGR_ID])
     output:
-        tsv = join(QUANT_INTERIM, 'aggregate', '{quantifier}', 'all_samples_orthologs.tsv')
+        tsv = join(QUANT_INTERIM, 'aggregate', '{quantifier}', '{aggr_id}_orthologs.tsv')
     params:
         script = src_gcf('scripts/aggr_orthogene.py')
     container:

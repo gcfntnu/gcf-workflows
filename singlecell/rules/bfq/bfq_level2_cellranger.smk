@@ -1,7 +1,7 @@
 # bfq_level2_cellranger.smk
 
 
-rule bfq_level2_exprs_cellranger:
+rule bfq_level2_exprs:
     input:
         exprs_aggr_input("cellranger"),
         expand(join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}', 'outs', 'count', 'filtered_feature_bc_matrix', 'matrix.mtx.gz'), aggr_id=AGGR_IDS),

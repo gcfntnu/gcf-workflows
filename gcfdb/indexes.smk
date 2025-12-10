@@ -50,7 +50,7 @@ rule star_genome_index:
         index = join('{ref_dir}', 'index', '{prefix}', 'star', 'SA')
     params:
         index_dir =  join('{ref_dir}', 'index', '{prefix}', 'star'),
-        sjdbOverhang = '{sjdbOverhang}',
+        #sjdbOverhang = '{sjdbOverhang}',
         size_params = lambda wildcards, input: genome_size_params(input.genome)
     threads:
         48

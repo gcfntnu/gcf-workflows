@@ -11,7 +11,7 @@ def rename_ints_to_samples(items):
             renamed.append(x)
     return renamed
 
-SUBLIBS = SAMPLES
+
 PARSEBIO_SAMPLES = rename_ints_to_samples(list(config['wells'].keys()))
 SPLITPIPE_AGGR = join(QUANT_INTERIM, 'aggregate', 'splitpipe')
 
