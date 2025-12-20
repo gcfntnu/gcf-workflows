@@ -57,6 +57,50 @@ def _parsebio_genome_name(name: str) -> str:
 
     return cleaned
 
+def star_build_preprocessor_string(config, pipe=False):
+    q  = config["quant"]
+    ss = q.get("starsolo", {})
+    preprocessor = ss.get("preprocessor", "").lower()
+    trimmer      = ss.get("trimmer", "").lower()
+
+    tmpdir = tempfile.mkdtemp(prefix="snakemake-fifo-")
+    atexit.register(lambda: shutil.rmtree(tmpdir, ignore_errors=True))
+    tmp_pp_r1 = os.path.join(tmpdir, "pp_R1.fastq")
+    tmp_pp_r2 = os.path.join(tmpdir, "pp_R2.fastq")
+    if pipe:
+        os.mkfifo(tmp_pp_r1)
+        os.mkfifo(tmp_pp_r2)
+
+    if preprocessor in  ["rt_merge", "splitcode", "error_correct_bc1"]:
+        config_file = join(FILTER_INTERIM, "fastq", preprocessor, "config.txt")
+        log_file = join(FILTER_INTERIM, "fastq", preprocessor, "log.txt")
+        args = f"splitcode -c {config_file} --summary {log_file} -t {{threads}} --nFastqs 2 -o {tmp_pp_r1},{tmp_pp_r2} {{input.R1}} {{input.R2}};\n"
+    elif preprocessor == "skip":
+        args = f"zcat {{input.R1}} > {tmp_pp_r1}; \nzcat {{input.R2}} > {tmp_pp_r2}; \n"
+    else:
+        raise ValueError
+    
+    if trimmer == "cutadapt":
+        tmp_trim_r1 = os.path.join(tmpdir, "trim_R1.fastq")
+        tmp_trim_r2 = os.path.join(tmpdir, "trim_R2.fastq")
+        if pipe:
+            os.mkfifo(tmp_trim_r1)
+            os.mkfifo(tmp_trim_r2)
+        tso_args = _tso_window_args(PRE_TSO_SEQ)
+        
+        args += f'cutadapt {tso_args} -a L12={LINKER_RC} -a polyA=A{{15}}$ -n 2 --no-indels -e 0.15 -O 8 -m {minlen_R1}:{minlen_R2} --report=minimal --json {output.json} -j {{threads}} '
+        '-o {output.R1} '
+        '-p {output.R2} '
+        ' {input.R1} '
+        ' {input.R2} '
+
+    elif trimmer == "skip":
+        pass
+    else:
+        raise ValueError
+        
+    
+
 def star_extra_args(config, n_sublibs=None):
     db_conf = config['db'][config['db']['reference_db']]
     assembly = db_conf.get("assembly", config['db'].get("assembly"))
@@ -412,6 +456,15 @@ def get_parsebio_starsolo_genome():
     else:
         genome = join(REF_DIR, 'index', 'genome', 'splitpipe', 'SA')
     return genome
+
+def get_parsebio_starsolo_config():
+    q  = config["quant"]
+    ss = q.get("starsolo", {})
+    preprocessor = ss.get("preprocessor", "").lower()
+    return join(FILTER_INTERIM, "fastq", f"{preprocessor}", "config.txt")
+
+
+
 
 rule parsebio_starsolo_quant:
     input:
