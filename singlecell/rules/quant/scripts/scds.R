@@ -84,19 +84,18 @@ main <- function() {
                       help = "hybrid_score threshold to classify doublets (used only for this method's call)")
 
   # Cell gating for scds computation
-  parser$add_argument("--min-umis", type = "integer", default = 50,
+  parser$add_argument("--min-umis", type = "integer", default = 0,
                       help = "Minimum total counts to include a cell in scds scoring")
-  parser$add_argument("--min-genes", type = "integer", default = 50,
+  parser$add_argument("--min-genes", type = "integer", default = 0,
                       help = "Minimum detected genes to include a cell in scds scoring")
-  parser$add_argument("--min-valid-cells", type = "integer", default = 200,
+  parser$add_argument("--min-valid-cells", type = "integer", default = 0,
                       help = "If fewer than this many cells pass gating, skip scds and write all singlets (NA scores)")
-
   # Gene filtering to prevent bcds dense coercion
-  parser$add_argument("--gene-min-cells", type = "integer", default = 50,
+  parser$add_argument("--gene-min-cells", type = "integer", default = 0,
                       help = "Keep genes detected in at least this many gated cells")
-  parser$add_argument("--gene-max-frac", type = "double", default = 0.95,
+  parser$add_argument("--gene-max-frac", type = "double", default = 1,
                       help = "Drop genes detected in more than this fraction of gated cells")
-  parser$add_argument("--gene-top-k", type = "integer", default = 5000,
+  parser$add_argument("--gene-top-k", type = "integer", default = 25000,
                       help = "Cap genes to top-K by total counts after prevalence filtering")
 
   # Numerical sanity for variance checks

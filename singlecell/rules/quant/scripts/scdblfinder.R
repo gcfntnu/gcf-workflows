@@ -43,20 +43,19 @@ main <- function() {
                       help = "Path to the 10x matrix.mtx(.gz)")
   parser$add_argument("-t", "--threads", type = "integer", default = NULL,
                       help = "Number of threads to use")
-  parser$add_argument("--min-umis", type = "integer", default = 200,
+  parser$add_argument("--min-umis", type = "integer", default = 0,
                       help = "Minimum total counts to include a cell in scDblFinder fit")
-  parser$add_argument("--min-genes", type = "integer", default = 200,
+  parser$add_argument("--min-genes", type = "integer", default = 0,
                       help = "Minimum detected genes to include a cell in scDblFinder fit")
-  parser$add_argument("--dbr-min", type = "double", default = 0.005,
-                      help = "Lower clamp for dbr")
-  parser$add_argument("--dbr-max", type = "double", default = 0.10,
-                      help = "Upper clamp for dbr")
-
-  parser$add_argument("--gene-min-cells", type="integer", default=50,
+  parser$add_argument("--dbr", type = "double", default = NULL,
+                      help = "Doublet rate")			
+  parser$add_argument("--dbr-sd", type = "double", default = NULL,
+                      help = "Doublet rate standard deviation")		      
+  parser$add_argument("--gene-min-cells", type="integer", default=0,
                       help="Keep genes detected in at least this many cells (after cell gating)")
-  parser$add_argument("--gene-max-frac", type="double", default=0.95,
+  parser$add_argument("--gene-max-frac", type="double", default=1,
                       help="Drop genes detected in more than this fraction of cells (after cell gating)")
-  parser$add_argument("--gene-top-k", type="integer", default=5000,
+  parser$add_argument("--gene-top-k", type="integer", default=25000,
                       help="Cap genes to top-K by total counts (after prevalence filtering)")
 
   args <- parser$parse_args()
@@ -132,13 +131,8 @@ main <- function() {
 
 
   # Sane dbr: start from your formula, then clamp
-  dbr <- (ncol(sce_sub) / 1000) * 0.008
-  dbr <- clamp(dbr, args$dbr_min, args$dbr_max)
-  if (!is.finite(dbr) || is.na(dbr) || dbr <= 0) stop("[ERROR] Computed invalid dbr")
 
-  cat(sprintf("[INFO] Running scDblFinder (dbr=%.5f) on %d cells...\n", dbr, ncol(sce_sub)),
-      file = stderr())
-  sce_sub <- scDblFinder(sce_sub, dbr = dbr)
+  sce_sub <- scDblFinder(sce_sub, dbr = args$dbr, dbr.sd = args$dbr_sd)
 
   # Re-expand to full barcode set
   out_class[valid] <- as.character(sce_sub$scDblFinder.class)

@@ -276,6 +276,9 @@ rule tmp_lightweight_filtered:
         '{input.mtx} '
         '--feature-info {input.feature_info} '
         '--barcode-rename skip '
+        '--min-counts-cell 50 ' #Drop cells with total counts (UMIs) < N .
+        '--min-genes-cell 50 ' #Drop cells with number of detected genes < N
+        '--min-cells-gene 3 ' #Drop genes detected (nonzero) in < N cells
         '-o {params.base} '
         '-v '
         '-f {wildcards.quantifier} '

@@ -27,6 +27,14 @@ if TRIMMER == 'starsolo':
 # splitpipe defaults (from libprep config)
 CHEM = config["quant"]["chemistry"]
 KIT =  config["quant"]["kit"].lower()
+n_by_kit = {"wt": 100_000, "wt_mega": 1_000_000, "wt_mini": 20_000}
+n_expected = int(config["quant"].get("n_expected_cells", n_by_kit[KIT]))
+try:
+    n_sublibs = len(SUBLIBS)  # noqa: F821
+except NameError:
+    n_sublibs = 1
+N_EXPECTED_CELLS = max(1, int(n_expected / (n_sublibs * 1.1)))
+
 
 ruleorder: parsebio_scanpy_filtered > scanpy_aggr_filtered
 
@@ -538,11 +546,12 @@ rule parsebio_starsolo_filtered:
         genes = join(QUANT_INTERIM, 'parsebio_starsolo', '{sublib}', 'Solo.out', STARSOLO_FEATURE, 'filtered', 'features.tsv')
     params:
         script = src_gcf("scripts/parsebio_barcode_rank.py"),
-        n_expected_cells = 50_000
+        n_expected_cells = N_EXPECTED_CELLS
     container:
         'docker://' + config['docker']['default']
     shell:
         'python {params.script} '
+        '--n-expected-cells  {params.n_expected_cells} '
         '--input-mtx {input.raw_mtx} '
         '--output-mtx {output.mtx} '
 
