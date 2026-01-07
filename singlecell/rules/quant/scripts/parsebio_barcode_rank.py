@@ -40,6 +40,7 @@ Robustness:
 
 from __future__ import annotations
 
+import sys
 import argparse
 import gzip
 import math
@@ -218,23 +219,176 @@ def _sg_curve_and_grad(counts_desc: np.ndarray, cv_steps: int, sg_window: int, s
     return x, y_sg, slope_pos, win
 
 
-def _select_window(x: np.ndarray, y: np.ndarray, min_cells: int, max_cells: int,
-                   min_cnt: int, min_cell_auc: float):
-    # x is log10(rank), y is smoothed log10(count)
-    # We choose a window [L, R) in x-index corresponding to plausible cell range,
-    # with cell-curve AUC requirement to avoid flat junk.
+def _select_window(
+    x: np.ndarray,
+    y: np.ndarray,
+    min_cells: int,
+    max_cells: int,
+    min_cnt: int,
+    min_cell_auc: float,
+):
     n = len(x)
-    L0 = _first_idx(10 ** x, float(min_cells), gt=True, last_if_missing=False)
-    R0 = _first_idx(10 ** x, float(max_cells), gt=False, last_if_missing=True) + 1
-    L0 = max(0, min(L0, n - 1))
-    R0 = max(L0 + 1, min(R0, n))
+    if n == 0:
+        print("[select_window] ERROR: empty x/y", file=sys.stderr)
+        return 0, 0
+    if len(y) != n:
+        print(f"[select_window] ERROR: len(y)={len(y)} != len(x)={n}", file=sys.stderr)
+        return 0, 0
 
-    # Enforce total transcript floor in the window via AUC on y
-    dy = np.exp(y[L0:R0])  # exp(log10) ~ count-scale proxy
-    idx_auc = _auc_index(dy, min_cell_auc)
+    if min_cells is None or min_cells < 1:
+        min_cells = 1
+    if max_cells is None or max_cells < 2:
+        max_cells = n
+
+    if min_cells >= max_cells:
+        print(f"[select_window] WARN: min_cells({min_cells}) >= max_cells({max_cells}); forcing max_cells=min_cells+1",
+              file=sys.stderr)
+        max_cells = min_cells + 1
+
+    ranks = 10 ** x  # should be ~1..N increasing
+
+    L0_raw = int(np.searchsorted(ranks, float(min_cells), side="left"))
+    R0_raw = int(np.searchsorted(ranks, float(max_cells), side="right"))
+
+    # enforce at least 2 points
+    L0 = max(0, min(L0_raw, n - 2))
+    R0 = max(L0 + 2, min(R0_raw, n))
+
+    # debug
+    print(
+        "[select_window] "
+        f"n={n} min_cells={min_cells} max_cells={max_cells} "
+        f"L0_raw={L0_raw} R0_raw={R0_raw} -> L0={L0} R0={R0} "
+        f"rank=[{ranks[L0]:.4g}..{ranks[R0-1]:.4g}]",
+        file=sys.stderr,
+    )
+    return L0, R0
+
+
+def _select_window_bak(
+    x: np.ndarray,
+    y: np.ndarray,
+    min_cells: int,
+    max_cells: int,
+    min_cnt: int,
+    min_cell_auc: float,
+):
+    """
+    Pick a rank-window [L:R) on the smoothed barcode-rank curve to run the knee finder in.
+
+    Assumptions:
+      - x is log10(rank) with rank increasing left->right (1..N)
+      - y is smoothed log10(counts) (UMIs/transcripts) corresponding to ranks
+      - ranks = 10**x is monotone increasing
+
+    Debugging:
+      - prints internal state to stderr
+    """
+    import sys
+    import numpy as np
+
+    n = len(x)
+    if n == 0:
+        print("[select_window] ERROR: empty x/y", file=sys.stderr)
+        return 0, 0
+    if len(y) != n:
+        print(f"[select_window] ERROR: len(y)={len(y)} != len(x)={n}", file=sys.stderr)
+        return 0, 0
+
+    ranks = 10 ** x  # float ranks, monotone increasing (should be ~1..N)
+
+    # Raw window bounds from rank constraints
+    L0_raw = int(np.searchsorted(ranks, float(min_cells), side="left"))
+    R0_raw = int(np.searchsorted(ranks, float(max_cells), side="right"))
+
+    # Clamp: enforce at least 2 points in [L0:R0)
+    L0 = max(0, min(L0_raw, n - 2))
+    R0 = max(L0 + 2, min(R0_raw, n))
+
+    # Convert y back to count-space for AUC logic
+    dy_full = 10 ** y[L0:R0]  # count-space within candidate window
+
+    # Optional trimming by min_cnt within the candidate window
+    # (prevents window from drifting deep into background tail)
+    if min_cnt is not None and min_cnt > 0:
+        ok = np.where(dy_full >= float(min_cnt))[0]
+        if len(ok) >= 2:
+            new_len = int(ok[-1] + 1)
+            dy = dy_full[:new_len]
+            R0_trimmed = L0 + new_len
+        else:
+            dy = dy_full
+            R0_trimmed = R0
+    else:
+        dy = dy_full
+        R0_trimmed = R0
+
+    # AUC-based right bound inside [L0:R0_trimmed)
+    idx_auc = _auc_index(dy, min_cell_auc)  # returns index in [0..len(dy)-1]
+    # Convert index -> number of points to keep, and enforce >=2 points
+    n_keep = max(2, int(idx_auc) + 1)
+
     L = L0
-    R = L0 + max(2, idx_auc)
-    R = min(R, R0)
+    R = min(L0 + n_keep, R0_trimmed)
+    R = max(L + 2, R)  # never allow collapse
+
+    # ---- Debug prints ----
+    def _fmt(v):
+        try:
+            return f"{float(v):.6g}"
+        except Exception:
+            return str(v)
+
+    print(
+        "[select_window] "
+        f"n={n} "
+        f"min_cells={min_cells} max_cells={max_cells} "
+        f"min_cnt={min_cnt} min_cell_auc={_fmt(min_cell_auc)}",
+        file=sys.stderr,
+    )
+    print(
+        "[select_window] "
+        f"ranks: min={_fmt(ranks[0])} max={_fmt(ranks[-1])} "
+        f"x: min={_fmt(x[0])} max={_fmt(x[-1])}",
+        file=sys.stderr,
+    )
+    print(
+        "[select_window] "
+        f"L0_raw={L0_raw} R0_raw={R0_raw} "
+        f"L0={L0} R0={R0} R0_trimmed={R0_trimmed}",
+        file=sys.stderr,
+    )
+
+    # Window stats
+    win_ranks = ranks[L:R]
+    win_counts = 10 ** y[L:R]
+    print(
+        "[select_window] "
+        f"WIN idx=[{L}..{R}) (len={R-L}) "
+        f"rank=[{_fmt(win_ranks[0])}..{_fmt(win_ranks[-1])}] "
+        f"count=[{_fmt(win_counts[0])}..{_fmt(win_counts[-1])}]",
+        file=sys.stderr,
+    )
+
+    # Candidate window stats (before AUC cut)
+    cand_ranks = ranks[L0:R0]
+    cand_counts = 10 ** y[L0:R0]
+    print(
+        "[select_window] "
+        f"CAND idx=[{L0}..{R0}) (len={R0-L0}) "
+        f"rank=[{_fmt(cand_ranks[0])}..{_fmt(cand_ranks[-1])}] "
+        f"count=[{_fmt(cand_counts[0])}..{_fmt(cand_counts[-1])}]",
+        file=sys.stderr,
+    )
+
+    # AUC details
+    print(
+        "[select_window] "
+        f"AUC dy_len={len(dy)} idx_auc={idx_auc} n_keep={n_keep} "
+        f"dy_first={_fmt(dy[0])} dy_last={_fmt(dy[-1])}",
+        file=sys.stderr,
+    )
+
     return L, R
 
 
@@ -434,7 +588,7 @@ def main():
                     help="Minimum relative prominence for a peak in selector C.")
     ap.add_argument("--min-width-frac", type=float, default=0.01,
                     help="Minimum peak width fraction for selector C.")
-    ap.add_argument("--cnt-scale-fac", type=float, default=1.0,
+    ap.add_argument("--cnt-scale-fac", type=float, default=0.85,
                     help="Scaling factor applied to counts when computing cutoff.")
     args = ap.parse_args()
 
@@ -544,7 +698,7 @@ def main():
     else:
         idx = _pick_A(slope_pos, x, L, R, args.edge_trim_frac)
 
-    thr = float(np.exp(y_sg[idx]) * args.cnt_scale_fac)
+    thr = float((10 ** y_sg[idx]) * args.cnt_scale_fac)
 
     # Determine kept barcodes
     keep = umis >= thr

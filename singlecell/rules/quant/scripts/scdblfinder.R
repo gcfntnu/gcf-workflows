@@ -43,14 +43,22 @@ main <- function() {
                       help = "Path to the 10x matrix.mtx(.gz)")
   parser$add_argument("-t", "--threads", type = "integer", default = NULL,
                       help = "Number of threads to use")
-  parser$add_argument("--min-umis", type = "integer", default = 10,
+  parser$add_argument("--min-umis", type = "integer", default = 200,
                       help = "Minimum total counts to include a cell in scDblFinder fit")
-  parser$add_argument("--min-genes", type = "integer", default = 5,
+  parser$add_argument("--min-genes", type = "integer", default = 200,
                       help = "Minimum detected genes to include a cell in scDblFinder fit")
   parser$add_argument("--dbr-min", type = "double", default = 0.005,
                       help = "Lower clamp for dbr")
   parser$add_argument("--dbr-max", type = "double", default = 0.10,
                       help = "Upper clamp for dbr")
+
+  parser$add_argument("--gene-min-cells", type="integer", default=50,
+                      help="Keep genes detected in at least this many cells (after cell gating)")
+  parser$add_argument("--gene-max-frac", type="double", default=0.95,
+                      help="Drop genes detected in more than this fraction of cells (after cell gating)")
+  parser$add_argument("--gene-top-k", type="integer", default=5000,
+                      help="Cap genes to top-K by total counts (after prevalence filtering)")
+
   args <- parser$parse_args()
 
   n_threads <- if (!is.null(args$threads)) args$threads else as.integer(Sys.getenv("THREADS", unset = "1"))
@@ -71,6 +79,9 @@ main <- function() {
   }
   colnames(sce) <- bc
   all_bc <- colnames(sce)
+  if (is.null(rownames(sce)) || length(rownames(sce)) != nrow(sce)) {
+     rownames(sce) <- sprintf("g%05d", seq_len(nrow(sce)))
+     }
 
   # Identify valid cells for fitting
   cnts  <- Matrix::colSums(counts(sce))
@@ -95,6 +106,30 @@ main <- function() {
   }
 
   sce_sub <- sce[, valid, drop = FALSE]
+
+  cts_sub <- counts(sce_sub)
+  n_cells_sub <- ncol(sce_sub)
+
+  det <- Matrix::rowSums(cts_sub > 0)
+  min_cells <- as.integer(args$gene_min_cells)
+  max_cells <- as.integer(floor(args$gene_max_frac * n_cells_sub))
+  
+  keep <- det >= min_cells & det <= max_cells
+  idx <- which(keep)
+
+  if (length(idx) >= 50) {
+    gene_sum <- Matrix::rowSums(cts_sub)
+    idx <- idx[order(gene_sum[idx], decreasing=TRUE)]
+    k <- min(as.integer(args$gene_top_k), length(idx))
+    idx <- idx[seq_len(k)]
+    sce_sub <- sce_sub[idx, , drop=FALSE]
+    cat(sprintf("[INFO] scDblFinder gene filter kept %d genes\n", nrow(sce_sub)), file=stderr())
+    } else {
+    cat(sprintf("[WARN] Only %d genes pass prevalence filter; proceeding without gene cap.\n", length(idx)),
+    			  file=stderr())
+    }
+
+
 
   # Sane dbr: start from your formula, then clamp
   dbr <- (ncol(sce_sub) / 1000) * 0.008

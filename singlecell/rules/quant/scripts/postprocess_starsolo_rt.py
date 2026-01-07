@@ -514,7 +514,7 @@ def parse_args() -> argparse.Namespace:
         description="Post-process convert_scanpy STARsolo output with R/T QC and optional aggregation."
     )
     p.add_argument("--input", "-i", help="Input .h5ad from convert_scanpy.py")
-    p.add_argument("--output" "-o", help="Output .h5ad")
+    p.add_argument("--output", "-o", help="Output .h5ad")
 
     p.add_argument(
         "--add-rt-qc",
@@ -558,7 +558,8 @@ def main() -> None:
         logger.info(f"Aggregating AnnData by '{args.groupby}'.")
         adata = aggregate_starsolo_cells(adata, groupby=args.groupby)
 
-    logger.info(f"Writing {args.output}")
+    #logger.info(f"Writing {args.output}")
+    logger.info(args)
     adata.write_h5ad(args.output)
 
 

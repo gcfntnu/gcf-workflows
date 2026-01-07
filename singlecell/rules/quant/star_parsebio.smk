@@ -552,7 +552,7 @@ def parsebio_rt_inputs(wc):
     if CB_OUTPUT:
         inputs = [join(QUANT_INTERIM, wc.method, s, "cellbender", f"{s}_filtered.h5") for s in sublibs]
     else:
-        inputs = [get_raw_mtx(SimpleNamespace(method=wc.method, sublib=s, sample=s))["mtx"] for s in sublibs]
+        inputs = [get_filtered_mtx(SimpleNamespace(method=wc.method, sublib=s, sample=s))["mtx"] for s in sublibs]
     output = {
         "inputs": inputs,
         "feature_info": get_feature_info_list(wc),
@@ -602,7 +602,7 @@ rule parsebio_scanpy_filtered:
         'python {params.script} '
         '--input {input} '
         '--output {output} '
-        '--aggregate '
+        ''
         
 
 rule parsebio_starsolo_mtx_v2_fix:

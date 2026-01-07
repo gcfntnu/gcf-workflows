@@ -422,6 +422,16 @@ def create_parser():
                         help="normalize depth across the input libraries")
     parser.add_argument("--no-zero-cell-rm", action="store_true",
                         help="do not remove cells with zero counts")
+    parser.add_argument("--min-counts-cell", type=int, default=0,
+                        help="Drop cells with total counts (UMIs) < N. Default 0 (disabled).")
+    parser.add_argument("--min-genes-cell", type=int, default=0,
+                        help="Drop cells with number of detected genes < N. Default 0 (disabled).")
+    parser.add_argument("--min-cells-gene", type=int, default=0,
+                        help="Drop genes detected (nonzero) in < N cells. Default 0 (disabled).")
+    parser.add_argument("--filter-report", type=pathlib.Path, default=None,
+                        help="Optional TSV path summarizing filtering (before/after + thresholds).")
+    parser.add_argument("--filter-masks-prefix", type=pathlib.Path, default=None,
+                        help="Optional prefix; writes <prefix>.cell_mask.tsv and <prefix>.gene_mask.tsv")
     parser.add_argument("--identify-empty-droplets", action="store_true",
                         help="estimate empty droplets using emptyDrops (DropletUtils)")
     parser.add_argument("--empty-droplets", choices=["cr_emptydrops"], default="cr_emptydrops",
@@ -1895,6 +1905,81 @@ def _mtx_export_from_raw_or_fail(adata, mtx_path: pathlib.Path, version: str = "
     write_mtx(adata, mtx_file=str(mtx_path), version=version)
 
 
+def apply_canonical_filters(
+    adata: anndata.AnnData,
+    *,
+    min_counts_cell: int = 0,
+    min_genes_cell: int = 0,
+    min_cells_gene: int = 0,
+    logger: Optional["logging.Logger"] = None,
+):
+    """
+    Apply conservative canonical filters on raw counts in adata.X.
+
+    Returns
+    -------
+    (adata_filtered, cell_keep_mask, gene_keep_mask, metrics_dict)
+    """
+    if logger is None:
+        logger = logging.getLogger(__name__)
+
+    X = adata.X
+    if not sp.issparse(X):
+        X = sp.csr_matrix(X)
+
+    n0_cells, n0_genes = adata.n_obs, adata.n_vars
+
+    # Per-cell metrics
+    cell_counts = np.asarray(X.sum(axis=1)).ravel()
+    cell_genes  = np.asarray((X > 0).sum(axis=1)).ravel()
+
+    keep_cell = np.ones(n0_cells, dtype=bool)
+    if min_counts_cell > 0:
+        keep_cell &= (cell_counts >= min_counts_cell)
+    if min_genes_cell > 0:
+        keep_cell &= (cell_genes >= min_genes_cell)
+
+    # Apply cell filter before gene filter
+    ad1 = adata[keep_cell, :].copy()
+    X1 = ad1.X
+    if not sp.issparse(X1):
+        X1 = sp.csr_matrix(X1)
+
+    # Per-gene metric (after cell filtering)
+    gene_cells = np.asarray((X1 > 0).sum(axis=0)).ravel()
+    keep_gene = np.ones(ad1.n_vars, dtype=bool)
+    if min_cells_gene > 0:
+        keep_gene &= (gene_cells >= min_cells_gene)
+
+    ad2 = ad1[:, keep_gene].copy()
+
+    metrics = {
+        "cells_before": int(n0_cells),
+        "genes_before": int(n0_genes),
+        "cells_after": int(ad2.n_obs),
+        "genes_after": int(ad2.n_vars),
+        "dropped_cells": int(n0_cells - ad2.n_obs),
+        "dropped_genes": int(n0_genes - ad2.n_vars),
+        "min_counts_cell": int(min_counts_cell),
+        "min_genes_cell": int(min_genes_cell),
+        "min_cells_gene": int(min_cells_gene),
+    }
+
+    logger.info(
+        "Canonical filter: "
+        f"cells {metrics['cells_before']}→{metrics['cells_after']} "
+        f"(drop {metrics['dropped_cells']}), "
+        f"genes {metrics['genes_before']}→{metrics['genes_after']} "
+        f"(drop {metrics['dropped_genes']}); "
+        f"min_counts_cell={metrics['min_counts_cell']}, "
+        f"min_genes_cell={metrics['min_genes_cell']}, "
+        f"min_cells_gene={metrics['min_cells_gene']}"
+    )
+
+    return ad2, keep_cell, keep_gene, metrics
+
+
+
 READERS = {
     "cellranger_aggr": read_cellranger_aggr,
     "cellranger": read_cellranger,
@@ -2008,6 +2093,40 @@ if __name__ == "__main__":
 
         if args.verbose and "barcodes_analyzed" in data.obs.columns:
             logger.debug("barcodes_analyzed counts:\n" + str(data.obs["barcodes_analyzed"].value_counts()))
+
+
+    # Additional conservative canonical filters (optional)
+    if (args.min_counts_cell > 0) or (args.min_genes_cell > 0) or (args.min_cells_gene > 0):
+        logger.info("Applying conservative canonical filters ...")
+        data_filtered, keep_cell, keep_gene, filt_metrics = apply_canonical_filters(
+            data,
+            min_counts_cell=args.min_counts_cell,
+            min_genes_cell=args.min_genes_cell,
+            min_cells_gene=args.min_cells_gene,
+            logger=logger,
+        )
+
+        # Optional: write masks aligned to PRE-filter coordinates (the current `data`)
+        if args.filter_masks_prefix is not None:
+            args.filter_masks_prefix.parent.mkdir(parents=True, exist_ok=True)
+            cell_mask_fn = args.filter_masks_prefix.with_suffix("").as_posix() + ".cell_mask.tsv"
+            gene_mask_fn = args.filter_masks_prefix.with_suffix("").as_posix() + ".gene_mask.tsv"
+
+            pd.DataFrame({"barcode": data.obs_names.astype(str), "keep": keep_cell}) \
+              .to_csv(cell_mask_fn, sep="\t", index=False)
+            pd.DataFrame({"gene_id": data.var_names.astype(str), "keep": keep_gene}) \
+              .to_csv(gene_mask_fn, sep="\t", index=False)
+
+            logger.info(f"Wrote filter masks: {cell_mask_fn} ; {gene_mask_fn}")
+
+        # Optional: write summary report
+        if args.filter_report is not None:
+            args.filter_report.parent.mkdir(parents=True, exist_ok=True)
+            pd.DataFrame([filt_metrics]).to_csv(args.filter_report, sep="\t", index=False)
+            logger.info(f"Wrote filter report: {args.filter_report}")
+
+        data = data_filtered
+
 
     # -------------------------
     # Merge sample_info (optional)
