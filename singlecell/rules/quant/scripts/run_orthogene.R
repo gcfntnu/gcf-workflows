@@ -118,20 +118,33 @@ if (args$src == args$dst) {
             saveRDS(dst_ids, file = cache_file)
         }
     }
-    message("[4.5/6] Map to dst organism...")
-    # Map to obtain destination symbols
-    dst_map <- map_genes(
-        rownames(dst_ids),
-        species    = args$dst,
-        mthreshold = 1,
-        drop_na    = TRUE
-    )
-    dst_map <- dst_map[, c("target", "input")]
-    colnames(dst_map) <- paste(args$dst, c("gene_id", "gene_symbol"), sep = "_")
-    dst_df <- cbind(
-        gene_id = dst_ids[, "input_gene"],
-        dst_map
-    )
+    
+  message("[4.5/6] Map to dst organism...")
+
+  # Map to obtain destination symbols (KEEP NAs, then align back to dst_ids)
+  # dst_map: KEEP NAs
+dst_map <- map_genes(
+  genes      = rownames(dst_ids),
+  species    = args$dst,
+  mthreshold = 1,
+  drop_na    = FALSE
+)
+
+sym <- dst_map$target
+names(sym) <- dst_map$input
+aligned_sym <- unname(sym[rownames(dst_ids)])
+
+dst_df <- data.frame(
+  gene_id      = dst_ids[, "input_gene", drop = TRUE],
+  dst_gene_id  = rownames(dst_ids),
+  dst_symbol   = aligned_sym,
+  check.names = FALSE,
+  stringsAsFactors = FALSE
+)
+
+names(dst_df)[names(dst_df) == "dst_gene_id"] <- paste0(args$dst, "_gene_id")
+names(dst_df)[names(dst_df) == "dst_symbol"]  <- paste0(args$dst, "_gene_symbol")
+
 }
 
 # Write output
