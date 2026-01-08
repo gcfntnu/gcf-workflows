@@ -258,7 +258,7 @@ rule tmp_lightweight_raw:
         '-f {wildcards.quantifier} '
         '-F anndata_lightweight v2_mtx '
 
-# used by doublets/autoqc/annotation
+# used by doublets
 rule tmp_lightweight_filtered:
     input:
         unpack(get_filtered_mtx),

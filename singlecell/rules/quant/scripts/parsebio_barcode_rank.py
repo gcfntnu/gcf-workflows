@@ -588,7 +588,7 @@ def main():
                     help="Minimum relative prominence for a peak in selector C.")
     ap.add_argument("--min-width-frac", type=float, default=0.01,
                     help="Minimum peak width fraction for selector C.")
-    ap.add_argument("--cnt-scale-fac", type=float, default=0.8,
+    ap.add_argument("--cnt-scale-fac", type=float, default=1.0,
                     help="Scaling factor applied to counts when computing cutoff.")
     args = ap.parse_args()
 

@@ -45,7 +45,8 @@ rule dbl_scdblfinder:
     output:
         join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets', 'scdblfinder', 'doublet_type.tsv')
     params:
-        script = src_gcf('scripts/scdblfinder.R')
+        script = src_gcf('scripts/scdblfinder.R'),
+        args = '--dbr-sd 1 '
     threads:
         8
     shell:
@@ -92,8 +93,7 @@ rule dbl_solo_model:
         json = temp('solo_model.json')
     run:
         import json
-        m = {
-            "n_hidden": 384,
+        m = {"n_hidden": 384,
             "n_latent": 64,
             "n_layers": 1,
             "cl_hidden": 128,
