@@ -91,7 +91,7 @@ if (grepl("\\.mtx$", args$input, ignore.case = TRUE)) {
         var$gene_symbol <- rownames(var)
     }
 }
-src_ids <- var$gene_id
+
 
 # Handle mapping
 if (args$src == args$dst) {
@@ -99,7 +99,7 @@ if (args$src == args$dst) {
     dst_df <- var[, c("gene_id", "gene_symbol")]
 } else {
     message("[3/6] Mapping genes from ", args$src, " to ", args$dst)
-
+    
     # Load from cache or run conversion
     if (use_cache && file.exists(cache_file)) {
         message("[4/6] Using cached mapping: ", cache_file)
@@ -107,7 +107,9 @@ if (args$src == args$dst) {
     } else {
         message("[4/6] Running ortholog conversion...")
         dst_ids <- convert_orthologs(
-            gene_df        = src_ids,
+            gene_df        = var,
+	    gene_input     = "gene_id",
+	    gene_output    = "dict",
             input_species  = args$src,
             output_species = args$dst,
             method         = "gprofiler",
@@ -121,23 +123,18 @@ if (args$src == args$dst) {
     
   message("[4.5/6] Map to dst organism...")
 
-  # Map to obtain destination symbols (KEEP NAs, then align back to dst_ids)
-  # dst_map: KEEP NAs
 dst_map <- map_genes(
-  genes      = rownames(dst_ids),
+  genes      = dst_ids,
   species    = args$dst,
   mthreshold = 1,
   drop_na    = FALSE
 )
 
-sym <- dst_map$target
-names(sym) <- dst_map$input
-aligned_sym <- unname(sym[rownames(dst_ids)])
 
 dst_df <- data.frame(
-  gene_id      = dst_ids[, "input_gene", drop = TRUE],
-  dst_gene_id  = rownames(dst_ids),
-  dst_symbol   = aligned_sym,
+  gene_id      = names(dst_ids),
+  dst_gene_id  = dst_map[,"target"],
+  dst_symbol   = dst_map[,"name"],
   check.names = FALSE,
   stringsAsFactors = FALSE
 )
@@ -146,6 +143,9 @@ names(dst_df)[names(dst_df) == "dst_gene_id"] <- paste0(args$dst, "_gene_id")
 names(dst_df)[names(dst_df) == "dst_symbol"]  <- paste0(args$dst, "_gene_symbol")
 
 }
+
+stopifnot(grepl("^ENS", dst_df[[paste0(args$dst, "_gene_id")]][1]))
+stopifnot(!grepl("^ENS", dst_df[[paste0(args$dst, "_gene_symbol")]][1]))
 
 # Write output
 message("[6/6] Writing result to: ", args$output)

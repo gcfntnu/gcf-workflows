@@ -33,7 +33,7 @@ rule orthogene_premap:
         '--output {output.gene_map} '
         '--src {params.src_org} '
         '--dst {params.dst_org} '
-        #'--no-cache '
+        '--no-cache '
 
 
 rule orthogene_premap_aggr:

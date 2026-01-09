@@ -46,14 +46,14 @@ rule dbl_scdblfinder:
         join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets', 'scdblfinder', 'doublet_type.tsv')
     params:
         script = src_gcf('scripts/scdblfinder.R'),
-        args = '--dbr-sd 1 '
+        args = '--dbr-sd 1 --dbr 0.15 '
     threads:
         8
     shell:
         'Rscript {params.script} '
         '--input {input.counts} '
         '--output {output} '
-        '--threads {threads}'
+        '--threads {threads} '
         
 
 rule dbl_scds:

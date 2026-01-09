@@ -43,7 +43,7 @@ main <- function() {
                       help = "Path to the 10x matrix.mtx(.gz)")
   parser$add_argument("-t", "--threads", type = "integer", default = NULL,
                       help = "Number of threads to use")
-  parser$add_argument("--min-umis", type = "integer", default = 0,
+  parser$add_argument("--min-umis", type = "integer", default = 250,
                       help = "Minimum total counts to include a cell in scDblFinder fit")
   parser$add_argument("--min-genes", type = "integer", default = 0,
                       help = "Minimum detected genes to include a cell in scDblFinder fit")
@@ -55,7 +55,7 @@ main <- function() {
                       help="Keep genes detected in at least this many cells (after cell gating)")
   parser$add_argument("--gene-max-frac", type="double", default=1,
                       help="Drop genes detected in more than this fraction of cells (after cell gating)")
-  parser$add_argument("--gene-top-k", type="integer", default=25000,
+  parser$add_argument("--gene-top-k", type="integer", default=10000,
                       help="Cap genes to top-K by total counts (after prevalence filtering)")
 
   args <- parser$parse_args()
@@ -128,9 +128,6 @@ main <- function() {
     			  file=stderr())
     }
 
-
-
-  # Sane dbr: start from your formula, then clamp
 
   sce_sub <- scDblFinder(sce_sub, dbr = args$dbr, dbr.sd = args$dbr_sd)
 
