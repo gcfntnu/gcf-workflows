@@ -38,7 +38,17 @@ rule dbl_doubletdetection:
         '-o {output} '
         '--threads {threads} '
 
-
+def dbl_scdblfinder_args():
+    if config['libprepkit'].lower().startswith('parse'):
+        dbr = config['quant']['doublet_detection'].get('expected_doublet_rate')
+        if dbr:
+            args = f'--dbr {dbr} '
+        else:
+            args = '--dbr-sd 1 '
+    else:
+        args = ''
+    return args
+        
 rule dbl_scdblfinder:
     input:
         counts = '_tmp/{quantifier}/filtered/{sample}/anndata.mtx_v2/matrix.mtx',
@@ -46,14 +56,16 @@ rule dbl_scdblfinder:
         join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets', 'scdblfinder', 'doublet_type.tsv')
     params:
         script = src_gcf('scripts/scdblfinder.R'),
-        args = '--dbr-sd 1 --dbr 0.15 '
+        #args = dbl_scdblfinder_args()
+        args = '--min-umis 300 -min-genes 10 '
     threads:
-        8
+        80
     shell:
         'Rscript {params.script} '
         '--input {input.counts} '
         '--output {output} '
         '--threads {threads} '
+        '{params.args} '
         
 
 rule dbl_scds:

@@ -59,7 +59,7 @@ main <- function() {
                       help="Cap genes to top-K by total counts (after prevalence filtering)")
 
   args <- parser$parse_args()
-
+  print(args)
   n_threads <- if (!is.null(args$threads)) args$threads else as.integer(Sys.getenv("THREADS", unset = "1"))
   if (is.na(n_threads) || !is.finite(n_threads) || n_threads < 1) stop("[ERROR] Invalid thread count")
   setup_threads(as.integer(n_threads))
@@ -129,7 +129,7 @@ main <- function() {
     }
 
 
-  sce_sub <- scDblFinder(sce_sub, dbr = args$dbr, dbr.sd = args$dbr_sd)
+  sce_sub <- scDblFinder(sce_sub)
 
   # Re-expand to full barcode set
   out_class[valid] <- as.character(sce_sub$scDblFinder.class)
