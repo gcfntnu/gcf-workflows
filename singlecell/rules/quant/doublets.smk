@@ -285,7 +285,7 @@ rule dbl_doublet_notebook:
     input:
         expand(get_doublet_output(), sample='{sample}', quantifier="{quantifier}")
     output:
-        combined = join(QUANT_INTERIM, '{quantifier}', '{sample}' , 'doublets', 'doublet_rank_aggr.tsv'),
+        classification = join(QUANT_INTERIM, '{quantifier}', '{sample}' , 'doublets', 'doublet_rank_aggr.tsv'),
         rankdata = join(QUANT_INTERIM, '{quantifier}', '{sample}' , 'doublets', 'doublet_rank_aggr_rankdata.tsv'),
         figure = join(QUANT_INTERIM, '{quantifier}', '{sample}' , 'doublets', 'doublet_rank_aggr.pdf')
     params:
@@ -318,14 +318,18 @@ rule dbl_doublet_html:
 
 def dbl_aggr_input(wildcards):
     samples_by_aggr_id = AGGR_IDS.get(wildcards.aggr_id)
-    input_files = expand(rules.dbl_doublet_notebook.output.combined,
-                         quantifier=wildcards.method,
-                         sample=samples_by_aggr_id)
+    classification = expand(rules.dbl_doublet_notebook.output.classification,
+                      quantifier=wildcards.method,
+                      sample=samples_by_aggr_id)
+    rankdata = expand(rules.dbl_doublet_notebook.output.rankdata,
+                      quantifier=wildcards.method,
+                      sample=samples_by_aggr_id)
+    
     if wildcards.method.startswith('cellranger'):
         aggr_csv = join(QUANT_INTERIM, 'aggregate', 'description', f'{wildcards.aggr_id}_aggr.csv')
-        return {'input_files': input_files, 'aggr_csv': aggr_csv}
+        return {'classification': classification, 'rankdata': rankdata, 'aggr_csv': aggr_csv}
     else:
-        return {'input_files': input_files}
+        return {'classification': classification, 'rankdata': rankdata}
     
 def dbl_aggr_args(wildcards):
     args = ''
@@ -337,7 +341,7 @@ def dbl_aggr_args(wildcards):
     return args
 
 
-rule dbl_aggr:
+rule dbl_classification_aggr:
         input:
             unpack(dbl_aggr_input),
         output:
@@ -349,12 +353,29 @@ rule dbl_aggr:
             'docker://' + config['docker']['default']
         shell:
             'python {params.script} '
-            '{input.input_files} '
+            '{input.classification} '
             '{params.args} '
-            '--output {output} ' 
+            '--output {output} '
+
+rule dbl_rankdata_aggr:
+        input:
+            unpack(dbl_aggr_input),
+        output:
+            join(QUANT_INTERIM, 'aggregate', '{method}' , '{aggr_id}_droplet_rankdata.tsv')
+        params:
+            script = src_gcf("scripts/aggr_barcode_info.py"),
+            args = dbl_aggr_args
+        container:
+            'docker://' + config['docker']['default']
+        shell:
+            'python {params.script} '
+            '{input.rankdata} '
+            '--columns-mode intersection '
+            '{params.args} '
+            '--output {output} '
             
 rule dbl_all:
     input:
-        expand(join(QUANT_INTERIM, 'aggregate', '{quantifier}' , '{aggr_id}_droplet_classification.tsv'),
-               quantifier=config['quant']['method'].split(','), aggr_id='all_samples')
+        expand(join(QUANT_INTERIM, 'aggregate', '{quantifier}' , '{aggr_id}_{output_type}.tsv'),
+               quantifier=config['quant']['method'].split(','), aggr_id='all_samples', output_type = ['droplet_classification', 'droplet_rankdata'])
 

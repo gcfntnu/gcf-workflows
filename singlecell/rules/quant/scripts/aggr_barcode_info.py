@@ -264,28 +264,14 @@ def read_barcode_table(filepath, sep=None):
     return df
 
 
-def merge_tables(filepaths, sample_ids, barcode_rename, aggr_csv=None, sep=None):
-    """
-    Merge multiple barcode-level tables with unique postfixes.
-
-    Parameters
-    ----------
-    filepaths : list of str
-        Input file paths.
-    sample_ids : list of str or None
-        Sample ID for each input file.
-    barcode_rename : str
-        Renaming strategy ("sample_id", "numeric", etc.).
-    aggr_csv : DataFrame, optional
-        Mapping of sample names to numeric IDs.
-    sep : str, optional
-        Field separator for reading CSV/TSV files.
-
-    Returns
-    -------
-    DataFrame
-        Merged table with consistent columns and unique barcode index named "Barcode".
-    """
+def merge_tables(filepaths,
+                 sample_ids,
+                 barcode_rename,
+                 aggr_csv=None,
+                 sep=None,
+                 columns_mode="strict",
+                 verbose=False
+                 ):
     dfs = []
     for i, path in enumerate(filepaths):
         df = read_barcode_table(path, sep=sep)
@@ -296,21 +282,46 @@ def merge_tables(filepaths, sample_ids, barcode_rename, aggr_csv=None, sep=None)
             aggr_csv=aggr_csv,
             sample_id=sample_id
         )
-
         if not df.index.is_unique:
             raise ValueError(f"Non-unique barcodes after renaming in file: {path}")
-
         dfs.append(df)
 
-    # Ensure all DataFrames have identical columns
-    columns_set = {tuple(df.columns) for df in dfs}
-    if len(columns_set) != 1:
-        raise ValueError("Input files have mismatching columns and cannot be merged.")
+    col_sets = [set(df.columns) for df in dfs]
 
-    merged = pd.concat(dfs, axis=0)
+    if columns_mode == "strict":
+        columns_set = {tuple(df.columns) for df in dfs}
+        if len(columns_set) != 1:
+            raise ValueError("Input files have mismatching columns and cannot be merged.")
+        target_cols = list(dfs[0].columns)
+
+    elif columns_mode == "intersection":
+        target_cols = sorted(set.intersection(*col_sets)) if dfs else []
+        if not target_cols:
+            raise ValueError("No shared columns across inputs (intersection is empty).")
+        for df in dfs:
+            df.drop(columns=[c for c in df.columns if c not in target_cols], inplace=True)
+
+    elif columns_mode == "union":
+        target_cols = sorted(set.union(*col_sets)) if dfs else []
+        # keep as-is; concat will align and fill missing with NaN
+
+    else:
+        raise ValueError(f"Unknown columns_mode: {columns_mode}")
+
+    merged = pd.concat(dfs, axis=0, sort=False)
     merged.index.name = "Barcode"
 
+    # Enforce stable final column order for union (and keep strict/intersection order consistent)
+    if columns_mode == "union":
+        for c in target_cols:
+            if c not in merged.columns:
+                merged[c] = pd.NA
+        merged = merged.loc[:, target_cols]
+    else:
+        merged = merged.loc[:, target_cols]
+
     return merged
+
 
 
 def main():
@@ -324,6 +335,20 @@ def main():
                         help="Strategy to rename barcodes for uniqueness.")
     parser.add_argument("--aggr-csv", default=None, help="Path to optional aggr.csv file.")
     parser.add_argument("--sep", default=None, help="Optional override for field separator.")
+    parser.add_argument("--columns-mode", default="strict",
+                        choices=["strict", "intersection", "union"],
+                        help=(
+                            "How to handle mismatching columns across inputs. "
+                            "strict: require identical columns (current behavior). "
+                            "intersection: keep only columns present in all files. "
+                            "union: keep all columns, missing values become NaN. "
+                            "subset: keep only columns listed in --columns-subset."
+                        ),)
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Print extra diagnostics (e.g., column mismatches and reconciliation actions).",
+    )
 
     args = parser.parse_args()
 
@@ -341,7 +366,8 @@ def main():
         sample_ids=sample_ids,
         barcode_rename=args.barcode_rename,
         aggr_csv=aggr_csv,
-        sep=args.sep
+        sep=args.sep,
+        columns_mode=args.columns_mode
     )
 
     output_sep = "," if args.output.endswith(".csv") else "\t"
