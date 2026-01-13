@@ -17,4 +17,5 @@ adata.obs.index.name = "Barcode"
 
 df = adata.obs[["is_doublet", "logit_scores"]]
 df["is_doublet"].replace({True: "doublet", False: "singlet"}, inplace=True)
+df.columns = ["doublet", "doublet_score"]
 df.reset_index().to_csv(args.output, sep = "\t", index = False)
