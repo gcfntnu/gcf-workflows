@@ -12,9 +12,11 @@ rule autoqc_sctk:
         script = src_gcf('scripts/sctk_autoqc.py'),
         qc_sample = 'Sample_ID_x_library_id',
         qc_vars = 'total_counts,n_genes_by_counts,nuclear_fraction,cb_perfect_rate',
-        plot_dir = 'sctk_autoqc'
+        plot_dir = join(QUANT_INTERIM, 'aggregate', '{method}', 'autoqc', 'sctk')
     container:
         'docker://gcfntnu/sctk:0.2.2'
+    log:
+       join(QUANT_INTERIM, 'aggregate', '{method}', 'autoqc', '{aggr_id}_sctk_autoqc.log') 
     shell:
         'python {params.script} '
         '--input {input.aggr_filtered_h5ad} '
@@ -23,6 +25,7 @@ rule autoqc_sctk:
         '--qc-sample {params.qc_sample} '
         '--qc-vars {params.qc_vars} '
         '--plot-dir {params.plot_dir} '
+        '--log-filename {log} '
         '--verbose '
         
 
