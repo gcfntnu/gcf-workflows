@@ -926,14 +926,15 @@ def _starsolo_derived_cell_stats(df):
     tx_reads_safe      = tx_reads.replace(0, np.nan)
     umis_safe          = umis.replace(0, np.nan)
     genes_safe         = genes.replace(0, np.nan)
-
+    counted_reads_safe = counted_reads.replace(0, np.nan)
+    
     # RNA vs DNA
-    df["frac_in_genes"] = feature_reads_safe / total_genome_safe
+    df["frac_in_genes"] = (feature_reads_safe / total_genome_safe).clip(0, 1)
     df["dna_fraction"]  = 1.0 - df["frac_in_genes"]
 
     # exonic vs intronic composition
-    df["frac_exonic"]   = df["exonic"]   / tx_reads_safe
-    df["frac_intronic"] = df["intronic"] / tx_reads_safe
+    df["frac_exonic"]   = (df["exonic"] + df["exonicAS"]) / tx_reads_safe
+    df["frac_intronic"] = (df["intronic"] + df["intronicAS"]) / tx_reads_safe
 
     # mitochondrial
     df["frac_mito_reads"] = df["mito"] / total_genome_safe
@@ -949,7 +950,7 @@ def _starsolo_derived_cell_stats(df):
     # multimapper load
     df["frac_multimapper_reads"] = df["genomeM"] / total_genome_safe
     df["frac_multimapper_features"] = df["featureM"] / feature_reads_safe
-    df["frac_multimapper_counted"] = df["countedM"] / counted_reads.replace(0, np.nan)
+    df["frac_multimapper_counted"] = df["countedM"] / counted_reads_safe
 
     return df
 
@@ -2191,6 +2192,9 @@ if __name__ == "__main__":
     # -------------------------
     if "gene_symbols" in data.var.columns:
         gs = data.var["gene_symbols"].astype(str).str.lower()
+        #chrom = data.var["chrom"].astype(str).str.upper()
+        #mt_by_symbol = gs.str.startswith("mt-")
+        #mt_by_chrom  = chrom.str.match(r"^(CHR)?MT\b")
         data.var["mt"] = gs.str.startswith("mt-")
         data.var["ribo"] = gs.str.startswith(("rps", "rpl"))
         data.var["hb"] = gs.str.contains("^hb(?!p)", regex=True)

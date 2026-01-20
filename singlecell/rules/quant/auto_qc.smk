@@ -7,11 +7,12 @@ rule autoqc_sctk:
     input:
         aggr_filtered_h5ad = join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_filtered.h5ad')
     output:
-        passed_tsv = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', '{aggr_id}_sctk_autoqc_mask.tsv')
+        passed_tsv = join(QUANT_INTERIM, 'aggregate', '{method}', '{aggr_id}_sctk_autoqc_mask.tsv')
     params:
         script = src_gcf('scripts/sctk_autoqc.py'),
-        qc_sample = 'auto',
-        qc_vars = 'total_counts,n_genes_by_counts,mt_fraction,nuclear_fraction'
+        qc_sample = 'Sample_ID_x_library_id',
+        qc_vars = 'total_counts,n_genes_by_counts,nuclear_fraction,cb_perfect_rate',
+        plot_dir = 'sctk_autoqc'
     container:
         'docker://gcfntnu/sctk:0.2.2'
     shell:
@@ -21,17 +22,19 @@ rule autoqc_sctk:
         '--quantifier {wildcards.method} '
         '--qc-sample {params.qc_sample} '
         '--qc-vars {params.qc_vars} '
+        '--plot-dir {params.plot_dir} '
+        '--verbose '
         
 
 rule autoqc_sampleqc:
     input:
         aggr_raw_h5ad = join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_filtered.h5ad')
     output:
-        passed_tsv = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', '{aggr_id}_sampleqc_autoqc_mask.tsv')
-        
+        passed_tsv = join(QUANT_INTERIM, 'aggregate', '{method}', '{aggr_id}_sampleqc_autoqc_mask.tsv')
+
 
 rule autoqc_validrops:
     input:
         aggr_raw_h5ad = join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_filtered.h5ad')
     output:
-        passed_tsv = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', '{aggr_id}_validrops_autoqc_mask.tsv')   
+        passed_tsv = join(QUANT_INTERIM, 'aggregate', '{method}', '{aggr_id}_validrops_autoqc_mask.tsv')   

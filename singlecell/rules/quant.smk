@@ -120,6 +120,7 @@ def get_barcode_info_list(wc):
         aggr_dir = join(QUANT_INTERIM, "aggregate", wc.method)
         if dd_method:
             items.append(join(aggr_dir, f"{wc.aggr_id}_droplet_classification.tsv"))
+            items.append(join(aggr_dir, f"{wc.aggr_id}_droplet_rankdata.tsv"))
         if anno_method:
             if anno_method == "mapmycells":
                 items.append(join(aggr_dir, f"{wc.aggr_id}_premap_annotation.tsv"))
