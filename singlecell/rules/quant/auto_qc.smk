@@ -7,7 +7,9 @@ rule autoqc_sctk:
     input:
         aggr_filtered_h5ad = join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_filtered.h5ad')
     output:
-        passed_tsv = join(QUANT_INTERIM, 'aggregate', '{method}', '{aggr_id}_sctk_autoqc_mask.tsv')
+        passed_tsv = join(QUANT_INTERIM, 'aggregate', '{method}', '{aggr_id}_sctk_autoqc_mask.tsv'),
+        qc_vars = join(QUANT_INTERIM, 'aggregate', '{method}', '{aggr_id}_sctk_autoqc_qcvars.tsv'),
+        log = join(QUANT_INTERIM, 'aggregate', '{method}', 'autoqc', '{aggr_id}_sctk_autoqc.log') 
     params:
         script = src_gcf('scripts/sctk_autoqc.py'),
         qc_sample = 'Sample_ID_x_library_id',
@@ -15,8 +17,6 @@ rule autoqc_sctk:
         plot_dir = join(QUANT_INTERIM, 'aggregate', '{method}', 'autoqc', 'sctk')
     container:
         'docker://gcfntnu/sctk:0.2.2'
-    log:
-       join(QUANT_INTERIM, 'aggregate', '{method}', 'autoqc', '{aggr_id}_sctk_autoqc.log') 
     shell:
         'python {params.script} '
         '--input {input.aggr_filtered_h5ad} '
@@ -25,9 +25,9 @@ rule autoqc_sctk:
         '--qc-sample {params.qc_sample} '
         '--qc-vars {params.qc_vars} '
         '--plot-dir {params.plot_dir} '
-        '--log-filename {log} '
+        '--log-filename {output.log} '
         '--verbose '
-        
+
 
 rule autoqc_sampleqc:
     input:

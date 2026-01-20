@@ -308,17 +308,24 @@ def ensure_transformed_metric_columns(adata, metrics_df: pd.DataFrame):
 def prefilter_masks(adata, policy: PrefilterPolicy) -> Tuple[np.ndarray, np.ndarray]:
     cell_mask = np.ones(adata.n_obs, dtype=bool)
     gene_mask = np.ones(adata.n_vars, dtype=bool)
-
+    n0 = adata.n_obs
+    
     if policy.drop_doublets:
+        before = cell_mask.sum()
         if 'rra_pval' in adata.obs.columns:
-            cell_mask &= (adata.obs["rra_pval"] <= 0.5 ).to_numpy()
+            cell_mask &= (adata.obs["rra_pval"] < 1 ).to_numpy()
         if "droplet_type" in adata.obs.columns:
             cell_mask &= adata.obs["droplet_type"].eq("singlet").to_numpy()
+        after = cell_mask.sum()
+        LOGGER.info("[prefilter] drop_doublets: %d -> %d", before, after)
 
     if policy.only_protein_coding and "gene_biotype" in adata.var.columns:
+        before = gene_mask.sum()
         pc = adata.var["gene_biotype"].eq("protein_coding").to_numpy()
         if pc.any():
             gene_mask &= pc
+        after = gene_mask.sum()
+        LOGGER.info("[prefilter] protein_coding(+qc_genes): %d -> %d", before, after)
 
     X = adata.X[:, gene_mask]
     if sp.issparse(X):
@@ -334,6 +341,12 @@ def prefilter_masks(adata, policy: PrefilterPolicy) -> Tuple[np.ndarray, np.ndar
         n_cells = np.sum(X2 > 0, axis=0)
     gene_mask &= (n_cells >= policy.min_cells)
 
+    LOGGER.info(
+        "[prefilter] final: cells %d/%d genes %d/%d",
+        cell_mask.sum(), adata.n_obs,
+        gene_mask.sum(), adata.n_vars,
+    )
+    
     return cell_mask, gene_mask
 
 
@@ -345,19 +358,19 @@ def default_metrics_df(qc_vars: Tuple[str, ...]) -> pd.DataFrame:
     metrics = pd.DataFrame(
         [
             # total_counts: min can use valley; max should NOT use valley by default
-            ("log",   1000, None, "gauss>strict_valley>q", "none",    0.01, 0.999, 0.85, 0.995, 0.10),
+            ("log",   None, None, "gauss>strict_valley>q", "none",    0.01, 0.999, 0.85, 0.995, 0.10),
 
             # n_genes_by_counts: usually no valley; quantile is fine fallback
             ("log",    200, None, "gauss>q",               "none",    0.01, 0.999, 0.90, 0.995, 0.10),
 
             # nuclear_fraction: min only, no valley
-            ("logit", 0.15, None, "gauss>q",               "none",    0.01, 0.999, 0.90, 0.995, 0.10),
+            ("logit", None, None, "gauss>q",               "none",    0.01, 0.999, 0.90, 0.995, 0.10),
 
             # cb_perfect_rate: min only, no valley
-            ("logit", 0.97, None, "gauss>q",               "none",    0.01, 0.999, 0.90, 0.995, 0.10),
+            ("logit", 0.25, None, "gauss>strict_valley>q",               "none",    0.01, 0.999, 0.90, 0.995, 0.10),
 
             # mt_fraction: max only; gaussian or quantile; no valley
-            ("logit", None, 0.10, "none",                 "gauss>q",  0.01, 0.99,  0.85, 0.95,  0.10),
+            ("logit", None, None, "none",                 "gauss>q",  0.01, 0.99,  0.85, 0.95,  0.10),
         ],
         index=["total_counts", "n_genes_by_counts", "nuclear_fraction", "cb_perfect_rate", "mt_fraction"],
         columns=[
@@ -1221,9 +1234,7 @@ def main():
 
     # file log
     if args.log_filename:
-        outdir = os.path.dirname(args.output) or "."
-        os.makedirs(outdir, exist_ok=True)
-        fh = logging.FileHandler(os.path.join(outdir, args.log_filename), mode="w")
+        fh = logging.FileHandler(args.log_filename, mode="w")
         fh.setLevel(logging.DEBUG)
         fh.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
         LOGGER.addHandler(fh)
@@ -1276,6 +1287,27 @@ def main():
     passed = run_autoqc(adata, policy, pre)
     passed.astype("int8").to_csv(args.output, sep="\t", header=True)
     LOGGER.info("[Done] wrote mask: %s", args.output)
+
+
+    # --- write transformed QC metrics ---
+    metrics_df = default_metrics_df(qc_vars)
+
+    cols_t = [
+        metric_obs_name(m, metrics_df.loc[m, "scale"])
+        for m in metrics_df.index
+    ]
+
+    # sanity check
+    missing = [c for c in cols_t if c not in adata.obs.columns]
+    if missing:
+        raise RuntimeError(f"Missing transformed QC columns: {missing}")
+
+    qc_t = adata.obs.loc[passed.index, cols_t].copy()
+    
+    out_qc = args.output.replace("mask.tsv", "qcvars.tsv")
+    qc_t.to_csv(out_qc, sep="\t", index=True)
+
+    LOGGER.info("[QC] wrote transformed metrics: %s", out_qc)
 
 
 if __name__ == "__main__":
