@@ -14,7 +14,8 @@ rule autoqc_sctk:
         script = src_gcf('scripts/sctk_autoqc.py'),
         qc_sample = 'Sample_ID_x_library_id',
         qc_vars = 'total_counts,n_genes_by_counts,nuclear_fraction,cb_perfect_rate',
-        plot_dir = join(QUANT_INTERIM, 'aggregate', '{method}', 'autoqc', 'sctk')
+        plot_dir = join(QUANT_INTERIM, 'aggregate', '{method}', 'autoqc', 'sctk'),
+        threshold = 0.05
     container:
         'docker://gcfntnu/sctk:0.2.2'
     shell:
@@ -24,6 +25,7 @@ rule autoqc_sctk:
         '--quantifier {wildcards.method} '
         '--qc-sample {params.qc_sample} '
         '--qc-vars {params.qc_vars} '
+        '--gauss-threshold {params.threshold} '
         '--plot-dir {params.plot_dir} '
         '--log-filename {output.log} '
         '--verbose '

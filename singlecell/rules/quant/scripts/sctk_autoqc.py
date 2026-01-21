@@ -126,6 +126,9 @@ class AutoQCPolicy:
     q_low: float = 0.01
     q_high: float = 0.99
 
+    # threshold for fit_gaussian
+    gauss_threshold: float = 0.05
+
 
 # ----------------------------
 # Transforms
@@ -198,22 +201,16 @@ def metric_obs_name(metric: str, scale: Optional[str]) -> str:
 # ----------------------------
 # QC sample id (RESTORED)
 # ----------------------------
-
 def make_qc_sample_id(obs: pd.DataFrame, spec: str) -> pd.Series:
-    """
-    spec:
-      - "colname" uses obs[colname]
-      - "A_x_B" concatenates obs[A] + "__" + obs[B]
-    """
-    if "_x_" in spec:
-        a, b = spec.split("_x_")
-        if a not in obs.columns or b not in obs.columns:
-            raise KeyError(f"qc_sample_spec needs obs[{a!r}] and obs[{b!r}]")
-        sid = (obs[a].astype(str) + "__" + obs[b].astype(str))
-    else:
-        if spec not in obs.columns:
-            raise KeyError(f"qc_sample_spec needs obs[{spec!r}]")
-        sid = obs[spec].astype(str)
+    cols = spec.split("_x_")
+    missing = [c for c in cols if c not in obs.columns]
+    if missing:
+        raise KeyError(f"qc_sample_spec needs obs columns: {missing}")
+
+    sid = obs[cols[0]].astype(str)
+    for c in cols[1:]:
+        sid = sid + "__" + obs[c].astype(str)
+
     return sid.astype("category")
 
 
@@ -358,19 +355,19 @@ def default_metrics_df(qc_vars: Tuple[str, ...]) -> pd.DataFrame:
     metrics = pd.DataFrame(
         [
             # total_counts: min can use valley; max should NOT use valley by default
-            ("log",   None, None, "gauss>strict_valley>q", "none",    0.01, 0.999, 0.85, 0.995, 0.10),
+            ("log",   None, None, "gauss>strict_valley>q", "q",    0.01, 0.999, 0.85, 0.995, 0.10, 0.1),
 
             # n_genes_by_counts: usually no valley; quantile is fine fallback
-            ("log",    200, None, "gauss>q",               "none",    0.01, 0.999, 0.90, 0.995, 0.10),
+            ("log",    200, None, "gauss>q",               "none",    0.01, 0.999, 0.90, 0.995, 0.10, 0.1),
 
             # nuclear_fraction: min only, no valley
-            ("logit", None, None, "gauss>q",               "none",    0.01, 0.999, 0.90, 0.995, 0.10),
+            ("logit", None, None, "gauss>q",               "none",    0.01, 0.999, 0.90, 0.995, 0.10, 0.05),
 
             # cb_perfect_rate: min only, no valley
-            ("logit", 0.25, None, "gauss>strict_valley>q",               "none",    0.01, 0.999, 0.90, 0.995, 0.10),
+            ("logit", 0.25, None, "gauss>strict_valley>q",               "none",    0.01, 0.999, 0.90, 0.995, 0.10, 0.05),
 
             # mt_fraction: max only; gaussian or quantile; no valley
-            ("logit", None, None, "none",                 "gauss>q",  0.01, 0.99,  0.85, 0.95,  0.10),
+            ("logit", None, None, "none",                 "gauss>q",  0.01, 0.99,  0.85, 0.95,  0.10, 0.05),
         ],
         index=["total_counts", "n_genes_by_counts", "nuclear_fraction", "cb_perfect_rate", "mt_fraction"],
         columns=[
@@ -380,6 +377,7 @@ def default_metrics_df(qc_vars: Tuple[str, ...]) -> pd.DataFrame:
             "min_q", "max_q",
             "min_keep", "max_keep",
             "min_pass_rate",
+            "gauss_threshold"
         ],
     )
 
@@ -612,6 +610,7 @@ def decide_bounds_transformed(
         low_g, high_g, _ = capture_prints_to_logger(
             fit_gaussian,
             x_fit,
+            #threshold=float(gauss_threshold),
             xmin=hard_min_t,
             xmax=hard_max_t,
             logger=LOGGER,
@@ -842,6 +841,8 @@ def cellwise_qc_group(
 
         hard_min_t = None if pd.isna(min_hard) else float(transform_vec(np.array([float(min_hard)], dtype=np.float32), scale)[0])
         hard_max_t = None if pd.isna(max_hard) else float(transform_vec(np.array([float(max_hard)], dtype=np.float32), scale)[0])
+        
+        gauss_threshold = row.get("gauss_threshold", policy.gauss_threshold)
 
         low_eff, high_eff, low_src, high_src, dbg = decide_bounds_transformed(
             x_t=x_t,
@@ -1091,7 +1092,10 @@ def run_autoqc(adata, policy: AutoQCPolicy, prefilter: PrefilterPolicy) -> pd.Se
     sctk_metric_names = [metric_obs_name(m, metrics_df.loc[m, "scale"]) for m in metrics_df.index]
 
     passed_global = pd.Series(False, index=adata.obs_names, name="sctk_autoqc_mask")
+    passed_cellwise = pd.Series(False, index=adata.obs_names, name="qc_cellwise_passed")
+    passed_consensus = pd.Series(False, index=adata.obs_names, name="qc_consensus_passed")
 
+    
     # for global summary heatmap
     passrate_rows = []
 
@@ -1123,6 +1127,8 @@ def run_autoqc(adata, policy: AutoQCPolicy, prefilter: PrefilterPolicy) -> pd.Se
         if n < policy.min_cells_for_sctk:
             LOGGER.warning("[autoqc] qc_sample=%s too few cells (%d); using cellwise QC only", str(qc_sid), n)
             passed_global.loc[cell_pass.index[cell_pass]] = True
+            passed_cellwise.loc[cell_pass.index[cell_pass]] = True
+            passed_consensus.loc[cell_pass.index[cell_pass]] = False
             row["consensus_pass_rate"] = float(cell_pass.mean())
             passrate_rows.append(row)
             continue
@@ -1139,6 +1145,8 @@ def run_autoqc(adata, policy: AutoQCPolicy, prefilter: PrefilterPolicy) -> pd.Se
         cons = ad.obs["consensus_passed_qc"].astype(bool)
         LOGGER.info("[autoqc] qc_sample=%s consensus_passed_qc=%d/%d", str(qc_sid), int(cons.sum()), cons.shape[0])
         passed_global.loc[cons.index[cons]] = True
+        passed_cellwise.loc[cell_pass.index[cell_pass]] = True
+        passed_consensus.loc[cons.index[cons]] = True
 
         row["consensus_pass_rate"] = float(cons.mean())
         passrate_rows.append(row)
@@ -1184,7 +1192,7 @@ def run_autoqc(adata, policy: AutoQCPolicy, prefilter: PrefilterPolicy) -> pd.Se
         int(cell_mask.sum()),
         adata.n_obs,
     )
-    return passed_global
+    return passed_cellwise, passed_consensus, passed_global
 
 
 # ----------------------------
@@ -1206,6 +1214,8 @@ def parse_args():
 
     p.add_argument("--plot-dir", default=None)
     p.add_argument("--min-cells-for-sctk", type=int, default=100)
+
+    p.add_argument("--gauss-threshold", type=float, default=0.05)
 
     # gaussian useless thresholds
     p.add_argument("--useless-pass-rate-hi", type=float, default=0.999)
@@ -1280,12 +1290,18 @@ def main():
         valley_min_keep=args.valley_min_keep,
         q_low=args.q_low,
         q_high=args.q_high,
+        gauss_threshold=args.gauss_threshold
     )
 
     pre = PrefilterPolicy()
 
-    passed = run_autoqc(adata, policy, pre)
-    passed.astype("int8").to_csv(args.output, sep="\t", header=True)
+    passed_cellwise, passed_consensus, passed_global = run_autoqc(adata, policy, pre)
+    passed_global = passed_consensus | passed_cellwise
+    out = pd.DataFrame({"qc_cellwise_mask": passed_cellwise.astype("int8"),
+                        "qc_consensus_mask": passed_consensus.astype("int8"),
+                        "qc_final_mask": passed_global.astype("int8"),
+                        })
+    out.to_csv(args.output, sep="\t", header=True)
     LOGGER.info("[Done] wrote mask: %s", args.output)
 
 
@@ -1302,7 +1318,7 @@ def main():
     if missing:
         raise RuntimeError(f"Missing transformed QC columns: {missing}")
 
-    qc_t = adata.obs.loc[passed.index, cols_t].copy()
+    qc_t = adata.obs.loc[passed_cellwise.index, cols_t].copy()
     
     out_qc = args.output.replace("mask.tsv", "qcvars.tsv")
     qc_t.to_csv(out_qc, sep="\t", index=True)
