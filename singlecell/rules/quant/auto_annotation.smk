@@ -97,21 +97,37 @@ rule mapmycells_premap_from_specified_markers:
         '--tmp_dir /dev/shm/mapmycells_{wildcards.sample} '
         ' {params.args} '
 
-
+    
 rule mapmycells_output_processing:
     input:
-        anno_csv = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'annotation',  'mapmycells', 'annotation.csv')
+        anno_csv = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'annotation',  'mapmycells', 'annotation.csv'),
+        colors = join(EXT_DIR, 'allen-brain-cell-atlas', 'derived', 'abc_colors.json'),
+        meta = 'data/ext/cl.df_CCN202307220.xlsx'
     output:
         extended_anno_csv = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'annotation',  'mapmycells', 'annotation_extended.csv')
+    params:
+        script = src_gcf("scripts/mapmycells_colormap.py")
+    container:
+        'docker://' + config['docker']['default']
     shell:
-        'ln -sr {input} {output}'
-
+        'python {params.script} '
+        '--annotation {input.anno_csv} '
+        '--colors {input.colors} '
+        '--metadata {input.meta} '
+        '--preset minimal '
+        '--out {output.extended_anno_csv} '
+        '--verbose '
 
 def aggr_input(wildcards):
     samples_by_aggr_id = AGGR_IDS.get(wildcards.aggr_id)
-    input_files = expand(rules.mapmycells_premap_from_specified_markers.output.anno_csv,
-                         quantifier=wildcards.method,
-                         sample=samples_by_aggr_id)
+    if config.get('celltype_annotation', {}).get('mapmycells', {}).get('extended', False):
+        input_files = expand(rules.mapmycells_output_processing.output.extended_anno_csv,
+                             quantifier=wildcards.method,
+                             sample=samples_by_aggr_id)
+    else:
+        input_files = expand(rules.mapmycells_premap_from_specified_markers.output.anno_csv,
+                             quantifier=wildcards.method,
+                             sample=samples_by_aggr_id)
     if wildcards.method.startswith('cellranger'):
         aggr_csv = join(QUANT_INTERIM, 'aggregate', 'description', f'{wildcards.aggr_id}_aggr.csv')
         return {'input_files': input_files, 'aggr_csv': aggr_csv}

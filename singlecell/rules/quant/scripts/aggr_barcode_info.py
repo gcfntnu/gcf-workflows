@@ -28,10 +28,10 @@ Example:
         --aggr-csv aggr.csv \
         input1.tsv input2.tsv input3.tsv
 """
-
+from __future__ import annotations
 import argparse
 import pandas as pd
-import pathlib
+from pathlib import Path
 import re
 
 
@@ -242,24 +242,38 @@ def barcode_index_rename(obj, barcode_rename="numerical", aggr_csv=None, sample_
         return df
 
 
+def _sniff_preamble_lines(path: Path, max_lines: int = 50) -> int:
+    """
+    Count leading lines starting with '#'. Stops at first non-empty non-# line.
+    """
+    n = 0
+    with path.open("rt", encoding="utf-8", errors="replace") as f:
+        for _ in range(max_lines):
+            line = f.readline()
+            if line == "":
+                break
+            s = line.strip()
+            if s == "":
+                continue
+            if s.startswith("#"):
+                n += 1
+                continue
+            break
+    return n
+
 def read_barcode_table(filepath, sep=None):
     """
     Read a barcode-level table with barcodes in the first column.
 
-    Parameters
-    ----------
-    filepath : str or Path
-        Path to the input file.
-    sep : str, optional
-        Separator override.
-
-    Returns
-    -------
-    DataFrame
-        Table with barcodes as row index.
+    Generic behavior:
+      - If file has a leading '#' preamble (metadata header), skip it with skiprows
+        (since '#' may be valid data, e.g. hex colors).
     """
-    inferred_sep = sep or (',' if str(filepath).endswith('.csv') else '\t')
-    df = pd.read_csv(filepath, sep=inferred_sep, index_col=0, comment="#")
+    path = Path(filepath)
+    inferred_sep = sep or (',' if str(path).endswith('.csv') else '\t')
+
+    preamble = _sniff_preamble_lines(path)
+    df = pd.read_csv(path, sep=inferred_sep, index_col=0, skiprows=preamble)
     df.index.name = "Barcode"
     return df
 

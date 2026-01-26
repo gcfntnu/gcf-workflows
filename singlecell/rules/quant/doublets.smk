@@ -59,7 +59,7 @@ rule dbl_scdblfinder:
         #args = dbl_scdblfinder_args()
         args = '--min-umis 300 -min-genes 10 '
     threads:
-        80
+        12
     shell:
         'Rscript {params.script} '
         '--input {input.counts} '
@@ -173,7 +173,7 @@ rule dbl_socube:
         input_data = lambda wildcards, input: os.path.abspath(input.counts[0]),
         out_dir = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets',  'socube')
     threads:
-        80
+        32
     shadow:
         'minimal'
     container:

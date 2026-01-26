@@ -50,6 +50,8 @@ import sctk
 
 warnings.filterwarnings("ignore")
 
+from sklearn.mixture import GaussianMixture
+from scipy.stats import norm
 
 # ----------------------------
 # Logging
@@ -92,7 +94,8 @@ def capture_prints_to_logger(fn, *args, logger: logging.Logger = LOGGER, level=l
 @dataclass(frozen=True)
 class PrefilterPolicy:
     # Liberal: remove obvious junk only
-    drop_doublets: bool = True
+    drop_doublets: bool = False
+    #drop_doublets_strategy: rp_score_valley
     only_protein_coding: bool = True
     min_genes: int = 200
     min_cells: int = 3
@@ -130,6 +133,154 @@ class AutoQCPolicy:
     gauss_threshold: float = 0.05
 
 
+
+def fit_gmm_bounds(
+    x: np.ndarray,
+    n_components=range(1, 4),
+    xmin=None,
+    xmax=None,
+    nbins=500,
+    cutoff="inner",                 # "inner" or "outer"
+    pdf_threshold=0.05,             # interpreted as fraction-of-peak if rel_to_peak=True
+    rel_to_peak=True,
+    random_state=0,
+    log=print,                      # pass logger.info or print
+):
+    x = np.asarray(x, dtype=float)
+    x = x[np.isfinite(x)]
+    if x.size == 0:
+        raise ValueError("empty x after removing non-finite values")
+
+    xmin = x.min() if xmin is None else float(xmin)
+    xmax = x.max() if xmax is None else float(xmax)
+
+    x_fit = x[(x >= xmin) & (x <= xmax)]
+    if x_fit.size < 10:
+        log(f"[gauss] FAIL too_few_points n={x_fit.size} xmin={xmin} xmax={xmax}")
+        return None, None, None
+
+    # simple robust scaling so model doesn't see huge dynamic range
+    # (you can swap in your _scale_factor implementation)
+    rng = np.ptp(x_fit)
+    f = 5.0 / rng if rng > 0 else 1.0
+
+    X = (x_fit * f).reshape(-1, 1)
+
+    bics = []
+    gmms = []
+    for k in n_components:
+        gmm = GaussianMixture(n_components=int(k),
+                              reg_covar=1e-4,
+                              covariance_type="full",
+                              n_init=5,
+                              max_iter=500,
+                              random_state=random_state)
+        gmm.fit(X)
+        if np.any(np.sqrt(gmm.covariances_.reshape(-1)) < 1e-3):
+            log("[gauss] NOTE: tiny variances clipped by reg_covar")
+        bics.append(gmm.bic(X))
+        gmms.append(gmm)
+
+    best = int(np.argmin(bics))
+    gmm = gmms[best]
+    k = gmm.n_components
+
+    # report model in original x units
+    means = (gmm.means_.ravel() / f)
+    stds = (np.sqrt(gmm.covariances_.reshape(k)) / f)
+    weights = gmm.weights_.ravel()
+
+    log(f"[gauss] n={x.size} n_fit={x_fit.size} xmin={xmin:.4g} xmax={xmax:.4g} f={f:.4g}")
+    log(f"[gauss] tried_k={list(map(int, n_components))} bics={[round(b,2) for b in bics]} -> k={k}")
+    log(f"[gauss] weights={np.round(weights,4).tolist()} means={np.round(means,4).tolist()} stds={np.round(stds,4).tolist()}")
+
+    # evaluate mixture pdf on an x-grid (use fit range, not global range)
+    x0 = np.linspace(xmin, xmax, nbins)
+    y_pdf = np.zeros((k, nbins))
+    for i in range(k):
+        y_pdf[i] = norm.pdf(
+            x0 * f,
+            loc=gmm.means_[i, 0],
+            scale=np.sqrt(gmm.covariances_[i, 0, 0]),
+        ) * weights[i]
+    y0 = y_pdf.sum(axis=0)
+
+    x_peak = float(x0[np.argmax(y0)])
+    y_peak = float(y0.max())
+
+    thr = (pdf_threshold * y_peak) if rel_to_peak else float(pdf_threshold)
+
+    log(f"[gauss] x_peak={x_peak:.4g} y_peak={y_peak:.4g} thr={thr:.4g} ({'rel' if rel_to_peak else 'abs'}) cutoff={cutoff}")
+
+    def pick_left():
+        if cutoff == "inner":
+            m = (y0 < thr) & (x0 < x_peak)
+            return float(x0[m].max()) if np.any(m) else None
+        if cutoff == "outer":
+            m = (y0 >= thr) & (x0 < x_peak)
+            if not np.any(m):
+                return None
+            idx = int(np.where(m)[0].min())
+            idx = max(idx - 1, 0)
+            return float(x0[idx])
+        raise ValueError("cutoff must be 'inner' or 'outer'")
+
+    def pick_right():
+        if cutoff == "inner":
+            m = (y0 < thr) & (x0 > x_peak)
+            return float(x0[m].min()) if np.any(m) else None
+        if cutoff == "outer":
+            m = (y0 >= thr) & (x0 > x_peak)
+            if not np.any(m):
+                return None
+            idx = int(np.where(m)[0].max())
+            idx = min(idx + 1, len(x0) - 1)
+            return float(x0[idx])
+        raise ValueError("cutoff must be 'inner' or 'outer'")
+
+    x_left = pick_left()
+    x_right = pick_right()
+    
+
+    
+    if x_left is None:
+        # diagnostics
+        left_mask = x0 < x_peak
+        y_left = y0[left_mask]
+        x_left_grid = x0[left_mask]
+        
+        reason = []
+        if y_peak <= thr:
+            reason.append("threshold_above_peak")
+        if y_left.size == 0:
+            reason.append("no_left_domain")
+        elif np.all(y_left >= thr):
+            reason.append("pdf_never_below_threshold")
+        if x_peak - xmin < 0.05 * (xmax - xmin):
+            reason.append("peak_near_xmin")
+        if np.percentile(x, 1) <= xmin + 1e-6:
+            reason.append("left_tail_clipped")
+
+        log(
+            "[gauss] FAIL no_crossing_left | "
+            f"reasons={','.join(reason) or 'unknown'} | "
+            f"xmin={xmin:.4g} x_peak={x_peak:.4g} xmax={xmax:.4g} | "
+            f"thr={thr:.4g} y_peak={y_peak:.4g} | "
+            f"min(y_left)={np.min(y_left) if y_left.size else np.nan:.4g}"
+        )
+        x_left = xmin
+
+    if x_right is None:
+        log("[gauss] FAIL no_crossing_right")
+        x_right = xmax
+
+    pass_rate = float(((x >= x_left) & (x <= x_right)).mean())
+    log(f"[gauss] bounds: left={x_left:.4g} right={x_right:.4g} pass_rate={pass_rate:.4f}")
+
+    return x_left, x_right, gmm
+
+
+    
 # ----------------------------
 # Transforms
 # ----------------------------
@@ -368,8 +519,10 @@ def default_metrics_df(qc_vars: Tuple[str, ...]) -> pd.DataFrame:
 
             # mt_fraction: max only; gaussian or quantile; no valley
             ("logit", None, None, "none",                 "gauss>q",  0.01, 0.99,  0.85, 0.95,  0.10, 0.05),
+            # rp_score: max only; gaussian or valley
+            (None, None, None, "none",                 "gauss>valley>q",  0.01, 0.99,  0.85, 0.95,  0.10, 0.05),
         ],
-        index=["total_counts", "n_genes_by_counts", "nuclear_fraction", "cb_perfect_rate", "mt_fraction"],
+        index=["total_counts", "n_genes_by_counts", "nuclear_fraction", "cb_perfect_rate", "mt_fraction", "rp_score"],
         columns=[
             "scale",
             "min_hard", "max_hard",
@@ -607,16 +760,26 @@ def decide_bounds_transformed(
     # 1) Gaussian attempt (once)
     gauss_ok = True
     try:
-        low_g, high_g, _ = capture_prints_to_logger(
-            fit_gaussian,
-            x_fit,
-            #threshold=float(gauss_threshold),
-            xmin=hard_min_t,
-            xmax=hard_max_t,
-            logger=LOGGER,
-            level=logging.WARNING,
-            **fit_kwargs,
-        )
+        if True:
+            low_g, high_g, _gmm = fit_gmm_bounds(
+                x_fit,
+                #threshold=float(gauss_threshold),
+                xmin=hard_min_t,
+                xmax=hard_max_t,
+                log=LOGGER.info,
+                **fit_kwargs,
+                )
+        else:
+            low_g, high_g, _ = capture_prints_to_logger(
+                fit_gaussian,
+                x_fit,
+                #threshold=float(gauss_threshold),
+                xmin=hard_min_t,
+                xmax=hard_max_t,
+                logger=LOGGER,
+                level=logging.WARNING,
+                **fit_kwargs,
+            )
         low_g = float(low_g)
         high_g = float(high_g)
         if not np.isfinite(low_g) or not np.isfinite(high_g):
@@ -625,6 +788,7 @@ def decide_bounds_transformed(
         gauss_ok = False
         low_g, high_g = np.nan, np.nan
         dbg["gauss_exception"] = repr(e)
+        LOGGER.info("[QC gauss exception] %s", repr(e))
 
     dbg["gauss_low_t"] = low_g
     dbg["gauss_high_t"] = high_g

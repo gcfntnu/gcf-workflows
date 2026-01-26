@@ -34,6 +34,15 @@ try:
 except NameError:
     n_sublibs = 1
 N_EXPECTED_CELLS = max(1, int(n_expected / (n_sublibs * 1.1)))
+max_cells_by_kit = {"wt_mini": 30_000,
+                    "wt": 30_000,
+                    "wt_mega": 150_000,
+                    "wt_mega_384": 300_000,
+                    "wt_penta": 300_000,
+                    "wt_penta_384": 500_000,
+                    "custom": 150_000,
+}
+BARCODE_RANK_MAX_CELLS = int(config["quant"].get("barcode_rank_max_cells", max_cells_by_kit[KIT]))
 
 
 ruleorder: parsebio_scanpy_filtered > scanpy_aggr_filtered
@@ -539,19 +548,27 @@ rule parsebio_starsolo_filtered:
         raw_mtx = join(QUANT_INTERIM, 'parsebio_starsolo', '{sublib}', 'Solo.out', STARSOLO_FEATURE, 'raw', 'matrix.mtx'),
         raw_barcodes = join(QUANT_INTERIM, 'parsebio_starsolo', '{sublib}', 'Solo.out', STARSOLO_FEATURE, 'raw', 'barcodes.tsv'),
         raw_genes = join(QUANT_INTERIM, 'parsebio_starsolo', '{sublib}', 'Solo.out', STARSOLO_FEATURE, 'raw', 'features.tsv'),
-        bc_info = join(QUANT_INTERIM, "parsebio_starsolo", "{sublib}", "barcode_info.tsv")
+        bc_info = join(QUANT_INTERIM, 'parsebio_starsolo', '{sublib}', 'barcode_info.tsv')
     output:
         mtx = join(QUANT_INTERIM, 'parsebio_starsolo', '{sublib}', 'Solo.out', STARSOLO_FEATURE, 'filtered', 'matrix.mtx'),
         barcodes = join(QUANT_INTERIM, 'parsebio_starsolo', '{sublib}', 'Solo.out', STARSOLO_FEATURE, 'filtered', 'barcodes.tsv'),
         genes = join(QUANT_INTERIM, 'parsebio_starsolo', '{sublib}', 'Solo.out', STARSOLO_FEATURE, 'filtered', 'features.tsv')
     params:
-        script = src_gcf("scripts/parsebio_barcode_rank.py"),
-        n_expected_cells = N_EXPECTED_CELLS
+        script = src_gcf('scripts/parsebio_barcode_rank.py'),
+        n_expected_cells = N_EXPECTED_CELLS,
+        max_cells = BARCODE_RANK_MAX_CELLS,
+        cnt_scale_fac = float(config['quant'].get('barcode_rank_cnt_scale_fac', 0.70)),
+        method = config['quant'].get('barcode_rank_method', 'C'), 
     container:
         'docker://' + config['docker']['default']
+    threads:
+        8
     shell:
         'python {params.script} '
-        '--n-expected-cells  {params.n_expected_cells} '
+        '--n-expected-cells {params.n_expected_cells} '
+        '--max-cells {params.max_cells} '
+        '--cnt-scale-fac {params.cnt_scale_fac} '
+        '--method {params.method} '
         '--input-mtx {input.raw_mtx} '
         '--output-mtx {output.mtx} '
 
@@ -559,31 +576,31 @@ rule parsebio_starsolo_filtered:
 def parsebio_rt_inputs(wc):
     sublibs = AGGR_IDS[wc.aggr_id]
     if CB_OUTPUT:
-        inputs = [join(QUANT_INTERIM, wc.method, s, "cellbender", f"{s}_filtered.h5") for s in sublibs]
+        inputs = [join(QUANT_INTERIM, wc.method, s, 'cellbender', f'{s}_filtered.h5') for s in sublibs]
     else:
-        inputs = [get_filtered_mtx(SimpleNamespace(method=wc.method, sublib=s, sample=s))["mtx"] for s in sublibs]
+        inputs = [get_filtered_mtx(SimpleNamespace(method=wc.method, sublib=s, sample=s))['mtx'] for s in sublibs]
     output = {
-        "inputs": inputs,
-        "feature_info": get_feature_info_list(wc),
-        "barcode_info": get_barcode_info_list(wc)}
-    if VELO_OUTPUT and wc.method == "splitpipe":
-        output["velo_files"] = [join(QUANT_INTERIM, wc.method, s, "velo", "spliced.mtx") for s in sublibs]
+        'inputs': inputs,
+        'feature_info': get_feature_info_list(wc),
+        'barcode_info': get_barcode_info_list(wc)}
+    if VELO_OUTPUT and wc.method == 'splitpipe':
+        output['velo_files'] = [join(QUANT_INTERIM, wc.method, s, 'velo', 'spliced.mtx') for s in sublibs]
     return output   
 
 rule parsebio_scanpy_rt_filtered:
     input:
         unpack(parsebio_rt_inputs)
     params:
-        script    = src_gcf("scripts/convert_scanpy.py"),
-        bc_type   = lambda wc: BC_RENAME.get(wc.method, "numerical"),
-        enable_cb = "--enable-cellbender" if CB_OUTPUT  else "",
+        script    = src_gcf('scripts/convert_scanpy.py'),
+        bc_type   = lambda wc: BC_RENAME.get(wc.method, 'numerical'),
+        enable_cb = '--enable-cellbender' if CB_OUTPUT  else '',
     output:
-        join(QUANT_INTERIM, "aggregate", "{method}", "cellbender", "scanpy", "{aggr_id}_rt.h5ad") if CB_OUTPUT else join(QUANT_INTERIM, "aggregate", "{method}", "scanpy", "{aggr_id}_rt.h5ad")
+        join(QUANT_INTERIM, 'aggregate', '{method}', 'cellbender', 'scanpy', '{aggr_id}_rt.h5ad') if CB_OUTPUT else join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_rt.h5ad')
     container:
-        "docker://" + config["docker"]["scanpy"],
+        'docker://' + config['docker']['scanpy'],
     threads: 48
     log:
-        join(QUANT_INTERIM, "aggregate", "{method}", "scanpy", "logs", "{aggr_id}.log"),
+        join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', 'logs', '{aggr_id}.log'),
     shell:
         'python {params.script} ' 
         '{input.inputs} '
@@ -600,11 +617,11 @@ rule parsebio_scanpy_filtered:
     input:
         rules.parsebio_scanpy_rt_filtered.output
     output:
-        join(QUANT_INTERIM, "aggregate", "{method}", "cellbender", "scanpy", "{aggr_id}_filtered.h5ad") if CB_OUTPUT else join(QUANT_INTERIM, "aggregate", "{method}", "scanpy", "{aggr_id}_filtered.h5ad")
+        join(QUANT_INTERIM, 'aggregate', '{method}', 'cellbender', 'scanpy', '{aggr_id}_filtered.h5ad') if CB_OUTPUT else join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_filtered.h5ad')
     params:
-        script = src_gcf("scripts/postprocess_starsolo_rt.py")
+        script = src_gcf('scripts/postprocess_starsolo_rt.py')
     container:
-        "docker://" + config["docker"]["scanpy"],
+        'docker://' + config['docker']['scanpy'],
     threads:
         48
     shell:
@@ -620,7 +637,7 @@ rule parsebio_starsolo_mtx_v2_fix:
     output:
         temp(join(QUANT_INTERIM, 'parsebio_starsolo', '{sublib}', 'Solo.out', STARSOLO_FEATURE, '{dge_type}', 'genes.tsv'))
     shell:
-        "cp {input} {output}"
+        'cp {input} {output}'
 
 
 rule parsebio_starsolo_clean_shmem:

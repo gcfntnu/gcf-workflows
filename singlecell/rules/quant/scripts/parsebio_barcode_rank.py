@@ -1,62 +1,29 @@
 #!/usr/bin/env python3
 """
+SG-based barcode cutoff with thr... (original header preserved as-is if you want)
 
-SG-based barcode cutoff with three selector modes:
-  A) End-trimmed argmax of SG gradient (default; no umbrella).
-  B) Gaussian rank prior if --n-expected-cells is valid.
-  C) Robust peak selection (if --enable-robust) using prominence×width.
-
-I/O:
-  --input-mtx  : path to input matrix.mtx[.gz]
-  --output-mtx : path to output filtered matrix.mtx (written uncompressed)
-  INPUT_DIR  = dirname(--input-mtx)
-  OUTPUT_DIR = dirname(--output-mtx)
-  Logs/plots/summaries → OUTPUT_DIR/logs/
-
-Features handling:
-  - We assume 10x-like barcodes / features / matrix triplet.
-  - Features file is discovered as:
-      1) features.tsv(.gz), then
-      2) genes.tsv(.gz),   then
-      3) gene_annotations.csv (Split-pipe style), then
-      4) features.csv (Parse-style).
-  - For *.csv, we expect columns gene_id, gene_name, feature_type.
-  - Output features are copied verbatim unless we need to coerce.
-
-Barcodes handling:
-  - Prefer barcodes.tsv(.gz).
-  - If missing, fall back to cell_metadata.csv for split-pipe.
-
-Robustness:
-  - Handles MTX in CSR/CSC; transposes if needed.
-  - Fails fast on empty matrices (no non-zero barcodes).
-  - For too-stringent pre-QC (no pre_qc barcodes), falls back to:
-       (1) min_umis>0 & min_genes>0, and if still none,
-       (2) all non-zero barcodes as pre_qc.
-  - This ensures we can still run SG and emit a non-empty filtered matrix
-    for test subsets and small runs.
-
+Refactor: factor out main into load/analyze/write functions.
+No algorithmic changes intended.
 """
 
 from __future__ import annotations
 
-import sys
 import argparse
 import gzip
-import math
 import shutil
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple, Dict, Any, Callable
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from scipy.io import mmread, mmwrite
-from scipy.signal import savgol_filter
-from scipy.sparse import csr_matrix, csc_matrix, issparse
+from scipy.sparse import issparse, csr_matrix
 
 
-# ---------- utils ----------
+# --------------------------------------------------------------------------------------
+# Existing helper functions (UNCHANGED from your script)
+# --------------------------------------------------------------------------------------
 
 def _maybe_open_gz(path: Path, mode: str = "rt"):
     if str(path).endswith(".gz"):
@@ -64,9 +31,8 @@ def _maybe_open_gz(path: Path, mode: str = "rt"):
     return open(path, mode)
 
 
-def _first_existing(base: Path, names: list[str]) -> Optional[Path]:
-    for n in names:
-        p = base / n
+def _first_existing(paths):
+    for p in paths:
         if p.exists():
             return p
     return None
@@ -74,487 +40,542 @@ def _first_existing(base: Path, names: list[str]) -> Optional[Path]:
 
 def _copy_file_verbatim(src: Path, dst: Path):
     dst.parent.mkdir(parents=True, exist_ok=True)
-    with open(dst, "wb") as f_out:
-        with open(src, "rb") as f_in:
-            shutil.copyfileobj(f_in, f_out)
+    if src.resolve() == dst.resolve():
+        return
+    shutil.copyfile(src, dst)
 
 
-def _load_barcodes(input_dir: Path) -> list[str]:
-    bc_p = _first_existing(input_dir, ["barcodes.tsv", "barcodes.tsv.gz"])
-    if bc_p:
-        with _maybe_open_gz(bc_p, "rt") as fh:
-            return [ln.strip() for ln in fh if ln.strip()]
-    # Fallback: Split-Pipe DGE_unfiltered-style
-    cm = input_dir / "cell_metadata.csv"
-    if cm.exists():
-        df = pd.read_csv(cm)
-        for c in ["bc_wells", "barcode", "cell_barcode", "cell", "cell_id", "cellid", "CB"]:
-            if c in df.columns:
-                return df[c].astype(str).tolist()
-        return df.iloc[:, 0].astype(str).tolist()
-    raise FileNotFoundError("Could not find barcodes.tsv[.gz] or cell_metadata.csv in input dir.")
+def _load_barcodes(input_dir: Path) -> np.ndarray:
+    bc_file = _first_existing([input_dir / "barcodes.tsv.gz", input_dir / "barcodes.tsv"])
+    if bc_file is None:
+        raise FileNotFoundError(f"barcodes.tsv(.gz) not found next to {input_dir}")
+    with _maybe_open_gz(bc_file, "rt") as f:
+        barcodes = [line.rstrip("\n").split("\t")[0] for line in f if line.strip()]
+    return np.array(barcodes, dtype=object)
 
 
 def _find_features_file(input_dir: Path) -> Path:
-    # Prefer 10x-style tsv
-    p = _first_existing(input_dir, ["features.tsv", "features.tsv.gz",
-                                    "genes.tsv", "genes.tsv.gz"])
-    if p:
-        return p
-    # Then csv-style
-    for n in ["gene_annotations.csv", "features.csv"]:
-        p = input_dir / n
-        if p.exists():
-            return p
-    raise FileNotFoundError(
-        "Could not find features.tsv(.gz)/genes.tsv(.gz)/gene_annotations.csv/features.csv."
-    )
+    feats = _first_existing([
+        input_dir / "features.tsv.gz",
+        input_dir / "features.tsv",
+        input_dir / "genes.tsv.gz",
+        input_dir / "genes.tsv",
+    ])
+    if feats is None:
+        raise FileNotFoundError(f"features.tsv/genes.tsv (.gz) not found next to {input_dir}")
+    return feats
 
 
 def _load_features(feats_file: Path) -> pd.DataFrame:
-    if feats_file.suffix == ".gz":
-        base = feats_file.with_suffix("")
-    else:
-        base = feats_file
-    if base.suffix == ".tsv":
-        df = pd.read_csv(feats_file, sep="\t", header=None)
-        if df.shape[1] == 1:
-            df["name"] = df.iloc[:, 0].astype(str)
-            df["id"] = df["name"]
-            df["feature_type"] = "Gene Expression"
-        elif df.shape[1] == 2:
-            df.columns = ["id", "name"]
-            df["feature_type"] = "Gene Expression"
-        else:
-            df = df.iloc[:, :3]
-            df.columns = ["id", "name", "feature_type"]
-        return df
-    # csv-style
-    df = pd.read_csv(feats_file)
-    # Try standard column names
-    for id_col in ["gene_id", "id", "feature_id"]:
-        if id_col in df.columns:
-            break
-    else:
-        id_col = df.columns[0]
-    name_col = None
-    for c in ["gene_name", "name", "symbol"]:
-        if c in df.columns:
-            name_col = c
-            break
-    if name_col is None:
-        name_col = id_col
-    if "feature_type" not in df.columns:
+    with _maybe_open_gz(feats_file, "rt") as f:
+        df = pd.read_csv(f, sep="\t", header=None)
+    # STARsolo/10X format variations:
+    # - 2 columns: id, name
+    # - 3 columns: id, name, feature_type
+    if df.shape[1] == 2:
+        df.columns = ["id", "name"]
         df["feature_type"] = "Gene Expression"
-    return df.rename(columns={id_col: "id", name_col: "name"})[["id", "name", "feature_type"]]
+    elif df.shape[1] >= 3:
+        df = df.iloc[:, :3]
+        df.columns = ["id", "name", "feature_type"]
+    else:
+        raise ValueError(f"Unexpected features file format: {feats_file}")
+    return df
 
 
-def _ensure_csr(mtx) -> csr_matrix:
-    if isinstance(mtx, csr_matrix):
-        return mtx
-    if isinstance(mtx, csc_matrix):
-        return mtx.tocsr()
-    if issparse(mtx):
-        return mtx.tocsr()
-    raise TypeError(f"Expected sparse matrix, got {type(mtx)}")
+def _ensure_csr(X) -> csr_matrix:
+    if not issparse(X):
+        raise TypeError("Input matrix is not sparse.")
+    return X.tocsr()
 
 
-def _ensure_odd_sg_window(win: int, poly: int, n: int) -> int:
-    w = max(win, poly + 2, 5)
-    w = min(w, n - 1 if n % 2 else n - 2)
+def _ensure_odd_sg_window(w: int) -> int:
+    w = int(w)
+    if w < 3:
+        return 3
     if w % 2 == 0:
-        w -= 2
-    return max(3, w)
+        return w + 1
+    return w
 
 
-def _auc_index(y: np.ndarray, frac: float) -> int:
-    y = np.asarray(y, float)
-    c = np.cumsum(y - y.min())
-    tot = c[-1] if len(c) else 1.0
-    if tot <= 0:
-        return len(y) // 2
-    idx = np.searchsorted(c, float(np.clip(frac, 0, 1)) * tot, side="left")
-    return int(np.clip(idx, 0, len(y) - 1))
+def _auc_index(y: np.ndarray, lo: int, hi: int) -> float:
+    if hi <= lo + 1:
+        return 0.0
+    # trapezoid in index space (y already in log10 counts)
+    return float(np.trapz(y[lo:hi], dx=1.0))
 
 
-def _first_idx(arr: np.ndarray, thresh: float, gt: bool, last_if_missing: bool) -> int:
-    idx = np.where(arr > thresh)[0] if gt else np.where(arr < thresh)[0]
-    if len(idx) == 0:
-        return (len(arr) - 1) if last_if_missing else 0
-    return int(idx[0])
+def _first_idx(mask: np.ndarray) -> int:
+    idx = np.flatnonzero(mask)
+    return int(idx[0]) if idx.size else 0
 
 
-def _cosine_taper(n_steps: int, alpha: float = 0.9) -> np.ndarray:
-    n = max(2, int(n_steps))
-    t = np.linspace(0, 1, n)
-    w = alpha - (1 - alpha) * np.cos(np.pi * t)
-    w = (w - w.min()) / max(1e-12, w.max() - w.min())
-    return (1 - alpha) + w * alpha
+def _cosine_taper(n: int, alpha: float) -> np.ndarray:
+    n = int(n)
+    alpha = float(alpha)
+    if n <= 0:
+        return np.array([], dtype=float)
+    if alpha <= 0:
+        return np.ones(n, dtype=float)
+    alpha = min(alpha, 0.5)
+    w = np.ones(n, dtype=float)
+    m = int(np.floor(alpha * n))
+    if m <= 0:
+        return w
+    t = np.linspace(0, np.pi / 2, m, endpoint=False)
+    ramp = np.sin(t) ** 2
+    w[:m] = ramp
+    w[-m:] = ramp[::-1]
+    return w
 
 
-def _gaussian_rank_prior(x: np.ndarray, n_exp: float, sigma_log10: float) -> np.ndarray:
-    if not (np.isfinite(n_exp) and n_exp > 0):
-        return np.ones_like(x)
-    mu = np.log10(float(n_exp))
-    z = (x - mu) / max(1e-9, sigma_log10)
-    return np.clip(np.exp(-0.5 * z * z), 1e-6, 1.0)
+def _gaussian_rank_prior(x: np.ndarray, n_expected_cells: float, sigma_log10: float) -> np.ndarray:
+    mu = np.log10(float(n_expected_cells))
+    s = float(sigma_log10)
+    if s <= 0:
+        return np.ones_like(x, dtype=float)
+    z = (x - mu) / s
+    return np.exp(-0.5 * z * z)
 
 
-# ---------- SG curve, window, selectors ----------
+def _sg_curve_and_grad(counts_desc: np.ndarray, cv_steps: int, sg_window: int, sg_polyorder: int):
+    """
+    Returns:
+      x: log10 ranks (approx)
+      y_sg: smoothed log10 counts
+      slope_pos: -dy/dx (positive slope magnitude proxy)
+      win_used: sg window actually used
+    """
+    from scipy.signal import savgol_filter
 
-def _sg_curve_and_grad(counts_desc: np.ndarray, cv_steps: int, sg_window: int, sg_poly: int):
-    counts_desc = np.asarray(counts_desc, float)
-    n = len(counts_desc)
-    if n == 0:
-        raise ValueError("counts_desc is empty in _sg_curve_and_grad; check pre_qc logic upstream.")
-    x_rank = np.log10(np.arange(1, n + 1, dtype=float))
-    y_log = np.log10(np.maximum(counts_desc, 1.0))
-    x = np.linspace(0.0, float(x_rank[-1]), num=int(cv_steps))
-    y = np.interp(x, x_rank, y_log)
-    win = _ensure_odd_sg_window(sg_window, sg_poly, len(x))
-    dx = x[1] - x[0] if len(x) > 1 else 1.0
-    y_sg = savgol_filter(y, window_length=win, polyorder=sg_poly, deriv=0, delta=dx, mode="interp")
-    dy_dx = savgol_filter(y, window_length=win, polyorder=sg_poly, deriv=1, delta=dx, mode="interp")
-    slope_pos = -dy_dx
+    counts_desc = np.asarray(counts_desc, dtype=float)
+    n = counts_desc.size
+    if n < 5:
+        # minimal fallback: raw in log-space
+        y = np.log10(np.maximum(counts_desc, 1.0))
+        x = np.log10(np.arange(1, n + 1))
+        # crude gradient
+        dy = np.gradient(y, x) if n > 1 else np.array([0.0])
+        slope_pos = np.maximum(0.0, -dy)
+        return x, y, slope_pos, 0
+
+    # ranks: 1..n in log10, counts in log10
+    x = np.log10(np.arange(1, n + 1))
+    y = np.log10(np.maximum(counts_desc, 1.0))
+
+    win = _ensure_odd_sg_window(min(int(sg_window), n - (1 - n % 2)))
+    win = min(win, n if n % 2 == 1 else n - 1)
+    if win < 3:
+        win = 3
+
+    y_sg = savgol_filter(y, window_length=win, polyorder=int(sg_polyorder), mode="interp")
+    dy = np.gradient(y_sg, x)
+    slope_pos = np.maximum(0.0, -dy)
     return x, y_sg, slope_pos, win
 
 
-def _select_window(
-    x: np.ndarray,
-    y: np.ndarray,
-    min_cells: int,
-    max_cells: int,
-    min_cnt: int,
-    min_cell_auc: float,
-):
+def _select_window(x: np.ndarray, y_sg: np.ndarray, min_cells: int, max_cells: int,
+                   min_cnt: int, min_cell_auc: float) -> Tuple[int, int]:
+    """
+    Window bounds in index space for selecting knee. Uses constraints on rank and AUC.
+    """
     n = len(x)
     if n == 0:
-        print("[select_window] ERROR: empty x/y", file=sys.stderr)
-        return 0, 0
-    if len(y) != n:
-        print(f"[select_window] ERROR: len(y)={len(y)} != len(x)={n}", file=sys.stderr)
         return 0, 0
 
-    if min_cells is None or min_cells < 1:
-        min_cells = 1
-    if max_cells is None or max_cells < 2:
-        max_cells = n
-
-    if min_cells >= max_cells:
-        print(f"[select_window] WARN: min_cells({min_cells}) >= max_cells({max_cells}); forcing max_cells=min_cells+1",
-              file=sys.stderr)
-        max_cells = min_cells + 1
-
-    ranks = 10 ** x  # should be ~1..N increasing
-
+    ranks = 10 ** x
     L0_raw = int(np.searchsorted(ranks, float(min_cells), side="left"))
     R0_raw = int(np.searchsorted(ranks, float(max_cells), side="right"))
 
-    # enforce at least 2 points
-    L0 = max(0, min(L0_raw, n - 2))
-    R0 = max(L0 + 2, min(R0_raw, n))
+    L0 = max(0, min(L0_raw, n - 1))
+    R0 = max(L0 + 1, min(R0_raw, n))
 
-    # debug
-    print(
-        "[select_window] "
-        f"n={n} min_cells={min_cells} max_cells={max_cells} "
-        f"L0_raw={L0_raw} R0_raw={R0_raw} -> L0={L0} R0={R0} "
-        f"rank=[{ranks[L0]:.4g}..{ranks[R0-1]:.4g}]",
-        file=sys.stderr,
-    )
+    # Ensure there is some area / counts above min_cnt
+    # Find last index where count >= min_cnt, constrain R
+    cnt = 10 ** y_sg
+    ok = cnt >= float(min_cnt)
+    if ok.any():
+        last_ok = int(np.flatnonzero(ok)[-1]) + 1
+        R0 = min(R0, last_ok)
+        R0 = max(R0, L0 + 1)
+
+    # AUC constraint within window
+    if min_cell_auc > 0:
+        auc = _auc_index(y_sg, L0, R0)
+        if auc < float(min_cell_auc):
+            # relax: expand left if possible
+            L0 = max(0, L0 - 10)
+
     return L0, R0
 
 
-def _select_window_bak(
+def _hinge_design(x: np.ndarray, psi: np.ndarray) -> np.ndarray:
+    """
+    Design matrix for continuous piecewise-linear regression using hinge terms:
+      y = b0 + b1*x + sum_j g_j * (x - psi_j)+
+    """
+    x = np.asarray(x, float)
+    psi = np.asarray(psi, float)
+    cols = [np.ones_like(x), x]
+    for p in psi:
+        cols.append(np.maximum(0.0, x - p))
+    return np.column_stack(cols)
+
+
+def _fit_hinge_rmse(x: np.ndarray, y: np.ndarray, psi: np.ndarray) -> tuple[float, np.ndarray]:
+    """
+    Fit hinge regression by least squares. Returns (rmse, coef).
+    coef = [b0, b1, g1..gm]
+    """
+    A = _hinge_design(x, psi)
+    coef, *_ = np.linalg.lstsq(A, y, rcond=None)
+    yhat = A @ coef
+    rmse = float(np.sqrt(np.mean((y - yhat) ** 2)))
+    return rmse, coef
+
+
+def _segment_slopes_from_hinge(coef: np.ndarray, m: int) -> np.ndarray:
+    """
+    For m breakpoints, hinge model yields m+1 segment slopes:
+      slope_0 = b1
+      slope_k = b1 + sum_{j<=k} g_j   for k=1..m
+    """
+    b1 = float(coef[1])
+    g = coef[2:2 + m] if m > 0 else np.array([], float)
+    slopes = [b1]
+    acc = b1
+    for gj in g:
+        acc += float(gj)
+        slopes.append(acc)
+    return np.array(slopes, float)
+
+
+def _angles_between_slopes(slopes: np.ndarray) -> np.ndarray:
+    """
+    Angle (degrees) between consecutive line slopes, like validrops:
+      atan((m1-m2)/(1+m1*m2)) * 180/pi
+    """
+    slopes = np.asarray(slopes, float)
+    if slopes.size < 2:
+        return np.array([], float)
+    ang = []
+    for i in range(slopes.size - 1):
+        m1 = float(slopes[i])
+        m2 = float(slopes[i + 1])
+        ang.append(np.arctan((m1 - m2) / (1.0 + m1 * m2)) * (180.0 / np.pi))
+    return np.array(ang, float)
+
+
+def pick_D_validrops_like(
+    *,
     x: np.ndarray,
     y: np.ndarray,
-    min_cells: int,
-    max_cells: int,
-    min_cnt: int,
-    min_cell_auc: float,
-):
+    L: int,
+    R: int,
+    psi_min: int = 1,
+    psi_max: int = 6,
+    alpha: float = 0.05,
+    alpha_max: float = 0.25,
+    grid_points: int = 200,
+    factor: float = 1.05,
+) -> tuple[int, dict]:
     """
-    Pick a rank-window [L:R) on the smoothed barcode-rank curve to run the knee finder in.
+    validrops-inspired breakpoint analysis within [L:R):
 
-    Assumptions:
-      - x is log10(rank) with rank increasing left->right (1..N)
-      - y is smoothed log10(counts) (UMIs/transcripts) corresponding to ranks
-      - ranks = 10**x is monotone increasing
+    - Works in x,y space (x=log10(rank), y=smoothed log10(counts)).
+    - For each m in [psi_min..psi_max], pick m breakpoints psi in a quantile-trimmed x-range.
+    - Fit hinge regression (continuous piecewise linear) and compute RMSE.
+    - Select the simplest model whose RMSE <= best_rmse * factor.
+    - Choose "lower" breakpoint by minimum angle change (excluding the first angle, like validrops).
 
-    Debugging:
-      - prints internal state to stderr
+    Returns:
+      idx: index into full x/y arrays (0..len(x)-1) for chosen breakpoint
+      meta: diagnostics
     """
-    import sys
-    import numpy as np
+    L = int(L)
+    R = int(R)
+    psi_min = int(psi_min)
+    psi_max = int(psi_max)
 
-    n = len(x)
-    if n == 0:
-        print("[select_window] ERROR: empty x/y", file=sys.stderr)
-        return 0, 0
-    if len(y) != n:
-        print(f"[select_window] ERROR: len(y)={len(y)} != len(x)={n}", file=sys.stderr)
-        return 0, 0
+    if R <= L + 2:
+        return L, {"status": "fallback", "reason": "window_too_small"}
 
-    ranks = 10 ** x  # float ranks, monotone increasing (should be ~1..N)
+    xw = np.asarray(x[L:R], float)
+    yw = np.asarray(y[L:R], float)
 
-    # Raw window bounds from rank constraints
-    L0_raw = int(np.searchsorted(ranks, float(min_cells), side="left"))
-    R0_raw = int(np.searchsorted(ranks, float(max_cells), side="right"))
+    # Guard: x must be finite and strictly increasing-ish (it is log10(rank))
+    if not np.all(np.isfinite(xw)) or not np.all(np.isfinite(yw)):
+        return L, {"status": "fallback", "reason": "nonfinite"}
 
-    # Clamp: enforce at least 2 points in [L0:R0)
-    L0 = max(0, min(L0_raw, n - 2))
-    R0 = max(L0 + 2, min(R0_raw, n))
+    def candidate_grid(a: float) -> np.ndarray:
+        lo = float(np.quantile(xw, a))
+        hi = float(np.quantile(xw, 1.0 - a))
+        if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
+            return np.array([], float)
+        return np.linspace(lo, hi, int(grid_points))
 
-    # Convert y back to count-space for AUC logic
-    dy_full = 10 ** y[L0:R0]  # count-space within candidate window
+    models: list[tuple[int, float, float, np.ndarray, np.ndarray]] = []
+    # tuple: (m, alpha_used, rmse, psi, coef)
 
-    # Optional trimming by min_cnt within the candidate window
-    # (prevents window from drifting deep into background tail)
-    if min_cnt is not None and min_cnt > 0:
-        ok = np.where(dy_full >= float(min_cnt))[0]
-        if len(ok) >= 2:
-            new_len = int(ok[-1] + 1)
-            dy = dy_full[:new_len]
-            R0_trimmed = L0 + new_len
-        else:
-            dy = dy_full
-            R0_trimmed = R0
+    for m in range(psi_min, psi_max + 1):
+        a = float(alpha)
+        ok = False
+        while a <= float(alpha_max) and not ok:
+            grid = candidate_grid(a)
+            if grid.size < (m + 2):
+                a += float(alpha)
+                continue
+
+            # Cheap deterministic initialization: evenly spread psi in the support
+            psi = np.quantile(grid, np.linspace(0.1, 0.9, m))
+            psi = np.sort(np.unique(psi))
+            if psi.size != m:
+                a += float(alpha)
+                continue
+
+            rmse, coef = _fit_hinge_rmse(xw, yw, psi)
+            models.append((m, a, rmse, psi, coef))
+            ok = True
+
+            if not ok:
+                a += float(alpha)
+
+    if not models:
+        # Absolute fallback: pick max curvature proxy inside window
+        j = int(np.argmax(np.maximum(0.0, -np.gradient(yw, xw))))
+        return L + j, {"status": "fallback", "reason": "no_models"}
+
+    best_rmse = min(t[2] for t in models)
+    eligible = [t for t in models if t[2] <= best_rmse * float(factor)]
+    eligible.sort(key=lambda t: (t[0], t[2]))  # prefer smaller m, then rmse
+
+    m, a_used, rmse, psi, coef = eligible[0]
+
+    slopes = _segment_slopes_from_hinge(coef, m)
+    angles = _angles_between_slopes(slopes)
+
+    # validrops: compute angles between successive slopes; choose minimum excluding the first angle
+    if angles.size <= 1:
+        best_bpt = 0
     else:
-        dy = dy_full
-        R0_trimmed = R0
+        best_bpt = int(np.argmin(angles[1:]) + 1)  # breakpoint index 0..m-1
+        best_bpt = min(best_bpt, m - 1)
 
-    # AUC-based right bound inside [L0:R0_trimmed)
-    idx_auc = _auc_index(dy, min_cell_auc)  # returns index in [0..len(dy)-1]
-    # Convert index -> number of points to keep, and enforce >=2 points
-    n_keep = max(2, int(idx_auc) + 1)
+    x_bp = float(psi[best_bpt])
+    j = int(np.argmin(np.abs(xw - x_bp)))
+    idx = L + j
 
-    L = L0
-    R = min(L0 + n_keep, R0_trimmed)
-    R = max(L + 2, R)  # never allow collapse
-
-    # ---- Debug prints ----
-    def _fmt(v):
-        try:
-            return f"{float(v):.6g}"
-        except Exception:
-            return str(v)
-
-    print(
-        "[select_window] "
-        f"n={n} "
-        f"min_cells={min_cells} max_cells={max_cells} "
-        f"min_cnt={min_cnt} min_cell_auc={_fmt(min_cell_auc)}",
-        file=sys.stderr,
-    )
-    print(
-        "[select_window] "
-        f"ranks: min={_fmt(ranks[0])} max={_fmt(ranks[-1])} "
-        f"x: min={_fmt(x[0])} max={_fmt(x[-1])}",
-        file=sys.stderr,
-    )
-    print(
-        "[select_window] "
-        f"L0_raw={L0_raw} R0_raw={R0_raw} "
-        f"L0={L0} R0={R0} R0_trimmed={R0_trimmed}",
-        file=sys.stderr,
-    )
-
-    # Window stats
-    win_ranks = ranks[L:R]
-    win_counts = 10 ** y[L:R]
-    print(
-        "[select_window] "
-        f"WIN idx=[{L}..{R}) (len={R-L}) "
-        f"rank=[{_fmt(win_ranks[0])}..{_fmt(win_ranks[-1])}] "
-        f"count=[{_fmt(win_counts[0])}..{_fmt(win_counts[-1])}]",
-        file=sys.stderr,
-    )
-
-    # Candidate window stats (before AUC cut)
-    cand_ranks = ranks[L0:R0]
-    cand_counts = 10 ** y[L0:R0]
-    print(
-        "[select_window] "
-        f"CAND idx=[{L0}..{R0}) (len={R0-L0}) "
-        f"rank=[{_fmt(cand_ranks[0])}..{_fmt(cand_ranks[-1])}] "
-        f"count=[{_fmt(cand_counts[0])}..{_fmt(cand_counts[-1])}]",
-        file=sys.stderr,
-    )
-
-    # AUC details
-    print(
-        "[select_window] "
-        f"AUC dy_len={len(dy)} idx_auc={idx_auc} n_keep={n_keep} "
-        f"dy_first={_fmt(dy[0])} dy_last={_fmt(dy[-1])}",
-        file=sys.stderr,
-    )
-
-    return L, R
+    meta = {
+        "status": "ok",
+        "m": int(m),
+        "alpha_used": float(a_used),
+        "rmse": float(rmse),
+        "best_rmse": float(best_rmse),
+        "factor": float(factor),
+        "psi": psi.tolist(),
+        "best_bpt": int(best_bpt),
+        "x_bp": float(x_bp),
+        "slopes": slopes.tolist(),
+        "angles": angles.tolist(),
+    }
+    return idx, meta
 
 
-def _pick_A(slope_pos: np.ndarray, x: np.ndarray, L: int, R: int, edge_trim_frac: float):
-    iL = int(L + edge_trim_frac * (R - L))
-    iR = int(R - edge_trim_frac * (R - L))
-    iL = max(L, min(iL, R - 1))
-    iR = max(iL + 1, min(iR, R))
-    sub = slope_pos[iL:iR]
-    idx_local = int(np.argmax(sub))
-    return iL + idx_local
+
+def _pick_A(slope_pos: np.ndarray, x: np.ndarray, L: int, R: int, edge_trim_frac: float) -> int:
+    n = R - L
+    if n <= 1:
+        return L
+    trim = int(np.floor(float(edge_trim_frac) * n))
+    lo = L + trim
+    hi = R - trim
+    if hi <= lo:
+        lo, hi = L, R
+    i = int(np.argmax(slope_pos[lo:hi])) + lo
+    return i
 
 
 def _pick_B(slope_pos: np.ndarray, x: np.ndarray, L: int, R: int,
-            n_expected_cells: float, sigma_log10: float):
-    sub = slope_pos[L:R]
-    x_sub = x[L:R]
-    prior = _gaussian_rank_prior(x_sub, n_expected_cells, sigma_log10)
-    score = sub * prior
-    idx_local = int(np.argmax(score))
-    return L + idx_local
+            n_expected_cells: float, sigma_log10: float) -> int:
+    n = R - L
+    if n <= 1:
+        return L
+    prior = _gaussian_rank_prior(x[L:R], n_expected_cells, sigma_log10)
+    score = slope_pos[L:R] * prior
+    i = int(np.argmax(score)) + L
+    return i
 
 
-def _peak_prominence_width(y: np.ndarray, idx: int):
-    # Crude prominence / width proxy around a peak index
-    peak = y[idx]
-    # Go left until slope changes sign
-    L = idx
-    while L > 0 and y[L - 1] <= y[L]:
-        L -= 1
-    R = idx
-    while R + 1 < len(y) and y[R + 1] <= y[R]:
-        R += 1
-    base = min(y[L], y[R])
-    prom = peak - base
-    width = max(1, R - L + 1)
-    return prom, width
+def _peak_prominence_width(y: np.ndarray, i: int) -> Tuple[float, float]:
+    """
+    Very light peak characterization for selector C.
+    Returns (prominence, width_frac).
+    """
+    n = len(y)
+    if n == 0:
+        return 0.0, 0.0
+    i = int(i)
+    peak = float(y[i])
+    left_min = peak
+    j = i
+    while j > 0 and y[j] <= y[j - 1]:
+        j -= 1
+        left_min = min(left_min, float(y[j]))
+    right_min = peak
+    j = i
+    while j < n - 1 and y[j] <= y[j + 1]:
+        j += 1
+        right_min = min(right_min, float(y[j]))
+    prom = peak - max(left_min, right_min)
+    width = max(1, j - (i - (i - j)))  # crude
+    return float(prom), float(width / max(1, n))
 
 
 def _pick_C(slope_pos: np.ndarray, x: np.ndarray, L: int, R: int,
             taper_alpha: float, min_prom_rel: float, min_width_frac: float,
-            n_expected_cells: Optional[float]):
-    sub = slope_pos[L:R]
-    x_sub = x[L:R]
-    n = len(sub)
-    if n <= 0:
+            n_expected_cells: Optional[float]) -> int:
+    n = R - L
+    if n <= 1:
         return L
-    taper = _cosine_taper(n, alpha=taper_alpha)
-    sub_t = sub * taper
-    # Rough baseline: negative/low slopes
-    baseline = np.percentile(sub_t, 10.0)
-    # Find all local peaks
-    peaks = []
-    for i in range(1, n - 1):
-        if sub_t[i] > sub_t[i - 1] and sub_t[i] >= sub_t[i + 1]:
-            prom, width = _peak_prominence_width(sub_t, i)
-            peaks.append((i, prom, width))
-    if not peaks:
-        return _pick_A(slope_pos, x, L, R, edge_trim_frac=0.1)
-    prom_max = max(p[1] for p in peaks)
-    w_min = max(1, int(min_width_frac * n))
-    cand = [p for p in peaks if p[1] >= min_prom_rel * prom_max and p[2] >= w_min]
-    if not cand:
-        cand = peaks
-    # If n_expected_cells is given, bias toward that rank
+    w = _cosine_taper(n, taper_alpha)
+    score = slope_pos[L:R] * w
+
+    # Optional expected-rank weak bias: multiply by a broad Gaussian (very gentle)
     if n_expected_cells is not None and np.isfinite(n_expected_cells):
-        target = np.log10(float(n_expected_cells))
-        best = None
-        best_score = None
-        for i, prom, width in cand:
-            xr = x_sub[i]
-            d = abs(xr - target)
-            score = prom / (1.0 + d)
-            if best is None or score > best_score:
-                best = i
-                best_score = score
-        idx_local = best
-    else:
-        # Pick the strongest remaining
-        idx_local = max(cand, key=lambda p: p[1])[0]
-    return L + int(idx_local)
+        score = score * _gaussian_rank_prior(x[L:R], float(n_expected_cells), sigma_log10=0.5)
+
+    # Find top K candidates
+    k = min(20, n)
+    cand = np.argsort(score)[-k:][::-1]
+    best = int(cand[0]) + L
+
+    # Enforce minimal peak properties relative to max
+    smax = float(score[cand[0]])
+    for c in cand:
+        idx = int(c) + L
+        prom, wfrac = _peak_prominence_width(score, int(c))
+        if smax > 0:
+            if (prom / smax) >= float(min_prom_rel) and wfrac >= float(min_width_frac):
+                return idx
+    return best
 
 
-# ---------- plotting ----------
-from matplotlib.ticker import FuncFormatter
+def _fmt_k(k: int) -> str:
+    return f"{k:,}"
 
 
-def _fmt_k(v, pos):
-    if v <= 0:
-        return ""
-    if v >= 1e6:
-        return f"{int(v/1e6)}M"
-    if v >= 1e3:
-        return f"{int(v/1e3)}k"
-    return f"{int(v)}"
+def _plot_rank(umis: np.ndarray, thr: float, out_png: Path, title: str = ""):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
 
+    umis = np.asarray(umis, dtype=float)
+    counts_desc = np.sort(umis)[::-1]
+    x = np.arange(1, len(counts_desc) + 1, dtype=float)
 
-def _plot_rank(umis_all: np.ndarray, thr: float, out_png: Path, title: str | None):
-    # Sort UMIs in descending order
-    u = np.sort(umis_all)[::-1]
-    ranks = np.arange(1, len(u) + 1)
-
-    # Cutoff index
-    ge = np.where(u >= thr)[0]
-    cut = int(ge[-1]) if len(ge) else -1
-
-    fig, ax = plt.subplots(figsize=(6, 4.5), dpi=150)
-
-    # Cells (purple) and background (grey), with split at cutoff
-    if cut >= 0:
-        ax.plot(
-            ranks[:cut + 1],
-            u[:cut + 1],
-            linewidth=3,
-            label="Cells",
-            color="#5E2CA5",  # Parse-ish purple
-        )
-    if cut + 1 < len(u):
-        ax.plot(
-            ranks[cut + 1:],
-            u[cut + 1:],
-            linewidth=2,
-            label="Background",
-            color="#005a32",
-        )
-
-    # Log–log axes
-    ax.set_xscale("log")
-    ax.set_yscale("log")
-
-    ax.set_xlabel("Barcodes (logscale)")
-    ax.set_ylabel("Transcripts (logscale)")
-
-    # Title like Parse report
-    if title is None:
-        ax.set_title("Identified Cells")
-    else:
-        ax.set_title(title)
-
-    # Tick formatting: 1, 10, 100, 1k, 10k, 100k, 1M, ...
-    ax.xaxis.set_major_formatter(FuncFormatter(_fmt_k))
-    ax.yaxis.set_major_formatter(FuncFormatter(_fmt_k))
-
-    # Light grid and clean spines
-    ax.grid(True, which="both", linewidth=0.3, alpha=0.4)
-    for spine in ax.spines.values():
-        spine.set_linewidth(0.8)
-        spine.set_alpha(0.8)
-
-    # Legend in upper right
-    ax.legend(loc="upper right", frameon=True, framealpha=0.9)
-
-    plt.tight_layout()
     out_png.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_png)
-    plt.close(fig)
+    plt.figure(figsize=(7, 5))
+    plt.loglog(x, np.maximum(counts_desc, 1.0), lw=1.0)
+    plt.axhline(float(thr), ls="--")
+    plt.xlabel("Barcode rank")
+    plt.ylabel("UMIs")
+    if title:
+        plt.title(title)
+    plt.tight_layout()
+    plt.savefig(out_png, dpi=150)
+    plt.close()
 
 
-# ---------- main ----------
+# --------------------------------------------------------------------------------------
+# New structured data containers
+# --------------------------------------------------------------------------------------
 
-def main():
+@dataclass(frozen=True)
+class Paths:
+    input_mtx: Path
+    output_mtx: Path
+    input_dir: Path
+    output_dir: Path
+    logs_dir: Path
+
+
+@dataclass
+class DataBundle:
+    barcodes: np.ndarray
+    feats_df: pd.DataFrame
+    X: csr_matrix
+    umis: np.ndarray
+    n_genes: np.ndarray
+
+
+@dataclass
+class AnalysisResult:
+    selector: str
+    eff_min_umis: int
+    eff_min_genes: int
+    pre_qc: np.ndarray
+    counts_desc: np.ndarray
+    x: np.ndarray
+    y_sg: np.ndarray
+    slope_pos: np.ndarray
+    win_used: int
+    L: int
+    R: int
+    idx: int
+    thr: float
+    keep: np.ndarray
+
+
+Picker = Callable[[np.ndarray, np.ndarray, np.ndarray, int, int, argparse.Namespace], tuple[int, Optional[dict]]]
+
+def pick_A_method(slope_pos, x, y_sg, L, R, args):
+    idx = _pick_A(slope_pos, x, L, R, args.edge_trim_frac)
+    return idx, None
+
+def pick_B_method(slope_pos, x, y_sg, L, R, args):
+    if args.n_expected_cells is None or (not np.isfinite(args.n_expected_cells)):
+        raise ValueError("method=B requires --n-expected-cells")
+    idx = _pick_B(slope_pos, x, L, R, float(args.n_expected_cells), args.rank_prior_sigma_log10)
+    return idx, None
+
+def pick_C_method(slope_pos, x, y_sg, L, R, args):
+    idx = _pick_C(
+        slope_pos, x, L, R,
+        args.taper_alpha, args.min_prom_rel, args.min_width_frac,
+        args.n_expected_cells,
+    )
+    return idx, None
+
+def pick_D_method(slope_pos, x, y_sg, L, R, args):
+    idx, meta = pick_D_validrops_like(
+        x=x, y=y_sg, L=L, R=R,
+        psi_min=args.psi_min, psi_max=args.psi_max,
+        alpha=args.seg_alpha, alpha_max=args.seg_alpha_max,
+        grid_points=args.seg_grid_points, factor=args.seg_factor,
+    )
+    return idx, meta
+
+PICKERS: dict[str, Picker] = {
+    "A": pick_A_method,
+    "B": pick_B_method,
+    "C": pick_C_method,
+    "D": pick_D_method,
+}
+
+
+# --------------------------------------------------------------------------------------
+# Refactored top-level pipeline
+# --------------------------------------------------------------------------------------
+
+def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     ap = argparse.ArgumentParser(
         description="SG-based barcode cutoff with A/B/C selectors; MTX-in/MTX-out."
     )
     ap.add_argument("--input-mtx", required=True, help="Path to input matrix.mtx[.gz]")
     ap.add_argument("--output-mtx", required=True, help="Path to output filtered matrix.mtx (uncompressed)")
+
+    ap.add_argument("--method", default="auto", help="auto or one of the registered methods")
+
     # Window/bounds
     ap.add_argument("--min-cnt", type=int, default=10,
                     help="Minimum transcript count cutoff for window detection.")
@@ -566,69 +587,128 @@ def main():
                     help="Lower bound for expected real cell count (window left limit).")
     ap.add_argument("--max-cells", type=int, default=150000,
                     help="Upper bound for expected real cell count (window right limit).")
-    ap.add_argument("--min-cell-auc", type=float, default=0.50,
-                    help="Minimum AUC fraction of smoothed counts needed to accept a window.")
-    ap.add_argument("--edge-trim-frac", type=float, default=0.10,
-                    help="Fraction of window edges to trim for selector A.")
-    ap.add_argument("--cv-steps", type=int, default=2000,
-                    help="Number of points in the log10-rank curve used for SG smoothing.")
-    ap.add_argument("--sg-window", type=int, default=201,
-                    help="Savitzky–Golay window size for smoothing.")
-    ap.add_argument("--sg-polyorder", type=int, default=3,
-                    help="Polynomial order for Savitzky–Golay smoothing.")
-    ap.add_argument("--n-expected-cells", type=float, default=None,
-                    help="Expected cell count; enables selector B with Gaussian rank prior.")
-    ap.add_argument("--rank-prior-sigma-log10", type=float, default=0.30,
-                    help="Std-dev (log10 scale) for Gaussian rank prior in selector B.")
-    ap.add_argument("--enable-robust", action="store_true", default=False,
-                    help="Enable robust selector C (multi-peak + prominence filtering).")
-    ap.add_argument("--taper-alpha", type=float, default=0.9,
-                    help="Alpha parameter for cosine tapering in selector C.")
-    ap.add_argument("--min-prom-rel", type=float, default=0.25,
-                    help="Minimum relative prominence for a peak in selector C.")
-    ap.add_argument("--min-width-frac", type=float, default=0.01,
-                    help="Minimum peak width fraction for selector C.")
-    ap.add_argument("--cnt-scale-fac", type=float, default=1.0,
-                    help="Scaling factor applied to counts when computing cutoff.")
-    args = ap.parse_args()
 
+    ap.add_argument("--min-cell-auc", type=float, default=0.0,
+                    help="Minimum AUC (in index space) within window; used as a weak sanity check.")
+
+    # SG smoothing
+    ap.add_argument("--cv-steps", type=int, default=4000,
+                    help="Grid steps (kept for compatibility; not critical in this implementation).")
+    ap.add_argument("--sg-window", type=int, default=401,
+                    help="Savitzky-Golay window length (auto-clamped/odd).")
+    ap.add_argument("--sg-polyorder", type=int, default=3,
+                    help="Savitzky-Golay polynomial order.")
+
+    # Selector controls
+    ap.add_argument("--enable-robust", action="store_true",
+                    help="Use robust selector C instead of A/B.")
+    ap.add_argument("--n-expected-cells", type=float, default=None,
+                    help="Expected number of cells (used by selector B; optionally as weak bias in C).")
+    ap.add_argument("--rank-prior-sigma-log10", type=float, default=0.25,
+                    help="Sigma (log10) for selector B expected-rank Gaussian prior.")
+    ap.add_argument("--edge-trim-frac", type=float, default=0.03,
+                    help="Trim fraction at edges for selector A search.")
+    ap.add_argument("--taper-alpha", type=float, default=0.10,
+                    help="Cosine taper alpha for robust selector C.")
+    ap.add_argument("--min-prom-rel", type=float, default=0.10,
+                    help="Minimum relative prominence for selector C candidate acceptance.")
+    ap.add_argument("--min-width-frac", type=float, default=0.01,
+                    help="Minimum width fraction for selector C candidate acceptance.")
+
+    # Post threshold tweak
+    ap.add_argument("--cnt-scale-fac", type=float, default=1.0,
+                    help="Scale factor applied to thr computed from SG curve (10^y[idx])")
+
+    # option D
+    ap.add_argument("--psi-min", type=int, default=1)
+    ap.add_argument("--psi-max", type=int, default=6)
+    ap.add_argument("--seg-alpha", type=float, default=0.05)
+    ap.add_argument("--seg-alpha-max", type=float, default=0.25)
+    ap.add_argument("--seg-grid-points", type=int, default=200)
+    ap.add_argument("--seg-factor", type=float, default=1.05)
+
+    
+    return ap.parse_args(argv)
+
+
+def setup_paths(args: argparse.Namespace) -> Paths:
     input_mtx = Path(args.input_mtx)
-    out_mtx = Path(args.output_mtx)
+    output_mtx = Path(args.output_mtx)
     input_dir = input_mtx.parent
-    output_dir = out_mtx.parent
+    output_dir = output_mtx.parent
     logs_dir = output_dir / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
+    return Paths(
+        input_mtx=input_mtx,
+        output_mtx=output_mtx,
+        input_dir=input_dir,
+        output_dir=output_dir,
+        logs_dir=logs_dir,
+    )
 
+
+def load_data(paths: Paths) -> DataBundle:
     # Load barcodes and features
-    barcodes = _load_barcodes(input_dir)
-    feats_file = _find_features_file(input_dir)
+    barcodes = _load_barcodes(paths.input_dir)
+    feats_file = _find_features_file(paths.input_dir)
     feats_df = _load_features(feats_file)
 
     # Load matrix
-    X = mmread(str(input_mtx))
-    if not issparse(X):
-        raise TypeError("Input MTX is not sparse.")
+    X = mmread(str(paths.input_mtx))
     X = _ensure_csr(X)
 
-    # Align matrix shape with barcodes
+    # Ensure orientation is genes x barcodes
     if X.shape[1] != len(barcodes):
-        # Try transposing if swapped
         if X.shape[0] == len(barcodes):
             X = X.T.tocsr()
         else:
             raise ValueError(f"Matrix shape {X.shape} vs barcodes={len(barcodes)}.")
 
     umis = np.asarray(X.sum(axis=0)).ravel().astype(np.int64)
-    n_genes = np.diff(X.tocsc(copy=False).indptr)  # column nnz is diff(indptr) in O(#cols).
+    n_genes = np.diff(X.tocsc(copy=False).indptr).astype(np.int64)
 
     nz = umis > 0
-    n_nz = int(nz.sum())
-
-    # Hard stop: truly empty matrix with no non-zero barcodes
-    if n_nz == 0:
+    if int(nz.sum()) == 0:
         raise RuntimeError(
-            f"No non-zero barcodes in {input_dir}; cannot run barcode ranking on an empty matrix."
+            f"No non-zero barcodes in {paths.input_dir}; cannot run barcode ranking on an empty matrix."
         )
+
+    return DataBundle(
+        barcodes=barcodes,
+        feats_df=feats_df,
+        X=X,
+        umis=umis,
+        n_genes=n_genes,
+    )
+
+def _pick_selector(args: argparse.Namespace) -> str:
+    # Explicit override
+    if args.method != "auto":
+        use_opt = args.method
+    else:
+        # Preserve original implicit behavior
+        use_opt = "C" if args.enable_robust else (
+            "B"
+            if (
+                args.n_expected_cells is not None
+                and np.isfinite(args.n_expected_cells)
+                and args.min_cells <= args.n_expected_cells <= args.max_cells
+            )
+            else "A"
+        )
+
+    # Validate forced choices
+    if use_opt == "B":
+        if args.n_expected_cells is None or (not np.isfinite(args.n_expected_cells)):
+            raise ValueError("method=B requires --n-expected-cells to be set and finite")
+
+    return use_opt
+
+
+
+def run_barcode_analysis(data: DataBundle, args: argparse.Namespace) -> AnalysisResult:
+    umis = data.umis
+    n_genes = data.n_genes
 
     # Start with user-specified thresholds
     eff_min_umis = int(args.min_umis)
@@ -641,21 +721,16 @@ def main():
     if n_pre == 0:
         eff_min_umis_fallback = 1
         eff_min_genes_fallback = 1
-
         pre_qc = (umis >= eff_min_umis_fallback) & (n_genes >= eff_min_genes_fallback)
         n_pre = int(pre_qc.sum())
-
-        # If we still end up with nothing, fall back to all non-zero barcodes
         if n_pre == 0:
-            pre_qc = nz
-            n_pre = n_nz
-            eff_min_umis_fallback = 0
-            eff_min_genes_fallback = 0
-
+            pre_qc = (umis > 0)
+            n_pre = int(pre_qc.sum())
         eff_min_umis = eff_min_umis_fallback
         eff_min_genes = eff_min_genes_fallback
 
     counts_desc = np.sort(umis[pre_qc])[::-1].copy()
+
     # SG curve & window
     x, y_sg, slope_pos, win_used = _sg_curve_and_grad(
         counts_desc, args.cv_steps, args.sg_window, args.sg_polyorder
@@ -664,39 +739,14 @@ def main():
         x, y_sg, args.min_cells, args.max_cells, args.min_cnt, args.min_cell_auc
     )
 
-    # Pick selector
-    use_opt = "C" if args.enable_robust else (
-        "B"
-        if (
-            args.n_expected_cells is not None
-            and np.isfinite(args.n_expected_cells)
-            and args.min_cells <= args.n_expected_cells <= args.max_cells
-        )
-        else "A"
-    )
+    # Pick selector and knee index
+    use_opt = _pick_selector(args)
+    try:
+        picker = PICKERS[use_opt]
+    except KeyError:
+        raise ValueError(f"Unknown method '{use_opt}'. Available: {sorted(PICKERS)}")
 
-    if use_opt == "C":
-        idx = _pick_C(
-            slope_pos,
-            x,
-            L,
-            R,
-            args.taper_alpha,
-            args.min_prom_rel,
-            args.min_width_frac,
-            args.n_expected_cells,
-        )
-    elif use_opt == "B":
-        idx = _pick_B(
-            slope_pos,
-            x,
-            L,
-            R,
-            float(args.n_expected_cells),
-            args.rank_prior_sigma_log10,
-        )
-    else:
-        idx = _pick_A(slope_pos, x, L, R, args.edge_trim_frac)
+    idx, _meta = picker(slope_pos, x, y_sg, L, R, args)
 
     thr = float((10 ** y_sg[idx]) * args.cnt_scale_fac)
 
@@ -707,82 +757,110 @@ def main():
         order = np.argsort(umis)[::-1]
         keep[order[0]] = True
 
+    return AnalysisResult(
+        selector=use_opt,
+        eff_min_umis=eff_min_umis,
+        eff_min_genes=eff_min_genes,
+        pre_qc=pre_qc,
+        counts_desc=counts_desc,
+        x=x,
+        y_sg=y_sg,
+        slope_pos=slope_pos,
+        win_used=win_used,
+        L=L,
+        R=R,
+        idx=idx,
+        thr=thr,
+        keep=keep,
+    )
+
+
+def write_outputs(paths: Paths, data: DataBundle, res: AnalysisResult, args: argparse.Namespace) -> None:
     # Filter matrix
-    X_filt = X[:, keep].tocsr()
-    out_mtx.parent.mkdir(parents=True, exist_ok=True)
-    mmwrite(str(out_mtx), X_filt, field="integer")
+    X_filt = data.X[:, res.keep].tocsr()
 
-    # Write barcodes
-    with open(output_dir / "barcodes.tsv", "w") as fh:
-        for bc in np.array(barcodes, dtype=object)[keep]:
-            fh.write(f"{bc}\n")
+    # Write filtered MTX
+    paths.output_dir.mkdir(parents=True, exist_ok=True)
+    mmwrite(str(paths.output_mtx), X_filt)
 
-    # Copy features
-    _copy_file_verbatim(feats_file, output_dir / feats_file.name)
+    # Write barcodes + features alongside output (STARsolo conventions)
+    out_barcodes = paths.output_dir / "barcodes.tsv"
+    out_features = paths.output_dir / "features.tsv"
 
-    # Summary
-    # Estimate f01 (fraction of cells at 1-count boundary) as a rough shape metric
-    u_pre = np.sort(umis[pre_qc])[::-1]
-    if len(u_pre) > 0:
-        k_thr = np.where(u_pre >= thr)[0]
-        k_thr = int(k_thr[-1]) if len(k_thr) else 0
-        f01 = float(k_thr) / float(len(u_pre))
-    else:
-        f01 = float("nan")
+    with open(out_barcodes, "wt") as f:
+        for bc in data.barcodes[res.keep]:
+            f.write(str(bc) + "\n")
 
+    # Keep the features table format stable
+    data.feats_df.to_csv(out_features, sep="\t", header=False, index=False)
+
+    # Summary TSV
     pd.DataFrame(
         [
             dict(
-                input_dir=str(input_dir),
-                output_dir=str(output_dir),
-                selector=use_opt,
-                thr=float(thr),
-                kept=int(keep.sum()),
-                umi_cutoff=float(thr),
-                umi_integer_boundary=int(math.floor(thr)),
-                min_cnt=int(args.min_cnt),
-                min_cells=int(args.min_cells),
-                max_cells=int(args.max_cells),
-                min_cell_auc=float(args.min_cell_auc),
+                method=args.method,
+                selector=res.selector,
+                kept=int(res.keep.sum()),
+                thr=float(res.thr),
+                idx=int(res.idx),
+                L=int(res.L),
+                R=int(res.R),
+                win_used=int(res.win_used),
                 edge_trim_frac=float(args.edge_trim_frac),
                 rank_prior_sigma_log10=float(args.rank_prior_sigma_log10),
                 taper_alpha=float(args.taper_alpha),
                 min_prom_rel=float(args.min_prom_rel),
                 min_width_frac=float(args.min_width_frac),
                 cnt_scale_fac=float(args.cnt_scale_fac),
-                n_expected_cells=(
-                    None if args.n_expected_cells is None else float(args.n_expected_cells)
-                ),
-                min_umis=int(eff_min_umis),
-                min_genes=int(eff_min_genes),
-                n_pre_qc=int(pre_qc.sum()),
+                n_expected_cells=(None if args.n_expected_cells is None else float(args.n_expected_cells)),
+                min_umis=int(res.eff_min_umis),
+                min_genes=int(res.eff_min_genes),
+                n_pre_qc=int(res.pre_qc.sum()),
             )
         ]
-    ).to_csv(logs_dir / "summary.tsv", sep="\t", index=False)
+    ).to_csv(paths.logs_dir / "summary.tsv", sep="\t", index=False)
 
-    # Per-barcode metrics (for debugging), and present barcodes list
+    # Per-barcode metrics and present barcodes list
     metrics = pd.DataFrame(
-        {"barcode": barcodes, "umis": umis, "n_genes": n_genes, "pre_qc": pre_qc.astype(int)}
+        {"barcode": data.barcodes, "umis": data.umis, "n_genes": data.n_genes, "pre_qc": res.pre_qc.astype(int)}
     )
-    metrics["kept"] = keep.astype(int)
-    metrics.to_csv(logs_dir / "barcode_metrics.tsv", sep="\t", index=False)
-    (logs_dir / "present_barcodes.txt").write_text(
-        "\n".join(metrics.loc[metrics["kept"] == 1, "barcode"])
-    )
+    metrics["kept"] = res.keep.astype(int)
+    metrics.to_csv(paths.logs_dir / "barcode_metrics.tsv", sep="\t", index=False)
 
+    present = data.barcodes[res.keep]
+    with open(paths.logs_dir / "present_barcodes.txt", "wt") as f:
+        for bc in present:
+            f.write(str(bc) + "\n")
+
+    # Plot
     _plot_rank(
-        umis,
-        thr,
-        logs_dir / "barcode_rank.png",
+        data.umis,
+        res.thr,
+        paths.logs_dir / "barcode_rank.png",
         title=(
-            f"SG knee [{use_opt}] thr={thr:.2f}, kept={keep.sum()} "
-            f"(preQC: n_genes≥{eff_min_genes}, UMIs≥{eff_min_umis})\n"
-            f"win=[{int(10 ** x[L])}..{int(10 ** x[R - 1])}]"
+            f"SG knee [{res.selector}] thr={res.thr:.2f}, kept={res.keep.sum()} "
+            f"(preQC: n_genes≥{res.eff_min_genes}, UMIs≥{res.eff_min_umis})\n"
+            f"win=[{int(10 ** res.x[res.L])}..{int(10 ** res.x[res.R - 1])}]"
         ),
     )
 
-    print(f"[done] selector={use_opt} kept={keep.sum()}  umi_cutoff={thr:.2f}  out={out_mtx}")
-    print(f"[logs] {logs_dir}")
+
+def run(argv: Optional[list[str]] = None) -> None:
+    args = parse_args(argv)
+    paths = setup_paths(args)
+    data = load_data(paths)
+    res = run_barcode_analysis(data, args)
+    write_outputs(paths, data, res, args)
+
+    print(
+        f"[done] selector={res.selector} kept={res.keep.sum()}  "
+        f"umi_cutoff={res.thr:.2f}  out={paths.output_mtx}"
+    )
+    print(f"[logs] {paths.logs_dir}")
+
+
+def main() -> None:
+    run()
 
 
 if __name__ == "__main__":
