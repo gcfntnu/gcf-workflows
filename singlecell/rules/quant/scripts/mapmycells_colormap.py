@@ -145,6 +145,17 @@ def infer_nt_from_class_name(class_name: object) -> str:
         return "Glut"
     return "NA"
 
+def add_neuron_nonneuron_from_neurotransmitter(nt_label):
+    """
+    Add neuron vs non-neuron column based on nt_type_label.
+
+    """
+    def _classify(nt):
+        if pd.isna(nt) or nt=="NA":
+            return "non-neuron"
+        return "neuron" if nt in {"Glut", "GABA", "Glut-GABA"} else "non-neuron"
+    return nt_label.map(_classify)
+
 
 def add_colors(df: pd.DataFrame, colors: dict) -> pd.DataFrame:
     out = df.copy()
@@ -165,7 +176,7 @@ def add_colors(df: pd.DataFrame, colors: dict) -> pd.DataFrame:
     if not nt_palette:
         raise RuntimeError("Colors JSON missing 'neurotransmitter' palette.")
 
-    # Ensure nt_type_label exists (Excel preferred; fallback only if absent)
+    # Ensure nt_type_label exists (Excel preferred; fallback only if absent)    
     if "nt_type_label" not in out.columns:
         if "class_name" in out.columns:
             out["nt_type_label"] = out["class_name"].map(infer_nt_from_class_name)
@@ -194,15 +205,16 @@ def add_colors(df: pd.DataFrame, colors: dict) -> pd.DataFrame:
 PRESETS: Dict[str, List[str]] = {
     # Minimal, high-value columns for downstream (cell-level)
     "minimal": [
-    "class_label", "class_name", "class_bootstrapping_probability",
-    "subclass_label", "subclass_name", "subclass_bootstrapping_probability",
-    "supertype_label", "supertype_name", "supertype_bootstrapping_probability",
-    "cluster_label", "cluster_name", "cluster_bootstrapping_probability",
-    "nt_type_label", "nt_type_color",
-    "region_broad", "region_broad_p",
-    "region_acronym_top", "region_acronym_p",
-    "anatomical_annotation", "neighborhood",
-    "class_color", "subclass_color", "supertype_color", "cluster_color",
+        "class_label", "class_name", "class_bootstrapping_probability",
+        "subclass_label", "subclass_name", "subclass_bootstrapping_probability",
+        "supertype_label", "supertype_name", "supertype_bootstrapping_probability",
+        "cluster_label", "cluster_name", "cluster_bootstrapping_probability",
+        "nt_type_label", "nt_type_color",
+        "cell_class",
+        "region_broad", "region_broad_p",
+        "region_acronym_top", "region_acronym_p",
+        "anatomical_annotation", "neighborhood",
+        "class_color", "subclass_color", "supertype_color", "cluster_color",
     ],
     
     # Same, but also keep the original freq strings for audit/debug
@@ -305,6 +317,10 @@ def main() -> int:
     # Add colors (hierarchy + neurotransmitter)
     colors = load_colors(colors_path)
     merged = add_colors(merged, colors)
+
+    # add top level cell_class (neuron vs non-neuron)
+    if "nt_type_label" in merged.columns:
+        merged["cell_class"] = add_neuron_nonneuron_from_neurotransmitter(merged["nt_type_label"])
 
     # Column selection
     keep_cols = None

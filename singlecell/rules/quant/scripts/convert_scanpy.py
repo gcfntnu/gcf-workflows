@@ -445,6 +445,7 @@ def create_parser():
     parser.add_argument("--mtx-from", choices=["raw","none"], default="raw")
     parser.add_argument("-v", "--verbose", action="store_true",
                         help="verbose output")
+    parser.add_argument("--log", type=pathlib.Path, default=None)
     return parser
 
 
@@ -2177,7 +2178,11 @@ if __name__ == "__main__":
             )
             added = [c for c in data.var.columns if c not in before]
             if added:
-                logger.info(f"[feature-info {i}] added {len(added)} column(s): {', '.join(added[:12])}{'…' if len(added)>12 else ''}")
+                #logger.info(f"[feature-info {i}] added {len(added)} column(s): {', '.join(added[:12])}{'…' if len(added)>12 else ''}")
+                logger.info(f"[feature-info {i}] added {len(added)} column(s):\n")
+                for a in added:
+                    logger.info(f"  * {a}")
+                
 
         # Clean identical dups; coerce dtypes for AnnData friendliness
         data.var = drop_ci_identical_same_name(data.var)
@@ -2226,8 +2231,11 @@ if __name__ == "__main__":
             )
             added = [c for c in data.obs.columns if c not in before]
             if added:
-                logger.info(f"[barcode-info {i}] added {len(added)} column(s): {', '.join(added[:12])}{'…' if len(added)>12 else ''}")
-
+                #logger.info(f"[barcode-info {i}] added {len(added)} column(s): {', '.join(added[:12])}{'…' if len(added)>12 else ''}")
+                logger.info(f"[barcode-info {i}] added {len(added)} column(s):")
+                for a in added:
+                    logger.info(f"  * {a}")
+                
         data.obs = drop_ci_identical_same_name(data.obs)
         data.obs = anndata_friendly_dtypes(data.obs, protect_cols=("barcode",), allow_string_dtype=False)
 

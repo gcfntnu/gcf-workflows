@@ -467,7 +467,7 @@ rule parsebio_fastq_trim_cutadapt:
 
 
 def get_parsebio_starsolo_genome():
-    sjdbOverhang = int(config['read_geometry'][-1]) - 1
+    sjdbOverhang = int(config['read_geometry'][0]) - 1
     if config["quant"].get("starsolo", {}).get("index", "star") == "star":
         genome = join(REF_DIR, 'index', 'genome', 'star', f'r_{sjdbOverhang}', 'SA')
     else:
@@ -593,7 +593,7 @@ rule parsebio_scanpy_rt_filtered:
     params:
         script    = src_gcf('scripts/convert_scanpy.py'),
         bc_type   = lambda wc: BC_RENAME.get(wc.method, 'numerical'),
-        enable_cb = '--enable-cellbender' if CB_OUTPUT  else '',
+        enable_cb = '--enable-cellbender' if CB_OUTPUT  else ''
     output:
         join(QUANT_INTERIM, 'aggregate', '{method}', 'cellbender', 'scanpy', '{aggr_id}_rt.h5ad') if CB_OUTPUT else join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_rt.h5ad')
     container:
@@ -608,9 +608,10 @@ rule parsebio_scanpy_rt_filtered:
         '--barcode-info {input.barcode_info} '
         '--barcode-rename {params.bc_type} '
         '-o {output} '
-        '-v '
         '-f {wildcards.method} '
+        '--log {log} '
         '{params.enable_cb} '
+        '--verbose '
 
 
 rule parsebio_scanpy_filtered:
@@ -619,7 +620,8 @@ rule parsebio_scanpy_filtered:
     output:
         join(QUANT_INTERIM, 'aggregate', '{method}', 'cellbender', 'scanpy', '{aggr_id}_filtered.h5ad') if CB_OUTPUT else join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_filtered.h5ad')
     params:
-        script = src_gcf('scripts/postprocess_starsolo_rt.py')
+        script = src_gcf('scripts/postprocess_starsolo_rt.py'),
+        rt_args = '' if PREP == 'rt_merge' else ' --add-rt-qc --aggregate --groupby barcode_Tmapped '
     container:
         'docker://' + config['docker']['scanpy'],
     threads:
@@ -628,7 +630,7 @@ rule parsebio_scanpy_filtered:
         'python {params.script} '
         '--input {input} '
         '--output {output} '
-        ''
+        '{params.rt_args} '
         
 
 rule parsebio_starsolo_mtx_v2_fix:

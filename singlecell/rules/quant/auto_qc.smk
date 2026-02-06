@@ -11,9 +11,9 @@ rule autoqc_sctk:
         qc_vars = join(QUANT_INTERIM, 'aggregate', '{method}', '{aggr_id}_sctk_autoqc_qcvars.tsv'),
         log = join(QUANT_INTERIM, 'aggregate', '{method}', 'autoqc', '{aggr_id}_sctk_autoqc.log') 
     params:
-        script = src_gcf('scripts/sctk_autoqc.py'),
-        qc_sample = 'Sample_ID_x_library_id',
-        qc_vars = 'total_counts,n_genes_by_counts,nuclear_fraction,cb_perfect_rate',
+        script = src_gcf('scripts/autoqc_cellwise.py'),
+        qc_sample = 'Sample_ID_x_library_id_x_cell_class',
+        qc_vars = 'total_counts,n_genes_by_counts,nuclear_fraction,mt_fraction',
         plot_dir = join(QUANT_INTERIM, 'aggregate', '{method}', 'autoqc', 'sctk'),
         threshold = 0.05
     container:
@@ -24,8 +24,7 @@ rule autoqc_sctk:
         '--output {output.passed_tsv} '
         '--quantifier {wildcards.method} '
         '--qc-sample {params.qc_sample} '
-        '--qc-vars {params.qc_vars} '
-        '--gauss-threshold {params.threshold} '
+        '--qc-bundle {params.qc_vars} '
         '--plot-dir {params.plot_dir} '
         '--log-filename {output.log} '
         '--verbose '
@@ -43,3 +42,9 @@ rule autoqc_validrops:
         aggr_raw_h5ad = join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_filtered.h5ad')
     output:
         passed_tsv = join(QUANT_INTERIM, 'aggregate', '{method}', '{aggr_id}_validrops_autoqc_mask.tsv')   
+
+
+rule autoqc_all:
+    input:
+        expand(join(QUANT_INTERIM, 'aggregate', '{method}', '{aggr_id}_sctk_autoqc_mask.tsv'), method=config['quant']['method'], aggr_id = ['all_samples'])
+    

@@ -515,12 +515,11 @@ def default_metrics_df(qc_vars: Tuple[str, ...]) -> pd.DataFrame:
             ("logit", None, None, "gauss>q",               "none",    0.01, 0.999, 0.90, 0.995, 0.10, 0.05),
 
             # cb_perfect_rate: min only, no valley
-            ("logit", 0.25, None, "gauss>strict_valley>q",               "none",    0.01, 0.999, 0.90, 0.995, 0.10, 0.05),
-
-            # mt_fraction: max only; gaussian or quantile; no valley
+            ("logit", 0.25, None, "gauss>strict_valley>q", "none",    0.01, 0.999, 0.90, 0.995, 0.10, 0.05),
+            
             ("logit", None, None, "none",                 "gauss>q",  0.01, 0.99,  0.85, 0.95,  0.10, 0.05),
             # rp_score: max only; gaussian or valley
-            (None, None, None, "none",                 "gauss>valley>q",  0.01, 0.99,  0.85, 0.95,  0.10, 0.05),
+            ("", None, None,    "none",                 "gauss>strict_valley>q",  0.01, 0.99,  0.85, 0.95,  0.10, 0.05),
         ],
         index=["total_counts", "n_genes_by_counts", "nuclear_fraction", "cb_perfect_rate", "mt_fraction", "rp_score"],
         columns=[

@@ -14,6 +14,11 @@ parser.add_argument("-i", "--input", required = True, help = "anndata obj (.h5ad
 parser.add_argument("-o", "--output", required = True, help = "output file")
 parser.add_argument("--threads", required = False, default = 1, type = int, help = "Number of jobs to to use; default is 1")
 parser.add_argument("--seed", required = False, default = 1234, type=int, help = "seed")
+parser.add_argument("--expected-doublet-rate",required=False,type=float,default=None,
+                    help="If set, call top fraction of cells by doublet_score as doublets (0-1)."
+                    )
+
+
 args = parser.parse_args()
 
 adata = sc.read_h5ad(args.input)
@@ -28,11 +33,34 @@ clf = BoostClassifier(n_iters=10,
                       n_jobs=args.threads,
                       random_state=args.seed)
 
-doublets = clf.fit(adata.X).predict(p_thresh=1e-16, voter_thresh=0.5)
-doublet_type = np.where(doublets, "doublet", "singlet").astype('<U12')
-if any(np.isnan(doublets)):
-    doublet_type[np.isnan(doublets)] = "unassigned"
+clf.fit(adata.X)
 score = clf.doublet_score()
+
+r = args.expected_doublet_rate
+if r is None:
+    # rate-free mode: keep DoubletDetection’s own calls
+    labels = clf.predict(p_thresh=1e-16, voter_thresh=0.5)
+    doublet_type = np.where(labels == 1, "doublet", "singlet").astype("<U12")
+    doublet_type[np.isnan(labels)] = "unassigned"
+else:
+    # rate-aware mode: call top r fraction by score
+    if not (0.0 < r < 1.0):
+        raise ValueError("--expected-doublet-rate must be between 0 and 1")
+    n = len(score)
+    k = int(round(r * n))
+    doublet_type = np.full(n, "singlet", dtype="<U12")
+
+    valid = np.isfinite(score)
+    # If some scores are NaN, mark them unassigned and rank only finite ones
+    doublet_type[~valid] = "unassigned"
+
+    if k > 0:
+        idx = np.where(valid)[0]
+        # take top-k among valid scores
+        topk = idx[np.argsort(score[idx])[::-1][:k]]
+        doublet_type[topk] = "doublet"
+
+
 assert len(score) == adata.obs.shape[0]
 assert len(doublet_type) == adata.obs.shape[0]
 

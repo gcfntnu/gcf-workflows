@@ -9,6 +9,13 @@ if SAMPLE_MULTIPLEXING:
        SAMPLE_MULTIPLEXING = False 
 
 
+def get_expected_doublet_rate():
+    return config['quant']["doublet_detection"].get("expected_doublet_rate", None)
+
+def dbl_rate_arg(flag):
+    r = get_expected_doublet_rate()
+    return "" if r is None else f"{flag} {r} "
+
 
 rule dbl_skip_doubletdetection:
     input:
@@ -29,7 +36,8 @@ rule dbl_doubletdetection:
     output:
         join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets',  'doubletdetection', 'doublet_type.tsv')
     params:
-        script = src_gcf('scripts/run_doubletdetection.py')
+        script = src_gcf('scripts/run_doubletdetection.py'),
+        dbl_rate_arg = dbl_rate_arg('--expected-doublet-rate')
     threads:
         8
     shell:
@@ -37,6 +45,7 @@ rule dbl_doubletdetection:
         '-i {input.counts} '
         '-o {output} '
         '--threads {threads} '
+        '{params.dbl_rate_arg} '
 
 def dbl_scdblfinder_args():
     if config['libprepkit'].lower().startswith('parse'):
@@ -56,17 +65,16 @@ rule dbl_scdblfinder:
         join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets', 'scdblfinder', 'doublet_type.tsv')
     params:
         script = src_gcf('scripts/scdblfinder.R'),
-        #args = dbl_scdblfinder_args()
-        args = '--min-umis 300 -min-genes 10 '
+        dbl_args = dbl_scdblfinder_args()
     threads:
-        12
+        8
     shell:
         'Rscript {params.script} '
         '--input {input.counts} '
         '--output {output} '
         '--threads {threads} '
-        '{params.args} '
-        
+        '{params.dbl_args} '
+
 
 rule dbl_scds:
     input:
@@ -75,14 +83,16 @@ rule dbl_scds:
         join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets', 'scds', 'doublet_type.tsv')
     params:
         script = src_gcf('scripts/scds.R'),
-        threshold = 0.5 
-    threads: 8
+        dbl_rate_arg = dbl_rate_arg('--expected-doublet-rate')
+    threads:
+        8
     shell:
         'Rscript {params.script} '
         '--input {input.counts} '
         '--output {output} '
         '--threads {threads} '
-        '--threshold {params.threshold}'
+        #'--threshold 0.5 '
+        '{params.dbl_rate_arg} '
 
 
 rule dbl_scrublet:
@@ -91,13 +101,15 @@ rule dbl_scrublet:
     output:
         join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets',  'scrublet', 'doublet_type.tsv')
     params:
-        script = src_gcf('scripts/run_scanpy_scrublet.py')
+        script = src_gcf('scripts/run_scanpy_scrublet.py'),
+        dbl_rate_arg = dbl_rate_arg('--expected-doublet-rate')
     threads:
         8
     shell:
         'python {params.script} '
         '-i {input.counts} '
         '-o {output} '
+        '{params.dbl_rate_arg} '
 
 
 rule dbl_solo_model:
@@ -280,14 +292,40 @@ rule dbl_majority_vote_per_sample:
         '--out {output.combined} '
         '{params.args} '
 
+rule dbl_doublet_rank_aggr:
+    input:
+        expand(get_doublet_output(), sample='{sample}', quantifier="{quantifier}")
+    output:
+        classification = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets', 'doublet_rank_aggr.tsv'),
+        rankdata       = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets', 'doublet_rank_aggr_rankdata.tsv'),
+        figure         = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets', 'doublet_rank_aggr_dashboard.pdf'),
+        log            = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets', 'doublet_rank_aggr.log'),
+    params:
+        script      = src_gcf("scripts/doublet_rank_aggr.py"),
+        aggregator  = config['quant']["doublet_detection"].get("rank_aggr_method", "rra"),
+        pval_cutoff = config['quant']["doublet_detection"].get("rank_aggr_pval_cutoff", 0.01),
+    threads:
+        4 
+    container:
+        'docker://gcfntnu/jupyterlab-doublet-detection:4.2.2'
+    shell:
+        r"""
+        python {params.script} \
+          --input {input} \
+          --out {output.classification} \
+          --out-rankdata {output.rankdata} \
+          --pval-cutoff {params.pval_cutoff} \
+          --aggregator {params.aggregator} \
+          --log {output.log} 
+        """
 
 rule dbl_doublet_notebook:
     input:
         expand(get_doublet_output(), sample='{sample}', quantifier="{quantifier}")
     output:
-        classification = join(QUANT_INTERIM, '{quantifier}', '{sample}' , 'doublets', 'doublet_rank_aggr.tsv'),
-        rankdata = join(QUANT_INTERIM, '{quantifier}', '{sample}' , 'doublets', 'doublet_rank_aggr_rankdata.tsv'),
-        figure = join(QUANT_INTERIM, '{quantifier}', '{sample}' , 'doublets', 'doublet_rank_aggr.pdf')
+        classification = join(QUANT_INTERIM, '{quantifier}', '{sample}' , 'doublets', '_doublet_rank_aggr.tsv'),
+        rankdata = join(QUANT_INTERIM, '{quantifier}', '{sample}' , 'doublets', '_doublet_rank_aggr_rankdata.tsv'),
+        figure = join(QUANT_INTERIM, '{quantifier}', '{sample}' , 'doublets', '_doublet_rank_aggr.pdf')
     params:
         method = "RRA",
         top_k = 10000
@@ -301,6 +339,7 @@ rule dbl_doublet_notebook:
         'notebooks/doublets_rob_rank_aggr.py.ipynb'
 
 
+        
 rule dbl_doublet_html:
     input:
         rules.dbl_doublet_notebook.output
@@ -317,6 +356,21 @@ rule dbl_doublet_html:
 
 
 def dbl_aggr_input(wildcards):
+    samples_by_aggr_id = AGGR_IDS.get(wildcards.aggr_id)
+    classification = expand(rules.dbl_doublet_rank_aggr.output.classification,
+                      quantifier=wildcards.method,
+                      sample=samples_by_aggr_id)
+    rankdata = expand(rules.dbl_doublet_rank_aggr.output.rankdata,
+                      quantifier=wildcards.method,
+                      sample=samples_by_aggr_id)
+    
+    if wildcards.method.startswith('cellranger'):
+        aggr_csv = join(QUANT_INTERIM, 'aggregate', 'description', f'{wildcards.aggr_id}_aggr.csv')
+        return {'classification': classification, 'rankdata': rankdata, 'aggr_csv': aggr_csv}
+    else:
+        return {'classification': classification, 'rankdata': rankdata}
+
+def _dbl_aggr_input(wildcards):
     samples_by_aggr_id = AGGR_IDS.get(wildcards.aggr_id)
     classification = expand(rules.dbl_doublet_notebook.output.classification,
                       quantifier=wildcards.method,
@@ -356,6 +410,7 @@ rule dbl_classification_aggr:
             '{input.classification} '
             '{params.args} '
             '--output {output} '
+            '--verbose '
 
 rule dbl_rankdata_aggr:
         input:

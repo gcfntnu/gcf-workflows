@@ -16,18 +16,24 @@ def main():
     p.add_argument("-o", "--output", required=True, help="output TSV")
     p.add_argument("--expected-doublet-rate", default=None, type=float, help="doublet rate")
     p.add_argument("--dbr-min", default=0.005, type=float, help="lower clamp for expected doublet rate")
-    p.add_argument("--dbr-max", default=0.10, type=float, help="upper clamp for expected doublet rate")
-    p.add_argument("--n_neighbors", default=80, type=int, help="kNN neighbors for scrublet")
+    p.add_argument("--dbr-max", default=0.40, type=float, help="upper clamp for expected doublet rate")
+    p.add_argument("--n_neighbors", default=30, type=int, help="kNN neighbors for scrublet")
     p.add_argument("--seed", default=1234, type=int, help="random seed")
 
     # Fit gating (training subset)
-    p.add_argument("--min-umis", default=200, type=int, help="min total counts to include cell in fit")
-    p.add_argument("--min-genes", default=200, type=int, help="min detected genes to include cell in fit")
+    p.add_argument("--min-umis", default=1, type=int, help="min total counts to include cell in fit")
+    p.add_argument("--min-genes", default=1, type=int, help="min detected genes to include cell in fit")
 
     # Gene filtering (applied on fit subset)
-    p.add_argument("--gene-min-cells", default=50, type=int, help="keep genes detected in >= this many fit cells")
-    p.add_argument("--gene-max-frac", default=0.95, type=float, help="drop genes detected in > this fraction of fit cells")
-    p.add_argument("--gene-top-k", default=5000, type=int, help="cap genes to top-K by total counts (fit cells)")
+    p.add_argument("--gene-min-cells", default=5, type=int, help="keep genes detected in >= this many fit cells")
+    p.add_argument("--gene-max-frac", default=1, type=float, help="drop genes detected in > this fraction of fit cells")
+    p.add_argument("--gene-top-k", default=50_000, type=int, help="cap genes to top-K by total counts (fit cells)")
+    p.add_argument("--rate-low-factor", default=0.1, type=float,
+                   help="If scrublet called rate < expected*low_factor, fallback to score-based calling.")
+    p.add_argument("--rate-high-factor", default=3.0, type=float,
+                   help="If scrublet called rate > expected*high_factor, fallback to score-based calling.")
+    p.add_argument("--fallback", default="top_frac", choices=["top_frac", "keep_scrublet", "unassigned"],
+                   help="What to do when scrublet call-rate is inconsistent with expected rate.")
 
     args = p.parse_args()
 
@@ -80,11 +86,15 @@ def main():
         ad_fit = ad_fit[:, keep_idx].copy()
 
     # Expected doublet rate default + clamp
-    if args.expected_doublet_rate is None:
+    used_fallback = args.expected_doublet_rate is None
+    if used_fallback:
         dbr = (ad_fit.n_obs / 1000.0) * 0.008
     else:
         dbr = float(args.expected_doublet_rate)
-    dbr = clamp(dbr, float(args.dbr_min), float(args.dbr_max))
+
+    dbr = clamp(dbr, args.dbr_min, args.dbr_max)
+
+    
 
     sc.external.pp.scrublet(
         ad_fit,
@@ -101,6 +111,8 @@ def main():
     plt.close()
 
     # Re-expand to full barcode set
+    
+    
     fit_scores = ad_fit.obs.get("doublet_score", None)
     fit_pred = ad_fit.obs.get("predicted_doublet", None)
 
@@ -110,11 +122,55 @@ def main():
         df.to_csv(args.output, sep="\t", index=False)
         return
 
+
     fit_scores = fit_scores.to_numpy(dtype=float)
     fit_pred = fit_pred.to_numpy(dtype=bool)
 
     out_score[fit_mask] = fit_scores
-    out_call[fit_mask] = np.where(fit_pred, "doublet", "singlet")
+
+    # Default to scrublet calls
+    calls = np.where(fit_pred, "doublet", "singlet").astype(object)
+
+    # If a prior expected rate is provided, sanity-check scrublet's called rate
+    if args.expected_doublet_rate is not None:
+        r = clamp(float(args.expected_doublet_rate), float(args.dbr_min), float(args.dbr_max))
+
+        finite = np.isfinite(fit_scores)
+        if finite.any():
+            scrub_rate = fit_pred[finite].mean()
+        else:
+            scrub_rate = np.nan
+
+        low = r * float(args.rate_low_factor)
+        high = r * float(args.rate_high_factor)
+
+        bad = (not np.isfinite(scrub_rate)) or (scrub_rate < low) or (scrub_rate > high)
+
+        if bad:
+            if args.fallback == "top_frac":
+                # Fallback: call top-r fraction by score (like DoubletDetection)
+                calls[:] = "singlet"
+                calls[~finite] = "unassigned"
+
+                idx = np.where(finite)[0]
+                k = int(round(r * idx.size))
+                k = max(0, min(k, idx.size))
+                if k > 0:
+                    order = np.argsort(fit_scores[idx], kind="mergesort")[::-1]
+                    topk = idx[order[:k]]
+                    calls[topk] = "doublet"
+
+            elif args.fallback == "unassigned":
+                calls[:] = "unassigned"
+            elif args.fallback == "keep_scrublet":
+                pass
+
+    out_call[fit_mask] = calls
+
+    #fit_scores = fit_scores.to_numpy(dtype=float)
+    #fit_pred = fit_pred.to_numpy(dtype=bool)
+    #out_score[fit_mask] = fit_scores
+    #out_call[fit_mask] = np.where(fit_pred, "doublet", "singlet")
 
     df = pd.DataFrame({"Barcode": all_bc, "doublet": out_call, "doublet_score": out_score})
     df.to_csv(args.output, sep="\t", index=False)

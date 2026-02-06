@@ -9,6 +9,10 @@ suppressPackageStartupMessages({
   library(Matrix)
 })
 
+clamp <- function(x, lo, hi) {
+  max(lo, min(hi, x))
+}
+
 setup_threads <- function(n) {
   if (.Platform$OS.type == "windows") {
     BiocParallel::register(BiocParallel::SnowParam(n, progressbar = TRUE), default = TRUE)
@@ -46,14 +50,7 @@ read_features_ids <- function(input_mtx) {
   df <- import(TENxTSV(fn))
   if (!is.data.frame(df) || ncol(df) < 1) return(NULL)
 
-  fid <- as.character(df[[1]])
-  fid <- trimws(fid)
-  fid <- fid[nzchar(fid)]
-  if (length(fid) == 0) return(NULL)
-
-  # Keep length; don't drop rows silently.
-  # If df had empty rows, above trimming would drop them; that's dangerous.
-  # So: re-read without dropping to preserve row count.
+  # re-read without dropping to preserve row count
   df2 <- import(TENxTSV(fn))
   fid2 <- as.character(df2[[1]])
   fid2 <- trimws(fid2)
@@ -72,6 +69,14 @@ write_all_singlets <- function(output, barcodes) {
   write.table(results, file = output, sep = "\t", row.names = FALSE, quote = FALSE)
 }
 
+derive_threshold_from_rate <- function(scores, rate) {
+  x <- scores[is.finite(scores)]
+  if (length(x) < 2) return(Inf)
+  rate <- clamp(rate, 1e-6, 1 - 1e-6)
+  q <- 1 - rate
+  as.numeric(stats::quantile(x, probs = q, names = FALSE, type = 7))
+}
+
 main <- function() {
   parser <- ArgumentParser()
   parser$add_argument("-o", "--output", required = TRUE, help = "Output TSV")
@@ -80,8 +85,17 @@ main <- function() {
   parser$add_argument("-t", "--threads", type = "integer", default = NULL,
                       help = "Number of threads to use")
 
-  parser$add_argument("--threshold", type = "double", default = 0.5,
-                      help = "hybrid_score threshold to classify doublets (used only for this method's call)")
+  # Prior for expected doublet rate (guides ROC threshold via rel_loss; fallback uses quantile)
+  parser$add_argument("--expected-doublet-rate", type = "double", default = NULL,
+                      help = "Expected doublet rate prior. If NULL, use 10x-style fallback: (n_cells/1000)*0.008")
+  parser$add_argument("--dbr-min", type = "double", default = 0.005,
+                      help = "Lower clamp for expected doublet rate")
+  parser$add_argument("--dbr-max", type = "double", default = 0.40,
+                      help = "Upper clamp for expected doublet rate")
+
+  # Manual override threshold
+  parser$add_argument("--threshold", type = "double", default = NULL,
+                      help = "Manual score threshold override. If set, used directly; otherwise derived from expected doublet rate.")
 
   # Cell gating for scds computation
   parser$add_argument("--min-umis", type = "integer", default = 0,
@@ -90,6 +104,7 @@ main <- function() {
                       help = "Minimum detected genes to include a cell in scds scoring")
   parser$add_argument("--min-valid-cells", type = "integer", default = 0,
                       help = "If fewer than this many cells pass gating, skip scds and write all singlets (NA scores)")
+
   # Gene filtering to prevent bcds dense coercion
   parser$add_argument("--gene-min-cells", type = "integer", default = 0,
                       help = "Keep genes detected in at least this many gated cells")
@@ -115,6 +130,11 @@ main <- function() {
     stop("[ERROR] --gene-max-frac must be in (0, 1].")
   }
   if (!is.finite(args$sd_eps) || is.na(args$sd_eps) || args$sd_eps <= 0) stop("[ERROR] --sd-eps must be > 0")
+  if (!is.finite(args$dbr_min) || !is.finite(args$dbr_max) ||
+      args$dbr_min <= 0 || args$dbr_min >= 1 || args$dbr_max <= 0 || args$dbr_max >= 1 ||
+      args$dbr_min > args$dbr_max) {
+    stop("[ERROR] --dbr-min/--dbr-max must be in (0,1) and min<=max")
+  }
 
   cat("[INFO] Reading input matrix...\n", file = stderr())
   con <- TENxMTX(args$input)
@@ -198,42 +218,120 @@ main <- function() {
               ncol(sce_sub), nrow(sce_sub), min_cells, args$gene_max_frac, as.integer(args$gene_top_k)),
       file = stderr())
 
-  cat("[INFO] Running scds (cxds_bcds_hybrid)...\n", file = stderr())
-  sce_sub <- cxds_bcds_hybrid(sce_sub, estNdbl = FALSE, verb = TRUE)
+  # Scores + simulated scores (needed for ROC option)
+  cat("[INFO] Running scds (cxds_bcds_hybrid, estNdbl=TRUE)...\n", file = stderr())
+  sce_sub <- cxds_bcds_hybrid(sce_sub, estNdbl = TRUE, verb = TRUE)
 
+  # Pull scores
   cx <- as.numeric(colData(sce_sub)$cxds_score)
   bc_score <- as.numeric(colData(sce_sub)$bcds_score)
   hy <- as.numeric(colData(sce_sub)$hybrid_score)
 
-  # If cxds is degenerate, force hybrid=bcds
+  # Degeneracy handling: keep score definition consistent with calling
   cx_sd <- sd(cx, na.rm = TRUE)
   if (!is.finite(cx_sd) || is.na(cx_sd) || cx_sd <= args$sd_eps) {
-    cat("[WARN] cxds_score is degenerate; setting hybrid_score = bcds_score.\n", file = stderr())
+    cat("[WARN] cxds_score is degenerate; using bcds_score instead of hybrid_score.\n", file = stderr())
     hy <- bc_score
   }
-
-  # If hybrid is degenerate/invalid, also force to bcds
   hy_sd <- sd(hy, na.rm = TRUE)
   if (!is.finite(hy_sd) || is.na(hy_sd) || hy_sd <= args$sd_eps) {
-    cat("[WARN] hybrid_score is degenerate; setting hybrid_score = bcds_score.\n", file = stderr())
+    cat("[WARN] hybrid_score is degenerate; using bcds_score.\n", file = stderr())
     hy <- bc_score
   }
 
   if (all(is.na(hy))) {
-    cat("[WARN] hybrid_score all NA after fallbacks; writing all singlets with NA scores.\n", file = stderr())
+    cat("[WARN] score vector all NA after fallbacks; writing all singlets with NA scores.\n", file = stderr())
     write_all_singlets(args$output, all_bc)
     cat("[INFO] Done.\n", file = stderr())
     return(invisible(NULL))
+  }
+
+  # Prior rate (user or 10x fallback), then clamp
+  n_valid <- length(hy)
+  if (is.null(args$`expected_doublet_rate`) || !is.finite(args$`expected_doublet_rate`)) {
+    prior_rate <- (n_valid / 1000.0) * 0.008
+    prior_src <- "fallback_10x"
+  } else {
+    prior_rate <- as.numeric(args$`expected_doublet_rate`)
+    prior_src <- "user"
+  }
+  prior_rate <- clamp(prior_rate, as.numeric(args$dbr_min), as.numeric(args$dbr_max))
+
+  # Threshold selection per your aim:
+  # 1) user threshold override
+  # 2) else ROC guided by prior (if sim_scores available)
+  # 3) else quantile threshold from prior_rate
+  thresh <- NA_real_
+  thresh_src <- NA_character_
+  rel_loss <- NA_real_
+
+  if (!is.null(args$threshold) && is.finite(args$threshold)) {
+    thresh <- as.numeric(args$threshold)
+    thresh_src <- "user"
+  } else {
+    # Try ROC if we have sim_scores
+    scrs_sim <- NULL
+    if (!is.null(metadata(sce_sub)$hybrid) && !is.null(metadata(sce_sub)$hybrid$sim_scores)) {
+      scrs_sim <- metadata(sce_sub)$hybrid$sim_scores
+    }
+
+    if (!is.null(scrs_sim) && length(scrs_sim) >= 10 &&
+        sum(is.finite(scrs_sim)) >= 10 && sum(is.finite(hy)) >= 10) {
+
+      p_sim <- length(scrs_sim) / (length(scrs_sim) + length(hy))
+      p_sim <- clamp(p_sim, 1e-6, 1 - 1e-6)
+
+      sim_odds <- p_sim / (1 - p_sim)
+      prior_odds <- prior_rate / (1 - prior_rate)
+      rel_loss <- sim_odds / prior_odds
+
+      est <- tryCatch(
+        scds:::get_dblCalls_ROC(hy, scrs_sim, rel_loss = rel_loss),
+        error = function(e) {
+          cat(sprintf("[WARN] get_dblCalls_ROC failed: %s\n", conditionMessage(e)), file = stderr())
+          NULL
+        }
+      )
+
+      if (!is.null(est)) {
+        t <- as.numeric(est["threshold"])
+        if (is.finite(t) && !is.na(t)) {
+          thresh <- t
+          thresh_src <- "roc"
+        }
+      }
+    } else {
+      cat("[WARN] sim_scores missing/too small; cannot compute ROC threshold.\n", file = stderr())
+    }
+
+    # ROC failed → quantile from prior
+    if (!is.finite(thresh) || is.na(thresh)) {
+      thresh <- derive_threshold_from_rate(hy, prior_rate)
+      thresh_src <- "prior_quantile"
+    }
+  }
+
+  call_rate <- mean(hy >= thresh, na.rm = TRUE)
+
+  if (thresh_src == "roc") {
+    cat(sprintf("[INFO] Using ROC threshold=%.6f (prior_rate=%.4f, prior_src=%s, rel_loss=%.4f, call_rate=%.4f)\n",
+                thresh, prior_rate, prior_src, rel_loss, call_rate), file = stderr())
+  } else if (thresh_src == "user") {
+    cat(sprintf("[INFO] Using user threshold=%.6f (prior_rate=%.4f, prior_src=%s, call_rate=%.4f)\n",
+                thresh, prior_rate, prior_src, call_rate), file = stderr())
+  } else {
+    cat(sprintf("[WARN] Using prior-quantile threshold=%.6f (prior_rate=%.4f, prior_src=%s, call_rate=%.4f)\n",
+                thresh, prior_rate, prior_src, call_rate), file = stderr())
   }
 
   # Re-expand scores to full barcode set (same order as input)
   score_full <- rep(NA_real_, length(all_bc))
   score_full[valid] <- hy
 
-  # Deterministic NA handling: NA => singlet
+  # Calls using chosen threshold (NA => unassigned)
   call_full <- ifelse(
-    is.na(score_full), "singlet",
-    ifelse(score_full > args$threshold, "doublet", "singlet")
+    is.na(score_full), "unassigned",
+    ifelse(score_full >= thresh, "doublet", "singlet")
   )
 
   results <- data.frame(
