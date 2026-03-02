@@ -27,6 +27,8 @@ rule orthogene_premap:
         non121_strategy = 'drop_both_species'
     container:
         'docker://gcfntnu/orthogene:1.12.0'
+    threads:
+        24
     shell:
         'Rscript {params.script} '
         '--input {input.mtx} '
@@ -45,6 +47,8 @@ rule orthogene_premap_aggr:
         script = src_gcf('scripts/aggr_orthogene.py')
     container:
         'docker://' + config['docker']['default']
+    threads:
+        24
     shell:
         'python {params.script} '
         '--output {output.tsv} '
@@ -62,6 +66,8 @@ rule mapmycells_clean_premap_input:
         dst_organism = 'mus_musculus' if config['organism'] in ['mus_musculus', 'rattus_norvegicus'] else 'homo_sapiens'
     container:
         'docker://' + config['docker']['scanpy']
+    threads:
+        80
     shell: 
         'python {params.script} '
         '--input {input.mtx} '

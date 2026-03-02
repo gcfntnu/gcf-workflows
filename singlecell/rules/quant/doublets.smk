@@ -123,7 +123,7 @@ rule dbl_solo_model:
             "cl_hidden": 128,
             "cl_layers": 1,
             "dropout_rate": 0.2,
-            "learning_rate": 0.001,
+            "learning_rate": 0.0001,
             "valid_pct": 0.10
         }
         with open(output.json, 'w') as fh:
