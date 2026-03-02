@@ -208,7 +208,6 @@ if CB_FLAG:
     include: 'quant/cellbender.smk'
 if config['libprepkit'].startswith("10X Genomics") or config['libprepkit'].startswith("Parse"):
     include: 'quant/doublets.smk'
-    include: 'quant/auto_qc.smk'
     include: 'quant/auto_annotation.smk'
 
 

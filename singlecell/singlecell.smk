@@ -39,7 +39,9 @@ include:
 include:
     'rules/bfq.smk'
 include:
-    '../postprocess.smk' 
+    '../postprocess.smk'
+include:
+    'rules/analysis.smk'
 
 
 onsuccess:
