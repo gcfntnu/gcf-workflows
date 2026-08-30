@@ -592,7 +592,7 @@ rule parsebio_scanpy_rt_filtered:
         unpack(parsebio_rt_inputs)
     params:
         script    = src_gcf('scripts/convert_scanpy.py'),
-        bc_type   = lambda wc: BC_RENAME.get(wc.method, 'numerical'),
+        bc_type   = lambda wc: BC_RENAME[wc.method],
         enable_cb = '--enable-cellbender' if CB_OUTPUT  else ''
     output:
         join(QUANT_INTERIM, 'aggregate', '{method}', 'cellbender', 'scanpy', '{aggr_id}_rt.h5ad') if CB_OUTPUT else join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_rt.h5ad')

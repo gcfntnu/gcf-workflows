@@ -91,9 +91,9 @@ rule cellranger_quant_:
         genome_dir = CR_REF_DIR,
         ncells = config['quant']['cellranger'].get('ncells', 5000),
         chemistry = config['quant'].get('cellranger', {}).get('chemistry', 'none'),
-        extra_args = '--nopreflight --disable-ui '
+        extra_args = '--create-bam true --nopreflight --disable-ui '
     threads:
-        48
+        32
     output:
         summary = join('_tmp_{sample}', 'outs', 'web_summary.html'),
         cloupe = join('_tmp_{sample}', 'outs', 'cloupe.cloupe'),
@@ -256,13 +256,13 @@ rule cellranger_barcode_info:
         
 rule cellranger_scanpy_pp_ipynb:
     input:
-        join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', '{aggr_id}_aggr.h5ad'),
+        join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', '{aggr_id}_filtered.h5ad')
     output:
         preprocessed = join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', '{aggr_id}_preprocessed.h5ad'),
-    log:
-        notebook = join(QUANT_INTERIM, 'aggregate', 'cellranger', 'notebooks', '{aggr_id}_pp.ipynb')
     threads:
         24
+    log:
+        notebook = join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', 'notebooks', '{aggr_id}_pp.ipynb')
     container:
         'docker://' + config['docker']['jupyter-scanpy']
     notebook:
@@ -273,13 +273,12 @@ rule cellranger_scanpy_pp_ipynb_html:
     input:
         rules.cellranger_scanpy_pp_ipynb.output
     output:
-        join(QUANT_INTERIM, 'aggregate', 'cellranger', 'notebooks', '{aggr_id}_pp.html')
+        join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', 'notebooks', '{aggr_id}_pp.html')
     params:
         notebook = rules.cellranger_scanpy_pp_ipynb.log.notebook
-    container:
-        'docker://' + config['docker']['jupyter-scanpy']
     threads:
         1
+    container:
+        'docker://' + config['docker']['jupyter-scanpy']
     shell:
-        'jupyter nbconvert --to html {params.notebook} ' 
-
+        'jupyter nbconvert --to html {params.notebook} '

@@ -1,253 +1,353 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
+"""Aggregate per-library barcode annotation tables.
 
-"""
-aggr_barcode_info.py
+Each input table is paired explicitly with a sample ID through ``--sample-id``.
 
-Merge barcode-level tables from multiple input files, ensuring global uniqueness
-of barcodes by appending sample-specific postfixes and optionally prefixing columns.
+Barcode renaming modes:
+
+``numerical``
+    For Cell Ranger aggregation, when ``--aggr-csv`` is supplied, the barcode
+    suffix is the 1-based row number of the corresponding sample in the exact
+    Cell Ranger aggregation CSV.
+
+    Without ``--aggr-csv``, the barcode suffix is the 1-based position of the
+    sample in ``--sample-id``. This is intended for 10x data quantified with
+    methods such as STARsolo, where the numerical suffix only needs to be
+    unique and deterministic across libraries.
+
+``parsebio``
+    The numerical suffix of the supplied sublibrary ID is used to construct
+    the Split-pipe-compatible ``__sN`` barcode suffix.
+
+``none``
+    Barcodes are left unchanged.
 """
 
 from __future__ import annotations
+
 import argparse
-import pandas as pd
-from pathlib import Path
 import re
+from pathlib import Path
+from typing import Sequence
+
+import pandas as pd
 
 
-def _aggr_row_index_for_sample(aggr_csv, sample_id):
-    """
-    Resolve the 1-based aggregation index for a library from a 10x-style CSV.
-    """
-    if aggr_csv is None or not isinstance(aggr_csv, pd.DataFrame):
-        raise ValueError("aggr_csv DataFrame is required for numerical renaming.")
-    cols = {c.lower(): c for c in aggr_csv.columns}
-    cand = [cols.get('library_id'), cols.get('sample_id'), next(iter(aggr_csv.columns))]
-    key_col = next(c for c in cand if c is not None)
-    matches = (aggr_csv[key_col].astype(str) == str(sample_id))
-    if not matches.any():
-        raise ValueError(f"sample_id '{sample_id}' not found in aggr_csv[{key_col}]")
-    return int(aggr_csv.index[matches][0]) + 1
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "input_files",
+        nargs="+",
+        type=Path,
+        help="Per-library barcode tables to aggregate.",
+    )
+    parser.add_argument(
+        "--sample-id",
+        default=None,
+        help="Comma-separated sample/sublibrary IDs corresponding one-to-one with input files.",
+    )
+    parser.add_argument(
+        "--barcode-rename",
+        choices=("none", "numerical", "parsebio"),
+        default="none",
+        help="Barcode renaming strategy.",
+    )
+    parser.add_argument(
+        "--aggr-csv",
+        type=Path,
+        default=None,
+        help="Exact CSV used as input to cellranger aggr.",
+    )
+    parser.add_argument(
+        "--columns-mode",
+        choices=("union", "intersection"),
+        default="union",
+        help=(
+            "How to combine columns across input tables. "
+            "'union' retains every column and fills absent values with NA; "
+            "'intersection' retains only columns present in every table."
+        ),
+    )
+    parser.add_argument(
+        "--output",
+        "-o",
+        type=Path,
+        required=True,
+        help="Output TSV.",
+    )
+    parser.add_argument(
+        "--sep",
+        default="\t",
+        help=r"Input/output field separator. Default: '\t'.",
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Print input-to-library mappings and table dimensions.",
+    )
+    return parser.parse_args()
 
 
-def extract_numeric_postfix(sample_id):
-    """
-    Extract numeric postfix from a sample ID string (e.g., 'L7' -> '7').
-    """
-    match = re.search(r"(\d+)$", sample_id)
-    if match:
-        return match.group(1)
-    raise ValueError(f"Cannot extract numeric postfix from sample_id: {sample_id}")
+def read_barcode_table(path: Path, sep: str = "\t") -> pd.DataFrame:
+    """Read and validate a barcode-indexed table."""
+    df = pd.read_csv(path, sep=sep, index_col=0)
 
+    if df.index.hasnans:
+        raise ValueError(f"Barcode index contains missing values: {path}")
 
-def barcode_index_rename(obj, barcode_rename="numerical", aggr_csv=None, sample_id=None):
-    """
-    Normalize/append barcode suffixes to ensure global uniqueness across datasets.
-    """
-    is_anndata_like = hasattr(obj, "obs") and hasattr(obj, "obs_names")
-    df = obj.obs if is_anndata_like else obj
+    df.index = df.index.astype(str)
+    df.index.name = "barcode"
 
-    if barcode_rename == "skip":
-        return obj
+    if not df.index.is_unique:
+        duplicated = df.index[df.index.duplicated()].unique().tolist()
+        raise ValueError(f"Duplicate barcodes in {path}. Examples: {duplicated[:10]}")
 
-    idx = df.index.astype(str).tolist()
-
-    if barcode_rename == "parsebio":
-        if not sample_id:
-            raise ValueError("barcode_rename='parsebio' requires sample_id.")
-        lib_num = extract_numeric_postfix(sample_id)
-
-        def repl(s: str) -> str:
-            if s.endswith(f"__s{lib_num}"):
-                return s
-            base = re.sub(r"__s\d+$", "", str(s))
-            base = base.rsplit("-", 1)[0] if "-" in base else base
-            return f"{base}__s{lib_num}"
-        new_index = [repl(s) for s in idx]
-
-    elif barcode_rename == "sample_id":
-        if not sample_id:
-            raise ValueError("barcode_rename='sample_id' requires sample_id.")
-        pattern = rf"-{re.escape(str(sample_id))}$"
-
-        def repl(s: str) -> str:
-            if re.search(pattern, s):
-                return s
-            return re.sub(r"-\d+$", f"-{sample_id}", s) if re.search(r"-\d+$", s) else f"{s}-{sample_id}"
-        new_index = [repl(s) for s in idx]
-
-    elif barcode_rename == "numerical":
-        if aggr_csv is None:
-            raise ValueError("barcode_rename='numerical' requires aggr_csv.")
-        if not sample_id:
-            raise ValueError("barcode_rename='numerical' requires sample_id.")
-        libnum = str(_aggr_row_index_for_sample(aggr_csv, sample_id))
-
-        def repl(s: str) -> str:
-            return re.sub(r"-\d+$", f"-{libnum}", s) if re.search(r"-\d+$", s) else f"{s}-{libnum}"
-        new_index = [repl(s) for s in idx]
-    else:
-        raise ValueError(f"Unknown barcode_rename strategy: {barcode_rename}")
-
-    if is_anndata_like:
-        obj.obs_names = pd.Index(new_index)
-        return obj
-    else:
-        df.index = pd.Index(new_index)
-        return df
-
-
-def _sniff_preamble_lines(path: Path, max_lines: int = 50) -> int:
-    n = 0
-    with path.open("rt", encoding="utf-8", errors="replace") as f:
-        for _ in range(max_lines):
-            line = f.readline()
-            if line == "": break
-            s = line.strip()
-            if s == "": continue
-            if s.startswith("#"):
-                n += 1
-                continue
-            break
-    return n
-
-
-def read_barcode_table(filepath, sep=None):
-    path = Path(filepath)
-    inferred_sep = sep or (',' if str(path).endswith('.csv') else '\t')
-    preamble = _sniff_preamble_lines(path)
-    df = pd.read_csv(path, sep=inferred_sep, index_col=0, skiprows=preamble)
-    df.index.name = "Barcode"
     return df
 
 
-def merge_tables(filepaths,
-                 sample_ids,
-                 barcode_rename,
-                 aggr_csv=None,
-                 sep=None,
-                 columns_mode="strict",
-                 verbose=False,
-                 prefix=None):
-    dfs = []
-    for i, path in enumerate(filepaths):
-        df = read_barcode_table(path, sep=sep)
-        sample_id = sample_ids[i] if sample_ids else None
-        
-        # Rename barcodes (modifies index)
-        df = barcode_index_rename(
-            df,
-            barcode_rename=barcode_rename,
-            aggr_csv=aggr_csv,
-            sample_id=sample_id
+def parse_sample_ids(value: str | None) -> list[str] | None:
+    """Parse comma-separated sample IDs."""
+    if value is None:
+        return None
+
+    sample_ids = [sample_id.strip() for sample_id in value.split(",")]
+
+    if any(not sample_id for sample_id in sample_ids):
+        raise ValueError("--sample-id contains an empty sample ID.")
+
+    if len(sample_ids) != len(set(sample_ids)):
+        raise ValueError("--sample-id contains duplicate sample IDs.")
+
+    return sample_ids
+
+
+def validate_sample_ids(
+    filepaths: Sequence[Path],
+    sample_ids: Sequence[str] | None,
+    barcode_rename: str,
+) -> None:
+    """Validate the one-to-one input-file to sample-ID mapping."""
+    if barcode_rename == "none":
+        if sample_ids is not None and len(sample_ids) != len(filepaths):
+            raise ValueError(
+                "The number of --sample-id values must equal the number of input files: "
+                f"{len(sample_ids)} != {len(filepaths)}"
+            )
+        return
+
+    if sample_ids is None:
+        raise ValueError(f"barcode_rename='{barcode_rename}' requires --sample-id.")
+
+    if len(sample_ids) != len(filepaths):
+        raise ValueError(
+            "The number of --sample-id values must equal the number of input files: "
+            f"{len(sample_ids)} != {len(filepaths)}"
         )
 
-        # Apply prefix to data columns (Index remains 'Barcode')
-        if prefix:
-            df.columns = [f"{prefix}{c}" for c in df.columns]
-        
-        if not df.index.is_unique:
-            raise ValueError(f"Non-unique barcodes after renaming in file: {path}")
-        dfs.append(df)
 
-    col_sets = [set(df.columns) for df in dfs]
-    all_unique_cols = set().union(*col_sets)
+def _replace_numerical_suffix(barcode: str, library_idx: int) -> str:
+    """Replace or append a terminal 10x-style ``-N`` suffix."""
+    if re.search(r"-\d+$", barcode):
+        return re.sub(r"-\d+$", f"-{library_idx}", barcode)
 
-    if columns_mode == "strict":
-        columns_set = {tuple(df.columns) for df in dfs}
-        if len(columns_set) != 1:
-            if verbose:
-                print("\n[LOG] Column mismatch details for 'strict' mode:")
-                for i, columns in enumerate(col_sets):
-                    print(f"  File {filepaths[i]}: {sorted(list(columns))}")
-            raise ValueError("Input files have mismatching columns and cannot be merged in 'strict' mode.")
-        target_cols = list(dfs[0].columns)
+    return f"{barcode}-{library_idx}"
 
-    elif columns_mode == "intersection":
-        target_cols = sorted(set.intersection(*col_sets)) if dfs else []
-        if verbose:
-            dropped = all_unique_cols - set(target_cols)
-            print(f"\n[LOG] Columns mode 'intersection': keeping {len(target_cols)} common columns.")
-            if dropped:
-                print(f"[LOG] Dropped columns (not present in all files): {sorted(list(dropped))}")
-        
-        if not target_cols:
-            raise ValueError("No shared columns across inputs (intersection is empty).")
-        dfs = [df.loc[:, target_cols] for df in dfs]
 
-    elif columns_mode == "union":
-        target_cols = sorted(all_unique_cols) if dfs else []
-        if verbose:
-            print(f"\n[LOG] Columns mode 'union': keeping all {len(target_cols)} unique columns across inputs.")
+def _parse_parsebio_library_idx(sample_id: str) -> int:
+    """Extract the terminal numerical library index from a Parse sublibrary ID."""
+    match = re.search(r"(\d+)$", sample_id)
+
+    if match is None:
+        raise ValueError(
+            "Parse barcode renaming requires sample IDs ending in a numerical library index, "
+            f"got: {sample_id}"
+        )
+
+    return int(match.group(1))
+
+
+def _replace_parsebio_suffix(barcode: str, library_idx: int) -> str:
+    """Replace or append a Split-pipe-compatible ``__sN`` suffix."""
+    if re.search(r"__s\d+$", barcode):
+        return re.sub(r"__s\d+$", f"__s{library_idx}", barcode)
+
+    return f"{barcode}__s{library_idx}"
+
+
+def barcode_index_rename(
+    df: pd.DataFrame,
+    barcode_rename: str,
+    *,
+    library_idx: int | None = None,
+) -> pd.DataFrame:
+    """Rename a table's barcode index."""
+    if barcode_rename == "none":
+        return df
+
+    if library_idx is None:
+        raise ValueError(f"barcode_rename='{barcode_rename}' requires library_idx.")
+
+    if barcode_rename == "numerical":
+        new_index = [_replace_numerical_suffix(barcode, library_idx) for barcode in df.index]
+
+    elif barcode_rename == "parsebio":
+        new_index = [_replace_parsebio_suffix(barcode, library_idx) for barcode in df.index]
+
     else:
-        raise ValueError(f"Unknown columns_mode: {columns_mode}")
+        raise ValueError(f"Unsupported barcode rename mode: {barcode_rename}")
 
-    # Concatenate and reindex for stable column order
-    merged = pd.concat(dfs, axis=0, sort=False)
-    merged.index.name = "Barcode"
-    merged = merged.reindex(columns=target_cols)
+    renamed = df.copy()
+    renamed.index = pd.Index(new_index, name="barcode")
 
-    # Log missing value creation
-    if verbose:
-        nan_counts = merged.isna().sum()
-        total_nans = nan_counts.sum()
-        if total_nans > 0:
-            print(f"[LOG] Missing values (NaN) were created in the merged output.")
-            print(f"[LOG] Total NaN entries: {total_nans} ({total_nans / merged.size:.2%} of total cells)")
-            # List top columns with missing values
-            cols_with_nan = nan_counts[nan_counts > 0].sort_values(ascending=False)
-            for col, count in cols_with_nan.items():
-                print(f"  Column '{col}': {count} missing values")
-        else:
-            print("[LOG] No missing values were created in the merge.")
+    if not renamed.index.is_unique:
+        duplicated = renamed.index[renamed.index.duplicated()].unique().tolist()
+        raise ValueError(f"Barcode renaming created duplicates. Examples: {duplicated[:10]}")
 
+    return renamed
+
+
+def read_aggr_csv(path: Path) -> pd.DataFrame:
+    """Read and validate a Cell Ranger aggregation CSV."""
+    aggr_df = pd.read_csv(path, dtype=str)
+
+    if "sample_id" not in aggr_df.columns:
+        raise ValueError(f"{path} is missing required column: sample_id")
+
+    if aggr_df.empty:
+        raise ValueError(f"Aggregation CSV contains no libraries: {path}")
+
+    if aggr_df["sample_id"].isna().any():
+        raise ValueError(f"Aggregation CSV contains missing sample_id values: {path}")
+
+    duplicated = aggr_df.loc[aggr_df["sample_id"].duplicated(keep=False), "sample_id"].unique().tolist()
+    if duplicated:
+        raise ValueError(f"Aggregation CSV contains duplicate sample_id values: {duplicated}")
+
+    return aggr_df
+
+
+def build_cellranger_library_map(aggr_df: pd.DataFrame) -> dict[str, int]:
+    """Map Cell Ranger sample IDs to their 1-based aggregation CSV row."""
+    return {
+        str(sample_id): library_idx
+        for library_idx, sample_id in enumerate(aggr_df["sample_id"], start=1)
+    }
+
+
+def resolve_library_indices(
+    sample_ids: Sequence[str],
+    barcode_rename: str,
+    aggr_df: pd.DataFrame | None,
+) -> list[int]:
+    """Resolve the barcode suffix index for each sample."""
+    if barcode_rename == "parsebio":
+        return [_parse_parsebio_library_idx(sample_id) for sample_id in sample_ids]
+
+    if barcode_rename != "numerical":
+        raise ValueError(f"Unsupported barcode rename mode: {barcode_rename}")
+
+    if aggr_df is None:
+        return list(range(1, len(sample_ids) + 1))
+
+    library_map = build_cellranger_library_map(aggr_df)
+
+    unknown = [sample_id for sample_id in sample_ids if sample_id not in library_map]
+    if unknown:
+        raise ValueError(f"Sample IDs are not present in Cell Ranger aggr.csv: {unknown}")
+
+    return [library_map[sample_id] for sample_id in sample_ids]
+
+
+def merge_tables(
+    filepaths: Sequence[Path],
+    *,
+    barcode_rename: str,
+    sample_ids: Sequence[str] | None = None,
+    aggr_df: pd.DataFrame | None = None,
+    sep: str = "\t",
+    columns_mode: str = "union",
+    verbose: bool = False,
+) -> pd.DataFrame:
+    """Read, rename, and concatenate barcode tables."""
+    validate_sample_ids(filepaths, sample_ids, barcode_rename)
+
+    if barcode_rename == "none":
+        library_indices = [None] * len(filepaths)
+    else:
+        assert sample_ids is not None
+        library_indices = resolve_library_indices(sample_ids, barcode_rename, aggr_df)
+
+    tables: list[pd.DataFrame] = []
+
+    for i, path in enumerate(filepaths):
+        df = read_barcode_table(path, sep=sep)
+        sample_id = sample_ids[i] if sample_ids is not None else None
+        library_idx = library_indices[i]
+
+        if barcode_rename != "none":
+            assert library_idx is not None
+            df = barcode_index_rename(df, barcode_rename, library_idx=library_idx)
+
+        if verbose:
+            mapping = f"sample_id={sample_id}, library_idx={library_idx}" if sample_id is not None else "unchanged"
+            print(f"{path}: {df.shape[0]} rows, {mapping}")
+
+        tables.append(df)
+
+    if not tables:
+        raise ValueError("No barcode tables were provided.")
+
+    if columns_mode == "intersection":
+        common_columns = set(tables[0].columns)
+
+        for table in tables[1:]:
+            common_columns.intersection_update(table.columns)
+
+        ordered_columns = [column for column in tables[0].columns if column in common_columns]
+        tables = [table.loc[:, ordered_columns] for table in tables]
+
+        if verbose:
+            print(f"Retaining {len(ordered_columns)} columns present in every input table.")
+
+    elif columns_mode != "union":
+        raise ValueError(f"Unsupported columns mode: {columns_mode}")
+
+    merged = pd.concat(tables, axis=0, sort=False)
+
+    if not merged.index.is_unique:
+        duplicated = merged.index[merged.index.duplicated(keep=False)].unique().tolist()
+        raise ValueError(f"Duplicate barcodes after aggregation. Examples: {duplicated[:10]}")
+
+    merged.index.name = "barcode"
     return merged
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Merge barcode-level tables with renaming and prefixing.")
-    parser.add_argument("input_files", nargs='+', help="Input CSV/TSV files.")
-    parser.add_argument("--output", required=True, help="Path to output file.")
-    parser.add_argument("--sample-id", type=str, default=None,
-                        help="Comma-separated list of sample IDs (must match input file order).")
-    parser.add_argument("--barcode-rename", default="numerical",
-                        choices=["numerical", "sample_id", "parsebio", "skip"],
-                        help="Strategy to rename barcodes for uniqueness.")
-    parser.add_argument("--aggr-csv", default=None, help="Path to optional aggr.csv file.")
-    parser.add_argument("--sep", default=None, help="Optional override for field separator.")
-    parser.add_argument("--columns-mode", default="strict",
-                        choices=["strict", "intersection", "union"],
-                        help="How to handle mismatching columns across inputs.")
-    parser.add_argument("--prefix", type=str, default=None,
-                        help="Prefix to add to all output column names (e.g., 'doublet_').")
-    parser.add_argument("--verbose", action="store_true", help="Print extra diagnostics.")
-
-    args = parser.parse_args()
-
-    if args.sample_id:
-        sample_ids = args.sample_id.split(",")
-        if len(sample_ids) != len(args.input_files):
-            raise ValueError("Number of sample IDs must match number of input files.")
-    else:
-        sample_ids = None
-
-    aggr_df = pd.read_csv(args.aggr_csv, dtype=str) if args.aggr_csv else None
+def main() -> int:
+    args = parse_args()
+    sample_ids = parse_sample_ids(args.sample_id)
+    aggr_df = read_aggr_csv(args.aggr_csv) if args.aggr_csv is not None else None
 
     merged = merge_tables(
         args.input_files,
-        sample_ids=sample_ids,
         barcode_rename=args.barcode_rename,
-        aggr_csv=aggr_df,
+        sample_ids=sample_ids,
+        aggr_df=aggr_df,
         sep=args.sep,
         columns_mode=args.columns_mode,
-        prefix=args.prefix,
-        verbose=args.verbose
+        verbose=args.verbose,
     )
 
-    output_sep = "," if args.output.endswith(".csv") else "\t"
-    merged.to_csv(args.output, sep=output_sep)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    merged.to_csv(args.output, sep=args.sep, index=True)
+
     if args.verbose:
-        print(f"\n[LOG] Successfully wrote {len(merged)} rows to {args.output}")
+        print(f"Wrote {merged.shape[0]} rows × {merged.shape[1]} columns to {args.output}")
+
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

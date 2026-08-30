@@ -1730,90 +1730,212 @@ def _coerce_numeric_nullable(s: pd.Series):
         return coerced.astype("float64")
     return None  # not purely numeric
 
-
-def anndata_friendly_dtypes(df: pd.DataFrame,
-                            prefer_category: bool = True,
-                            max_categories: int = 64,
-                            frac_categories: float = 0.1,
-                            protect_cols: tuple = (),          # names to never auto-categorize (e.g., barcodes)
-                            allow_string_dtype: bool = False,  # False → avoid pandas "string" (AnnData <0.11 portable)
-                            ) -> pd.DataFrame:
+def anndata_friendly_dtypes(
+    df: pd.DataFrame,
+    prefer_category: bool = True,
+    max_categories: int = 64,
+    frac_categories: float = 0.1,
+    protect_cols: tuple = (),
+    allow_string_dtype: bool = False,
+) -> pd.DataFrame:
     """
-    Convert dtypes to AnnData-friendly forms:
-      - ints/bools → pandas nullable Int64/Boolean
-      - floats → keep (float64)
-      - text → category if low-cardinality else:
-          * object (portable) if allow_string_dtype=False (default)
-          * pandas 'string' if allow_string_dtype=True
-      - preserves existing categoricals
+    Convert DataFrame columns to AnnData-friendly dtypes.
 
-    If allow_string_dtype=False, this avoids AnnData <0.11 write errors by not
-    leaving any 'string' dtype (StringArray) in obs/var.
+    Type inference is based on the actual non-null values in each column.
+
+    Conversion rules
+    ----------------
+    - Boolean dtype -> pandas nullable Boolean.
+    - Integer dtype -> pandas nullable Int64.
+    - Float dtype -> float64.
+    - Categorical dtype:
+        * all non-null values numeric -> Int64 or float64
+        * boolean-like text -> nullable Boolean
+        * otherwise -> categorical with string category labels
+    - Object/string dtype:
+        * protected columns -> textual, without type inference
+        * all non-null values numeric -> Int64 or float64
+        * boolean-like text -> nullable Boolean
+        * low-cardinality text -> categorical
+        * otherwise -> object or pandas StringDtype
+    - Missing values are preserved.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        DataFrame to normalize.
+    prefer_category : bool, optional
+        Convert low-cardinality textual columns to categorical, by default True.
+    max_categories : int, optional
+        Absolute low-cardinality threshold, by default 64.
+    frac_categories : float, optional
+        Relative low-cardinality threshold as a fraction of rows,
+        by default 0.1.
+    protect_cols : tuple, optional
+        Columns that must remain textual and should not undergo automatic
+        numeric, boolean, or categorical inference.
+    allow_string_dtype : bool, optional
+        If True, high-cardinality text may use pandas StringDtype.
+        If False, plain object dtype is used for maximum AnnData
+        compatibility.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Copy of ``df`` with normalized dtypes.
     """
     out = df.copy()
 
+    def _numeric_or_none(s):
+        """Return numeric Series if all non-null values are numeric."""
+        values = pd.to_numeric(s, errors="coerce")
+
+        if values.notna().sum() != s.notna().sum():
+            return None
+
+        non_null = values.dropna().to_numpy()
+
+        if (
+            non_null.size == 0
+            or (
+                np.isfinite(non_null).all()
+                and np.all(np.equal(np.mod(non_null, 1), 0))
+            )
+        ):
+            return values.astype(pd.Int64Dtype())
+
+        return values.astype("float64")
+
+    def _boolean_or_none(s):
+        """Return nullable Boolean Series for textual boolean values."""
+        mapping = {
+            "true": True,
+            "t": True,
+            "yes": True,
+            "false": False,
+            "f": False,
+            "no": False,
+        }
+
+        non_null = s.dropna()
+
+        if non_null.empty:
+            return None
+
+        normalized = non_null.astype(str).str.strip().str.lower()
+
+        if not normalized.isin(mapping).all():
+            return None
+
+        result = pd.Series(pd.NA, index=s.index, dtype=pd.BooleanDtype())
+        result.loc[non_null.index] = normalized.map(mapping).astype(bool)
+        return result
+
     for col in out.columns:
         s = out[col]
-        if s.dtype.kind in {"U", "S"}:  # numpy unicode/bytes -> object
-            out[col] = s.astype(object)
-            continue
-        
-        if is_categorical_dtype(s):
-            # keep existing categoricals
-            if not allow_string_dtype and pd.api.types.is_string_dtype(s.cat.categories.dtype):
-                # fix for <0.11 version compat
-                cats = s.cat.categories.astype(object)
-                ordered = s.cat.ordered
-                # rebuild the categorical with the same categories & order, but object-backed
-                out[col] = pd.Categorical(s.astype(object), categories=cats, ordered=ordered)
-            continue
 
-        if is_integer_dtype(s):
-            out[col] = s.astype(pd.Int64Dtype())
-            continue
-        if is_bool_dtype(s):
+        # ------------------------------------------------------------
+        # Native bool / numeric dtypes
+        # ------------------------------------------------------------
+        if is_bool_dtype(s.dtype):
             out[col] = s.astype(pd.BooleanDtype())
             continue
-        if is_float_dtype(s):
+
+        if is_integer_dtype(s.dtype):
+            out[col] = s.astype(pd.Int64Dtype())
             continue
 
-        # Handle pandas "string" dtype explicitly (StringArray)
-        if is_string_dtype(s):
-            if prefer_category and col not in protect_cols:
-                nunq = s.nunique(dropna=True)
-                limit = max(max_categories, int(len(s) * frac_categories))
-                if nunq <= limit:
-                    # Make category with *object-backed* categories (0.10.x compatible)
-                    out[col] = s.astype(object).astype("category")
-                    continue
-            # Keep plain object unless you *explicitly* allow StringDtype
-            out[col] = s.astype("string") if allow_string_dtype else s.astype(object)
+        if is_float_dtype(s.dtype):
+            out[col] = s.astype("float64")
             continue
 
-        # Generic object → try bool/numeric; else category or text fallback
-        if is_object_dtype(s):
-            if _looks_bool_like(s):
-                out[col] = _coerce_bool_nullable(s)
+        # ------------------------------------------------------------
+        # Existing categoricals
+        # ------------------------------------------------------------
+        if isinstance(s.dtype, pd.CategoricalDtype):
+            values = s.astype(object)
+
+            numeric = _numeric_or_none(values)
+            if numeric is not None:
+                out[col] = numeric
                 continue
 
-            num = _coerce_numeric_nullable(s)
-            if num is not None:
-                out[col] = num
+            boolean = _boolean_or_none(values)
+            if boolean is not None:
+                out[col] = boolean
                 continue
 
-            if prefer_category and col not in protect_cols:
-                nunq = s.nunique(dropna=True)
-                limit = max(max_categories, int(len(s) * frac_categories))
-                if nunq <= limit:
-                    out[col] = s.astype(object).astype("category")
-                    continue
+            # Genuine categorical metadata. AnnData/HDF5 requires
+            # homogeneous category-label types, so normalize all
+            # non-null labels to strings.
+            ordered = s.cat.ordered
+            values = values.where(
+                values.isna(),
+                values.map(str),
+            )
 
-            out[col] = s.astype("string") if allow_string_dtype else s.astype(object)
+            out[col] = pd.Categorical(
+                values,
+                ordered=ordered,
+            )
             continue
 
-    # final pass: drop case-insensitive identical duplicate columns
-    out = drop_ci_identical_same_name(out)
-    return out
+        # ------------------------------------------------------------
+        # NumPy string arrays -> ordinary textual Series
+        # ------------------------------------------------------------
+        if s.dtype.kind in {"U", "S"}:
+            s = s.astype(object)
+
+        # ------------------------------------------------------------
+        # Protected identifiers: never infer numeric/bool/category
+        # ------------------------------------------------------------
+        if col in protect_cols:
+            out[col] = (
+                s.astype("string")
+                if allow_string_dtype
+                else s.astype(object)
+            )
+            continue
+
+        # ------------------------------------------------------------
+        # Object / string-like metadata
+        # ------------------------------------------------------------
+        if is_object_dtype(s.dtype) or is_string_dtype(s.dtype):
+            values = s.astype(object)
+
+            numeric = _numeric_or_none(values)
+            if numeric is not None:
+                out[col] = numeric
+                continue
+
+            boolean = _boolean_or_none(values)
+            if boolean is not None:
+                out[col] = boolean
+                continue
+
+            if prefer_category:
+                nunique = values.nunique(dropna=True)
+                category_limit = max(
+                    max_categories,
+                    int(len(values) * frac_categories),
+                )
+
+                if nunique <= category_limit:
+                    values = values.where(
+                        values.isna(),
+                        values.map(str),
+                    )
+                    out[col] = pd.Categorical(values)
+                    continue
+
+            out[col] = (
+                values.astype("string")
+                if allow_string_dtype
+                else values.astype(object)
+            )
+            continue
+
+    return drop_ci_identical_same_name(out)
 
 def _is_integral_array(x, tol=1e-6) -> bool:
     if sp.issparse(x):
@@ -1832,23 +1954,26 @@ def _zeros_fraction_dense(a: np.ndarray) -> float:
 
 def optimize_X_layers(adata,
                       *,
-                      sparse_threshold: float = 0.5,
                       counts_in: str = "X",          # 'X' or 'layers'
                       counts_layer_name: str = "counts",
                       allow_layers: bool = True,
                       ) -> None:
     X = adata.X
-    if not sp.issparse(X) and _zeros_fraction_dense(X) >= sparse_threshold:
-        X = sp.csr_matrix(X)
-    elif sp.issparse(X) and X.format != "csr":
+
+    if sp.issparse(X):
         X = X.tocsr()
+    else:
+        X = sp.csr_matrix(X)
+    
     target_dtype = np.int32 if _is_integral_array(X) else np.float32
     if X.dtype != target_dtype:
         X = X.astype(target_dtype)
+    
     if counts_in == "X" or not allow_layers:
         if counts_layer_name in getattr(adata, "layers", {}):
             del adata.layers[counts_layer_name]
-        adata.X = X if sp.issparse(X) else sp.csr_matrix(X)
+        adata.X = X
+
     elif counts_in == "layers":
         if not allow_layers:
             adata.X = X if sp.issparse(X) else sp.csr_matrix(X)
@@ -2191,6 +2316,19 @@ if __name__ == "__main__":
             protect_cols=("gene_id", "feature_id", "id"),
             allow_string_dtype=False  # old anndata in sctk dislikes pd.StringDtype
         )
+    order_cols = [col for col in data.obs.columns if col.endswith("_order")]
+
+    for col in order_cols:
+        values = pd.to_numeric(data.obs[col].astype(object), errors="raise")
+        
+        non_null = values.dropna().to_numpy()
+        if not np.all(np.equal(np.mod(non_null, 1), 0)):
+            raise ValueError(
+                f"{col!r} must contain integer ordering values, "
+                f"found: {sorted(values.dropna().unique())}"
+            )
+
+        data.obs[col] = values.astype(pd.Int64Dtype())
 
     # -------------------------
     # Add simple feature flags if gene_symbols present
@@ -2254,8 +2392,8 @@ if __name__ == "__main__":
     data = add_nuclear_fraction(data)
 
     allow_layers = (args.cellbender_mode == "both")
-    logger.info(f"Normalizing storage: sparse_threshold=0.5, counts_in='X', allow_layers={allow_layers}")
-    optimize_X_layers(data, sparse_threshold=0.5, counts_in="X", allow_layers=allow_layers)
+    logger.info(f"Normalizing storage:  counts_in='X', allow_layers={allow_layers}")
+    optimize_X_layers(data, counts_in="X", allow_layers=allow_layers)
 
     #-----------
     # Plan outputs
@@ -2292,6 +2430,7 @@ if __name__ == "__main__":
     # -------------------------
     # Write outputs (with MTX guard)
     # -------------------------
+
     for fmt in args.output_format:
         target = out_map[fmt]
         logger.info(f"Writing [{fmt}] -> {target}")
