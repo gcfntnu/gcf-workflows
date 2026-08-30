@@ -166,8 +166,26 @@ def main():
     for fn in args.input:
         m = Path(fn).parent.name
         df = pd.read_table(fn, index_col=0)
-        scores[m] = pd.to_numeric(df["doublet_score"], errors='coerce')
-        calls[m] = df["doublet"].astype(str) if "doublet" in df.columns else "singlet"
+
+        if "doublet_score" not in df.columns:
+            raise ValueError(
+                f"{fn}: missing required column 'doublet_score'"
+            )
+
+        scores[m] = pd.to_numeric(
+            df["doublet_score"],
+            errors="raise",
+        )
+
+        if "doublet_type" in df.columns:
+            calls[m] = df["doublet_type"].astype(str)
+        elif "doublet" in df.columns:
+            calls[m] = df["doublet"].astype(str)
+        else:
+            raise ValueError(
+                f"{fn}: missing required categorical doublet column "
+                "('doublet_type' or legacy 'doublet')"
+            )
     
     scores_df, calls_df = pd.DataFrame(scores), pd.DataFrame(calls)
     rmat = scores_df.rank(ascending=False, method="average").fillna(len(scores_df))

@@ -1,20 +1,39 @@
 container: 'docker://gcfntnu/doublet-detection:4.2' 
+
 DBL_DIR = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets')
-SAMPLE_MULTIPLEXING = config['quant'].get('demultiplex', {}).get('method') not in [None, 'skip']
+SAMPLE_MULTIPLEXING = (config['quant'].get('demultiplex', {}).get('method') not in [None, 'skip'])
+
 if SAMPLE_MULTIPLEXING:
+    multiplex_config = src_gcf("multiplex.config")
+    if not os.path.exists(multiplex_config):
+        raise FileNotFoundError(
+            f"Missing multiplex config: {multiplex_config}"
+        )
+    
+    with open(multiplex_config) as fh:
+        c = yaml.load(fh, Loader=Loader) or {}
+        update_config2(config, c)
+
     if os.path.exists(src_gcf("multiplex.smk")):
         include:
             'multiplex.smk'
+        DEMUX_METHODS = [m.strip() for m in DEMUX_CONFIG['method'].split(',')]
+        if 'vireo_ref_rescue' in DEMUX_METHODS:
+            include: 'vireo_ref_rescue.smk'
     else:
-       SAMPLE_MULTIPLEXING = False 
+        SAMPLE_MULTIPLEXING = False
 
 
-def get_expected_doublet_rate():
-    return config['quant']["doublet_detection"].get("expected_doublet_rate", None)
+def dbl_rate_arg():
+    dbr = config['quant']['doublet_detection'].get('expected_doublet_rate')
 
-def dbl_rate_arg(flag):
-    r = get_expected_doublet_rate()
-    return "" if r is None else f"{flag} {r} "
+    if dbr is not None:
+        return f'--expected-doublet-rate {float(dbr)} '
+
+    if config['libprepkit'].lower().startswith('10x genomics'):
+        return '--derive-10x-doublet-rate '
+
+    return ''
 
 
 rule dbl_skip_doubletdetection:
@@ -37,7 +56,7 @@ rule dbl_doubletdetection:
         join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets',  'doubletdetection', 'doublet_type.tsv')
     params:
         script = src_gcf('scripts/run_doubletdetection.py'),
-        dbl_rate_arg = dbl_rate_arg('--expected-doublet-rate')
+        dbl_rate_arg = dbl_rate_arg()
     threads:
         8
     shell:
@@ -47,17 +66,7 @@ rule dbl_doubletdetection:
         '--threads {threads} '
         '{params.dbl_rate_arg} '
 
-def dbl_scdblfinder_args():
-    if config['libprepkit'].lower().startswith('parse'):
-        dbr = config['quant']['doublet_detection'].get('expected_doublet_rate')
-        if dbr:
-            args = f'--dbr {dbr} '
-        else:
-            args = '--dbr-sd 1 '
-    else:
-        args = ''
-    return args
-        
+
 rule dbl_scdblfinder:
     input:
         counts = '_tmp/{quantifier}/filtered/{sample}/anndata.mtx_v2/matrix.mtx',
@@ -65,7 +74,7 @@ rule dbl_scdblfinder:
         join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets', 'scdblfinder', 'doublet_type.tsv')
     params:
         script = src_gcf('scripts/scdblfinder.R'),
-        dbl_args = dbl_scdblfinder_args()
+        dbl_rate_arg = dbl_rate_arg()
     threads:
         8
     shell:
@@ -73,7 +82,7 @@ rule dbl_scdblfinder:
         '--input {input.counts} '
         '--output {output} '
         '--threads {threads} '
-        '{params.dbl_args} '
+        '{params.dbl_rate_arg} '
 
 
 rule dbl_scds:
@@ -83,7 +92,7 @@ rule dbl_scds:
         join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets', 'scds', 'doublet_type.tsv')
     params:
         script = src_gcf('scripts/scds.R'),
-        dbl_rate_arg = dbl_rate_arg('--expected-doublet-rate')
+        dbl_rate_arg = dbl_rate_arg()
     threads:
         8
     shell:
@@ -91,7 +100,6 @@ rule dbl_scds:
         '--input {input.counts} '
         '--output {output} '
         '--threads {threads} '
-        #'--threshold 0.5 '
         '{params.dbl_rate_arg} '
 
 
@@ -102,7 +110,7 @@ rule dbl_scrublet:
         join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets',  'scrublet', 'doublet_type.tsv')
     params:
         script = src_gcf('scripts/run_scanpy_scrublet.py'),
-        dbl_rate_arg = dbl_rate_arg('--expected-doublet-rate')
+        dbl_rate_arg = dbl_rate_arg()
     threads:
         8
     shell:
@@ -143,6 +151,8 @@ rule dbl_solo:
         tmp_out = '_solo_{quantifier}_{sample}_tmp/'
     threads:
         24
+    resources:
+        gpu = 1
     container:
         'docker://gcfntnu/solo-sc:1.2'
     shell:
@@ -185,9 +195,11 @@ rule dbl_socube:
         input_data = lambda wildcards, input: os.path.abspath(input.counts[0]),
         out_dir = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets',  'socube')
     threads:
-        32
+        24
     shadow:
         'minimal'
+    resources:
+        gpu = 1
     container:
         'docker://gcszhn/socube:latest'
     shell:
@@ -233,24 +245,17 @@ def _get_demuxafy_methods(n_cells, small_thresh=10000, mid_thresh=20000):
 
 def _get_default_methods():
     """Return the default doublet methods if none specified."""
-    return ['socube','scds','scdblfinder']
+    return ['doubletdetection','scds','scdblfinder']
 
 def get_doublet_output(test_all=False, n_cells=None):
     """
     Return a list of file‐path templates for each requested method.
-    
-    - If sample_multiplexing==True: delegate to get_multiplex_methods(test_all).
-    - If test_all==True: return all methods in _ALL_METHODS.
-    - Else: read raw = config['quant']['doublet_detection']['method']:
-        * None or 'default' → _get_default_methods()
-        * 'demuxafy'       → _get_demuxafy_methods(n_cells)
-        * string (comma-separated) → split(',')
-        * list/tuple           → use as is
     """
     # Multiplex overrides everything
     if SAMPLE_MULTIPLEXING:
-        return get_multiplex_methods(test_all=test_all)
-
+        dbl_files, demux_files = get_multiplex_methods(test_all=test_all, n_cells=n_cells)
+        return dbl_files + demux_files
+    
     # If forced to test every method
     if test_all:
         doublet_methods = _ALL_METHODS
@@ -276,9 +281,22 @@ def get_doublet_output(test_all=False, n_cells=None):
     )
 
 
+def get_rank_aggr_doublet_output():
+    """Return transcriptomic doublet outputs for rank aggregation."""
+    outputs = get_doublet_output(
+        test_all=False,
+        n_cells=None,
+    )
+
+    return [
+        path
+        for path in outputs
+        if "/doublets/" in path
+    ]
+
 rule dbl_majority_vote_per_sample:
     input:
-        get_doublet_output()
+        get_rank_aggr_doublet_output()
     params:
         script = src_gcf("scripts/combine_doublets.py"),
         args = '--plot-figure '
@@ -292,9 +310,10 @@ rule dbl_majority_vote_per_sample:
         '--out {output.combined} '
         '{params.args} '
 
+
 rule dbl_doublet_rank_aggr:
     input:
-        expand(get_doublet_output(), sample='{sample}', quantifier="{quantifier}")
+        expand(get_rank_aggr_doublet_output(), sample='{sample}', quantifier="{quantifier}")
     output:
         classification = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets', 'doublet_rank_aggr.tsv'),
         rankdata       = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets', 'doublet_rank_aggr_rankdata.tsv'),
@@ -319,40 +338,6 @@ rule dbl_doublet_rank_aggr:
           --log {output.log} 
         """
 
-rule dbl_doublet_notebook:
-    input:
-        expand(get_doublet_output(), sample='{sample}', quantifier="{quantifier}")
-    output:
-        classification = join(QUANT_INTERIM, '{quantifier}', '{sample}' , 'doublets', '_doublet_rank_aggr.tsv'),
-        rankdata = join(QUANT_INTERIM, '{quantifier}', '{sample}' , 'doublets', '_doublet_rank_aggr_rankdata.tsv'),
-        figure = join(QUANT_INTERIM, '{quantifier}', '{sample}' , 'doublets', '_doublet_rank_aggr.pdf')
-    params:
-        method = "RRA",
-        top_k = 10000
-    container:
-        'docker://gcfntnu/jupyterlab-doublet-detection:4.2.2'
-    log:
-        notebook = join(QUANT_INTERIM, '{quantifier}', '{sample}' , 'doublets', 'doublet_rank_aggr.ipynb')
-    threads:
-        24
-    notebook:
-        'notebooks/doublets_rob_rank_aggr.py.ipynb'
-
-
-        
-rule dbl_doublet_html:
-    input:
-        rules.dbl_doublet_notebook.output
-    params:
-        log = rules.dbl_doublet_notebook.log
-    output:
-         join(QUANT_INTERIM, '{quantifier}', '{sample}' , 'doublets', 'doublet_rank_aggr.html')
-    container:
-        'docker://' + config['docker']['jupyter-scanpy']
-    threads:
-        1
-    shell:
-        'jupyter nbconvert --to html {params.log} '
 
 
 def dbl_aggr_input(wildcards):
@@ -370,30 +355,6 @@ def dbl_aggr_input(wildcards):
     else:
         return {'classification': classification, 'rankdata': rankdata}
 
-def _dbl_aggr_input(wildcards):
-    samples_by_aggr_id = AGGR_IDS.get(wildcards.aggr_id)
-    classification = expand(rules.dbl_doublet_notebook.output.classification,
-                      quantifier=wildcards.method,
-                      sample=samples_by_aggr_id)
-    rankdata = expand(rules.dbl_doublet_notebook.output.rankdata,
-                      quantifier=wildcards.method,
-                      sample=samples_by_aggr_id)
-    
-    if wildcards.method.startswith('cellranger'):
-        aggr_csv = join(QUANT_INTERIM, 'aggregate', 'description', f'{wildcards.aggr_id}_aggr.csv')
-        return {'classification': classification, 'rankdata': rankdata, 'aggr_csv': aggr_csv}
-    else:
-        return {'classification': classification, 'rankdata': rankdata}
-    
-def dbl_aggr_args(wildcards):
-    args = ''
-    if wildcards.method.startswith('splitpipe') or wildcards.method.startswith('parsebio'):
-        args += ' --barcode-rename parsebio --sample-id ' + ','.join(AGGR_IDS.get(wildcards.aggr_id))
-    else:
-        #cellranger stuff
-        args += ' --barcode-rename numerical --aggr-csv {input.aggr_csv} '
-    return args
-
 
 rule dbl_classification_aggr:
         input:
@@ -402,7 +363,7 @@ rule dbl_classification_aggr:
             join(QUANT_INTERIM, 'aggregate', '{method}' , '{aggr_id}_droplet_classification.tsv')
         params:
             script = src_gcf("scripts/aggr_barcode_info.py"),
-            args = dbl_aggr_args
+            args = barcode_aggr_args
         container:
             'docker://' + config['docker']['default']
         shell:
@@ -419,7 +380,7 @@ rule dbl_rankdata_aggr:
             join(QUANT_INTERIM, 'aggregate', '{method}' , '{aggr_id}_droplet_rankdata.tsv')
         params:
             script = src_gcf("scripts/aggr_barcode_info.py"),
-            args = dbl_aggr_args
+            args = barcode_aggr_args
         container:
             'docker://' + config['docker']['default']
         shell:

@@ -1,179 +1,160 @@
 #!/usr/bin/env python
-#!/usr/bin/env python
-import os
 import argparse
+import os
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import scanpy as sc
-import matplotlib.pyplot as plt
 
-def clamp(x, lo, hi):
-    return max(lo, min(hi, x))
+
+def resolve_expected_doublet_rate(explicit_rate, derive_10x, n_cells):
+    """Return a biological expected doublet rate, or None."""
+    if explicit_rate is not None:
+        if not 0.0 < explicit_rate < 1.0:
+            raise ValueError("--expected-doublet-rate must be between 0 and 1")
+        return float(explicit_rate)
+
+    if derive_10x:
+        if n_cells < 1:
+            raise ValueError("Cannot derive 10x doublet rate with zero cells")
+        return min((n_cells / 1000.0) * 0.008, 0.40)
+
+    return None
+
 
 def main():
-    p = argparse.ArgumentParser(description="doublet detection by scrublet (scanpy)")
-    p.add_argument("-i", "--input", required=True, help="anndata obj (.h5ad)")
-    p.add_argument("-o", "--output", required=True, help="output TSV")
-    p.add_argument("--expected-doublet-rate", default=None, type=float, help="doublet rate")
-    p.add_argument("--dbr-min", default=0.005, type=float, help="lower clamp for expected doublet rate")
-    p.add_argument("--dbr-max", default=0.40, type=float, help="upper clamp for expected doublet rate")
-    p.add_argument("--n_neighbors", default=30, type=int, help="kNN neighbors for scrublet")
-    p.add_argument("--seed", default=1234, type=int, help="random seed")
+    p = argparse.ArgumentParser(description="Doublet detection by Scrublet through Scanpy.")
+    p.add_argument("-i", "--input", required=True, help="AnnData object (.h5ad)")
+    p.add_argument("-o", "--output", required=True, help="Output TSV")
+    rate = p.add_mutually_exclusive_group()
+    rate.add_argument("--expected-doublet-rate", type=float, default=None,
+                      help="Explicit biological expected doublet rate")
+    rate.add_argument("--derive-10x-doublet-rate", action="store_true",
+                      help="Derive expected rate from input cell count using 0.8%% per 1000 cells")
+    p.add_argument("--scrublet-prior-rate", default=0.05, type=float,
+                   help="Internal Scrublet prior when no biological expected rate is available")
+    p.add_argument("--dbr-min", default=0.005, type=float, help="Lower clamp for Scrublet prior")
+    p.add_argument("--dbr-max", default=0.40, type=float, help="Upper clamp for Scrublet prior")
+    p.add_argument("--n-neighbors", default=30, type=int, help="kNN neighbors for Scrublet")
+    p.add_argument("--seed", default=1234, type=int, help="Random seed")
 
-    # Fit gating (training subset)
-    p.add_argument("--min-umis", default=1, type=int, help="min total counts to include cell in fit")
-    p.add_argument("--min-genes", default=1, type=int, help="min detected genes to include cell in fit")
-
-    # Gene filtering (applied on fit subset)
-    p.add_argument("--gene-min-cells", default=5, type=int, help="keep genes detected in >= this many fit cells")
-    p.add_argument("--gene-max-frac", default=1, type=float, help="drop genes detected in > this fraction of fit cells")
-    p.add_argument("--gene-top-k", default=50_000, type=int, help="cap genes to top-K by total counts (fit cells)")
+    p.add_argument("--min-umis", default=1, type=int, help="Minimum total counts to include cell in fit")
+    p.add_argument("--min-genes", default=1, type=int, help="Minimum detected genes to include cell in fit")
+    p.add_argument("--gene-min-cells", default=5, type=int, help="Keep genes detected in at least this many fit cells")
+    p.add_argument("--gene-max-frac", default=1.0, type=float, help="Drop genes detected in more than this fraction of fit cells")
+    p.add_argument("--gene-top-k", default=50_000, type=int, help="Cap genes to top-K by total counts")
     p.add_argument("--rate-low-factor", default=0.1, type=float,
-                   help="If scrublet called rate < expected*low_factor, fallback to score-based calling.")
+                   help="Fallback if called rate is below expected rate times this factor")
     p.add_argument("--rate-high-factor", default=3.0, type=float,
-                   help="If scrublet called rate > expected*high_factor, fallback to score-based calling.")
+                   help="Fallback if called rate is above expected rate times this factor")
     p.add_argument("--fallback", default="top_frac", choices=["top_frac", "keep_scrublet", "unassigned"],
-                   help="What to do when scrublet call-rate is inconsistent with expected rate.")
-
+                   help="Action when Scrublet call rate is inconsistent with biological expectation")
     args = p.parse_args()
+
+    if not 0.0 < args.scrublet_prior_rate < 1.0:
+        raise ValueError("--scrublet-prior-rate must be between 0 and 1")
+    if not 0.0 < args.dbr_min < args.dbr_max < 1.0:
+        raise ValueError("Require 0 < --dbr-min < --dbr-max < 1")
+    if not 0.0 < args.gene_max_frac <= 1.0:
+        raise ValueError("--gene-max-frac must be in (0, 1]")
+    if args.n_neighbors < 1:
+        raise ValueError("--n-neighbors must be >= 1")
 
     adata = sc.read_h5ad(args.input)
     adata.var_names_make_unique()
 
-    # Keep full barcode list/order
     all_bc = adata.obs_names.to_numpy()
+    n_input_cells = adata.n_obs
+    expected_rate = resolve_expected_doublet_rate(
+        args.expected_doublet_rate,
+        args.derive_10x_doublet_rate,
+        n_input_cells,
+    )
 
-    # Compute simple QC on raw counts X
     X = adata.X
-    # totals per cell
-    if hasattr(X, "sum"):
-        totals = np.asarray(X.sum(axis=1)).ravel()
-        detected = np.asarray((X > 0).sum(axis=1)).ravel()
-    else:
-        totals = X.sum(axis=1)
-        detected = (X > 0).sum(axis=1)
+    totals = np.asarray(X.sum(axis=1)).ravel()
+    detected = np.asarray((X > 0).sum(axis=1)).ravel()
+    fit_mask = (
+        (totals >= args.min_umis)
+        & (detected >= args.min_genes)
+        & np.isfinite(totals)
+        & np.isfinite(detected)
+    )
 
-    fit_mask = (totals >= args.min_umis) & (detected >= args.min_genes) & np.isfinite(totals) & np.isfinite(detected)
-
-    # Prepare full outputs (pipeline invariant)
     out_score = np.full(adata.n_obs, np.nan, dtype=float)
     out_call = np.full(adata.n_obs, "singlet", dtype=object)
 
-    n_fit = int(fit_mask.sum())
-    if n_fit < 2:
-        # still write output
+    if fit_mask.sum() < 2:
         df = pd.DataFrame({"Barcode": all_bc, "doublet": out_call, "doublet_score": out_score})
-        os.makedirs(os.path.dirname(args.output), exist_ok=True)
         df.to_csv(args.output, sep="\t", index=False)
         return
 
     ad_fit = adata[fit_mask].copy()
 
-    # Gene filter on fit cells
     Xf = ad_fit.X
     gene_detect = np.asarray((Xf > 0).sum(axis=0)).ravel()
-    min_cells = int(args.gene_min_cells)
     max_cells = int(np.floor(args.gene_max_frac * ad_fit.n_obs))
-
-    keep = (gene_detect >= min_cells) & (gene_detect <= max_cells)
-    keep_idx = np.where(keep)[0]
+    keep_idx = np.where((gene_detect >= args.gene_min_cells) & (gene_detect <= max_cells))[0]
 
     if keep_idx.size >= 50:
         gene_sum = np.asarray(Xf.sum(axis=0)).ravel()
         keep_idx = keep_idx[np.argsort(gene_sum[keep_idx])[::-1]]
-        k = min(int(args.gene_top_k), keep_idx.size)
-        keep_idx = keep_idx[:k]
+        keep_idx = keep_idx[:min(args.gene_top_k, keep_idx.size)]
         ad_fit = ad_fit[:, keep_idx].copy()
 
-    # Expected doublet rate default + clamp
-    used_fallback = args.expected_doublet_rate is None
-    if used_fallback:
-        dbr = (ad_fit.n_obs / 1000.0) * 0.008
-    else:
-        dbr = float(args.expected_doublet_rate)
-
-    dbr = clamp(dbr, args.dbr_min, args.dbr_max)
-
-    
+    # Scrublet always requires a numerical prior. A biological rate is used when
+    # available; otherwise use a fixed algorithmic prior without post-hoc rate forcing.
+    scrublet_rate = expected_rate if expected_rate is not None else args.scrublet_prior_rate
+    scrublet_rate = max(args.dbr_min, min(args.dbr_max, scrublet_rate))
 
     sc.external.pp.scrublet(
         ad_fit,
         random_state=args.seed,
-        expected_doublet_rate=dbr,
-        n_neighbors=int(args.n_neighbors),
+        expected_doublet_rate=scrublet_rate,
+        n_neighbors=args.n_neighbors,
     )
 
-    # Save score distribution figure
     fig_path = os.path.join(os.path.dirname(args.output), "scrublet_score_distribution.png")
     os.makedirs(os.path.dirname(args.output), exist_ok=True)
     sc.external.pl.scrublet_score_distribution(ad_fit, show=False)
     plt.savefig(fig_path, dpi=300, bbox_inches="tight")
     plt.close()
 
-    # Re-expand to full barcode set
-    
-    
-    fit_scores = ad_fit.obs.get("doublet_score", None)
-    fit_pred = ad_fit.obs.get("predicted_doublet", None)
-
+    fit_scores = ad_fit.obs.get("doublet_score")
+    fit_pred = ad_fit.obs.get("predicted_doublet")
     if fit_scores is None or fit_pred is None:
-        # scrublet failed silently; write all singlets with NA scores
-        df = pd.DataFrame({"Barcode": all_bc, "doublet": out_call, "doublet_score": out_score})
-        df.to_csv(args.output, sep="\t", index=False)
-        return
-
+        raise RuntimeError("Scrublet did not return doublet_score and predicted_doublet")
 
     fit_scores = fit_scores.to_numpy(dtype=float)
     fit_pred = fit_pred.to_numpy(dtype=bool)
-
     out_score[fit_mask] = fit_scores
-
-    # Default to scrublet calls
     calls = np.where(fit_pred, "doublet", "singlet").astype(object)
 
-    # If a prior expected rate is provided, sanity-check scrublet's called rate
-    if args.expected_doublet_rate is not None:
-        r = clamp(float(args.expected_doublet_rate), float(args.dbr_min), float(args.dbr_max))
-
+    # Only a biological expected rate may constrain final calls.
+    if expected_rate is not None:
         finite = np.isfinite(fit_scores)
-        if finite.any():
-            scrub_rate = fit_pred[finite].mean()
-        else:
-            scrub_rate = np.nan
-
-        low = r * float(args.rate_low_factor)
-        high = r * float(args.rate_high_factor)
-
-        bad = (not np.isfinite(scrub_rate)) or (scrub_rate < low) or (scrub_rate > high)
+        scrub_rate = fit_pred[finite].mean() if finite.any() else np.nan
+        low = expected_rate * args.rate_low_factor
+        high = expected_rate * args.rate_high_factor
+        bad = (not np.isfinite(scrub_rate)) or scrub_rate < low or scrub_rate > high
 
         if bad:
             if args.fallback == "top_frac":
-                # Fallback: call top-r fraction by score (like DoubletDetection)
                 calls[:] = "singlet"
                 calls[~finite] = "unassigned"
-
                 idx = np.where(finite)[0]
-                k = int(round(r * idx.size))
-                k = max(0, min(k, idx.size))
+                k = int(round(expected_rate * idx.size))
                 if k > 0:
                     order = np.argsort(fit_scores[idx], kind="mergesort")[::-1]
-                    topk = idx[order[:k]]
-                    calls[topk] = "doublet"
-
+                    calls[idx[order[:k]]] = "doublet"
             elif args.fallback == "unassigned":
                 calls[:] = "unassigned"
-            elif args.fallback == "keep_scrublet":
-                pass
 
     out_call[fit_mask] = calls
-
-    #fit_scores = fit_scores.to_numpy(dtype=float)
-    #fit_pred = fit_pred.to_numpy(dtype=bool)
-    #out_score[fit_mask] = fit_scores
-    #out_call[fit_mask] = np.where(fit_pred, "doublet", "singlet")
-
     df = pd.DataFrame({"Barcode": all_bc, "doublet": out_call, "doublet_score": out_score})
     df.to_csv(args.output, sep="\t", index=False)
+
 
 if __name__ == "__main__":
     main()

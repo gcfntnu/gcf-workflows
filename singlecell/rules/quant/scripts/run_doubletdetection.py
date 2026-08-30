@@ -1,78 +1,87 @@
 #!/usr/bin/env python
 import argparse
 import warnings
+
+import numpy as np
+import pandas as pd
+import scanpy as sc
+from doubletdetection import BoostClassifier
+
 warnings.filterwarnings("ignore")
 
 
-import scanpy as sc
-import pandas as pd
-import numpy as np
-from doubletdetection import BoostClassifier
+def resolve_expected_doublet_rate(explicit_rate, derive_10x, n_cells):
+    """Return a biological expected doublet rate, or None."""
+    if explicit_rate is not None:
+        if not 0.0 < explicit_rate < 1.0:
+            raise ValueError("--expected-doublet-rate must be between 0 and 1")
+        return float(explicit_rate)
 
-parser = argparse.ArgumentParser( description="wrapper for DoubletDetection for doublet detection from transcriptomic data.")
-parser.add_argument("-i", "--input", required = True, help = "anndata obj (.h5ad)")
-parser.add_argument("-o", "--output", required = True, help = "output file")
-parser.add_argument("--threads", required = False, default = 1, type = int, help = "Number of jobs to to use; default is 1")
-parser.add_argument("--seed", required = False, default = 1234, type=int, help = "seed")
-parser.add_argument("--expected-doublet-rate",required=False,type=float,default=None,
-                    help="If set, call top fraction of cells by doublet_score as doublets (0-1)."
-                    )
+    if derive_10x:
+        if n_cells < 1:
+            raise ValueError("Cannot derive 10x doublet rate with zero cells")
+        return min((n_cells / 1000.0) * 0.008, 0.40)
+
+    return None
 
 
+parser = argparse.ArgumentParser(
+    description="Wrapper for DoubletDetection on transcriptomic single-cell data."
+)
+parser.add_argument("-i", "--input", required=True, help="AnnData object (.h5ad)")
+parser.add_argument("-o", "--output", required=True, help="Output TSV")
+parser.add_argument("--threads", default=1, type=int, help="Number of jobs; default 1")
+parser.add_argument("--seed", default=1234, type=int, help="Random seed")
+rate = parser.add_mutually_exclusive_group()
+rate.add_argument("--expected-doublet-rate", type=float, default=None,
+                  help="Explicit biological expected doublet rate")
+rate.add_argument("--derive-10x-doublet-rate", action="store_true",
+                  help="Derive expected rate from input cell count using 0.8%% per 1000 cells")
 args = parser.parse_args()
 
 adata = sc.read_h5ad(args.input)
 adata.var_names_make_unique()
+expected_rate = resolve_expected_doublet_rate(
+    args.expected_doublet_rate,
+    args.derive_10x_doublet_rate,
+    adata.n_obs,
+)
+
 sc.pp.filter_genes(adata, min_cells=1)
 
-# follow notebook example
-clf = BoostClassifier(n_iters=10,
-                      clustering_algorithm="leiden",
-                      standard_scaling=True,
-                      pseudocount=0.1,
-                      n_jobs=args.threads,
-                      random_state=args.seed)
-
+clf = BoostClassifier(
+    n_iters=10,
+    clustering_algorithm="leiden",
+    standard_scaling=True,
+    pseudocount=0.1,
+    n_jobs=args.threads,
+    random_state=args.seed,
+)
 clf.fit(adata.X)
 score = clf.doublet_score()
 
-r = args.expected_doublet_rate
-if r is None:
-    # rate-free mode: keep DoubletDetection’s own calls
+if expected_rate is None:
+    # Rate-free mode: retain DoubletDetection's native calls.
     labels = clf.predict(p_thresh=1e-16, voter_thresh=0.5)
     doublet_type = np.where(labels == 1, "doublet", "singlet").astype("<U12")
     doublet_type[np.isnan(labels)] = "unassigned"
 else:
-    # rate-aware mode: call top r fraction by score
-    if not (0.0 < r < 1.0):
-        raise ValueError("--expected-doublet-rate must be between 0 and 1")
-    n = len(score)
-    k = int(round(r * n))
-    doublet_type = np.full(n, "singlet", dtype="<U12")
-
+    # Rate-aware mode: call the top expected fraction by DoubletDetection score.
+    doublet_type = np.full(len(score), "singlet", dtype="<U12")
     valid = np.isfinite(score)
-    # If some scores are NaN, mark them unassigned and rank only finite ones
     doublet_type[~valid] = "unassigned"
 
+    k = int(round(expected_rate * valid.sum()))
     if k > 0:
         idx = np.where(valid)[0]
-        # take top-k among valid scores
         topk = idx[np.argsort(score[idx])[::-1][:k]]
         doublet_type[topk] = "doublet"
 
-
-assert len(score) == adata.obs.shape[0]
-assert len(doublet_type) == adata.obs.shape[0]
+assert len(score) == adata.n_obs
+assert len(doublet_type) == adata.n_obs
 
 adata.obs["doublet"] = doublet_type
 adata.obs["doublet_score"] = score
-
-df = adata.obs[["doublet", "doublet_score"]]
-#df.index = [i.split("-")[0] + "-1" for i in df.index]
+df = adata.obs[["doublet", "doublet_score"]].copy()
 df.index.name = "Barcode"
-df = df.reset_index()
-df.to_csv(args.output, sep="\t", index=False)
-
-#doubletdetection.plot.convergence(clf, save=os.path.join(args.outdir,'convergence_test.pdf'), show=False, p_thresh=args.p_thresh, voter_thresh=args.voter_thresh)
-#f = doubletdetection.plot.threshold(clf, save=os.path.join(args.outdir,'threshold_test.pdf'), show=False, p_step=6)
-
+df.reset_index().to_csv(args.output, sep="\t", index=False)

@@ -4,8 +4,8 @@ import argparse
 import pandas as pd
 
 
-parser = argparse.ArgumentParser(description="freemuxlet summary")
-parser.add_argument("-i", "--input", required=True, help="freemuxlet.clust1.samples.gz")
+parser = argparse.ArgumentParser(description="demuxlet summary")
+parser.add_argument("-i", "--input", required=True, help="demuxlet.best")
 parser.add_argument("-o", "--output", required=True, help="predicted droplet type output")
 args = parser.parse_args()
 
