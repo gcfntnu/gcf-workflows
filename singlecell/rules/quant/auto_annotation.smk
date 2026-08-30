@@ -134,7 +134,7 @@ def aggr_input(wildcards):
         input_files = expand(rules.mapmycells_premap_from_specified_markers.output.anno_csv,
                              quantifier=wildcards.method,
                              sample=samples_by_aggr_id)
-    if wildcards.method.startswith('cellranger'):
+    if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger':
         aggr_csv = join(QUANT_INTERIM, 'aggregate', 'description', f'{wildcards.aggr_id}_aggr.csv')
         return {'input_files': input_files, 'aggr_csv': aggr_csv}
     else:
@@ -148,7 +148,7 @@ rule mapmycells_premap_aggr:
         join(QUANT_INTERIM, 'aggregate', '{method}' , '{aggr_id}_premap_annotation.tsv')
     params:
         script = src_gcf("scripts/aggr_barcode_info.py"),
-        args = dbl_aggr_args
+        args = barcode_aggr_args
     container:
         'docker://' + config['docker']['default']
     shell:
