@@ -23,6 +23,9 @@ BC_RENAME = {'cellranger': 'numerical',
              'splitpipe': 'parsebio',
              'parsebio_starsolo': 'parsebio',
              }
+ANNO_METHOD = config.get('celltype_annotation', {}).get('method', '')
+ANNO_ENABLED = ANNO_METHOD not in ['', 'skip']
+
 
 if not config['quant']['aggregate'].get('skip', False):
     groupby = config['quant']['aggregate'].get('groupby', 'all_samples')
@@ -187,7 +190,7 @@ def get_barcode_info_list(wc):
 def get_feature_info_list(wildcards):
     feature_info_list = [join(REF_DIR, 'anno', 'genes.tsv')]
     ortholog_org = config.get('celltype_annotation', {}).get('orthologs', '')
-    if ortholog_org:
+    if ANNO_ENABLED and ortholog_org:
         ortho_fn = join(QUANT_INTERIM, 'aggregate', wildcards.method, wildcards.aggr_id + '_orthologs.tsv')
         feature_info_list.append(ortho_fn)
     return feature_info_list
@@ -242,6 +245,7 @@ if CB_FLAG:
     include: 'quant/cellbender.smk'
 if config['libprepkit'].startswith("10X Genomics") or config['libprepkit'].startswith("Parse"):
     include: 'quant/doublets.smk'
+if ANNO_ENABLED:
     include: 'quant/auto_annotation.smk'
 
 
