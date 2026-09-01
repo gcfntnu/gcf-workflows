@@ -262,32 +262,37 @@ rule salmon_index_tximeta:
         '-o {output.json} '
         '--verbose '
        
+
+rule splitpipe_mkref_parfile:
+    output:
+        temp(join('{ref_dir}', 'index', '{prefix}', 'splitpipe.mkref.par'))
+    shell:
+        'echo "mkref_star_args --genomeSAsparseD,1,--limitGenomeGenerateRAM,250000000000" > {output}'
+
+
 rule splitpipe_index:
     input:
         genome = join('{ref_dir}', 'fasta', 'genome.fa'),
         gtf = join('{ref_dir}', 'anno', 'genes.gtf'),
+        parfile = rules.splitpipe_mkref_parfile.output
     output:
         index =  join('{ref_dir}', 'index', '{prefix}', 'splitpipe', 'SA')
     params:
         name = lambda wildcards: os.path.basename(wildcards.ref_dir),
         out_dir = join('{ref_dir}', 'index', '{prefix}', 'splitpipe')
     threads:
-        32
+        64
     container:
         'docker://' + config['docker']['splitpipe']
     shell:
         'split-pipe '
         '--mode mkref '
         '--nthreads {threads} '
+        '--parfile {input.parfile} '
         '--genome_name {params.name} '
         '--fasta {input.genome} '
         '--genes {input.gtf} '
         '--output_dir {params.out_dir} '
-        
-        
-
-
-
 
 
 
