@@ -11,8 +11,11 @@ parser.add_argument("-i", "--input", required=True,
                     help="anndata obj (.h5ad)")
 parser.add_argument("-o", "--output", required=True,
                     help="output file")
-parser.add_argument("--expected-doublet-rate", required=False, default=None, type=float,
+parser.add_argument("--expected-doublet-rate", required=False, default=0.1, type=float,
                     help="doublet rate")
+parser.add_argument("--n_neighbors", required=False, default=100, type=float,
+                    help="n neighbors")
+
 parser.add_argument("--seed", required=False, default=1234, type=int,
                     help="seed")
 args = parser.parse_args()
@@ -22,17 +25,24 @@ adata.var_names_make_unique()
 if args.expected_doublet_rate is None:
     args.expected_doublet_rate = adata.X.shape[0]/1000 * 0.008
 
-model = Scrublet(adata.X, expected_doublet_rate=args.expected_doublet_rate, random_state=args.seed)
+model = Scrublet(adata.X,
+                 expected_doublet_rate=args.expected_doublet_rate,
+                 random_state=args.seed,
+                 n_neighbors=args.n_neighbors)
 score, doublets = model.scrub_doublets()
-doublet_type = np.where(doublets, "doublet", "singlet").astype('<U12')
-if any(np.isnan(doublets)):
-    doublet_type[np.isnan(doublets)] = "unassigned"
+
+if doublets is None:
+    doublet_type = ["unassigned"] * len(score)
+else:
+    doublet_type = np.where(doublets, "doublet", "singlet").astype('<U12')
+    if any(np.isnan(doublets)):
+        doublet_type[np.isnan(doublets)] = "unassigned"
 assert len(score) == adata.obs.shape[0]
 assert len(doublet_type) == adata.obs.shape[0]
 adata.obs["doublet"] = doublet_type
 adata.obs["doublet_score"] = score
 df = adata.obs[["doublet", "doublet_score"]]
-df.index = ["{}-1".format(i.split("-")[0]) for i in df.index]
+#df.index = ["{}-1".format(i.split("-")[0]) for i in df.index]
 df.index.name = "Barcode"
 df = df.reset_index()
 df.to_csv(args.output, sep="\t", index=False)

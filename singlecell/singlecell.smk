@@ -22,6 +22,10 @@ if os.path.exists(extra_conf_fn):
 if not 'SAMPLES' in locals():
     SAMPLES = list(config.get('samples', {}).keys())
 
+if config['quant']['method'].startswith('parse') or config['quant']['method'].startswith('splitpipe'):
+    PARSEBIO_SAMPLES = list(config.get('wells', {}).keys())
+    SUBLIBS = SAMPLES
+
 include:
     '../common.smk'
 include:
@@ -35,7 +39,9 @@ include:
 include:
     'rules/bfq.smk'
 include:
-    '../postprocess.smk' 
+    '../postprocess.smk'
+include:
+    'rules/analysis.smk'
 
 
 onsuccess:

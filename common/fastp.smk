@@ -69,7 +69,7 @@ if PE:
             log_html = join(FILTER_INTERIM, 'fastp', '{sample}.html'),
             log_json = join(FILTER_INTERIM, 'fastp', '{sample}.json')           
         threads:
-            2        
+            8        
         params:
             args = '--overrepresentation_analysis --overrepresentation_sampling 10000 ',
             adapter_arg = lambda wildcards, input: fastp_adapter_args(input),
@@ -88,7 +88,7 @@ else:
             log_html = join(FILTER_INTERIM, 'fastp', '{sample}.html'),
             log_json = join(FILTER_INTERIM, 'fastp', '{sample}.json')               
         threads:
-            2
+            8
         params:
             args = '--overrepresentation_analysis --overrepresentation_sampling 10000 ',
             adapter_arg = lambda wildcards, input: fastp_adapter_args(input),

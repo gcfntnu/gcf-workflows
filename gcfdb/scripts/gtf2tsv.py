@@ -61,11 +61,15 @@ def add_gc_content(df, df_sub, args):
             for ii, row in df.iloc[idx,:].iterrows():
                 exon_key = '{}:{}-{}'.format(row['seqname'], row['start']-1, row['end'])
                 seq = fasta.get(exon_key)
-                exons[gene] += seq
+                if seq:
+                    exons[gene] += seq
         for gene_id in df_sub.index:
             if gene_id in exons:
-                seq = exons[gene_id]
-                gc_content = GC(seq)
+                seq = exons.get(gene_id)
+                if seq:
+                    gc_content = GC(seq)
+                else:
+                    gc_content = 0
                 df_sub.at[gene_id, 'gc_content'] = gc_content
             else:
                 print("missing gene_id in exons dict:")

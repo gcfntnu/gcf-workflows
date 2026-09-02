@@ -2,3 +2,7 @@
 test/
 *.swp
 *.swo
+*~
+[#]*[#]
+.[#]*
+.ipynb_checkpoints/

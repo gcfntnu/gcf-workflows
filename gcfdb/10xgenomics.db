@@ -57,7 +57,7 @@ rule txgenomics_org_prebuild:
     shell:
         """
         curl {params.proxy} {params.url} | tar xvz --strip-components=1 -C {params.out}
-        ln -s {params.out}/genes/genes.gtf {params.out}/anno
+        zcat {params.out}/genes/genes.gtf.gz > {params.out}/anno/genes.gtf
         echo "10xGenomics Genome,release-{wildcards.release},{params.url},`date -I`" > {log.genome}
         echo "10xGenomics GTF ,release-{wildcards.release},{params.url},`date -I`" > {log.gtf}
         """

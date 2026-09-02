@@ -14,7 +14,7 @@ adata = sc.read_10x_mtx(os.path.dirname(args.input))
 adata.obs["doublet"] = "singlet"
 adata.obs["doublet_score"] = 0.0
 df = adata.obs[["doublet", "doublet_score"]]
-df.index = ["{}-1".format(i.split("-")[0]) for i in df.index]
+#df.index = ["{}-1".format(i.split("-")[0]) for i in df.index]
 df.index.name = "Barcode"
 df = df.reset_index()
 df.to_csv(args.output, sep="\t", index=False)

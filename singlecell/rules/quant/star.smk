@@ -3,7 +3,7 @@
 include: 'umitools.smk'
 
 STAR_INTERIM = join(QUANT_INTERIM, 'star')
-READ_LENGTH = config['read_geometry'][-1]
+READ_LENGTH = max(config['read_geometry'])
 
 rule txgenomics_whitelist_v1:
     params:
@@ -58,9 +58,8 @@ rule starsolo_genome_index:
         join(REF_DIR, 'index', 'genome', 'starsolo', 'r_{}'.format(READ_LENGTH), 'SA')
     params:
         index_dir =  join(REF_DIR, 'index', 'genome', 'starsolo', 'r_{}'.format(READ_LENGTH)),
-        readlength = config.get('read_geometry', [28, 98])[-1]
     threads:
-        48
+        64
     log:
         join(REF_DIR, 'logs', 'STAR.index.log')
     container:
@@ -72,7 +71,7 @@ rule starsolo_genome_index:
         '--genomeDir {params.index_dir} '
         '--genomeFastaFiles {input.genome} '
         '--sjdbGTFfile {input.gtf} '
-        '--sjdbOverhang {params.readlength} '
+        '--sjdbOverhang {READ_LENGTH} '
         '&& mv Log.out {log} '
 
 rule starsolo_convert_umitools_whitelist:
@@ -152,9 +151,9 @@ rule starsolo_quant:
 
 rule starsolo_bam:
     input:
-        rules.starsolo_quant.output.bam
+        join(QUANT_INTERIM, '{method}', '{sample}', 'Aligned.sortedByCoord.out.bam')
     output:
-        join(STAR_INTERIM, '{sample}', '{sample}_Aligned.sortedByCoord.out.bam')
+        join(QUANT_INTERIM, '{method}', '{sample}', '{sample}_Aligned.sortedByCoord.out.bam')
     shell:
         'ln -sr {input} {output}'
 
