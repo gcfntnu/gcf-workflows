@@ -261,9 +261,10 @@ rule picard_rnametrics:
         rrna = rules.create_ribo_intervals.output
     output:
         metrics = join(PICARD_QCDIR, '{sample}.rnaseq.metrics'),
+    log:
         log = join(PICARD_QCDIR, '{sample}.rnaseq.log')
     params:
-        java_opt='-Xms1g -Xmx4g',
+        java_opt='-Xms2g -Xmx16g',
         strand = picard_strand()
     threads:
         6
@@ -271,7 +272,7 @@ rule picard_rnametrics:
         'docker://' + config['docker']['picard_gatk']
     shell:
         """
-        picard CollectRnaSeqMetrics {params.java_opt} INPUT={input.bam} OUTPUT={output.metrics} REF_FLAT={input.ref_flat} STRAND={params.strand} ASSUME_SORTED=TRUE RIBOSOMAL_INTERVALS={input.rrna} VALIDATION_STRINGENCY=SILENT 2> {output.log}
+        picard CollectRnaSeqMetrics {params.java_opt} INPUT={input.bam} OUTPUT={output.metrics} REF_FLAT={input.ref_flat} STRAND={params.strand} ASSUME_SORTED=TRUE RIBOSOMAL_INTERVALS={input.rrna} VALIDATION_STRINGENCY=SILENT 2> {log.log}
         """
 
 rule picard_insertsize:
