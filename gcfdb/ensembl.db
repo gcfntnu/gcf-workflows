@@ -54,33 +54,40 @@ def ensembl_lookup(fn, organism=None, assembly=None):
     return els
         
 def init_ensembl(els):
-    """Set assembly and division from organism
-    
-    """
     if els is None:
         return config
+
     for k in ['assembly', 'division']:
-        config['db']['ensembl'][k] = els.get(k)
-    
+        if els.get(k) is not None:
+            config['db']['ensembl'][k] = els[k]
+
     return config
 
+
 ENS_RELEASE = str(config['db']['ensembl']['release'])
-config = init_ensembl(ensembl_lookup(src_gcf('tables/ensembl-{}.gz'.format(ENS_RELEASE))))
-ENS_DIVISION = config['db']['ensembl']['division'] or ''
-ENS_ASSEMBLY = config['db']['ensembl']['assembly'] or ''
-if not ENS_ASSEMBLY:
-    # no hits in lookup or no valid lookup file
+ENS_LOOKUP = src_gcf('tables/ensembl-{}.gz'.format(ENS_RELEASE))
+
+config = init_ensembl(ensembl_lookup(ENS_LOOKUP))
+
+ENS_DIVISION = config['db']['ensembl'].get('division', '')
+ENS_ASSEMBLY = config['db']['ensembl'].get('assembly', '')
+
+if not ENS_ASSEMBLY and os.path.exists(ENS_LOOKUP):
+    # lookup exists, but organism was not found
     ref = config['db'].get('reference_db')
     if ref is None:
-        logger.info('no reference_db is set in config file. Assuming reference_db is `custom_reference`')
+        logger.info(
+            'no reference_db is set in config file. '
+            'Assuming reference_db is `custom_reference`'
+        )
         config['db']['reference_db'] = 'custom_reference'
     elif ref == 'ensembl':
-        logger.warning('no hits in ensembl lookup file. Trying reference_db = `custom_reference`')
+        logger.warning(
+            'no hits in ensembl lookup file. '
+            'Trying reference_db = `custom_reference`'
+        )
         config['db']['reference_db'] = 'custom_reference'
-    else:
-        logger.info('no hits in ensembl lookup file (reference_db={})'.format(ref))
-    
-            
+
 
 if ENS_DIVISION == 'vertebrates':
     URL = 'ftp.ensembl.org/pub/release-{}/{{}}/{{}}'.format(ENS_RELEASE)

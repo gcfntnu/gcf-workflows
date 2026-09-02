@@ -66,10 +66,6 @@ rule splitpipe_quant:
         all_sample_log = join(QUANT_INTERIM, 'splitpipe', '{sublib}', 'process', 'barcode_headLog.final.out'),
         all_sample_bam = join(QUANT_INTERIM, 'splitpipe', '{sublib}', 'process', 'barcode_headAligned_anno.bam'),
         agg_summary_csv = join(QUANT_INTERIM, 'splitpipe', '{sublib}', 'agg_sample_summary.csv'),
-        fastqc_html_R1 = join(QUANT_INTERIM, 'splitpipe', '{sublib}', 'process', 'fastQC', 'R1_fastqc.html'),
-        fastqc_zip_R1 = join(QUANT_INTERIM, 'splitpipe', '{sublib}', 'process', 'fastQC', 'R1_fastqc.zip'),
-        fastqc_html_R2 = join(QUANT_INTERIM, 'splitpipe', '{sublib}', 'process', 'fastQC', 'R2_fastqc.html'),
-        fastqc_zip_R2 = join(QUANT_INTERIM, 'splitpipe', '{sublib}', 'process', 'fastQC', 'R2_fastqc.zip'),
         tscp = join(QUANT_INTERIM, 'splitpipe', '{sublib}', 'process', 'tscp_assignment.csv.gz')
     params:
         genome_dir = join(REF_DIR, 'index', 'genome', 'splitpipe'),
