@@ -91,9 +91,9 @@ rule cellranger_quant_:
         genome_dir = CR_REF_DIR,
         ncells = config['quant']['cellranger'].get('ncells', 5000),
         chemistry = config['quant'].get('cellranger', {}).get('chemistry', 'none'),
-        extra_args = '--nopreflight --disable-ui '
+        extra_args = '--create-bam true --nopreflight --disable-ui '
     threads:
-        48
+        32
     output:
         summary = join('_tmp_{sample}', 'outs', 'web_summary.html'),
         cloupe = join('_tmp_{sample}', 'outs', 'cloupe.cloupe'),
@@ -232,248 +232,53 @@ rule cellranger_aggr_bam:
     shell:
         'python {params.script} {input} {output}'
 
-if config['quant']['aggregate'].get('method', 'scanpy') == 'scanpy':
-    rule scanpy_aggr_cellranger:
-        input:
-            input_files = expand(rules.cellranger_quant.output.filt_h5, sample=SAMPLES),
-            aggr = join(QUANT_INTERIM, 'aggregate', 'description', '{aggr_id}_aggr.csv'),
-            sample_info = join(INTERIM_DIR, 'sample_info.tsv'),
-            feature_info = join(CR_REF_DIR, 'anno', 'genes.tsv'),
-            barcode_info = join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}_droplet_classification.tsv')
-        params:
-            script = src_gcf('scripts/convert_scanpy.py'),
-            norm = config['quant']['aggregate']['norm']
-        output:
-            join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', '{aggr_id}_aggr.h5ad')
-        container:
-            'docker://' + config['docker']['scanpy']
-        threads:
-            48
-        shell:
-            'python {params.script} '
-            '{input.input_files} '
-            '--aggr-csv {input.aggr} '
-            '--sample-info {input.sample_info} '
-            '--feature-info {input.feature_info} '
-            '--barcode-info {input.barcode_info} '
-            '-o {output} '
-            '--normalize {params.norm} '
-            '-v '
-            '-f cellranger '
-else:
-    rule scanpy_aggr_cellranger:
-        input:
-            input_files = join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}', 'outs', 'count','filtered_feature_bc_matrix.h5'),
-            aggr = join(QUANT_INTERIM, 'aggregate', 'description', '{aggr_id}_aggr.csv'),
-            sample_info = join(INTERIM_DIR, 'sample_info.tsv'),
-            feature_info = join(CR_REF_DIR, 'anno', 'genes.tsv'),
-            barcode_info = join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}_droplet_classification.tsv')   
-        params:
-            script = src_gcf('scripts/convert_scanpy.py'),
-            norm = config['quant']['aggregate']['norm']
-        output:
-            join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', '{aggr_id}_aggr.h5ad')
-        container:
-            'docker://' + config['docker']['scanpy']
-        threads:
-            48
-        shell:
-            'python {params.script} ' 
-            '{input.input_files} '
-            '--aggr-csv {input.aggr} '
-            '--sample-info {input.sample_info} '
-            '--feature-info {input.feature_info} '
-            '--barcode-info {input.barcode_info} ' 
-            '-o {output} '
-            '--normalize {params.norm} '
-            '-v '
-            '-f cellranger_aggr '
-    
-rule scanpy_cellranger:
+
+rule cellranger_barcode_info:
     input:
-        input_files = join(CR_INTERIM, '{sample}', 'outs', 'filtered_feature_bc_matrix.h5'),
-        sample_info = join(INTERIM_DIR, 'sample_info.tsv'),
-        feature_info = join(CR_REF_DIR, 'anno', 'genes.tsv'),
-        aggr = join(QUANT_INTERIM, 'aggregate', 'description', 'all_samples_aggr.csv'),
-        barcode_info = join(QUANT_INTERIM, 'aggregate', 'cellranger', 'all_samples_droplet_classification.tsv')
-    params:
-        script = src_gcf('scripts/convert_scanpy.py'),
-        genome_name  = DB_CONF['assembly']
+        aggr_csv = join(QUANT_INTERIM, 'aggregate', 'description', 'all_samples_aggr.csv'),
+        barcodes = expand(join(CR_INTERIM, '{sample}', 'outs', 'filtered_feature_bc_matrix', 'barcodes.tsv.gz'),
+                          sample=SAMPLES
+                          )
     output:
-        join(CR_INTERIM, '{sample}', 'scanpy', '{sample}.h5ad')
+        join(QUANT_INTERIM, 'cellranger', 'barcode_info.tsv')
     container:
-        'docker://' + config['docker']['scanpy']
-    threads:
-        48
+        'docker://' + config['docker']['default']
+    params:
+        script = src_gcf('scripts/cellranger_barcode_info.py'),
+        config = workflow.configfiles[0]
     shell:
-        'python {params.script} ' 
-        '{input.input_files} '
-        '--aggr-csv {input.aggr} '
-        '--sample-info {input.sample_info} '
-        '--feature-info {input.feature_info} '
-        '--barcode-info {input.barcode_info} '
-        '-o {output} '
-        '-v '
-        '--identify-empty-droplets '
-        '-f cellranger '       
+        'python {params.script} '
+        '--aggr-csv {input.aggr_csv} '
+        '--barcodes {input.barcodes} '
+        '--configfile {params.config} '
+        '--output {output} '
+
         
 rule cellranger_scanpy_pp_ipynb:
     input:
-        join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', '{aggr_id}_aggr.h5ad'),
+        join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', '{aggr_id}_filtered.h5ad')
     output:
         preprocessed = join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', '{aggr_id}_preprocessed.h5ad'),
-    log:
-        notebook = join(QUANT_INTERIM, 'aggregate', 'cellranger', 'notebooks', '{aggr_id}_pp.ipynb')
     threads:
         24
+    log:
+        notebook = join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', 'notebooks', '{aggr_id}_pp.ipynb')
     container:
         'docker://' + config['docker']['jupyter-scanpy']
     notebook:
         'scripts/cellranger_preprocess.py.ipynb'
+
 
 rule cellranger_scanpy_pp_ipynb_html:
     input:
         rules.cellranger_scanpy_pp_ipynb.output
     output:
-        join(QUANT_INTERIM, 'aggregate', 'cellranger', 'notebooks', '{aggr_id}_pp.html')
+        join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', 'notebooks', '{aggr_id}_pp.html')
     params:
         notebook = rules.cellranger_scanpy_pp_ipynb.log.notebook
-    container:
-        'docker://' + config['docker']['jupyter-scanpy']
     threads:
         1
-    shell:
-        'jupyter nbconvert --to html {params.notebook} ' 
-
-rule cellranger_cellbender:
-    input:
-        mtx = rules.cellranger_quant.output.raw_mtx,
-        cols = rules.cellranger_quant.output.raw_features,
-        rows = rules.cellranger_quant.output.raw_barcodes,
-    params:
-        input_dir = lambda wildcards, input: os.path.dirname(input.mtx),
-	expected_cells = 10000,
-	epochs = 150,
-	fpr = 0.01,
-	total_droplets_included = 25000,
-	args = '--cuda'
-    container:
-        'docker://' + config['docker']['cellbender']
-    benchmark:
-        'benchmarks/cellbender_{sample}.txt'
-    output:
-        h5 = join(QUANT_INTERIM, 'cellranger', '{sample}', 'cellbender', '{sample}.h5'),
-        filtered_h5 = join(QUANT_INTERIM,'cellranger', '{sample}', 'cellbender', '{sample}_filtered.h5'),
-        aggr = join(QUANT_INTERIM, 'cellranger', '{sample}', 'cellbender', '{sample}_cell_barcodes.csv'),
-        log = join(QUANT_INTERIM, 'cellranger', '{sample}', 'cellbender', '{sample}.log'),
-        fig = join(QUANT_INTERIM, 'cellranger', '{sample}', 'cellbender', '{sample}.pdf')
-    threads:
-        48
-    shell:
-        'cellbender remove-background '
-        '--input {params.input_dir} '
-        '--output {output.h5} '
-        '--total-droplets-included {params.total_droplets_included} '
-        '--fpr {params.fpr} '
-        '--epochs {params.epochs} '
-        '{params.args} '
-
-rule scanpy_cellbender:
-    input:
-        input_files = join(CR_INTERIM, '{sample}', 'cellbender', '{sample}.h5'),
-        sample_info = join(INTERIM_DIR, 'sample_info.tsv'),
-        feature_info = join(CR_REF_DIR, 'anno', 'genes.tsv'),
-        aggr = join(QUANT_INTERIM, 'aggregate', 'description', 'all_samples_aggr.csv'),
-        barcode_info = join(QUANT_INTERIM, 'aggregate', 'cellranger', 'all_samples_droplet_classification.tsv')
-    params:
-        script = src_gcf('scripts/convert_scanpy.py'),
-        genome_name  = DB_CONF['assembly']
-    output:
-        join(CR_INTERIM, '{sample}', 'cellbender', 'scanpy', '{sample}.h5ad')
-    singularity:
-        'docker://' + config['docker']['scanpy']
-    threads:
-        48
-    shell:
-        'python {params.script} ' 
-        '{input.input_files} '
-        '--aggr-csv {input.aggr} '
-        '--sample-info {input.sample_info} '
-        '--feature-info {input.feature_info} '
-        '--barcode-info {input.barcode_info} '
-        '-o {output} '
-        '-v '
-        '-f cellbender '
-
-rule scanpy_cellbender_mtx:
-    input:
-       join(CR_INTERIM, '{sample}', 'cellbender', 'scanpy', '{sample}.h5ad')
-    output:
-       join(CR_INTERIM, '{sample}', 'cellbender', 'scanpy', 'matrix', 'matrix.mtx.gz')
-    params:
-        script = src_gcf('scripts/convert_scanpy.py')    
-    singularity:
-        'docker://' + config['docker']['scanpy']
-    threads:
-        48
-    shell:
-        'python {params.script} {input} -o {output} -v -f h5ad -F mtx --barcode-rename skip '    
-        
-rule scanpy_aggr_cellbender:
-    input:
-        input_files = expand(rules.cellranger_cellbender.output.filtered_h5, sample=SAMPLES),
-        aggr = join(QUANT_INTERIM, 'aggregate', 'description', '{aggr_id}_aggr.csv'),
-        sample_info = join(INTERIM_DIR, 'sample_info.tsv'),
-        feature_info = join(CR_REF_DIR, 'anno', 'genes.tsv'),
-        barcode_info = join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}_droplet_classification.tsv')   
-    params:
-        script = src_gcf('scripts/convert_scanpy.py'),
-        norm = config['quant']['aggregate']['norm']
-    output:
-        join(QUANT_INTERIM, 'aggregate', 'cellranger', 'cellbender', 'scanpy', '{aggr_id}_aggr.h5ad'),
-    container:
-        'docker://' + config['docker']['scanpy']
-    threads:
-        8
-    shell:
-        'python {params.script} ' 
-        '{input.input_files} '
-        '--aggr-csv {input.aggr} '
-        '--sample-info {input.sample_info} '
-        '--feature-info {input.feature_info} '
-        '--barcode-info {input.barcode_info} ' 
-        '-o {output} '
-        '--normalize {params.norm} '
-        '-v '
-        '-f cellbender '
-        
-rule cellbender_all:
-    input:
-        expand(rules.scanpy_aggr_cellbender.output, aggr_id="all_samples"),
-        expand(rules.scanpy_cellbender.output, sample=SAMPLES, aggr_id="all_samples")
-        
-rule cellbender_scanpy_pp_ipynb:
-    input:
-        join(QUANT_INTERIM, 'aggregate', 'cellranger', 'cellbender', 'scanpy', '{aggr_id}_aggr.h5ad')
-    output:
-        preprocessed = join(QUANT_INTERIM, 'aggregate', 'cellranger', 'cellbender', 'scanpy', '{aggr_id}_preprocessed.h5ad'),
-    log:
-        notebook = join(QUANT_INTERIM, 'aggregate', 'cellranger', 'cellbender', 'notebooks', '{aggr_id}_pp.ipynb')
-    threads:
-        24
     container:
         'docker://' + config['docker']['jupyter-scanpy']
-    notebook:
-        'scripts/cellranger_preprocess.py.ipynb'
-
-rule cellbender_scanpy_pp_ipynb_html:
-    input:
-        rules.cellbender_scanpy_pp_ipynb.log
-    output:
-        join(QUANT_INTERIM, 'aggregate', 'cellranger', 'cellbender', 'notebooks', '{aggr_id}_pp.html')
-    container:
-        'docker://' + config['docker']['jupyter-scanpy']
-    threads:
-        1
     shell:
-        'jupyter nbconvert --to html {input} ' 
+        'jupyter nbconvert --to html {params.notebook} '

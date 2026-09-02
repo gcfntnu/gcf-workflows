@@ -5,35 +5,67 @@ author: '`r author`'
 date: '`r Sys.Date()`'
 framework: bootstrap
 mode: selfcontained
-assets:
-  css:
-    - "http://fonts.googleapis.com/css?family=Raleway:300"
-    - "http://fonts.googleapis.com/css?family=Oxygen"
+
 output:
   html_document:
-    toc: TRUE
-    toc_float: TRUE
-    number_sections: TRUE
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+    number_sections: false
+    #code_folding: hide
+    df_print: paged
+    highlight: tango
+    theme:
+      version: 5
+      bootswatch: flatly
+      primary: "#2C3E50"
+      base_font:
+        google: {family: Roboto}
+      heading_font:
+        google: {family: Lato}
+
 bibliography: bibliography.bib
 ---
 
 <style>
-body{
-  font-family: 'Oxygen', sans-serif;
+body {
+  font-family: 'Roboto', sans-serif;
   font-size: 16px;
-  line-height: 24px;
+  line-height: 1.6;
+  color: #2b2b2b;
 }
 
-h1,h2,h3,h4 {
-  font-family: 'Raleway', sans-serif;
+h1, h2, h3, h4 {
+  font-family: 'Lato', sans-serif;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #1a1a1a;
 }
-
 
 h1 {
-  background-color: #D4DAEC;
+  background: linear-gradient(90deg, #E8EBF7, #F6F7FB);
+  padding: 0.3em 0.6em;
+  border-left: 5px solid #6c8ae4;
 }
 
+table {
+  font-size: 14px;
+  border-collapse: collapse;
+}
+code, pre {
+  font-family: 'Roboto Mono', monospace;
+}
 
+.badge {
+  background: #eef2f7;
+  color: #2c3e50;
+  border-radius: 0.4rem;
+  padding: 0.25rem 0.6rem;
+  margin: 0.2rem;
+  display: inline-block;
+  font-size: 0.85rem;
+}
 </style>
 
 
@@ -48,23 +80,22 @@ The analysis is performed using the R software [@rcoreteam], Bioconductor [@Gent
 For more details about the DESeq2 methodology, please refer to its related publications [@Anders2010; @Love2014].
 
 # Description of raw data
-
-The count data files and associated biological conditions are listed in the following table.
+The count data files and associated biological conditions are listed in the following table of `r ncol(counts)` samples.
 
 ```{r , echo=FALSE, results="asis"}
-#print(xtable(target,caption="Table 1: Data files and associated biological conditions."), type="html", include.rownames=FALSE, html.table.attributes = "align='center'")
-library(knitr)
 ts <- target
 rownames(ts) <- NULL
-kable(ts, digits=1, caption="Table 1: Data files and associated biological conditions.")
+kb <- knitr::kable(ts, digits=1, caption="Table 1: Data files and associated biological conditions.")
+kb <- kableExtra::kable_styling(kb, bootstrap_options = c("striped", "hover", "condensed"), full_width = TRUE)
+kb
 ```
 
 After loading the data we first have a look at the raw data table itself. The data table contains one row per annotated feature and one column per sequenced sample. Row names of this table are feature IDs (unique identifiers). The table contains raw count values representing the number of reads that map onto the features. For this project, there are `r nrow(counts)` features in the count data table.
 
 ```{r , echo=FALSE, results="asis"}
-#print(xtable(head(counts),caption="Table 2: Partial view of the count data table.",digits=0), type="html", html.table.attributes = "align='center'")
-library(knitr)
-kable(head(counts, n=10), caption="Table 2: Partial view of the count data table.", digits=0)
+kb <- knitr::kable(head(counts, n=10), caption = "Table 2: PPPPartial view of the count data table.", digits = 0)
+kb <- kableExtra::kable_styling(kb, bootstrap_options = c("striped", "hover", "condensed"), full_width = TRUE)
+kb
 ```
 
 Looking at the summary of the count table provides a basic description of these raw counts (min and max values, median, etc).
@@ -75,10 +106,10 @@ fun_summary=function(x){
   names(out)=c("Min.","1st Qu.","Median","Mean","3rd Qu.","Max.")
   return(round(out,0))
 }
-#print(xtable(apply(counts,2,fun_summary),caption="Table 3: Summary of the raw counts.",digits=0), type="html", html.table.attributes = "align='center'")
-library(knitr)
 counts.c <- counts[,4:ncol(counts)]
-kable(apply(counts.c, 2, fun_summary),caption="Table 3: Summary of the raw counts.",digits=0)
+kb <- knitr::kable(apply(counts.c, 2, fun_summary),caption="Table 3: Summary of the raw counts.",digits=0)
+kb <- kableExtra::kable_styling(kb, bootstrap_options = c("striped", "hover", "condensed"), full_width = TRUE)
+kb
 
 nbNull <- nrow(counts.c) - nrow(removeNull(counts.c)) # needed in one of the next paragraphs
 ```
@@ -125,7 +156,10 @@ rownames(c) <- c[,"Id"]
 anno <- c[rownames(X),]
 X <- cbind(anno, as.data.frame(X))
 rownames(X) <- NULL
-kable(X,caption="Table 4: Percentage of reads associated with the sequences having the highest counts.", digits=1)
+kb <- knitr::kable(X,caption="Table 4: Percentage of reads associated with the sequences having the highest counts.",digits=1)
+kb <- kableExtra::kable_styling(kb, bootstrap_options = c("striped", "hover", "condensed"), full_width = TRUE)
+kb
+
 ```
 
 We may wish to assess the similarity between samples across conditions. A pairwise scatter plot is produced (figure 5) to show how replicates and samples from different biological conditions are similar or different ($\text{log}_2(\text{counts}+1)$ are used instead of raw count values). Moreover, as the Pearson correlation has been shown not to be relevant to measure the similarity between replicates, the SERE statistic has been proposed as a similarity index between RNA-Seq samples [@Schulze2012]. It measures whether the variability between samples is random Poisson variability or higher. Pairwise SERE values are printed in the lower triangle of the pairwise scatter plot. The value of the SERE statistic is:
@@ -175,9 +209,11 @@ if (!is.null(batch)){
 Normalization aims at correcting systematic technical biases in the data, in order to make read counts comparable across samples. The normalization proposed by DESeq2 relies on the hypothesis that most features are not differentially expressed. It computes a scaling factor for each sample. Normalized read counts are obtained by dividing raw read counts by the scaling factor associated with the sample they belong to. Scaling factors around 1 mean (almost) no normalization is performed. Scaling factors lower than 1 will produce normalized counts higher than raw ones, and the other way around. Two options are available to compute scaling factors: locfunc="median" (default) or locfunc="shorth". Here, the normalization was performed with locfunc="`r locfunc`".
 
 ```{r , echo=FALSE, results="asis"}
-#print(xtable(t(matrix(out.DESeq2$sf, dimnames=list(target$label,"Size factor"))),caption="Table 5: Normalization factors."), type="html", html.table.attributes = "align='center'")
-library(knitr)
-kable(out.DESeq2$sf,caption="Table 5: Normalization factors.", digits=2)
+sf <- as.data.frame(out.DESeq2$sf)
+colnames(sf) <- "Normalization factor"
+kb <- knitr::kable(sf, caption="Table 5: Normalization factors.",digits=1)
+kb <- kableExtra::kable_styling(kb, bootstrap_options = c("striped", "hover", "condensed"), full_width = TRUE)
+kb
 ```
 
 The histograms (figure 8) can help to validate the choice of the normalization parameter ("median" or "shorth"). Under the hypothesis that most features are not differentially expressed, each size factor represented by a red line is expected to be close to the mode of the distribution of the counts divided by their geometric means across samples.
@@ -241,9 +277,9 @@ DESeq2 can perform an independent filtering to increase the detection power of d
 ```{r , echo=FALSE, results="asis"}
 if (independentFiltering){
   cat("Table 6 reports the thresholds used for each comparison and the number of features discarded by the independent filtering. Adjusted p-values of discarded features are then set to NA.\n")
-  #print(xtable(summaryResults$tabIndepFiltering,caption="Table 6: Number of features discarded by the independent filtering for each comparison."),type="html",include.rownames=FALSE, html.table.attributes = "align='center'")
-  library(knitr)
-  kable(summaryResults$tabIndepFiltering,caption="Table 6: Number of features discarded by the independent filtering for each comparison.")
+  kb <- knitr::kable(summaryResults$tabIndepFiltering,caption="Table 6: Number of features discarded by the independent filtering for each comparison.")
+  kb <- kableExtra::kable_styling(kb, bootstrap_options = c("striped", "hover", "condensed"), full_width = TRUE)
+  kb
 } else{
   cat("For this project, no independent filtering has been performed.")
 }
@@ -254,9 +290,9 @@ if (independentFiltering){
 A p-value adjustment is performed to take into account multiple testing and control the false positive rate to a chosen level $\alpha$. For this analysis, a `r pAdjustMethod` p-value adjustment was performed [@BH1995 and BY2001] and the level of controlled false positive rate was set to `r alpha`.
 
 ```{r , echo=FALSE, results="asis"}
-#print(xtable(summaryResults$nDiffTotal,caption=paste0(ifelse(independentFiltering,"Table 7: ","Table 6: "),"Number of up-, down- and total number of differentially expressed features for each comparison.")),type="html",include.rownames=FALSE, html.table.attributes = "align='center'")
-library(knitr)
-kable(summaryResults$nDiffTotal,caption=paste0(ifelse(independentFiltering,"Table 7: ","Table 6: "),"Number of up-, down- and total number of differentially expressed features for each comparison."))
+kb <- knitr::kable(summaryResults$nDiffTotal,caption=paste0(ifelse(independentFiltering,"Table 7: ","Table 6: "),"Number of up-, down- and total number of differentially expressed features for each comparison."))
+kb <- kableExtra::kable_styling(kb, bootstrap_options = c("striped", "hover", "condensed"), full_width = TRUE)
+kb
 ```
 
 Figure 13 represents the MA-plot of the data for the comparisons done, where differentially expressed features are highlighted in red. A MA-plot represents the log ratio of differential expression as a function of the mean intensity for each feature. Triangles correspond to features having a too low/high $\log_2(\text{FC})$ to be displayed on the plot.

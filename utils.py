@@ -77,9 +77,10 @@ def update_config2(config, extra_config):
                     try:
                         d[key] = value
                     except:
-                        print("MMMM")
+                        print("Failed dict update in update_config2")
                         print(key)
                         print(d)
+                        print(value)
         return d
 
     return _update(config, extra_config)
@@ -179,9 +180,12 @@ def load_model(model_yaml_file):
 def get_raw_fastq(wildcards):
     """Returns path to fastq files per sample.
     """
-
-    R1 = config['samples'][wildcards.sample].get('R1', [])
-    R2 = config['samples'][wildcards.sample].get('R2', [])
+    if 'sublib' in wildcards.keys(): # parsebio: sample==sublib
+        R1 = config['samples'][wildcards.sublib].get('R1', [])
+        R2 = config['samples'][wildcards.sublib].get('R2', [])
+    else:
+        R1 = config['samples'][wildcards.sample].get('R1', [])
+        R2 = config['samples'][wildcards.sample].get('R2', [])
     if R1 == '':
         R1 = []
     if R2 == '':
