@@ -349,7 +349,9 @@ rule scanpy_aggr_filtered:
         bc_type = lambda wc: BC_RENAME[wc.method],
         enable_cb = '--enable-cellbender' if CB_OUTPUT else '',
         aggr_csv = lambda wc, input: (
-            f'--aggr-csv {input.aggr_csv} -f cellranger_aggr ' if input.aggr_csv else f'-f {wc.method} '
+            f'--aggr-csv {input.aggr_csv} -f cellranger_aggr '
+            if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger'
+            else f'-f {wc.method} '
         )
     threads:
         48
