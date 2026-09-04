@@ -26,7 +26,7 @@ rule orthogene_premap:
         method = 'gprofiler',
         non121_strategy = 'drop_both_species'
     container:
-        'docker://gcfntnu/orthogene:1.12.0'
+        'docker://' + config['docker']['orthogene']
     threads:
         24
     shell:
@@ -170,7 +170,7 @@ rule mapmycells_gene_map:
         method = 'gprofiler',
         non121_strategy = 'drop_both_species'
     container:
-        'docker://gcfntnu/orthogene:1.12.0'
+        'docker://' + config['docker']['orthogene']
     shell:
         'Rscript {params.script} '
         '{input.aggr_raw_h5ad} '
