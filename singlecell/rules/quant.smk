@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 AGGR_IDS = collections.defaultdict(list)
 METHODS = [m.strip() for m in config['quant']['method'].split(',') if m.strip()]
+QUANT_METHOD_PATTERN = '|'.join(METHODS)
 AGGR_METHOD = config['quant'].get('aggregate', {}).get('method', 'default')
 if AGGR_METHOD == 'default':
     if config['libprepkit'].startswith('10X Genomics') and 'cellranger' in METHODS:
@@ -95,6 +96,11 @@ def _annotation_methods(cfg):
 ANNO_METHODS = _annotation_methods(config)
 ANNO_ENABLED = bool(ANNO_METHODS)
 
+PSEUDOBULK_CFG = config.get('pseudobulk', {})
+PSEUDOBULK_ENABLED = bool(PSEUDOBULK_CFG) and ANNO_ENABLED
+PSEUDOBULK_ANNOTATION_COLUMNS = PSEUDOBULK_CFG.get('annotation_column', [])
+if isinstance(PSEUDOBULK_ANNOTATION_COLUMNS, str):
+    PSEUDOBULK_ANNOTATION_COLUMNS = [column.strip() for column in PSEUDOBULK_ANNOTATION_COLUMNS.split(',') if column.strip()]
 
 if not config['quant']['aggregate'].get('skip', False):
     groupby = config['quant']['aggregate'].get('groupby', 'all_samples')
@@ -304,7 +310,8 @@ if config['libprepkit'].startswith("10X Genomics") or config['libprepkit'].start
     include: 'quant/doublets.smk'
 if ANNO_ENABLED:
     include: 'quant/auto_annotation.smk'
-
+    if PSEUDOBULK_ENABLED:
+        include: 'quant/pseudobulk.smk'
 
 def scanpy_aggr_inputs(wc):
     if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger':
@@ -493,6 +500,9 @@ def quant_all_inputs(wc):
 
     if 'parsebio_starsolo' in METHODS:
         inputs.append(join(QUANT_INTERIM, 'parsebio_starsolo', '.starsolo.mem.cleaned'))
+
+    if PSEUDOBULK_ENABLED:
+        inputs.extend(pseudobulk_all_inputs(wc))
 
     return inputs
 
