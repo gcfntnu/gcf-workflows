@@ -1,350 +1,331 @@
 #!/usr/bin/env python3
-"""
-Extend a MapMyCells annotation CSV with:
-  - colors from an Allen ABC colors JSON
-  - cluster-level metadata from the Allen CCN Excel table (joined by cluster ID)
-  - derived region metadata from CCF_broad.freq / CCF_acronym.freq
-  - (optional) strict column selection via --preset or --keep
+"""Normalize and extend MapMyCells annotations using Allen taxonomy metadata.
 
-Hard requirements:
-  - Preserve the first column EXACTLY (name, order, values). It is used as an index downstream.
-  - Write normalized tab-separated output without MapMyCells comment metadata.
-
-Join key (default, correct for your files):
-  annotation.cluster_label  <->  excel["cell_set_accession.cluster"]
+Canonical enrichment is organism-independent and uses the standard Allen taxonomy
+files: cluster.csv, cluster_annotation_term.csv, and
+cluster_to_cluster_annotation_membership.csv. Mouse-specific anatomical metadata
+can optionally be added from the WMB cluster metadata workbook.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 import pandas as pd
 
 
-# ----------------------------
-# Input/output helpers
-# ----------------------------
+NEURON_NEUROTRANSMITTERS = {"Glut", "GABA", "Glut-GABA"}
 
-def read_csv_with_leading_comments(path: Path) -> Tuple[List[str], pd.DataFrame]:
-    comments: List[str] = []
-    with path.open("r", encoding="utf-8") as f:
-        while True:
-            pos = f.tell()
-            line = f.readline()
-            if not line:
-                break
-            if line.startswith("#"):
-                comments.append(line.rstrip("\n"))
-            else:
-                f.seek(pos)
-                break
-        df = pd.read_csv(f)
+
+def read_mapmycells_csv(path: Path) -> pd.DataFrame:
+    """Read a MapMyCells CSV, ignoring its leading comment metadata."""
+    df = pd.read_csv(path, comment="#")
     if df.shape[1] < 1:
         raise RuntimeError(f"{path} has no columns.")
-    return comments, df
+    return df
 
 
 def write_normalized_tsv(path: Path, df: pd.DataFrame) -> None:
-    """Write a downstream-ready barcode table."""
     path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(path, sep="\t", index=False)
 
 
-# ----------------------------
-# Helpers: parse Allen "A:0.12,B:0.05" mixture strings
-# ----------------------------
-
-def parse_freq_field(s: object) -> Tuple[Optional[str], Optional[float]]:
-    """
-    Parse 'A:0.12,B:0.05' -> (top_key, top_val).
-    Returns (None, None) if empty/invalid.
-    """
-    if s is None or (isinstance(s, float) and pd.isna(s)):
-        return None, None
-    s = str(s).strip()
-    if not s:
+def parse_freq_field(value: object) -> Tuple[Optional[str], Optional[float]]:
+    """Parse Allen mixture strings such as 'A:0.12,B:0.05'."""
+    if value is None or pd.isna(value):
         return None, None
 
-    items: List[Tuple[str, float]] = []
-    for part in s.split(","):
+    items = []
+    for part in str(value).split(","):
         part = part.strip()
         if not part or ":" not in part:
             continue
-        k, v = part.split(":", 1)
-        k = k.strip()
-        v = v.strip()
+        key, val = part.split(":", 1)
         try:
-            fv = float(v)
+            items.append((key.strip(), float(val.strip())))
         except ValueError:
             continue
-        items.append((k, fv))
 
-    if not items:
-        return None, None
-    return max(items, key=lambda kv: kv[1])
+    return max(items, key=lambda item: item[1]) if items else (None, None)
 
 
 def add_region_meta(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Requires (after Excel join):
-      - CCF_broad.freq (optional)
-      - CCF_acronym.freq (optional)
-      - anatomical_annotation (optional)
-
-    Adds:
-      - region_broad, region_broad_p
-      - region_acronym_top, region_acronym_p
-    """
     out = df.copy()
 
     if "CCF_broad.freq" in out.columns:
         broad = out["CCF_broad.freq"].map(parse_freq_field)
-        out["region_broad"] = [k for k, _ in broad]
-        out["region_broad_p"] = [v for _, v in broad]
-    else:
-        out["region_broad"] = pd.NA
-        out["region_broad_p"] = pd.NA
+        out["region_broad"] = [key for key, _ in broad]
+        out["region_broad_p"] = [value for _, value in broad]
 
     if "CCF_acronym.freq" in out.columns:
-        acr = out["CCF_acronym.freq"].map(parse_freq_field)
-        out["region_acronym_top"] = [k for k, _ in acr]
-        out["region_acronym_p"] = [v for _, v in acr]
-    else:
-        out["region_acronym_top"] = pd.NA
-        out["region_acronym_p"] = pd.NA
+        acronym = out["CCF_acronym.freq"].map(parse_freq_field)
+        out["region_acronym_top"] = [key for key, _ in acronym]
+        out["region_acronym_p"] = [value for _, value in acronym]
 
     return out
 
 
-# ----------------------------
-# Color augmentation
-# ----------------------------
-
-def load_colors(path: Path) -> dict:
-    with path.open("r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-def infer_nt_from_class_name(class_name: object) -> str:
-    """
-    Fallback only. If Excel join provided nt_type_label, use that.
-    If missing, infer coarse NT from MapMyCells class_name.
-    """
-    if class_name is None or (isinstance(class_name, float) and pd.isna(class_name)):
-        return "NA"
-    s = str(class_name)
-    # MapMyCells class names usually contain "Glut" / "GABA"
-    if "GABA" in s:
-        return "GABA"
-    if "Glut" in s:
-        return "Glut"
-    return "NA"
+def taxonomy_levels(annotation: pd.DataFrame) -> list[str]:
+    """Return hierarchy levels represented in a MapMyCells result."""
+    levels = []
+    for level in ("supercluster", "class", "subclass", "supertype", "cluster", "subcluster"):
+        if f"{level}_label" in annotation.columns:
+            levels.append(level)
+    return levels
 
 
-def add_neuron_nonneuron_from_neurotransmitter(nt_label):
-    """Add neuron vs non-neuron column based on nt_type_label."""
-
-    def _classify(nt):
-        if pd.isna(nt) or nt == "NA":
-            return "non-neuron"
-        return "neuron" if nt in {"Glut", "GABA", "Glut-GABA"} else "non-neuron"
-
-    return nt_label.map(_classify)
+def finest_level(annotation: pd.DataFrame) -> str:
+    """Return the finest MapMyCells taxonomy level available."""
+    for level in ("subcluster", "cluster"):
+        if f"{level}_label" in annotation.columns:
+            return level
+    raise RuntimeError("MapMyCells annotation has neither subcluster_label nor cluster_label.")
 
 
-def add_colors(df: pd.DataFrame, colors: dict) -> pd.DataFrame:
-    out = df.copy()
+def add_canonical_taxonomy(
+    annotation: pd.DataFrame,
+    cluster_path: Path,
+    term_path: Path,
+    membership_path: Path,
+) -> pd.DataFrame:
+    """Add Allen colors and neurotransmitter assignment from canonical taxonomy tables."""
+    out = annotation.copy()
 
-    # Hierarchy colors (keyed by readable names, if present in JSON)
-    if "class_name" in out.columns and "class" in colors:
-        out["class_color"] = out["class_name"].map(colors.get("class", {}))
-    if "subclass_name" in out.columns and "subclass" in colors:
-        out["subclass_color"] = out["subclass_name"].map(colors.get("subclass", {}))
-    if "supertype_name" in out.columns and "supertype" in colors:
-        out["supertype_color"] = out["supertype_name"].map(colors.get("supertype", {}))
-    if "cluster_name" in out.columns and "cluster" in colors:
-        out["cluster_color"] = out["cluster_name"].map(colors.get("cluster", {}))
+    cluster = pd.read_csv(cluster_path, dtype="string")
+    term = pd.read_csv(term_path, dtype="string", keep_default_na=False)
+    membership = pd.read_csv(membership_path, dtype="string")
 
-    # Neurotransmitter colors
-    nt_palette = colors.get("neurotransmitter", {})
-    if not nt_palette:
-        raise RuntimeError("Colors JSON missing 'neurotransmitter' palette.")
+    required_cluster = {"label", "cluster_alias"}
+    required_term = {"label", "name", "cluster_annotation_term_set_name", "color_hex_triplet"}
+    required_membership = {
+        "cluster_alias",
+        "cluster_annotation_term_set_name",
+        "cluster_annotation_term_name",
+    }
 
-    # Ensure nt_type_label exists (Excel preferred; fallback only if absent)
-    if "nt_type_label" not in out.columns:
-        if "class_name" in out.columns:
-            out["nt_type_label"] = out["class_name"].map(infer_nt_from_class_name)
-        else:
-            raise RuntimeError("Cannot create nt_type_label: neither nt_type_label nor class_name present.")
+    if missing := required_cluster - set(cluster.columns):
+        raise RuntimeError(f"Allen cluster table missing columns: {sorted(missing)}")
+    if missing := required_term - set(term.columns):
+        raise RuntimeError(f"Allen term table missing columns: {sorted(missing)}")
+    if missing := required_membership - set(membership.columns):
+        raise RuntimeError(f"Allen membership table missing columns: {sorted(missing)}")
 
-    # Create nt_type_color (always)
-    out["nt_type_color"] = out["nt_type_label"].map(nt_palette)
+    # Taxonomy labels are authoritative identifiers. Normalize whitespace only.
+    term = term.copy()
+    term["label"] = term["label"].str.strip()
+    term_by_label = term.set_index("label", verify_integrity=True)
 
-    # Hard fail if anything unmapped (except NA if you allow it)
-    unmapped = out["nt_type_label"].notna() & out["nt_type_color"].isna()
-    if unmapped.any():
-        bad = sorted(out.loc[unmapped, "nt_type_label"].astype(str).unique().tolist())
+    for level in taxonomy_levels(out):
+        label_col = f"{level}_label"
+        color_col = f"{level}_color"
+        labels = out[label_col].astype("string").str.strip()
+        out[label_col] = labels
+        out[color_col] = labels.map(term_by_label["color_hex_triplet"])
+
+        missing_color = labels.notna() & out[color_col].isna()
+        if missing_color.any():
+            examples = sorted(labels[missing_color].dropna().unique().tolist())[:10]
+            raise RuntimeError(
+                f"Allen taxonomy has no color for {missing_color.sum()} {level} assignments. "
+                f"Examples: {examples}"
+            )
+
+    finest = finest_level(out)
+    finest_label_col = f"{finest}_label"
+
+    cluster = cluster.copy()
+    cluster["label"] = cluster["label"].str.strip()
+    cluster_by_label = cluster.set_index("label", verify_integrity=True)
+    finest_labels = out[finest_label_col].astype("string").str.strip()
+    aliases = finest_labels.map(cluster_by_label["cluster_alias"])
+
+    missing_alias = finest_labels.notna() & aliases.isna()
+    if missing_alias.any():
+        examples = sorted(finest_labels[missing_alias].dropna().unique().tolist())[:10]
         raise RuntimeError(
-            f"nt_type_color mapping missing for nt_type_label categories: {bad}. "
-            "Update abc_colors.json or your nt_type_label values."
+            f"Allen cluster table has no cluster_alias for {missing_alias.sum()} MapMyCells assignments. "
+            f"Examples: {examples}"
         )
 
+    nt = membership.loc[
+        membership["cluster_annotation_term_set_name"].eq("neurotransmitter"),
+        ["cluster_alias", "cluster_annotation_term_name"],
+    ].drop_duplicates()
+
+    duplicated = nt["cluster_alias"].duplicated(keep=False)
+    if duplicated.any():
+        bad = nt.loc[duplicated, "cluster_alias"].drop_duplicates().tolist()[:10]
+        raise RuntimeError(f"Multiple neurotransmitter assignments for cluster aliases: {bad}")
+
+    nt_by_alias = nt.set_index("cluster_alias")["cluster_annotation_term_name"]
+    out["nt_type_label"] = aliases.map(nt_by_alias)
+
+    missing_nt = aliases.notna() & out["nt_type_label"].isna()
+    if missing_nt.any():
+        examples = sorted(aliases[missing_nt].dropna().unique().tolist())[:10]
+        raise RuntimeError(
+            f"Allen membership table has no neurotransmitter assignment for {missing_nt.sum()} cells. "
+            f"Cluster aliases: {examples}"
+        )
+
+    nt_terms = term.loc[
+        term["cluster_annotation_term_set_name"].eq("neurotransmitter")
+    ].drop_duplicates(subset=["name"])
+    nt_colors = nt_terms.set_index("name")["color_hex_triplet"]
+    out["nt_type_color"] = out["nt_type_label"].map(nt_colors)
+
+    missing_nt_color = out["nt_type_label"].notna() & out["nt_type_color"].isna()
+    if missing_nt_color.any():
+        bad = sorted(out.loc[missing_nt_color, "nt_type_label"].unique().tolist())
+        raise RuntimeError(f"Allen taxonomy has no colors for neurotransmitter terms: {bad}")
+
+    out["cell_class"] = out["nt_type_label"].map(
+        lambda value: "neuron" if value in NEURON_NEUROTRANSMITTERS else "non-neuron"
+    )
+
     return out
 
 
-# ----------------------------
-# Column selection
-# ----------------------------
+def add_mouse_addon(annotation: pd.DataFrame, metadata_path: Path) -> pd.DataFrame:
+    """Add optional WMB-only anatomical and spatial cluster metadata."""
+    if "cluster_label" not in annotation.columns:
+        raise RuntimeError("Mouse taxonomy addon requires cluster_label in MapMyCells annotation.")
 
-PRESETS: Dict[str, List[str]] = {
-    # Minimal, high-value columns for downstream (cell-level)
-    "minimal": [
-        "class_label", "class_name", "class_bootstrapping_probability",
-        "subclass_label", "subclass_name", "subclass_bootstrapping_probability",
-        "supertype_label", "supertype_name", "supertype_bootstrapping_probability",
-        "cluster_label", "cluster_name", "cluster_bootstrapping_probability",
-        "nt_type_label", "nt_type_color",
-        "cell_class",
-        "region_broad", "region_broad_p",
-        "region_acronym_top", "region_acronym_p",
-        "anatomical_annotation", "neighborhood",
-        "class_color", "subclass_color", "supertype_color", "cluster_color",
-    ],
+    meta = pd.read_excel(metadata_path, engine="openpyxl")
+    meta.columns = [str(column).strip() for column in meta.columns]
 
-    # Same, but also keep the original freq strings for audit/debug
-    "spatial": [
-        "class_label", "class_name", "class_bootstrapping_probability",
-        "subclass_label", "subclass_name", "subclass_bootstrapping_probability",
-        "supertype_label", "supertype_name", "supertype_bootstrapping_probability",
-        "cluster_label", "cluster_name", "cluster_bootstrapping_probability",
-        "nt_type_label", "nt_type_color",
-        "region_broad", "region_broad_p",
-        "region_acronym_top", "region_acronym_p",
-        "CCF_broad.freq", "CCF_acronym.freq",
-        "neighborhood", "anatomical_annotation",
-        "class_color", "subclass_color", "supertype_color", "cluster_color",
-    ],
-    # Keep everything (after merge) — still preserves first column
-    "full": [],
-}
+    right_key = "cell_set_accession.cluster"
+    if right_key not in meta.columns:
+        raise RuntimeError(f"Mouse taxonomy metadata missing '{right_key}'.")
+
+    out = annotation.copy()
+    out["cluster_label"] = out["cluster_label"].astype("string").str.strip()
+    meta[right_key] = meta[right_key].astype("string").str.strip()
+
+    addon_columns = [
+        right_key,
+        "neighborhood",
+        "anatomical_annotation",
+        "CCF_broad.freq",
+        "CCF_acronym.freq",
+    ]
+    addon_columns = [column for column in addon_columns if column in meta.columns]
+    addon = meta.loc[:, addon_columns].drop_duplicates(subset=[right_key])
+
+    merged = out.merge(
+        addon,
+        how="left",
+        left_on="cluster_label",
+        right_on=right_key,
+        validate="many_to_one",
+    )
+    merged = merged.drop(columns=[right_key], errors="ignore")
+    return add_region_meta(merged)
 
 
-def select_columns(df: pd.DataFrame, index_col: str, keep: Optional[List[str]], preset: Optional[str]) -> pd.DataFrame:
+def select_columns(
+    df: pd.DataFrame,
+    index_col: str,
+    keep: Optional[List[str]],
+    preset: Optional[str],
+) -> pd.DataFrame:
     if keep and preset:
         raise RuntimeError("Use either --keep or --preset, not both.")
+    if preset == "full":
+        return df
 
-    if preset:
-        if preset not in PRESETS:
-            raise RuntimeError(f"Unknown preset '{preset}'. Options: {sorted(PRESETS)}")
-        if preset == "full":
-            return df
-        keep_cols = PRESETS[preset]
-    elif keep:
-        keep_cols = keep
+    if keep:
+        wanted = keep
     else:
-        keep_cols = PRESETS["minimal"]
+        wanted = []
+        for level in taxonomy_levels(df):
+            wanted.extend(
+                [
+                    f"{level}_label",
+                    f"{level}_name",
+                    f"{level}_bootstrapping_probability",
+                    f"{level}_color",
+                ]
+            )
+        wanted.extend(["nt_type_label", "nt_type_color", "cell_class"])
 
-    cols = [index_col]
-    for c in keep_cols:
-        if c == index_col:
-            continue
-        if c in df.columns:
-            cols.append(c)
+        if preset == "spatial":
+            wanted.extend(["CCF_broad.freq", "CCF_acronym.freq"])
+        wanted.extend(
+            [
+                "region_broad",
+                "region_broad_p",
+                "region_acronym_top",
+                "region_acronym_p",
+                "anatomical_annotation",
+                "neighborhood",
+            ]
+        )
 
-    return df.loc[:, cols]
+    columns = [index_col]
+    columns.extend(column for column in wanted if column != index_col and column in df.columns)
+    return df.loc[:, columns]
 
-
-# ----------------------------
-# Main
-# ----------------------------
 
 def main() -> int:
-    ap = argparse.ArgumentParser(
-        description="Extend MapMyCells annotation with Allen Excel metadata + colors JSON. Preserves first column."
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--annotation", required=True, type=Path, help="MapMyCells annotation CSV")
+    parser.add_argument("--taxonomy-cluster", required=True, type=Path, help="Allen taxonomy cluster.csv")
+    parser.add_argument("--taxonomy-term", required=True, type=Path, help="Allen cluster_annotation_term.csv")
+    parser.add_argument(
+        "--taxonomy-membership",
+        required=True,
+        type=Path,
+        help="Allen cluster_to_cluster_annotation_membership.csv",
     )
-    ap.add_argument("--annotation", required=True, help="MapMyCells annotation CSV")
-    ap.add_argument("--metadata", required=True, help="Allen CCN metadata Excel (.xlsx)")
-    ap.add_argument("--colors", required=True, help="Allen colors JSON (abc_colors.json)")
-    ap.add_argument("--out", required=True, help="Normalized extended annotation TSV")
+    parser.add_argument(
+        "--mouse-metadata",
+        type=Path,
+        default=None,
+        help="Optional WMB-specific cl.df taxonomy metadata workbook",
+    )
+    parser.add_argument("--out", required=True, type=Path, help="Normalized extended annotation TSV")
+    parser.add_argument("--preset", choices=("minimal", "spatial", "full"), default="minimal")
+    parser.add_argument("--keep", default=None, help="Comma-separated columns to retain")
+    parser.add_argument("--verbose", action="store_true")
+    args = parser.parse_args()
 
-    ap.add_argument("--left-key", default="cluster_label",
-                    help="Join key column in annotation (default: cluster_label)")
-    ap.add_argument("--right-key", default="cell_set_accession.cluster",
-                    help="Join key column in metadata Excel (default: cell_set_accession.cluster)")
+    annotation = read_mapmycells_csv(args.annotation)
+    index_col = annotation.columns[0]
+    original_index = annotation[index_col].copy()
 
-    ap.add_argument("--preset", choices=sorted(PRESETS.keys()), default=None,
-                    help="Column preset: minimal, spatial, full. Default: minimal")
-    ap.add_argument("--keep", default=None,
-                    help="Comma-separated list of columns to keep (simplified). Always keeps first column.")
-
-    ap.add_argument("--verbose", action="store_true", help="Print basic join diagnostics.")
-    args = ap.parse_args()
-
-    ann_path = Path(args.annotation)
-    meta_path = Path(args.metadata)
-    colors_path = Path(args.colors)
-    out_path = Path(args.out)
-
-    _, ann = read_csv_with_leading_comments(ann_path)
-    index_col = ann.columns[0]  # preserve EXACTLY
-
-    meta = pd.read_excel(meta_path, engine="openpyxl")
-    meta.columns = [str(c).strip() for c in meta.columns]
-
-    if args.left_key not in ann.columns:
-        raise RuntimeError(f"Annotation missing left join key '{args.left_key}'. Columns: {list(ann.columns)}")
-    if args.right_key not in meta.columns:
-        raise RuntimeError(f"Metadata missing right join key '{args.right_key}'. Columns: {list(meta.columns)}")
-
-    # Merge (left join keeps all cells)
-    merged = ann.merge(
-        meta,
-        how="left",
-        left_on=args.left_key,
-        right_on=args.right_key,
-        suffixes=("", "_meta"),
+    extended = add_canonical_taxonomy(
+        annotation,
+        args.taxonomy_cluster,
+        args.taxonomy_term,
+        args.taxonomy_membership,
     )
 
-    # Region meta derived from Excel mixture strings
-    merged = add_region_meta(merged)
+    if args.mouse_metadata is not None:
+        extended = add_mouse_addon(extended, args.mouse_metadata)
 
-    # Add colors (hierarchy + neurotransmitter)
-    colors = load_colors(colors_path)
-    merged = add_colors(merged, colors)
-
-    # Add top-level cell_class (neuron vs non-neuron)
-    if "nt_type_label" in merged.columns:
-        merged["cell_class"] = add_neuron_nonneuron_from_neurotransmitter(merged["nt_type_label"])
-
-    # Column selection
-    keep_cols = None
+    keep = None
     if args.keep:
-        keep_cols = [c.strip() for c in args.keep.split(",") if c.strip()]
+        keep = [column.strip() for column in args.keep.split(",") if column.strip()]
 
-    out_df = select_columns(merged, index_col=index_col, keep=keep_cols, preset=args.preset)
+    output = select_columns(extended, index_col=index_col, keep=keep, preset=args.preset)
 
-    # Hard guarantees about the first column
-    if out_df.columns[0] != index_col:
+    if output.columns[0] != index_col:
         raise RuntimeError("BUG: first column moved.")
-    if not out_df[index_col].equals(ann[index_col]):
-        raise RuntimeError("BUG: first column values changed.")
+    if not output[index_col].equals(original_index):
+        raise RuntimeError("BUG: first column values or order changed.")
 
     if args.verbose:
-        n = len(out_df)
-        m = merged[args.right_key].notna().sum() if args.right_key in merged.columns else 0
-        print(f"[info] cells={n}")
-        print(f"[info] joined_meta_nonnull={m} ({m/n:.3f})")
-        if "region_broad" in merged.columns:
-            miss_region = merged["region_broad"].isna().sum()
-            print(f"[info] region_broad_missing={miss_region} ({miss_region/n:.3f})")
-        if "nt_type_label" in merged.columns:
-            miss_nt = merged["nt_type_label"].isna().sum()
-            print(f"[info] nt_type_label_missing={miss_nt} ({miss_nt/n:.3f})")
+        print(f"[info] cells={len(output)}")
+        print(f"[info] taxonomy_levels={','.join(taxonomy_levels(output))}")
+        print("[info] neurotransmitter counts:")
+        print(output["nt_type_label"].value_counts(dropna=False).to_string())
+        print("[info] cell_class counts:")
+        print(output["cell_class"].value_counts(dropna=False).to_string())
 
-    write_normalized_tsv(out_path, out_df)
+    write_normalized_tsv(args.out, output)
     return 0
 
 
