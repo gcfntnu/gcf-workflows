@@ -73,6 +73,53 @@ def _qc_mad_metric_flags(cfg):
     return " ".join(flags)
 
 
+def _qc_prepare_inputs(wc):
+    if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger':
+        counts = [
+            join(
+                QUANT_INTERIM,
+                'aggregate',
+                'cellranger',
+                wc.aggr_id,
+                'outs',
+                'count',
+                'filtered_feature_bc_matrix',
+                'matrix.mtx.gz',
+            )
+        ]
+    else:
+        counts = [
+            _get_filtered_mtx(SimpleNamespace(method=wc.method, sublib=s, sample=s))['mtx']
+            for s in AGGR_IDS[wc.aggr_id]
+        ]
+
+    result = {
+        'counts': counts,
+        'feature_info': [join(REF_DIR, 'anno', 'genes.tsv')],
+        'barcode_info': get_barcode_info_list(wc),
+    }
+    if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger':
+        result['aggr_csv'] = join(
+            QUANT_INTERIM,
+            'aggregate',
+            'description',
+            f'{wc.aggr_id}_aggr.csv',
+        )
+    return result
+
+
+def _qc_prepare_input_format(wc):
+    if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger':
+        return 'cellranger_aggr'
+    return wc.method
+
+
+def _qc_prepare_aggr_csv_arg(wc, input):
+    if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger':
+        return f'--aggr-csv {input.aggr_csv} '
+    return ''
+
+
 # ---- legacy histogram QC helpers ----
 
 def _qc_sample_str(cfg):
@@ -150,12 +197,16 @@ def _hist_bounds_flags(cfg):
 
 rule autoqc_prepare:
     input:
-        aggr_preqc_h5ad = get_preqc_anndata
+        unpack(_qc_prepare_inputs)
     output:
         metrics = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', '{aggr_id}_qc_metrics.parquet'),
         log = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', '{aggr_id}_qc_prepare.log'),
     params:
-        script = src_gcf('scripts/qc_prepare.py'),
+        script = src_gcf('scripts/qc_prepare_mtx.py'),
+        converter_script_dir = join(SRC_DIR, 'singlecell', 'rules', 'quant', 'scripts'),
+        input_format = _qc_prepare_input_format,
+        barcode_rename = lambda wc: BC_RENAME[wc.method],
+        aggr_csv = _qc_prepare_aggr_csv_arg,
         qc_sample = lambda wc: _qc_prepare_sample_str(config),
         qc_vars = lambda wc: _qc_prepare_vars_str(config),
         exclude_doublets = lambda wc: _qc_fit_exclude_doublets(config),
@@ -165,7 +216,13 @@ rule autoqc_prepare:
         'docker://gcfntnu/sctk:0.2.2'
     shell:
         'python {params.script} '
-        '--input-h5ad {input.aggr_preqc_h5ad} '
+        '{input.counts} '
+        '--converter-script-dir {params.converter_script_dir} '
+        '--input-format {params.input_format} '
+        '--barcode-rename {params.barcode_rename} '
+        '{params.aggr_csv}'
+        '--feature-info {input.feature_info} '
+        '--barcode-info {input.barcode_info} '
         '--output-metrics {output.metrics} '
         '--qc-sample {params.qc_sample} '
         '--qc-vars {params.qc_vars} '
