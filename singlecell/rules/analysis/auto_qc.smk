@@ -8,7 +8,7 @@ Automatic Quality Control of single cell rna-seq data
 def _qc_prepare_sample_str(cfg):
     qc_sample = cfg.get("qc", {}).get("qc_sample")
     if qc_sample is None:
-        qc_sample = [cfg.get("sample_id", "Sample_ID")]
+        qc_sample = ["sample_id"]
     elif isinstance(qc_sample, str):
         qc_sample = [qc_sample]
     if not qc_sample:
