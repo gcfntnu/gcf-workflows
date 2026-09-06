@@ -13,7 +13,6 @@ import argparse
 import logging
 import os
 import sys
-from pathlib import Path
 from types import SimpleNamespace
 
 import anndata as ad
@@ -93,27 +92,6 @@ def merge_frame(left: pd.DataFrame, right: pd.DataFrame, source: str) -> pd.Data
     return left
 
 
-def read_annotation_sidecar(path: str) -> pd.DataFrame:
-    suffix = Path(path).suffix.lower()
-    if suffix in {".tsv", ".txt"}:
-        frame = pd.read_csv(path, sep="\t")
-    elif suffix == ".csv":
-        frame = pd.read_csv(path)
-    else:
-        raise ValueError(f"Unsupported annotation sidecar extension: {path}")
-
-    if frame.shape[1] < 1:
-        raise ValueError(f"Annotation sidecar has no columns: {path}")
-    index_col = frame.columns[0]
-    frame[index_col] = frame[index_col].astype(str).str.strip()
-    frame = frame.set_index(index_col)
-    frame.index.name = "barcode"
-    if not frame.index.is_unique:
-        examples = frame.index[frame.index.duplicated()].unique().tolist()[:5]
-        raise ValueError(f"Annotation sidecar has duplicate barcodes: {path}; examples={examples}")
-    return frame
-
-
 def load_feature_info(conv, paths: list[str]) -> list[tuple[str, pd.DataFrame]]:
     result = []
     for path in paths:
@@ -126,10 +104,7 @@ def load_feature_info(conv, paths: list[str]) -> list[tuple[str, pd.DataFrame]]:
 def load_barcode_info(conv, paths: list[str]) -> list[tuple[str, pd.DataFrame]]:
     result = []
     for path in paths:
-        if path.endswith("_mapmycells_annotation.tsv"):
-            frame = read_annotation_sidecar(path)
-        else:
-            frame = conv._barcode_info_reader(path, logger=LOGGER)
+        frame = conv._barcode_info_reader(path, logger=LOGGER)
         if frame is not None:
             result.append((path, frame))
     return result
@@ -247,7 +222,7 @@ def main() -> int:
 
     for path in args.annotation:
         LOGGER.info("[build] merging post-QC annotation %s", path)
-        annotation = read_annotation_sidecar(path)
+        annotation = conv._barcode_info_reader(path, logger=LOGGER)
         assert_same_index(data.obs_names, annotation.index, f"Annotation {path}")
         data.obs = merge_frame(data.obs.copy(), annotation, path)
 
