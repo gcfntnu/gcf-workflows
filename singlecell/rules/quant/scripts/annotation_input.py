@@ -8,6 +8,11 @@ The output contract is intentionally small:
 - ``var.index``: gene IDs for the annotation reference organism
 - ``var['gene_name']``: gene symbols for the annotation reference organism
 
+The complete measured feature universe is retained, including genes with zero
+counts across the aggregate. Annotation methods use the available feature set as
+part of their marker/model matching, so removing zero-count genes would change
+the annotation input contract.
+
 Quantifier-specific matrix parsing and barcode normalization are delegated to
 ``convert_scanpy.py`` so this script does not introduce a second set of input
 readers.
@@ -113,17 +118,19 @@ def _read_inputs(args):
         raise ValueError(f"Duplicate aggregate barcodes detected: {list(duplicated[:5])}")
 
     row_sum = np.asarray(data.X.sum(axis=1)).ravel()
-    col_sum = np.asarray(data.X.sum(axis=0)).ravel()
-    keep_obs = row_sum > 0
-    keep_var = col_sum > 0
-    if not keep_obs.all() or not keep_var.all():
-        logging.info(
-            "Dropping %d all-zero cells and %d all-zero genes",
-            int((~keep_obs).sum()),
-            int((~keep_var).sum()),
+    zero_cells = row_sum == 0
+    if zero_cells.any():
+        examples = list(data.obs_names[zero_cells][:5])
+        raise ValueError(
+            f"Annotation input contains {int(zero_cells.sum())} all-zero cells; "
+            f"examples: {examples}"
         )
-        data = data[keep_obs, keep_var]
 
+    logging.info(
+        "Retaining full measured feature universe: %d genes (%d all-zero across aggregate)",
+        data.n_vars,
+        int((np.asarray(data.X.sum(axis=0)).ravel() == 0).sum()),
+    )
     return data
 
 
