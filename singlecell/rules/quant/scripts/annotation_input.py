@@ -31,7 +31,11 @@ def parse_args():
     parser.add_argument("input", nargs="+", help="Filtered count matrix input(s)")
     parser.add_argument("--input-format", required=True, choices=conv.READERS.keys())
     parser.add_argument("--output", required=True, help="Output minimal H5AD")
-    parser.add_argument("--barcode-rename", required=True, choices=["numerical", "sample_id", "trim", "parsebio", "skip"])
+    parser.add_argument(
+        "--barcode-rename",
+        required=True,
+        choices=["numerical", "sample_id", "trim", "parsebio", "skip"],
+    )
     parser.add_argument("--aggr-csv", default=None, help="Cell Ranger aggregation CSV")
     parser.add_argument("--gene-map", default=None, help="Optional ortholog mapping TSV")
     parser.add_argument("--src-organism", required=True)
@@ -46,7 +50,9 @@ def parse_args():
 def setup_logging(log_file=None, verbose=False):
     handlers = [logging.StreamHandler()]
     if log_file:
-        os.makedirs(os.path.dirname(log_file), exist_ok=True)
+        parent = os.path.dirname(log_file)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
         handlers.append(logging.FileHandler(log_file))
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.INFO,
@@ -124,19 +130,21 @@ def _native_features(data):
     symbol_column = _gene_symbol_column(var)
     if symbol_column is None:
         logging.warning("No gene symbol column found; falling back to gene_id")
-        gene_name = pd.Index(data.var_names.astype(str))
+        gene_names = np.asarray(data.var_names.astype(str), dtype=object)
     else:
-        gene_name = var[symbol_column].astype(object).where(var[symbol_column].notna(), data.var_names)
+        symbols = var[symbol_column].astype(object)
+        symbols = symbols.where(symbols.notna(), data.var_names)
+        gene_names = np.asarray(symbols, dtype=object)
 
-    gene_id = pd.Index(data.var_names.astype(str), name="gene_id")
-    if not gene_id.is_unique:
-        duplicated = gene_id[gene_id.duplicated()].unique()
+    gene_ids = pd.Index(data.var_names.astype(str), name="gene_id")
+    if not gene_ids.is_unique:
+        duplicated = gene_ids[gene_ids.duplicated()].unique()
         raise ValueError(f"Duplicate native gene IDs: {list(duplicated[:5])}")
 
-    return np.arange(data.n_vars), gene_id, np.asarray(gene_name, dtype=object)
+    return np.arange(data.n_vars), gene_ids, gene_names
 
 
-def _mapped_features(data, gene_map_path, dst_organism):
+def _mapped_features(data, gene_map_path, src_organism, dst_organism):
     gene_map = pd.read_csv(gene_map_path, sep="\t", index_col=0, dtype=str)
     gene_map.index = gene_map.index.astype(str)
 
@@ -161,21 +169,22 @@ def _mapped_features(data, gene_map_path, dst_organism):
     if symbol_column in mapped.columns:
         symbols = mapped[symbol_column].iloc[positions].astype(object)
         symbols = symbols.where(symbols.notna(), mapped_ids.to_numpy())
+        gene_names = np.asarray(symbols, dtype=object)
     else:
         logging.warning(
             "Ortholog map has no %s; falling back to destination gene_id",
             symbol_column,
         )
-        symbols = pd.Series(mapped_ids.to_numpy(), index=range(len(mapped_ids)), dtype=object)
+        gene_names = np.asarray(mapped_ids, dtype=object)
 
     logging.info(
         "Ortholog mapping retained %d/%d genes (%s -> %s)",
         len(positions),
         data.n_vars,
-        args.src_organism,
+        src_organism,
         dst_organism,
     )
-    return positions, mapped_ids, np.asarray(symbols, dtype=object)
+    return positions, mapped_ids, gene_names
 
 
 def _build_minimal(data, args):
@@ -184,7 +193,12 @@ def _build_minimal(data, args):
     else:
         if not args.gene_map:
             raise ValueError("--gene-map is required when source and destination organisms differ")
-        positions, gene_ids, gene_names = _mapped_features(data, args.gene_map, args.dst_organism)
+        positions, gene_ids, gene_names = _mapped_features(
+            data,
+            args.gene_map,
+            args.src_organism,
+            args.dst_organism,
+        )
 
     X = data.X[:, positions]
     if not sp.issparse(X):
@@ -207,7 +221,6 @@ def _build_minimal(data, args):
 
 
 def main():
-    global args
     args = parse_args()
     setup_logging(args.log, args.verbose)
 
@@ -221,7 +234,9 @@ def main():
         result.X.__class__.__name__,
         result.X.dtype,
     )
-    os.makedirs(os.path.dirname(args.output), exist_ok=True)
+    parent = os.path.dirname(args.output)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
     result.write_h5ad(args.output, compression="lzf")
     logging.info("Annotation input complete")
 
