@@ -185,6 +185,7 @@ rule mapmycells_premap_aggr:
         '--output {output} '
 
 
+# Legacy aggregate MapMyCells rules are retained for explicit comparison runs.
 rule mapmycells_gene_map:
     input:
         aggr_raw_h5ad = join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_raw.h5ad')
@@ -273,7 +274,7 @@ rule celltypist_default_models:
 
 rule run_celltypist:
     input:
-        aggr_preqc_h5ad = join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_filtered.h5ad'),
+        aggr_preqc_h5ad = get_preqc_anndata,
         model = join(
             EXT_DIR,
             'celltypist',
@@ -282,9 +283,9 @@ rule run_celltypist:
             config.get('celltype_annotation', {}).get('celltypist', {}).get('model', ''),
         ),
         qc_mask = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', '{aggr_id}_autoqc_mask.tsv'),
-        gene_map = join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_filtered.gene_map.tsv')
+        gene_map = join(QUANT_INTERIM, 'aggregate', '{method}', '{aggr_id}_orthologs.tsv')
     output:
-        anno_csv = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_annotate', '{aggr_id}_celltypist_annotation.csv')
+        anno_tsv = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_annotate', '{aggr_id}_celltypist_annotation.tsv')
     params:
         script = src_gcf('scripts/run_celltypist.py'),
         src_organism = config['organism'],
@@ -300,7 +301,7 @@ rule run_celltypist:
         'python {params.script} '
         '--input {input.aggr_preqc_h5ad} '
         '--model {input.model} '
-        '--output {output.anno_csv} '
+        '--output {output.anno_tsv} '
         '--gene-map {input.gene_map} '
         '--qc-mask {input.qc_mask} '
         '--src-organism {params.src_organism} '
@@ -308,19 +309,27 @@ rule run_celltypist:
         '{params.args} '
 
 
-rule auto_annotate_scanpy:
-    input:
-        aggr_raw_h5ad = join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_filtered.h5ad'),
-        anno = expand(
+def _selected_annotation_sidecars(wc):
+    sidecars = []
+    if 'mapmycells' in ANNO_METHODS:
+        sidecars.append(join(QUANT_INTERIM, 'aggregate', wc.method, f'{wc.aggr_id}_premap_annotation.tsv'))
+    if 'celltypist' in ANNO_METHODS:
+        sidecars.append(
             join(
                 QUANT_INTERIM,
                 'aggregate',
-                '{{method}}',
+                wc.method,
                 'auto_annotate',
-                '{{aggr_id}}_{anno_method}_annotation.csv',
-            ),
-            anno_method=config['celltype_annotation']['method'].split(','),
+                f'{wc.aggr_id}_celltypist_annotation.tsv',
+            )
         )
+    return sidecars
+
+
+rule auto_annotate_scanpy:
+    input:
+        aggr_preqc_h5ad = get_preqc_anndata,
+        anno = _selected_annotation_sidecars
     output:
         aggr_anno = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_annotate', '{aggr_id}_celltype_annotation.tsv')
     params:
@@ -331,7 +340,7 @@ rule auto_annotate_scanpy:
         'logs/{method}/{aggr_id}_auto_annotate_scanpy.log'
     shell:
         'python {params.script} '
-        '--input {input.aggr_raw_h5ad} '
+        '--input {input.aggr_preqc_h5ad} '
         '--output {output.aggr_anno} '
         '--log {log} '
         '--annotation {input.anno} '
