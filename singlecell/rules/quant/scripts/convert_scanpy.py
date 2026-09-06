@@ -189,7 +189,7 @@ def _feature_info_reader(
         src = present[0]
         if logger:
             logger.info(f"{fn}: using '{src}' as canonical 'gene_symbols'")
-        df["gene_symbols"] = df[src].astype(str)
+        df["gene_symbols"] = df[src].astype("string")
 
     # Drop alias columns if requested (keep only canonical)
     if drop_alias and present:
@@ -1396,7 +1396,7 @@ def read_h5ad(fn, args, **kw):
     Returns
     -------
     sc.AnnData
-        AnnData object containing the h5ad data.
+        AnnData object containing the aggregated h5ad data.
     """
     data = sc.read_h5ad(fn)
     obs = data.obs.copy()
