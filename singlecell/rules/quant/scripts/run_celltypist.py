@@ -8,8 +8,11 @@ import os
 import sys
 import warnings
 
+import anndata
+import numpy as np
 import pandas as pd
 import scanpy as sc
+import scipy.sparse as sp
 import celltypist
 from celltypist import models
 
@@ -74,6 +77,47 @@ def read_qc_mask(path: str, obs_names: pd.Index) -> pd.Series:
     return series.reindex(obs_names)
 
 
+def _collapse_gene_symbols(adata, symbols: pd.Series):
+    """Collapse multiple gene IDs sharing one symbol by summing their count columns."""
+    codes, unique_symbols = pd.factorize(symbols, sort=False)
+    if (codes < 0).any():
+        raise ValueError("Internal error while factorizing CellTypist gene symbols")
+
+    duplicated = symbols[symbols.duplicated(keep=False)]
+    if duplicated.empty:
+        adata.var_names = pd.Index(unique_symbols.astype(str), name="gene_name")
+        return adata
+
+    LOGGER.info(
+        "[genes] collapsing %d gene columns across %d duplicated symbols by summing counts",
+        int(duplicated.shape[0]),
+        int(duplicated.nunique()),
+    )
+
+    X = adata.X
+    if not sp.issparse(X):
+        X = sp.csr_matrix(X)
+    elif X.format != "csr":
+        X = X.tocsr()
+
+    mapper = sp.csr_matrix(
+        (
+            np.ones(adata.n_vars, dtype=X.dtype),
+            (np.arange(adata.n_vars), codes),
+        ),
+        shape=(adata.n_vars, len(unique_symbols)),
+    )
+    collapsed_X = (X @ mapper).tocsr()
+
+    collapsed = anndata.AnnData(
+        X=collapsed_X,
+        obs=adata.obs.copy(),
+        var=pd.DataFrame(index=pd.Index(unique_symbols.astype(str), name="gene_name")),
+    )
+    LOGGER.info("[genes] %d gene IDs collapsed to %d unique symbols", adata.n_vars, collapsed.n_vars)
+    return collapsed
+
+
 def prepare_gene_names(adata, model_path: str):
     """Switch the common annotation object from gene IDs to CellTypist symbols."""
     if "gene_name" not in adata.var.columns:
@@ -88,15 +132,9 @@ def prepare_gene_names(adata, model_path: str):
     if empty.any():
         raise ValueError(f"Annotation AnnData contains {int(empty.sum())} empty gene_name values")
 
-    duplicated = symbols[symbols.duplicated(keep=False)]
-    if not duplicated.empty:
-        examples = duplicated.drop_duplicates().iloc[:10].tolist()
-        raise ValueError(
-            "CellTypist requires unique gene symbols in var_names; "
-            f"found {duplicated.nunique()} duplicated symbols, examples={examples}"
-        )
-
-    adata.var_names = pd.Index(symbols, name="gene_name")
+    adata = _collapse_gene_symbols(adata, symbols)
+    if not adata.var_names.is_unique:
+        raise RuntimeError("CellTypist gene-symbol aggregation did not produce unique var_names")
 
     model = models.Model.load(model_path)
     model_features = pd.Index(model.features.astype(str))
