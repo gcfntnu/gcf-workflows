@@ -108,6 +108,7 @@ def add_canonical_taxonomy(
     required_term = {"label", "name", "cluster_annotation_term_set_name", "color_hex_triplet"}
     required_membership = {
         "cluster_alias",
+        "cluster_annotation_term_label",
         "cluster_annotation_term_set_name",
         "cluster_annotation_term_name",
     }
@@ -140,19 +141,39 @@ def add_canonical_taxonomy(
 
     finest = finest_level(out)
     finest_label_col = f"{finest}_label"
-
-    cluster = cluster.copy()
-    cluster["label"] = cluster["label"].str.strip()
-    cluster_by_label = cluster.set_index("label", verify_integrity=True)
     finest_labels = out[finest_label_col].astype("string").str.strip()
-    aliases = finest_labels.map(cluster_by_label["cluster_alias"])
+
+    finest_membership = membership.loc[
+        membership["cluster_annotation_term_set_name"].eq(finest),
+        ["cluster_annotation_term_label", "cluster_alias"],
+    ].drop_duplicates()
+
+    duplicated = finest_membership["cluster_annotation_term_label"].duplicated(keep=False)
+    if duplicated.any():
+        bad = (
+            finest_membership.loc[duplicated, "cluster_annotation_term_label"]
+            .drop_duplicates()
+            .tolist()[:10]
+        )
+        raise RuntimeError(f"Multiple cluster aliases for Allen {finest} taxonomy labels: {bad}")
+
+    alias_by_label = finest_membership.set_index("cluster_annotation_term_label")["cluster_alias"]
+    aliases = finest_labels.map(alias_by_label)
 
     missing_alias = finest_labels.notna() & aliases.isna()
     if missing_alias.any():
         examples = sorted(finest_labels[missing_alias].dropna().unique().tolist())[:10]
         raise RuntimeError(
-            f"Allen cluster table has no cluster_alias for {missing_alias.sum()} MapMyCells assignments. "
-            f"Examples: {examples}"
+            f"Allen membership table has no cluster_alias for {missing_alias.sum()} "
+            f"MapMyCells {finest} assignments. Examples: {examples}"
+        )
+
+    valid_aliases = set(cluster["cluster_alias"].dropna())
+    invalid_alias = aliases.notna() & ~aliases.isin(valid_aliases)
+    if invalid_alias.any():
+        bad = sorted(aliases[invalid_alias].dropna().unique().tolist())[:10]
+        raise RuntimeError(
+            f"Allen membership table resolved cluster_alias values absent from cluster.csv: {bad}"
         )
 
     nt = membership.loc[
