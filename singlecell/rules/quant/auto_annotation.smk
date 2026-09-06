@@ -10,6 +10,13 @@ include:
 
 MM_ORG = config.get('celltype_annotation', {}).get('orthologs')
 MM_ORG = MM_ORG or config['organism']
+CELLTYPIST_MODEL = config.get('celltype_annotation', {}).get('celltypist', {}).get('model')
+
+if 'celltypist' in ANNO_METHODS and not CELLTYPIST_MODEL:
+    raise ValueError(
+        'CellTypist annotation is enabled, but '
+        'celltype_annotation.celltypist.model is not configured'
+    )
 
 PRE_ANNO = True
 _AGGR_ID = config['quant']['aggregate']['groupby']
@@ -294,7 +301,6 @@ rule mapmycells_premap_aggr:
         '--output {output} '
 
 
-# Production aggregate MapMyCells path using the common minimal annotation H5AD.
 rule mapmycells_from_specified_markers:
     input:
         annotation_h5ad = join(
@@ -384,18 +390,18 @@ rule mapmycells_aggr_output_processing:
         '--verbose '
 
 
-rule celltypist_default_models:
-    params:
-        script = src_gcf('scripts/download_celltypist_models.py'),
-        celltypist_folder = join(EXT_DIR, 'celltypist')
-    output:
-        model = join(EXT_DIR, 'celltypist', 'data', 'models', 'Healthy_COVID19_PBMC.pkl')
-    container:
-        'docker://gcfntnu/rapids-scanpy:latest'
-    shell:
-        'export CELLTYPIST_FOLDER="{params.celltypist_folder}" '
-        '&& '
-        'python -c "from celltypist import models; models.download_models(force_update=True)"'
+if 'celltypist' in ANNO_METHODS:
+    rule celltypist_model:
+        params:
+            celltypist_folder = join(EXT_DIR, 'celltypist')
+        output:
+            model = join(EXT_DIR, 'celltypist', 'data', 'models', CELLTYPIST_MODEL)
+        container:
+            'docker://gcfntnu/rapids-scanpy:latest'
+        shell:
+            'export CELLTYPIST_FOLDER="{params.celltypist_folder}" '
+            '&& '
+            'python -c "from celltypist import models; models.download_models(force_update=True)"'
 
 
 rule run_celltypist:
@@ -407,13 +413,7 @@ rule run_celltypist:
             'auto_annotate',
             '{aggr_id}_annotation_input.h5ad',
         ),
-        model = join(
-            EXT_DIR,
-            'celltypist',
-            'data',
-            'models',
-            config.get('celltype_annotation', {}).get('celltypist', {}).get('model', ''),
-        ),
+        model = join(EXT_DIR, 'celltypist', 'data', 'models', CELLTYPIST_MODEL or ''),
         qc_mask = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', '{aggr_id}_autoqc_mask.tsv')
     output:
         anno_tsv = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_annotate', '{aggr_id}_celltypist_annotation.tsv')
@@ -458,7 +458,13 @@ def _selected_annotation_sidecars(wc):
 
 rule auto_annotate_scanpy:
     input:
-        aggr_preqc_h5ad = get_preqc_anndata,
+        annotation_h5ad = join(
+            QUANT_INTERIM,
+            'aggregate',
+            '{method}',
+            'auto_annotate',
+            '{aggr_id}_annotation_input.h5ad',
+        ),
         anno = _selected_annotation_sidecars
     output:
         aggr_anno = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_annotate', '{aggr_id}_celltype_annotation.tsv')
@@ -470,7 +476,7 @@ rule auto_annotate_scanpy:
         'logs/{method}/{aggr_id}_auto_annotate_scanpy.log'
     shell:
         'python {params.script} '
-        '--input {input.aggr_preqc_h5ad} '
+        '--input {input.annotation_h5ad} '
         '--output {output.aggr_anno} '
         '--log {log} '
         '--annotation {input.anno} '
