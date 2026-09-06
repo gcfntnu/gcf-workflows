@@ -330,6 +330,7 @@ def plot_metric_distribution(
     plt.close(fig)
 
 
+core.ModalityResult = ModalityResult
 core.modality_diagnostic = modality_diagnostic
 core.plot_metric_distribution = plot_metric_distribution
 
