@@ -16,7 +16,7 @@ from typing import List, Optional, Tuple
 import pandas as pd
 
 
-NEURON_NEUROTRANSMITTERS = {"Glut", "GABA", "Glut-GABA"}
+NON_NEURON_NEUROTRANSMITTERS = {"", "NA", "None", "none", "Other"}
 
 
 def read_mapmycells_csv(path: Path) -> pd.DataFrame:
@@ -82,6 +82,13 @@ def finest_level(annotation: pd.DataFrame) -> str:
         if f"{level}_label" in annotation.columns:
             return level
     raise RuntimeError("MapMyCells annotation has neither subcluster_label nor cluster_label.")
+
+
+def classify_cell_class(value: object) -> str:
+    """Classify Allen neurotransmitter assignments as neuron or non-neuron."""
+    if value is None or pd.isna(value):
+        return "non-neuron"
+    return "non-neuron" if str(value).strip() in NON_NEURON_NEUROTRANSMITTERS else "neuron"
 
 
 def add_canonical_taxonomy(
@@ -181,9 +188,7 @@ def add_canonical_taxonomy(
         bad = sorted(out.loc[missing_nt_color, "nt_type_label"].unique().tolist())
         raise RuntimeError(f"Allen taxonomy has no colors for neurotransmitter terms: {bad}")
 
-    out["cell_class"] = out["nt_type_label"].map(
-        lambda value: "neuron" if value in NEURON_NEUROTRANSMITTERS else "non-neuron"
-    )
+    out["cell_class"] = out["nt_type_label"].map(classify_cell_class)
 
     return out
 
