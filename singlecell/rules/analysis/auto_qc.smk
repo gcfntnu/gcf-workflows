@@ -73,6 +73,22 @@ def _qc_mad_metric_flags(cfg):
     return " ".join(flags)
 
 
+def _qc_barcode_info_list(wc):
+    items = get_barcode_info_list(wc)
+    if 'mapmycells' not in ANNO_METHODS:
+        return items
+
+    legacy = join(QUANT_INTERIM, 'aggregate', wc.method, f'{wc.aggr_id}_premap_annotation.tsv')
+    aggregate = join(
+        QUANT_INTERIM,
+        'aggregate',
+        wc.method,
+        'auto_annotate',
+        f'{wc.aggr_id}_mapmycells_annotation.tsv',
+    )
+    return [aggregate if path == legacy else path for path in items]
+
+
 def _qc_prepare_inputs(wc):
     if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger':
         counts = [
@@ -96,7 +112,7 @@ def _qc_prepare_inputs(wc):
     result = {
         'counts': counts,
         'feature_info': [join(REF_DIR, 'anno', 'genes.tsv')],
-        'barcode_info': get_barcode_info_list(wc),
+        'barcode_info': _qc_barcode_info_list(wc),
     }
     if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger':
         result['aggr_csv'] = join(
@@ -203,7 +219,7 @@ rule autoqc_prepare:
         log = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', '{aggr_id}_qc_prepare.log'),
     params:
         script = src_gcf('scripts/qc_prepare_mtx.py'),
-        converter_script_dir = join(SRC_DIR, 'singlecell', 'rules', 'quant', 'scripts'),
+        converter_script_dir = src_gcf('../quant/scripts'),
         input_format = _qc_prepare_input_format,
         barcode_rename = lambda wc: BC_RENAME[wc.method],
         aggr_csv = _qc_prepare_aggr_csv_arg,
