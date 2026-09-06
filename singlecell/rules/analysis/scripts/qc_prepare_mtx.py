@@ -80,19 +80,25 @@ def load_feature_info(conv, paths: list[str]) -> pd.DataFrame | None:
     return merged
 
 
+def _read_annotation_sidecar(path: str) -> pd.DataFrame:
+    frame = pd.read_csv(path, sep="\t")
+    if frame.shape[1] < 1:
+        raise ValueError(f"Annotation sidecar has no columns: {path}")
+    index_col = frame.columns[0]
+    frame[index_col] = frame[index_col].astype(str).str.strip()
+    frame = frame.set_index(index_col)
+    frame.index.name = "barcode"
+    if not frame.index.is_unique:
+        examples = frame.index[frame.index.duplicated()].unique().tolist()[:5]
+        raise ValueError(f"Annotation sidecar has duplicate barcodes: {path}; examples={examples}")
+    return frame
+
+
 def load_barcode_info(conv, paths: list[str]) -> list[tuple[str, pd.DataFrame]]:
     result = []
     for path in paths:
         if path.endswith("_mapmycells_annotation.tsv"):
-            frame = pd.read_csv(path, sep="\t", index_col=0)
-            frame.index = frame.index.astype(str)
-            frame.index.name = "barcode"
-            if not frame.index.is_unique:
-                dups = frame.index[frame.index.duplicated()].unique()
-                raise ValueError(
-                    f"{path}: duplicate MapMyCells cell identifiers are not allowed. "
-                    f"Examples: {list(dups[:5])}"
-                )
+            frame = _read_annotation_sidecar(path)
         else:
             frame = conv._barcode_info_reader(path, logger=LOGGER)
         if frame is not None:
@@ -105,6 +111,30 @@ def attach_feature_info(adata, feature_info: pd.DataFrame | None) -> None:
         return
     aligned = feature_info.reindex(adata.var_names)
     adata.var = merge_columns(adata.var.copy(), aligned, "feature-info")
+
+
+def ensure_feature_qc_flags(adata) -> None:
+    """Add the same symbol-derived feature classes used by convert_scanpy."""
+    symbol_col = next(
+        (
+            col
+            for col in ("gene_symbols", "gene_symbol", "gene_name", "gene", "name")
+            if col in adata.var.columns
+        ),
+        None,
+    )
+    if symbol_col is None:
+        raise KeyError(
+            "Cannot derive feature QC classes: no gene symbol column found in matrix or feature metadata"
+        )
+
+    symbols = adata.var[symbol_col].astype("string").fillna("").str.strip().str.lower()
+    if "mt" not in adata.var.columns:
+        adata.var["mt"] = symbols.str.startswith("mt-")
+    if "ribo" not in adata.var.columns:
+        adata.var["ribo"] = symbols.str.startswith(("rps", "rpl"))
+    if "hb" not in adata.var.columns:
+        adata.var["hb"] = symbols.str.contains(r"^hb(?!p)", regex=True)
 
 
 def attach_barcode_info(adata, barcode_info: list[tuple[str, pd.DataFrame]]) -> None:
@@ -140,6 +170,7 @@ def reader_for_format(conv, input_format: str):
 def frame_from_anndata(adata, group_cols: list[str], qc_vars: list[str]) -> pd.DataFrame:
     qc.validate_anndata(adata)
     qc.validate_group_columns(adata.obs, group_cols)
+    ensure_feature_qc_flags(adata)
     qc.ensure_scanpy_qc_metrics(adata)
     for metric in qc_vars:
         qc.ensure_requested_metric(adata, metric)
@@ -150,8 +181,6 @@ def frame_from_anndata(adata, group_cols: list[str], qc_vars: list[str]) -> pd.D
     for metric in qc_vars:
         out[metric] = qc.validate_metric(metric, adata.obs[metric]).to_numpy()
 
-    # Fit metadata is attached here but evaluated only after all matrices are
-    # concatenated, so Stage A semantics stay identical to qc_prepare.py.
     return out
 
 
@@ -203,8 +232,6 @@ def main() -> int:
     if not out.index.is_unique:
         raise ValueError("Combined QC metric barcode index is not unique")
 
-    # Re-read only the requested fit metadata from the barcode sidecars. This
-    # avoids retaining all matrix-backed AnnData objects simultaneously.
     meta = pd.DataFrame(index=out.index)
     for path, frame in barcode_info:
         meta = merge_columns(meta, frame, path)
