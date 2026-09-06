@@ -175,13 +175,6 @@ def _mapped_features(data, gene_map_path, src_organism, dst_organism):
     positions = np.flatnonzero(keep.to_numpy())
     mapped_ids = pd.Index(ids.iloc[positions].astype(str), name="gene_id")
 
-    if not mapped_ids.is_unique:
-        duplicated = mapped_ids[mapped_ids.duplicated()].unique()
-        raise ValueError(
-            "Ortholog mapping produced duplicate destination gene IDs; "
-            f"examples: {list(duplicated[:5])}"
-        )
-
     if symbol_column in mapped.columns:
         symbols = mapped[symbol_column].iloc[positions].astype(object)
         symbols = symbols.where(symbols.notna(), mapped_ids.to_numpy())
@@ -203,6 +196,48 @@ def _mapped_features(data, gene_map_path, src_organism, dst_organism):
     return positions, mapped_ids, gene_names
 
 
+def _collapse_mapped_features(X, gene_ids, gene_names):
+    if gene_ids.is_unique:
+        return X, gene_ids, gene_names
+
+    codes, unique_ids = pd.factorize(gene_ids, sort=False)
+    unique_ids = pd.Index(unique_ids.astype(str), name="gene_id")
+
+    rows = np.arange(len(codes), dtype=np.int64)
+    collapse = sp.csr_matrix(
+        (np.ones(len(codes), dtype=np.int32), (rows, codes)),
+        shape=(len(codes), len(unique_ids)),
+    )
+    X = (X @ collapse).tocsr()
+
+    names = pd.Series(gene_names, index=gene_ids, dtype="object")
+    collapsed_names = []
+    for gene_id in unique_ids:
+        values = names.loc[gene_id]
+        if not isinstance(values, pd.Series):
+            values = pd.Series([values], dtype="object")
+
+        values = values.dropna().astype(str).str.strip()
+        values = values[values.ne("") & values.ne(gene_id)]
+        unique_names = pd.Index(values.unique())
+        if len(unique_names) > 1:
+            raise ValueError(
+                f"Ortholog mapping has conflicting symbols for destination gene ID {gene_id!r}: "
+                f"{list(unique_names[:5])}"
+            )
+        collapsed_names.append(unique_names[0] if len(unique_names) == 1 else gene_id)
+
+    n_colliding_source = int(gene_ids.duplicated(keep=False).sum())
+    n_colliding_dest = int(gene_ids[gene_ids.duplicated(keep=False)].nunique())
+    logging.info(
+        "Collapsed %d source features into %d shared destination genes; final feature set=%d",
+        n_colliding_source,
+        n_colliding_dest,
+        len(unique_ids),
+    )
+    return X, unique_ids, np.asarray(collapsed_names, dtype=object)
+
+
 def _build_minimal(data, args):
     if args.src_organism == args.dst_organism:
         positions, gene_ids, gene_names = _native_features(data)
@@ -221,6 +256,9 @@ def _build_minimal(data, args):
         X = sp.csr_matrix(X)
     else:
         X = X.tocsr()
+
+    if args.src_organism != args.dst_organism:
+        X, gene_ids, gene_names = _collapse_mapped_features(X, gene_ids, gene_names)
 
     if conv._is_integral_array(X):
         X = X.astype(np.int32, copy=False)
