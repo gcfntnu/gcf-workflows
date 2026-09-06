@@ -45,7 +45,6 @@ max_cells_by_kit = {"wt_mini": 30_000,
 BARCODE_RANK_MAX_CELLS = int(config["quant"].get("barcode_rank_max_cells", max_cells_by_kit[KIT]))
 
 
-ruleorder: parsebio_starsolo_scanpy_filtered > scanpy_aggr_filtered
 
 
 def _tso_window_args(tso: str, kmax: int = 15) -> str:
