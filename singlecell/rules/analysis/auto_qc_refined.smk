@@ -11,19 +11,19 @@ rule autoqc_mad_refined:
         metrics = rules.autoqc_prepare.output.metrics
     output:
         cells = join(
-            QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', 'refined', '{aggr_id}_qc_cells.parquet'
+            QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc_refined', '{aggr_id}_qc_cells.parquet'
         ),
         passed_tsv = join(
-            QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', 'refined', '{aggr_id}_autoqc_mask.tsv'
+            QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc_refined', '{aggr_id}_autoqc_mask.tsv'
         ),
         ranges_tsv = join(
-            QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', 'refined', '{aggr_id}_qc_ranges.tsv'
+            QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc_refined', '{aggr_id}_qc_ranges.tsv'
         ),
         log = join(
-            QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', 'refined', '{aggr_id}_qc_mad.log'
+            QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc_refined', '{aggr_id}_qc_mad.log'
         ),
         plot_dir = directory(
-            join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', 'refined', 'figs', '{aggr_id}')
+            join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc_refined', 'figs', '{aggr_id}')
         ),
     params:
         script = src_gcf('scripts/qc_mad_refined.py'),
