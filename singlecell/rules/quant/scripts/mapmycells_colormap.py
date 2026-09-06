@@ -324,7 +324,22 @@ def main() -> int:
     args = parser.parse_args()
 
     annotation = read_mapmycells_csv(args.annotation)
-    index_col = annotation.columns[0]
+    source_index_col = annotation.columns[0]
+    if source_index_col != "barcode":
+        if "barcode" in annotation.columns:
+            raise RuntimeError(
+                f"MapMyCells input has both first column {source_index_col!r} and a separate 'barcode' column."
+            )
+        annotation = annotation.rename(columns={source_index_col: "barcode"})
+
+    annotation["barcode"] = annotation["barcode"].astype(str).str.strip()
+    if annotation["barcode"].eq("").any():
+        raise RuntimeError("MapMyCells annotation contains empty barcodes.")
+    if annotation["barcode"].duplicated().any():
+        examples = annotation.loc[annotation["barcode"].duplicated(), "barcode"].unique().tolist()[:10]
+        raise RuntimeError(f"MapMyCells annotation contains duplicate barcodes: {examples}")
+
+    index_col = "barcode"
     original_index = annotation[index_col].copy()
 
     extended = add_canonical_taxonomy(
