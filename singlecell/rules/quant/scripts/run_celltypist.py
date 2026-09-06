@@ -74,28 +74,45 @@ def read_qc_mask(path: str, obs_names: pd.Index) -> pd.Series:
     return series.reindex(obs_names)
 
 
-def prepare_gene_names(adata, args):
-    if args.src_organism == args.dst_organism:
-        if "gene_symbol" not in adata.var.columns:
-            raise KeyError("AnnData var is missing required column 'gene_symbol'")
-        adata.var_names = adata.var["gene_symbol"].astype(str)
-        adata.var_names_make_unique()
-        return adata
+def prepare_gene_names(adata, model_path: str):
+    """Switch the common annotation object from gene IDs to CellTypist symbols."""
+    if "gene_name" not in adata.var.columns:
+        raise KeyError("Annotation AnnData var is missing required column 'gene_name'")
 
-    if not args.gene_map:
-        raise ValueError("--gene-map is required when source and destination organisms differ")
+    symbols = adata.var["gene_name"]
+    if symbols.isna().any():
+        raise ValueError(f"Annotation AnnData contains {int(symbols.isna().sum())} missing gene_name values")
 
-    gene_map = pd.read_table(args.gene_map, index_col=0)
-    dst_col = f"{args.dst_organism}_gene_symbol"
-    if dst_col not in gene_map.columns:
-        raise KeyError(f"Gene map is missing required column {dst_col!r}")
+    symbols = symbols.astype(str).str.strip()
+    empty = symbols.eq("")
+    if empty.any():
+        raise ValueError(f"Annotation AnnData contains {int(empty.sum())} empty gene_name values")
 
-    adata.var = adata.var.merge(gene_map, how="left", right_index=True, left_index=True)
-    keep = adata.var[dst_col].notna().to_numpy()
-    LOGGER.info("[genes] %d/%d genes retained after ortholog mapping", int(keep.sum()), adata.n_vars)
-    adata = adata[:, keep].copy()
-    adata.var_names = adata.var[dst_col].astype(str)
-    adata.var_names_make_unique()
+    duplicated = symbols[symbols.duplicated(keep=False)]
+    if not duplicated.empty:
+        examples = duplicated.drop_duplicates().iloc[:10].tolist()
+        raise ValueError(
+            "CellTypist requires unique gene symbols in var_names; "
+            f"found {duplicated.nunique()} duplicated symbols, examples={examples}"
+        )
+
+    adata.var_names = pd.Index(symbols, name="gene_name")
+
+    model = models.Model.load(model_path)
+    model_features = pd.Index(model.features.astype(str))
+    overlap = adata.var_names.intersection(model_features)
+    if len(overlap) == 0:
+        raise ValueError("No annotation gene symbols overlap CellTypist model features")
+
+    LOGGER.info(
+        "[genes] CellTypist model overlap: %d/%d model features (%.1f%%), %d/%d query genes (%.1f%%)",
+        len(overlap),
+        len(model_features),
+        100.0 * len(overlap) / len(model_features),
+        len(overlap),
+        adata.n_vars,
+        100.0 * len(overlap) / adata.n_vars,
+    )
     return adata
 
 
@@ -164,19 +181,15 @@ def annotate(adata, args):
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run CellTypist on QC-passing cells and write an annotation sidecar.")
-    parser.add_argument("--input", required=True, help="Pre-QC aggregate AnnData (.h5ad)")
+    parser.add_argument("--input", required=True, help="Minimal aggregate annotation AnnData (.h5ad)")
     parser.add_argument("--output", required=True, help="Output annotation TSV")
     parser.add_argument("--model", required=True, help="CellTypist model (.pkl)")
-    parser.add_argument("--qc-mask", help="Barcode-indexed auto-QC mask")
-    parser.add_argument("--gene-map", help="Ortholog gene mapping TSV")
-    parser.add_argument("--src-organism", default="homo_sapiens")
-    parser.add_argument("--dst-organism", default="homo_sapiens")
+    parser.add_argument("--qc-mask", required=True, help="Barcode-indexed auto-QC mask")
     parser.add_argument("--batch", default=None)
     parser.add_argument("--mode", default="best_match", choices=["best_match", "prob_match"])
     parser.add_argument("--use-GPU", action="store_true", default=False)
     parser.add_argument("--plot", action="store_true", default=False)
     parser.add_argument("--log", default="auto_annotate_scanpy.log")
-    parser.add_argument("--no-qc-filter", action="store_true", default=False)
     return parser.parse_args()
 
 
@@ -188,14 +201,11 @@ def main() -> int:
     if not adata.obs_names.is_unique:
         raise ValueError("AnnData obs_names are not unique")
 
-    if not args.no_qc_filter:
-        if not args.qc_mask:
-            raise ValueError("--qc-mask is required unless --no-qc-filter is set")
-        keep = read_qc_mask(args.qc_mask, adata.obs_names)
-        LOGGER.info("[qc] %d/%d cells pass auto-QC", int(keep.sum()), adata.n_obs)
-        adata = adata[keep.to_numpy(), :].copy()
+    keep = read_qc_mask(args.qc_mask, adata.obs_names)
+    LOGGER.info("[qc] %d/%d cells pass auto-QC", int(keep.sum()), adata.n_obs)
+    adata = adata[keep.to_numpy(), :].copy()
 
-    adata = prepare_gene_names(adata, args)
+    adata = prepare_gene_names(adata, args.model)
     result = annotate(adata, args)
 
     pred = result.predicted_labels.copy()
