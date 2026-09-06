@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Create the canonical post-QC aggregate AnnData.
+"""Build the canonical post-QC aggregate AnnData directly from source matrices.
 
-The input AnnData is the pre-QC aggregate object. QC decisions are read from the
-cell-level auto-QC Parquet table. Post-QC annotation sidecars may be supplied;
-each must cover exactly the cells retained by auto-QC.
+Filtered quantifier matrices are read with the canonical ``convert_scanpy.py``
+readers, aggregated in memory, enriched with feature/barcode metadata, filtered
+by the auto-QC cell table, merged with post-QC annotation sidecars, and written
+once as the final AnnData. No rich pre-QC aggregate H5AD is created.
 """
 
 from __future__ import annotations
@@ -13,17 +14,19 @@ import logging
 import os
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import anndata as ad
 import numpy as np
 import pandas as pd
+from scipy import sparse as sp
 
 
 LOGGER = logging.getLogger("finalize_scanpy")
 
 
-def setup_logging(log_file: str | None) -> None:
-    LOGGER.setLevel(logging.INFO)
+def setup_logging(log_file: str | None, verbose: bool) -> None:
+    LOGGER.setLevel(logging.DEBUG if verbose else logging.INFO)
     LOGGER.propagate = False
     LOGGER.handlers.clear()
 
@@ -39,18 +42,26 @@ def setup_logging(log_file: str | None) -> None:
         LOGGER.addHandler(handler)
 
 
-def read_annotation(path: str) -> pd.DataFrame:
-    suffix = Path(path).suffix.lower()
-    if suffix in {".tsv", ".txt"}:
-        anno = pd.read_csv(path, sep="\t", index_col=0)
-    elif suffix == ".csv":
-        anno = pd.read_csv(path, index_col=0)
-    else:
-        raise ValueError(f"Unsupported annotation sidecar extension: {path}")
-
-    if not anno.index.is_unique:
-        raise ValueError(f"Annotation barcode index is not unique: {path}")
-    return anno
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("input", nargs="+", help="Filtered count matrix input(s)")
+    parser.add_argument("--converter-script-dir", required=True)
+    parser.add_argument(
+        "--input-format",
+        required=True,
+        choices=["splitpipe", "cellranger", "cellranger_aggr", "parsebio_starsolo", "10x_starsolo"],
+    )
+    parser.add_argument("--barcode-rename", required=True)
+    parser.add_argument("--aggr-csv", default=None)
+    parser.add_argument("--feature-info", nargs="*", default=[])
+    parser.add_argument("--barcode-info", nargs="*", default=[])
+    parser.add_argument("--qc-cells", required=True, help="Cell-level auto-QC Parquet table")
+    parser.add_argument("--annotation", action="append", default=[], help="Post-QC annotation sidecar")
+    parser.add_argument("--enable-cellbender", action="store_true")
+    parser.add_argument("--output", required=True, help="Canonical filtered AnnData")
+    parser.add_argument("--log", default=None)
+    parser.add_argument("--verbose", action="store_true")
+    return parser.parse_args()
 
 
 def assert_same_index(left: pd.Index, right: pd.Index, label: str) -> None:
@@ -63,71 +74,201 @@ def assert_same_index(left: pd.Index, right: pd.Index, label: str) -> None:
         )
 
 
-def merge_frame(obs: pd.DataFrame, frame: pd.DataFrame, source: str) -> pd.DataFrame:
-    frame = frame.reindex(obs.index)
-    overlap = [col for col in frame.columns if col in obs.columns]
+def merge_frame(left: pd.DataFrame, right: pd.DataFrame, source: str) -> pd.DataFrame:
+    """Left-join metadata, rejecting conflicting non-null duplicate columns."""
+    right = right.reindex(left.index)
+    overlap = [col for col in right.columns if col in left.columns]
 
     for col in overlap:
-        left = obs[col]
-        right = frame[col]
-        equal = left.eq(right) | (left.isna() & right.isna())
-        if not bool(equal.all()):
-            raise ValueError(f"Column collision with different values for {col!r} from {source}")
+        lhs = left[col]
+        rhs = right[col]
+        comparable = rhs.notna()
+        equal = lhs.eq(rhs) | (lhs.isna() & rhs.isna())
+        if comparable.any() and not bool(equal[comparable].all()):
+            raise ValueError(f"Conflicting metadata column {col!r} from {source}")
 
-    add_cols = [col for col in frame.columns if col not in obs.columns]
-    if add_cols:
-        obs = obs.join(frame[add_cols], how="left")
-    return obs
+    add = [col for col in right.columns if col not in left.columns]
+    if add:
+        left = left.join(right[add], how="left")
+    return left
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input", required=True, help="Pre-QC aggregate AnnData")
-    parser.add_argument("--qc-cells", required=True, help="Cell-level auto-QC Parquet table")
-    parser.add_argument("--annotation", action="append", default=[], help="Post-QC annotation sidecar")
-    parser.add_argument("--output", required=True, help="Canonical filtered AnnData")
-    parser.add_argument("--log", default=None)
-    return parser.parse_args()
+def read_annotation_sidecar(path: str) -> pd.DataFrame:
+    suffix = Path(path).suffix.lower()
+    if suffix in {".tsv", ".txt"}:
+        frame = pd.read_csv(path, sep="\t")
+    elif suffix == ".csv":
+        frame = pd.read_csv(path)
+    else:
+        raise ValueError(f"Unsupported annotation sidecar extension: {path}")
+
+    if frame.shape[1] < 1:
+        raise ValueError(f"Annotation sidecar has no columns: {path}")
+    index_col = frame.columns[0]
+    frame[index_col] = frame[index_col].astype(str).str.strip()
+    frame = frame.set_index(index_col)
+    frame.index.name = "barcode"
+    if not frame.index.is_unique:
+        examples = frame.index[frame.index.duplicated()].unique().tolist()[:5]
+        raise ValueError(f"Annotation sidecar has duplicate barcodes: {path}; examples={examples}")
+    return frame
+
+
+def load_feature_info(conv, paths: list[str]) -> list[tuple[str, pd.DataFrame]]:
+    result = []
+    for path in paths:
+        frame = conv._feature_info_reader(path, logger=LOGGER)
+        if frame is not None:
+            result.append((path, frame))
+    return result
+
+
+def load_barcode_info(conv, paths: list[str]) -> list[tuple[str, pd.DataFrame]]:
+    result = []
+    for path in paths:
+        if path.endswith("_mapmycells_annotation.tsv"):
+            frame = read_annotation_sidecar(path)
+        else:
+            frame = conv._barcode_info_reader(path, logger=LOGGER)
+        if frame is not None:
+            result.append((path, frame))
+    return result
+
+
+def make_reader_args(args: argparse.Namespace, conv) -> SimpleNamespace:
+    aggr_csv = conv._aggr_csv_reader(args.aggr_csv) if args.aggr_csv else None
+    return SimpleNamespace(
+        barcode_rename=args.barcode_rename,
+        aggr_csv=aggr_csv,
+        no_gex_only=False,
+        no_zero_cell_rm=True,
+        verbose=args.verbose,
+        input_format=args.input_format,
+        cellbender_mode="raw",
+    )
+
+
+def reader_for_format(conv, args: argparse.Namespace):
+    fmt = f"{args.input_format}_cellbender" if args.enable_cellbender else args.input_format
+    reader = conv.READERS.get(fmt)
+    if reader is None:
+        raise ValueError(f"Unsupported input format: {fmt}")
+    return reader
+
+
+def remove_all_zero(adata: ad.AnnData) -> ad.AnnData:
+    row_sum = np.asarray(adata.X.sum(axis=1)).ravel()
+    keep_obs = row_sum > 0
+    LOGGER.info("[build] removing %d all-zero cells", int((~keep_obs).sum()))
+    adata = adata[keep_obs, :].copy()
+
+    col_sum = np.asarray(adata.X.sum(axis=0)).ravel()
+    keep_var = col_sum > 0
+    LOGGER.info("[build] removing %d all-zero genes", int((~keep_var).sum()))
+    return adata[:, keep_var].copy()
 
 
 def main() -> int:
     args = parse_args()
-    setup_logging(args.log)
+    setup_logging(args.log, args.verbose)
 
-    LOGGER.info("[finalize] reading %s", args.input)
-    adata = ad.read_h5ad(args.input)
-    if not adata.obs_names.is_unique:
-        raise ValueError("AnnData obs_names are not unique")
+    if args.converter_script_dir not in sys.path:
+        sys.path.insert(0, args.converter_script_dir)
+    import convert_scanpy as conv
+
+    conv._USE_VELO = True
+    conv.logger = LOGGER
+
+    feature_info = load_feature_info(conv, args.feature_info)
+    barcode_info = load_barcode_info(conv, args.barcode_info)
+    reader_args = make_reader_args(args, conv)
+    reader = reader_for_format(conv, args)
+
+    data_list = []
+    seen = set()
+    for i, path in enumerate(args.input, 1):
+        LOGGER.info("[build] reading matrix %d/%d: %s", i, len(args.input), path)
+        data = reader(os.path.abspath(path), reader_args)
+        duplicate = seen.intersection(data.obs_names)
+        if duplicate:
+            raise ValueError(f"Duplicate aggregate barcodes across matrix inputs: {sorted(duplicate)[:5]}")
+        seen.update(data.obs_names)
+        data_list.append(data)
+
+    if len(data_list) > 1:
+        LOGGER.info("[build] concatenating %d matrices", len(data_list))
+        data = ad.concat(data_list, join="outer", merge="unique", uns_merge=None)
+        if any(col.endswith("-0") for col in data.var.columns):
+            data.var = conv.remove_duplicate_cols(data.var, copy=True)
+    else:
+        data = data_list[0]
+    del data_list
+
+    if not data.obs_names.is_unique:
+        raise ValueError("Aggregate AnnData obs_names are not unique")
+
+    data = remove_all_zero(data)
+
+    for path, frame in feature_info:
+        data.var = merge_frame(data.var.copy(), frame, path)
+    data.var = conv.drop_ci_identical_same_name(data.var)
+    data.var = conv.anndata_friendly_dtypes(
+        data.var,
+        protect_cols=("gene_id", "feature_id", "id"),
+        allow_string_dtype=False,
+    )
+
+    if "gene_symbols" in data.var.columns:
+        symbols = data.var["gene_symbols"].astype(str).str.lower()
+        data.var["mt"] = symbols.str.startswith("mt-")
+        data.var["ribo"] = symbols.str.startswith(("rps", "rpl"))
+        data.var["hb"] = symbols.str.contains(r"^hb(?!p)", regex=True)
+    if data.var.index.name != "gene_id":
+        data.var.index.name = "gene_id"
+
+    for path, frame in barcode_info:
+        data.obs = merge_frame(data.obs.copy(), frame, path)
 
     qc = pd.read_parquet(args.qc_cells)
     if not qc.index.is_unique:
         raise ValueError("QC cell table index is not unique")
     if "autoqc_pass" not in qc.columns:
         raise KeyError("QC cell table is missing required column 'autoqc_pass'")
+    qc.index = qc.index.astype(str)
+    assert_same_index(data.obs_names, qc.index, "QC cell table")
+    qc = qc.reindex(data.obs_names)
 
-    assert_same_index(adata.obs_names, qc.index, "QC cell table")
-    qc = qc.reindex(adata.obs_names)
     passed = qc["autoqc_pass"].astype(bool)
-    n_total = adata.n_obs
+    n_total = data.n_obs
     n_pass = int(passed.sum())
-    LOGGER.info("[finalize] retaining %d/%d cells after auto-QC", n_pass, n_total)
-
-    adata = adata[passed.to_numpy(), :].copy()
-    qc_pass = qc.loc[adata.obs_names]
-    adata.obs = merge_frame(adata.obs, qc_pass, "auto-QC")
+    LOGGER.info("[build] retaining %d/%d cells after auto-QC", n_pass, n_total)
+    data = data[passed.to_numpy(), :].copy()
+    data.obs = merge_frame(data.obs.copy(), qc.loc[data.obs_names], "auto-QC")
 
     for path in args.annotation:
-        LOGGER.info("[finalize] merging annotation %s", path)
-        anno = read_annotation(path)
-        assert_same_index(adata.obs_names, anno.index, f"Annotation {path}")
-        adata.obs = merge_frame(adata.obs, anno, path)
+        LOGGER.info("[build] merging post-QC annotation %s", path)
+        annotation = read_annotation_sidecar(path)
+        assert_same_index(data.obs_names, annotation.index, f"Annotation {path}")
+        data.obs = merge_frame(data.obs.copy(), annotation, path)
 
-    if adata.n_obs != n_pass:
-        raise RuntimeError("Cell count changed unexpectedly during finalization")
+    data.obs = conv.drop_ci_identical_same_name(data.obs)
+    data.obs = conv.anndata_friendly_dtypes(
+        data.obs,
+        protect_cols=("barcode",),
+        allow_string_dtype=False,
+    )
+
+    data = conv.add_nuclear_fraction(data)
+    conv.optimize_X_layers(data, counts_in="X", allow_layers=bool(data.layers))
+    data.uns.clear()
+
+    if sp.issparse(data.X) and data.X.format != "csr":
+        data.X = data.X.tocsr()
 
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
-    LOGGER.info("[finalize] writing %s", args.output)
-    adata.write_h5ad(args.output, compression="gzip")
+    LOGGER.info("[build] final shape=%d cells x %d genes", data.n_obs, data.n_vars)
+    LOGGER.info("[build] writing %s", args.output)
+    data.write_h5ad(args.output, compression="gzip")
     return 0
 
 
