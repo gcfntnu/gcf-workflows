@@ -18,8 +18,20 @@ if 'celltypist' in ANNO_METHODS and not CELLTYPIST_MODEL:
         'celltype_annotation.celltypist.model is not configured'
     )
 
-PRE_ANNO = True
 _AGGR_ID = config['quant']['aggregate']['groupby']
+
+
+def _celltypist_model(wildcards):
+    if 'celltypist' not in ANNO_METHODS:
+        raise ValueError(
+            "CellTypist rule requested, but 'celltypist' is not enabled in celltype_annotation.method"
+        )
+    if not CELLTYPIST_MODEL:
+        raise ValueError(
+            'CellTypist annotation is enabled, but '
+            'celltype_annotation.celltypist.model is not configured'
+        )
+    return join(EXT_DIR, 'celltypist', 'data', 'models', CELLTYPIST_MODEL)
 
 
 rule orthogene_premap:
@@ -298,7 +310,7 @@ rule run_celltypist:
             'annotation',
             '{aggr_id}_annotation_input.h5ad',
         ),
-        model = join(EXT_DIR, 'celltypist', 'data', 'models', CELLTYPIST_MODEL or ''),
+        model = _celltypist_model,
         qc_mask = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', '{aggr_id}_autoqc_mask.tsv')
     output:
         anno_tsv = join(QUANT_INTERIM, 'aggregate', '{method}', 'annotation', '{aggr_id}_celltypist_annotation.tsv')
