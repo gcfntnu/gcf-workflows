@@ -39,11 +39,20 @@ tparser$add_argument("--method", dest = "method", default = "gprofiler",
                      help = "Ortholog mapping method passed to convert_orthologs")
 tparser$add_argument("--non121-strategy", dest = "non121_strategy", default = "drop_both_species",
                      help = "Non-1:1 ortholog strategy passed to convert_orthologs")
-tparser$add_argument("--mthreshold", dest = "mthreshold", type = "double", default = Inf,
+tparser$add_argument("--mthreshold", dest = "mthreshold", default = "Inf",
                      help = "Maximum ortholog mappings per source gene passed to convert_orthologs")
 tparser$add_argument("--no-cache", dest = "no_cache", action = "store_true", default = FALSE,
                      help = "Disable caching of ortholog mapping (default: FALSE)")
 args <- tparser$parse_args()
+
+if (tolower(args$mthreshold) %in% c("inf", "infinity")) {
+    args$mthreshold <- Inf
+} else {
+    args$mthreshold <- as.numeric(args$mthreshold)
+    if (is.na(args$mthreshold) || args$mthreshold <= 0) {
+        stop("--mthreshold must be a positive number or Inf")
+    }
+}
 
 # Determine default cache path
 use_cache <- !args$no_cache
