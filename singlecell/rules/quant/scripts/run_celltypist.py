@@ -77,45 +77,46 @@ def read_qc_mask(path: str, obs_names: pd.Index) -> pd.Series:
     return series.reindex(obs_names)
 
 
-def _collapse_gene_symbols(adata, symbols: pd.Series):
-    """Collapse multiple gene IDs sharing one symbol by summing their count columns."""
-    codes, unique_symbols = pd.factorize(symbols, sort=False)
-    if (codes < 0).any():
-        raise ValueError("Internal error while factorizing CellTypist gene symbols")
+def _collapse_duplicate_symbols(adata, symbols: pd.Series):
+    """Collapse duplicate gene symbols by summing their count columns."""
+    groups = pd.Categorical(symbols, categories=pd.unique(symbols), ordered=True)
+    codes = groups.codes
+    n_groups = len(groups.categories)
 
-    duplicated = symbols[symbols.duplicated(keep=False)]
-    if duplicated.empty:
-        adata.var_names = pd.Index(unique_symbols.astype(str), name="gene_name")
-        return adata
-
+    duplicated = symbols.duplicated(keep=False)
     LOGGER.info(
         "[genes] collapsing %d gene columns across %d duplicated symbols by summing counts",
-        int(duplicated.shape[0]),
-        int(duplicated.nunique()),
+        int(duplicated.sum()),
+        int(symbols[duplicated].nunique()),
     )
 
     X = adata.X
     if not sp.issparse(X):
         X = sp.csr_matrix(X)
-    elif X.format != "csr":
+    else:
         X = X.tocsr()
 
     mapper = sp.csr_matrix(
         (
-            np.ones(adata.n_vars, dtype=X.dtype),
+            np.ones(adata.n_vars, dtype=np.int8),
             (np.arange(adata.n_vars), codes),
         ),
-        shape=(adata.n_vars, len(unique_symbols)),
+        shape=(adata.n_vars, n_groups),
     )
-    collapsed_X = (X @ mapper).tocsr()
+    collapsed = X @ mapper
+    collapsed = collapsed.tocsr()
 
-    collapsed = anndata.AnnData(
-        X=collapsed_X,
+    result = anndata.AnnData(
+        X=collapsed,
         obs=adata.obs.copy(),
-        var=pd.DataFrame(index=pd.Index(unique_symbols.astype(str), name="gene_name")),
+        var=pd.DataFrame(index=pd.Index(groups.categories.astype(str), name="gene_name")),
     )
-    LOGGER.info("[genes] %d gene IDs collapsed to %d unique symbols", adata.n_vars, collapsed.n_vars)
-    return collapsed
+    LOGGER.info(
+        "[genes] %d gene IDs collapsed to %d unique symbols",
+        adata.n_vars,
+        result.n_vars,
+    )
+    return result
 
 
 def prepare_gene_names(adata, model_path: str):
@@ -132,9 +133,10 @@ def prepare_gene_names(adata, model_path: str):
     if empty.any():
         raise ValueError(f"Annotation AnnData contains {int(empty.sum())} empty gene_name values")
 
-    adata = _collapse_gene_symbols(adata, symbols)
-    if not adata.var_names.is_unique:
-        raise RuntimeError("CellTypist gene-symbol aggregation did not produce unique var_names")
+    if symbols.duplicated().any():
+        adata = _collapse_duplicate_symbols(adata, symbols)
+    else:
+        adata.var_names = pd.Index(symbols, name="gene_name")
 
     model = models.Model.load(model_path)
     model_features = pd.Index(model.features.astype(str))
@@ -160,7 +162,12 @@ def run_normalize_and_annotate(adata, args):
     sc.pp.filter_genes(adata_copy, min_cells=3)
     sc.pp.normalize_total(adata_copy, target_sum=1e4)
     sc.pp.log1p(adata_copy)
-    return celltypist.annotate(adata_copy, model=args.model, majority_voting=True, use_GPU=False)
+    return celltypist.annotate(
+        adata_copy,
+        model=args.model,
+        majority_voting=True,
+        use_GPU=args.use_GPU,
+    )
 
 
 def batch_majority_vote(adata, pred, args):
