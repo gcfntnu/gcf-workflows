@@ -8,7 +8,7 @@ Extend a MapMyCells annotation CSV with:
 
 Hard requirements:
   - Preserve the first column EXACTLY (name, order, values). It is used as an index downstream.
-  - Preserve leading '#' comment lines from the MapMyCells annotation CSV.
+  - Write normalized tab-separated output without MapMyCells comment metadata.
 
 Join key (default, correct for your files):
   annotation.cluster_label  <->  excel["cell_set_accession.cluster"]
@@ -25,7 +25,7 @@ import pandas as pd
 
 
 # ----------------------------
-# CSV read/write with leading '#...' comment lines
+# Input/output helpers
 # ----------------------------
 
 def read_csv_with_leading_comments(path: Path) -> Tuple[List[str], pd.DataFrame]:
@@ -47,12 +47,10 @@ def read_csv_with_leading_comments(path: Path) -> Tuple[List[str], pd.DataFrame]
     return comments, df
 
 
-def write_csv_with_leading_comments(path: Path, comments: List[str], df: pd.DataFrame) -> None:
+def write_normalized_tsv(path: Path, df: pd.DataFrame) -> None:
+    """Write a downstream-ready barcode table."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="") as f:
-        for line in comments:
-            f.write(line + "\n")
-        df.to_csv(f, index=False)
+    df.to_csv(path, sep="\t", index=False)
 
 
 # ----------------------------
@@ -145,15 +143,15 @@ def infer_nt_from_class_name(class_name: object) -> str:
         return "Glut"
     return "NA"
 
-def add_neuron_nonneuron_from_neurotransmitter(nt_label):
-    """
-    Add neuron vs non-neuron column based on nt_type_label.
 
-    """
+def add_neuron_nonneuron_from_neurotransmitter(nt_label):
+    """Add neuron vs non-neuron column based on nt_type_label."""
+
     def _classify(nt):
-        if pd.isna(nt) or nt=="NA":
+        if pd.isna(nt) or nt == "NA":
             return "non-neuron"
         return "neuron" if nt in {"Glut", "GABA", "Glut-GABA"} else "non-neuron"
+
     return nt_label.map(_classify)
 
 
@@ -170,13 +168,12 @@ def add_colors(df: pd.DataFrame, colors: dict) -> pd.DataFrame:
     if "cluster_name" in out.columns and "cluster" in colors:
         out["cluster_color"] = out["cluster_name"].map(colors.get("cluster", {}))
 
-    # Neurotransmitter colors 
- 
+    # Neurotransmitter colors
     nt_palette = colors.get("neurotransmitter", {})
     if not nt_palette:
         raise RuntimeError("Colors JSON missing 'neurotransmitter' palette.")
 
-    # Ensure nt_type_label exists (Excel preferred; fallback only if absent)    
+    # Ensure nt_type_label exists (Excel preferred; fallback only if absent)
     if "nt_type_label" not in out.columns:
         if "class_name" in out.columns:
             out["nt_type_label"] = out["class_name"].map(infer_nt_from_class_name)
@@ -194,7 +191,7 @@ def add_colors(df: pd.DataFrame, colors: dict) -> pd.DataFrame:
             f"nt_type_color mapping missing for nt_type_label categories: {bad}. "
             "Update abc_colors.json or your nt_type_label values."
         )
-    
+
     return out
 
 
@@ -216,7 +213,7 @@ PRESETS: Dict[str, List[str]] = {
         "anatomical_annotation", "neighborhood",
         "class_color", "subclass_color", "supertype_color", "cluster_color",
     ],
-    
+
     # Same, but also keep the original freq strings for audit/debug
     "spatial": [
         "class_label", "class_name", "class_bootstrapping_probability",
@@ -271,7 +268,7 @@ def main() -> int:
     ap.add_argument("--annotation", required=True, help="MapMyCells annotation CSV")
     ap.add_argument("--metadata", required=True, help="Allen CCN metadata Excel (.xlsx)")
     ap.add_argument("--colors", required=True, help="Allen colors JSON (abc_colors.json)")
-    ap.add_argument("--out", required=True, help="Output extended CSV")
+    ap.add_argument("--out", required=True, help="Normalized extended annotation TSV")
 
     ap.add_argument("--left-key", default="cluster_label",
                     help="Join key column in annotation (default: cluster_label)")
@@ -291,7 +288,7 @@ def main() -> int:
     colors_path = Path(args.colors)
     out_path = Path(args.out)
 
-    comments, ann = read_csv_with_leading_comments(ann_path)
+    _, ann = read_csv_with_leading_comments(ann_path)
     index_col = ann.columns[0]  # preserve EXACTLY
 
     meta = pd.read_excel(meta_path, engine="openpyxl")
@@ -318,7 +315,7 @@ def main() -> int:
     colors = load_colors(colors_path)
     merged = add_colors(merged, colors)
 
-    # add top level cell_class (neuron vs non-neuron)
+    # Add top-level cell_class (neuron vs non-neuron)
     if "nt_type_label" in merged.columns:
         merged["cell_class"] = add_neuron_nonneuron_from_neurotransmitter(merged["nt_type_label"])
 
@@ -347,7 +344,7 @@ def main() -> int:
             miss_nt = merged["nt_type_label"].isna().sum()
             print(f"[info] nt_type_label_missing={miss_nt} ({miss_nt/n:.3f})")
 
-    write_csv_with_leading_comments(out_path, comments, out_df)
+    write_normalized_tsv(out_path, out_df)
     return 0
 
 
