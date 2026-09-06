@@ -83,7 +83,7 @@ def _qc_barcode_info_list(wc):
         QUANT_INTERIM,
         'aggregate',
         wc.method,
-        'auto_annotate',
+        'annotation',
         f'{wc.aggr_id}_mapmycells_annotation.tsv',
     )
     return [aggregate if path == legacy else path for path in items]
