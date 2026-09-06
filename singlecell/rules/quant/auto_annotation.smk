@@ -43,8 +43,9 @@ rule orthogene_premap:
         script = src_gcf('scripts/run_orthogene.R'),
         src_org = config['organism'],
         dst_org = MM_ORG,
-        method = 'gprofiler',
-        non121_strategy = 'drop_both_species'
+        method = 'homologene',
+        non121_strategy = 'drop_both_species',
+        mthreshold = 'Inf'
     container:
         'docker://' + config['docker']['orthogene']
     threads:
@@ -55,6 +56,9 @@ rule orthogene_premap:
         '--output {output.gene_map} '
         '--src {params.src_org} '
         '--dst {params.dst_org} '
+        '--method {params.method} '
+        '--non121-strategy {params.non121_strategy} '
+        '--mthreshold {params.mthreshold} '
         '--no-cache '
 
 
