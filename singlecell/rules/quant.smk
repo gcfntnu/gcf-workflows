@@ -220,14 +220,6 @@ def _aggregate_scanpy_dir(method):
     return join(base, 'cellbender', 'scanpy') if CB_OUTPUT else join(base, 'scanpy')
 
 
-def get_preqc_anndata(wildcards):
-    method = getattr(wildcards, 'quantifier', None) or getattr(wildcards, 'method', None)
-    aggr_id = getattr(wildcards, 'aggr_id', None)
-    if not method or aggr_id is None:
-        raise ValueError("get_preqc_anndata requires aggregate method and aggr_id wildcards")
-    return join(_aggregate_scanpy_dir(method), f"{aggr_id}_preqc.h5ad")
-
-
 def get_filtered_anndata(wildcards):
     """Return the canonical filtered AnnData path."""
     method = getattr(wildcards, 'quantifier', None) or getattr(wildcards, 'method', None)
@@ -299,10 +291,6 @@ def scanpy_aggr_inputs(wc):
     return output
 
 
-def scanpy_aggr_output(wc):
-    return get_preqc_anndata(wc)
-
-
 rule tmp_lightweight_raw:
     input:
         unpack(get_raw_mtx),
@@ -352,46 +340,10 @@ rule tmp_lightweight_filtered:
         '-F anndata_lightweight v2_mtx '
 
 
-SCANPY_AGGR_PREQC_OUTPUT = (
-    join(QUANT_INTERIM, 'aggregate', '{method}', 'cellbender', 'scanpy', '{aggr_id}_preqc.h5ad')
-    if CB_OUTPUT else join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_preqc.h5ad')
-)
 SCANPY_AGGR_FILTERED_OUTPUT = (
     join(QUANT_INTERIM, 'aggregate', '{method}', 'cellbender', 'scanpy', '{aggr_id}_filtered.h5ad')
     if CB_OUTPUT else join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_filtered.h5ad')
 )
-
-
-rule scanpy_aggr_filtered:
-    input:
-        unpack(scanpy_aggr_inputs)
-    output:
-        temp(SCANPY_AGGR_PREQC_OUTPUT)
-    params:
-        script = src_gcf('quant/scripts/convert_scanpy.py'),
-        bc_type = lambda wc: BC_RENAME[wc.method],
-        enable_cb = '--enable-cellbender' if CB_OUTPUT else '',
-        aggr_csv = lambda wc, input: (
-            f'--aggr-csv {input.aggr_csv} -f cellranger_aggr '
-            if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger'
-            else f'-f {wc.method} '
-        )
-    threads:
-        48
-    log:
-        join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', 'logs', '{aggr_id}.log')
-    container:
-        'docker://' + config['docker']['scanpy']
-    shell:
-        'python {params.script} '
-        '{input.inputs} '
-        '--feature-info {input.feature_info} '
-        '--barcode-info {input.barcode_info} '
-        '--barcode-rename {params.bc_type} '
-        '-o {output} '
-        '-v '
-        '{params.enable_cb} '
-        '{params.aggr_csv} '
 
 
 def scanpy_finalize_inputs(wc):
