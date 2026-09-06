@@ -176,9 +176,12 @@ def gpu_over_clustering(adata) -> pd.Series:
 
     LOGGER.info("[celltypist] using rapids-singlecell %s for over-clustering", rsc.__version__)
     work = adata.copy()
+    # This rapids-singlecell build does not expose Scanpy's min_cells argument.
+    # Filter on CPU before transferring the matrix to GPU; non-zero membership is
+    # unchanged by the normalization/log1p already applied to this object.
+    sc.pp.filter_genes(work, min_cells=5)
     work.X = work.X.astype("f")
     rsc.get.anndata_to_GPU(work)
-    rsc.pp.filter_genes(work, min_cells=5)
     rsc.pp.highly_variable_genes(work, n_top_genes=min(2500, work.n_vars))
     work = work[:, work.var.highly_variable].copy()
     rsc.pp.scale(work, max_value=10)
