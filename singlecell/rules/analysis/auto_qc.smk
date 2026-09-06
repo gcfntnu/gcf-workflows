@@ -3,7 +3,31 @@
 Automatic Quality Control of single cell rna-seq data
 """
 
-# ---- helpers (put near top of your .smk) ----
+# ---- new QC preparation helpers ----
+
+def _qc_prepare_sample_str(cfg):
+    qc_sample = cfg.get("qc", {}).get("qc_sample")
+    if qc_sample is None:
+        qc_sample = [cfg.get("sample_id", "Sample_ID")]
+    elif isinstance(qc_sample, str):
+        qc_sample = [qc_sample]
+    if not qc_sample:
+        raise ValueError("qc.qc_sample must contain at least one AnnData obs column")
+    return ",".join(qc_sample)
+
+
+def _qc_prepare_vars_str(cfg):
+    metrics = cfg.get("qc", {}).get("metrics", {})
+    if not isinstance(metrics, dict) or not metrics:
+        raise ValueError("qc.metrics must be a non-empty mapping")
+    return ",".join(metrics.keys())
+
+
+def _qc_fit_exclude_doublets(cfg):
+    return int(bool(cfg.get("qc", {}).get("fit", {}).get("exclude_doublets", False)))
+
+
+# ---- legacy histogram QC helpers ----
 
 def _qc_sample_str(cfg):
     # ['Sample_ID','library_id','cell_class'] -> 'Sample_ID_x_library_id_x_cell_class'
@@ -76,6 +100,34 @@ def _hist_bounds_flags(cfg):
 
 
 # ---- rules ----
+
+rule autoqc_prepare:
+    input:
+        aggr_filtered_h5ad = join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_filtered.h5ad')
+    output:
+        metrics = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', '{aggr_id}_qc_metrics.parquet'),
+        log = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', '{aggr_id}_qc_prepare.log'),
+    params:
+        script = src_gcf('scripts/qc_prepare.py'),
+        qc_sample = lambda wc: _qc_prepare_sample_str(config),
+        qc_vars = lambda wc: _qc_prepare_vars_str(config),
+        exclude_doublets = lambda wc: _qc_fit_exclude_doublets(config),
+        doublet_column = lambda wc: config.get('qc', {}).get('fit', {}).get('doublet_column', 'doublet_call'),
+        singlet_value = lambda wc: config.get('qc', {}).get('fit', {}).get('singlet_value', 'singlet'),
+    container:
+        'docker://gcfntnu/sctk:0.2.2'
+    shell:
+        'python {params.script} '
+        '--input-h5ad {input.aggr_filtered_h5ad} '
+        '--output-metrics {output.metrics} '
+        '--qc-sample {params.qc_sample} '
+        '--qc-vars {params.qc_vars} '
+        '--exclude-doublets {params.exclude_doublets} '
+        '--doublet-column {params.doublet_column} '
+        '--singlet-value {params.singlet_value} '
+        '--log-file {output.log} '
+        '--verbose 1 '
+
 
 rule autoqc_make_bundle:
     input:
