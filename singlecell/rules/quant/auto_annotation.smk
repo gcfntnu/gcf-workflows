@@ -59,6 +59,114 @@ rule orthogene_premap_aggr:
         '{input} '
 
 
+def annotation_input_files(wildcards):
+    if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger':
+        inputs = [
+            join(
+                QUANT_INTERIM,
+                'aggregate',
+                'cellranger',
+                wildcards.aggr_id,
+                'outs',
+                'count',
+                'filtered_feature_bc_matrix',
+                'matrix.mtx.gz',
+            )
+        ]
+    else:
+        sublibs = AGGR_IDS[wildcards.aggr_id]
+        if CB_OUTPUT:
+            inputs = [
+                join(QUANT_INTERIM, wildcards.method, sublib, 'cellbender', f'{sublib}_filtered.h5')
+                for sublib in sublibs
+            ]
+        else:
+            inputs = [
+                _get_filtered_mtx(
+                    SimpleNamespace(method=wildcards.method, sublib=sublib, sample=sublib)
+                )['mtx']
+                for sublib in sublibs
+            ]
+
+    result = {'counts': inputs}
+    if MM_ORG != config['organism']:
+        result['gene_map'] = join(
+            QUANT_INTERIM,
+            'aggregate',
+            wildcards.method,
+            f'{wildcards.aggr_id}_orthologs.tsv',
+        )
+    if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger':
+        result['aggr_csv'] = join(
+            QUANT_INTERIM,
+            'aggregate',
+            'description',
+            f'{wildcards.aggr_id}_aggr.csv',
+        )
+    return result
+
+
+def annotation_input_format(wildcards):
+    if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger':
+        return 'cellranger_aggr'
+    return wildcards.method
+
+
+def annotation_input_gene_map_arg(wildcards, input):
+    if MM_ORG == config['organism']:
+        return ''
+    return f'--gene-map {input.gene_map} '
+
+
+def annotation_input_aggr_csv_arg(wildcards, input):
+    if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger':
+        return f'--aggr-csv {input.aggr_csv} '
+    return ''
+
+
+rule annotation_input:
+    input:
+        unpack(annotation_input_files)
+    output:
+        h5ad = temp(
+            join(
+                QUANT_INTERIM,
+                'aggregate',
+                '{method}',
+                'auto_annotate',
+                '{aggr_id}_annotation_input.h5ad',
+            )
+        )
+    params:
+        script = src_gcf('scripts/annotation_input.py'),
+        input_format = annotation_input_format,
+        barcode_rename = lambda wc: BC_RENAME[wc.method],
+        src_organism = config['organism'],
+        dst_organism = MM_ORG,
+        gene_map = annotation_input_gene_map_arg,
+        aggr_csv = annotation_input_aggr_csv_arg,
+        cellbender = '--enable-cellbender --cellbender-mode denoised ' if CB_OUTPUT else ''
+    log:
+        join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_annotate', '{aggr_id}_annotation_input.log')
+    container:
+        'docker://' + config['docker']['scanpy']
+    threads:
+        24
+    shell:
+        'python {params.script} '
+        '{input.counts} '
+        '--input-format {params.input_format} '
+        '--output {output.h5ad} '
+        '--barcode-rename {params.barcode_rename} '
+        '--src-organism {params.src_organism} '
+        '--dst-organism {params.dst_organism} '
+        '{params.gene_map}'
+        '{params.aggr_csv}'
+        '{params.cellbender}'
+        '--log {log} '
+        '-v '
+
+
 rule mapmycells_clean_premap_input:
     input:
         unpack(get_filtered_mtx),
