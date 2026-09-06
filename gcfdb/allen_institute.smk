@@ -33,9 +33,9 @@ def url_mapmycells(species: str, kind: str) -> str:
     key = f"mapmycells/{product}/{release}/{fname}"
     return f"{S3_HOST}/{_q(key, safe='/')}"
 
-def url_taxonomy(file: str, release: str | None = None) -> str:
+def url_taxonomy(file: str) -> str:
     """metadata/WMB-taxonomy/<release>/<file> -> full HTTPS URL"""
-    rel = release or ABC['taxonomy']['release']
+    rel = ABC['taxonomy']['release']
     key = f"metadata/WMB-taxonomy/{rel}/{file}"
     return f"{S3_HOST}/{_q(key, safe='/')}"
 
@@ -117,20 +117,19 @@ rule mapmycells_markers_human:
 # -----------------------------
 # Taxonomy metadata + colors
 # -----------------------------
-COLOR_RELEASE = ABC['taxonomy']['release']
-CLUSTER_META_RELEASE = "20230830"
+TAXONOMY_RELEASE = ABC['taxonomy']['release']
 CLUSTER_META_FILE = "cl.df_CCN202307220.xlsx"
 
 rule abc_taxonomy_cluster_metadata:
     params:
-        url     = url_taxonomy(CLUSTER_META_FILE, CLUSTER_META_RELEASE),
-        release = CLUSTER_META_RELEASE,
+        url     = url_taxonomy(CLUSTER_META_FILE),
+        release = TAXONOMY_RELEASE,
         name    = "ABC taxonomy cluster metadata",
         proxy   = WGET_PROXY
     output:
-        metadata_xlsx = join(ABC_META, "WMB-taxonomy", CLUSTER_META_RELEASE, CLUSTER_META_FILE)
+        metadata_xlsx = join(ABC_META, "WMB-taxonomy", TAXONOMY_RELEASE, CLUSTER_META_FILE)
     log:
-        join(ABC_META, "WMB-taxonomy", CLUSTER_META_RELEASE, "logs", "cluster_metadata.prov.csv")
+        join(ABC_META, "WMB-taxonomy", TAXONOMY_RELEASE, "logs", "cluster_metadata.prov.csv")
     shell:
         r'''
         wget {params.proxy} -O "{output.metadata_xlsx}" "{params.url}"
@@ -140,13 +139,13 @@ rule abc_taxonomy_cluster_metadata:
 rule abc_taxonomy_term_http:
     params:
         url     = url_taxonomy("cluster_annotation_term.csv"),
-        release = COLOR_RELEASE,
+        release = TAXONOMY_RELEASE,
         name    = "ABC taxonomy term table",
         proxy   = WGET_PROXY
     output:
-        term_csv = join(ABC_META, "WMB-taxonomy", COLOR_RELEASE, "cluster_annotation_term.csv")
+        term_csv = join(ABC_META, "WMB-taxonomy", TAXONOMY_RELEASE, "cluster_annotation_term.csv")
     log:
-        join(ABC_META, "WMB-taxonomy", COLOR_RELEASE, "logs", "term.prov.csv")
+        join(ABC_META, "WMB-taxonomy", TAXONOMY_RELEASE, "logs", "term.prov.csv")
     shell:
         r'''
         wget {params.proxy} -O "{output.term_csv}" "{params.url}"
@@ -311,7 +310,7 @@ rule abc_assets:
         join(ABC_MAPMY, "homo_sapiens", "markers.json"),
         # Taxonomy + palettes
         rules.abc_taxonomy_cluster_metadata.output.metadata_xlsx,
-        join(ABC_META, "WMB-taxonomy", COLOR_RELEASE, "cluster_annotation_term.csv"),
+        join(ABC_META, "WMB-taxonomy", TAXONOMY_RELEASE, "cluster_annotation_term.csv"),
         ABC_COLORS_LONG,
         ABC_COLORS_JSON,
         # ROI + derived map
