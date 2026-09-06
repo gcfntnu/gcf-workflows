@@ -167,8 +167,7 @@ rule annotation_input:
         '-v '
 
 
-# Existing per-sublibrary MapMyCells path is retained temporarily as the validated
-# comparison path while the common aggregate annotation input is evaluated.
+# Legacy per-sublibrary MapMyCells path retained temporarily for comparison.
 rule mapmycells_clean_premap_input:
     input:
         unpack(get_filtered_mtx),
@@ -295,9 +294,7 @@ rule mapmycells_premap_aggr:
         '--output {output} '
 
 
-# Aggregate MapMyCells evaluation path. This consumes exactly the common minimal
-# annotation H5AD validated in Stage A. The old per-sublibrary path above remains
-# untouched so the two outputs can be compared before switching production wiring.
+# Production aggregate MapMyCells path using the common minimal annotation H5AD.
 rule mapmycells_from_specified_markers:
     input:
         annotation_h5ad = join(
@@ -403,7 +400,13 @@ rule celltypist_default_models:
 
 rule run_celltypist:
     input:
-        aggr_preqc_h5ad = get_preqc_anndata,
+        annotation_h5ad = join(
+            QUANT_INTERIM,
+            'aggregate',
+            '{method}',
+            'auto_annotate',
+            '{aggr_id}_annotation_input.h5ad',
+        ),
         model = join(
             EXT_DIR,
             'celltypist',
@@ -411,37 +414,35 @@ rule run_celltypist:
             'models',
             config.get('celltype_annotation', {}).get('celltypist', {}).get('model', ''),
         ),
-        qc_mask = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', '{aggr_id}_autoqc_mask.tsv'),
-        gene_map = join(QUANT_INTERIM, 'aggregate', '{method}', '{aggr_id}_orthologs.tsv')
+        qc_mask = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', '{aggr_id}_autoqc_mask.tsv')
     output:
         anno_tsv = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_annotate', '{aggr_id}_celltypist_annotation.tsv')
     params:
         script = src_gcf('scripts/run_celltypist.py'),
-        src_organism = config['organism'],
-        dst_organism = (
-            'mus_musculus'
-            if config['organism'] in ['mus_musculus', 'rattus_norvegicus']
-            else 'homo_sapiens'
-        ),
         args = '--use-GPU --plot '
     container:
         'docker://gcfntnu/rapids-scanpy:latest'
     shell:
         'python {params.script} '
-        '--input {input.aggr_preqc_h5ad} '
+        '--input {input.annotation_h5ad} '
         '--model {input.model} '
         '--output {output.anno_tsv} '
-        '--gene-map {input.gene_map} '
         '--qc-mask {input.qc_mask} '
-        '--src-organism {params.src_organism} '
-        '--dst-organism {params.dst_organism} '
         '{params.args} '
 
 
 def _selected_annotation_sidecars(wc):
     sidecars = []
     if 'mapmycells' in ANNO_METHODS:
-        sidecars.append(join(QUANT_INTERIM, 'aggregate', wc.method, f'{wc.aggr_id}_premap_annotation.tsv'))
+        sidecars.append(
+            join(
+                QUANT_INTERIM,
+                'aggregate',
+                wc.method,
+                'auto_annotate',
+                f'{wc.aggr_id}_mapmycells_annotation.tsv',
+            )
+        )
     if 'celltypist' in ANNO_METHODS:
         sidecars.append(
             join(
