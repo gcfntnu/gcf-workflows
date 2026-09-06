@@ -140,7 +140,7 @@ rule annotation_input:
                 QUANT_INTERIM,
                 'aggregate',
                 '{method}',
-                'auto_annotate',
+                'annotation',
                 '{aggr_id}_annotation_input.h5ad',
             )
         )
@@ -154,7 +154,7 @@ rule annotation_input:
         aggr_csv = annotation_input_aggr_csv_arg,
         cellbender = '--enable-cellbender --cellbender-mode denoised ' if CB_OUTPUT else ''
     log:
-        join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_annotate', '{aggr_id}_annotation_input.log')
+        join(QUANT_INTERIM, 'aggregate', '{method}', 'annotation', '{aggr_id}_annotation_input.log')
     container:
         'docker://' + config['docker']['scanpy']
     threads:
@@ -307,7 +307,7 @@ rule mapmycells_from_specified_markers:
             QUANT_INTERIM,
             'aggregate',
             '{method}',
-            'auto_annotate',
+            'annotation',
             '{aggr_id}_annotation_input.h5ad',
         ),
         pre_stats_h5 = join(EXT_DIR, 'allen-brain-cell-atlas', 'mapmycells', MM_ORG, 'precomputed_stats.h5'),
@@ -317,14 +317,14 @@ rule mapmycells_from_specified_markers:
             QUANT_INTERIM,
             'aggregate',
             '{method}',
-            'auto_annotate',
+            'annotation',
             '{aggr_id}_mapmycells_annotation.csv',
         ),
         anno_json = join(
             QUANT_INTERIM,
             'aggregate',
             '{method}',
-            'auto_annotate',
+            'annotation',
             '{aggr_id}_mapmycells_annotation.json',
         )
     params:
@@ -358,7 +358,7 @@ rule mapmycells_aggr_output_processing:
             QUANT_INTERIM,
             'aggregate',
             '{method}',
-            'auto_annotate',
+            'annotation',
             '{aggr_id}_mapmycells_annotation.csv',
         ),
         taxonomy_cluster = abc_taxonomy_file(MM_ORG, 'cluster'),
@@ -370,7 +370,7 @@ rule mapmycells_aggr_output_processing:
             QUANT_INTERIM,
             'aggregate',
             '{method}',
-            'auto_annotate',
+            'annotation',
             '{aggr_id}_mapmycells_annotation.tsv',
         )
     params:
@@ -410,13 +410,13 @@ rule run_celltypist:
             QUANT_INTERIM,
             'aggregate',
             '{method}',
-            'auto_annotate',
+            'annotation',
             '{aggr_id}_annotation_input.h5ad',
         ),
         model = join(EXT_DIR, 'celltypist', 'data', 'models', CELLTYPIST_MODEL or ''),
         qc_mask = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', '{aggr_id}_autoqc_mask.tsv')
     output:
-        anno_tsv = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_annotate', '{aggr_id}_celltypist_annotation.tsv')
+        anno_tsv = join(QUANT_INTERIM, 'aggregate', '{method}', 'annotation', '{aggr_id}_celltypist_annotation.tsv')
     params:
         script = src_gcf('scripts/run_celltypist.py'),
         args = '--use-GPU --plot '
@@ -439,7 +439,7 @@ def _selected_annotation_sidecars(wc):
                 QUANT_INTERIM,
                 'aggregate',
                 wc.method,
-                'auto_annotate',
+                'annotation',
                 f'{wc.aggr_id}_mapmycells_annotation.tsv',
             )
         )
@@ -449,7 +449,7 @@ def _selected_annotation_sidecars(wc):
                 QUANT_INTERIM,
                 'aggregate',
                 wc.method,
-                'auto_annotate',
+                'annotation',
                 f'{wc.aggr_id}_celltypist_annotation.tsv',
             )
         )
@@ -462,12 +462,12 @@ rule auto_annotate_scanpy:
             QUANT_INTERIM,
             'aggregate',
             '{method}',
-            'auto_annotate',
+            'annotation',
             '{aggr_id}_annotation_input.h5ad',
         ),
         anno = _selected_annotation_sidecars
     output:
-        aggr_anno = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_annotate', '{aggr_id}_celltype_annotation.tsv')
+        aggr_anno = join(QUANT_INTERIM, 'aggregate', '{method}', 'annotation', '{aggr_id}_celltype_annotation.tsv')
     params:
         script = src_gcf('scripts/combine_celltype_annotations.py')
     container:
