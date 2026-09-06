@@ -83,7 +83,18 @@ def load_feature_info(conv, paths: list[str]) -> pd.DataFrame | None:
 def load_barcode_info(conv, paths: list[str]) -> list[tuple[str, pd.DataFrame]]:
     result = []
     for path in paths:
-        frame = conv._barcode_info_reader(path, logger=LOGGER)
+        if path.endswith("_mapmycells_annotation.tsv"):
+            frame = pd.read_csv(path, sep="\t", index_col=0)
+            frame.index = frame.index.astype(str)
+            frame.index.name = "barcode"
+            if not frame.index.is_unique:
+                dups = frame.index[frame.index.duplicated()].unique()
+                raise ValueError(
+                    f"{path}: duplicate MapMyCells cell identifiers are not allowed. "
+                    f"Examples: {list(dups[:5])}"
+                )
+        else:
+            frame = conv._barcode_info_reader(path, logger=LOGGER)
         if frame is not None:
             result.append((path, frame))
     return result
