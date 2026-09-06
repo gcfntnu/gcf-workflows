@@ -110,7 +110,7 @@ rule mapmycells_output_processing:
         colors = join(EXT_DIR, 'allen-brain-cell-atlas', 'derived', 'abc_colors.json'),
         meta = 'data/ext/cl.df_CCN202307220.xlsx'
     output:
-        extended_anno_csv = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'annotation',  'mapmycells', 'annotation_extended.csv')
+        extended_anno_tsv = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'annotation',  'mapmycells', 'annotation_extended.tsv')
     params:
         script = src_gcf("scripts/mapmycells_colormap.py")
     container:
@@ -121,13 +121,13 @@ rule mapmycells_output_processing:
         '--colors {input.colors} '
         '--metadata {input.meta} '
         '--preset minimal '
-        '--out {output.extended_anno_csv} '
+        '--out {output.extended_anno_tsv} '
         '--verbose '
 
 def aggr_input(wildcards):
     samples_by_aggr_id = AGGR_IDS.get(wildcards.aggr_id)
     if config.get('celltype_annotation', {}).get('mapmycells', {}).get('extended', False):
-        input_files = expand(rules.mapmycells_output_processing.output.extended_anno_csv,
+        input_files = expand(rules.mapmycells_output_processing.output.extended_anno_tsv,
                              quantifier=wildcards.method,
                              sample=samples_by_aggr_id)
     else:
