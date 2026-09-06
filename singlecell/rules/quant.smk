@@ -167,7 +167,13 @@ def get_barcode_info_list(wc):
                 items.append(join(aggr_dir, 'multiplexing', multiplex_method, f'{wc.aggr_id}_droplet_type.tsv'))
 
         if 'mapmycells' in ANNO_METHODS:
-            items.append(join(aggr_dir, f'{wc.aggr_id}_premap_annotation.tsv'))
+            items.append(
+                join(
+                    aggr_dir,
+                    'auto_annotate',
+                    f'{wc.aggr_id}_mapmycells_annotation.tsv',
+                )
+            )
 
         if cb_subset:
             items.append(join(aggr_dir, 'cellbender', f'{wc.aggr_id}_expression_presence.tsv'))
@@ -389,6 +395,15 @@ rule scanpy_aggr_filtered:
 
 
 def scanpy_finalize_inputs(wc):
+    output = scanpy_aggr_inputs(wc)
+    output['qc_cells'] = join(
+        QUANT_INTERIM,
+        'aggregate',
+        wc.method,
+        'auto_qc',
+        f'{wc.aggr_id}_qc_cells.parquet',
+    )
+
     annotations = []
     if 'celltypist' in ANNO_METHODS:
         annotations.append(
@@ -400,22 +415,24 @@ def scanpy_finalize_inputs(wc):
                 f'{wc.aggr_id}_celltypist_annotation.tsv',
             )
         )
-
-    return {
-        'preqc': get_preqc_anndata(wc),
-        'qc_cells': join(
-            QUANT_INTERIM,
-            'aggregate',
-            wc.method,
-            'auto_qc',
-            f'{wc.aggr_id}_qc_cells.parquet',
-        ),
-        'annotation': annotations,
-    }
+    output['annotation'] = annotations
+    return output
 
 
 def _finalize_annotation_args(wc, input):
     return ' '.join(f'--annotation {path}' for path in input.annotation)
+
+
+def _finalize_aggr_csv_arg(wc, input):
+    if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger':
+        return f'--aggr-csv {input.aggr_csv} '
+    return ''
+
+
+def _finalize_input_format(wc):
+    if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger':
+        return 'cellranger_aggr'
+    return wc.method
 
 
 rule scanpy_aggr_finalize:
@@ -425,18 +442,33 @@ rule scanpy_aggr_finalize:
         SCANPY_AGGR_FILTERED_OUTPUT
     params:
         script = src_gcf('quant/scripts/finalize_scanpy.py'),
+        converter_script_dir = src_gcf('quant/scripts'),
+        input_format = _finalize_input_format,
+        bc_type = lambda wc: BC_RENAME[wc.method],
+        enable_cb = '--enable-cellbender' if CB_OUTPUT else '',
+        aggr_csv = _finalize_aggr_csv_arg,
         annotation_args = _finalize_annotation_args
+    threads:
+        48
     log:
         join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', 'logs', '{aggr_id}_finalize.log')
     container:
         'docker://' + config['docker']['scanpy']
     shell:
         'python {params.script} '
-        '--input {input.preqc} '
+        '{input.inputs} '
+        '--converter-script-dir {params.converter_script_dir} '
+        '--input-format {params.input_format} '
+        '--barcode-rename {params.bc_type} '
+        '{params.aggr_csv}'
+        '--feature-info {input.feature_info} '
+        '--barcode-info {input.barcode_info} '
         '--qc-cells {input.qc_cells} '
         '{params.annotation_args} '
+        '{params.enable_cb} '
         '--output {output} '
         '--log {log} '
+        '--verbose '
 
 
 def quant_all_inputs(wc):
