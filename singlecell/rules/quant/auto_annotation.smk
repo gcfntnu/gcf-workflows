@@ -107,8 +107,8 @@ rule mapmycells_premap_from_specified_markers:
 rule mapmycells_output_processing:
     input:
         anno_csv = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'annotation',  'mapmycells', 'annotation.csv'),
-        colors = join(EXT_DIR, 'allen-brain-cell-atlas', 'derived', 'abc_colors.json'),
-        meta = 'data/ext/cl.df_CCN202307220.xlsx'
+        colors = rules.abc_build_colors.output.json,
+        meta = rules.abc_taxonomy_cluster_metadata.output.metadata_xlsx
     output:
         extended_anno_tsv = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'annotation',  'mapmycells', 'annotation_extended.tsv')
     params:
