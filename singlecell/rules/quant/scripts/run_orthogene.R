@@ -8,7 +8,7 @@
 #   to a TSV file. Optionally caches mappings for reuse.
 #
 # Usage:
-#   run_orthogene.R --input INPUT --output OUTPUT --src SRC --dst DST [--no-cache]
+#   run_orthogene.R --input INPUT --output OUTPUT --src SRC --dst DST [OPTIONS]
 #
 # Dependencies:
 #   orthogene, schard, argparse, Matrix
@@ -35,6 +35,12 @@ tparser$add_argument("--src",     dest = "src",     required = TRUE,
                      help = "Source species (e.g. 'human')")
 tparser$add_argument("--dst",     dest = "dst",     required = TRUE,
                      help = "Destination species (e.g. 'mouse')")
+tparser$add_argument("--method", dest = "method", default = "gprofiler",
+                     help = "Ortholog mapping method passed to convert_orthologs")
+tparser$add_argument("--non121-strategy", dest = "non121_strategy", default = "drop_both_species",
+                     help = "Non-1:1 ortholog strategy passed to convert_orthologs")
+tparser$add_argument("--mthreshold", dest = "mthreshold", type = "double", default = Inf,
+                     help = "Maximum ortholog mappings per source gene passed to convert_orthologs")
 tparser$add_argument("--no-cache", dest = "no_cache", action = "store_true", default = FALSE,
                      help = "Disable caching of ortholog mapping (default: FALSE)")
 args <- tparser$parse_args()
@@ -45,7 +51,13 @@ if (use_cache) {
     tmpdir <- Sys.getenv("TMPDIR", unset = tempdir())
     cache_dir <- file.path(tmpdir, "orthogene")
     dir.create(cache_dir, recursive = TRUE, showWarnings = FALSE)
-    cache_file <- file.path(cache_dir, paste0(args$src, "_", args$dst, "_map.rds"))
+    cache_file <- file.path(
+        cache_dir,
+        paste0(
+            args$src, "_", args$dst, "_", args$method, "_",
+            args$non121_strategy, "_", args$mthreshold, "_map.rds"
+        )
+    )
 }
 
 # Load gene metadata
@@ -99,7 +111,12 @@ if (args$src == args$dst) {
     dst_df <- var[, c("gene_id", "gene_symbol")]
 } else {
     message("[3/6] Mapping genes from ", args$src, " to ", args$dst)
-    
+    message(
+        "[3/6] Ortholog parameters: method=", args$method,
+        ", non121_strategy=", args$non121_strategy,
+        ", mthreshold=", args$mthreshold
+    )
+
     # Load from cache or run conversion
     if (use_cache && file.exists(cache_file)) {
         message("[4/6] Using cached mapping: ", cache_file)
@@ -107,41 +124,40 @@ if (args$src == args$dst) {
     } else {
         message("[4/6] Running ortholog conversion...")
         dst_ids <- convert_orthologs(
-            gene_df        = var,
-	    gene_input     = "gene_id",
-	    gene_output    = "dict",
-            input_species  = args$src,
-            output_species = args$dst,
-            method         = "gprofiler",
-            mthreshold     = 1
+            gene_df          = var,
+            gene_input       = "gene_id",
+            gene_output      = "dict",
+            input_species    = args$src,
+            output_species   = args$dst,
+            method           = args$method,
+            non121_strategy  = args$non121_strategy,
+            mthreshold       = args$mthreshold
         )
         if (use_cache) {
             message("[5/6] Saving cache to: ", cache_file)
             saveRDS(dst_ids, file = cache_file)
         }
     }
-    
-  message("[4.5/6] Map to dst organism...")
 
-dst_map <- map_genes(
-  genes      = dst_ids,
-  species    = args$dst,
-  mthreshold = 1,
-  drop_na    = FALSE
-)
+    message("[4.5/6] Map to dst organism...")
 
+    dst_map <- map_genes(
+        genes      = dst_ids,
+        species    = args$dst,
+        mthreshold = 1,
+        drop_na    = FALSE
+    )
 
-dst_df <- data.frame(
-  gene_id      = names(dst_ids),
-  dst_gene_id  = dst_map[,"target"],
-  dst_symbol   = dst_map[,"name"],
-  check.names = FALSE,
-  stringsAsFactors = FALSE
-)
+    dst_df <- data.frame(
+        gene_id     = names(dst_ids),
+        dst_gene_id = dst_map[,"target"],
+        dst_symbol  = dst_map[,"name"],
+        check.names = FALSE,
+        stringsAsFactors = FALSE
+    )
 
-names(dst_df)[names(dst_df) == "dst_gene_id"] <- paste0(args$dst, "_gene_id")
-names(dst_df)[names(dst_df) == "dst_symbol"]  <- paste0(args$dst, "_gene_symbol")
-
+    names(dst_df)[names(dst_df) == "dst_gene_id"] <- paste0(args$dst, "_gene_id")
+    names(dst_df)[names(dst_df) == "dst_symbol"]  <- paste0(args$dst, "_gene_symbol")
 }
 
 stopifnot(grepl("^ENS", dst_df[[paste0(args$dst, "_gene_id")]][1]))
