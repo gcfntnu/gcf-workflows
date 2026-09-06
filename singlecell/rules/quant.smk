@@ -236,7 +236,7 @@ def get_filtered_anndata(wildcards):
 
     if not sublib:
         raise ValueError("get_filtered_anndata: need 'sublib' or 'sample' when aggr_id is absent")
-    base = join(QUANT_INTERIM, method)
+    base = join(QUANT_INTERIM, method, sublib)
     base = join(base, 'cellbender', 'scanpy') if CB_OUTPUT else join(base, 'scanpy')
     return join(base, f"{sublib}.h5ad")
 
@@ -350,6 +350,10 @@ SCANPY_AGGR_PREQC_OUTPUT = (
     join(QUANT_INTERIM, 'aggregate', '{method}', 'cellbender', 'scanpy', '{aggr_id}_preqc.h5ad')
     if CB_OUTPUT else join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_preqc.h5ad')
 )
+SCANPY_AGGR_FILTERED_OUTPUT = (
+    join(QUANT_INTERIM, 'aggregate', '{method}', 'cellbender', 'scanpy', '{aggr_id}_filtered.h5ad')
+    if CB_OUTPUT else join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_filtered.h5ad')
+)
 
 
 rule scanpy_aggr_filtered:
@@ -418,7 +422,7 @@ rule scanpy_aggr_finalize:
     input:
         unpack(scanpy_finalize_inputs)
     output:
-        get_filtered_anndata
+        SCANPY_AGGR_FILTERED_OUTPUT
     params:
         script = src_gcf('quant/scripts/finalize_scanpy.py'),
         annotation_args = _finalize_annotation_args
