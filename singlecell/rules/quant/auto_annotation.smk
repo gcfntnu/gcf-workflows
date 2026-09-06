@@ -167,6 +167,8 @@ rule annotation_input:
         '-v '
 
 
+# Existing per-sublibrary MapMyCells path is retained temporarily as the validated
+# comparison path while the common aggregate annotation input is evaluated.
 rule mapmycells_clean_premap_input:
     input:
         unpack(get_filtered_mtx),
@@ -293,59 +295,38 @@ rule mapmycells_premap_aggr:
         '--output {output} '
 
 
-# Legacy aggregate MapMyCells rules are retained for explicit comparison runs.
-rule mapmycells_gene_map:
-    input:
-        aggr_raw_h5ad = join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_raw.h5ad')
-    output:
-        gene_map = join(QUANT_INTERIM, 'aggregate', '{method}', '{aggr_id}_gene_map.tsv')
-    params:
-        script = src_gcf('scripts/run_orthogene.R'),
-        src_org = config['organism'],
-        dst_org = MM_ORG,
-        method = 'gprofiler',
-        non121_strategy = 'drop_both_species'
-    container:
-        'docker://' + config['docker']['orthogene']
-    shell:
-        'Rscript {params.script} '
-        '{input.aggr_raw_h5ad} '
-        '{output.gene_map} '
-        '{params.src_org} '
-        '{params.dst_org} '
-
-
-rule mapmycells_clean_input:
-    input:
-        aggr_raw_h5ad = join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_filtered.h5ad'),
-        gene_map = join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_filtered.gene_map.tsv')
-    output:
-        aggr_clean_h5ad = temp(join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_tiny.h5ad'))
-    params:
-        script = src_gcf('scripts/mapmycells_input.py'),
-        src_organism = config['organism'],
-        dst_organism = 'mus_musculus' if config['organism'] in ['mus_musculus', 'rattus_norvegicus'] else 'homo_sapiens'
-    container:
-        'docker://' + config['docker']['scanpy']
-    shell:
-        'python {params.script} '
-        '--input {input.aggr_raw_h5ad} '
-        '--output {output.aggr_clean_h5ad} '
-        '--gene-map {input.gene_map} '
-        '--src-organism {params.src_organism} '
-        '--dst-organism {params.dst_organism} '
-
-
+# Aggregate MapMyCells evaluation path. This consumes exactly the common minimal
+# annotation H5AD validated in Stage A. The old per-sublibrary path above remains
+# untouched so the two outputs can be compared before switching production wiring.
 rule mapmycells_from_specified_markers:
     input:
-        aggr_filtered_h5ad = join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_tiny.h5ad'),
+        annotation_h5ad = join(
+            QUANT_INTERIM,
+            'aggregate',
+            '{method}',
+            'auto_annotate',
+            '{aggr_id}_annotation_input.h5ad',
+        ),
         pre_stats_h5 = join(EXT_DIR, 'allen-brain-cell-atlas', 'mapmycells', MM_ORG, 'precomputed_stats.h5'),
         markers_json = join(EXT_DIR, 'allen-brain-cell-atlas', 'mapmycells', MM_ORG, 'markers.json')
     output:
-        anno_csv = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_annotate', '{aggr_id}_mapmycells_annotation.csv'),
-        anno_json = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_annotate', '{aggr_id}_mapmycells_annotation.json')
+        anno_csv = join(
+            QUANT_INTERIM,
+            'aggregate',
+            '{method}',
+            'auto_annotate',
+            '{aggr_id}_mapmycells_annotation.csv',
+        ),
+        anno_json = join(
+            QUANT_INTERIM,
+            'aggregate',
+            '{method}',
+            'auto_annotate',
+            '{aggr_id}_mapmycells_annotation.json',
+        )
     params:
         args = (
+            '--type_assignment.chunk_size 3000 '
             '--type_assignment.bootstrap_factor 0.5 '
             '--type_assignment.bootstrap_iteration 100 '
             '--type_assignment.normalization raw '
@@ -354,16 +335,56 @@ rule mapmycells_from_specified_markers:
     container:
         'docker://gcfntnu/mapmycells:1.5.1'
     threads:
-        64
+        48
     shell:
+        'export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1; '
         'python -m cell_type_mapper.cli.from_specified_markers '
         '--precomputed_stats.path {input.pre_stats_h5} '
         '--query_markers.serialized_lookup {input.markers_json} '
         '--type_assignment.n_processors {threads} '
-        '--query_path {input.aggr_raw_h5ad} '
+        '--query_path {input.annotation_h5ad} '
         '--extended_result_path {output.anno_json} '
         '--csv_result_path {output.anno_csv} '
+        '--tmp_dir /dev/shm/mapmycells_{wildcards.aggr_id} '
         '{params.args} '
+
+
+rule mapmycells_aggr_output_processing:
+    input:
+        anno_csv = join(
+            QUANT_INTERIM,
+            'aggregate',
+            '{method}',
+            'auto_annotate',
+            '{aggr_id}_mapmycells_annotation.csv',
+        ),
+        taxonomy_cluster = abc_taxonomy_file(MM_ORG, 'cluster'),
+        taxonomy_term = abc_taxonomy_file(MM_ORG, 'term'),
+        taxonomy_membership = abc_taxonomy_file(MM_ORG, 'membership'),
+        mouse_meta = _mapmycells_mouse_metadata_input
+    output:
+        extended_anno_tsv = join(
+            QUANT_INTERIM,
+            'aggregate',
+            '{method}',
+            'auto_annotate',
+            '{aggr_id}_mapmycells_annotation.tsv',
+        )
+    params:
+        script = src_gcf('scripts/mapmycells_colormap.py'),
+        mouse_metadata = _mapmycells_mouse_metadata_arg
+    container:
+        'docker://' + config['docker']['default']
+    shell:
+        'python {params.script} '
+        '--annotation {input.anno_csv} '
+        '--taxonomy-cluster {input.taxonomy_cluster} '
+        '--taxonomy-term {input.taxonomy_term} '
+        '--taxonomy-membership {input.taxonomy_membership} '
+        '{params.mouse_metadata}'
+        '--preset minimal '
+        '--out {output.extended_anno_tsv} '
+        '--verbose '
 
 
 rule celltypist_default_models:
