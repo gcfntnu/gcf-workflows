@@ -25,6 +25,10 @@ import scipy.sparse as sp
 
 import convert_scanpy as conv
 
+# Annotation only needs the count matrix. In particular, do not let the shared
+# Split-pipe reader attach velocity layers to this deliberately minimal object.
+conv._USE_VELO = False
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
