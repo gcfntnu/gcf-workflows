@@ -3,7 +3,7 @@
 Automatic Quality Control of single cell rna-seq data
 """
 
-# ---- new QC preparation helpers ----
+# ---- new QC helpers ----
 
 def _qc_prepare_sample_str(cfg):
     qc_sample = cfg.get("qc", {}).get("qc_sample")
@@ -25,6 +25,52 @@ def _qc_prepare_vars_str(cfg):
 
 def _qc_fit_exclude_doublets(cfg):
     return int(bool(cfg.get("qc", {}).get("fit", {}).get("exclude_doublets", False)))
+
+
+def _qc_fit_min_cells(cfg):
+    return int(cfg.get("qc", {}).get("fit", {}).get("min_cells", 100))
+
+
+def _qc_mad_metric_flags(cfg):
+    metrics = cfg.get("qc", {}).get("metrics", {})
+    if not isinstance(metrics, dict) or not metrics:
+        raise ValueError("qc.metrics must be a non-empty mapping")
+
+    allowed = {
+        "scale",
+        "mad_low",
+        "mad_high",
+        "min_diff_low",
+        "min_diff_high",
+        "hard_min",
+        "hard_max",
+    }
+    order = (
+        "scale",
+        "mad_low",
+        "mad_high",
+        "min_diff_low",
+        "min_diff_high",
+        "hard_min",
+        "hard_max",
+    )
+
+    flags = []
+    for metric, policy in metrics.items():
+        if not isinstance(policy, dict):
+            raise ValueError(f"qc.metrics.{metric} must be a mapping")
+        unknown = set(policy) - allowed
+        if unknown:
+            raise ValueError(f"qc.metrics.{metric} has unsupported keys: {sorted(unknown)}")
+
+        spec = [metric]
+        for key in order:
+            value = policy.get(key)
+            if value is not None:
+                spec.append(f"{key}={value}")
+        flags.append("--metric " + ",".join(spec))
+
+    return " ".join(flags)
 
 
 # ---- legacy histogram QC helpers ----
@@ -125,6 +171,36 @@ rule autoqc_prepare:
         '--exclude-doublets {params.exclude_doublets} '
         '--doublet-column {params.doublet_column} '
         '--singlet-value {params.singlet_value} '
+        '--log-file {output.log} '
+        '--verbose 1 '
+
+
+rule autoqc_mad:
+    input:
+        metrics = rules.autoqc_prepare.output.metrics
+    output:
+        cells = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', '{aggr_id}_qc_cells.parquet'),
+        passed_tsv = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', '{aggr_id}_autoqc_mask.tsv'),
+        ranges_tsv = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', '{aggr_id}_qc_ranges.tsv'),
+        log = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', '{aggr_id}_qc_mad.log'),
+        plot_dir = directory(join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', 'figs', '{aggr_id}')),
+    params:
+        script = src_gcf('scripts/qc_mad.py'),
+        qc_sample = lambda wc: _qc_prepare_sample_str(config),
+        metric_flags = lambda wc: _qc_mad_metric_flags(config),
+        min_fit_cells = lambda wc: _qc_fit_min_cells(config),
+    container:
+        'docker://gcfntnu/sctk:0.2.2'
+    shell:
+        'python {params.script} '
+        '--input-metrics {input.metrics} '
+        '--output-cells {output.cells} '
+        '--output-mask {output.passed_tsv} '
+        '--output-ranges {output.ranges_tsv} '
+        '--plot-dir {output.plot_dir} '
+        '--qc-sample {params.qc_sample} '
+        '{params.metric_flags} '
+        '--min-fit-cells {params.min_fit_cells} '
         '--log-file {output.log} '
         '--verbose 1 '
 
