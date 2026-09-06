@@ -185,14 +185,14 @@ rule autoqc_mad:
         log = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', '{aggr_id}_qc_mad.log'),
         plot_dir = directory(join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', 'figs', '{aggr_id}')),
     params:
-        script = src_gcf('scripts/qc_mad.py'),
+        script = src_gcf('scripts/qc_mad_refined.py'),
         qc_sample = lambda wc: _qc_prepare_sample_str(config),
         metric_flags = lambda wc: _qc_mad_metric_flags(config),
         min_fit_cells = lambda wc: _qc_fit_min_cells(config),
     container:
         'docker://gcfntnu/sctk:0.2.2'
     shell:
-        'python {params.script} '
+        'MPLBACKEND=Agg python {params.script} '
         '--input-metrics {input.metrics} '
         '--output-cells {output.cells} '
         '--output-mask {output.passed_tsv} '
