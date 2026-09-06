@@ -45,7 +45,7 @@ max_cells_by_kit = {"wt_mini": 30_000,
 BARCODE_RANK_MAX_CELLS = int(config["quant"].get("barcode_rank_max_cells", max_cells_by_kit[KIT]))
 
 
-ruleorder: parsebio_scanpy_filtered > scanpy_aggr_filtered
+ruleorder: parsebio_starsolo_scanpy_filtered > scanpy_aggr_filtered
 
 
 def _tso_window_args(tso: str, kmax: int = 15) -> str:
@@ -408,7 +408,7 @@ rule parsebio_fastq_preprocessor_skip:
         R2 = join(FILTER_INTERIM, "fastq", "{sublib}_R2.fastq.gz"),
     output:
         R1 = temp(join(FILTER_INTERIM, "fastq", "skip", "{sublib}_R1.fastq.gz")),
-        R2 = temp(join(FILTER_INTERIM, "fastq", "skip", "{sublib}_R2.fastq.gz"))
+        R2 = temp(join(FILTER_INTERIM, "fastq", "skip", "{sublib}_R2.fastq.gz")),
     wildcard_constraints:
         sublib = r"[^/]+"
     shell:
@@ -573,23 +573,24 @@ rule parsebio_starsolo_filtered:
         '--output-mtx {output.mtx} '
 
 
-def parsebio_rt_inputs(wc):
+def parsebio_starsolo_rt_inputs(wc):
     sublibs = AGGR_IDS[wc.aggr_id]
     if CB_OUTPUT:
         inputs = [join(QUANT_INTERIM, wc.method, s, 'cellbender', f'{s}_filtered.h5') for s in sublibs]
     else:
         inputs = [get_filtered_mtx(SimpleNamespace(method=wc.method, sublib=s, sample=s))['mtx'] for s in sublibs]
-    output = {
+    return {
         'inputs': inputs,
         'feature_info': get_feature_info_list(wc),
-        'barcode_info': get_barcode_info_list(wc)}
-    if VELO_OUTPUT and wc.method == 'splitpipe':
-        output['velo_files'] = [join(QUANT_INTERIM, wc.method, s, 'velo', 'spliced.mtx') for s in sublibs]
-    return output   
+        'barcode_info': get_barcode_info_list(wc),
+    }
 
-rule parsebio_scanpy_rt_filtered:
+
+rule parsebio_starsolo_scanpy_rt_filtered:
+    wildcard_constraints:
+        method = 'parsebio_starsolo'
     input:
-        unpack(parsebio_rt_inputs)
+        unpack(parsebio_starsolo_rt_inputs)
     params:
         script    = src_gcf('scripts/convert_scanpy.py'),
         bc_type   = lambda wc: BC_RENAME[wc.method],
@@ -614,9 +615,11 @@ rule parsebio_scanpy_rt_filtered:
         '--verbose '
 
 
-rule parsebio_scanpy_filtered:
+rule parsebio_starsolo_scanpy_filtered:
+    wildcard_constraints:
+        method = 'parsebio_starsolo'
     input:
-        rules.parsebio_scanpy_rt_filtered.output
+        rules.parsebio_starsolo_scanpy_rt_filtered.output
     output:
         join(QUANT_INTERIM, 'aggregate', '{method}', 'cellbender', 'scanpy', '{aggr_id}_filtered.h5ad') if CB_OUTPUT else join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_filtered.h5ad')
     params:
@@ -722,5 +725,4 @@ rule parsebio_starsolo_scanpy_pp_ipynb_html:
         1
     shell:
         'jupyter nbconvert --to html {params.notebook} '
-
 
