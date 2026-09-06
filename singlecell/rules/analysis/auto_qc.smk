@@ -314,5 +314,8 @@ rule autoqc_validrops:
 
 rule autoqc_all:
     input:
-        expand(join(QUANT_INTERIM, 'aggregate', '{method}', '{aggr_id}_{qc_method}_autoqc_mask.tsv'), method=config['quant']['method'], aggr_id = ['all_samples'], qc_method=["hist"])
-    
+        expand(
+            join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', '{aggr_id}_autoqc_mask.tsv'),
+            method=config['quant']['method'],
+            aggr_id=['all_samples'],
+        )
