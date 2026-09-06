@@ -76,17 +76,18 @@ def _qc_mad_metric_flags(cfg):
 # ---- legacy histogram QC helpers ----
 
 def _qc_sample_str(cfg):
-    # ['Sample_ID','library_id','cell_class'] -> 'Sample_ID_x_library_id_x_cell_class'
     return "_x_".join(cfg["qc"]["qc_sample"])
+
 
 def _qc_vars_str(cfg):
     return ",".join(cfg["qc"]["qc_vars"])
 
+
 def _valley_kernel_str(cfg):
     return ",".join(str(x) for x in cfg["qc"]["hist_bounds"]["bounds"]["valley"]["kernel"])
 
+
 def _scale_overrides_flags(cfg):
-    # emit per-metric scale overrides for ALL metrics in qc.metric_policy
     mp = cfg["qc"]["metric_policy"]
     flags = []
     for metric, pol in mp.items():
@@ -96,9 +97,8 @@ def _scale_overrides_flags(cfg):
         flags.append(f"--scale-override {metric}:{scale}")
     return " ".join(flags)
 
+
 def _metric_policy_flags(cfg):
-    # emit --metric-override METRIC:key=value for keys present in qc.metric_policy[METRIC]
-    # skip 'scale' (handled via --scale-override)
     mp = cfg["qc"]["metric_policy"]
     allowed = {
         "min_hard", "max_hard",
@@ -114,9 +114,9 @@ def _metric_policy_flags(cfg):
                 continue
             if k not in allowed:
                 continue
-            # booleans unlikely here; treat as YAML scalar
             flags.append(f"--metric-override {metric}:{k}={v}")
     return " ".join(flags)
+
 
 def _prefilter_flags(cfg):
     pf = cfg["qc"]["prefilter"]
@@ -126,6 +126,7 @@ def _prefilter_flags(cfg):
         f"--prefilter-min-genes {int(pf.get('min_genes', 200))}",
         f"--prefilter-min-cells {int(pf.get('min_cells', 3))}",
     ])
+
 
 def _hist_bounds_flags(cfg):
     b = cfg["qc"]["hist_bounds"]["bounds"]
@@ -149,7 +150,7 @@ def _hist_bounds_flags(cfg):
 
 rule autoqc_prepare:
     input:
-        aggr_filtered_h5ad = join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_filtered.h5ad')
+        aggr_preqc_h5ad = get_preqc_anndata
     output:
         metrics = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', '{aggr_id}_qc_metrics.parquet'),
         log = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', '{aggr_id}_qc_prepare.log'),
@@ -164,7 +165,7 @@ rule autoqc_prepare:
         'docker://gcfntnu/sctk:0.2.2'
     shell:
         'python {params.script} '
-        '--input-h5ad {input.aggr_filtered_h5ad} '
+        '--input-h5ad {input.aggr_preqc_h5ad} '
         '--output-metrics {output.metrics} '
         '--qc-sample {params.qc_sample} '
         '--qc-vars {params.qc_vars} '
@@ -207,16 +208,15 @@ rule autoqc_mad:
 
 rule autoqc_make_bundle:
     input:
-        aggr_filtered_h5ad = join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_filtered.h5ad')
+        aggr_preqc_h5ad = get_preqc_anndata
     output:
         bundle = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', '{aggr_id}_qc_bundle.parquet'),
-        dist   = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', '{aggr_id}_qc_bundle_dist.tsv'),
-        log    = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', '{aggr_id}_qc_make_bundle.log'),
+        dist = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', '{aggr_id}_qc_bundle_dist.tsv'),
+        log = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', '{aggr_id}_qc_make_bundle.log'),
     params:
-        script   = src_gcf('scripts/qc_make_bundle.py'),
+        script = src_gcf('scripts/qc_make_bundle.py'),
         qc_sample = lambda wc: _qc_sample_str(config),
-        qc_vars   = lambda wc: _qc_vars_str(config),
-        # deterministic even if redundant; scale-default is baseline for metrics missing in metric_policy
+        qc_vars = lambda wc: _qc_vars_str(config),
         scale_default = "log",
         scale_overrides = lambda wc: _scale_overrides_flags(config),
         prefilter = lambda wc: _prefilter_flags(config),
@@ -224,7 +224,7 @@ rule autoqc_make_bundle:
         'docker://gcfntnu/sctk:0.2.2'
     shell:
         'python {params.script} '
-        '--input-h5ad {input.aggr_filtered_h5ad} '
+        '--input-h5ad {input.aggr_preqc_h5ad} '
         '--output-bundle {output.bundle} '
         '--output-dist {output.dist} '
         '--qc-sample {params.qc_sample} '
@@ -241,18 +241,17 @@ rule autoqc_hist_bounds:
         bundle = rules.autoqc_make_bundle.output.bundle
     output:
         passed_tsv = join(QUANT_INTERIM, 'aggregate', '{method}', '{aggr_id}_hist_autoqc_mask.tsv'),
-        qc_vars    = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', '{aggr_id}_hist_autoqc_qcvars.tsv'),
+        qc_vars = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', '{aggr_id}_hist_autoqc_qcvars.tsv'),
         ranges_tsv = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', '{aggr_id}_hist_autoqc_ranges.tsv'),
-        log        = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', '{aggr_id}_hist_autoqc.log'),
-        plot_dir   = directory(join(QUANT_INTERIM, 'aggregate', '{method}', 'autoqc', 'figs', '{aggr_id}')),
+        log = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', '{aggr_id}_hist_autoqc.log'),
+        plot_dir = directory(join(QUANT_INTERIM, 'aggregate', '{method}', 'autoqc', 'figs', '{aggr_id}')),
     params:
-        script   = src_gcf('scripts/qc_hist_bounds.py'),
-        qc_vars  = lambda wc: _qc_vars_str(config),
-        # must match bundle stage
-        scale_default   = "log",
+        script = src_gcf('scripts/qc_hist_bounds.py'),
+        qc_vars = lambda wc: _qc_vars_str(config),
+        scale_default = "log",
         scale_overrides = lambda wc: _scale_overrides_flags(config),
-        metric_policy   = lambda wc: _metric_policy_flags(config),
-        bounds          = lambda wc: _hist_bounds_flags(config),
+        metric_policy = lambda wc: _metric_policy_flags(config),
+        bounds = lambda wc: _hist_bounds_flags(config),
     container:
         'docker://gcfntnu/sctk:0.2.2'
     shell:
@@ -273,11 +272,11 @@ rule autoqc_hist_bounds:
 
 rule autoqc_sctk:
     input:
-        aggr_filtered_h5ad = join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_filtered.h5ad')
+        aggr_preqc_h5ad = get_preqc_anndata
     output:
         passed_tsv = join(QUANT_INTERIM, 'aggregate', '{method}', '{aggr_id}_sctk_autoqc_mask.tsv'),
         qc_vars = join(QUANT_INTERIM, 'aggregate', '{method}', '{aggr_id}_sctk_autoqc_qcvars.tsv'),
-        log = join(QUANT_INTERIM, 'aggregate', '{method}', 'autoqc', '{aggr_id}_sctk_autoqc.log') 
+        log = join(QUANT_INTERIM, 'aggregate', '{method}', 'autoqc', '{aggr_id}_sctk_autoqc.log')
     params:
         script = src_gcf('scripts/autoqc_cellwise.py'),
         qc_sample = 'Sample_ID_x_library_id_x_cell_class',
@@ -288,7 +287,7 @@ rule autoqc_sctk:
         'docker://' + config['docker']['scanpy']
     shell:
         'python {params.script} '
-        '--input {input.aggr_filtered_h5ad} '
+        '--input {input.aggr_preqc_h5ad} '
         '--output {output.passed_tsv} '
         '--quantifier {wildcards.method} '
         '--qc-sample {params.qc_sample} '
@@ -300,22 +299,22 @@ rule autoqc_sctk:
 
 rule autoqc_sampleqc:
     input:
-        aggr_raw_h5ad = join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_filtered.h5ad')
+        aggr_raw_h5ad = get_preqc_anndata
     output:
         passed_tsv = join(QUANT_INTERIM, 'aggregate', '{method}', '{aggr_id}_sampleqc_autoqc_mask.tsv')
 
 
 rule autoqc_validrops:
     input:
-        aggr_raw_h5ad = join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_filtered.h5ad')
+        aggr_raw_h5ad = get_preqc_anndata
     output:
-        passed_tsv = join(QUANT_INTERIM, 'aggregate', '{method}', '{aggr_id}_validrops_autoqc_mask.tsv')   
+        passed_tsv = join(QUANT_INTERIM, 'aggregate', '{method}', '{aggr_id}_validrops_autoqc_mask.tsv')
 
 
 rule autoqc_all:
     input:
         expand(
             join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', '{aggr_id}_autoqc_mask.tsv'),
-            method=config['quant']['method'],
+            method=METHODS,
             aggr_id=['all_samples'],
         )
