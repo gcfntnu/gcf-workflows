@@ -119,7 +119,6 @@ def add_canonical_taxonomy(
     if missing := required_membership - set(membership.columns):
         raise RuntimeError(f"Allen membership table missing columns: {sorted(missing)}")
 
-    # Taxonomy labels are authoritative identifiers. Normalize whitespace only.
     term = term.copy()
     term["label"] = term["label"].str.strip()
     term_by_label = term.set_index("label", verify_integrity=True)
@@ -167,15 +166,10 @@ def add_canonical_taxonomy(
         raise RuntimeError(f"Multiple neurotransmitter assignments for cluster aliases: {bad}")
 
     nt_by_alias = nt.set_index("cluster_alias")["cluster_annotation_term_name"]
-    out["nt_type_label"] = aliases.map(nt_by_alias)
 
-    missing_nt = aliases.notna() & out["nt_type_label"].isna()
-    if missing_nt.any():
-        examples = sorted(aliases[missing_nt].dropna().unique().tolist())[:10]
-        raise RuntimeError(
-            f"Allen membership table has no neurotransmitter assignment for {missing_nt.sum()} cells. "
-            f"Cluster aliases: {examples}"
-        )
+    # WHB leaves neurotransmitter membership empty for non-neuronal subclusters.
+    # Allen's own taxonomy examples represent missing memberships as "Other".
+    out["nt_type_label"] = aliases.map(nt_by_alias).fillna("Other")
 
     nt_terms = term.loc[
         term["cluster_annotation_term_set_name"].eq("neurotransmitter")
@@ -183,7 +177,11 @@ def add_canonical_taxonomy(
     nt_colors = nt_terms.set_index("name")["color_hex_triplet"]
     out["nt_type_color"] = out["nt_type_label"].map(nt_colors)
 
-    missing_nt_color = out["nt_type_label"].notna() & out["nt_type_color"].isna()
+    missing_nt_color = (
+        out["nt_type_label"].notna()
+        & ~out["nt_type_label"].isin(NON_NEURON_NEUROTRANSMITTERS)
+        & out["nt_type_color"].isna()
+    )
     if missing_nt_color.any():
         bad = sorted(out.loc[missing_nt_color, "nt_type_label"].unique().tolist())
         raise RuntimeError(f"Allen taxonomy has no colors for neurotransmitter terms: {bad}")
