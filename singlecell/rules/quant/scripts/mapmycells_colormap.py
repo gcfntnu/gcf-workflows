@@ -48,7 +48,14 @@ def parse_freq_field(value: object) -> Tuple[Optional[str], Optional[float]]:
         except ValueError:
             continue
 
-    return max(items, key=lambda item: item[1]) if items else (None, None)
+    if not items:
+        return None, None
+
+    key, probability = max(items, key=lambda item: item[1])
+    if key in {"", "NA", "None", "none"}:
+        return None, None
+
+    return key, probability
 
 
 def add_region_meta(df: pd.DataFrame) -> pd.DataFrame:
