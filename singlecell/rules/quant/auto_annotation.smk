@@ -103,37 +103,52 @@ rule mapmycells_premap_from_specified_markers:
         '--tmp_dir /dev/shm/mapmycells_{wildcards.sample} '
         ' {params.args} '
 
-    
+
+def _mapmycells_mouse_metadata_input(wildcards):
+    if MM_ORG == 'mus_musculus':
+        return [abc_mouse_taxonomy_addon_file('cluster_metadata')]
+    return []
+
+
+def _mapmycells_mouse_metadata_arg(wildcards):
+    if MM_ORG == 'mus_musculus':
+        return '--mouse-metadata ' + abc_mouse_taxonomy_addon_file('cluster_metadata') + ' '
+    return ''
+
+
 rule mapmycells_output_processing:
     input:
-        anno_csv = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'annotation',  'mapmycells', 'annotation.csv'),
-        colors = rules.abc_build_colors.output.json,
-        meta = rules.abc_taxonomy_cluster_metadata.output.metadata_xlsx
+        anno_csv = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'annotation', 'mapmycells', 'annotation.csv'),
+        taxonomy_cluster = abc_taxonomy_file(MM_ORG, 'cluster'),
+        taxonomy_term = abc_taxonomy_file(MM_ORG, 'term'),
+        taxonomy_membership = abc_taxonomy_file(MM_ORG, 'membership'),
+        mouse_meta = _mapmycells_mouse_metadata_input
     output:
-        extended_anno_tsv = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'annotation',  'mapmycells', 'annotation_extended.tsv')
+        extended_anno_tsv = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'annotation', 'mapmycells', 'annotation_extended.tsv')
     params:
-        script = src_gcf("scripts/mapmycells_colormap.py")
+        script = src_gcf('scripts/mapmycells_colormap.py'),
+        mouse_metadata = _mapmycells_mouse_metadata_arg
     container:
         'docker://' + config['docker']['default']
     shell:
         'python {params.script} '
         '--annotation {input.anno_csv} '
-        '--colors {input.colors} '
-        '--metadata {input.meta} '
+        '--taxonomy-cluster {input.taxonomy_cluster} '
+        '--taxonomy-term {input.taxonomy_term} '
+        '--taxonomy-membership {input.taxonomy_membership} '
+        '{params.mouse_metadata}'
         '--preset minimal '
         '--out {output.extended_anno_tsv} '
         '--verbose '
 
+
 def aggr_input(wildcards):
     samples_by_aggr_id = AGGR_IDS.get(wildcards.aggr_id)
-    if config.get('celltype_annotation', {}).get('mapmycells', {}).get('extended', False):
-        input_files = expand(rules.mapmycells_output_processing.output.extended_anno_tsv,
-                             quantifier=wildcards.method,
-                             sample=samples_by_aggr_id)
-    else:
-        input_files = expand(rules.mapmycells_premap_from_specified_markers.output.anno_csv,
-                             quantifier=wildcards.method,
-                             sample=samples_by_aggr_id)
+    input_files = expand(
+        rules.mapmycells_output_processing.output.extended_anno_tsv,
+        quantifier=wildcards.method,
+        sample=samples_by_aggr_id,
+    )
     if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger':
         aggr_csv = join(QUANT_INTERIM, 'aggregate', 'description', f'{wildcards.aggr_id}_aggr.csv')
         return {'input_files': input_files, 'aggr_csv': aggr_csv}
@@ -284,4 +299,3 @@ rule auto_annotate_scanpy:
         '--output {output.aggr_anno} '
         '--log {log} '
         '--annotation {input.anno} '
-
