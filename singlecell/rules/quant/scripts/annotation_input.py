@@ -25,6 +25,11 @@ import scipy.sparse as sp
 
 import convert_scanpy as conv
 
+# convert_scanpy normally creates its module logger only when executed as a
+# script. Annotation input imports its readers directly, so initialize the
+# logger explicitly here.
+conv.logger = logging.getLogger("convert_scanpy")
+
 # Annotation only needs the count matrix. In particular, do not let the shared
 # Split-pipe reader attach velocity layers to this deliberately minimal object.
 conv._USE_VELO = False
