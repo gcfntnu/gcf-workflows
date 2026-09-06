@@ -1,0 +1,230 @@
+#!/usr/bin/env python3
+"""Build the minimal aggregate AnnData used by automatic annotation methods.
+
+The output contract is intentionally small:
+
+- ``X``: raw counts as CSR sparse matrix
+- ``obs.index``: canonical aggregate barcodes
+- ``var.index``: gene IDs for the annotation reference organism
+- ``var['gene_name']``: gene symbols for the annotation reference organism
+
+Quantifier-specific matrix parsing and barcode normalization are delegated to
+``convert_scanpy.py`` so this script does not introduce a second set of input
+readers.
+"""
+
+import argparse
+import logging
+import os
+from types import SimpleNamespace
+
+import anndata
+import numpy as np
+import pandas as pd
+import scipy.sparse as sp
+
+import convert_scanpy as conv
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("input", nargs="+", help="Filtered count matrix input(s)")
+    parser.add_argument("--input-format", required=True, choices=conv.READERS.keys())
+    parser.add_argument("--output", required=True, help="Output minimal H5AD")
+    parser.add_argument("--barcode-rename", required=True, choices=["numerical", "sample_id", "trim", "parsebio", "skip"])
+    parser.add_argument("--aggr-csv", default=None, help="Cell Ranger aggregation CSV")
+    parser.add_argument("--gene-map", default=None, help="Optional ortholog mapping TSV")
+    parser.add_argument("--src-organism", required=True)
+    parser.add_argument("--dst-organism", required=True)
+    parser.add_argument("--enable-cellbender", action="store_true")
+    parser.add_argument("--cellbender-mode", choices=["off", "raw", "denoised"], default="off")
+    parser.add_argument("--log", default=None)
+    parser.add_argument("-v", "--verbose", action="store_true")
+    return parser.parse_args()
+
+
+def setup_logging(log_file=None, verbose=False):
+    handlers = [logging.StreamHandler()]
+    if log_file:
+        os.makedirs(os.path.dirname(log_file), exist_ok=True)
+        handlers.append(logging.FileHandler(log_file))
+    logging.basicConfig(
+        level=logging.DEBUG if verbose else logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        handlers=handlers,
+    )
+
+
+def _reader_args(args):
+    aggr_csv = conv._aggr_csv_reader(args.aggr_csv) if args.aggr_csv else None
+    return SimpleNamespace(
+        aggr_csv=aggr_csv,
+        barcode_rename=args.barcode_rename,
+        no_gex_only=False,
+        verbose=args.verbose,
+        cellbender_mode=args.cellbender_mode,
+        enable_cellbender=args.enable_cellbender,
+    )
+
+
+def _read_inputs(args):
+    reader_args = _reader_args(args)
+    effective_format = (
+        f"{args.input_format}_cellbender"
+        if args.enable_cellbender
+        else args.input_format
+    )
+    reader = conv.READERS.get(effective_format)
+    if reader is None:
+        raise ValueError(f"Unsupported annotation input format: {effective_format}")
+
+    if len(args.input) > 1 and args.input_format == "cellranger_aggr":
+        raise ValueError("cellranger_aggr expects one aggregated matrix input")
+
+    data_list = []
+    for path in args.input:
+        path = os.path.abspath(path)
+        logging.info("Reading %s", path)
+        data_list.append(reader(path, reader_args))
+
+    if len(data_list) == 1:
+        data = data_list[0]
+    else:
+        logging.info("Concatenating %d input matrices", len(data_list))
+        data = anndata.concat(data_list, join="outer", merge="unique", uns_merge=None)
+
+    if not data.obs_names.is_unique:
+        duplicated = data.obs_names[data.obs_names.duplicated()].unique()
+        raise ValueError(f"Duplicate aggregate barcodes detected: {list(duplicated[:5])}")
+
+    row_sum = np.asarray(data.X.sum(axis=1)).ravel()
+    col_sum = np.asarray(data.X.sum(axis=0)).ravel()
+    keep_obs = row_sum > 0
+    keep_var = col_sum > 0
+    if not keep_obs.all() or not keep_var.all():
+        logging.info(
+            "Dropping %d all-zero cells and %d all-zero genes",
+            int((~keep_obs).sum()),
+            int((~keep_var).sum()),
+        )
+        data = data[keep_obs, keep_var]
+
+    return data
+
+
+def _gene_symbol_column(var):
+    for column in conv._GENE_SYMBOL_ALIASES:
+        if column in var.columns:
+            return column
+    return None
+
+
+def _native_features(data):
+    var = data.var
+    symbol_column = _gene_symbol_column(var)
+    if symbol_column is None:
+        logging.warning("No gene symbol column found; falling back to gene_id")
+        gene_name = pd.Index(data.var_names.astype(str))
+    else:
+        gene_name = var[symbol_column].astype(object).where(var[symbol_column].notna(), data.var_names)
+
+    gene_id = pd.Index(data.var_names.astype(str), name="gene_id")
+    if not gene_id.is_unique:
+        duplicated = gene_id[gene_id.duplicated()].unique()
+        raise ValueError(f"Duplicate native gene IDs: {list(duplicated[:5])}")
+
+    return np.arange(data.n_vars), gene_id, np.asarray(gene_name, dtype=object)
+
+
+def _mapped_features(data, gene_map_path, dst_organism):
+    gene_map = pd.read_csv(gene_map_path, sep="\t", index_col=0, dtype=str)
+    gene_map.index = gene_map.index.astype(str)
+
+    id_column = f"{dst_organism}_gene_id"
+    symbol_column = f"{dst_organism}_gene_symbol"
+    if id_column not in gene_map.columns:
+        raise KeyError(f"Ortholog map is missing required column '{id_column}'")
+
+    mapped = gene_map.reindex(data.var_names.astype(str))
+    ids = mapped[id_column]
+    keep = ids.notna() & ids.astype(str).str.strip().ne("")
+    positions = np.flatnonzero(keep.to_numpy())
+    mapped_ids = pd.Index(ids.iloc[positions].astype(str), name="gene_id")
+
+    if not mapped_ids.is_unique:
+        duplicated = mapped_ids[mapped_ids.duplicated()].unique()
+        raise ValueError(
+            "Ortholog mapping produced duplicate destination gene IDs; "
+            f"examples: {list(duplicated[:5])}"
+        )
+
+    if symbol_column in mapped.columns:
+        symbols = mapped[symbol_column].iloc[positions].astype(object)
+        symbols = symbols.where(symbols.notna(), mapped_ids.to_numpy())
+    else:
+        logging.warning(
+            "Ortholog map has no %s; falling back to destination gene_id",
+            symbol_column,
+        )
+        symbols = pd.Series(mapped_ids.to_numpy(), index=range(len(mapped_ids)), dtype=object)
+
+    logging.info(
+        "Ortholog mapping retained %d/%d genes (%s -> %s)",
+        len(positions),
+        data.n_vars,
+        args.src_organism,
+        dst_organism,
+    )
+    return positions, mapped_ids, np.asarray(symbols, dtype=object)
+
+
+def _build_minimal(data, args):
+    if args.src_organism == args.dst_organism:
+        positions, gene_ids, gene_names = _native_features(data)
+    else:
+        if not args.gene_map:
+            raise ValueError("--gene-map is required when source and destination organisms differ")
+        positions, gene_ids, gene_names = _mapped_features(data, args.gene_map, args.dst_organism)
+
+    X = data.X[:, positions]
+    if not sp.issparse(X):
+        X = sp.csr_matrix(X)
+    else:
+        X = X.tocsr()
+
+    if conv._is_integral_array(X):
+        X = X.astype(np.int32, copy=False)
+    else:
+        X = X.astype(np.float32, copy=False)
+
+    obs = pd.DataFrame(index=pd.Index(data.obs_names.astype(str), name="barcode"))
+    var = pd.DataFrame({"gene_name": gene_names}, index=gene_ids)
+    result = anndata.AnnData(X=X, obs=obs, var=var)
+
+    if result.layers or result.obsm or result.varm or result.obsp or result.uns:
+        raise RuntimeError("Minimal annotation AnnData unexpectedly contains auxiliary data")
+    return result
+
+
+def main():
+    global args
+    args = parse_args()
+    setup_logging(args.log, args.verbose)
+
+    data = _read_inputs(args)
+    result = _build_minimal(data, args)
+
+    logging.info(
+        "Writing minimal annotation AnnData: %d cells x %d genes, X=%s %s",
+        result.n_obs,
+        result.n_vars,
+        result.X.__class__.__name__,
+        result.X.dtype,
+    )
+    os.makedirs(os.path.dirname(args.output), exist_ok=True)
+    result.write_h5ad(args.output, compression="lzf")
+    logging.info("Annotation input complete")
+
+
+if __name__ == "__main__":
+    main()
