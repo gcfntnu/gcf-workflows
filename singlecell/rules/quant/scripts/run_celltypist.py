@@ -156,17 +156,58 @@ def prepare_gene_names(adata, model_path: str):
     return adata
 
 
+def _celltypist_resolution(n_obs: int) -> int:
+    if n_obs < 5000:
+        return 5
+    if n_obs < 20000:
+        return 10
+    if n_obs < 40000:
+        return 15
+    if n_obs < 100000:
+        return 20
+    if n_obs < 200000:
+        return 25
+    return 30
+
+
+def gpu_over_clustering(adata) -> pd.Series:
+    if rsc is None:
+        raise RuntimeError("--use-GPU requested but rapids_singlecell is not installed")
+
+    LOGGER.info("[celltypist] using rapids-singlecell %s for over-clustering", rsc.__version__)
+    work = adata.copy()
+    work.X = work.X.astype("f")
+    rsc.get.anndata_to_GPU(work)
+    rsc.pp.filter_genes(work, min_cells=5)
+    rsc.pp.highly_variable_genes(work, n_top_genes=min(2500, work.n_vars))
+    work = work[:, work.var.highly_variable].copy()
+    rsc.pp.scale(work, max_value=10)
+    rsc.pp.pca(work, n_comps=50)
+    rsc.pp.neighbors(work, n_neighbors=10, n_pcs=50)
+    resolution = _celltypist_resolution(work.n_obs)
+    LOGGER.info("[celltypist] GPU over-clustering with resolution %d", resolution)
+    rsc.tl.leiden(work, resolution=resolution, key_added="over_clustering")
+    rsc.get.anndata_to_CPU(work, convert_all=True)
+    return work.obs["over_clustering"].reindex(adata.obs_names)
+
+
 def run_normalize_and_annotate(adata, args):
     adata_copy = adata.copy()
     LOGGER.info("[celltypist] normalizing %d cells", adata_copy.n_obs)
     sc.pp.filter_genes(adata_copy, min_cells=3)
     sc.pp.normalize_total(adata_copy, target_sum=1e4)
     sc.pp.log1p(adata_copy)
+
+    over_clustering = None
+    if args.use_GPU:
+        over_clustering = gpu_over_clustering(adata_copy)
+
     return celltypist.annotate(
         adata_copy,
         model=args.model,
         majority_voting=True,
-        use_GPU=args.use_GPU,
+        over_clustering=over_clustering,
+        use_GPU=False,
     )
 
 
