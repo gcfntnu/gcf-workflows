@@ -170,7 +170,7 @@ def get_barcode_info_list(wc):
             items.append(
                 join(
                     aggr_dir,
-                    'auto_annotate',
+                    'annotation',
                     f'{wc.aggr_id}_mapmycells_annotation.tsv',
                 )
             )
@@ -411,7 +411,7 @@ def scanpy_finalize_inputs(wc):
                 QUANT_INTERIM,
                 'aggregate',
                 wc.method,
-                'auto_annotate',
+                'annotation',
                 f'{wc.aggr_id}_celltypist_annotation.tsv',
             )
         )
