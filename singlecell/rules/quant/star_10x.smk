@@ -5,7 +5,7 @@ include: 'umitools.smk'
 STAR_INTERIM = join(QUANT_INTERIM, '10x_starsolo')
 READ_LENGTH = max(config['read_geometry'])
 STARSOLO_FEATURE = STARSOLO_FEATURES
-STARSOLO_FEATURE_ARGS = ' '.join(dict.fromkeys(['Gene', STARSOLO_FEATURE, 'SJ', 'Velocyto', 'Transcript3p']))
+STARSOLO_FEATURE_ARGS = ' '.join(dict.fromkeys(['Gene', 'GeneFull', STARSOLO_FEATURE, 'SJ', 'Velocyto', 'Transcript3p']))
 
 rule txgenomics_whitelist_v1:
     params:
@@ -168,6 +168,14 @@ rule starsolo_quant:
         '--limitBAMsortRAM 24000000000 ' 
         '--runThreadN {threads} '
         '{params.extra_args} '
+
+rule starsolo_mtx_v2_fix:
+    input:
+        join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, '{dge_type}', 'features.tsv')
+    output:
+        temp(join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, '{dge_type}', 'genes.tsv'))
+    shell:
+        'cp {input} {output}'
 
 rule starsolo_bam:
     input:
