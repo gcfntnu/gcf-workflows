@@ -21,6 +21,7 @@ readers.
 import argparse
 import logging
 import os
+from pathlib import Path
 from types import SimpleNamespace
 
 import anndata
@@ -87,6 +88,51 @@ def _reader_args(args):
     )
 
 
+def _parsebio_barcode_info_path(path):
+    resolved = Path(path).resolve()
+    parts = resolved.parts
+    try:
+        method_idx = parts.index("parsebio_starsolo")
+    except ValueError as exc:
+        raise ValueError(f"Cannot locate parsebio_starsolo root from matrix path: {path}") from exc
+
+    if method_idx + 1 >= len(parts):
+        raise ValueError(f"Cannot determine Parse STARsolo sublibrary from matrix path: {path}")
+    sublib_dir = Path(*parts[: method_idx + 2])
+    return sublib_dir / "barcode_info.tsv"
+
+
+def _attach_parsebio_rt_info(data, path):
+    info_path = _parsebio_barcode_info_path(path)
+    if not info_path.exists():
+        raise FileNotFoundError(f"Parse STARsolo barcode metadata not found: {info_path}")
+
+    info = conv._barcode_info_reader(str(info_path), logger=logging.getLogger(__name__))
+    required = {"barcode_Tmapped", "stype"}
+    missing = required.difference(info.columns)
+    if missing:
+        raise KeyError(f"{info_path} is missing Parse R/T metadata columns: {sorted(missing)}")
+
+    info = info.reindex(data.obs_names)
+    if info["barcode_Tmapped"].isna().any() or info["stype"].isna().any():
+        n_missing = int((info["barcode_Tmapped"].isna() | info["stype"].isna()).sum())
+        raise ValueError(f"{info_path} is missing R/T metadata for {n_missing} matrix barcodes")
+
+    overlap = [col for col in info.columns if col in data.obs.columns]
+    for col in overlap:
+        lhs = data.obs[col]
+        rhs = info[col]
+        comparable = rhs.notna()
+        equal = lhs.eq(rhs) | (lhs.isna() & rhs.isna())
+        if comparable.any() and not bool(equal[comparable].all()):
+            raise ValueError(f"Conflicting Parse STARsolo metadata column {col!r} from {info_path}")
+
+    add = [col for col in info.columns if col not in data.obs.columns]
+    if add:
+        data.obs = data.obs.join(info[add], how="left")
+    return data
+
+
 def _read_inputs(args):
     reader_args = _reader_args(args)
     effective_format = (
@@ -105,13 +151,25 @@ def _read_inputs(args):
     for path in args.input:
         path = os.path.abspath(path)
         logging.info("Reading %s", path)
-        data_list.append(reader(path, reader_args))
+        data = reader(path, reader_args)
+        if args.input_format == "parsebio_starsolo":
+            data = _attach_parsebio_rt_info(data, path)
+        data_list.append(data)
 
     if len(data_list) == 1:
         data = data_list[0]
     else:
         logging.info("Concatenating %d input matrices", len(data_list))
         data = anndata.concat(data_list, join="outer", merge="unique", uns_merge=None)
+
+    if args.input_format == "parsebio_starsolo":
+        from postprocess_starsolo_rt import aggregate_starsolo_cells
+
+        if not data.obs_names.is_unique:
+            duplicated = data.obs_names[data.obs_names.duplicated()].unique()
+            raise ValueError(f"Duplicate Parse STARsolo R/T barcodes before collapse: {list(duplicated[:5])}")
+        logging.info("Collapsing Parse STARsolo R/T observations by barcode_Tmapped")
+        data = aggregate_starsolo_cells(data, groupby="barcode_Tmapped")
 
     if not data.obs_names.is_unique:
         duplicated = data.obs_names[data.obs_names.duplicated()].unique()
