@@ -117,7 +117,15 @@ if (grepl("\\.mtx$", args$input, ignore.case = TRUE)) {
 # Handle mapping
 if (args$src == args$dst) {
     message("[3/6] No mapping needed. Copying gene_id and gene_symbol.")
-    dst_df <- var[, c("gene_id", "gene_symbol")]
+    dst_df <- data.frame(
+        gene_id     = var$gene_id,
+        dst_gene_id = var$gene_id,
+        dst_symbol  = var$gene_symbol,
+        check.names = FALSE,
+        stringsAsFactors = FALSE
+    )
+    names(dst_df)[names(dst_df) == "dst_gene_id"] <- paste0(args$dst, "_gene_id")
+    names(dst_df)[names(dst_df) == "dst_symbol"] <- paste0(args$dst, "_gene_symbol")
 } else {
     message("[3/6] Mapping genes from ", args$src, " to ", args$dst)
     message(
