@@ -1,215 +1,335 @@
-#/usr/bin/env python
+#!/usr/bin/env python3
 
-import warnings
-warnings.filterwarnings("ignore")
-warnings.simplefilter(action='ignore', category=FutureWarning)
+from __future__ import annotations
 
-import sys
-import os
 import argparse
 import logging
-import csv
-import pickle
+import os
+import sys
+import warnings
 
+import anndata
+import numpy as np
 import pandas as pd
 import scanpy as sc
+import scipy.sparse as sp
 import celltypist
 from celltypist import models
+
+warnings.simplefilter(action="ignore", category=FutureWarning)
+
 try:
-    import rapids_singlecell as rsc
     import cupy as cp
+    import rapids_singlecell as rsc
     import rmm
     from rmm.allocators.cupy import rmm_cupy_allocator
-    rmm.reinitialize(
-        managed_memory=False,  # Allows oversubscription
-        pool_allocator=False,  # default is False
-        devices=0,  # GPU device IDs to register. By default registers only GPU 0.
-    )
+
+    rmm.reinitialize(managed_memory=False, pool_allocator=False, devices=0)
     cp.cuda.set_allocator(rmm_cupy_allocator)
 except ImportError:
-    pass
+    rsc = None
 
-def setup_logging(log_file="script.log"):
+
+LOGGER = logging.getLogger("run_celltypist")
+
+
+def setup_logging(log_file: str) -> None:
+    handlers = [logging.StreamHandler(sys.stdout)]
+    if log_file:
+        os.makedirs(os.path.dirname(log_file) or ".", exist_ok=True)
+        handlers.append(logging.FileHandler(log_file, mode="w"))
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(message)s",
-        handlers=[
-            logging.FileHandler(log_file),
-            logging.StreamHandler()
-        ]
+        handlers=handlers,
+        force=True,
     )
 
-def guess_org_from_model(model):
-    if 'human' in model.lower():
-        return 'homo_sapiens'
-    elif 'mouse' in model.lower():
-        return 'mus_musclus'
-    elif 'bts_atlas' in model.lower():
-        return 'homo_sapiens'
-    elif 'immune' in model.lower():
-        return 'homo_sapiens'
-    else:
-        with open(model, "rb") as fh:
-            try:
-                pkl_obj = pickle.load(fh)
-                desc = pkl_obj['description']
-            except:
-                pass
-            guess_org_from_model(desc)
-    return None
 
-def run_normalize_and_annotate(adata, args):
-    # normalize data
-    adata_copy = adata.copy()
-    logging.info(f"Log transforming and normalizing data ...\n")
-    sc.pp.filter_genes(adata_copy, min_cells=3)
-    sc.pp.normalize_total(adata_copy, target_sum = 1e4)
-    sc.pp.log1p(adata_copy)
-    
-    # run annotation
-    result = celltypist.annotate(adata_copy, model=args.model, majority_voting=True, use_GPU=False)
-    #lr_classifier = models.Model.load(args.model)
-    #clf = celltypist.classifier.Classifier(adata_copy, lr_classifier)
-    #result = clf.celltype(mode = args.mode.replace('_', ' '), p_thres = 0.5)
-    #result.predicted_labels['conf_score'] = result.probability_matrix.max(axis=1).values
+def read_qc_mask(path: str, obs_names: pd.Index) -> pd.Series:
+    mask = pd.read_table(path, index_col=0)
+    if mask.shape[1] != 1:
+        raise ValueError(f"QC mask must contain exactly one data column; found {mask.shape[1]}")
+    if not mask.index.is_unique:
+        raise ValueError("QC mask barcode index is not unique")
+
+    series = mask.iloc[:, 0]
+    if series.isna().any():
+        raise ValueError("QC mask contains missing values")
+
+    if pd.api.types.is_bool_dtype(series):
+        series = series.astype(bool)
+    else:
+        values = pd.to_numeric(series, errors="raise")
+        invalid = ~values.isin([0, 1])
+        if invalid.any():
+            raise ValueError(f"QC mask contains values other than 0/1: {sorted(values[invalid].unique())}")
+        series = values.astype(bool)
+
+    missing = obs_names.difference(series.index)
+    extra = series.index.difference(obs_names)
+    if len(missing) or len(extra):
+        raise ValueError(
+            "QC mask barcodes do not exactly match AnnData obs_names: "
+            f"missing_from_mask={len(missing)}, extra_in_mask={len(extra)}"
+        )
+
+    return series.reindex(obs_names)
+
+
+def _collapse_duplicate_symbols(adata, symbols: pd.Series):
+    """Collapse duplicate gene symbols by summing their count columns."""
+    groups = pd.Categorical(symbols, categories=pd.unique(symbols), ordered=True)
+    codes = groups.codes
+    n_groups = len(groups.categories)
+
+    duplicated = symbols.duplicated(keep=False)
+    LOGGER.info(
+        "[genes] collapsing %d gene columns across %d duplicated symbols by summing counts",
+        int(duplicated.sum()),
+        int(symbols[duplicated].nunique()),
+    )
+
+    X = adata.X
+    if not sp.issparse(X):
+        X = sp.csr_matrix(X)
+    else:
+        X = X.tocsr()
+
+    mapper = sp.csr_matrix(
+        (
+            np.ones(adata.n_vars, dtype=np.int8),
+            (np.arange(adata.n_vars), codes),
+        ),
+        shape=(adata.n_vars, n_groups),
+    )
+    collapsed = X @ mapper
+    collapsed = collapsed.tocsr()
+
+    result = anndata.AnnData(
+        X=collapsed,
+        obs=adata.obs.copy(),
+        var=pd.DataFrame(index=pd.Index(groups.categories.astype(str), name="gene_name")),
+    )
+    LOGGER.info(
+        "[genes] %d gene IDs collapsed to %d unique symbols",
+        adata.n_vars,
+        result.n_vars,
+    )
     return result
 
-def batch_majority_vote(adata, pred, args):
-    #adata_copy = adata.copy()
+
+def prepare_gene_names(adata, model_path: str):
+    """Switch the common annotation object from gene IDs to CellTypist symbols."""
+    if "gene_name" not in adata.var.columns:
+        raise KeyError("Annotation AnnData var is missing required column 'gene_name'")
+
+    symbols = adata.var["gene_name"]
+    if symbols.isna().any():
+        raise ValueError(f"Annotation AnnData contains {int(symbols.isna().sum())} missing gene_name values")
+
+    symbols = symbols.astype(str).str.strip()
+    empty = symbols.eq("")
+    if empty.any():
+        raise ValueError(f"Annotation AnnData contains {int(empty.sum())} empty gene_name values")
+
+    if symbols.duplicated().any():
+        adata = _collapse_duplicate_symbols(adata, symbols)
+    else:
+        adata.var_names = pd.Index(symbols, name="gene_name")
+
+    model = models.Model.load(model_path)
+    model_features = pd.Index(model.features.astype(str))
+    overlap = adata.var_names.intersection(model_features)
+    if len(overlap) == 0:
+        raise ValueError("No annotation gene symbols overlap CellTypist model features")
+
+    LOGGER.info(
+        "[genes] CellTypist model overlap: %d/%d model features (%.1f%%), %d/%d query genes (%.1f%%)",
+        len(overlap),
+        len(model_features),
+        100.0 * len(overlap) / len(model_features),
+        len(overlap),
+        adata.n_vars,
+        100.0 * len(overlap) / adata.n_vars,
+    )
+    return adata
+
+
+def _celltypist_resolution(n_obs: int) -> int:
+    if n_obs < 5000:
+        return 5
+    if n_obs < 20000:
+        return 10
+    if n_obs < 40000:
+        return 15
+    if n_obs < 100000:
+        return 20
+    if n_obs < 200000:
+        return 25
+    return 30
+
+
+def gpu_over_clustering(adata) -> pd.Series:
+    if rsc is None:
+        raise RuntimeError("--use-GPU requested but rapids_singlecell is not installed")
+
+    LOGGER.info("[celltypist] using rapids-singlecell %s for over-clustering", rsc.__version__)
+    work = adata.copy()
+    # This rapids-singlecell build does not expose Scanpy's min_cells argument.
+    # Filter on CPU before transferring the matrix to GPU; non-zero membership is
+    # unchanged by the normalization/log1p already applied to this object.
+    sc.pp.filter_genes(work, min_cells=5)
+    work.X = work.X.astype("f")
+    rsc.get.anndata_to_GPU(work)
+    rsc.pp.highly_variable_genes(work, n_top_genes=min(2500, work.n_vars))
+    work = work[:, work.var.highly_variable].copy()
+    rsc.pp.scale(work, max_value=10)
+    rsc.pp.pca(work, n_comps=50)
+    rsc.pp.neighbors(work, n_neighbors=10, n_pcs=50)
+    resolution = _celltypist_resolution(work.n_obs)
+    LOGGER.info("[celltypist] GPU over-clustering with resolution %d", resolution)
+    rsc.tl.leiden(work, resolution=resolution, key_added="over_clustering")
+    rsc.get.anndata_to_CPU(work, convert_all=True)
+    return work.obs["over_clustering"].reindex(adata.obs_names)
+
+
+def run_normalize_and_annotate(adata, args):
+    adata_copy = adata.copy()
+    LOGGER.info("[celltypist] normalizing %d cells", adata_copy.n_obs)
+    sc.pp.filter_genes(adata_copy, min_cells=3)
+    sc.pp.normalize_total(adata_copy, target_sum=1e4)
+    sc.pp.log1p(adata_copy)
+
+    over_clustering = None
     if args.use_GPU:
-        logging.info(f"Using gpu on rapids: v {rsc.__version__}")
-        logging.info(f"Log transforming and normalizing data on GPU ...\n")
-        adata.X = adata.X.astype('f')
+        over_clustering = gpu_over_clustering(adata_copy)
+
+    return celltypist.annotate(
+        adata_copy,
+        model=args.model,
+        majority_voting=True,
+        over_clustering=over_clustering,
+        use_GPU=False,
+    )
+
+
+def batch_majority_vote(adata, pred, args):
+    if args.use_GPU:
+        if rsc is None:
+            raise RuntimeError("--use-GPU requested but rapids_singlecell is not installed")
+        LOGGER.info("[celltypist] using rapids-singlecell %s for over-clustering", rsc.__version__)
+        adata.X = adata.X.astype("f")
         rsc.get.anndata_to_GPU(adata)
-        rsc.pp.calculate_qc_metrics(adata, qc_vars=["mt", "ribo", "hb"])
-        rsc.pp.filter_genes(adata, qc_var='n_cells_by_count', min_count=3)
-        rsc.pp.highly_variable_genes(adata, n_top_genes=2000, flavor='seurat_v3', batch_key=args.batch)
+        rsc.pp.filter_genes(adata, min_count=3)
+        rsc.pp.highly_variable_genes(adata, n_top_genes=2000, flavor="seurat_v3", batch_key=args.batch)
         adata = adata[:, adata.var.highly_variable]
-        rsc.pp.normalize_total(adata, target_sum = 10000)
+        rsc.pp.normalize_total(adata, target_sum=10000)
         rsc.pp.log1p(adata)
-        #rsc.pp.scale(adata, max_value=10)
         rsc.pp.pca(adata, n_comps=50)
         rsc.pp.harmony_integrate(adata, key=args.batch)
         rsc.pp.neighbors(adata, n_neighbors=10, n_pcs=50, use_rep="X_pca_harmony")
         rsc.get.anndata_to_CPU(adata, convert_all=True)
     else:
         sc.pp.filter_genes(adata, min_cells=3)
-        sc.pp.normalize_total(adata, target_sum = 1e4)
+        sc.pp.normalize_total(adata, target_sum=1e4)
         sc.pp.log1p(adata)
-        sc.pp.highly_variable_genes(adata, n_top_genes = 2000, flavor='seurat_v3', batch_key=args.batch)
-        #sc.pp.scale(adata, max_value=10)
+        sc.pp.highly_variable_genes(adata, n_top_genes=2000, flavor="seurat_v3", batch_key=args.batch)
         sc.pp.pca(adata, n_comps=50)
         sc.external.pp.harmony_integrate(adata, key=args.batch)
         sc.pp.neighbors(adata, n_neighbors=10, n_pcs=50, use_rep="X_pca_harmony")
 
-        
-    lr_classifier = models.Model.load(args.model)
-    clf = celltypist.classifier.Classifier(adata, lr_classifier)
+    classifier = models.Model.load(args.model)
+    clf = celltypist.classifier.Classifier(adata, classifier)
     clusters = clf.over_cluster(use_GPU=args.use_GPU)
     return clf.majority_vote(pred, clusters)
-        
-def main():
-    parser = argparse.ArgumentParser(description="Convert an AnnData h5ad file using a gene mapping file.")
-    parser.add_argument("--input", type=str,
-                        help="Path to input .h5ad file", required=True)
-    parser.add_argument("--output", type=str,
-                        help="Output tsv file", required=True)
-    parser.add_argument("--model", type=str,
-                        help="Celltypist model (.pkl)", required=True)
-    parser.add_argument("--qc-mask", type=str,
-                        help="Barcode QC mask")
-    parser.add_argument("--gene-map", type=str, 
-                        help="Path to gene mapping .tsv file")
-    parser.add_argument("--src-organism", type=str, default="homo_sapiens",
-                        help="Source organism")
-    parser.add_argument("--dst-organism", type=str, default="homo_sapiens",
-                        help="Destination organism")
-    parser.add_argument("--batch", default=None,
-                        help="Name of column in adata.obs containg the batch variable. Will run annotation separately within each batch.\
-                        The majority voting refinement (overclustering) is performed on the whole dataset batch corrected with harmonypy")
-    parser.add_argument("--mode", default="best_match",  choices=['best_match','prob_match'],
-                        help="Celltypist's mode arg")
-    parser.add_argument("--use-GPU", action="store_true", default=False,
-                        help="Whether to use GPU for over clustering on the basis of `rapids-singlecell`")
-    parser.add_argument("--plot", action="store_true", default=False,
-                        help="Whether to save figures from celltypist")
-    parser.add_argument("--log", type=str, default="auto_annotate_scanpy.log",
-                        help="Log file")
-    parser.add_argument("--no-qc-filter", action="store_true", default=False,
-                        help="Activate skip qc-filter (override --qc-mask)")
-    args = parser.parse_args()
-    if args.use_GPU and 'rapids_singlecell' not in sys.modules:
-        logging.warn("Warning: rapids_singlecell is not installed but required for GPU running, will switch back to CPU")
-        args.use_GPU = False
-        rsc = sc
+
+
+def annotate(adata, args):
+    if args.batch is None:
+        return run_normalize_and_annotate(adata, args)
+
+    if args.batch not in adata.obs.columns:
+        raise KeyError(f"Batch variable {args.batch!r} not found in adata.obs")
+
+    pred = None
+    prob = None
+    last_result = None
+    for batch_value in adata.obs[args.batch].unique():
+        subset = adata[adata.obs[args.batch].eq(batch_value), :]
+        LOGGER.info("[celltypist] batch %s=%s n=%d", args.batch, batch_value, subset.n_obs)
+        result = run_normalize_and_annotate(subset, args)
+        pred = result.predicted_labels if pred is None else pd.concat([pred, result.predicted_labels], axis=0)
+        prob = result.probability_matrix if prob is None else pd.concat([prob, result.probability_matrix], axis=0)
+        last_result = result
+
+    last_result.predicted_labels = pred
+    last_result.probability_matrix = prob
+    return batch_majority_vote(adata, last_result, args)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run CellTypist on QC-passing cells and write an annotation sidecar.")
+    parser.add_argument("--input", required=True, help="Minimal aggregate annotation AnnData (.h5ad)")
+    parser.add_argument("--output", required=True, help="Output annotation TSV")
+    parser.add_argument("--model", required=True, help="CellTypist model (.pkl)")
+    parser.add_argument("--qc-mask", required=True, help="Barcode-indexed auto-QC mask")
+    parser.add_argument("--batch", default=None)
+    parser.add_argument("--mode", default="best_match", choices=["best_match", "prob_match"])
+    parser.add_argument("--use-GPU", action="store_true", default=False)
+    parser.add_argument("--plot", action="store_true", default=False)
+    parser.add_argument("--log", default="auto_annotate_scanpy.log")
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
     setup_logging(args.log)
-    
+
     adata = sc.read_h5ad(args.input)
-    original_obs_index = adata.obs.index.copy()
-    
-    if args.gene_map:
-        gene_map = pd.read_table(args.gene_map, index_col=0)
-        
-    if args.src_organism == args.dst_organism:
-        adata.var.index = adata.var["gene_symbol"].astype(str)
-    else:
-        adata.var = adata.var.merge(gene_map, how="left", right_index=True, left_index=True)
-        keep_genes = adata.var[f"{args.dst_organism}_gene_symbol"].notna()
-        logging.info(f"{sum(keep_genes)}/{adata.shape[1]} genes remaining after converting to ortholog gene symbol")
-        adata = adata[:,keep_genes]
-        adata.var.index = adata.var[f"{args.dst_organism}_gene_symbol"].astype(str)
-        adata.var_names_make_unique() # we are just ignoring the annotation mismatch from this
-    if args.qc_mask and not args.no_qc_filter:
-        cell_subset = pd.read_table(args.qc_mask, index_col=0).astype('bool')
-        barcodes = cell_subset.loc[cell_subset.values,:].index
-        n_keep, n_tot = len(barcodes), int(adata.shape[0])
-        logging.info(f" {n_keep} of {n_tot} cells remaining after auto_qc")
-        adata = adata[barcodes,:]
+    if not adata.obs_names.is_unique:
+        raise ValueError("AnnData obs_names are not unique")
 
-    if args.batch is not None:
-        try:
-            batch_var = adata.obs[args.batch]
-        except:
-            logging.error(f"Batch variable '{str(args.batch)}' not found in adata.obs.columns")
-            raise KeyError
-        for i, b in enumerate(batch_var.unique()):
-            subset = adata[batch_var==b,:]
-            logging.info(f"Running batch '{args.batch}=={b}'. Number of cells: {subset.shape[0]}")
-            sub_res = run_normalize_and_annotate(subset, args)
-            if i == 0:
-                pred = sub_res.predicted_labels
-                prob = sub_res.probability_matrix
-            else:
-                pred = pd.concat([pred, sub_res.predicted_labels], axis='index')
-                prob = pd.concat([prob, sub_res.probability_matrix], axis='index')
-        sub_res.predicted_labels = pred #lets just monkey patch the last sub result with the concatenated results
-        result = batch_majority_vote(adata, sub_res, args)
-    else:
-        result = run_normalize_and_annotate(adata, args)
+    keep = read_qc_mask(args.qc_mask, adata.obs_names)
+    LOGGER.info("[qc] %d/%d cells pass auto-QC", int(keep.sum()), adata.n_obs)
+    adata = adata[keep.to_numpy(), :].copy()
 
-    pred = result.predicted_labels
+    adata = prepare_gene_names(adata, args.model)
+    result = annotate(adata, args)
+
+    pred = result.predicted_labels.copy()
     prob = result.probability_matrix
-    pred['majority_voting_conf_score'] = [row[pred.majority_voting[index]] if pred.majority_voting[index] in row.index else row.max() for index, row in prob.iterrows()]
-    pred['celltypist_cell_type'] = pred['majority_voting'].copy()
-    # expand predictions to input adata and fill missing values sensibly
-    all_cells = pd.DataFrame([], index=original_obs_index)
-    pred = pred.merge(all_cells, how="right", left_index=True, right_index=True)
-    for col in ['celltypist_cell_type', 'predicted_labels']:
-        if col in pred.columns:
-            pred[col] = pred[col].copy().astype("string").fillna('qc_fail').astype('category')
-    if 'over_clustering' in pred.columns:
-        pred['over_clustering'] = pred["over_clustering"].copy().astype("string").fillna("-1").astype('category')
-    if 'conf_score' in pred.columns:
-        pred['conf_score'].fillna(0, inplace=True)
-    if 'majority_voting_conf_score' in pred.columns:
-        pred['majority_voting_conf_score'].fillna(0, inplace=True)
-    logging.info(f"Saving processed data to {args.output}")
-    pred.to_csv(args.output, sep="\t")
-    
+    if not pred.index.is_unique:
+        raise ValueError("CellTypist prediction index is not unique")
+
+    missing = adata.obs_names.difference(pred.index)
+    extra = pred.index.difference(adata.obs_names)
+    if len(missing) or len(extra):
+        raise ValueError(
+            "CellTypist predictions do not exactly cover annotated cells: "
+            f"missing={len(missing)}, extra={len(extra)}"
+        )
+    pred = pred.reindex(adata.obs_names)
+
+    if "majority_voting" in pred.columns:
+        pred["majority_voting_conf_score"] = [
+            row[pred.at[index, "majority_voting"]]
+            if pred.at[index, "majority_voting"] in row.index
+            else row.max()
+            for index, row in prob.reindex(adata.obs_names).iterrows()
+        ]
+        pred["celltypist_cell_type"] = pred["majority_voting"].copy()
+
+    pred.index.name = "barcode"
+    os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
+    LOGGER.info("[celltypist] writing %d annotations to %s", pred.shape[0], args.output)
+    pred.to_csv(args.output, sep="\t", index=True)
+
     if args.plot:
-        result.to_plots(os.path.dirname(args.output))
-    
-    logging.info("\nProcessing complete.")
+        result.to_plots(os.path.dirname(args.output) or ".")
+
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
