@@ -4,6 +4,8 @@ include: 'umitools.smk'
 
 STAR_INTERIM = join(QUANT_INTERIM, '10x_starsolo')
 READ_LENGTH = max(config['read_geometry'])
+STARSOLO_FEATURE = STARSOLO_FEATURES
+STARSOLO_FEATURE_ARGS = ' '.join(dict.fromkeys(['Gene', STARSOLO_FEATURE, 'SJ', 'Velocyto', 'Transcript3p']))
 
 rule txgenomics_whitelist_v1:
     params:
@@ -43,7 +45,7 @@ rule txgenomics_whitelist_v3:
     output:
         join(EXT_DIR, '10xgenomics', '3M-february-2018_TRU.txt')
     log:
-        join(EXT_DIR, '10xgenomics', 'logs', '3M-february-2018_TRU.txt.log')
+        join(EXT_DIR, '10xgenomics', 'logs', '3M-february-2018_TRU.log')
     shell:
         """
         wget {params.proxy} -O {output} {params.url}
@@ -58,7 +60,7 @@ rule txgenomics_whitelist_v4:
     output:
         join(EXT_DIR, '10xgenomics', '3M-3pgex-may-2023_TRU.txt')
     log:
-        join(EXT_DIR, '10xgenomics', 'logs', '3M-3pgex-may-2023_TRU.txt.log')
+        join(EXT_DIR, '10xgenomics', 'logs', '3M-3pgex-may-2023_TRU.log')
     shell:
         """
         wget {params.proxy} -O {output} {params.url}
@@ -67,13 +69,13 @@ rule txgenomics_whitelist_v4:
 
 
 rule starsolo_genome_index:
-    input: 
+    input:
         genome = join(REF_DIR, 'fasta', 'genome.fa'),
         gtf = join(REF_DIR, 'anno', 'genes.gtf')
     output:
         join(REF_DIR, 'index', 'genome', 'starsolo', 'r_{}'.format(READ_LENGTH), 'SA')
     params:
-        index_dir =  join(REF_DIR, 'index', 'genome', 'starsolo', 'r_{}'.format(READ_LENGTH)),
+        index_dir = join(REF_DIR, 'index', 'genome', 'starsolo', 'r_{}'.format(READ_LENGTH)),
     threads:
         64
     log:
@@ -92,7 +94,7 @@ rule starsolo_genome_index:
 
 rule starsolo_convert_umitools_whitelist:
     input:
-        join(UMI_INTERIM, '{sample}','whitelist.txt')
+        join(UMI_INTERIM, '{sample}', 'whitelist.txt')
     output:
         join(STAR_INTERIM, '{sample}', 'whitelist.txt')
     threads:
@@ -101,9 +103,8 @@ rule starsolo_convert_umitools_whitelist:
         'docker://' + config['docker']['default']
     shell:
         """
-        awk -F"\\t" '{{print $1}}' {input} > {output} 
+        awk -F"\\t" '{{print $1}}' {input} > {output}
         """
-        
 
 
 if config['db']['reference_db'] == '10xgenomics':
@@ -129,18 +130,19 @@ rule starsolo_quant:
         umi_len = config['quant'].get('starsolo', {}).get('umi_len', 'none'),
         umi_start = config['quant'].get('starsolo', {}).get('umi_start', 'none'),
         R1 = lambda wildcards, input: input.R1 if isinstance(input.R1, str) else ','.join(input.R1),
-        R2 = lambda wildcards, input: input.R2 if isinstance(input.R2, str) else','.join(input.R2),
-        extra_args = '--readFilesCommand zcat  --genomeLoad LoadAndKeep --outFilterMultimapNmax 1 --soloFeatures Gene GeneFull SJ Velocyto Transcript3p ' 
+        R2 = lambda wildcards, input: input.R2 if isinstance(input.R2, str) else ','.join(input.R2),
+        extra_args = f'--readFilesCommand zcat --genomeLoad LoadAndKeep --outFilterMultimapNmax 1 --soloFeatures {STARSOLO_FEATURE_ARGS} '
     threads:
         48
     output:
-        barcodes = join(STAR_INTERIM, '{sample}', 'Solo.out', 'Gene', 'filtered', 'barcodes.tsv'),
-        gene_stats = join(STAR_INTERIM, '{sample}', 'Solo.out', 'Gene', 'Features.stats'),
-        gene_summary = join(STAR_INTERIM, '{sample}', 'Solo.out', 'Gene', 'Summary.csv'),
-        genes = join(STAR_INTERIM, '{sample}', 'Solo.out', 'Gene', 'filtered', 'features.tsv'),
-        mtx = join(STAR_INTERIM, '{sample}', 'Solo.out','Gene', 'filtered', 'matrix.mtx'),
-        raw_mtx = join(STAR_INTERIM, '{sample}', 'Solo.out','Gene', 'raw', 'matrix.mtx'),
-        barcodes_full = join(STAR_INTERIM, '{sample}', 'Solo.out', 'GeneFull', 'filtered', 'barcodes.tsv'),
+        barcodes = join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, 'filtered', 'barcodes.tsv'),
+        genes = join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, 'filtered', 'features.tsv'),
+        mtx = join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, 'filtered', 'matrix.mtx'),
+        raw_barcodes = join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, 'raw', 'barcodes.tsv'),
+        raw_genes = join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, 'raw', 'features.tsv'),
+        raw_mtx = join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, 'raw', 'matrix.mtx'),
+        gene_stats = join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, 'Features.stats'),
+        gene_summary = join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, 'Summary.csv'),
         bam = join(STAR_INTERIM, '{sample}', 'Aligned.sortedByCoord.out.bam')
     container:
         'docker://' + config['docker']['star']
@@ -148,8 +150,8 @@ rule starsolo_quant:
         'benchmark/starsolo/{sample}-starsolo.txt'
     log:
         star = join(STAR_INTERIM, '{sample}', 'Log.final.out'),
-        barcodes = join(STAR_INTERIM, '{sample}', 'Solo.out', 'Gene', 'Barcodes.stats'),
-        umi_cell = join(STAR_INTERIM, '{sample}', 'Solo.out', 'Gene', 'UMIperCellSorted.txt')
+        barcodes = join(STAR_INTERIM, '{sample}', 'Solo.out', 'Barcodes.stats'),
+        umi_cell = join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, 'UMIperCellSorted.txt')
     shell:
         'STAR --soloType CB_UMI_Simple '
         '--soloCBwhitelist {input.whitelist} '
@@ -161,7 +163,7 @@ rule starsolo_quant:
         '--soloUMIstart {params.umi_start} '
         '--outSAMtype BAM SortedByCoordinate '
         '--outSAMattributes CR CY UR UY CB UB NH sM GX '
-        '--limitBAMsortRAM 24000000000 ' 
+        '--limitBAMsortRAM 24000000000 '
         '--runThreadN {threads} '
         '{params.extra_args} '
 
@@ -189,7 +191,7 @@ rule starsolo_clean_shmem:
 
 rule scanpy_starsolo:
     input:
-        mat = join(STAR_INTERIM, '{sample}', 'Solo.out', 'Gene', 'raw', 'matrix.mtx'),
+        mat = join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, 'raw', 'matrix.mtx'),
         mem_clean = rules.starsolo_clean_shmem.output
     params:
         script = src_gcf('scripts/convert_scanpy.py')
@@ -200,8 +202,8 @@ rule scanpy_starsolo:
     threads:
         48
     shell:
-        'python {params.script} {input.mat} -f star -o {output} -v --identify-doublets --identify-empty-droplets '
- 
+        'python {params.script} {input.mat} -f 10x_starsolo -o {output} -v --identify-doublets --identify-empty-droplets '
+
 rule scanpy_aggr_starsolo:
     input:
         input = expand(rules.starsolo_quant.output.raw_mtx, sample=SAMPLES),
@@ -211,7 +213,7 @@ rule scanpy_aggr_starsolo:
         script = src_gcf('scripts/convert_scanpy.py'),
         norm = config['quant']['aggregate']['norm']
     output:
-        join(QUANT_INTERIM, 'aggregate', 'star', 'scanpy', 'all_samples_aggr.h5ad')
+        join(QUANT_INTERIM, 'aggregate', '10x_starsolo', 'scanpy', 'all_samples_aggr.h5ad')
     container:
         'docker://' + config['docker']['scanpy']
     threads:
@@ -220,17 +222,17 @@ rule scanpy_aggr_starsolo:
         'python {params.script} '
         '{input.input} '
         '-o {output} '
-        '-f star '
+        '-f 10x_starsolo '
         '--normalize {params.norm} '
         '--identify-doublets '
         '--identify-empty-droplets '
-        '-v '       
+        '-v '
 
 rule starsolo_bam_merge:
     input:
         expand(rules.starsolo_quant.output, sample=SAMPLES)
     output:
-        join(QUANT_INTERIM, 'aggregate', 'star', 'sorted.bam')
+        join(QUANT_INTERIM, 'aggregate', '10x_starsolo', 'sorted.bam')
     threads:
         48
     container:
@@ -249,9 +251,9 @@ rule scanpy_pp_ipynb:
     input:
         join(QUANT_INTERIM, 'aggregate', '10x_starsolo', 'scanpy', '{aggr_id}_filtered.h5ad')
     output:
-        preprocessed = join(QUANT_INTERIM, 'aggregate', 'star', 'scanpy', '{aggr_id}_preprocessed.h5ad'),
+        preprocessed = join(QUANT_INTERIM, 'aggregate', '10x_starsolo', 'scanpy', '{aggr_id}_preprocessed.h5ad'),
     log:
-        notebook = join(QUANT_INTERIM, 'aggregate', 'star', 'notebooks', '{aggr_id}_pp.ipynb')
+        notebook = join(QUANT_INTERIM, 'aggregate', '10x_starsolo', 'notebooks', '{aggr_id}_pp.ipynb')
     threads:
         24
     container:
@@ -264,11 +266,10 @@ rule scanpy_pp_ipynb_html:
     input:
         rules.scanpy_pp_ipynb.log
     output:
-        join(QUANT_INTERIM, 'aggregate', 'star', 'notebooks', '{aggr_id}_pp.html')
+        join(QUANT_INTERIM, 'aggregate', '10x_starsolo', 'notebooks', '{aggr_id}_pp.html')
     container:
         'docker://' + config['docker']['jupyter-scanpy']
     threads:
         1
     shell:
         'jupyter nbconvert --to html {input} '
-
