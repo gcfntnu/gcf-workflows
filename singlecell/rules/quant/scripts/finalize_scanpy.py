@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import re
 import sys
 from types import SimpleNamespace
 
@@ -131,6 +132,13 @@ def reader_for_format(conv, args: argparse.Namespace):
     return reader
 
 
+def canonicalize_10x_starsolo_barcodes(data: ad.AnnData, library_idx: int) -> ad.AnnData:
+    """Apply the Cell Ranger aggr GEM-group suffix for one STARsolo library."""
+    cores = [re.sub(r"-\d+$", "", str(barcode)) for barcode in data.obs_names]
+    data.obs_names = pd.Index([f"{barcode}-{library_idx}" for barcode in cores], name="barcode")
+    return data
+
+
 def remove_all_zero(adata: ad.AnnData) -> ad.AnnData:
     row_sum = np.asarray(adata.X.sum(axis=1)).ravel()
     keep_obs = row_sum > 0
@@ -163,7 +171,15 @@ def main() -> int:
     seen = set()
     for i, path in enumerate(args.input, 1):
         LOGGER.info("[build] reading matrix %d/%d: %s", i, len(args.input), path)
-        data = reader(os.path.abspath(path), reader_args)
+        current_reader_args = reader_args
+        if args.input_format == "10x_starsolo":
+            current_reader_args = SimpleNamespace(**vars(reader_args))
+            current_reader_args.barcode_rename = "skip"
+
+        data = reader(os.path.abspath(path), current_reader_args)
+        if args.input_format == "10x_starsolo":
+            data = canonicalize_10x_starsolo_barcodes(data, i)
+
         duplicate = seen.intersection(data.obs_names)
         if duplicate:
             raise ValueError(f"Duplicate aggregate barcodes across matrix inputs: {sorted(duplicate)[:5]}")
