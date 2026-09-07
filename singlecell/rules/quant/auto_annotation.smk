@@ -18,8 +18,6 @@ if 'celltypist' in ANNO_METHODS and not CELLTYPIST_MODEL:
         'celltype_annotation.celltypist.model is not configured'
     )
 
-_AGGR_ID = config['quant']['aggregate']['groupby']
-
 
 def _celltypist_model(wildcards):
     if 'celltypist' not in ANNO_METHODS:
@@ -32,6 +30,15 @@ def _celltypist_model(wildcards):
             'celltype_annotation.celltypist.model is not configured'
         )
     return join(EXT_DIR, 'celltypist', 'data', 'models', CELLTYPIST_MODEL)
+
+
+def _orthogene_premap_aggr_inputs(wildcards):
+    if wildcards.aggr_id not in AGGR_IDS:
+        raise ValueError(f"Unknown aggregation id for ortholog mapping: {wildcards.aggr_id}")
+    return [
+        join(QUANT_INTERIM, wildcards.quantifier, sample, 'annotation', 'orthogene', 'orthologs.tsv')
+        for sample in AGGR_IDS[wildcards.aggr_id]
+    ]
 
 
 rule orthogene_premap:
@@ -64,10 +71,7 @@ rule orthogene_premap:
 
 rule orthogene_premap_aggr:
     input:
-        expand(
-            join(QUANT_INTERIM, '{{quantifier}}', '{sample}', 'annotation', 'orthogene', 'orthologs.tsv'),
-            sample=AGGR_IDS[_AGGR_ID],
-        )
+        _orthogene_premap_aggr_inputs
     output:
         tsv = join(QUANT_INTERIM, 'aggregate', '{quantifier}', '{aggr_id}_orthologs.tsv')
     params:
