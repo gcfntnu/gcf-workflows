@@ -12,7 +12,6 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-import re
 import sys
 from types import SimpleNamespace
 
@@ -111,6 +110,20 @@ def load_barcode_info(conv, paths: list[str]) -> list[tuple[str, pd.DataFrame]]:
     return result
 
 
+def split_parsebio_rt_info(
+    barcode_info: list[tuple[str, pd.DataFrame]],
+) -> tuple[tuple[str, pd.DataFrame], list[tuple[str, pd.DataFrame]]]:
+    matches = [item for item in barcode_info if {"barcode_Tmapped", "stype"}.issubset(item[1].columns)]
+    if len(matches) != 1:
+        raise ValueError(
+            "Parse STARsolo requires exactly one barcode-info table with barcode_Tmapped and stype; "
+            f"found {len(matches)}"
+        )
+    rt_info = matches[0]
+    remaining = [item for item in barcode_info if item is not rt_info]
+    return rt_info, remaining
+
+
 def make_reader_args(args: argparse.Namespace, conv) -> SimpleNamespace:
     aggr_csv = conv._aggr_csv_reader(args.aggr_csv) if args.aggr_csv else None
     return SimpleNamespace(
@@ -130,13 +143,6 @@ def reader_for_format(conv, args: argparse.Namespace):
     if reader is None:
         raise ValueError(f"Unsupported input format: {fmt}")
     return reader
-
-
-def canonicalize_10x_starsolo_barcodes(data: ad.AnnData, library_idx: int) -> ad.AnnData:
-    """Apply the Cell Ranger aggr GEM-group suffix for one STARsolo library."""
-    cores = [re.sub(r"-\d+$", "", str(barcode)) for barcode in data.obs_names]
-    data.obs_names = pd.Index([f"{barcode}-{library_idx}" for barcode in cores], name="barcode")
-    return data
 
 
 def remove_all_zero(adata: ad.AnnData) -> ad.AnnData:
@@ -171,19 +177,12 @@ def main() -> int:
     seen = set()
     for i, path in enumerate(args.input, 1):
         LOGGER.info("[build] reading matrix %d/%d: %s", i, len(args.input), path)
-        current_reader_args = reader_args
-        if args.input_format == "10x_starsolo":
-            current_reader_args = SimpleNamespace(**vars(reader_args))
-            current_reader_args.barcode_rename = "skip"
-
-        data = reader(os.path.abspath(path), current_reader_args)
-        if args.input_format == "10x_starsolo":
-            data = canonicalize_10x_starsolo_barcodes(data, i)
-
-        duplicate = seen.intersection(data.obs_names)
-        if duplicate:
-            raise ValueError(f"Duplicate aggregate barcodes across matrix inputs: {sorted(duplicate)[:5]}")
-        seen.update(data.obs_names)
+        data = reader(os.path.abspath(path), reader_args)
+        if args.input_format != "parsebio_starsolo":
+            duplicate = seen.intersection(data.obs_names)
+            if duplicate:
+                raise ValueError(f"Duplicate aggregate barcodes across matrix inputs: {sorted(duplicate)[:5]}")
+            seen.update(data.obs_names)
         data_list.append(data)
 
     if len(data_list) > 1:
@@ -194,6 +193,16 @@ def main() -> int:
     else:
         data = data_list[0]
     del data_list
+
+    if args.input_format == "parsebio_starsolo":
+        from postprocess_starsolo_rt import aggregate_starsolo_cells
+
+        rt_info, barcode_info = split_parsebio_rt_info(barcode_info)
+        data.obs = merge_frame(data.obs.copy(), rt_info[1], rt_info[0])
+        if not data.obs_names.is_unique:
+            raise ValueError("Parse STARsolo R/T barcode index is not unique before collapse")
+        LOGGER.info("[build] collapsing Parse STARsolo R/T observations by barcode_Tmapped")
+        data = aggregate_starsolo_cells(data, groupby="barcode_Tmapped")
 
     if not data.obs_names.is_unique:
         raise ValueError("Aggregate AnnData obs_names are not unique")
