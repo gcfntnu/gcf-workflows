@@ -177,6 +177,29 @@ rule starsolo_mtx_v2_fix:
     shell:
         'cp {input} {output}'
 
+
+rule starsolo_barcode_info:
+    input:
+        barcodes = expand(
+            join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, 'filtered', 'barcodes.tsv'),
+            sample=AGGR_IDS['all_samples'],
+        )
+    output:
+        join(STAR_INTERIM, 'barcode_info.tsv')
+    params:
+        script = src_gcf('scripts/starsolo_barcode_info.py'),
+        sample_ids = ' '.join(AGGR_IDS['all_samples']),
+        config = workflow.configfiles[0]
+    container:
+        'docker://' + config['docker']['default']
+    shell:
+        'python {params.script} '
+        '--barcodes {input.barcodes} '
+        '--sample-ids {params.sample_ids} '
+        '--configfile {params.config} '
+        '--output {output} '
+
+
 rule starsolo_bam:
     input:
         join(QUANT_INTERIM, '{method}', '{sample}', 'Aligned.sortedByCoord.out.bam')
@@ -283,4 +306,3 @@ rule scanpy_pp_ipynb_html:
         1
     shell:
         'jupyter nbconvert --to html {input} '
-
