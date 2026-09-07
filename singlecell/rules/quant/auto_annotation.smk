@@ -43,7 +43,7 @@ rule orthogene_premap:
         script = src_gcf('scripts/run_orthogene.R'),
         src_org = config['organism'],
         dst_org = MM_ORG,
-        method = 'homologene',
+        method = 'gprofiler',
         non121_strategy = 'drop_both_species',
         mthreshold = 'Inf'
     container:
