@@ -1,0 +1,43 @@
+#-*- mode:snakemake -*-
+"""Parse Biosciences external barcode data."""
+
+PARSEBIO_DIR = join(EXT_DIR, 'parsebio')
+PARSEBIO_BARCODE_DIR = join(PARSEBIO_DIR, 'barcodes')
+
+PARSEBIO_BARCODE_FILES = [
+    'bc_data_v1.csv',
+    'bc_data_v2.csv',
+    'bc_data_n24_v4.csv',
+    'bc_data_n99_v5.csv',
+    'bc_data_n198_v5.csv',
+    'bc_data_n38_R1_v3_8.csv',
+    'bc_data_n141_R1_v3_8.csv',
+    'bc_data_n302_R1_v3_8.csv',
+    'bc_data_R3_v3.csv',
+    'bc_data_R2_v4.csv',
+]
+
+
+rule parsebio_barcode:
+    output:
+        join(PARSEBIO_BARCODE_DIR, '{name}.csv')
+    wildcard_constraints:
+        name = '|'.join(name.removesuffix('.csv') for name in PARSEBIO_BARCODE_FILES)
+    params:
+        url = lambda wc: join(
+            config.get('winecellar', {}).get('url', ''),
+            'parsebio',
+            'barcodes',
+            f'{wc.name}.csv'
+        ),
+        proxy = config.get('proxy', {}).get('wget', '')
+    log:
+        join(PARSEBIO_DIR, 'logs', '{name}.log')
+    shell:
+        "wget {params.proxy} -O {output} {params.url}; "
+        "echo \"Parse Biosciences barcode,NA,{params.url},`date -I`\" > {log}"
+
+
+rule parsebio_db_all:
+    input:
+        expand(join(PARSEBIO_BARCODE_DIR, '{name}'), name=PARSEBIO_BARCODE_FILES)
