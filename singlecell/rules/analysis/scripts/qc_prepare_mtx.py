@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import re
 from types import SimpleNamespace
 
 import pandas as pd
@@ -167,6 +168,13 @@ def reader_for_format(conv, input_format: str):
     return readers[input_format]
 
 
+def canonicalize_10x_starsolo_barcodes(adata, library_idx: int):
+    """Apply the Cell Ranger aggr GEM-group suffix for one STARsolo library."""
+    cores = [re.sub(r"-\d+$", "", str(barcode)) for barcode in adata.obs_names]
+    adata.obs_names = pd.Index([f"{barcode}-{library_idx}" for barcode in cores], name="barcode")
+    return adata
+
+
 def frame_from_anndata(adata, group_cols: list[str], qc_vars: list[str]) -> pd.DataFrame:
     qc.validate_anndata(adata)
     qc.validate_group_columns(adata.obs, group_cols)
@@ -213,9 +221,17 @@ def main() -> int:
 
     frames = []
     seen = set()
-    for path in args.input:
+    for i, path in enumerate(args.input, 1):
         LOGGER.info("[prepare] reading matrix %s", path)
-        adata = reader(path, reader_args)
+        current_reader_args = reader_args
+        if args.input_format == "10x_starsolo":
+            current_reader_args = SimpleNamespace(**vars(reader_args))
+            current_reader_args.barcode_rename = "skip"
+
+        adata = reader(path, current_reader_args)
+        if args.input_format == "10x_starsolo":
+            adata = canonicalize_10x_starsolo_barcodes(adata, i)
+
         attach_feature_info(adata, feature_info)
         attach_barcode_info(adata, barcode_info)
 
