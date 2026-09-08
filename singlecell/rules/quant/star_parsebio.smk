@@ -606,27 +606,6 @@ rule parsebio_starsolo_scanpy_rt_filtered:
         '--verbose '
 
 
-rule parsebio_starsolo_scanpy_filtered:
-    wildcard_constraints:
-        method = 'parsebio_starsolo'
-    input:
-        rules.parsebio_starsolo_scanpy_rt_filtered.output
-    output:
-        join(QUANT_INTERIM, 'aggregate', '{method}', 'cellbender', 'scanpy', '{aggr_id}_filtered.h5ad') if CB_OUTPUT else join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_filtered.h5ad')
-    params:
-        script = src_gcf('scripts/postprocess_starsolo_rt.py'),
-        rt_args = '' if PREP == 'rt_merge' else ' --add-rt-qc --aggregate --groupby barcode_Tmapped '
-    container:
-        'docker://' + config['docker']['scanpy'],
-    threads:
-        48
-    shell:
-        'python {params.script} '
-        '--input {input} '
-        '--output {output} '
-        '{params.rt_args} '
-        
-
 rule parsebio_starsolo_mtx_v2_fix:
     input:
         join(QUANT_INTERIM, 'parsebio_starsolo', '{sublib}', 'Solo.out', STARSOLO_FEATURE, '{dge_type}', 'features.tsv')
@@ -716,4 +695,3 @@ rule parsebio_starsolo_scanpy_pp_ipynb_html:
         1
     shell:
         'jupyter nbconvert --to html {params.notebook} '
-
