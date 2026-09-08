@@ -11,7 +11,8 @@ import tempfile
 import time
 from typing import Iterable, Optional, Tuple, List
 
-
+include:
+    join(GCFDB_DIR, 'parsebio.db')
 
 # Parse adapters
 PRE_TSO_SEQ   = config["quant"].get("tso", "AACGCAGAGTGAATGGG")
@@ -230,10 +231,10 @@ rule parsebio_ext:
         
 rule parsebio_whitelists:
     input:
-        barcodes = "/mnt/archive/ext_cache/ext/parsebio/barcodes/bc_data_v1.csv"
+        barcodes = parsebio_barcode_inputs(KIT, CHEM)
     params:
         script     = src_gcf("scripts/gen_whitelists.py"),
-        barcodes_dir = "/mnt/archive/ext_cache/ext/parsebio/barcodes",
+        barcodes_dir = PARSEBIO_BARCODE_DIR,
         kit        = KIT,
         chemistry  = CHEM,
         trimmer    = config.get("quant",{}).get("starsolo",{}).get("trim","starsolo"),
