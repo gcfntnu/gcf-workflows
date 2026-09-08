@@ -168,6 +168,20 @@ rule starsolo_quant:
         '--runThreadN {threads} '
         '{params.extra_args} '
 
+
+rule starsolo_bam_index:
+    input:
+        bam = rules.starsolo_quant.output.bam
+    output:
+        join(STAR_INTERIM, '{sample}', 'Aligned.sortedByCoord.out.bam.bai')
+    threads:
+        4
+    container:
+        'docker://' + config['docker']['samtools']
+    shell:
+        'samtools index -@ {threads} {input.bam}'
+
+
 rule starsolo_mtx_v2_fix:
     input:
         join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, '{dge_type}', 'features.tsv')
