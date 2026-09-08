@@ -3,9 +3,6 @@
 Automatic Quality Control of single cell rna-seq data
 """
 
-if 'parsebio_starsolo' in METHODS:
-    ruleorder: scanpy_aggr_finalize > parsebio_starsolo_scanpy_filtered
-
 
 def _qc_prepare_sample_str(cfg):
     qc_sample = cfg.get("qc", {}).get("qc_sample")
