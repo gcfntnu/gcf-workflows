@@ -64,7 +64,7 @@ rule txgenomics_whitelist_v4:
     shell:
         """
         wget {params.proxy} -O {output} {params.url}
-        echo "10xGenomics whitelist v4,NA,{params.url},{date}" > {log}
+        echo "10xGenomics whitelist v4,NA,{params.url},{params.date}" > {log}
         """
 
 
