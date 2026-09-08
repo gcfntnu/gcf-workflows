@@ -124,6 +124,25 @@ def split_parsebio_rt_info(
     return rt_info, remaining
 
 
+def set_parsebio_canonical_index(data: ad.AnnData) -> None:
+    """Expose splitpipe-compatible Parse barcodes only on the final canonical AnnData."""
+    if "parsebio_bc" not in data.obs.columns:
+        raise KeyError("Final Parse STARsolo AnnData is missing required column 'parsebio_bc'")
+
+    parsebio_bc = data.obs["parsebio_bc"]
+    if parsebio_bc.isna().any():
+        n_missing = int(parsebio_bc.isna().sum())
+        raise ValueError(f"Final Parse STARsolo AnnData has {n_missing} missing parsebio_bc values")
+
+    parsebio_bc = parsebio_bc.astype(str)
+    if not parsebio_bc.is_unique:
+        duplicates = parsebio_bc[parsebio_bc.duplicated()].unique().tolist()[:5]
+        raise ValueError(f"Final Parse STARsolo parsebio_bc values are not unique: {duplicates}")
+
+    data.obs_names = parsebio_bc
+    data.obs.index.name = "barcode"
+
+
 def make_reader_args(args: argparse.Namespace, conv) -> SimpleNamespace:
     aggr_csv = conv._aggr_csv_reader(args.aggr_csv) if args.aggr_csv else None
     return SimpleNamespace(
@@ -250,6 +269,10 @@ def main() -> int:
         annotation = conv._barcode_info_reader(path, logger=LOGGER)
         assert_same_index(data.obs_names, annotation.index, f"Annotation {path}")
         data.obs = merge_frame(data.obs.copy(), annotation, path)
+
+    if args.input_format == "parsebio_starsolo":
+        LOGGER.info("[build] switching final Parse STARsolo cell IDs to splitpipe-compatible parsebio_bc")
+        set_parsebio_canonical_index(data)
 
     data.obs = conv.drop_ci_identical_same_name(data.obs)
     data.obs = conv.anndata_friendly_dtypes(
