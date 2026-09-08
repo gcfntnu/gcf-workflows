@@ -51,6 +51,13 @@ def get_singlecell_bam(wildcards):
     else:
         raise ValueError
 
+
+def get_singlecell_bam_index(wildcards):
+    if wildcards.quantifier == '10x_starsolo':
+        return rules.starsolo_bam_index.output
+    return []
+
+
 def get_donor_vcf(wildcards):
     donor_dir = config['quant'].get('demultiplex', {}).get('donor_dir')
     if donor_dir is None:
@@ -119,6 +126,7 @@ rule freemuxlet_pileup:
 rule cellsnp_pileup_1a: # pileup with defined snps and barcodes (singlecell)
     input:
         bam = get_singlecell_bam,
+        bam_index = get_singlecell_bam_index,
         barcodes = get_singlecell_barcodes,
         vcf = join(REF_DIR, 'anno', 'common_variants.vcf')
     output:
@@ -297,7 +305,6 @@ rule souporcell_ref:
         '-o {params.souporcell_dir} '
         '-k {params.n} '
         '{params.skip_remap} '
-
 
 rule souporcell_ref_demuxafy:
     input:
