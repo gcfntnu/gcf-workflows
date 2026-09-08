@@ -44,7 +44,9 @@ def get_singlecell_barcodes(wildcards):
 def get_singlecell_bam(wildcards):
     if wildcards.quantifier == 'cellranger':
         return rules.cellranger_quant.output.bam
-    elif wildcards.quantifier in ['10x_starsolo', 'alevin']:
+    elif wildcards.quantifier == '10x_starsolo':
+        return rules.starsolo_quant.output.bam
+    elif wildcards.quantifier == 'alevin':
         return rules.starsolo_bam.output
     else:
         raise ValueError
