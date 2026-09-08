@@ -4,7 +4,6 @@
 
 """
 
-groupname = "_star_"
 
 import re
 import tempfile
@@ -351,8 +350,6 @@ rule parsebio_fastq_rt_merge:
         join(FILTER_INTERIM, "fastq", "rt_merge", "{sublib}.log") 
     threads:
         12
-    group:
-        groupname
     container:
         'docker://' + config['docker']['star']
     shell:
@@ -373,8 +370,6 @@ rule parsebio_fastq_error_correct_bc1:
         join(FILTER_INTERIM, "fastq", "error_correct_bc1", "{sublib}.log") 
     threads:
         12
-    group:
-        groupname
     container:
         'docker://' + config['docker']['star']
     shell:
@@ -394,8 +389,6 @@ rule parsebio_fastq_splitcode:
         join(FILTER_INTERIM, "fastq", "splitcode", "{sublib}.log") 
     threads:
         4
-    group:
-        groupname
     container:
         'docker://' + config['docker']['star']
     shell:
@@ -447,8 +440,6 @@ rule parsebio_fastq_trim_cutadapt:
         dirname = join(FILTER_INTERIM, "fastq", "cutadapt", "{sublib}")
     threads:
         12
-    group:
-        groupname
     container:
         'docker://' + config['docker']['star']
     shell:
