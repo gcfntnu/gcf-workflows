@@ -78,7 +78,6 @@ STARSOLO_DERIVED_COLS = [
     "frac_multimapper_counted",
 ]
 
-
 def _agg_sparse_by_group(mat, groupby_values):
     """
     Aggregate rows of `mat` by summing within groups defined by `groupby_values`.
@@ -138,7 +137,6 @@ def _agg_sparse_by_group(mat, groupby_values):
     gb = df.groupby(codes, sort=False)
     out = gb.sum().to_numpy()
     return out, pd.Index(uniques)
-
 
 # ---------------------------------------------------------------------------
 # STARsolo-derived QC metrics (pure function on a DataFrame)
@@ -503,23 +501,6 @@ def aggregate_starsolo_cells(
         if hasattr(nuclear_fraction, "A1"):
             nuclear_fraction = nuclear_fraction.A1
         adata_new.obs["nuclear_fraction"] = nuclear_fraction
-
-    # 10) expose splitpipe-compatible Parse cell IDs at the canonical boundary
-    if "parsebio_bc" not in adata_new.obs.columns:
-        raise KeyError("Aggregated Parse STARsolo metadata is missing required column 'parsebio_bc'")
-
-    parsebio_bc = adata_new.obs["parsebio_bc"]
-    if parsebio_bc.isna().any():
-        n_missing = int(parsebio_bc.isna().sum())
-        raise ValueError(f"Aggregated Parse STARsolo metadata has {n_missing} missing parsebio_bc values")
-
-    parsebio_bc = parsebio_bc.astype(str)
-    if not parsebio_bc.is_unique:
-        duplicates = parsebio_bc[parsebio_bc.duplicated()].unique().tolist()[:5]
-        raise ValueError(f"Aggregated Parse STARsolo parsebio_bc values are not unique: {duplicates}")
-
-    adata_new.obs_names = parsebio_bc
-    adata_new.obs.index.name = "barcode"
 
     return adata_new
 
