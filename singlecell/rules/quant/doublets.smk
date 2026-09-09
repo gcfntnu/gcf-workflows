@@ -154,7 +154,7 @@ rule dbl_solo:
     resources:
         gpu = 1
     container:
-        'docker://gcszhn/socube:latest'
+        'docker://gcfntnu/solo-sc:1.2'
     shell:
         'rm -rf {params.out_dir}/* '
         '&& '
