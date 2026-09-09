@@ -431,11 +431,19 @@ rule scanpy_aggr_finalize:
 
 
 def quant_all_inputs(wc):
-    return [
+    inputs = [
         get_filtered_anndata(SimpleNamespace(method=method, aggr_id=aggr_id))
         for method in METHODS
         for aggr_id in AGGR_IDS
     ]
+
+    if '10x_starsolo' in METHODS:
+        inputs.append(join(QUANT_INTERIM, '10x_starsolo', '.starsolo.mem.cleaned'))
+
+    if 'parsebio_starsolo' in METHODS:
+        inputs.append(join(QUANT_INTERIM, 'parsebio_starsolo', '.starsolo.mem.cleaned'))
+
+    return inputs
 
 
 rule quant_all:
