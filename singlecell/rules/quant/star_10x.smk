@@ -134,7 +134,8 @@ rule starsolo_quant:
         umi_start = config['quant'].get('starsolo', {}).get('umi_start', 'none'),
         R1 = lambda wildcards, input: input.R1 if isinstance(input.R1, str) else ','.join(input.R1),
         R2 = lambda wildcards, input: input.R2 if isinstance(input.R2, str) else ','.join(input.R2),
-        extra_args = f'--readFilesCommand zcat --genomeLoad LoadAndKeep --outFilterMultimapNmax 10 --soloFeatures {STARSOLO_FEATURE_ARGS} '
+        extra_args = f'--readFilesCommand zcat --genomeLoad LoadAndKeep --outFilterMultimapNmax 10 '
+                     f'--soloCellReadStats Standard --soloFeatures {STARSOLO_FEATURE_ARGS} '
     threads:
         48
     output:
