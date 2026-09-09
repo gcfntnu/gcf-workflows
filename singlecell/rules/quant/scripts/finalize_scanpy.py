@@ -57,6 +57,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--qc-cells", required=True, help="Cell-level auto-QC Parquet table")
     parser.add_argument("--annotation", action="append", default=[], help="Post-QC annotation sidecar")
     parser.add_argument("--enable-cellbender", action="store_true")
+    parser.add_argument("--use-velo", action="store_true")
     parser.add_argument("--output", required=True, help="Canonical filtered AnnData")
     parser.add_argument("--log", default=None)
     parser.add_argument("--verbose", action="store_true")
@@ -214,7 +215,7 @@ def main() -> int:
         sys.path.insert(0, args.converter_script_dir)
     import convert_scanpy as conv
 
-    conv._USE_VELO = True
+    conv._USE_VELO = args.use_velo
     conv.logger = LOGGER
 
     feature_info = load_feature_info(conv, args.feature_info)
