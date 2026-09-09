@@ -140,6 +140,7 @@ rule starsolo_quant:
         48
     output:
         barcodes = join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, 'filtered', 'barcodes.tsv'),
+        barcode_stats = join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, 'CellReads.stats'),
         gene_stats = join(STAR_INTERIM, '{sample}', 'Solo.out', 'Gene', 'Features.stats'),
         gene_summary = join(STAR_INTERIM, '{sample}', 'Solo.out', 'Gene', 'Summary.csv'),
         genes = join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, 'filtered', 'features.tsv'),
