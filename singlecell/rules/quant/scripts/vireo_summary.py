@@ -54,14 +54,9 @@ doublet_type[df["donor_id"] == "doublet"] = "doublet"
 doublet_type[df["donor_id"] == "unassigned"] = "unassigned"
 
 df["doublet_type"] = doublet_type
-df["demux_doublet_score"] = pd.to_numeric(
-    df["prob_doublet"],
-    errors="raise",
-)
 df = df[
     [
         "doublet_type",
-        "demux_doublet_score",
         "donor_id",
         "best_singlet",
         "prob_max",
