@@ -1299,7 +1299,7 @@ def read_splitpipe(fn, args, **kw):
     else:
         velocyto_dir = dir_name.replace('all-sample/DGE_unfiltered', 'velo')
     if os.path.exists(velocyto_dir):
-        for velo_name in ["spliced", "unspliced", "ambigious"]:
+        for velo_name in ["spliced", "unspliced", "ambiguous"]:
             velo_fn = pathlib.Path(join(velocyto_dir, f"{velo_name}.mtx"))
             if velo_fn.exists() and _USE_VELO:
                 S = mmread(velo_fn).T
