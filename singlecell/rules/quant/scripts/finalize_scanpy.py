@@ -143,31 +143,31 @@ def set_parsebio_canonical_index(data: ad.AnnData) -> None:
     data.obs.index.name = "barcode"
 
 
-def starsolo_sample_id(path: str) -> str:
+def starsolo_library_id(path: str) -> str:
     return os.path.normpath(path).split(os.path.sep)[-5]
 
 
-def attach_starsolo_sample_id(data: ad.AnnData, path: str, input_format: str) -> None:
+def attach_starsolo_library_id(data: ad.AnnData, path: str, input_format: str) -> None:
     if input_format != "10x_starsolo":
         return
 
-    sample_id = starsolo_sample_id(path)
-    if "sample_id" in data.obs.columns:
-        values = data.obs["sample_id"].dropna().astype(str).unique().tolist()
-        if values and values != [sample_id]:
-            raise ValueError(f"Conflicting 10x STARsolo sample_id for {path}: {values} != {[sample_id]}")
-    data.obs["sample_id"] = sample_id
+    library_id = starsolo_library_id(path)
+    if "library_id" in data.obs.columns:
+        values = data.obs["library_id"].dropna().astype(str).unique().tolist()
+        if values and values != [library_id]:
+            raise ValueError(f"Conflicting 10x STARsolo library_id for {path}: {values} != {[library_id]}")
+    data.obs["library_id"] = library_id
 
 
 def starsolo_aggr_csv_from_inputs(args: argparse.Namespace) -> pd.DataFrame | None:
     if args.input_format != "10x_starsolo" or args.barcode_rename != "numerical":
         return None
 
-    sample_ids = [starsolo_sample_id(path) for path in args.input]
-    if len(sample_ids) != len(set(sample_ids)):
-        raise ValueError(f"Duplicate 10x STARsolo sample IDs in aggregate input: {sample_ids}")
+    library_ids = [starsolo_library_id(path) for path in args.input]
+    if len(library_ids) != len(set(library_ids)):
+        raise ValueError(f"Duplicate 10x STARsolo library IDs in aggregate input: {library_ids}")
 
-    return pd.DataFrame({"sample_id": sample_ids})
+    return pd.DataFrame({"sample_id": library_ids})
 
 
 def make_reader_args(args: argparse.Namespace, conv) -> SimpleNamespace:
@@ -227,7 +227,7 @@ def main() -> int:
     for i, path in enumerate(args.input, 1):
         LOGGER.info("[build] reading matrix %d/%d: %s", i, len(args.input), path)
         data = reader(os.path.abspath(path), reader_args)
-        attach_starsolo_sample_id(data, path, args.input_format)
+        attach_starsolo_library_id(data, path, args.input_format)
         if args.input_format != "parsebio_starsolo":
             duplicate = seen.intersection(data.obs_names)
             if duplicate:
