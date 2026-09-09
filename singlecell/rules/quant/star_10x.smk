@@ -136,6 +136,7 @@ rule starsolo_quant:
         R2 = lambda wildcards, input: input.R2 if isinstance(input.R2, str) else ','.join(input.R2),
         extra_args = f'--readFilesCommand zcat --genomeLoad LoadAndKeep --outFilterMultimapNmax 10 '
                      f'--soloCellReadStats Standard --soloFeatures {STARSOLO_FEATURE_ARGS} '
+                     f'--soloMultiMappers {STARSOLO_MM} '
     threads:
         48
     output:
