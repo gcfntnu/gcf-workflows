@@ -18,7 +18,7 @@ PRE_TSO_SEQ   = config["quant"].get("tso", "AACGCAGAGTGAATGGG")
 LINKER_RC     = config["quant"].get("l21_rc", "AACGCAGAGTGAATGGG")
 # Defaults from config 
 STARSOLO_FEATURE = config["quant"].get("starsolo", {}).get("feature_count", "GeneFull_Ex50pAS")
-STARSOLO_MM      = config["quant"].get("starsolo", {}).get("mm", "Unique")
+STARSOLO_MM      = config["quant"].get("starsolo", {}).get("multi_mappers", "Unique")
 TRIMMER          = config["quant"].get("starsolo", {}).get("trimmer", "skip")
 PREP             = config["quant"].get("starsolo", {}).get("preprocessor", "skip")
 if TRIMMER == 'starsolo':

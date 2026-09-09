@@ -17,7 +17,7 @@ CB_FLAG = config.get("quant", {}).get("cellbender", {}).get("enabled", False)
 CB_OUTPUT = CB_FLAG and config.get("quant", {}).get("cellbender", {}).get("use_outputs", False)
 VELO_OUTPUT = config.get("quant", {}).get("use_velo", False)
 STARSOLO_FEATURES = config["quant"].get("starsolo", {}).get("feature_count", "GeneFull_Ex50pAS")
-STARSOLO_MM = config["quant"].get("starsolo", {}).get("mm", "Unique")
+STARSOLO_MM = config["quant"].get("starsolo", {}).get("multi_mappers", "Unique")
 BC_RENAME = {
     'cellranger': 'numerical',
     '10x_starsolo': 'numerical',
