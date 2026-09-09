@@ -387,6 +387,11 @@ def _finalize_input_format(wc):
     return wc.method
 
 
+def _finalize_velo_arg(wc):
+    supported = {'splitpipe', '10x_starsolo', 'parsebio_starsolo'}
+    return '--use-velo' if VELO_OUTPUT and wc.method in supported else ''
+
+
 rule scanpy_aggr_finalize:
     input:
         unpack(scanpy_finalize_inputs)
@@ -399,7 +404,8 @@ rule scanpy_aggr_finalize:
         bc_type = lambda wc: BC_RENAME[wc.method],
         enable_cb = '--enable-cellbender' if CB_OUTPUT else '',
         aggr_csv = _finalize_aggr_csv_arg,
-        annotation_args = _finalize_annotation_args
+        annotation_args = _finalize_annotation_args,
+        velo = _finalize_velo_arg
     threads:
         48
     log:
@@ -418,6 +424,7 @@ rule scanpy_aggr_finalize:
         '--qc-cells {input.qc_cells} '
         '{params.annotation_args} '
         '{params.enable_cb} '
+        '{params.velo} '
         '--output {output} '
         '--log {log} '
         '--verbose '
