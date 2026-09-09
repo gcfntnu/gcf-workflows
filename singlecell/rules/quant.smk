@@ -149,8 +149,10 @@ def get_filtered_mtx(wildcards):
 
 
 def get_barcode_info_list(wc):
-    items = [join(QUANT_INTERIM, wc.method, 'barcode_info.tsv')]
-
+    if wc.method == '10x_starsolo' and hasattr(wc, 'aggr_id'):
+        items = [join(QUANT_INTERIM, wc.method, f'{wc.aggr_id}_barcode_info.tsv')]
+    else:
+        items = [join(QUANT_INTERIM, wc.method, 'barcode_info.tsv')]
     qcfg = config.get('quant', {})
     dd_method = qcfg.get('doublet_detection', {}).get('method')
     cb_subset = qcfg.get('cellbender_call', {}).get('subset')
