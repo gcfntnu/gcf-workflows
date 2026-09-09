@@ -224,7 +224,7 @@ rule parsebio_ext:
     shell:
         """
         wget {params.proxy} {params.url} -O- > {output}
-        echo "Parse Biosciences {wildcards.name},NA,{params.url},{date -I}" > {log}
+        echo "Parse Biosciences {wildcards.name},NA,{params.url},`date -I`" > {log}
         """
 
         
