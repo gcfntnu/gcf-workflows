@@ -23,7 +23,6 @@ The output follows the GCF demultiplexing interface:
     doublet_type
     donor_id
     best_singlet
-    doublet_score
 
 Additional Demuxalot-specific posterior diagnostics are retained.
 
@@ -969,10 +968,9 @@ def make_droplet_table(
     Categorical assignments follow the Demuxalot example logic:
     the single best hypothesis must exceed ``min_prob``.
 
-    ``doublet_score`` is the total posterior probability assigned to
-    donor-pair hypotheses. It is therefore continuous and independent
-    of whether one particular donor pair passes the categorical
-    assignment threshold.
+    ``doublet_posterior`` is the total posterior probability assigned to
+    donor-pair hypotheses. It is a Demuxalot-specific demultiplexing
+    diagnostic and is not a transcriptomic doublet-detection score.
 
     Parameters
     ----------
@@ -1020,7 +1018,7 @@ def make_droplet_table(
             doublet_columns
         ]
 
-        doublet_score = doublet_probabilities.sum(
+        doublet_posterior = doublet_probabilities.sum(
             axis=1
         )
         best_doublet = doublet_probabilities.idxmax(
@@ -1031,7 +1029,7 @@ def make_droplet_table(
         )
 
     else:
-        doublet_score = pd.Series(
+        doublet_posterior = pd.Series(
             0.0,
             index=posterior_probabilities.index,
             dtype=float,
@@ -1099,13 +1097,13 @@ def make_droplet_table(
     result["best_singlet"] = best_singlet.astype(
         str
     )
-    result["doublet_score"] = doublet_score.astype(
-        float
-    )
 
     #
     # Demuxalot-specific diagnostic information.
     #
+    result["doublet_posterior"] = (
+        doublet_posterior.astype(float)
+    )
     result["best_singlet_prob"] = (
         best_singlet_prob.astype(float)
     )
