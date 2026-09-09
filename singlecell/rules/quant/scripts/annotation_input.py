@@ -76,8 +76,25 @@ def setup_logging(log_file=None, verbose=False):
     )
 
 
+def _starsolo_library_id(path):
+    return os.path.normpath(path).split(os.path.sep)[-5]
+
+
+def _starsolo_aggr_csv_from_inputs(args):
+    if args.input_format != "10x_starsolo" or args.barcode_rename != "numerical":
+        return None
+
+    library_ids = [_starsolo_library_id(path) for path in args.input]
+    if len(library_ids) != len(set(library_ids)):
+        raise ValueError(f"Duplicate 10x STARsolo library IDs in annotation input: {library_ids}")
+
+    return pd.DataFrame({"sample_id": library_ids})
+
+
 def _reader_args(args):
-    aggr_csv = conv._aggr_csv_reader(args.aggr_csv) if args.aggr_csv else None
+    aggr_csv = _starsolo_aggr_csv_from_inputs(args)
+    if aggr_csv is None and args.aggr_csv:
+        aggr_csv = conv._aggr_csv_reader(args.aggr_csv)
     return SimpleNamespace(
         aggr_csv=aggr_csv,
         barcode_rename=args.barcode_rename,
