@@ -330,24 +330,6 @@ def ensure_parent_directory(filename):
     parent.mkdir(parents=True, exist_ok=True)
 
 
-def ensure_bam_index(bam_filename):
-    """Ensure that a BAM index exists.
-
-    Parameters
-    ----------
-    bam_filename : str
-        BAM filename.
-    """
-    with pysam.AlignmentFile(bam_filename, "rb") as bam:
-        has_index = bam.has_index()
-
-    if has_index:
-        return
-
-    print(f"Indexing BAM file: {bam_filename}")
-    pysam.index(bam_filename)
-
-
 def get_vcf_donors(vcf_filename):
     """Return donor sample names present in a VCF.
 
@@ -1355,7 +1337,6 @@ def main():
     args = parse_args()
 
     ensure_parent_directory(args.output)
-    ensure_bam_index(args.bam_filename)
 
     (
         droplet_type,

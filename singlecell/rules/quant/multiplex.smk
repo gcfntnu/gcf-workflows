@@ -416,6 +416,7 @@ rule demuxalot_noref:
     input:
         barcodes = get_singlecell_barcodes,
         bam = get_singlecell_bam,
+        bam_index = get_singlecell_bam_index,
         cluster_vcf = join(DEMUX_DIR,  'freemuxlet_noref', 'freemuxlet.clust1.vcf.gz')
     output:
         droplet_type = join(DEMUX_DIR,  'demuxalot_noref', 'droplet_type.tsv'),
@@ -447,6 +448,7 @@ rule demuxalot_ref:
     input:
         barcodes = get_singlecell_barcodes,
         bam = get_singlecell_bam,
+        bam_index = get_singlecell_bam_index,
         donor_vcf = get_donor_vcf
     output:
         droplet_type = join(DEMUX_DIR,  'demuxalot_ref', 'droplet_type.tsv'),
