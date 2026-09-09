@@ -159,8 +159,22 @@ def attach_barcode_info(adata, barcode_info: list[tuple[str, pd.DataFrame]]) -> 
     adata.obs = obs
 
 
+def starsolo_aggr_csv_from_inputs(args: argparse.Namespace) -> pd.DataFrame | None:
+    if args.input_format != "10x_starsolo" or args.barcode_rename != "numerical":
+        return None
+
+    sample_ids = [os.path.normpath(path).split(os.path.sep)[-5] for path in args.input]
+    if len(sample_ids) != len(set(sample_ids)):
+        raise ValueError(f"Duplicate 10x STARsolo sample IDs in aggregate input: {sample_ids}")
+
+    return pd.DataFrame({"sample_id": sample_ids})
+
+
 def make_reader_args(args: argparse.Namespace, conv) -> SimpleNamespace:
-    aggr_csv = conv._aggr_csv_reader(args.aggr_csv) if args.aggr_csv else None
+    aggr_csv = starsolo_aggr_csv_from_inputs(args)
+    if aggr_csv is None and args.aggr_csv:
+        aggr_csv = conv._aggr_csv_reader(args.aggr_csv)
+
     return SimpleNamespace(
         barcode_rename=args.barcode_rename,
         aggr_csv=aggr_csv,
