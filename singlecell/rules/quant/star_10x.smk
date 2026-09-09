@@ -5,7 +5,10 @@ include: 'umitools.smk'
 STAR_INTERIM = join(QUANT_INTERIM, '10x_starsolo')
 READ_LENGTH = max(config['read_geometry'])
 STARSOLO_FEATURE = STARSOLO_FEATURES
-STARSOLO_FEATURE_ARGS = ' '.join(dict.fromkeys(['Gene', 'GeneFull', STARSOLO_FEATURE, 'SJ', 'Velocyto', 'Transcript3p']))
+STARSOLO_FEATURE_LIST = ['Gene', STARSOLO_FEATURE]
+if VELO_OUTPUT:
+    STARSOLO_FEATURE_LIST.append('Velocyto')
+STARSOLO_FEATURE_ARGS = ' '.join(dict.fromkeys(STARSOLO_FEATURE_LIST))
 
 rule txgenomics_whitelist_v1:
     params:
@@ -143,7 +146,6 @@ rule starsolo_quant:
         raw_barcodes = join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, 'raw', 'barcodes.tsv'),
         raw_genes = join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, 'raw', 'features.tsv'),
         raw_mtx = join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, 'raw', 'matrix.mtx'),
-        barcodes_full = join(STAR_INTERIM, '{sample}', 'Solo.out', 'GeneFull', 'filtered', 'barcodes.tsv'),
         bam = join(STAR_INTERIM, '{sample}', 'Aligned.sortedByCoord.out.bam')
     container:
         'docker://' + config['docker']['star']
@@ -234,21 +236,3 @@ rule starsolo_clean_shmem:
         'docker://' + config['docker']['star']
     shell:
         'STAR --genomeDir {params.genome_dir} --genomeLoad Remove || echo "no shared mem"'
-
-rule starsolo_bam_merge:
-    input:
-        expand(rules.starsolo_quant.output, sample=SAMPLES)
-    output:
-        join(QUANT_INTERIM, 'aggregate', 'star', 'sorted.bam')
-    threads:
-        48
-    container:
-        'docker://' + config['docker']['sambamba']
-    shell:
-        'sambamba merge -t 8 {output} {input}'
-
-rule scanpy_barcodes:
-    input:
-        join(QUANT_INTERIM, '{anything}.h5ad')
-    output:
-        join(QUANT_INTERIM, '{anything}.h5ad.barcodes')
