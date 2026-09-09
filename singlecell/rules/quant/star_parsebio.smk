@@ -128,7 +128,7 @@ def star_extra_args(config, n_sublibs=None):
     kit = q["kit"].lower()                         # 'wt' | 'wt_mega' | 'wt_mini'
     preprocessor = ss.get("preprocessor", "").lower()  # 'none' | 'rt_merge' | 'splitcode'
     trimmer      = ss.get("trimmer", "").lower()       # 'none' | 'cutadapt' | 'starsolo'
-    use_velo     = q.get("use_velo", ss.get("use_velo", False))
+    use_velo     = VELO_OUTPUT
     feature      = ss.get("feature_count", "GeneFull_Ex50pAS")   # 'Gene' or 'GeneFull_Ex50pAS'
     multimaps    = ss.get("multi_mappers", "Unique")             # 'Unique' | 'EM'
     output_bam   = ss.get("output_bam", False)
@@ -224,7 +224,7 @@ rule parsebio_ext:
     shell:
         """
         wget {params.proxy} {params.url} -O- > {output}
-        echo "Parse Biosciences {wildcards.name},NA,{params.url},`date -I`" > {log}
+        echo "Parse Biosciences {wildcards.name},NA,{params.url},{date -I}" > {log}
         """
 
         
