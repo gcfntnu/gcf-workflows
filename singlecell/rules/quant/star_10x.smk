@@ -4,11 +4,29 @@ include: 'umitools.smk'
 
 STAR_INTERIM = join(QUANT_INTERIM, '10x_starsolo')
 READ_LENGTH = max(config['read_geometry'])
-STARSOLO_FEATURE = STARSOLO_FEATURES
-STARSOLO_FEATURE_LIST = ['Gene', STARSOLO_FEATURE]
-if VELO_OUTPUT:
-    STARSOLO_FEATURE_LIST.append('Velocyto')
-STARSOLO_FEATURE_ARGS = ' '.join(dict.fromkeys(STARSOLO_FEATURE_LIST))
+
+STARSOLO_CB_LEN = STARSOLO_CONFIG["cb_len"]
+STARSOLO_UMI_LEN = STARSOLO_CONFIG["umi_len"]
+STARSOLO_UMI_START = STARSOLO_CONFIG["umi_start"]
+
+STARSOLO_10X_ARGS = STARSOLO_COMMON_ARGS + [
+    "--soloType", "CB_UMI_Simple",
+    "--readFilesCommand", "zcat",
+    "--outFilterMultimapNmax", "10",
+    "--soloUMIdedup", STARSOLO_10X_UMI_DEDUP,
+    "--soloUMIfiltering", STARSOLO_10X_UMI_FILTERING,
+    "--soloCBlen", str(STARSOLO_CB_LEN),
+    "--soloUMIlen", str(STARSOLO_UMI_LEN),
+    "--soloUMIstart", str(STARSOLO_UMI_START),
+    "--genomeChrSetMitochondrial", *STARSOLO_MITO_NAMES,
+]
+STARSOLO_10X_ARGS = " ".join(STARSOLO_10X_ARGS)
+
+if STARSOLO_OUTPUT_BAM:
+    STARSOLO_BAM_OUTPUT = join(STAR_INTERIM, '{sample}', 'Aligned.sortedByCoord.out.bam')
+else:
+    STARSOLO_BAM_OUTPUT = []
+
 
 rule txgenomics_whitelist_v1:
     params:
@@ -95,6 +113,7 @@ rule starsolo_genome_index:
         '--sjdbOverhang {READ_LENGTH} '
         '&& mv Log.out {log} '
 
+
 rule starsolo_convert_umitools_whitelist:
     input:
         join(UMI_INTERIM, '{sample}', 'whitelist.txt')
@@ -129,62 +148,51 @@ rule starsolo_quant:
     params:
         outdir = join(STAR_INTERIM, '{sample}') + '/',
         genome_dir = os.path.dirname(REF_GENOME),
-        cb_len = config['quant'].get('starsolo', {}).get('cb_len', 'none'),
-        umi_len = config['quant'].get('starsolo', {}).get('umi_len', 'none'),
-        umi_start = config['quant'].get('starsolo', {}).get('umi_start', 'none'),
         R1 = lambda wildcards, input: input.R1 if isinstance(input.R1, str) else ','.join(input.R1),
         R2 = lambda wildcards, input: input.R2 if isinstance(input.R2, str) else ','.join(input.R2),
-        extra_args = f'--readFilesCommand zcat --genomeLoad LoadAndKeep --outFilterMultimapNmax 10 '
-                     f'--soloCellReadStats Standard --soloFeatures {STARSOLO_FEATURE_ARGS} '
-                     f'--soloMultiMappers {STARSOLO_MM} '
+        starsolo_args = STARSOLO_10X_ARGS
     threads:
         48
     output:
         barcodes = join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, 'filtered', 'barcodes.tsv'),
-        barcode_stats = join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, 'CellReads.stats'),
-        gene_stats = join(STAR_INTERIM, '{sample}', 'Solo.out', 'Gene', 'Features.stats'),
-        gene_summary = join(STAR_INTERIM, '{sample}', 'Solo.out', 'Gene', 'Summary.csv'),
+        gene_stats = join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, 'Features.stats'),
+        gene_summary = join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, 'Summary.csv'),
         genes = join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, 'filtered', 'features.tsv'),
+        raw_mtx = join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, 'raw', STARSOLO_MTX),
         mtx = join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, 'filtered', 'matrix.mtx'),
         raw_barcodes = join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, 'raw', 'barcodes.tsv'),
         raw_genes = join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, 'raw', 'features.tsv'),
-        raw_mtx = join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, 'raw', 'matrix.mtx'),
-        bam = join(STAR_INTERIM, '{sample}', 'Aligned.sortedByCoord.out.bam')
+        cell_reads = join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, 'CellReads.stats'),
+        bam = STARSOLO_BAM_OUTPUT
     container:
         'docker://' + config['docker']['star']
     benchmark:
         'benchmark/starsolo/{sample}-starsolo.txt'
     log:
         star = join(STAR_INTERIM, '{sample}', 'Log.final.out'),
-        barcodes = join(STAR_INTERIM, '{sample}', 'Solo.out', 'Gene', 'Barcodes.stats'),
-        umi_cell = join(STAR_INTERIM, '{sample}', 'Solo.out', 'Gene', 'UMIperCellSorted.txt')
+        barcodes = join(STAR_INTERIM, '{sample}', 'Solo.out', 'Barcodes.stats'),
+        umi_cell = join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, 'UMIperCellSorted.txt')
     shell:
-        'STAR --soloType CB_UMI_Simple '
+        'STAR '
         '--soloCBwhitelist {input.whitelist} '
         '--readFilesIn {params.R2} {params.R1} '
         '--genomeDir {params.genome_dir} '
         '--outFileNamePrefix {params.outdir} '
-        '--soloCBlen {params.cb_len} '
-        '--soloUMIlen {params.umi_len} '
-        '--soloUMIstart {params.umi_start} '
-        '--outSAMtype BAM SortedByCoordinate '
-        '--outSAMattributes CR CY UR UY CB UB NH sM GX '
-        '--limitBAMsortRAM 24000000000 '
         '--runThreadN {threads} '
-        '{params.extra_args} '
+        '{params.starsolo_args} '
 
-
-rule starsolo_bam_index:
-    input:
-        bam = rules.starsolo_quant.output.bam
-    output:
-        join(STAR_INTERIM, '{sample}', 'Aligned.sortedByCoord.out.bam.bai')
-    threads:
-        4
-    container:
-        'docker://' + config['docker']['samtools']
-    shell:
-        'samtools index -@ {threads} {input.bam}'
+if STARSOLO_OUTPUT_BAM:
+    rule starsolo_bam_index:
+        input:
+            bam = rules.starsolo_quant.output.bam
+        output:
+            join(STAR_INTERIM, '{sample}', 'Aligned.sortedByCoord.out.bam.bai')
+        threads:
+            4
+        container:
+            'docker://' + config['docker']['samtools']
+        shell:
+            'samtools index -@ {threads} {input.bam}'
 
 
 rule starsolo_mtx_v2_fix:
@@ -217,14 +225,14 @@ rule starsolo_barcode_info:
         '--configfile {input.config} '
         '--output {output} '
 
-
-rule starsolo_bam:
-    input:
-        join(QUANT_INTERIM, '{method}', '{sample}', 'Aligned.sortedByCoord.out.bam')
-    output:
-        join(QUANT_INTERIM, '{method}', '{sample}', '{sample}_Aligned.sortedByCoord.out.bam')
-    shell:
-        'ln -sr {input} {output}'
+if STARSOLO_OUTPUT_BAM:
+    rule starsolo_bam:
+        input:
+            join(QUANT_INTERIM, '{method}', '{sample}', 'Aligned.sortedByCoord.out.bam')
+        output:
+            join(QUANT_INTERIM, '{method}', '{sample}', '{sample}_Aligned.sortedByCoord.out.bam')
+        shell:
+            'ln -sr {input} {output}'
 
 rule starsolo_clean_shmem:
     input:
