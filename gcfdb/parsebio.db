@@ -1,0 +1,77 @@
+#-*- mode:snakemake -*-
+"""Parse Biosciences external barcode data."""
+
+PARSEBIO_DIR = join(EXT_DIR, 'parsebio')
+PARSEBIO_BARCODE_DIR = join(PARSEBIO_DIR, 'barcodes')
+
+PARSEBIO_BARCODE_SETS = {
+    'v1': {
+        'wt_mini': ('v2', 'v1', 'v1'),
+        'wt': ('v2', 'v1', 'v1'),
+        'wt_mega': ('v2', 'v1', 'v1'),
+    },
+    'v2': {
+        'wt_mini': ('n24_v4', 'v1', 'v1'),
+        'wt': ('n99_v5', 'v1', 'v1'),
+        'wt_mega': ('n198_v5', 'v1', 'v1'),
+    },
+    'v3': {
+        'wt_mini': ('n38_R1_v3_8', 'v1', 'R3_v3'),
+        'wt': ('n141_R1_v3_8', 'v1', 'R3_v3'),
+        'wt_mega': ('n302_R1_v3_8', 'v1', 'R3_v3'),
+    },
+    'v4': {
+        'wt_mini': ('n38_R1_v3_8', 'R2_v4', 'R3_v3'),
+        'wt': ('n141_R1_v3_8', 'R2_v4', 'R3_v3'),
+        'wt_mega': ('n302_R1_v3_8', 'R2_v4', 'R3_v3'),
+    },
+}
+
+PARSEBIO_BARCODE_FILES = sorted({
+    f'bc_data_{name}.csv'
+    for chem_sets in PARSEBIO_BARCODE_SETS.values()
+    for sets in chem_sets.values()
+    for name in sets
+})
+
+
+def parsebio_barcode_inputs(kit, chemistry):
+    kit = str(kit).strip().lower().replace('-', '_')
+    chemistry = str(chemistry).strip().lower()
+    if not chemistry.startswith('v'):
+        chemistry = f'v{chemistry}'
+
+    if chemistry not in PARSEBIO_BARCODE_SETS:
+        raise ValueError(f'Unsupported Parse chemistry: {chemistry}')
+    if kit not in PARSEBIO_BARCODE_SETS[chemistry]:
+        raise ValueError(f'Unsupported Parse kit for {chemistry}: {kit}')
+
+    return [
+        join(PARSEBIO_BARCODE_DIR, f'bc_data_{name}.csv')
+        for name in PARSEBIO_BARCODE_SETS[chemistry][kit]
+    ]
+
+
+rule parsebio_barcode:
+    output:
+        join(PARSEBIO_BARCODE_DIR, '{name}.csv')
+    wildcard_constraints:
+        name = '|'.join(name.removesuffix('.csv') for name in PARSEBIO_BARCODE_FILES)
+    params:
+        url = lambda wc: join(
+            config.get('winecellar', {}).get('url', ''),
+            'parsebio',
+            'barcodes',
+            f'{wc.name}.csv'
+        ),
+        proxy = config.get('proxy', {}).get('wget', '')
+    log:
+        join(PARSEBIO_DIR, 'logs', '{name}.log')
+    shell:
+        "wget {params.proxy} -O {output} {params.url}; "
+        "echo \"Parse Biosciences barcode,NA,{params.url},`date -I`\" > {log}"
+
+
+rule parsebio_db_all:
+    input:
+        expand(join(PARSEBIO_BARCODE_DIR, '{name}'), name=PARSEBIO_BARCODE_FILES)

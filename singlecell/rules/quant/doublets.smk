@@ -248,15 +248,7 @@ def _get_default_methods():
     return ['doubletdetection','scds','scdblfinder']
 
 def get_doublet_output(test_all=False, n_cells=None):
-    """
-    Return a list of file‐path templates for each requested method.
-    """
-    # Multiplex overrides everything
-    if SAMPLE_MULTIPLEXING:
-        dbl_files, demux_files = get_multiplex_methods(test_all=test_all, n_cells=n_cells)
-        return dbl_files + demux_files
-    
-    # If forced to test every method
+    """Return transcriptomic doublet detector output paths."""
     if test_all:
         doublet_methods = _ALL_METHODS
     else:
@@ -283,16 +275,7 @@ def get_doublet_output(test_all=False, n_cells=None):
 
 def get_rank_aggr_doublet_output():
     """Return transcriptomic doublet outputs for rank aggregation."""
-    outputs = get_doublet_output(
-        test_all=False,
-        n_cells=None,
-    )
-
-    return [
-        path
-        for path in outputs
-        if "/doublets/" in path
-    ]
+    return get_doublet_output(test_all=False, n_cells=None)
 
 rule dbl_majority_vote_per_sample:
     input:

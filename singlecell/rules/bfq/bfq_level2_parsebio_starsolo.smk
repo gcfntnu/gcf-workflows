@@ -20,7 +20,7 @@ rule bfq_level2_logs:
     input:
         star = expand(rules.parsebio_starsolo_quant.log.star, sublib=SUBLIBS),
         barcodes = expand(rules.parsebio_starsolo_quant.log.barcodes, sublib=SUBLIBS),
-        summary = expand(rules.parsebio_starsolo_quant.output.summary_stats, sublib=SUBLIBS)
+        summary = expand(rules.parsebio_starsolo_quant.output.gene_summary, sublib=SUBLIBS)
     output:
         expand(join(BFQ_INTERIM, 'logs', '{sublib}', '{sublib}_Log.final.out'), sublib=SUBLIBS),
         expand(join(BFQ_INTERIM, 'logs', '{sublib}', '{sublib}_Barcodes.stats'), sublib=SUBLIBS),

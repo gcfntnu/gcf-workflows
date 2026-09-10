@@ -15,9 +15,62 @@ if AGGR_METHOD == 'default':
         AGGR_METHOD = 'scanpy'
 CB_FLAG = config.get("quant", {}).get("cellbender", {}).get("enabled", False)
 CB_OUTPUT = CB_FLAG and config.get("quant", {}).get("cellbender", {}).get("use_outputs", False)
-VELO_OUTPUT = config.get("quant", {}).get("use_velo", False)
-STARSOLO_FEATURES = config["quant"].get("starsolo", {}).get("feature_count", "GeneFull_Ex50pAS")
-STARSOLO_MM = config["quant"].get("starsolo", {}).get("mm", "Unique")
+
+VELO_OUTPUT = config["quant"].get("use_velo", False)
+
+STARSOLO_CONFIG = config["quant"]["starsolo"]
+STARSOLO_10X_CONFIG = STARSOLO_CONFIG["10x_starsolo"]
+STARSOLO_PARSEBIO_CONFIG = STARSOLO_CONFIG["parsebio_starsolo"]
+
+STARSOLO_FEATURE = STARSOLO_CONFIG["feature_count"]
+STARSOLO_MULTI_MAPPERS = STARSOLO_CONFIG["multi_mappers"]
+STARSOLO_OUTPUT_BAM = STARSOLO_CONFIG["output_bam"]
+STARSOLO_LIMIT_BAM_SORT_RAM = STARSOLO_CONFIG["limit_bam_sort_ram"]
+
+STARSOLO_10X_UMI_DEDUP = STARSOLO_10X_CONFIG["umi_dedup"]
+STARSOLO_10X_UMI_FILTERING = STARSOLO_10X_CONFIG["umi_filtering"]
+STARSOLO_PARSEBIO_UMI_DEDUP = STARSOLO_PARSEBIO_CONFIG["umi_dedup"]
+STARSOLO_PARSEBIO_UMI_FILTERING = STARSOLO_PARSEBIO_CONFIG["umi_filtering"]
+
+STARSOLO_FEATURE_LIST = ["Gene", STARSOLO_FEATURE]
+if VELO_OUTPUT:
+    STARSOLO_FEATURE_LIST.append("Velocyto")
+STARSOLO_FEATURE_LIST = list(dict.fromkeys(STARSOLO_FEATURE_LIST))
+
+if STARSOLO_MULTI_MAPPERS == "Unique":
+    STARSOLO_MTX = "matrix.mtx"
+else:
+    STARSOLO_MTX = f"UniqueAndMult-{STARSOLO_MULTI_MAPPERS}.mtx"
+
+STARSOLO_BAM_TAGS = list(STARSOLO_CONFIG["bam_tags"]) #copy
+if VELO_OUTPUT:
+    STARSOLO_BAM_TAGS += ["sQ", "sM"]
+
+STARSOLO_MITO_NAMES = ["chrM", "M", "MT"]
+
+STARSOLO_COMMON_ARGS = [
+    "--genomeLoad", "LoadAndKeep",
+    "--soloCellReadStats", "Standard",
+    "--soloFeatures", *STARSOLO_FEATURE_LIST,
+    "--soloMultiMappers", STARSOLO_MULTI_MAPPERS,
+]
+
+if STARSOLO_OUTPUT_BAM:
+    STARSOLO_COMMON_ARGS += [
+        "--outSAMtype", "BAM", "SortedByCoordinate",
+        "--outSAMattributes", *STARSOLO_BAM_TAGS,
+        "--limitBAMsortRAM", str(STARSOLO_LIMIT_BAM_SORT_RAM),
+    ]
+else:
+    STARSOLO_COMMON_ARGS += ["--outSAMtype", "None"]
+
+if STARSOLO_10X_UMI_FILTERING == "MultiGeneUMI_CR" and STARSOLO_10X_UMI_DEDUP != "1MM_CR":
+    raise ValueError("STARsolo MultiGeneUMI_CR requires umi_dedup=1MM_CR")
+
+if STARSOLO_PARSEBIO_UMI_FILTERING == "MultiGeneUMI_CR" and STARSOLO_PARSEBIO_UMI_DEDUP != "1MM_CR":
+    raise ValueError("STARsolo MultiGeneUMI_CR requires umi_dedup=1MM_CR")
+
+
 BC_RENAME = {
     'cellranger': 'numerical',
     '10x_starsolo': 'numerical',
@@ -85,14 +138,10 @@ def get_raw_mtx(wildcards):
         rows = join(base_dir, "barcodes.tsv")
         mtx = join(base_dir, "matrix.mtx")
     elif base in ("parsebio_starsolo", "10x_starsolo"):
-        base_dir = join(QUANT_INTERIM, base, sublib, "Solo.out", STARSOLO_FEATURES, "raw")
+        base_dir = join(QUANT_INTERIM, base, sublib, "Solo.out", STARSOLO_FEATURE, "raw")
         cols = join(base_dir, "genes.tsv")
         rows = join(base_dir, "barcodes.tsv")
-        if STARSOLO_MM in ["EM", "Uniform", "Rescue", "PropUnique"]:
-            mtx = "UniqueAndMult" + "-" + STARSOLO_MM + ".mtx"
-        else:
-            mtx = "matrix.mtx"
-        mtx = join(base_dir, mtx)
+        mtx = join(base_dir, STARSOLO_MTX)
     else:
         raise ValueError(f"Unsupported method for raw MTX: {method}")
 
@@ -119,7 +168,7 @@ def _get_filtered_mtx(wildcards):
         cols = join(base_dir, "genes.tsv")
         rows = join(base_dir, "barcodes.tsv")
     elif method in ("parsebio_starsolo", "10x_starsolo"):
-        base_dir = join(QUANT_INTERIM, method, sublib, "Solo.out", STARSOLO_FEATURES, "filtered")
+        base_dir = join(QUANT_INTERIM, method, sublib, "Solo.out", STARSOLO_FEATURE, "filtered")
         cols = join(base_dir, "features.tsv")
         rows = join(base_dir, "barcodes.tsv")
     else:
@@ -149,8 +198,10 @@ def get_filtered_mtx(wildcards):
 
 
 def get_barcode_info_list(wc):
-    items = [join(QUANT_INTERIM, wc.method, 'barcode_info.tsv')]
-
+    if wc.method == '10x_starsolo' and hasattr(wc, 'aggr_id'):
+        items = [join(QUANT_INTERIM, wc.method, f'{wc.aggr_id}_barcode_info.tsv')]
+    else:
+        items = [join(QUANT_INTERIM, wc.method, 'barcode_info.tsv')]
     qcfg = config.get('quant', {})
     dd_method = qcfg.get('doublet_detection', {}).get('method')
     cb_subset = qcfg.get('cellbender_call', {}).get('subset')
@@ -387,6 +438,11 @@ def _finalize_input_format(wc):
     return wc.method
 
 
+def _finalize_velo_arg(wc):
+    supported = {'splitpipe', '10x_starsolo', 'parsebio_starsolo'}
+    return '--use-velo' if VELO_OUTPUT and wc.method in supported else ''
+
+
 rule scanpy_aggr_finalize:
     input:
         unpack(scanpy_finalize_inputs)
@@ -399,7 +455,8 @@ rule scanpy_aggr_finalize:
         bc_type = lambda wc: BC_RENAME[wc.method],
         enable_cb = '--enable-cellbender' if CB_OUTPUT else '',
         aggr_csv = _finalize_aggr_csv_arg,
-        annotation_args = _finalize_annotation_args
+        annotation_args = _finalize_annotation_args,
+        velo = _finalize_velo_arg
     threads:
         48
     log:
@@ -418,17 +475,26 @@ rule scanpy_aggr_finalize:
         '--qc-cells {input.qc_cells} '
         '{params.annotation_args} '
         '{params.enable_cb} '
+        '{params.velo} '
         '--output {output} '
         '--log {log} '
         '--verbose '
 
 
 def quant_all_inputs(wc):
-    return [
+    inputs = [
         get_filtered_anndata(SimpleNamespace(method=method, aggr_id=aggr_id))
         for method in METHODS
         for aggr_id in AGGR_IDS
     ]
+
+    if '10x_starsolo' in METHODS:
+        inputs.append(join(QUANT_INTERIM, '10x_starsolo', '.starsolo.mem.cleaned'))
+
+    if 'parsebio_starsolo' in METHODS:
+        inputs.append(join(QUANT_INTERIM, 'parsebio_starsolo', '.starsolo.mem.cleaned'))
+
+    return inputs
 
 
 rule quant_all:

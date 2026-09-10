@@ -57,6 +57,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--qc-cells", required=True, help="Cell-level auto-QC Parquet table")
     parser.add_argument("--annotation", action="append", default=[], help="Post-QC annotation sidecar")
     parser.add_argument("--enable-cellbender", action="store_true")
+    parser.add_argument("--use-velo", action="store_true")
     parser.add_argument("--output", required=True, help="Canonical filtered AnnData")
     parser.add_argument("--log", default=None)
     parser.add_argument("--verbose", action="store_true")
@@ -110,8 +111,71 @@ def load_barcode_info(conv, paths: list[str]) -> list[tuple[str, pd.DataFrame]]:
     return result
 
 
+def split_parsebio_rt_info(
+    barcode_info: list[tuple[str, pd.DataFrame]],
+) -> tuple[tuple[str, pd.DataFrame], list[tuple[str, pd.DataFrame]]]:
+    matches = [item for item in barcode_info if {"barcode_Tmapped", "stype"}.issubset(item[1].columns)]
+    if len(matches) != 1:
+        raise ValueError(
+            "Parse STARsolo requires exactly one barcode-info table with barcode_Tmapped and stype; "
+            f"found {len(matches)}"
+        )
+    rt_info = matches[0]
+    remaining = [item for item in barcode_info if item is not rt_info]
+    return rt_info, remaining
+
+
+def set_parsebio_canonical_index(data: ad.AnnData) -> None:
+    """Expose splitpipe-compatible Parse barcodes only on the final canonical AnnData."""
+    if "parsebio_bc" not in data.obs.columns:
+        raise KeyError("Final Parse STARsolo AnnData is missing required column 'parsebio_bc'")
+
+    parsebio_bc = data.obs["parsebio_bc"]
+    if parsebio_bc.isna().any():
+        n_missing = int(parsebio_bc.isna().sum())
+        raise ValueError(f"Final Parse STARsolo AnnData has {n_missing} missing parsebio_bc values")
+
+    parsebio_bc = parsebio_bc.astype(str)
+    if not parsebio_bc.is_unique:
+        duplicates = parsebio_bc[parsebio_bc.duplicated()].unique().tolist()[:5]
+        raise ValueError(f"Final Parse STARsolo parsebio_bc values are not unique: {duplicates}")
+
+    data.obs_names = parsebio_bc
+    data.obs.index.name = "barcode"
+
+
+def starsolo_library_id(path: str) -> str:
+    return os.path.normpath(path).split(os.path.sep)[-5]
+
+
+def attach_starsolo_library_id(data: ad.AnnData, path: str, input_format: str) -> None:
+    if input_format != "10x_starsolo":
+        return
+
+    library_id = starsolo_library_id(path)
+    if "library_id" in data.obs.columns:
+        values = data.obs["library_id"].dropna().astype(str).unique().tolist()
+        if values and values != [library_id]:
+            raise ValueError(f"Conflicting 10x STARsolo library_id for {path}: {values} != {[library_id]}")
+    data.obs["library_id"] = library_id
+
+
+def starsolo_aggr_csv_from_inputs(args: argparse.Namespace) -> pd.DataFrame | None:
+    if args.input_format != "10x_starsolo" or args.barcode_rename != "numerical":
+        return None
+
+    library_ids = [starsolo_library_id(path) for path in args.input]
+    if len(library_ids) != len(set(library_ids)):
+        raise ValueError(f"Duplicate 10x STARsolo library IDs in aggregate input: {library_ids}")
+
+    return pd.DataFrame({"sample_id": library_ids})
+
+
 def make_reader_args(args: argparse.Namespace, conv) -> SimpleNamespace:
-    aggr_csv = conv._aggr_csv_reader(args.aggr_csv) if args.aggr_csv else None
+    aggr_csv = starsolo_aggr_csv_from_inputs(args)
+    if aggr_csv is None and args.aggr_csv:
+        aggr_csv = conv._aggr_csv_reader(args.aggr_csv)
+
     return SimpleNamespace(
         barcode_rename=args.barcode_rename,
         aggr_csv=aggr_csv,
@@ -151,7 +215,7 @@ def main() -> int:
         sys.path.insert(0, args.converter_script_dir)
     import convert_scanpy as conv
 
-    conv._USE_VELO = True
+    conv._USE_VELO = args.use_velo
     conv.logger = LOGGER
 
     feature_info = load_feature_info(conv, args.feature_info)
@@ -164,10 +228,12 @@ def main() -> int:
     for i, path in enumerate(args.input, 1):
         LOGGER.info("[build] reading matrix %d/%d: %s", i, len(args.input), path)
         data = reader(os.path.abspath(path), reader_args)
-        duplicate = seen.intersection(data.obs_names)
-        if duplicate:
-            raise ValueError(f"Duplicate aggregate barcodes across matrix inputs: {sorted(duplicate)[:5]}")
-        seen.update(data.obs_names)
+        attach_starsolo_library_id(data, path, args.input_format)
+        if args.input_format != "parsebio_starsolo":
+            duplicate = seen.intersection(data.obs_names)
+            if duplicate:
+                raise ValueError(f"Duplicate aggregate barcodes across matrix inputs: {sorted(duplicate)[:5]}")
+            seen.update(data.obs_names)
         data_list.append(data)
 
     if len(data_list) > 1:
@@ -178,6 +244,16 @@ def main() -> int:
     else:
         data = data_list[0]
     del data_list
+
+    if args.input_format == "parsebio_starsolo":
+        from postprocess_starsolo_rt import aggregate_starsolo_cells
+
+        rt_info, barcode_info = split_parsebio_rt_info(barcode_info)
+        data.obs = merge_frame(data.obs.copy(), rt_info[1], rt_info[0])
+        if not data.obs_names.is_unique:
+            raise ValueError("Parse STARsolo R/T barcode index is not unique before collapse")
+        LOGGER.info("[build] collapsing Parse STARsolo R/T observations by barcode_Tmapped")
+        data = aggregate_starsolo_cells(data, groupby="barcode_Tmapped")
 
     if not data.obs_names.is_unique:
         raise ValueError("Aggregate AnnData obs_names are not unique")
@@ -225,6 +301,10 @@ def main() -> int:
         annotation = conv._barcode_info_reader(path, logger=LOGGER)
         assert_same_index(data.obs_names, annotation.index, f"Annotation {path}")
         data.obs = merge_frame(data.obs.copy(), annotation, path)
+
+    if args.input_format == "parsebio_starsolo":
+        LOGGER.info("[build] switching final Parse STARsolo cell IDs to splitpipe-compatible parsebio_bc")
+        set_parsebio_canonical_index(data)
 
     data.obs = conv.drop_ci_identical_same_name(data.obs)
     data.obs = conv.anndata_friendly_dtypes(

@@ -404,7 +404,7 @@ def create_parser():
                         help="input file(s)")
     parser.add_argument("-o", "--outfile", required=True, type=pathlib.Path,
                         help="output filename")
-    parser.add_argument("-f", "--input-format", choices=["cellranger_aggr", "cellranger", "alevin", "alevin2", "cellbender", "umitools", "velocyto", "h5ad", "splitpipe", "splitpipe_aggr", "parsebio_starsolo"], default="cellranger_aggr",
+    parser.add_argument("-f", "--input-format", choices=["cellranger_aggr", "cellranger", "alevin", "alevin2", "cellbender", "umitools", "velocyto", "h5ad", "splitpipe", "splitpipe_aggr", "parsebio_starsolo", "10x_starsolo"], default="cellranger_aggr",
                         help="input file format")
     parser.add_argument("-F","--output-format", nargs="+", choices=["anndata","anndata_lightweight","loom","csvs","v2_mtx","v3_mtx"], default=["anndata"],
                         help="output file format")
@@ -1299,7 +1299,7 @@ def read_splitpipe(fn, args, **kw):
     else:
         velocyto_dir = dir_name.replace('all-sample/DGE_unfiltered', 'velo')
     if os.path.exists(velocyto_dir):
-        for velo_name in ["spliced", "unspliced", "ambigious"]:
+        for velo_name in ["spliced", "unspliced", "ambiguous"]:
             velo_fn = pathlib.Path(join(velocyto_dir, f"{velo_name}.mtx"))
             if velo_fn.exists() and _USE_VELO:
                 S = mmread(velo_fn).T
@@ -2117,7 +2117,9 @@ READERS = {
     "splitpipe_aggr": read_splitpipe,
     "splitpipe_cellbender": lambda fn, args: read_quantifier_cellbender(fn, quantifier="splitpipe", args=args),
     "parsebio_starsolo": read_starsolo,
+    "10x_starsolo": read_starsolo,
     "parsebio_starsolo_cellbender": lambda fn, args: read_quantifier_cellbender(fn, quantifier="parsebio_starsolo", args=args),
+    "10x_starsolo_cellbender": lambda fn, args: read_quantifier_cellbender(fn, quantifier="10x_starsolo", args=args),
     "umitools": read_umitools,
     "alevin": read_alevin,
     "alevin2": read_alevin2,

@@ -21,10 +21,6 @@ donor_id[df.status == "unassigned"] = "unassigned"
 df["donor_id"] = donor_id
 df["best_singlet"] = best_singlet
 df.rename(columns={"status": "doublet_type"}, inplace=True)
-df["doublet_score"] = (
-    pd.to_numeric(df["log_prob_doublet"], errors="raise")
-    - pd.to_numeric(df["log_prob_singleton"], errors="raise")
-)
 
-df = df[["doublet_type", "doublet_score", "donor_id", "best_singlet", "log_prob_singleton", "log_prob_doublet"]]
+df = df[["doublet_type", "donor_id", "best_singlet", "log_prob_singleton", "log_prob_doublet"]]
 df.reset_index().to_csv(args.output, sep="\t", index=False)
