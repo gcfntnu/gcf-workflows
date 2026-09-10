@@ -168,7 +168,7 @@ def _get_filtered_mtx(wildcards):
         cols = join(base_dir, "genes.tsv")
         rows = join(base_dir, "barcodes.tsv")
     elif method in ("parsebio_starsolo", "10x_starsolo"):
-        base_dir = join(QUANT_INTERIM, method, sublib, "Solo.out", STARSOLO_FEATURES, "filtered")
+        base_dir = join(QUANT_INTERIM, method, sublib, "Solo.out", STARSOLO_FEATURE, "filtered")
         cols = join(base_dir, "features.tsv")
         rows = join(base_dir, "barcodes.tsv")
     else:

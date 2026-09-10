@@ -75,7 +75,8 @@ STARSOLO_PARSEBIO_ARGS = STARSOLO_COMMON_ARGS + [
     "--soloType", "CB_UMI_Complex",
     "--readFilesCommand", "zcat",
     "--soloBarcodeReadLength", "0",
-    "--soloStrand", "Unstranded",
+    # Match split-pipe gene assignment: read alignment strand is matched to GTF gene strand.
+    "--soloStrand", "Forward",
     "--soloCellFilter", "None",
     "--outSAMmultNmax", "3",
     "--soloUMIdedup", STARSOLO_PARSEBIO_UMI_DEDUP,
@@ -205,7 +206,9 @@ rule parsebio_whitelists:
         r3         = join(INTERIM_DIR, "singlecell", "whitelists", "r3.txt"),
         r1_wm      = join(INTERIM_DIR, "singlecell", "whitelists", "r1_wellmap.txt"),
         r2_wm      = join(INTERIM_DIR, "singlecell", "whitelists", "r2_wellmap.txt"),
-        r3_wm      = join(INTERIM_DIR, "singlecell", "whitelists", "r3_wellmap.txt"),  
+        r3_wm      = join(INTERIM_DIR, "singlecell", "whitelists", "r3_wellmap.txt"),
+    container:
+        'docker://' + config['docker']['default']
     shell:
         "python {params.script} "
         "--kit {params.kit} "
@@ -226,7 +229,9 @@ rule parsebio_splitcode_config_reformat:
         outdir    = join(FILTER_INTERIM, "fastq", "splitcode"),
         read_idx  = 1,     # R2 in paired runs
     output:
-        config = join(FILTER_INTERIM, "fastq", "splitcode/config.txt"),
+        config = join(FILTER_INTERIM, "fastq", "splitcode/config.txt")
+    container:
+        'docker://' + config['docker']['default']
     shell:
         """
         python {params.script} \
@@ -253,6 +258,8 @@ rule parsebio_splitcode_config_rt:
         dist      = 1,
     output:
         config_rt = join(FILTER_INTERIM, "fastq", "rt_merge", "config.txt")
+    container:
+        'docker://' + config['docker']['default']
     shell:
         """
         python {params.script} \
@@ -277,6 +284,8 @@ rule parsebio_splitcode_error_correct_bc1:
         dist      = 1,
     output:
         config_rt = join(FILTER_INTERIM, "fastq", "error_correct_bc1", "config.txt")
+    container:
+        'docker://' + config['docker']['default']
     shell:
         """
         python {params.script} \
@@ -561,7 +570,7 @@ rule parsebio_starsolo_clean_shmem:
     input:
         expand(rules.parsebio_starsolo_quant.output.raw_mtx, sublib=SUBLIBS)
     params:
-        genome_dir = rules.parsebio_starsolo_quant.params.genome_dir
+        genome_dir = os.path.dirname(get_parsebio_starsolo_genome())
     output:
         temp(touch(join(QUANT_INTERIM, 'parsebio_starsolo', '.starsolo.mem.cleaned')))
     shadow:

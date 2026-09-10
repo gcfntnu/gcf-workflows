@@ -236,7 +236,7 @@ if STARSOLO_OUTPUT_BAM:
 
 rule starsolo_clean_shmem:
     input:
-        expand(rules.starsolo_quant.output, sample=SAMPLES)
+        expand(rules.starsolo_quant.output.raw_mtx, sample=SAMPLES)
     params:
         genome_dir = rules.starsolo_quant.params.genome_dir
     output:
