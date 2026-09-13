@@ -155,15 +155,7 @@ rule annotation_input:
     input:
         unpack(annotation_input_files)
     output:
-        h5ad = temp(
-            join(
-                QUANT_INTERIM,
-                'aggregate',
-                '{method}',
-                'annotation',
-                '{aggr_id}_annotation_input.h5ad',
-            )
-        )
+        h5ad = temp(join(QUANT_INTERIM, 'aggregate', '{method}', 'annotation', '{aggr_id}_annotation_input.h5ad'))
     params:
         script = src_gcf('scripts/annotation_input.py'),
         input_format = annotation_input_format,
@@ -302,7 +294,7 @@ if 'celltypist' in ANNO_METHODS:
         output:
             model = join(EXT_DIR, 'celltypist', 'data', 'models', CELLTYPIST_MODEL)
         container:
-            'docker://gcfntnu/rapids-scanpy:latest'
+            config['docker']['rapids-scanpy']
         shell:
             'export CELLTYPIST_FOLDER="{params.celltypist_folder}" '
             '&& '
@@ -311,13 +303,7 @@ if 'celltypist' in ANNO_METHODS:
 
 rule run_celltypist:
     input:
-        annotation_h5ad = join(
-            QUANT_INTERIM,
-            'aggregate',
-            '{method}',
-            'annotation',
-            '{aggr_id}_annotation_input.h5ad',
-        ),
+        annotation_h5ad = join(QUANT_INTERIM, 'aggregate', '{method}', 'annotation', '{aggr_id}_annotation_input.h5ad'),
         model = _celltypist_model,
         qc_mask = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', '{aggr_id}_autoqc_mask.tsv')
     output:
@@ -325,8 +311,12 @@ rule run_celltypist:
     params:
         script = src_gcf('scripts/run_celltypist.py'),
         args = '--use-GPU --plot '
+    threads:
+        8
+    resources:
+        gpu = 1
     container:
-        'docker://gcfntnu/rapids-scanpy:latest'
+        config['docker']['rapids-scanpy']
     shell:
         'python {params.script} '
         '--input {input.annotation_h5ad} '

@@ -21,7 +21,7 @@ else:
     else:
         CR_REF_DIR = REF_DIR
 
-    
+
 def input_fastq_path(wildcards, input):
     pths = set()
     if isinstance(input.R1, six.string_types):
@@ -78,7 +78,7 @@ rule cellranger_symlink_gtf:
         gtf = join(CR_REF_DIR, 'genes', 'genes.gtf')
     shell:
         'gunzip -k {input} && mv {params.gtf} {output}'
- 
+
 rule cellranger_quant_:
     input:
         unpack(get_raw_fastq),
@@ -188,7 +188,7 @@ rule cellranger_aggr_csv:
         '--sample-info {input.sample_info} '
         '--groupby {params.groupby} '
         '--verbose '
-        
+
 rule cellranger_aggr:
     input:
         aggr = join(QUANT_INTERIM, 'aggregate', 'description', '{aggr_id}_aggr.csv')
@@ -253,32 +253,32 @@ rule cellranger_barcode_info:
         '--configfile {params.config} '
         '--output {output} '
 
-        
-rule cellranger_scanpy_pp_ipynb:
-    input:
-        join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', '{aggr_id}_filtered.h5ad')
-    output:
-        preprocessed = join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', '{aggr_id}_preprocessed.h5ad'),
-    threads:
-        24
-    log:
-        notebook = join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', 'notebooks', '{aggr_id}_pp.ipynb')
-    container:
-        'docker://' + config['docker']['jupyter-scanpy']
-    notebook:
-        'scripts/cellranger_preprocess.py.ipynb'
+if not PREPROCESS_ENABLED:
+    rule cellranger_scanpy_pp_ipynb:
+        input:
+            join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', '{aggr_id}_filtered.h5ad')
+        output:
+            preprocessed = join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', '{aggr_id}_preprocessed.h5ad'),
+        threads:
+            24
+        log:
+            notebook = join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', 'notebooks', '{aggr_id}_pp.ipynb')
+        container:
+            'docker://' + config['docker']['jupyter-scanpy']
+        notebook:
+            'scripts/cellranger_preprocess.py.ipynb'
 
 
-rule cellranger_scanpy_pp_ipynb_html:
-    input:
-        rules.cellranger_scanpy_pp_ipynb.output
-    output:
-        join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', 'notebooks', '{aggr_id}_pp.html')
-    params:
-        notebook = rules.cellranger_scanpy_pp_ipynb.log.notebook
-    threads:
-        1
-    container:
-        'docker://' + config['docker']['jupyter-scanpy']
-    shell:
-        'jupyter nbconvert --to html {params.notebook} '
+    rule cellranger_scanpy_pp_ipynb_html:
+        input:
+            rules.cellranger_scanpy_pp_ipynb.output
+        output:
+            join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', 'notebooks', '{aggr_id}_pp.html')
+        params:
+            notebook = rules.cellranger_scanpy_pp_ipynb.log.notebook
+        threads:
+            1
+        container:
+            'docker://' + config['docker']['jupyter-scanpy']
+        shell:
+            'jupyter nbconvert --to html {params.notebook} '

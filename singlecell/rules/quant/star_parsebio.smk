@@ -152,7 +152,7 @@ def star_build_preprocessor_string(config, pipe=False):
         args = f"zcat {{input.R1}} > {tmp_pp_r1}; \nzcat {{input.R2}} > {tmp_pp_r2}; \n"
     else:
         raise ValueError
-    
+
     if trimmer == "cutadapt":
         tmp_trim_r1 = os.path.join(tmpdir, "trim_R1.fastq")
         tmp_trim_r2 = os.path.join(tmpdir, "trim_R2.fastq")
@@ -160,7 +160,7 @@ def star_build_preprocessor_string(config, pipe=False):
             os.mkfifo(tmp_trim_r1)
             os.mkfifo(tmp_trim_r2)
         tso_args = _tso_window_args(PRE_TSO_SEQ)
-        
+
         args += f'cutadapt {tso_args} -a L12={LINKER_RC} -a polyA=A{{15}}$ -n 2 --no-indels -e 0.15 -O 8 -m {minlen_R1}:{minlen_R2} --report=minimal --json {output.json} -j {{threads}} '
         '-o {output.R1} '
         '-p {output.R2} '
@@ -187,7 +187,7 @@ rule parsebio_ext:
         echo "Parse Biosciences {wildcards.name},NA,{params.url},`date -I`" > {log}
         """
 
-        
+
 rule parsebio_whitelists:
     input:
         barcodes = parsebio_barcode_inputs(KIT, CHEM)
@@ -297,7 +297,7 @@ rule parsebio_splitcode_error_correct_bc1:
           --r1-R {input.r1_R} \
           --r1-T {input.r1_T}
         """
-    
+
 
 def tso_window_args(tso_seq, kmax=15):
     return " ".join([f"-g TSO{k}=^{'N'*k}{tso_seq}" for k in range(0, kmax+1)])
@@ -315,7 +315,7 @@ rule parsebio_fastq_rt_merge:
     wildcard_constraints:
         sublib = r"[^/]+"
     log:
-        join(FILTER_INTERIM, "fastq", "rt_merge", "{sublib}.log") 
+        join(FILTER_INTERIM, "fastq", "rt_merge", "{sublib}.log")
     threads:
         12
     container:
@@ -323,7 +323,7 @@ rule parsebio_fastq_rt_merge:
     shell:
         "splitcode -c {input.conf} --summary {log} -t {threads} --nFastqs 2 -o {output.R1},{output.R2} {input.R1} {input.R2}"
 
-        
+
 rule parsebio_fastq_error_correct_bc1:
     input:
         R1 = join(FILTER_INTERIM, "fastq", "{sublib}_R1.fastq.gz"),
@@ -335,7 +335,7 @@ rule parsebio_fastq_error_correct_bc1:
     wildcard_constraints:
         sublib = r"[^/]+"
     log:
-        join(FILTER_INTERIM, "fastq", "error_correct_bc1", "{sublib}.log") 
+        join(FILTER_INTERIM, "fastq", "error_correct_bc1", "{sublib}.log")
     threads:
         12
     container:
@@ -354,14 +354,14 @@ rule parsebio_fastq_splitcode:
     wildcard_constraints:
         sublib = r"[^/]+"
     log:
-        join(FILTER_INTERIM, "fastq", "splitcode", "{sublib}.log") 
+        join(FILTER_INTERIM, "fastq", "splitcode", "{sublib}.log")
     threads:
         4
     container:
         'docker://' + config['docker']['star']
     shell:
         "splitcode -c {input.conf} --summary {log} -t {threads} --nFastqs 2 -o {output.R1},{output.R2} {input.R1} {input.R2}"
-        
+
 
 rule parsebio_fastq_preprocessor_skip:
     input:
@@ -500,7 +500,7 @@ rule parsebio_starsolo_filtered:
         n_expected_cells = N_EXPECTED_CELLS,
         max_cells = BARCODE_RANK_MAX_CELLS,
         cnt_scale_fac = float(config['quant'].get('barcode_rank_cnt_scale_fac', 0.70)),
-        method = config['quant'].get('barcode_rank_method', 'C'), 
+        method = config['quant'].get('barcode_rank_method', 'C'),
     container:
         'docker://' + config['docker']['default']
     threads:
@@ -545,7 +545,7 @@ rule parsebio_starsolo_scanpy_rt_filtered:
     log:
         join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', 'logs', '{aggr_id}.log'),
     shell:
-        'python {params.script} ' 
+        'python {params.script} '
         '{input.inputs} '
         '--feature-info {input.feature_info} '
         '--barcode-info {input.barcode_info} '
@@ -617,32 +617,32 @@ rule parsebio_starsolo_barcode_info:
         r"""awk 'FNR==1 && NR!=1 {{next}}; 1' {input} > {output.info}"""
 
 
+if not PREPROCESS_ENABLED:
+    rule parsebio_starsolo_scanpy_pp_ipynb:
+        input:
+            join(QUANT_INTERIM, 'aggregate', 'parsebio_starsolo', 'scanpy', '{aggr_id}_filtered.h5ad')
+        output:
+            preprocessed = join(QUANT_INTERIM, 'aggregate', 'parsebio_starsolo', 'scanpy', '{aggr_id}_preprocessed.h5ad'),
+        log:
+            notebook = join(QUANT_INTERIM, 'aggregate', 'parsebio_starsolo', 'scanpy', 'notebooks', '{aggr_id}_pp.ipynb')
+        threads:
+            24
+        container:
+            'docker://' + config['docker']['jupyter-scanpy']
+        notebook:
+            'scripts/parsebio_starsolo_preprocess.py.ipynb'
 
-rule parsebio_starsolo_scanpy_pp_ipynb:
-    input:
-        join(QUANT_INTERIM, 'aggregate', 'parsebio_starsolo', 'scanpy', '{aggr_id}_filtered.h5ad')
-    output:
-        preprocessed = join(QUANT_INTERIM, 'aggregate', 'parsebio_starsolo', 'scanpy', '{aggr_id}_preprocessed.h5ad'),
-    log:
-        notebook = join(QUANT_INTERIM, 'aggregate', 'parsebio_starsolo', 'scanpy', 'notebooks', '{aggr_id}_pp.ipynb')
-    threads:
-        24
-    container:
-        'docker://' + config['docker']['jupyter-scanpy']
-    notebook:
-        'scripts/parsebio_starsolo_preprocess.py.ipynb'
 
-
-rule parsebio_starsolo_scanpy_pp_ipynb_html:
-    input:
-        join(QUANT_INTERIM, 'aggregate', 'parsebio_starsolo', 'scanpy', '{aggr_id}_preprocessed.h5ad')
-    output:
-        join(QUANT_INTERIM, 'aggregate', 'parsebio_starsolo', 'scanpy', 'notebooks', '{aggr_id}_pp.html')
-    params:
-        notebook = join(QUANT_INTERIM, 'aggregate', 'parsebio_starsolo', 'scanpy', 'notebooks', '{aggr_id}_pp.ipynb')
-    container:
-        'docker://' + config['docker']['jupyter-scanpy']
-    threads:
-        1
-    shell:
-        'jupyter nbconvert --to html {params.notebook} '
+    rule parsebio_starsolo_scanpy_pp_ipynb_html:
+        input:
+            join(QUANT_INTERIM, 'aggregate', 'parsebio_starsolo', 'scanpy', '{aggr_id}_preprocessed.h5ad')
+        output:
+            join(QUANT_INTERIM, 'aggregate', 'parsebio_starsolo', 'scanpy', 'notebooks', '{aggr_id}_pp.html')
+        params:
+            notebook = join(QUANT_INTERIM, 'aggregate', 'parsebio_starsolo', 'scanpy', 'notebooks', '{aggr_id}_pp.ipynb')
+        container:
+            'docker://' + config['docker']['jupyter-scanpy']
+        threads:
+            1
+        shell:
+            'jupyter nbconvert --to html {params.notebook} '

@@ -88,7 +88,7 @@ rule splitpipe_quant:
         '--nthreads {threads} '
         '--chemistry {params.chemistry} '
         '--kit {params.kit} '
-        '--genome_dir {params.genome_dir} ' 
+        '--genome_dir {params.genome_dir} '
         '--output_dir {params.out_dir} '
         '--fq1 {input.R1} '
         '--fq2 {input.R2} '
@@ -140,8 +140,8 @@ rule splitpipe_nuclear_fraction_bam_aggr:
         '{input} '
         '{params.args} '
         '--output {output} '
-        
-        
+
+
 rule splitpipe_splice_from_tscp:
     input:
         join(QUANT_INTERIM, 'splitpipe', '{sublib}', 'process', 'tscp_assignment.csv.gz')
@@ -224,33 +224,33 @@ rule splitpipe_to_10x_mtx:
         '--input {input.mtx} '
         '--output {output.mtx} '
 
+if not PREPROCESS_ENABLED:
+    rule splitpipe_scanpy_pp_ipynb:
+        input:
+            join(QUANT_INTERIM, 'aggregate', 'splitpipe', 'scanpy', '{aggr_id}_filtered.h5ad')
+        output:
+            preprocessed = join(QUANT_INTERIM, 'aggregate', 'splitpipe', 'scanpy', '{aggr_id}_preprocessed.h5ad'),
+        log:
+            notebook = join(QUANT_INTERIM, 'aggregate', 'splitpipe', 'scanpy', 'notebooks', '{aggr_id}_pp.ipynb')
+        threads:
+            24
+        container:
+            'docker://' + config['docker']['jupyter-scanpy']
+        notebook:
+            'scripts/splitpipe_preprocess.py.ipynb'
 
-rule splitpipe_scanpy_pp_ipynb:
-    input:
-        join(QUANT_INTERIM, 'aggregate', 'splitpipe', 'scanpy', '{aggr_id}_filtered.h5ad')
-    output:
-        preprocessed = join(QUANT_INTERIM, 'aggregate', 'splitpipe', 'scanpy', '{aggr_id}_preprocessed.h5ad'),
-    log:
-        notebook = join(QUANT_INTERIM, 'aggregate', 'splitpipe', 'scanpy', 'notebooks', '{aggr_id}_pp.ipynb')
-    threads:
-        24
-    container:
-        'docker://' + config['docker']['jupyter-scanpy']
-    notebook:
-        'scripts/splitpipe_preprocess.py.ipynb'
 
-
-rule splitpipe_scanpy_pp_ipynb_html:
-    input:
-        join(QUANT_INTERIM, 'aggregate', 'splitpipe', 'scanpy', '{aggr_id}_preprocessed.h5ad')
-    output:
-        join(QUANT_INTERIM, 'aggregate', 'splitpipe', 'scanpy', 'notebooks', '{aggr_id}_pp.html')
-    params:
-        notebook = join(QUANT_INTERIM, 'aggregate', 'splitpipe', 'scanpy', 'notebooks', '{aggr_id}_pp.ipynb')
-    container:
-        'docker://' + config['docker']['jupyter-scanpy']
-    threads:
-        1
-    shell:
-        'jupyter nbconvert --to html {params.notebook} ' 
+    rule splitpipe_scanpy_pp_ipynb_html:
+        input:
+            join(QUANT_INTERIM, 'aggregate', 'splitpipe', 'scanpy', '{aggr_id}_preprocessed.h5ad')
+        output:
+            join(QUANT_INTERIM, 'aggregate', 'splitpipe', 'scanpy', 'notebooks', '{aggr_id}_pp.html')
+        params:
+            notebook = join(QUANT_INTERIM, 'aggregate', 'splitpipe', 'scanpy', 'notebooks', '{aggr_id}_pp.ipynb')
+        container:
+            'docker://' + config['docker']['jupyter-scanpy']
+        threads:
+            1
+        shell:
+            'jupyter nbconvert --to html {params.notebook} '
 

@@ -102,6 +102,10 @@ PSEUDOBULK_ANNOTATION_COLUMNS = PSEUDOBULK_CFG.get('annotation_column', [])
 if isinstance(PSEUDOBULK_ANNOTATION_COLUMNS, str):
     PSEUDOBULK_ANNOTATION_COLUMNS = [column.strip() for column in PSEUDOBULK_ANNOTATION_COLUMNS.split(',') if column.strip()]
 
+PREPROCESS_CFG = config.get('preprocessing', {})
+PREPROCESS_ENABLED = PREPROCESS_CFG.get('enabled', False)
+
+
 if not config['quant']['aggregate'].get('skip', False):
     groupby = config['quant']['aggregate'].get('groupby', 'all_samples')
     for sample_id, sample_meta in config['samples'].items():
@@ -312,6 +316,8 @@ if ANNO_ENABLED:
     include: 'quant/auto_annotation.smk'
     if PSEUDOBULK_ENABLED:
         include: 'quant/pseudobulk.smk'
+if PREPROCESS_ENABLED:
+    include: 'quant/preprocess.smk'
 
 def scanpy_aggr_inputs(wc):
     if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger':
@@ -489,23 +495,19 @@ rule scanpy_aggr_finalize:
 
 
 def quant_all_inputs(wc):
-    inputs = [
-        get_filtered_anndata(SimpleNamespace(method=method, aggr_id=aggr_id))
-        for method in METHODS
-        for aggr_id in AGGR_IDS
-    ]
+    inputs = [get_filtered_anndata(SimpleNamespace(method=method, aggr_id=aggr_id)) for method in METHODS for aggr_id in AGGR_IDS]
 
     if '10x_starsolo' in METHODS:
         inputs.append(join(QUANT_INTERIM, '10x_starsolo', '.starsolo.mem.cleaned'))
 
     if 'parsebio_starsolo' in METHODS:
         inputs.append(join(QUANT_INTERIM, 'parsebio_starsolo', '.starsolo.mem.cleaned'))
-
+    if PREPROCESS_ENABLED:
+        inputs.extend(preprocess_all_inputs(wc))
     if PSEUDOBULK_ENABLED:
         inputs.extend(pseudobulk_all_inputs(wc))
 
     return inputs
-
 
 rule quant_all:
     input:
