@@ -302,7 +302,7 @@ if 'celltypist' in ANNO_METHODS:
         output:
             model = join(EXT_DIR, 'celltypist', 'data', 'models', CELLTYPIST_MODEL)
         container:
-            'docker://gcfntnu/rapids-scanpy:latest'
+            'docker://' + config['docker']['rapids-scanpy']
         shell:
             'export CELLTYPIST_FOLDER="{params.celltypist_folder}" '
             '&& '
@@ -325,8 +325,12 @@ rule run_celltypist:
     params:
         script = src_gcf('scripts/run_celltypist.py'),
         args = '--use-GPU --plot '
+    threads:
+        8
+    resources:
+        gpu = 1
     container:
-        'docker://gcfntnu/rapids-scanpy:latest'
+        'docker://' + config['docker']['rapids-scanpy']
     shell:
         'python {params.script} '
         '--input {input.annotation_h5ad} '
