@@ -294,7 +294,7 @@ if 'celltypist' in ANNO_METHODS:
         output:
             model = join(EXT_DIR, 'celltypist', 'data', 'models', CELLTYPIST_MODEL)
         container:
-            config['docker']['rapids-scanpy']
+            'docker://' + config['docker']['rapids-scanpy']
         shell:
             'export CELLTYPIST_FOLDER="{params.celltypist_folder}" '
             '&& '
@@ -316,7 +316,7 @@ rule run_celltypist:
     resources:
         gpu = 1
     container:
-        config['docker']['rapids-scanpy']
+        'docker://' + config['docker']['rapids-scanpy']
     shell:
         'python {params.script} '
         '--input {input.annotation_h5ad} '
