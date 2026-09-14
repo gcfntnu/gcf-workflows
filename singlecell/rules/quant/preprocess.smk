@@ -62,7 +62,6 @@ PREPROCESS_CLUSTERING_DIR = join(PREPROCESS_DIR, 'clustering')
 PREPROCESS_METRICS_DIR = join(PREPROCESS_DIR, 'metrics')
 PREPROCESS_LOG_DIR = join(PREPROCESS_DIR, 'logs')
 
-PREPROCESS_PLAN = join(PREPROCESS_DIR, 'plan.yaml')
 
 PREPROCESS_CELLS = join(PREPROCESS_METADATA_DIR, 'cells.parquet')
 PREPROCESS_GENES = join(PREPROCESS_METADATA_DIR, 'genes.parquet')
@@ -276,7 +275,6 @@ rule preprocess_plan:
         anndata = get_filtered_anndata,
         gene_metadata = join(REF_DIR, 'anno', 'genes.tsv')
     output:
-        plan = PREPROCESS_PLAN,
         cells = PREPROCESS_CELLS,
         genes = PREPROCESS_GENES,
         obs = PREPROCESS_OBS,
@@ -303,7 +301,6 @@ rule preprocess_plan:
 rule preprocess_native_representation:
     input:
         anndata = get_filtered_anndata,
-        plan = PREPROCESS_PLAN,
         cells = PREPROCESS_CELLS,
         genes = PREPROCESS_GENES,
         obs = PREPROCESS_OBS
@@ -338,7 +335,6 @@ if PREPROCESS_INTEGRATION_ENABLED and PREPROCESS_INTEGRATION_METHOD == 'harmony'
         input:
             pca = PREPROCESS_NATIVE_PCA,
             obs = PREPROCESS_OBS,
-            plan = PREPROCESS_PLAN,
             metadata = PREPROCESS_NATIVE_METADATA
         output:
             representation = preprocess_integration_representation('harmony'),
@@ -365,7 +361,6 @@ if PREPROCESS_INTEGRATION_ENABLED and PREPROCESS_INTEGRATION_METHOD == 'scvi':
     rule preprocess_integrate_scvi:
         input:
             anndata = get_filtered_anndata,
-            plan = PREPROCESS_PLAN,
             cells = PREPROCESS_CELLS,
             obs = PREPROCESS_OBS,
             hvg = PREPROCESS_HVG
@@ -401,7 +396,6 @@ rule preprocess_optimize_graph_clustering:
         representation = get_preprocess_representation,
         representation_metadata = get_preprocess_representation_metadata,
         obs = PREPROCESS_OBS,
-        plan = PREPROCESS_PLAN
     output:
         connectivities = PREPROCESS_CONNECTIVITIES,
         labels = PREPROCESS_CLUSTERING_LABELS,
@@ -467,7 +461,6 @@ rule preprocess_diagnostics:
         connectivities = PREPROCESS_CONNECTIVITIES,
         labels = PREPROCESS_CLUSTERING_LABELS,
         obs = PREPROCESS_OBS,
-        plan = PREPROCESS_PLAN,
         graph_metrics = PREPROCESS_GRAPH_METRICS,
         clustering_metrics = PREPROCESS_CLUSTERING_METRICS
     output:
@@ -494,7 +487,6 @@ rule preprocess_diagnostics:
 rule preprocess_finalize:
     input:
         anndata = get_filtered_anndata,
-        plan = PREPROCESS_PLAN,
         cells = PREPROCESS_CELLS,
         genes = PREPROCESS_GENES,
         obs = PREPROCESS_OBS,
