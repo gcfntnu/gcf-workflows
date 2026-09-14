@@ -13,12 +13,9 @@ import anndata as ad
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
-import yaml
 
 
 LOGGER = logging.getLogger("preprocess_plan")
-PLAN_SCHEMA_VERSION = 1
-
 
 def setup_logging(path: str) -> None:
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
@@ -124,7 +121,7 @@ def build_cell_plan(obs: pd.DataFrame, cfg: dict) -> tuple[pd.DataFrame, np.ndar
     return cells, retained
 
 
-def configured_metadata_columns(cfg: dict) -> tuple[list[str], list[str]]:
+def configured_metadata_columns(cfg: dict) -> list[str]:
     metadata_cfg = cfg["metadata"]
     diagnostics_cfg = cfg["diagnostics"]
 
@@ -191,9 +188,7 @@ def configured_metadata_columns(cfg: dict) -> tuple[list[str], list[str]]:
             )
         )
 
-    final_columns = _unique([*keep, *annotations])
-    downstream_columns = _unique(required)
-    return final_columns, downstream_columns
+    return _unique(required)
 
 
 def read_gene_metadata(path: str) -> pd.DataFrame:
@@ -336,11 +331,6 @@ def _write_parquet(frame: pd.DataFrame, path: str) -> None:
     frame.to_parquet(path, index=True)
 
 
-def _write_yaml(data: dict, path: str) -> None:
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    with open(path, "w", encoding="utf-8") as handle:
-        yaml.safe_dump(data, handle, sort_keys=False)
-
 
 def main() -> int:
     setup_logging(str(snakemake.log[0]))
@@ -367,7 +357,7 @@ def main() -> int:
             exclusion_counts(cells["preprocess_exclusion_reason"]),
         )
 
-        final_obs_columns, downstream_obs_columns = configured_metadata_columns(cfg)
+        downstream_obs_columns = configured_metadata_columns(cfg)
         _require_columns(obs, downstream_obs_columns, "AnnData.obs")
 
         filtered_obs = obs.copy()
@@ -415,92 +405,13 @@ def main() -> int:
             min_cells,
         )
 
-        cells_cfg = cfg["filtering"]["cells"]
-        metadata_cfg = cfg["metadata"]
-        diagnostics_cfg = cfg["diagnostics"]
-
-        plan = {
-            "schema_version": PLAN_SCHEMA_VERSION,
-            "input": {
-                "anndata": anndata_path,
-                "gene_metadata": gene_metadata_path,
-                "n_obs": int(adata.n_obs),
-                "n_vars": int(adata.n_vars),
-                "counts_source": counts_source,
-            },
-            "cells": {
-                "n_input": int(adata.n_obs),
-                "n_retained": n_cells_retained,
-                "n_excluded": int(adata.n_obs - n_cells_retained),
-                "exclusion_counts": exclusion_counts(cells["preprocess_exclusion_reason"]),
-                "qc_column": str(cells_cfg["qc_column"]),
-                "qc_pass_value": cells_cfg["qc_pass_value"],
-                "exclude_doublets": bool(cells_cfg["exclude_doublets"]),
-                "doublet_column": (
-                    str(cells_cfg["doublet_column"]) if cells_cfg["exclude_doublets"] else None
-                ),
-                "singlet_value": (
-                    cells_cfg["singlet_value"] if cells_cfg["exclude_doublets"] else None
-                ),
-            },
-            "genes": {
-                "n_input": int(adata.n_vars),
-                "n_retained": n_genes_retained,
-                "n_excluded": int(adata.n_vars - n_genes_retained),
-                "min_cells": min_cells,
-                "detection_basis": "retained_cells",
-                "chunk_size": chunk_size,
-                "reference_columns_added": added_gene_columns,
-                "reference_missing_gene_ids": missing_reference_genes,
-            },
-            "metadata": {
-                "final_obs_columns": final_obs_columns,
-                "downstream_obs_columns": downstream_obs_columns,
-                "annotation_columns": _as_list(
-                    metadata_cfg.get("annotation_columns", []),
-                    "preprocessing.metadata.annotation_columns",
-                ),
-                "technical_columns": _as_list(
-                    metadata_cfg.get("technical_columns", []),
-                    "preprocessing.metadata.technical_columns",
-                ),
-                "biological_columns": _as_list(
-                    metadata_cfg.get("biological_columns", []),
-                    "preprocessing.metadata.biological_columns",
-                ),
-                "diagnostic_annotation_columns": _as_list(
-                    diagnostics_cfg.get("annotation_columns", []),
-                    "preprocessing.diagnostics.annotation_columns",
-                ),
-                "diagnostic_technical_columns": _as_list(
-                    diagnostics_cfg.get("technical_columns", []),
-                    "preprocessing.diagnostics.technical_columns",
-                ),
-                "diagnostic_biological_columns": _as_list(
-                    diagnostics_cfg.get("biological_columns", []),
-                    "preprocessing.diagnostics.biological_columns",
-                ),
-            },
-            "integration": {
-                "enabled": bool(cfg["integration"]["enabled"]),
-                "method": cfg["integration"]["method"],
-            },
-            "index_contract": {
-                "cells": "barcode",
-                "genes": "gene_id",
-                "retained_cell_order": "input AnnData order after cell filtering",
-                "retained_gene_order": "input AnnData order after gene filtering",
-            },
-        }
-
-        LOGGER.info("[output] writing preprocessing plan and sidecars")
+        LOGGER.info("[output] writing preprocessing metadata sidecars")
         _write_parquet(cells, str(snakemake.output.cells))
         _write_parquet(genes, str(snakemake.output.genes))
         _write_parquet(compact_obs, str(snakemake.output.obs))
         _write_parquet(filtered_obs, str(snakemake.output.filtered_obs))
         _write_parquet(preprocessed_obs, str(snakemake.output.extended_obs))
         _write_parquet(preprocessed_var, str(snakemake.output.extended_var))
-        _write_yaml(plan, str(snakemake.output.plan))
     finally:
         if adata.isbacked:
             adata.file.close()
