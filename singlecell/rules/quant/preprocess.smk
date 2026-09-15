@@ -1,5 +1,8 @@
 #-*- mode:snakemake -*-
 
+import json
+from shlex import quote
+
 PREPROCESS_INTEGRATION_CFG = PREPROCESS_CFG['integration']
 PREPROCESS_INTEGRATION_ENABLED = PREPROCESS_INTEGRATION_CFG['enabled']
 PREPROCESS_INTEGRATION_METHOD = PREPROCESS_INTEGRATION_CFG['method']
@@ -282,7 +285,8 @@ rule preprocess_plan:
         extended_obs = PREPROCESS_EXTENDED_OBS,
         extended_var = PREPROCESS_EXTENDED_VAR
     params:
-        cfg = PREPROCESS_CFG
+        script = src_gcf('quant/scripts/preprocess_plan.py'),
+        cfg = quote(json.dumps(PREPROCESS_CFG))
     threads:
         PREPROCESS_RESOURCES['plan']['threads']
     resources:
@@ -294,8 +298,18 @@ rule preprocess_plan:
         method = QUANT_METHOD_PATTERN
     container:
         'docker://' + config['docker']['scanpy']
-    script:
-        src_gcf('quant/scripts/preprocess_plan.py')
+    shell:
+        'python {params.script} '
+        '--anndata {input.anndata} '
+        '--gene-metadata {input.gene_metadata} '
+        '--cells {output.cells} '
+        '--genes {output.genes} '
+        '--obs {output.obs} '
+        '--filtered-obs {output.filtered_obs} '
+        '--preprocessed-obs {output.extended_obs} '
+        '--preprocessed-var {output.extended_var} '
+        '--config-json {params.cfg} '
+        '--log {log} '
 
 
 rule preprocess_native_representation:
@@ -311,9 +325,10 @@ rule preprocess_native_representation:
         hvg = PREPROCESS_HVG,
         metadata = PREPROCESS_NATIVE_METADATA
     params:
-        expression = PREPROCESS_CFG['expression'],
-        representation = PREPROCESS_CFG['representation'],
-        execution = PREPROCESS_CFG['execution']['expression']
+        script = src_gcf('quant/scripts/preprocess_native_representation.py'),
+        expression = quote(json.dumps(PREPROCESS_CFG['expression'])),
+        representation = quote(json.dumps(PREPROCESS_CFG['representation'])),
+        execution = quote(json.dumps(PREPROCESS_CFG['execution']['expression']))
     threads:
         PREPROCESS_RESOURCES['native_representation']['threads']
     resources:
@@ -325,8 +340,22 @@ rule preprocess_native_representation:
         method = QUANT_METHOD_PATTERN
     container:
         'docker://' + config['docker']['rapids-scanpy']
-    script:
-        src_gcf('quant/scripts/preprocess_native_representation.py')
+    shell:
+        'python {params.script} '
+        '--anndata {input.anndata} '
+        '--cells {input.cells} '
+        '--genes {input.genes} '
+        '--obs {input.obs} '
+        '--pca {output.pca} '
+        '--loadings {output.loadings} '
+        '--variance {output.variance} '
+        '--hvg {output.hvg} '
+        '--metadata {output.metadata} '
+        '--expression-json {params.expression} '
+        '--representation-json {params.representation} '
+        '--execution-json {params.execution} '
+        '--threads {threads} '
+        '--log {log} '
 
 
 if PREPROCESS_INTEGRATION_ENABLED and PREPROCESS_INTEGRATION_METHOD == 'harmony':
@@ -340,7 +369,8 @@ if PREPROCESS_INTEGRATION_ENABLED and PREPROCESS_INTEGRATION_METHOD == 'harmony'
             representation = preprocess_integration_representation('harmony'),
             metadata = preprocess_integration_metadata('harmony')
         params:
-            cfg = PREPROCESS_INTEGRATION_CFG['harmony']
+            script = src_gcf('quant/scripts/preprocess_integrate_harmony.py'),
+            cfg = quote(json.dumps(PREPROCESS_INTEGRATION_CFG['harmony']))
         threads:
             PREPROCESS_RESOURCES['integration']['threads']
         resources:
@@ -352,8 +382,16 @@ if PREPROCESS_INTEGRATION_ENABLED and PREPROCESS_INTEGRATION_METHOD == 'harmony'
             method = QUANT_METHOD_PATTERN
         container:
             'docker://' + config['docker']['rapids-scanpy']
-        script:
-            src_gcf('quant/scripts/preprocess_integrate_harmony.py')
+        shell:
+            'python {params.script} '
+            '--pca {input.pca} '
+            '--obs {input.obs} '
+            '--input-metadata {input.metadata} '
+            '--representation {output.representation} '
+            '--metadata {output.metadata} '
+            '--config-json {params.cfg} '
+            '--threads {threads} '
+            '--log {log} '
 
 
 if PREPROCESS_INTEGRATION_ENABLED and PREPROCESS_INTEGRATION_METHOD == 'scvi':
@@ -374,8 +412,9 @@ if PREPROCESS_INTEGRATION_ENABLED and PREPROCESS_INTEGRATION_METHOD == 'scvi':
                 )
             )
         params:
-            expression = PREPROCESS_CFG['expression'],
-            cfg = PREPROCESS_INTEGRATION_CFG['scvi']
+            script = src_gcf('quant/scripts/preprocess_integrate_scvi.py'),
+            expression = quote(json.dumps(PREPROCESS_CFG['expression'])),
+            cfg = quote(json.dumps(PREPROCESS_INTEGRATION_CFG['scvi']))
         threads:
             PREPROCESS_RESOURCES['integration']['threads']
         resources:
@@ -387,8 +426,19 @@ if PREPROCESS_INTEGRATION_ENABLED and PREPROCESS_INTEGRATION_METHOD == 'scvi':
             method = QUANT_METHOD_PATTERN
         container:
             'docker://' + config['docker']['scvi-tools']
-        script:
-            src_gcf('quant/scripts/preprocess_integrate_scvi.py')
+        shell:
+            'python {params.script} '
+            '--anndata {input.anndata} '
+            '--cells {input.cells} '
+            '--obs {input.obs} '
+            '--hvg {input.hvg} '
+            '--representation {output.representation} '
+            '--metadata {output.metadata} '
+            '--model {output.model} '
+            '--expression-json {params.expression} '
+            '--config-json {params.cfg} '
+            '--threads {threads} '
+            '--log {log} '
 
 
 rule preprocess_optimize_graph_clustering:
@@ -403,10 +453,11 @@ rule preprocess_optimize_graph_clustering:
         clustering_metrics = PREPROCESS_CLUSTERING_METRICS,
         selection = PREPROCESS_GRAPH_CLUSTERING_SELECTION
     params:
-        graph = PREPROCESS_CFG['graph'],
-        clustering = PREPROCESS_CFG['clustering'],
-        rare_cells = PREPROCESS_CFG['rare_cells'],
-        diagnostics = PREPROCESS_CFG['diagnostics']
+        script = src_gcf('quant/scripts/preprocess_optimize_graph_clustering.py'),
+        graph = quote(json.dumps(PREPROCESS_CFG['graph'])),
+        clustering = quote(json.dumps(PREPROCESS_CFG['clustering'])),
+        rare_cells = quote(json.dumps(PREPROCESS_CFG['rare_cells'])),
+        diagnostics = quote(json.dumps(PREPROCESS_CFG['diagnostics']))
     threads:
         PREPROCESS_RESOURCES['graph_clustering']['threads']
     resources:
@@ -418,8 +469,22 @@ rule preprocess_optimize_graph_clustering:
         method = QUANT_METHOD_PATTERN
     container:
         'docker://' + config['docker']['rapids-scanpy']
-    script:
-        src_gcf('quant/scripts/preprocess_optimize_graph_clustering.py')
+    shell:
+        'python {params.script} '
+        '--representation {input.representation} '
+        '--representation-metadata {input.representation_metadata} '
+        '--obs {input.obs} '
+        '--connectivities {output.connectivities} '
+        '--labels {output.labels} '
+        '--graph-metrics {output.graph_metrics} '
+        '--clustering-metrics {output.clustering_metrics} '
+        '--selection {output.selection} '
+        '--graph-json {params.graph} '
+        '--clustering-json {params.clustering} '
+        '--rare-cells-json {params.rare_cells} '
+        '--diagnostics-json {params.diagnostics} '
+        '--threads {threads} '
+        '--log {log} '
 
 
 if 'umap' in PREPROCESS_EMBEDDING_METHODS:
@@ -437,7 +502,8 @@ if 'umap' in PREPROCESS_EMBEDDING_METHODS:
             metrics = preprocess_embedding_metrics('umap'),
             metadata = preprocess_embedding_metadata('umap')
         params:
-            cfg = PREPROCESS_EMBEDDING_CFG['umap']
+            script = src_gcf('quant/scripts/preprocess_embedding_umap.py'),
+            cfg = quote(json.dumps(PREPROCESS_EMBEDDING_CFG['umap']))
         threads:
             PREPROCESS_RESOURCES['embedding']['threads']
         resources:
@@ -449,8 +515,20 @@ if 'umap' in PREPROCESS_EMBEDDING_METHODS:
             method = QUANT_METHOD_PATTERN
         container:
             'docker://' + config['docker']['rapids-scanpy']
-        script:
-            src_gcf('quant/scripts/preprocess_embedding_umap.py')
+        shell:
+            'python {params.script} '
+            '--representation {input.representation} '
+            '--representation-metadata {input.representation_metadata} '
+            '--connectivities {input.connectivities} '
+            '--labels {input.labels} '
+            '--obs {input.obs} '
+            '--selection {input.selection} '
+            '--coordinates {output.coordinates} '
+            '--metrics {output.metrics} '
+            '--metadata {output.metadata} '
+            '--config-json {params.cfg} '
+            '--threads {threads} '
+            '--log {log} '
 
 
 rule preprocess_diagnostics:
@@ -467,8 +545,9 @@ rule preprocess_diagnostics:
         metrics = PREPROCESS_DIAGNOSTICS,
         summary = PREPROCESS_DIAGNOSTICS_PDF
     params:
-        cfg = PREPROCESS_CFG['diagnostics'],
-        integration_enabled = PREPROCESS_INTEGRATION_ENABLED
+        script = src_gcf('quant/scripts/preprocess_diagnostics.py'),
+        cfg = quote(json.dumps(PREPROCESS_CFG['diagnostics'])),
+        integration_enabled = str(PREPROCESS_INTEGRATION_ENABLED).lower()
     threads:
         PREPROCESS_RESOURCES['diagnostics']['threads']
     resources:
@@ -480,8 +559,22 @@ rule preprocess_diagnostics:
         method = QUANT_METHOD_PATTERN
     container:
         'docker://' + config['docker']['scanpy']
-    script:
-        src_gcf('quant/scripts/preprocess_diagnostics.py')
+    shell:
+        'python {params.script} '
+        '--native-representation {input.native_representation} '
+        '--representation {input.representation} '
+        '--representation-metadata {input.representation_metadata} '
+        '--connectivities {input.connectivities} '
+        '--labels {input.labels} '
+        '--obs {input.obs} '
+        '--graph-metrics {input.graph_metrics} '
+        '--clustering-metrics {input.clustering_metrics} '
+        '--metrics {output.metrics} '
+        '--summary {output.summary} '
+        '--config-json {params.cfg} '
+        '--integration-enabled {params.integration_enabled} '
+        '--threads {threads} '
+        '--log {log} '
 
 
 rule preprocess_finalize:
@@ -507,12 +600,13 @@ rule preprocess_finalize:
         anndata = PREPROCESS_FINAL_ANNDATA,
         metadata = PREPROCESS_FINAL_METADATA
     params:
-        expression = PREPROCESS_CFG['expression'],
-        metadata = PREPROCESS_CFG['metadata'],
+        script = src_gcf('quant/scripts/preprocess_finalize.py'),
+        expression = quote(json.dumps(PREPROCESS_CFG['expression'])),
+        metadata = quote(json.dumps(PREPROCESS_CFG['metadata'])),
         embedding_method = PREPROCESS_EMBEDDING_CANONICAL,
-        integration_enabled = PREPROCESS_INTEGRATION_ENABLED,
-        integration_method = PREPROCESS_INTEGRATION_METHOD,
-        execution = PREPROCESS_CFG['execution']['finalize']
+        integration_enabled = str(PREPROCESS_INTEGRATION_ENABLED).lower(),
+        integration_method = PREPROCESS_INTEGRATION_METHOD or 'none',
+        execution = quote(json.dumps(PREPROCESS_CFG['execution']['finalize']))
     threads:
         PREPROCESS_RESOURCES['finalize']['threads']
     resources:
@@ -524,5 +618,32 @@ rule preprocess_finalize:
         method = QUANT_METHOD_PATTERN
     container:
         'docker://' + config['docker']['scanpy']
-    script:
-        src_gcf('quant/scripts/preprocess_finalize.py')
+    shell:
+        'python {params.script} '
+        '--anndata {input.anndata} '
+        '--cells {input.cells} '
+        '--genes {input.genes} '
+        '--obs {input.obs} '
+        '--preprocessed-obs {input.extended_obs} '
+        '--preprocessed-var {input.extended_var} '
+        '--hvg {input.hvg} '
+        '--native-representation {input.native_representation} '
+        '--representation {input.representation} '
+        '--representation-metadata {input.representation_metadata} '
+        '--connectivities {input.connectivities} '
+        '--labels {input.labels} '
+        '--embedding {input.embedding} '
+        '--embedding-metadata {input.embedding_metadata} '
+        '--graph-selection {input.graph_selection} '
+        '--diagnostics {input.diagnostics} '
+        '--diagnostics-summary {input.diagnostics_summary} '
+        '--output-anndata {output.anndata} '
+        '--output-metadata {output.metadata} '
+        '--expression-json {params.expression} '
+        '--metadata-json {params.metadata} '
+        '--embedding-method {params.embedding_method} '
+        '--integration-enabled {params.integration_enabled} '
+        '--integration-method {params.integration_method} '
+        '--execution-json {params.execution} '
+        '--threads {threads} '
+        '--log {log} '

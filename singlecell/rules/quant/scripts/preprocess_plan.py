@@ -3,7 +3,8 @@
 
 from __future__ import annotations
 
-import copy
+import argparse
+import json
 import logging
 import os
 import sys
@@ -332,15 +333,28 @@ def _write_parquet(frame: pd.DataFrame, path: str) -> None:
 
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--anndata", required=True)
+    parser.add_argument("--gene-metadata", required=True)
+    parser.add_argument("--cells", required=True)
+    parser.add_argument("--genes", required=True)
+    parser.add_argument("--obs", required=True)
+    parser.add_argument("--filtered-obs", required=True)
+    parser.add_argument("--preprocessed-obs", required=True)
+    parser.add_argument("--preprocessed-var", required=True)
+    parser.add_argument("--config-json", required=True)
+    parser.add_argument("--log", required=True)
+    return parser.parse_args()
+
+
 def main() -> int:
-    setup_logging(str(snakemake.log[0]))
+    args = parse_args()
+    setup_logging(args.log)
 
-    cfg = copy.deepcopy(dict(snakemake.params.cfg))
-    anndata_path = str(snakemake.input.anndata)
-    gene_metadata_path = str(snakemake.input.gene_metadata)
-
-    LOGGER.info("[input] opening backed AnnData: %s", anndata_path)
-    adata = ad.read_h5ad(anndata_path, backed="r")
+    cfg = json.loads(args.config_json)
+    LOGGER.info("[input] opening backed AnnData: %s", args.anndata)
+    adata = ad.read_h5ad(args.anndata, backed="r")
 
     try:
         obs = _normalize_index(adata.obs, "barcode")
@@ -374,7 +388,7 @@ def main() -> int:
         preprocessed_obs = obs.loc[retained_cells].copy()
         compact_obs = preprocessed_obs.loc[:, downstream_obs_columns].copy()
 
-        reference = read_gene_metadata(gene_metadata_path)
+        reference = read_gene_metadata(args.gene_metadata)
         merged_var, added_gene_columns, missing_reference_genes = merge_gene_metadata(var, reference)
         if missing_reference_genes:
             LOGGER.warning(
@@ -406,12 +420,12 @@ def main() -> int:
         )
 
         LOGGER.info("[output] writing preprocessing metadata sidecars")
-        _write_parquet(cells, str(snakemake.output.cells))
-        _write_parquet(genes, str(snakemake.output.genes))
-        _write_parquet(compact_obs, str(snakemake.output.obs))
-        _write_parquet(filtered_obs, str(snakemake.output.filtered_obs))
-        _write_parquet(preprocessed_obs, str(snakemake.output.extended_obs))
-        _write_parquet(preprocessed_var, str(snakemake.output.extended_var))
+        _write_parquet(cells, args.cells)
+        _write_parquet(genes, args.genes)
+        _write_parquet(compact_obs, args.obs)
+        _write_parquet(filtered_obs, args.filtered_obs)
+        _write_parquet(preprocessed_obs, args.preprocessed_obs)
+        _write_parquet(preprocessed_var, args.preprocessed_var)
     finally:
         if adata.isbacked:
             adata.file.close()
