@@ -285,7 +285,7 @@ rule preprocess_plan:
         extended_obs = PREPROCESS_EXTENDED_OBS,
         extended_var = PREPROCESS_EXTENDED_VAR
     params:
-        script = src_gcf('quant/scripts/preprocess_plan.py'),
+        script = src_gcf('scripts/preprocess_plan.py'),
         cfg = quote(json.dumps(PREPROCESS_CFG))
     threads:
         PREPROCESS_RESOURCES['plan']['threads']
@@ -325,7 +325,7 @@ rule preprocess_native_representation:
         hvg = PREPROCESS_HVG,
         metadata = PREPROCESS_NATIVE_METADATA
     params:
-        script = src_gcf('quant/scripts/preprocess_native_representation.py'),
+        script = src_gcf('scripts/preprocess_native_representation.py'),
         expression = quote(json.dumps(PREPROCESS_CFG['expression'])),
         representation = quote(json.dumps(PREPROCESS_CFG['representation'])),
         execution = quote(json.dumps(PREPROCESS_CFG['execution']['expression']))
@@ -369,7 +369,7 @@ if PREPROCESS_INTEGRATION_ENABLED and PREPROCESS_INTEGRATION_METHOD == 'harmony'
             representation = preprocess_integration_representation('harmony'),
             metadata = preprocess_integration_metadata('harmony')
         params:
-            script = src_gcf('quant/scripts/preprocess_integrate_harmony.py'),
+            script = src_gcf('scripts/preprocess_integrate_harmony.py'),
             cfg = quote(json.dumps(PREPROCESS_INTEGRATION_CFG['harmony']))
         threads:
             PREPROCESS_RESOURCES['integration']['threads']
@@ -412,7 +412,7 @@ if PREPROCESS_INTEGRATION_ENABLED and PREPROCESS_INTEGRATION_METHOD == 'scvi':
                 )
             )
         params:
-            script = src_gcf('quant/scripts/preprocess_integrate_scvi.py'),
+            script = src_gcf('scripts/preprocess_integrate_scvi.py'),
             expression = quote(json.dumps(PREPROCESS_CFG['expression'])),
             cfg = quote(json.dumps(PREPROCESS_INTEGRATION_CFG['scvi']))
         threads:
@@ -453,7 +453,7 @@ rule preprocess_optimize_graph_clustering:
         clustering_metrics = PREPROCESS_CLUSTERING_METRICS,
         selection = PREPROCESS_GRAPH_CLUSTERING_SELECTION
     params:
-        script = src_gcf('quant/scripts/preprocess_optimize_graph_clustering.py'),
+        script = src_gcf('scripts/preprocess_optimize_graph_clustering.py'),
         graph = quote(json.dumps(PREPROCESS_CFG['graph'])),
         clustering = quote(json.dumps(PREPROCESS_CFG['clustering'])),
         rare_cells = quote(json.dumps(PREPROCESS_CFG['rare_cells'])),
@@ -502,7 +502,7 @@ if 'umap' in PREPROCESS_EMBEDDING_METHODS:
             metrics = preprocess_embedding_metrics('umap'),
             metadata = preprocess_embedding_metadata('umap')
         params:
-            script = src_gcf('quant/scripts/preprocess_embedding_umap.py'),
+            script = src_gcf('scripts/preprocess_embedding_umap.py'),
             cfg = quote(json.dumps(PREPROCESS_EMBEDDING_CFG['umap']))
         threads:
             PREPROCESS_RESOURCES['embedding']['threads']
@@ -545,7 +545,7 @@ rule preprocess_diagnostics:
         metrics = PREPROCESS_DIAGNOSTICS,
         summary = PREPROCESS_DIAGNOSTICS_PDF
     params:
-        script = src_gcf('quant/scripts/preprocess_diagnostics.py'),
+        script = src_gcf('scripts/preprocess_diagnostics.py'),
         cfg = quote(json.dumps(PREPROCESS_CFG['diagnostics'])),
         integration_enabled = str(PREPROCESS_INTEGRATION_ENABLED).lower()
     threads:
@@ -600,7 +600,7 @@ rule preprocess_finalize:
         anndata = PREPROCESS_FINAL_ANNDATA,
         metadata = PREPROCESS_FINAL_METADATA
     params:
-        script = src_gcf('quant/scripts/preprocess_finalize.py'),
+        script = src_gcf('scripts/preprocess_finalize.py'),
         expression = quote(json.dumps(PREPROCESS_CFG['expression'])),
         metadata = quote(json.dumps(PREPROCESS_CFG['metadata'])),
         embedding_method = PREPROCESS_EMBEDDING_CANONICAL,
