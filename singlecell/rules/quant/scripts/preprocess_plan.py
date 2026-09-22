@@ -55,13 +55,15 @@ def _require_columns(frame: pd.DataFrame, columns: list[str], context: str) -> N
 def _normalize_index(frame: pd.DataFrame, name: str) -> pd.DataFrame:
     result = frame.copy()
     result.index = pd.Index(result.index.astype(str), name=name)
+
     if not result.index.is_unique:
         duplicates = result.index[result.index.duplicated()].unique().tolist()
         raise ValueError(f"{name} index is not unique. Examples: {duplicates[:5]}")
-    if result.index.str.len().eq(0).any():
-        raise ValueError(f"{name} index contains empty values")
-    return result
 
+    if (result.index.str.len() == 0).any():
+        raise ValueError(f"{name} index contains empty values")
+
+    return result
 
 def _append_reason(reasons: np.ndarray, mask: np.ndarray, reason: str) -> None:
     indices = np.flatnonzero(mask)
