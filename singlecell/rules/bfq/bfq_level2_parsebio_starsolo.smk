@@ -3,9 +3,9 @@
 rule bfq_level2_exprs:
     input:
         exprs_aggr_input("parsebio_starsolo"),
-        expand(rules.parsebio_starsolo_filtered.output.mtx, sublib=SUBLIBS),
-        expand(rules.parsebio_starsolo_filtered.output.genes, sublib=SUBLIBS),
-        expand(rules.parsebio_starsolo_filtered.output.barcodes, sublib=SUBLIBS),
+        expand(rules.parsebio_starsolo_filtered.output.mtx, preprocessor='rt_merge',sublib=SUBLIBS),
+        expand(rules.parsebio_starsolo_filtered.output.genes, preprocessor='rt_merge',sublib=SUBLIBS),
+        expand(rules.parsebio_starsolo_filtered.output.barcodes,preprocessor='rt_merge',  sublib=SUBLIBS),
     output:
         exprs_aggr_output(),
         expand(join(BFQ_INTERIM, 'exprs', 'mtx', '{sublib}', 'matrix.mtx'), sublib=SUBLIBS),
@@ -18,9 +18,9 @@ rule bfq_level2_exprs:
 
 rule bfq_level2_logs:
     input:
-        star = expand(rules.parsebio_starsolo_quant.log.star, sublib=SUBLIBS),
-        barcodes = expand(rules.parsebio_starsolo_quant.log.barcodes, sublib=SUBLIBS),
-        summary = expand(rules.parsebio_starsolo_quant.output.gene_summary, sublib=SUBLIBS)
+        star = expand(rules.parsebio_starsolo_quant.log.star, preprocessor='rt_merge', sublib=SUBLIBS),
+        barcodes = expand(rules.parsebio_starsolo_quant.log.barcodes, preprocessor='rt_merge', sublib=SUBLIBS),
+        summary = expand(rules.parsebio_starsolo_quant.output.gene_summary, preprocessor='rt_merge', sublib=SUBLIBS)
     output:
         expand(join(BFQ_INTERIM, 'logs', '{sublib}', '{sublib}_Log.final.out'), sublib=SUBLIBS),
         expand(join(BFQ_INTERIM, 'logs', '{sublib}', '{sublib}_Barcodes.stats'), sublib=SUBLIBS),
