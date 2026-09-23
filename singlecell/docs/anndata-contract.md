@@ -38,32 +38,65 @@ The cell universe is determined by the configured quantification/cell-calling pa
 - Cell Ranger: Cell Ranger filtered/cell-called barcodes.
 - 10x STARsolo: STARsolo filtered/cell-called barcodes.
 - split-pipe: split-pipe `DGE_filtered` cells.
-- Parse STARsolo: custom Parse/STARsolo cell calling followed by mandatory R/T collapse.
+- Parse STARsolo: R/T-collapsed count representation, followed by the configured
+  biological-cell calling path.
 - 10x with CellBender enabled: CellBender filtered/cell-called barcodes.
 
 CellBender support for Parse Biosciences library preparations is currently
 `NotImplemented`. The biological suitability of the CellBender background model for
 Parse combinatorial barcoding has not been established.
 
-### 1.2 Parse STARsolo R/T identity
+### 1.2 Parse STARsolo R/T-specific data flow
 
-Parse STARsolo can produce separate technical R and T observations for the same
-biological cell.
+R/T handling is specific to the combination of **Parse Biosciences library preparation
+and `parsebio_starsolo` quantification**. It is not a general branch for Cell Ranger,
+10x STARsolo, or split-pipe.
 
-The normal workflow must collapse these before the canonical filtered AnnData boundary:
+STARsolo emits technical R- and T-resolved counts. Immediately downstream of those
+outputs, the normal path collapses R/T observations into biological-cell counts,
+analogous to split-pipe. The collapsed raw and filtered count representations feed
+ordinary matrix-dependent downstream processing, including cell calling, doublet
+characterization, demultiplexing where applicable, auto-QC, and canonical aggregate
+AnnData assembly. The ordinary workflow does not consume R/T-resolved rows.
+
+An explicit `enable_rt_qc: true` additionally enables a **parallel** R/T-resolved
+technical QC dataflow originating from STARsolo's original output:
 
 ```text
-technical R observation ─┐
-                         ├─> summed counts -> one canonical Parse cell
-technical T observation ─┘
+                 Parse STARsolo R/T output
+                            |
+               +------------+-------------+
+               |                          |
+               v                          v
+         collapse R + T            retain R/T separately
+           (required)               (optional; enable_rt_qc)
+               |                          |
+               v                          v
+      normal count-matrix        parallel technical-QC
+         processing                    processing
+               |                          |
+               v                          v
+    {aggr_id}_filtered.h5ad  {aggr_id}_rt_filtered.h5ad
+       biological cells          technical observations
 ```
 
-R/T collapse is an identity-normalization step, not an analysis filter.
+Both branches proceed through their respective applicable matrix-dependent processing
+steps. Neither final H5AD is derived from the other final H5AD. The optional technical
+path may reuse QC/characterization infrastructure, but its observation-level results
+are **technical diagnostics**, not automatically biological-cell classifications.
 
-Downstream rules must never need to understand R/T identity.
+The optional R/T dataset has one row per **available technical R or T observation**;
+it need not have precisely two rows for every biological cell. It is intended for
+R/T-specific expression, coverage, and QC comparisons, not ordinary downstream
+analysis or preprocessing. It is not a third canonical biological-cell deliverable.
 
-A separate R/T-resolved artifact may be retained for specialized QC, but it is not a
-canonical downstream object.
+With `enable_rt_qc: false`, only the mandatory collapsed path is required. For other
+library-preparation/quantifier combinations, R/T QC is not applicable and an enabled
+R/T-QC setting should fail explicitly rather than silently change their workflows.
+
+R/T collapse is a **count-representation normalization step before ordinary downstream
+processing**, not a transformation applied during final H5AD assembly. Preserve
+STARsolo's original technical matrix outputs separately for inspection and provenance.
 
 ### 1.3 Expression matrix
 
@@ -365,9 +398,9 @@ actually performs such denoising.
 
 ### 6.3 Parse R/T handling for velocity
 
-For Parse STARsolo, the same R/T identity collapse applied to the expression matrix must
-also be applied consistently to all velocity layers before canonical filtered-H5AD
-assembly.
+For Parse STARsolo, the mandatory normal-path R/T collapse must also apply consistently
+to velocity count matrices before they enter the ordinary downstream path. The optional
+R/T-resolved technical-QC path may retain R/T-resolved velocity information.
 
 ---
 
@@ -456,30 +489,34 @@ the core filtered-H5AD implementation.
 ### 7.4 Parse Biosciences + STARsolo
 
 ```text
-Parse FASTQ
-    │
-    ▼
-Parse barcode preprocessing / STARsolo
-    │
-    ▼
-custom Parse cell calling
-    │
-    ▼
-technical R/T observations
-    │
-    ▼
-R/T collapse
-    │
-    ▼
-one row per biological cell
-    │
-    ▼
-*_filtered.h5ad
+Parse FASTQ -> barcode preprocessing -> STARsolo R/T count outputs
+                                           |
+                         +-----------------+------------------+
+                         |                                    |
+                         v                                    v
+                  R/T collapse                        original R/T counts
+                   required                            enable_rt_qc only
+                         |                                    |
+                         v                                    v
+              collapsed raw/filtered                 R/T-resolved raw/filtered
+                   count path                         technical-QC count path
+                         |                                    |
+                         v                                    v
+              applicable ordinary                    applicable technical
+               downstream steps                        QC/metadata steps
+                         |                                    |
+                         v                                    v
+                *_filtered.h5ad                       *_rt_filtered.h5ad
 ```
 
-CellBender is currently `NotImplemented`.
+The precise ordering and behavior of cell calling relative to the early count-matrix
+collapse must be implemented and validated against the existing barcode-rank behavior;
+this contract does not prescribe an untested change to calling thresholds or the
+called-cell universe.
 
-STARsolo velocity is supported and must undergo the same R/T identity collapse.
+CellBender is currently `NotImplemented` for Parse. STARsolo velocity is supported;
+the normal velocity matrices must follow the collapsed biological-cell identity and
+the optional technical branch may retain R/T-resolved velocity counts.
 
 ---
 
@@ -590,8 +627,8 @@ The intended high-level workflow is:
                           ▼
                 cell-called count data
                           │
-                canonicalize identity
-            (including Parse R/T collapse)
+           use biological-cell counts
+       (Parse STARsolo R/T collapsed upstream)
                           │
           ┌───────────────┼────────────────┐
           │               │                │
@@ -647,14 +684,21 @@ The following rules should be treated as invariants.
 2. `*_filtered.h5ad` contains all cells in the configured cell-called universe.
 3. Auto-QC and doublet calls characterize filtered cells but do not subset them.
 4. Cell and gene selection occurs in preprocessing.
-5. One AnnData row always represents one biological cell.
-6. Parse STARsolo R/T collapse occurs before the canonical filtered boundary.
-7. General biological annotation is not required to build the filtered object.
-8. QC-specific annotation is explicitly named `cell_class_qc`.
-9. CellBender, when enabled, jointly defines its barcode universe and denoised count representation.
-10. CellBender-filtered original counts are derived from the raw quantifier matrix.
-11. CellBender does not silently redefine Parse workflows; Parse support remains `NotImplemented`.
-12. Velocity and CellBender are independent optional capabilities.
-13. Optional count/layer representations must align exactly to the canonical AnnData axes.
-14. Unsupported or unvalidated quantifier/capability combinations should fail explicitly rather than silently changing semantics.
-15. The canonical contracts remain stable even when method-specific upstream implementations change.
+5. One row in either canonical biological-cell AnnData represents one biological cell.
+6. Parse STARsolo R/T collapse is mandatory immediately downstream of quantifier
+   count outputs, before normal matrix-dependent downstream methods; it is not an
+   aggregate AnnData finalization operation.
+7. Only Parse library preparation with `parsebio_starsolo` may enable an optional
+   R/T-resolved technical-QC branch ending in `{aggr_id}_rt_filtered.h5ad`.
+   Its observations are technical R/T units, not canonical biological cells.
+8. The normal and optional R/T paths originate from the quantifier's count outputs;
+   neither final AnnData is constructed from the other final AnnData.
+9. General biological annotation is not required to build the filtered object.
+10. QC-specific annotation is explicitly named `cell_class_qc`.
+11. CellBender, when enabled, jointly defines its barcode universe and denoised count representation.
+12. CellBender-filtered original counts are derived from the raw quantifier matrix.
+13. CellBender does not silently redefine Parse workflows; Parse support remains `NotImplemented`.
+14. Velocity and CellBender are independent optional capabilities.
+15. Optional count/layer representations must align exactly to the canonical AnnData axes.
+16. Unsupported or unvalidated quantifier/capability combinations should fail explicitly rather than silently changing semantics.
+17. The canonical contracts remain stable even when method-specific upstream implementations change.
