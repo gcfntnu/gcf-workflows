@@ -8,12 +8,14 @@ include: join(GCFDB_DIR, "krona.db")
 
 DB_CONF = config['db'][config['db']['reference_db']]
 K2_INTERIM = join(QUANT_INTERIM, 'kraken2', DB_CONF['assembly'])
-K2_DB_DIR = join(EXT_DIR, config['db']['reference_db'], 'release-{}'.format(DB_CONF['release']), ORG, DB_CONF['assembly'])
 
 if config['db']['reference_db'] == 'langmead':
+    # Use the producer's location; sample organism may be N/A or a host species.
+    K2_DB_DIR = dirname(rules.langmead_kraken_prebuild.output.hash)
     DB_SHMEM = rules.langmead_shmem.output
     BRACKEN_N_MERS = LM_BRACKEN_N_MERS
 elif config['db']['reference_db'] == 'ncbi_16s':
+    K2_DB_DIR = dirname(rules.ncbi_16s_kraken_build.output.hash)
     DB_SHMEM = rules.ncbi_16s_shmem.output
     BRACKEN_N_MERS = NCBI_BRACKEN_N_MERS
 

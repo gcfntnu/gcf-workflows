@@ -5,6 +5,18 @@ name: Test metagenome
 on: [push, pull_request]
 
 jobs:
+  bracken-database:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    - name: Install focused regression dependencies
+      run: python -m pip install 'snakemake>=9,<10' pandas
+    - name: Check Bracken database paths and producer dependencies
+      run: python -m unittest discover -s metagenome/.tests -p 'test_*.py' -v
+
   build:
 
     runs-on: ubuntu-latest
