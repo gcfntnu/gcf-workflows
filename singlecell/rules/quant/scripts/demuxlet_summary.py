@@ -44,7 +44,6 @@ if (singlet_posterior < -tolerance).any() or (singlet_posterior > 1 + tolerance)
     raise ValueError("SNG.POSTERIOR contains values outside [0, 1]")
 
 singlet_posterior = singlet_posterior.clip(0, 1)
-doublet_score = 1.0 - singlet_posterior
 
 best_singlet = df["SNG.BEST.GUESS"].astype("string")
 if best_singlet.isna().any():
@@ -57,7 +56,6 @@ donor_id[doublet_type == "unassigned"] = "unassigned"
 out = pd.DataFrame(
     {
         "doublet_type": doublet_type,
-        "doublet_score": doublet_score,
         "donor_id": donor_id,
         "best_singlet": best_singlet,
         "singlet_posterior": singlet_posterior,

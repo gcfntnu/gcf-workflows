@@ -44,10 +44,19 @@ def get_singlecell_barcodes(wildcards):
 def get_singlecell_bam(wildcards):
     if wildcards.quantifier == 'cellranger':
         return rules.cellranger_quant.output.bam
-    elif wildcards.quantifier in ['10x_starsolo', 'alevin']:
+    elif wildcards.quantifier == '10x_starsolo':
+        return rules.starsolo_quant.output.bam
+    elif wildcards.quantifier == 'alevin':
         return rules.starsolo_bam.output
     else:
         raise ValueError
+
+
+def get_singlecell_bam_index(wildcards):
+    if wildcards.quantifier == '10x_starsolo':
+        return rules.starsolo_bam_index.output
+    return []
+
 
 def get_donor_vcf(wildcards):
     donor_dir = config['quant'].get('demultiplex', {}).get('donor_dir')
@@ -117,6 +126,7 @@ rule freemuxlet_pileup:
 rule cellsnp_pileup_1a: # pileup with defined snps and barcodes (singlecell)
     input:
         bam = get_singlecell_bam,
+        bam_index = get_singlecell_bam_index,
         barcodes = get_singlecell_barcodes,
         vcf = join(REF_DIR, 'anno', 'common_variants.vcf')
     output:
@@ -296,7 +306,6 @@ rule souporcell_ref:
         '-k {params.n} '
         '{params.skip_remap} '
 
-
 rule souporcell_ref_demuxafy:
     input:
         donor_vcf = get_donor_vcf,
@@ -407,6 +416,7 @@ rule demuxalot_noref:
     input:
         barcodes = get_singlecell_barcodes,
         bam = get_singlecell_bam,
+        bam_index = get_singlecell_bam_index,
         cluster_vcf = join(DEMUX_DIR,  'freemuxlet_noref', 'freemuxlet.clust1.vcf.gz')
     output:
         droplet_type = join(DEMUX_DIR,  'demuxalot_noref', 'droplet_type.tsv'),
@@ -438,6 +448,7 @@ rule demuxalot_ref:
     input:
         barcodes = get_singlecell_barcodes,
         bam = get_singlecell_bam,
+        bam_index = get_singlecell_bam_index,
         donor_vcf = get_donor_vcf
     output:
         droplet_type = join(DEMUX_DIR,  'demuxalot_ref', 'droplet_type.tsv'),

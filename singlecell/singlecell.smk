@@ -26,6 +26,10 @@ if config['quant']['method'].startswith('parse') or config['quant']['method'].st
     PARSEBIO_SAMPLES = list(config.get('wells', {}).keys())
     SUBLIBS = SAMPLES
 
+wildcard_constraints:
+    method = r"[^/]+",
+    aggr_id = r"[^/]+"
+
 include:
     '../common.smk'
 include:

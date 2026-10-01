@@ -105,6 +105,9 @@ def read_barcode_table(path: Path, sep: str = "\t") -> pd.DataFrame:
         duplicated = df.index[df.index.duplicated()].unique().tolist()
         raise ValueError(f"Duplicate barcodes in {path}. Examples: {duplicated[:10]}")
 
+    if "demultiplexing" in path.parts and "doublet_score" in df.columns:
+        df = df.drop(columns=["doublet_score"])
+
     return df
 
 

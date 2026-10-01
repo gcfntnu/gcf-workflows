@@ -78,7 +78,7 @@ rule ncbi_16s_kraken_build:
 rule ncbi_16s_shmem:
     input:
         hash = rules.ncbi_16s_kraken_build.output.hash,
-	taxo = rules.ncbi_16s_kraken_build.output.taxo,
+        taxo = rules.ncbi_16s_kraken_build.output.taxo,
         opts = rules.ncbi_16s_kraken_build.output.opts,
     output:
         hash = temp(join("/dev/shm", NCBI_16S_ASSEMBLY, "hash.k2d")),
