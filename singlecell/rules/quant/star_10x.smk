@@ -207,6 +207,7 @@ rule starsolo_mtx_v2_fix:
 rule starsolo_barcode_info:
     input:
         config = workflow.configfiles[0],
+        aggr_csv = lambda wc: aggr_library_order_csv(wc.aggr_id),
         barcodes = lambda wc: expand(
             join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, 'filtered', 'barcodes.tsv'),
             sample=AGGR_IDS[wc.aggr_id],
@@ -214,14 +215,13 @@ rule starsolo_barcode_info:
     output:
         join(STAR_INTERIM, '{aggr_id}_barcode_info.tsv')
     params:
-        script = src_gcf('scripts/starsolo_barcode_info.py'),
-        sample_ids = lambda wc: ' '.join(AGGR_IDS[wc.aggr_id])
+        script = src_gcf('scripts/starsolo_barcode_info.py')
     container:
         'docker://' + config['docker']['default']
     shell:
         'python {params.script} '
         '--barcodes {input.barcodes} '
-        '--sample-ids {params.sample_ids} '
+        '--aggr-csv {input.aggr_csv} '
         '--configfile {input.config} '
         '--output {output} '
 
