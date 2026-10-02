@@ -162,25 +162,17 @@ def attach_starsolo_library_id(adata, path: str, input_format: str) -> None:
     adata.obs["library_id"] = library_id
 
 
-def starsolo_aggr_csv_from_inputs(args: argparse.Namespace) -> pd.DataFrame | None:
-    if args.input_format != "10x_starsolo" or args.barcode_rename != "numerical":
-        return None
-
-    library_ids = [starsolo_library_id(path) for path in args.input]
-    if len(library_ids) != len(set(library_ids)):
-        raise ValueError(f"Duplicate 10x STARsolo library IDs in aggregate input: {library_ids}")
-
-    return pd.DataFrame({"sample_id": library_ids})
-
-
-def make_reader_args(args: argparse.Namespace, conv) -> SimpleNamespace:
-    aggr_csv = starsolo_aggr_csv_from_inputs(args)
-    if aggr_csv is None and args.aggr_csv:
-        aggr_csv = conv._aggr_csv_reader(args.aggr_csv)
+def make_reader_args(
+    args: argparse.Namespace,
+    conv,
+    barcode_info: list[tuple[str, pd.DataFrame]],
+) -> SimpleNamespace:
+    aggr_csv = conv._aggr_csv_reader(args.aggr_csv) if args.aggr_csv else None
 
     return SimpleNamespace(
         barcode_rename=args.barcode_rename,
         aggr_csv=aggr_csv,
+        barcode_info=[frame for _, frame in barcode_info],
         no_gex_only=False,
         no_zero_cell_rm=True,
         verbose=bool(args.verbose),
@@ -240,7 +232,7 @@ def main() -> int:
 
     feature_info = load_feature_info(conv, args.feature_info)
     barcode_info = load_barcode_info(conv, args.barcode_info)
-    reader_args = make_reader_args(args, conv)
+    reader_args = make_reader_args(args, conv, barcode_info)
     reader = reader_for_format(conv, args.input_format)
 
     frames = []
