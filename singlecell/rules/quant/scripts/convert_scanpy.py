@@ -1263,7 +1263,7 @@ def read_splitpipe(fn, args, **kw):
     dir_name = os.path.dirname(fn)
     logger.debug(f"Reading Split-pipe matrix from {fn}")
 
-    mtx = sp.csr_matrix(mmread(fn)).T.tocsr()
+    mtx = sp.csr_matrix(mmread(fn)).tocsr()
 
     features = None
     for feature_file in ["all_genes.csv", "target_genes.csv", "all_guides.csv"]:
@@ -1297,10 +1297,21 @@ def read_splitpipe(fn, args, **kw):
         duplicates = barcodes[barcodes.duplicated()].unique()
         raise ValueError(f"{metadata_fn}: duplicate bc_wells values. Examples: {list(duplicates[:5])}")
 
-    if mtx.shape != (len(barcodes), len(features)):
+    expected = (len(barcodes), len(features))
+    transposed = (len(features), len(barcodes))
+
+    if mtx.shape == expected:
+        pass
+    elif mtx.shape == transposed:
+        logger.debug(
+            "Transposing Split-pipe matrix from genes×cells to cells×genes: "
+            f"{mtx.shape} -> {expected}"
+        )
+        mtx = mtx.T.tocsr()
+    else:
         raise ValueError(
-            f"Split-pipe matrix/metadata dimensions do not match: matrix={mtx.shape}, "
-            f"barcodes={len(barcodes)}, features={len(features)}"
+            f"Split-pipe matrix/metadata dimensions do not match in either orientation: "
+            f"matrix={mtx.shape}, expected cells×genes={expected} or genes×cells={transposed}"
         )
 
     obs = pd.DataFrame(index=barcodes)
