@@ -153,17 +153,21 @@ rule splitpipe_nuclear_fraction_bam:
 
 rule splitpipe_nuclear_fraction_bam_aggr:
     input:
-        expand(join(QUANT_INTERIM, 'splitpipe', '{sublib}', 'nuclear_fraction.tsv'), sublib=SUBLIBS)
+        tables = expand(join(QUANT_INTERIM, 'splitpipe', '{sublib}', 'nuclear_fraction.tsv'), sublib=SUBLIBS),
+        barcode_info = lambda wc: get_primary_barcode_info(SimpleNamespace(method='splitpipe', aggr_id=wc.aggr_id))
     output:
         "data/tmp/singlecell/quant/aggregate/splitpipe/{aggr_id}_nuclear_fraction.tsv"
     params:
         script = src_gcf("scripts/aggr_barcode_info.py"),
-        args = lambda wc : ' --barcode-rename parsebio --sample-id ' + ','.join(AGGR_IDS.get(wc.aggr_id))
+        library_ids = lambda wc: ','.join(AGGR_IDS.get(wc.aggr_id))
     container:
         'docker://' + config['docker']['default']
     shell:
         'python {params.script} '
-        '{input} '
+        '{input.tables} '
+        '--barcode-info {input.barcode_info} '
+        '--library-id {params.library_ids} '
+        '--output {output} '
         '{params.args} '
         '--output {output} '
 
