@@ -333,15 +333,23 @@ def get_processing_samples(method, aggr_id):
 
 def dbl_aggr_input(wildcards):
     samples = get_processing_samples(wildcards.method, wildcards.aggr_id)
+    inputs = {
+        'classification': expand(
+            rules.dbl_doublet_rank_aggr.output.classification,
+            quantifier=wildcards.method,
+            sample=samples,
+        ),
+        'rankdata': expand(
+            rules.dbl_doublet_rank_aggr.output.rankdata,
+            quantifier=wildcards.method,
+            sample=samples,
+        ),
+    }
 
-    classification = expand(rules.dbl_doublet_rank_aggr.output.classification, quantifier=wildcards.method, sample=samples)
-    rankdata = expand(rules.dbl_doublet_rank_aggr.output.rankdata, quantifier=wildcards.method, sample=samples)
+    if wildcards.method != 'splitpipe' and wildcards.method not in PARSEBIO_STARSOLO_MODES:
+        inputs['barcode_info'] = get_primary_barcode_info(wildcards)
 
-    if wildcards.method.startswith('cellranger'):
-        aggr_csv = join(QUANT_INTERIM, 'aggregate', 'description', f'{wildcards.aggr_id}_aggr.csv')
-        return {'classification': classification, 'rankdata': rankdata, 'aggr_csv': aggr_csv}
-
-    return {'classification': classification, 'rankdata': rankdata}
+    return inputs
 
 
 rule dbl_classification_aggr:
