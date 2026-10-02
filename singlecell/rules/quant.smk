@@ -305,6 +305,8 @@ def get_primary_barcode_info(wc):
         return join(QUANT_INTERIM, 'aggregate', method, f'{aggr_id}_barcode_info.tsv')
     if method == '10x_starsolo' and aggr_id is not None:
         return join(QUANT_INTERIM, method, f'{aggr_id}_barcode_info.tsv')
+    if method == 'cellranger' and aggr_id is not None:
+        return join(QUANT_INTERIM, 'aggregate', method, f'{aggr_id}_barcode_info.tsv')
     return join(QUANT_INTERIM, method, 'barcode_info.tsv')
 
 
@@ -531,7 +533,7 @@ SCANPY_AGGR_SHELL = (
 
 
 def scanpy_aggr_barcode_rename(wc):
-    if wc.method == '10x_starsolo' or wc.method in PARSEBIO_STARSOLO_MODES:
+    if wc.method in {'10x_starsolo', 'cellranger'} or wc.method in PARSEBIO_STARSOLO_MODES:
         return 'skip'
     return BC_RENAME[wc.method]
 
