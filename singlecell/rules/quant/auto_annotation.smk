@@ -96,7 +96,9 @@ def annotation_input_files(wildcards):
         result['gene_map'] = join(QUANT_INTERIM, 'aggregate', wildcards.method, f'{wildcards.aggr_id}_orthologs.tsv')
     if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger':
         result['aggr_csv'] = join(QUANT_INTERIM, 'aggregate', 'description', f'{wildcards.aggr_id}_aggr.csv')
-    if wildcards.method == '10x_starsolo':
+    if wildcards.method == '10x_starsolo' or (
+        wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger'
+    ):
         result['barcode_info'] = [get_primary_barcode_info(wildcards)]
 
     return result
