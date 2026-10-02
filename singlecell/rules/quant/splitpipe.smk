@@ -33,6 +33,34 @@ rule splitpipe_barcode_info:
         '--output {output} '
 
 
+def splitpipe_barcode_info_aggr_inputs(wc):
+    if wc.aggr_id != 'all_samples':
+        raise NotImplementedError(
+            f"Split-pipe barcode aggregation currently only supports aggr_id='all_samples', got {wc.aggr_id!r}"
+        )
+    return expand(
+        join(SPLITPIPE_AGGR, '{sample}', 'barcode_info.tsv'),
+        sample=PARSEBIO_SAMPLES,
+    )
+
+
+rule splitpipe_barcode_info_aggr:
+    input:
+        splitpipe_barcode_info_aggr_inputs
+    output:
+        join(SPLITPIPE_AGGR, '{aggr_id}_barcode_info.tsv')
+    params:
+        script = src_gcf('scripts/aggr_barcode_info.py')
+    container:
+        'docker://' + config['docker']['default']
+    shell:
+        'python {params.script} '
+        '{input} '
+        '--barcode-rename none '
+        '--output {output} '
+        '--verbose '
+
+
 rule splitpipe_sample_list:
     output:
         join(QUANT_INTERIM, 'splitpipe', 'splitpipe_sample_list.txt'),
