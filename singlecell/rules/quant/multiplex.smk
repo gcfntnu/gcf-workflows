@@ -571,11 +571,21 @@ def get_multiplex_methods(test_all=False, n_cells=None):
 def multiplex_aggr_input(wildcards):
     samples = get_processing_samples(wildcards.method, wildcards.aggr_id)
     inputs = {
-        'droplet_types': [join(QUANT_INTERIM, wildcards.method, sample, 'demultiplexing', wildcards.multiplex_method, 'droplet_type.tsv') for sample in samples]
+        'droplet_types': [
+            join(
+                QUANT_INTERIM,
+                wildcards.method,
+                sample,
+                'demultiplexing',
+                wildcards.multiplex_method,
+                'droplet_type.tsv',
+            )
+            for sample in samples
+        ]
     }
 
-    if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger':
-        inputs['aggr_csv'] = join(QUANT_INTERIM, 'aggregate', 'description', f'{wildcards.aggr_id}_aggr.csv')
+    if wildcards.method != 'splitpipe' and wildcards.method not in PARSEBIO_STARSOLO_MODES:
+        inputs['barcode_info'] = get_primary_barcode_info(wildcards)
 
     return inputs
 
