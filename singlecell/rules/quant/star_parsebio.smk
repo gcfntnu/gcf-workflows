@@ -610,48 +610,6 @@ rule parsebio_starsolo_filtered:
         '--output-mtx {output.mtx}'
 
 
-def parsebio_starsolo_rt_inputs(wc):
-    sublibs = AGGR_IDS[wc.aggr_id]
-    if CB_OUTPUT:
-        inputs = [join(QUANT_INTERIM, wc.method, s, 'cellbender', f'{s}_filtered.h5') for s in sublibs]
-    else:
-        inputs = [get_filtered_mtx(SimpleNamespace(method=wc.method, sublib=s, sample=s))['mtx'] for s in sublibs]
-    return {
-        'inputs': inputs,
-        'feature_info': get_feature_info_list(wc),
-        'barcode_info': get_barcode_info_list(wc),
-    }
-
-
-rule parsebio_starsolo_scanpy_rt_filtered:
-    wildcard_constraints:
-        method = 'parsebio_starsolo'
-    input:
-        unpack(parsebio_starsolo_rt_inputs)
-    params:
-        script    = src_gcf('scripts/convert_scanpy.py'),
-        bc_type   = lambda wc: BC_RENAME[wc.method],
-        enable_cb = '--enable-cellbender' if CB_OUTPUT  else ''
-    output:
-        join(QUANT_INTERIM, 'aggregate', '{method}', 'cellbender', 'scanpy', '{aggr_id}_rt.h5ad') if CB_OUTPUT else join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_rt.h5ad')
-    container:
-        'docker://' + config['docker']['scanpy'],
-    threads: 48
-    log:
-        join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', 'logs', '{aggr_id}.log'),
-    shell:
-        'python {params.script} '
-        '{input.inputs} '
-        '--feature-info {input.feature_info} '
-        '--barcode-info {input.barcode_info} '
-        '--barcode-rename {params.bc_type} '
-        '-o {output} '
-        '-f {wildcards.method} '
-        '--log {log} '
-        '{params.enable_cb} '
-        '--verbose '
-
-
 rule parsebio_starsolo_mtx_v2_fix:
     input:
         join(QUANT_INTERIM, '{method}', '{sublib}', 'Solo.out', STARSOLO_FEATURE, '{dge_type}', 'features.tsv')
