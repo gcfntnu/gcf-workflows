@@ -187,15 +187,11 @@ rule aggr_library_order:
 
 
 def barcode_aggr_args(wildcards):
-    sample_ids = ','.join(get_processing_samples(wildcards.method, wildcards.aggr_id))
-    barcode_rename = 'none' if wildcards.method == 'splitpipe' or wildcards.method in PARSEBIO_STARSOLO_MODES \
-        else BC_RENAME[wildcards.method]
-    args = f'--barcode-rename {barcode_rename} --sample-id {sample_ids} '
+    if wildcards.method == 'splitpipe' or wildcards.method in PARSEBIO_STARSOLO_MODES:
+        return '--barcode-rename none '
 
-    if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger':
-        args += '--aggr-csv ' + join(QUANT_INTERIM, 'aggregate', 'description', f'{wildcards.aggr_id}_aggr.csv')
-
-    return args
+    library_ids = ','.join(get_processing_samples(wildcards.method, wildcards.aggr_id))
+    return f'--barcode-info {get_primary_barcode_info(wildcards)} --library-id {library_ids} '
 
 def get_raw_mtx(wildcards):
     method = getattr(wildcards, "quantifier", None) or getattr(wildcards, "method", None)
