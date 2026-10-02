@@ -96,6 +96,8 @@ def annotation_input_files(wildcards):
         result['gene_map'] = join(QUANT_INTERIM, 'aggregate', wildcards.method, f'{wildcards.aggr_id}_orthologs.tsv')
     if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger':
         result['aggr_csv'] = join(QUANT_INTERIM, 'aggregate', 'description', f'{wildcards.aggr_id}_aggr.csv')
+    if wildcards.method == '10x_starsolo':
+        result['barcode_info'] = [get_primary_barcode_info(wildcards)]
 
     return result
 
@@ -106,7 +108,7 @@ def annotation_input_format(wildcards):
     return QUANT_INPUT_FORMAT.get(wildcards.method, wildcards.method)
 
 def annotation_input_barcode_rename(wildcards):
-    if wildcards.method in PARSEBIO_STARSOLO_MODES:
+    if wildcards.method == '10x_starsolo' or wildcards.method in PARSEBIO_STARSOLO_MODES:
         return 'skip'
     return BC_RENAME[wildcards.method]
 
@@ -119,6 +121,12 @@ def annotation_input_gene_map_arg(wildcards, input):
 def annotation_input_aggr_csv_arg(wildcards, input):
     if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger':
         return f'--aggr-csv {input.aggr_csv} '
+    return ''
+
+
+def annotation_input_barcode_info_arg(wildcards, input):
+    if wildcards.method == '10x_starsolo':
+        return '--barcode-info ' + ' '.join(input.barcode_info) + ' '
     return ''
 
 
@@ -135,6 +143,7 @@ rule annotation_input:
         dst_organism = MM_ORG,
         gene_map = annotation_input_gene_map_arg,
         aggr_csv = annotation_input_aggr_csv_arg,
+        barcode_info = annotation_input_barcode_info_arg,
         cellbender = '--enable-cellbender --cellbender-mode denoised ' if CB_OUTPUT else ''
     log:
         join(QUANT_INTERIM, 'aggregate', '{method}', 'annotation', '{aggr_id}_annotation_input.log')
@@ -152,6 +161,7 @@ rule annotation_input:
         '--dst-organism {params.dst_organism} '
         '{params.gene_map}'
         '{params.aggr_csv}'
+        '{params.barcode_info}'
         '{params.cellbender}'
         '--log {log} '
         '-v '
