@@ -206,7 +206,6 @@ rule starsolo_mtx_v2_fix:
 
 rule starsolo_barcode_info:
     input:
-        config = workflow.configfiles[0],
         aggr_csv = lambda wc: aggr_library_order_csv(wc.aggr_id),
         barcodes = lambda wc: expand(
             join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, 'filtered', 'barcodes.tsv'),
@@ -222,7 +221,6 @@ rule starsolo_barcode_info:
         'python {params.script} '
         '--barcodes {input.barcodes} '
         '--aggr-csv {input.aggr_csv} '
-        '--configfile {input.config} '
         '--output {output} '
 
 if STARSOLO_OUTPUT_BAM:
