@@ -17,7 +17,7 @@ _BARCODE_SUFFIX_RE = re.compile(r"^(.*?)-(\d+)$")
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--barcodes", nargs="+", required=True)
-    parser.add_argument("--sample-ids", nargs="+", required=True)
+    parser.add_argument("--aggr-csv", required=True)
     parser.add_argument("--configfile", required=True)
     parser.add_argument("--output", required=True)
     return parser.parse_args()
@@ -47,18 +47,23 @@ def read_sample_metadata(path: str) -> pd.DataFrame:
 def main() -> int:
     args = parse_args()
 
-    if len(args.barcodes) != len(args.sample_ids):
-        raise ValueError("--barcodes and --sample-ids must have the same number of entries")
-    if len(set(args.sample_ids)) != len(args.sample_ids):
-        raise ValueError("--sample-ids contains duplicate library IDs")
+    aggr = pd.read_csv(args.aggr_csv, dtype=str)
+    if "sample_id" not in aggr.columns:
+        raise ValueError(f"{args.aggr_csv} is missing required column 'sample_id'")
+
+    sample_ids = aggr["sample_id"].astype(str).str.strip().tolist()
+    if len(args.barcodes) != len(sample_ids):
+        raise ValueError("--barcodes and aggregation CSV must describe the same number of libraries")
+    if len(set(sample_ids)) != len(sample_ids):
+        raise ValueError("aggregation CSV contains duplicate sample_id values")
 
     metadata = read_sample_metadata(args.configfile)
-    missing = [sample_id for sample_id in args.sample_ids if sample_id not in metadata.index]
+    missing = [sample_id for sample_id in sample_ids if sample_id not in metadata.index]
     if missing:
         raise ValueError(f"Samples missing from config['samples']: {missing}")
 
     frames = []
-    for library_idx, (sample_id, barcode_path) in enumerate(zip(args.sample_ids, args.barcodes), 1):
+    for library_idx, (sample_id, barcode_path) in enumerate(zip(sample_ids, args.barcodes), 1):
         raw = pd.read_csv(barcode_path, sep="\t", header=None, usecols=[0], dtype=str)[0]
         cores = raw.map(barcode_core)
         canonical = cores.map(lambda barcode: f"{barcode}-{library_idx}")
