@@ -273,10 +273,10 @@ def _barcode_info_reader(
     return df
 
 
-def canonicalize_10x_starsolo_barcodes(data, library_id, barcode_info):
-    """Map one STARsolo library from source barcodes to canonical aggregation barcodes."""
+def canonicalize_10x_library_barcodes(data, library_id, barcode_info, *, source: str):
+    """Map one 10x library from source barcodes to canonical aggregation barcodes."""
     if not barcode_info:
-        raise ValueError("10x STARsolo requires barcode_info with source_barcode and library_id")
+        raise ValueError(f"{source} requires barcode_info with source_barcode and library_id")
 
     candidates = [
         frame for frame in barcode_info
@@ -284,7 +284,7 @@ def canonicalize_10x_starsolo_barcodes(data, library_id, barcode_info):
     ]
     if len(candidates) != 1:
         raise ValueError(
-            "10x STARsolo requires exactly one barcode_info table containing "
+            f"{source} requires exactly one barcode_info table containing "
             f"source_barcode and library_id; found {len(candidates)}"
         )
 
@@ -292,13 +292,13 @@ def canonicalize_10x_starsolo_barcodes(data, library_id, barcode_info):
     mapping["library_id"] = mapping["library_id"].astype(str)
     mapping = mapping.loc[mapping["library_id"] == str(library_id)].copy()
     if mapping.empty:
-        raise ValueError(f"No canonical barcode mapping found for 10x STARsolo library {library_id!r}")
+        raise ValueError(f"No canonical barcode mapping found for {source} library {library_id!r}")
 
     mapping["source_barcode"] = mapping["source_barcode"].astype(str)
     if mapping["source_barcode"].duplicated().any():
         duplicates = mapping.loc[mapping["source_barcode"].duplicated(keep=False), "source_barcode"].unique().tolist()
         raise ValueError(
-            f"Duplicate source_barcode values for 10x STARsolo library {library_id!r}: {duplicates[:10]}"
+            f"Duplicate source_barcode values for {source} library {library_id!r}: {duplicates[:10]}"
         )
 
     source_to_canonical = pd.Series(
@@ -312,7 +312,7 @@ def canonicalize_10x_starsolo_barcodes(data, library_id, barcode_info):
     extra = source_to_canonical.index.difference(matrix_barcodes)
     if len(missing) or len(extra):
         raise ValueError(
-            f"10x STARsolo barcode mapping mismatch for library {library_id!r}: "
+            f"{source} barcode mapping mismatch for library {library_id!r}: "
             f"{len(missing)} matrix barcode(s) missing from barcode_info and "
             f"{len(extra)} barcode_info source barcode(s) missing from matrix. "
             f"Missing examples: {missing[:5].tolist()}; extra examples: {extra[:5].tolist()}"
@@ -837,8 +837,18 @@ def read_cellranger(fn, args, add_sample_id=True, **kw):
     if add_sample_id:
         sample_id = os.path.basename(os.path.dirname(dir_name))
         data.obs["sample_id"] = sample_id
-    barcode_rename = kw.get("barcode_rename", args.barcode_rename)
-    data = barcode_index_rename(data, barcode_rename=barcode_rename, sample_id=sample_id, aggr_csv=args.aggr_csv)
+
+    has_canonical_mapping = bool(getattr(args, "barcode_info", None)) and any(
+        frame is not None and {"source_barcode", "library_id"}.issubset(frame.columns)
+        for frame in args.barcode_info
+    )
+    if add_sample_id and has_canonical_mapping:
+        data = canonicalize_10x_library_barcodes(
+            data, sample_id, args.barcode_info, source="Cell Ranger"
+        )
+    else:
+        barcode_rename = kw.get("barcode_rename", args.barcode_rename)
+        data = barcode_index_rename(data, barcode_rename=barcode_rename, sample_id=sample_id, aggr_csv=args.aggr_csv)
 
     return data
 
@@ -1155,7 +1165,9 @@ def read_starsolo(fn, args, **kw):
     
     library_id = os.path.normpath(fn).split(os.path.sep)[-5]  # library_id
     if args.input_format == "10x_starsolo":
-        data = canonicalize_10x_starsolo_barcodes(data, library_id, args.barcode_info)
+        data = canonicalize_10x_library_barcodes(
+            data, library_id, args.barcode_info, source="10x STARsolo"
+        )
     else:
         barcode_rename = kw.get("barcode_rename", args.barcode_rename)
         data = barcode_index_rename(data, barcode_rename=barcode_rename, sample_id=library_id, aggr_csv=args.aggr_csv)
