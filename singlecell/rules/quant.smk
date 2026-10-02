@@ -503,6 +503,10 @@ def scanpy_aggr_csv(wc):
     return ''
 
 
+def scanpy_aggr_velo(wc):
+    return '--use-velo' if VELO_OUTPUT else ''
+
+
 SCANPY_AGGR_SHELL = (
     'python {params.script} '
     '{input.inputs} '
@@ -513,6 +517,7 @@ SCANPY_AGGR_SHELL = (
     '--sample-info {input.sample_info} '
     '--library-info {input.library_info} '
     '{params.aggr_csv} '
+    '{params.use_velo} '
     '-o {output} '
     '-F anndata '
     '-v '
@@ -533,7 +538,8 @@ rule scanpy_aggr_filtered:
         script = src_gcf('quant/scripts/convert_scanpy.py'),
         input_format = scanpy_aggr_format,
         bc_type = scanpy_aggr_barcode_rename,
-        aggr_csv = scanpy_aggr_csv
+        aggr_csv = scanpy_aggr_csv,
+        use_velo = scanpy_aggr_velo
     threads:
         8
     wildcard_constraints:
