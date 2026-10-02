@@ -96,7 +96,7 @@ def annotation_input_files(wildcards):
         result['gene_map'] = join(QUANT_INTERIM, 'aggregate', wildcards.method, f'{wildcards.aggr_id}_orthologs.tsv')
     if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger':
         result['aggr_csv'] = join(QUANT_INTERIM, 'aggregate', 'description', f'{wildcards.aggr_id}_aggr.csv')
-    if wildcards.method in {'10x_starsolo', 'cellranger'}:
+    if wildcards.method in {'10x_starsolo', 'cellranger', 'splitpipe'} or wildcards.method in PARSEBIO_STARSOLO_MODES:
         result['barcode_info'] = [get_primary_barcode_info(wildcards)]
 
     return result
@@ -125,7 +125,7 @@ def annotation_input_aggr_csv_arg(wildcards, input):
 
 
 def annotation_input_barcode_info_arg(wildcards, input):
-    if wildcards.method in {'10x_starsolo', 'cellranger'}:
+    if wildcards.method in {'10x_starsolo', 'cellranger', 'splitpipe'} or wildcards.method in PARSEBIO_STARSOLO_MODES:
         return '--barcode-info ' + ' '.join(input.barcode_info) + ' '
     return ''
 
