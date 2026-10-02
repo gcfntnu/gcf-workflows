@@ -52,6 +52,7 @@ def parse_args():
         choices=["numerical", "sample_id", "trim", "parsebio", "skip"],
     )
     parser.add_argument("--aggr-csv", default=None, help="Cell Ranger aggregation CSV")
+    parser.add_argument("--barcode-info", nargs="*", default=[], help="Canonical barcode metadata table(s)")
     parser.add_argument("--gene-map", default=None, help="Optional ortholog mapping TSV")
     parser.add_argument("--src-organism", required=True)
     parser.add_argument("--dst-organism", required=True)
@@ -77,38 +78,33 @@ def setup_logging(log_file=None, verbose=False):
     )
 
 
-def _starsolo_library_id(path):
-    return os.path.normpath(path).split(os.path.sep)[-5]
+def _load_barcode_info(paths):
+    frames = []
+    for path in paths:
+        frame = conv._barcode_info_reader(path, logger=logging.getLogger(__name__))
+        if frame is not None:
+            frames.append(frame)
+    return frames
 
 
-def _starsolo_aggr_csv_from_inputs(args):
-    if args.input_format != "10x_starsolo" or args.barcode_rename != "numerical":
-        return None
-
-    library_ids = [_starsolo_library_id(path) for path in args.input]
-    if len(library_ids) != len(set(library_ids)):
-        raise ValueError(f"Duplicate 10x STARsolo library IDs in annotation input: {library_ids}")
-
-    return pd.DataFrame({"sample_id": library_ids})
-
-
-def _reader_args(args):
-    aggr_csv = _starsolo_aggr_csv_from_inputs(args)
-    if aggr_csv is None and args.aggr_csv:
-        aggr_csv = conv._aggr_csv_reader(args.aggr_csv)
+def _reader_args(args, barcode_info):
+    aggr_csv = conv._aggr_csv_reader(args.aggr_csv) if args.aggr_csv else None
 
     return SimpleNamespace(
         aggr_csv=aggr_csv,
+        barcode_info=barcode_info,
         barcode_rename=args.barcode_rename,
         no_gex_only=False,
         verbose=args.verbose,
         cellbender_mode=args.cellbender_mode,
         enable_cellbender=args.enable_cellbender,
+        input_format=args.input_format,
     )
 
 
 def _read_inputs(args):
-    reader_args = _reader_args(args)
+    barcode_info = _load_barcode_info(args.barcode_info)
+    reader_args = _reader_args(args, barcode_info)
     effective_format = f"{args.input_format}_cellbender" if args.enable_cellbender else args.input_format
 
     reader = conv.READERS.get(effective_format)
