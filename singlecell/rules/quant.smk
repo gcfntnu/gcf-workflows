@@ -295,6 +295,19 @@ def get_filtered_mtx(wildcards):
     return _get_filtered_mtx(wildcards)
 
 
+def get_primary_barcode_info(wc):
+    method = wc.method
+    aggr_id = getattr(wc, 'aggr_id', None)
+
+    if method in PARSEBIO_STARSOLO_MODES and aggr_id is not None:
+        return join(QUANT_INTERIM, 'aggregate', method, f'{aggr_id}_barcode_info.tsv')
+    if method == 'splitpipe' and aggr_id is not None:
+        return join(QUANT_INTERIM, 'aggregate', method, f'{aggr_id}_barcode_info.tsv')
+    if method == '10x_starsolo' and aggr_id is not None:
+        return join(QUANT_INTERIM, method, f'{aggr_id}_barcode_info.tsv')
+    return join(QUANT_INTERIM, method, 'barcode_info.tsv')
+
+
 def get_barcode_info_list(wc, include_autoqc=True):
     method = wc.method
     aggr_id = getattr(wc, 'aggr_id', None)
@@ -305,14 +318,7 @@ def get_barcode_info_list(wc, include_autoqc=True):
     use_doublets = dd_method not in (None, 'skip')
     use_mapmycells = 'mapmycells' in ANNO_METHODS
 
-    if method in PARSEBIO_STARSOLO_MODES and aggr_id is not None:
-        items = [join(QUANT_INTERIM, 'aggregate', method, f'{aggr_id}_barcode_info.tsv')]
-    elif method == 'splitpipe' and aggr_id is not None:
-        items = [join(QUANT_INTERIM, 'aggregate', method, f'{aggr_id}_barcode_info.tsv')]
-    elif method == '10x_starsolo' and aggr_id is not None:
-        items = [join(QUANT_INTERIM, method, f'{aggr_id}_barcode_info.tsv')]
-    else:
-        items = [join(QUANT_INTERIM, method, 'barcode_info.tsv')]
+    items = [get_primary_barcode_info(wc)]
 
     if aggr_id is not None:
         aggr_dir = join(QUANT_INTERIM, 'aggregate', method)
@@ -525,7 +531,7 @@ SCANPY_AGGR_SHELL = (
 
 
 def scanpy_aggr_barcode_rename(wc):
-    if wc.method in PARSEBIO_STARSOLO_MODES:
+    if wc.method == '10x_starsolo' or wc.method in PARSEBIO_STARSOLO_MODES:
         return 'skip'
     return BC_RENAME[wc.method]
 
