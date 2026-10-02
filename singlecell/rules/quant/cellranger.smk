@@ -245,6 +245,10 @@ def cellranger_barcode_info_inputs(wc):
                     'filtered_feature_bc_matrix', 'barcodes.tsv.gz'
                 )
             ],
+            'source_barcodes': expand(
+                join(CR_INTERIM, '{sample}', 'outs', 'filtered_feature_bc_matrix', 'barcodes.tsv.gz'),
+                sample=AGGR_IDS[wc.aggr_id],
+            ),
             'sample_info': SINGLECELL_SAMPLE_INFO,
             'library_info': SINGLECELL_LIBRARY_INFO,
         }
@@ -269,7 +273,9 @@ rule cellranger_barcode_info:
         'docker://' + config['docker']['default']
     params:
         script = src_gcf('scripts/cellranger_barcode_info.py'),
-        aggregated = '--aggregated' if AGGR_METHOD == 'cellranger' else ''
+        aggregated = '--aggregated' if AGGR_METHOD == 'cellranger' else '',
+        source_barcodes = lambda wc, input: '--source-barcodes ' + ' '.join(input.source_barcodes)
+            if AGGR_METHOD == 'cellranger' else ''
     shell:
         'python {params.script} '
         '--aggr-csv {input.aggr_csv} '
@@ -277,6 +283,7 @@ rule cellranger_barcode_info:
         '--sample-info {input.sample_info} '
         '--library-info {input.library_info} '
         '{params.aggregated} '
+        '{params.source_barcodes} '
         '--output {output} '
 
 if not PREPROCESS_ENABLED:
