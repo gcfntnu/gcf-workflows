@@ -156,6 +156,35 @@ if not config['quant']['aggregate'].get('skip', False):
                 f"Sample '{sample_id}' is missing groupby key '{groupby}' in config['samples']"
             )
 
+    sample_order = {sample_id: i for i, sample_id in enumerate(SAMPLES)}
+    for aggr_id, library_ids in AGGR_IDS.items():
+        expected = sorted(library_ids, key=sample_order.__getitem__)
+        if library_ids != expected:
+            raise ValueError(
+                f"Aggregation {aggr_id!r} does not preserve workflow library order: "
+                f"{library_ids} != {expected}"
+            )
+
+
+def aggr_library_order_csv(aggr_id):
+    return join(QUANT_INTERIM, 'aggregate', 'description', f'{aggr_id}_library_order.csv')
+
+
+rule aggr_library_order:
+    output:
+        aggr_library_order_csv('{aggr_id}')
+    params:
+        script = src_gcf('quant/scripts/write_aggr_order.py'),
+        library_ids = lambda wc: ' '.join(AGGR_IDS[wc.aggr_id])
+    wildcard_constraints:
+        aggr_id = '|'.join(AGGR_IDS)
+    container:
+        'docker://' + config['docker']['default']
+    shell:
+        'python {params.script} '
+        '--library-ids {params.library_ids} '
+        '--output {output} '
+
 
 def barcode_aggr_args(wildcards):
     sample_ids = ','.join(get_processing_samples(wildcards.method, wildcards.aggr_id))
@@ -165,6 +194,8 @@ def barcode_aggr_args(wildcards):
 
     if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger':
         args += '--aggr-csv ' + join(QUANT_INTERIM, 'aggregate', 'description', f'{wildcards.aggr_id}_aggr.csv')
+    elif wildcards.method == '10x_starsolo':
+        args += '--aggr-csv ' + aggr_library_order_csv(wildcards.aggr_id)
 
     return args
 
@@ -403,6 +434,8 @@ def scanpy_aggr_inputs(wc):
 
     if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger':
         output['aggr_csv'] = join(QUANT_INTERIM, 'aggregate', 'description', f'{wc.aggr_id}_aggr.csv')
+    elif wc.method == '10x_starsolo':
+        output['aggr_csv'] = aggr_library_order_csv(wc.aggr_id)
 
     return output
 
@@ -467,6 +500,8 @@ def scanpy_aggr_format(wc):
 def scanpy_aggr_csv(wc):
     if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger':
         return f'--aggr-csv {join(QUANT_INTERIM, "aggregate", "description", wc.aggr_id + "_aggr.csv")}'
+    if wc.method == '10x_starsolo':
+        return f'--aggr-csv {aggr_library_order_csv(wc.aggr_id)}'
     return ''
 
 
