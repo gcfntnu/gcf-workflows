@@ -156,7 +156,10 @@ def candidate_summary_metrics(
             float(graph_metrics["largest_component_fraction"].max()),
         )
 
-    medoids = clustering_metrics.loc[clustering_metrics.get("is_medoid_seed", False).astype(bool)].copy()
+    if "is_medoid_seed" not in clustering_metrics.columns:
+        raise KeyError("Clustering metrics are missing required column 'is_medoid_seed'")
+
+    medoids = clustering_metrics.loc[clustering_metrics["is_medoid_seed"].astype(bool)].copy()
     if not medoids.empty and "stability_ari" in medoids.columns:
         scalar_metric(rows, "clustering_grid", "medoid_stability_ari_min", float(medoids["stability_ari"].min()))
         scalar_metric(rows, "clustering_grid", "medoid_stability_ari_median", float(medoids["stability_ari"].median()))
