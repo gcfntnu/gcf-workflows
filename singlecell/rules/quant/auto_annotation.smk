@@ -108,7 +108,7 @@ def annotation_input_format(wildcards):
     return QUANT_INPUT_FORMAT.get(wildcards.method, wildcards.method)
 
 def annotation_input_barcode_rename(wildcards):
-    if wildcards.method in {'10x_starsolo', 'cellranger'} or wildcards.method in PARSEBIO_STARSOLO_MODES:
+    if wildcards.method in {'10x_starsolo', 'cellranger', 'splitpipe'} or wildcards.method in PARSEBIO_STARSOLO_MODES:
         return 'skip'
     return BC_RENAME[wildcards.method]
 
