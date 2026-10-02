@@ -368,6 +368,37 @@ def validate_canonical_barcodes(data, barcode_info, *, source: str):
     return data
 
 
+def validate_canonical_barcode_subset(data, barcode_info, *, key: str, value: str, source: str):
+    """Validate one already-canonical matrix against the matching subset of primary barcode_info."""
+    mapping = primary_barcode_mapping(barcode_info, source=source)
+    if key not in mapping.columns:
+        raise ValueError(f"{source} primary barcode_info is missing subset key {key!r}")
+
+    values = mapping[key].astype(str)
+    subset = mapping.loc[values == str(value)]
+    if subset.empty:
+        raise ValueError(f"{source}: no barcode_info rows found for {key}={value!r}")
+
+    observed = pd.Index(data.obs_names.astype(str), name="barcode")
+    expected = pd.Index(subset.index.astype(str), name="barcode")
+
+    if not observed.is_unique:
+        duplicates = observed[observed.duplicated()].unique().tolist()
+        raise ValueError(f"{source} matrix contains duplicate barcodes: {duplicates[:10]}")
+
+    missing = observed.difference(expected)
+    extra = expected.difference(observed)
+    if len(missing) or len(extra):
+        raise ValueError(
+            f"{source} canonical barcode mismatch for {key}={value!r}: "
+            f"{len(missing)} matrix barcode(s) absent from barcode_info and "
+            f"{len(extra)} barcode_info barcode(s) absent from matrix. "
+            f"Missing examples: {missing[:5].tolist()}; extra examples: {extra[:5].tolist()}"
+        )
+
+    return data
+
+
 def barcode_postfix_type(barcodes):
     """
     Determine the barcode postfix scheme for a collection of barcodes.
@@ -1163,14 +1194,24 @@ def read_starsolo(fn, args, **kw):
 
     
     
-    library_id = os.path.normpath(fn).split(os.path.sep)[-5]  # library_id
+    input_id = os.path.normpath(fn).split(os.path.sep)[-5]
     if args.input_format == "10x_starsolo":
         data = canonicalize_10x_library_barcodes(
-            data, library_id, args.barcode_info, source="10x STARsolo"
+            data, input_id, args.barcode_info, source="10x STARsolo"
         )
+    elif args.input_format == "parsebio_starsolo":
+        barcode_rename = kw.get("barcode_rename", args.barcode_rename)
+        if barcode_rename == "skip":
+            data = validate_canonical_barcode_subset(
+                data, args.barcode_info, key="Sample_ID", value=input_id, source="Parse STARsolo"
+            )
+        else:
+            data = barcode_index_rename(
+                data, barcode_rename=barcode_rename, sample_id=input_id, aggr_csv=args.aggr_csv
+            )
     else:
         barcode_rename = kw.get("barcode_rename", args.barcode_rename)
-        data = barcode_index_rename(data, barcode_rename=barcode_rename, sample_id=library_id, aggr_csv=args.aggr_csv)
+        data = barcode_index_rename(data, barcode_rename=barcode_rename, sample_id=input_id, aggr_csv=args.aggr_csv)
 
     return data
 
@@ -1445,7 +1486,13 @@ def read_splitpipe(fn, args, **kw):
                 )
 
     barcode_rename = kw.get("barcode_rename", args.barcode_rename)
-    data = barcode_index_rename(data, barcode_rename=barcode_rename, aggr_csv=args.aggr_csv)
+    if barcode_rename == "skip":
+        sample_id = os.path.basename(os.path.dirname(dir_name))
+        data = validate_canonical_barcode_subset(
+            data, args.barcode_info, key="Sample_ID", value=sample_id, source="Split-pipe"
+        )
+    else:
+        data = barcode_index_rename(data, barcode_rename=barcode_rename, aggr_csv=args.aggr_csv)
 
     if "gene_id" in data.var.columns and data.var.index.name == "gene_name":
         data.var["gene_name"] = data.var_names.copy()
