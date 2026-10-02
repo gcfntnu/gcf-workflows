@@ -327,6 +327,47 @@ def canonicalize_10x_starsolo_barcodes(data, library_id, barcode_info):
     return data
 
 
+def primary_barcode_mapping(barcode_info, *, source: str) -> pd.DataFrame:
+    """Return the single primary barcode identity table from a barcode-info collection."""
+    if not barcode_info:
+        raise ValueError(f"{source} requires primary barcode_info")
+
+    candidates = [
+        frame for frame in barcode_info
+        if frame is not None and {"source_barcode", "library_id", "Sample_ID"}.issubset(frame.columns)
+    ]
+    if len(candidates) != 1:
+        raise ValueError(
+            f"{source} requires exactly one primary barcode_info table containing "
+            f"source_barcode, library_id and Sample_ID; found {len(candidates)}"
+        )
+
+    return candidates[0]
+
+
+def validate_canonical_barcodes(data, barcode_info, *, source: str):
+    """Validate that an already-aggregated matrix uses exactly the canonical barcode namespace."""
+    mapping = primary_barcode_mapping(barcode_info, source=source)
+    observed = pd.Index(data.obs_names.astype(str), name="barcode")
+    expected = pd.Index(mapping.index.astype(str), name="barcode")
+
+    if not observed.is_unique:
+        duplicates = observed[observed.duplicated()].unique().tolist()
+        raise ValueError(f"{source} matrix contains duplicate barcodes: {duplicates[:10]}")
+
+    missing = observed.difference(expected)
+    extra = expected.difference(observed)
+    if len(missing) or len(extra):
+        raise ValueError(
+            f"{source} canonical barcode mismatch: "
+            f"{len(missing)} matrix barcode(s) absent from barcode_info and "
+            f"{len(extra)} barcode_info barcode(s) absent from matrix. "
+            f"Missing examples: {missing[:5].tolist()}; extra examples: {extra[:5].tolist()}"
+        )
+
+    return data
+
+
 def barcode_postfix_type(barcodes):
     """
     Determine the barcode postfix scheme for a collection of barcodes.
@@ -819,12 +860,7 @@ def read_cellranger_aggr(fn, args):
         AnnData object containing the cellranger-aggr data.
     """
     data = read_cellranger(fn, args, add_sample_id=False, barcode_rename="skip")
-    sample_map = dict((str(i + 1), n) for i, n in enumerate(args.aggr_csv.iloc[:, 0]))
-    postfix_numerical = [i.split("-")[1] for i in data.obs_names]
-    samples = [sample_map[i] for i in postfix_numerical]
-    data.obs["sample_id"] = samples
-    data = barcode_index_rename(data, barcode_rename=args.barcode_rename, sample_id=None, aggr_csv=args.aggr_csv)
-    return data
+    return validate_canonical_barcodes(data, args.barcode_info, source="Cell Ranger aggr")
 
 def read_velocyto_loom(fn, args, **kw):
     """
