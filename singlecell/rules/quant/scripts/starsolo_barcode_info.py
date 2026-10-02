@@ -17,18 +17,33 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--barcodes", nargs="+", required=True)
     parser.add_argument("--aggr-csv", required=True)
+    parser.add_argument("--sample-info", required=True)
+    parser.add_argument("--library-info", required=True)
     parser.add_argument("--output", required=True)
     return parser.parse_args()
 
 
+def read_entity_table(path: str, key: str) -> pd.DataFrame:
+    frame = pd.read_csv(path, sep="\t", dtype=str)
+    if key not in frame.columns:
+        raise ValueError(f"{path} is missing required column {key!r}")
+
+    frame[key] = frame[key].astype(str).str.strip()
+    if frame[key].eq("").any():
+        raise ValueError(f"{path}: {key} contains empty values")
+    if frame[key].duplicated().any():
+        duplicates = frame.loc[frame[key].duplicated(keep=False), key].unique().tolist()
+        raise ValueError(f"{path}: duplicate {key} values. Examples: {duplicates[:5]}")
+
+    return frame.set_index(key, drop=False)
+
+
 def barcode_core(barcode: str) -> str:
-    """Remove an existing numeric GEM-group suffix from a 10x barcode."""
     match = _BARCODE_SUFFIX_RE.match(barcode)
     return match.group(1) if match else barcode
 
 
 def read_library_order(path: str) -> list[str]:
-    """Read and validate the ordered library IDs for one aggregation."""
     aggr = pd.read_csv(path, dtype=str)
     if "sample_id" not in aggr.columns:
         raise ValueError(f"{path} is missing required column 'sample_id'")
@@ -44,9 +59,39 @@ def read_library_order(path: str) -> list[str]:
     return library_ids
 
 
+def library_sample_map(library_ids: list[str], sample_info: pd.DataFrame, library_info: pd.DataFrame) -> dict[str, str]:
+    explicit = {}
+    if "Sample_ID" in library_info.columns:
+        explicit = library_info["Sample_ID"].dropna().astype(str).str.strip().to_dict()
+
+    resolved = {}
+    for library_id in library_ids:
+        if library_id not in library_info.index:
+            raise ValueError(f"Library {library_id!r} is missing from library_info")
+
+        sample_id = explicit.get(library_id, "")
+        if not sample_id:
+            if library_id not in sample_info.index:
+                raise ValueError(
+                    f"Cannot resolve Sample_ID for library {library_id!r}: library_info has no Sample_ID mapping "
+                    "and the library ID is not a Sample_ID in sample_info"
+                )
+            sample_id = library_id
+
+        if sample_id not in sample_info.index:
+            raise ValueError(f"Library {library_id!r} resolves to unknown Sample_ID {sample_id!r}")
+        resolved[library_id] = sample_id
+
+    return resolved
+
+
 def main() -> int:
     args = parse_args()
+
     library_ids = read_library_order(args.aggr_csv)
+    sample_info = read_entity_table(args.sample_info, "Sample_ID")
+    library_info = read_entity_table(args.library_info, "library_id")
+    sample_by_library = library_sample_map(library_ids, sample_info, library_info)
 
     if len(args.barcodes) != len(library_ids):
         raise ValueError("--barcodes and aggregation CSV must describe the same number of libraries")
@@ -61,9 +106,7 @@ def main() -> int:
                 "barcode": canonical,
                 "source_barcode": source,
                 "library_id": library_id,
-                # Legacy 10x configs use the same identifier for technical library and biological sample.
-                # Future explicit libraries may resolve Sample_ID differently upstream.
-                "Sample_ID": library_id,
+                "Sample_ID": sample_by_library[library_id],
             }
         ).set_index("barcode")
 
