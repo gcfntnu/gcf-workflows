@@ -232,11 +232,20 @@ def main() -> int:
 
     # Preserve original raw quantifier counts independently of the representation selected for analysis.
     original_counts = adata.X.copy()
-    adata.layers.clear(keep_x=True)
+    source_layers = {str(key): value.copy() for key, value in adata.layers.items() if key is not None}
+
+    adata.layers.clear(keep_x=False)
     adata.layers["counts"] = original_counts
 
     if counts_source != "X":
         adata.layers["denoised_counts"] = counts.copy()
+
+    for key, value in source_layers.items():
+        if key == counts_source:
+            continue
+        if key in {"counts", "denoised_counts"}:
+            raise ValueError(f"Filtered AnnData layer name {key!r} conflicts with canonical preprocessing layer semantics")
+        adata.layers[key] = value
 
     normalization = expression_cfg["normalization"]
     adata.X = normalize_expression(
@@ -346,6 +355,9 @@ def main() -> int:
             "counts": "original raw quantifier counts",
             "counts_source": counts_source,
             "denoised_counts_present": "denoised_counts" in adata.layers,
+            "preserved_count_layers": [
+                key for key in adata.layers.keys() if key not in {"counts", "denoised_counts"}
+            ],
             "normalization": normalization,
         },
         "representation": representation_metadata,
