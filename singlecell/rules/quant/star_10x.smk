@@ -207,6 +207,8 @@ rule starsolo_mtx_v2_fix:
 rule starsolo_barcode_info:
     input:
         aggr_csv = lambda wc: aggr_library_order_csv(wc.aggr_id),
+        sample_info = SINGLECELL_SAMPLE_INFO,
+        library_info = SINGLECELL_LIBRARY_INFO,
         barcodes = lambda wc: expand(
             join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, 'filtered', 'barcodes.tsv'),
             sample=AGGR_IDS[wc.aggr_id],
@@ -221,6 +223,8 @@ rule starsolo_barcode_info:
         'python {params.script} '
         '--barcodes {input.barcodes} '
         '--aggr-csv {input.aggr_csv} '
+        '--sample-info {input.sample_info} '
+        '--library-info {input.library_info} '
         '--output {output} '
 
 if STARSOLO_OUTPUT_BAM:
