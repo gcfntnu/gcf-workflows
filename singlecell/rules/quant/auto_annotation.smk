@@ -112,6 +112,8 @@ def annotation_input_format(wildcards):
 def annotation_input_barcode_rename(wildcards):
     if wildcards.method == '10x_starsolo' or wildcards.method in PARSEBIO_STARSOLO_MODES:
         return 'skip'
+    if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger':
+        return 'skip'
     return BC_RENAME[wildcards.method]
 
 def annotation_input_gene_map_arg(wildcards, input):
@@ -127,7 +129,9 @@ def annotation_input_aggr_csv_arg(wildcards, input):
 
 
 def annotation_input_barcode_info_arg(wildcards, input):
-    if wildcards.method == '10x_starsolo':
+    if wildcards.method == '10x_starsolo' or (
+        wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger'
+    ):
         return '--barcode-info ' + ' '.join(input.barcode_info) + ' '
     return ''
 
