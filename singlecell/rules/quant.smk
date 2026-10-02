@@ -533,7 +533,7 @@ SCANPY_AGGR_SHELL = (
 
 
 def scanpy_aggr_barcode_rename(wc):
-    if wc.method in {'10x_starsolo', 'cellranger'} or wc.method in PARSEBIO_STARSOLO_MODES:
+    if wc.method in {'10x_starsolo', 'cellranger', 'splitpipe'} or wc.method in PARSEBIO_STARSOLO_MODES:
         return 'skip'
     return BC_RENAME[wc.method]
 
