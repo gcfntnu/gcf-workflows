@@ -194,8 +194,6 @@ def barcode_aggr_args(wildcards):
 
     if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger':
         args += '--aggr-csv ' + join(QUANT_INTERIM, 'aggregate', 'description', f'{wildcards.aggr_id}_aggr.csv')
-    elif wildcards.method == '10x_starsolo':
-        args += '--aggr-csv ' + aggr_library_order_csv(wildcards.aggr_id)
 
     return args
 
