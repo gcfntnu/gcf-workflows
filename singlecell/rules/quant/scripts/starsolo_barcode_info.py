@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build canonical barcode metadata for aggregated 10x STARsolo libraries."""
+"""Build canonical barcode identity metadata for aggregated 10x STARsolo libraries."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ import re
 from pathlib import Path
 
 import pandas as pd
-import yaml
 
 
 _BARCODE_SUFFIX_RE = re.compile(r"^(.*?)-(\d+)$")
@@ -18,7 +17,6 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--barcodes", nargs="+", required=True)
     parser.add_argument("--aggr-csv", required=True)
-    parser.add_argument("--configfile", required=True)
     parser.add_argument("--output", required=True)
     return parser.parse_args()
 
@@ -29,71 +27,56 @@ def barcode_core(barcode: str) -> str:
     return match.group(1) if match else barcode
 
 
-def read_sample_metadata(path: str) -> pd.DataFrame:
-    """Read sample metadata from the workflow config."""
-    with open(path) as handle:
-        config = yaml.safe_load(handle) or {}
+def read_library_order(path: str) -> list[str]:
+    """Read and validate the ordered library IDs for one aggregation."""
+    aggr = pd.read_csv(path, dtype=str)
+    if "sample_id" not in aggr.columns:
+        raise ValueError(f"{path} is missing required column 'sample_id'")
 
-    samples = config.get("samples")
-    if not isinstance(samples, dict):
-        raise ValueError("configfile must contain a mapping at top-level key 'samples'")
+    library_ids = aggr["sample_id"].astype(str).str.strip().tolist()
+    if not library_ids:
+        raise ValueError(f"{path} contains no libraries")
+    if any(not library_id for library_id in library_ids):
+        raise ValueError(f"{path} contains an empty sample_id")
+    if len(library_ids) != len(set(library_ids)):
+        raise ValueError(f"{path} contains duplicate sample_id values")
 
-    metadata = pd.DataFrame.from_dict(samples, orient="index")
-    metadata.index = metadata.index.astype(str)
-    metadata.index.name = "Sample_ID"
-    return metadata
+    return library_ids
 
 
 def main() -> int:
     args = parse_args()
+    library_ids = read_library_order(args.aggr_csv)
 
-    aggr = pd.read_csv(args.aggr_csv, dtype=str)
-    if "sample_id" not in aggr.columns:
-        raise ValueError(f"{args.aggr_csv} is missing required column 'sample_id'")
-
-    sample_ids = aggr["sample_id"].astype(str).str.strip().tolist()
-    if len(args.barcodes) != len(sample_ids):
+    if len(args.barcodes) != len(library_ids):
         raise ValueError("--barcodes and aggregation CSV must describe the same number of libraries")
-    if len(set(sample_ids)) != len(sample_ids):
-        raise ValueError("aggregation CSV contains duplicate sample_id values")
-
-    metadata = read_sample_metadata(args.configfile)
-    missing = [sample_id for sample_id in sample_ids if sample_id not in metadata.index]
-    if missing:
-        raise ValueError(f"Samples missing from config['samples']: {missing}")
 
     frames = []
-    for library_idx, (sample_id, barcode_path) in enumerate(zip(sample_ids, args.barcodes), 1):
-        raw = pd.read_csv(barcode_path, sep="\t", header=None, usecols=[0], dtype=str)[0]
-        cores = raw.map(barcode_core)
-        canonical = cores.map(lambda barcode: f"{barcode}-{library_idx}")
+    for library_idx, (library_id, barcode_path) in enumerate(zip(library_ids, args.barcodes), start=1):
+        source = pd.read_csv(barcode_path, sep="\t", header=None, usecols=[0], dtype=str)[0].astype(str)
+        canonical = source.map(barcode_core).map(lambda barcode: f"{barcode}-{library_idx}")
 
         frame = pd.DataFrame(
             {
                 "barcode": canonical,
-                "library_id": sample_id,
-                "library_idx": library_idx,
-                "barcode_core": cores,
+                "source_barcode": source,
+                "library_id": library_id,
+                # Legacy 10x configs use the same identifier for technical library and biological sample.
+                # Future explicit libraries may resolve Sample_ID differently upstream.
+                "Sample_ID": library_id,
             }
         ).set_index("barcode")
 
-        sample_meta = metadata.loc[sample_id]
-        for column, value in sample_meta.items():
-            if column in frame.columns:
-                if not frame[column].eq(value).all():
-                    raise ValueError(f"Conflicting metadata column {column!r} for sample {sample_id!r}")
-                continue
-            frame[column] = value
-
-        if "Sample_ID" not in frame.columns:
-            frame["Sample_ID"] = sample_id
+        if not frame.index.is_unique:
+            duplicates = frame.index[frame.index.duplicated()].unique().tolist()
+            raise ValueError(f"Duplicate canonical barcodes within library {library_id!r}: {duplicates[:10]}")
 
         frames.append(frame)
 
     output = pd.concat(frames, axis=0)
     if not output.index.is_unique:
         duplicates = output.index[output.index.duplicated()].unique().tolist()
-        raise ValueError(f"Duplicate canonical barcodes: {duplicates[:10]}")
+        raise ValueError(f"Duplicate canonical barcodes across libraries: {duplicates[:10]}")
 
     output.index.name = "barcode"
     output_path = Path(args.output)
