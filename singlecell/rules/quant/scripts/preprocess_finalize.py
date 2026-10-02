@@ -308,7 +308,8 @@ def main() -> int:
         "graph_selection": graph_selection,
         "representation_metadata": representation_metadata,
         "embedding_metadata": embedding_metadata,
-        "diagnostics_metrics": diagnostics.to_dict("records"),
+        "diagnostics_metrics_format": "json_records",
+        "diagnostics_metrics_json": diagnostics.to_json(orient="records"),
         "metadata_config": metadata_cfg,
         "execution": execution_cfg,
     }
