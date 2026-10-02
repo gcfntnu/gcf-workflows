@@ -61,6 +61,7 @@ def main():
 
     out = pd.DataFrame({
         "barcode": data["bc_wells"],
+        "source_barcode": data["bc_wells"].str.replace(r"__s\d+$", "", regex=True),
         "Sample_ID": data["sample"],
         "library_id": library_idx.map(libraries),
     })
