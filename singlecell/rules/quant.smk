@@ -119,6 +119,29 @@ if isinstance(PSEUDOBULK_ANNOTATION_COLUMNS, str):
 PREPROCESS_CFG = config.get('preprocessing', {})
 PREPROCESS_ENABLED = PREPROCESS_CFG.get('enabled', False)
 
+SINGLECELL_METADATA_DIR = join(QUANT_INTERIM, 'metadata')
+SINGLECELL_SAMPLE_INFO = join(SINGLECELL_METADATA_DIR, 'sample_info.tsv')
+SINGLECELL_LIBRARY_INFO = join(SINGLECELL_METADATA_DIR, 'library_info.tsv')
+
+
+rule singlecell_metadata_tables:
+    input:
+        config = workflow.configfiles[0]
+    output:
+        sample_info = SINGLECELL_SAMPLE_INFO,
+        library_info = SINGLECELL_LIBRARY_INFO
+    params:
+        script = src_gcf('quant/scripts/create_metadata_tables.py')
+    threads:
+        1
+    container:
+        'docker://' + config['docker']['default']
+    shell:
+        'python {params.script} '
+        '--configfile {input.config} '
+        '--sample-info {output.sample_info} '
+        '--library-info {output.library_info} '
+
 
 if not config['quant']['aggregate'].get('skip', False):
     groupby = config['quant']['aggregate'].get('groupby', 'all_samples')
@@ -369,6 +392,8 @@ def scanpy_aggr_inputs(wc):
 
     output = {
         'inputs': inputs,
+        'sample_info': SINGLECELL_SAMPLE_INFO,
+        'library_info': SINGLECELL_LIBRARY_INFO,
         'feature_info': get_feature_info_list(wc),
         'barcode_info': get_barcode_info_list(wc),
     }
@@ -452,6 +477,8 @@ SCANPY_AGGR_SHELL = (
     '--barcode-rename {params.bc_type} '
     '--feature-info {input.feature_info} '
     '--barcode-info {input.barcode_info} '
+    '--sample-info {input.sample_info} '
+    '--library-info {input.library_info} '
     '{params.aggr_csv} '
     '-o {output} '
     '-F anndata '
