@@ -122,13 +122,18 @@ def _entity_info_reader(fn, key, blacklist=()):
     fn = pathlib.Path(fn)
     df = pd.read_csv(fn, sep="\t")
 
-    cols_lower = {column.lower(): column for column in df.columns}
-    key_lower = key.lower()
-    if key_lower not in cols_lower:
-        raise ValueError(f"{fn} is missing required column {key!r}")
+    if key in df.columns:
+        source_key = key
+    else:
+        matches = [column for column in df.columns if column.lower() == key.lower()]
+        if not matches:
+            raise ValueError(f"{fn} is missing required column {key!r}")
+        if len(matches) > 1:
+            raise ValueError(
+                f"{fn}: multiple columns match required key {key!r} case-insensitively: {matches}"
+            )
 
-    source_key = cols_lower[key_lower]
-    if source_key != key:
+        source_key = matches[0]
         df.rename(columns={source_key: key}, inplace=True)
 
     df[key] = df[key].astype(str).str.strip()
