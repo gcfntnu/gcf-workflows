@@ -682,7 +682,6 @@ rule parsebio_starsolo_barcode_info_aggr:
     shell:
         'python {params.script} '
         '{input} '
-        '--barcode-rename none '
         '--output {output} '
 
 
