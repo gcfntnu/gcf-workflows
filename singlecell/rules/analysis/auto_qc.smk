@@ -103,7 +103,7 @@ def _qc_prepare_input_format(wc):
 
 
 def _qc_prepare_barcode_rename(wc):
-    if wc.method in PARSEBIO_STARSOLO_MODES:
+    if wc.method == '10x_starsolo' or wc.method in PARSEBIO_STARSOLO_MODES:
         return 'skip'
     return BC_RENAME[wc.method]
 
