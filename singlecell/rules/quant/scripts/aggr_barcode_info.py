@@ -4,29 +4,6 @@
 Inputs may either already use canonical barcode indices, or be mapped explicitly through a primary
 barcode_info.tsv using (library_id, source_barcode) -> barcode.
 """
-Aggregate per-library barcode annotation tables.
-
-Each input table is paired explicitly with a sample ID through ``--sample-id``.
-
-Barcode renaming modes:
-
-``numerical``
-    For Cell Ranger aggregation, when ``--aggr-csv`` is supplied, the barcode
-    suffix is the 1-based row number of the corresponding sample in the exact
-    Cell Ranger aggregation CSV.
-
-    Without ``--aggr-csv``, the barcode suffix is the 1-based position of the
-    sample in ``--sample-id``. This is intended for 10x data quantified with
-    methods such as STARsolo, where the numerical suffix only needs to be
-    unique and deterministic across libraries.
-
-``parsebio``
-    The numerical suffix of the supplied sublibrary ID is used to construct
-    the Split-pipe-compatible ``__sN`` barcode suffix.
-
-``none``
-    Barcodes are left unchanged.
-"""
 
 from __future__ import annotations
 
