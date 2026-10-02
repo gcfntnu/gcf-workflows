@@ -111,30 +111,39 @@ def setup_logging(verbose: bool = False,
         logging.getLogger("numba").setLevel(logging.WARNING)
 
 
-def _sample_info_reader(fn):
-    """
-    Read sample information from a file.
-
-    Parameters
-    ----------
-    fn : str or pathlib.Path
-        Path to the sample information file.
-
-    Returns
-    -------
-    pd.DataFrame
-        DataFrame containing sample information.
-    """
+def _entity_info_reader(fn, key, blacklist=()):
+    """Read entity-level metadata with a strict unique key."""
     fn = pathlib.Path(fn)
-    sample_info = pd.read_csv(fn, sep="\t")
-    if "Sample_ID" not in sample_info.columns:
-        raise ValueError("sample_sheet needs a column called `Sample_ID`")
-    sample_info.rename(columns={"Sample_ID": "sample_id"}, inplace=True)
-    sample_info.set_index("sample_id", inplace=True)
-    sample_info.index = [str(i) for i in sample_info.index]
-    keep_cols = [i for i in sample_info.columns if i.lower() not in _SAMPLE_INFO_BLACKLIST]
-    sample_info = sample_info[keep_cols]
-    return sample_info
+    df = pd.read_csv(fn, sep="\t")
+
+    cols_lower = {column.lower(): column for column in df.columns}
+    key_lower = key.lower()
+    if key_lower not in cols_lower:
+        raise ValueError(f"{fn} is missing required column {key!r}")
+
+    source_key = cols_lower[key_lower]
+    if source_key != key:
+        df.rename(columns={source_key: key}, inplace=True)
+
+    df[key] = df[key].astype(str).str.strip()
+    if df[key].eq("").any():
+        raise ValueError(f"{fn}: {key} contains empty values")
+    if df[key].duplicated().any():
+        duplicates = df.loc[df[key].duplicated(keep=False), key].unique().tolist()
+        raise ValueError(f"{fn}: duplicate {key} values are not allowed. Examples: {duplicates[:5]}")
+
+    keep_cols = [column for column in df.columns if column == key or column.lower() not in blacklist]
+    df = df.loc[:, keep_cols].set_index(key, drop=True)
+    df.index.name = key
+    return df
+
+
+def _sample_info_reader(fn):
+    return _entity_info_reader(fn, "Sample_ID", _SAMPLE_INFO_BLACKLIST)
+
+
+def _library_info_reader(fn):
+    return _entity_info_reader(fn, "library_id", _SAMPLE_INFO_BLACKLIST)
 
 def _sniff_sep(path: pathlib.Path) -> str:
     try:
@@ -411,7 +420,9 @@ def create_parser():
     parser.add_argument("--aggr-csv", default=None, required=False, type=_aggr_csv_reader,
                         help="aggregation csv with header and two columns. First column is `sample_id` and second column is path to input file")
     parser.add_argument("--sample-info", default=None, required=False, type=_sample_info_reader,
-                        help="samplesheet info, tab seprated file assumes `Sample_ID` in header")
+                        help="sample-level metadata, tab separated with unique `Sample_ID`")
+    parser.add_argument("--library-info", default=None, required=False, type=_library_info_reader,
+                        help="library-level metadata, tab separated with unique `library_id`")
     parser.add_argument("--feature-info", nargs="*", required=False, type=_feature_info_reader,
                         help="extra feature info filename, tab seprated file assumes `gene_id` in header")
     parser.add_argument("--barcode-info", nargs="*", required=False, type=_barcode_info_reader,
@@ -1684,6 +1695,36 @@ def _drop_ci_identical_to_existing(new_df: pd.DataFrame, existing_df: pd.DataFra
     return new_df.drop(columns=to_drop) if to_drop else new_df
 
 
+def broadcast_entity_metadata(axis_df: pd.DataFrame, metadata: pd.DataFrame, key: str, source: str) -> pd.DataFrame:
+    """Broadcast entity-indexed metadata through an explicit key on an AnnData axis."""
+    if key not in axis_df.columns:
+        raise KeyError(f"Cannot broadcast {source}: destination axis is missing key {key!r}")
+    if not metadata.index.is_unique:
+        raise ValueError(f"Cannot broadcast {source}: metadata index {key!r} is not unique")
+
+    keys = axis_df[key].astype(str)
+    missing = sorted(set(keys.dropna()) - set(metadata.index.astype(str)))
+    if missing:
+        raise ValueError(f"{source}: {len(missing)} {key} value(s) are missing from metadata; examples: {missing[:5]}")
+
+    incoming = metadata.loc[keys].copy()
+    incoming.index = axis_df.index.copy()
+    incoming = _drop_ci_identical_to_existing(incoming, axis_df)
+
+    if incoming is None or incoming.empty:
+        return axis_df
+
+    overlap = {column.lower(): column for column in axis_df.columns}
+    conflicts = [column for column in incoming.columns if column.lower() in overlap]
+    if conflicts:
+        raise ValueError(
+            f"{source}: conflicting metadata column(s) after broadcast: {conflicts}. "
+            "Identical duplicates should have been removed before this check."
+        )
+
+    return axis_df.join(incoming, how="left", validate="one_to_one")
+
+
 def drop_ci_identical_same_name(df: pd.DataFrame) -> pd.DataFrame:
     """Drop columns that duplicate another column with the same name
     (case-insensitive) and identical values. Keeps the first occurrence."""
@@ -2255,31 +2296,6 @@ if __name__ == "__main__":
 
 
     # -------------------------
-    # Merge sample_info (optional)
-    # -------------------------
-    if args.sample_info is not None:
-        logger.info("Merging sample_info into .obs ...")
-        prev_cols = set(data.obs.columns)
-        sample_id_key = "sample_id" if "sample_id" in data.obs.columns else "sublib"
-        sample_ids = [str(i) for i in data.obs[sample_id_key]]
-        lib_ids = pd.unique(sample_ids)
-        for l in lib_ids:
-            if l not in args.sample_info.index:
-                raise ValueError(f"Library `{l}` not present in sample_info")
-
-        obs = args.sample_info.loc[sample_ids, :]
-        obs.index = data.obs.index.copy()
-
-        logger.info(f"Adding {obs.shape[1]} meta columns to .obs (had {len(prev_cols)} columns)")
-        data.obs = data.obs.merge(
-            obs, how="left", left_index=True, right_index=True,
-            suffixes=("", "_sample_info"), validate="one_to_one"
-        )
-        added = [c for c in data.obs.columns if c not in prev_cols]
-        if added:
-            logger.info(f"Added columns to .obs: {', '.join(added)}")
-
-    # -------------------------
     # Merge feature_info (optional)
     # -------------------------
     if isinstance(args.feature_info, pd.DataFrame):
@@ -2375,6 +2391,17 @@ if __name__ == "__main__":
                 
         data.obs = drop_ci_identical_same_name(data.obs)
         data.obs = anndata_friendly_dtypes(data.obs, protect_cols=("barcode","cell_barcode", "stype"), allow_string_dtype=False)
+
+    # -------------------------
+    # Broadcast entity-level metadata onto .obs
+    # -------------------------
+    if args.sample_info is not None:
+        logger.info("Broadcasting sample_info onto .obs through Sample_ID ...")
+        data.obs = broadcast_entity_metadata(data.obs, args.sample_info, "Sample_ID", "sample_info")
+
+    if args.library_info is not None:
+        logger.info("Broadcasting library_info onto .obs through library_id ...")
+        data.obs = broadcast_entity_metadata(data.obs, args.library_info, "library_id", "library_info")
 
     # -------------------------
     # Drop blacklisted feature-info columns (case-insensitive)
