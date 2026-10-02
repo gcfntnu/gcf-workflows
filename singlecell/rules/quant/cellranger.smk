@@ -235,22 +235,25 @@ rule cellranger_aggr_bam:
 
 rule cellranger_barcode_info:
     input:
-        aggr_csv = join(QUANT_INTERIM, 'aggregate', 'description', 'all_samples_aggr.csv'),
-        barcodes = expand(join(CR_INTERIM, '{sample}', 'outs', 'filtered_feature_bc_matrix', 'barcodes.tsv.gz'),
-                          sample=SAMPLES
-                          )
+        aggr_csv = join(QUANT_INTERIM, 'aggregate', 'description', '{aggr_id}_aggr.csv'),
+        sample_info = SINGLECELL_SAMPLE_INFO,
+        library_info = SINGLECELL_LIBRARY_INFO,
+        barcodes = lambda wc: expand(
+            join(CR_INTERIM, '{sample}', 'outs', 'filtered_feature_bc_matrix', 'barcodes.tsv.gz'),
+            sample=AGGR_IDS[wc.aggr_id],
+        )
     output:
-        join(QUANT_INTERIM, 'cellranger', 'barcode_info.tsv')
+        join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}_barcode_info.tsv')
     container:
         'docker://' + config['docker']['default']
     params:
-        script = src_gcf('scripts/cellranger_barcode_info.py'),
-        config = workflow.configfiles[0]
+        script = src_gcf('scripts/cellranger_barcode_info.py')
     shell:
         'python {params.script} '
         '--aggr-csv {input.aggr_csv} '
         '--barcodes {input.barcodes} '
-        '--configfile {params.config} '
+        '--sample-info {input.sample_info} '
+        '--library-info {input.library_info} '
         '--output {output} '
 
 if not PREPROCESS_ENABLED:
