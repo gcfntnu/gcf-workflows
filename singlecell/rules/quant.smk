@@ -159,7 +159,8 @@ if not config['quant']['aggregate'].get('skip', False):
 
 def barcode_aggr_args(wildcards):
     sample_ids = ','.join(get_processing_samples(wildcards.method, wildcards.aggr_id))
-    barcode_rename = 'none' if wildcards.method in PARSEBIO_STARSOLO_MODES else BC_RENAME[wildcards.method]
+    barcode_rename = 'none' if wildcards.method == 'splitpipe' or wildcards.method in PARSEBIO_STARSOLO_MODES \
+        else BC_RENAME[wildcards.method]
     args = f'--barcode-rename {barcode_rename} --sample-id {sample_ids} '
 
     if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger':
