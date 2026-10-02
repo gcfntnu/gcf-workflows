@@ -460,6 +460,8 @@ def create_parser():
                         help="barcode cell identification strategy")
     parser.add_argument("--barcode-rename", default="numerical", choices=["numerical", "sample_id", "trim", "parsebio", "skip"],
                         help="barcode postfix naming strategy")
+    parser.add_argument("--use-velo", action="store_true",
+                        help="load STARsolo/split-pipe velocity matrices when available")
     parser.add_argument("--enable-cellbender", action="store_true",
                         help="Use CellBender outputs instead of raw count matrices for the chosen format.",
                         )
@@ -564,7 +566,7 @@ def filter_input_by_csv(input_files, aggr_df, verbose=False):
             if patt in str(pth):
                 filtered_input.append(pth)
             else:
-                logger.debug(pth, sample_id)
+                logger.debug("Input %s does not match aggregation library %s", pth, sample_id)
     if verbose:
         logger.debug("Total input: {}".format(len(input_files)))
         logger.debug("Filtered input: {}".format(len(filtered_input)))
@@ -2207,7 +2209,7 @@ if __name__ == "__main__":
     setup_logging(verbose=args.verbose)
     logger = logging.getLogger(__name__)
     logger.info("=== convert_scanpy.py starting ===")
-    _USE_VELO = _USE_VELO and "anndata" in args.output_format
+    _USE_VELO = args.use_velo and "anndata" in args.output_format
 
     # -------------------------
     # Filter inputs by aggr CSV (optional)
