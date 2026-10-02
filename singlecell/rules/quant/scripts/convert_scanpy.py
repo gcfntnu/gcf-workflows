@@ -1702,8 +1702,12 @@ def broadcast_entity_metadata(axis_df: pd.DataFrame, metadata: pd.DataFrame, key
     if not metadata.index.is_unique:
         raise ValueError(f"Cannot broadcast {source}: metadata index {key!r} is not unique")
 
+    if axis_df[key].isna().any():
+        n_missing = int(axis_df[key].isna().sum())
+        raise ValueError(f"Cannot broadcast {source}: destination key {key!r} has {n_missing} missing value(s)")
+
     keys = axis_df[key].astype(str)
-    missing = sorted(set(keys.dropna()) - set(metadata.index.astype(str)))
+    missing = sorted(set(keys) - set(metadata.index.astype(str)))
     if missing:
         raise ValueError(f"{source}: {len(missing)} {key} value(s) are missing from metadata; examples: {missing[:5]}")
 
