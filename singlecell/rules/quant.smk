@@ -188,7 +188,7 @@ rule aggr_library_order:
 
 def barcode_aggr_args(wildcards):
     if wildcards.method == 'splitpipe' or wildcards.method in PARSEBIO_STARSOLO_MODES:
-        return '--barcode-rename none '
+        return ''
 
     library_ids = ','.join(get_processing_samples(wildcards.method, wildcards.aggr_id))
     return f'--barcode-info {get_primary_barcode_info(wildcards)} --library-id {library_ids} '
