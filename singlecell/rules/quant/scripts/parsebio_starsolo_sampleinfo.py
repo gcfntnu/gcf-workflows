@@ -165,6 +165,7 @@ def main():
 
         row = {
             "barcode": barcode,
+            "source_barcode": re.sub(r"__s\d+$", "", barcode),
             "Sample_ID": sample_id,
             "library_id": libraries[library_idx],
             "splitpipe_barcode": splitpipe_barcode,
