@@ -235,27 +235,48 @@ rule cellranger_aggr_bam:
         'python {params.script} {input} {output}'
 
 
+def cellranger_barcode_info_inputs(wc):
+    if AGGR_METHOD == 'cellranger':
+        return {
+            'aggr_csv': join(QUANT_INTERIM, 'aggregate', 'description', f'{wc.aggr_id}_aggr.csv'),
+            'barcodes': [
+                join(
+                    QUANT_INTERIM, 'aggregate', 'cellranger', wc.aggr_id, 'outs', 'count',
+                    'filtered_feature_bc_matrix', 'barcodes.tsv.gz'
+                )
+            ],
+            'sample_info': SINGLECELL_SAMPLE_INFO,
+            'library_info': SINGLECELL_LIBRARY_INFO,
+        }
+
+    return {
+        'aggr_csv': aggr_library_order_csv(wc.aggr_id),
+        'barcodes': expand(
+            join(CR_INTERIM, '{sample}', 'outs', 'filtered_feature_bc_matrix', 'barcodes.tsv.gz'),
+            sample=AGGR_IDS[wc.aggr_id],
+        ),
+        'sample_info': SINGLECELL_SAMPLE_INFO,
+        'library_info': SINGLECELL_LIBRARY_INFO,
+    }
+
+
 rule cellranger_barcode_info:
     input:
-        aggr_csv = join(QUANT_INTERIM, 'aggregate', 'description', '{aggr_id}_aggr.csv'),
-        barcodes = join(
-            QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}', 'outs', 'count',
-            'filtered_feature_bc_matrix', 'barcodes.tsv.gz'
-        ),
-        sample_info = SINGLECELL_SAMPLE_INFO,
-        library_info = SINGLECELL_LIBRARY_INFO
+        unpack(cellranger_barcode_info_inputs)
     output:
         join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}_barcode_info.tsv')
     container:
         'docker://' + config['docker']['default']
     params:
-        script = src_gcf('scripts/cellranger_barcode_info.py')
+        script = src_gcf('scripts/cellranger_barcode_info.py'),
+        aggregated = '--aggregated' if AGGR_METHOD == 'cellranger' else ''
     shell:
         'python {params.script} '
         '--aggr-csv {input.aggr_csv} '
         '--barcodes {input.barcodes} '
         '--sample-info {input.sample_info} '
         '--library-info {input.library_info} '
+        '{params.aggregated} '
         '--output {output} '
 
 if not PREPROCESS_ENABLED:
