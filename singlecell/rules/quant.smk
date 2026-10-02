@@ -277,6 +277,8 @@ def get_barcode_info_list(wc, include_autoqc=True):
 
     if method in PARSEBIO_STARSOLO_MODES and aggr_id is not None:
         items = [join(QUANT_INTERIM, 'aggregate', method, f'{aggr_id}_barcode_info.tsv')]
+    elif method == 'splitpipe' and aggr_id is not None:
+        items = [join(QUANT_INTERIM, 'aggregate', method, f'{aggr_id}_barcode_info.tsv')]
     elif method == '10x_starsolo' and aggr_id is not None:
         items = [join(QUANT_INTERIM, method, f'{aggr_id}_barcode_info.tsv')]
     else:
