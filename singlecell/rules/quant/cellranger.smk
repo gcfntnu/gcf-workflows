@@ -238,12 +238,12 @@ rule cellranger_aggr_bam:
 rule cellranger_barcode_info:
     input:
         aggr_csv = join(QUANT_INTERIM, 'aggregate', 'description', '{aggr_id}_aggr.csv'),
+        barcodes = join(
+            QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}', 'outs', 'count',
+            'filtered_feature_bc_matrix', 'barcodes.tsv.gz'
+        ),
         sample_info = SINGLECELL_SAMPLE_INFO,
-        library_info = SINGLECELL_LIBRARY_INFO,
-        barcodes = lambda wc: expand(
-            join(CR_INTERIM, '{sample}', 'outs', 'filtered_feature_bc_matrix', 'barcodes.tsv.gz'),
-            sample=AGGR_IDS[wc.aggr_id],
-        )
+        library_info = SINGLECELL_LIBRARY_INFO
     output:
         join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}_barcode_info.tsv')
     container:
