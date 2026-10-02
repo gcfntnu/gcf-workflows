@@ -236,7 +236,7 @@ def compute_pca(work: ad.AnnData, cfg: dict) -> tuple[np.ndarray, np.ndarray, pd
     LOGGER.info("[pca] n_comps=%d random_state=%d", n_comps, random_state)
     rsc.pp.pca(pca_work, n_comps=n_comps, random_state=random_state)
 
-    rsc.get.anndata_to_CPU(pca_work)
+    rsc.get.anndata_to_CPU(pca_work, convert_all=True)
 
     pca = np.asarray(pca_work.obsm["X_pca"], dtype=np.float32)
     hvg_loadings = np.asarray(pca_work.varm["PCs"], dtype=np.float32)
