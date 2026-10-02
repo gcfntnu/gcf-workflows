@@ -178,40 +178,60 @@ def annotation_metrics(labels: np.ndarray, obs: pd.DataFrame, columns: list[str]
     return result
 
 
-def choose_canonical(clustering: pd.DataFrame, graphs: pd.DataFrame) -> dict:
-    """Choose deterministically from unsupervised stability and graph connectivity metrics."""
-    graph_lookup = graphs.set_index(["dimensions", "n_neighbors"])
-    candidates = []
+def choose_graph(clustering: pd.DataFrame, graphs: pd.DataFrame) -> dict:
+    """Choose graph parameters from stability summarized across the resolution grid."""
+    medoids = clustering.loc[clustering["is_medoid_seed"]].copy()
+    if medoids.empty:
+        raise ValueError("No medoid clustering candidates were available for graph selection")
 
-    for _, row in clustering.loc[clustering["is_medoid_seed"]].iterrows():
-        graph = graph_lookup.loc[(int(row["dimensions"]), int(row["n_neighbors"]))]
-        score = float(row["stability_ari"]) * float(graph["largest_component_fraction"])
-        candidates.append(
-            {
-                **row.to_dict(),
-                "largest_component_fraction": float(graph["largest_component_fraction"]),
-                "selection_score": score,
+    stability = (
+        medoids.groupby(["dimensions", "n_neighbors"], as_index=False)["stability_ari"]
+        .agg(["mean", "median", "min"])
+        .reset_index()
+        .rename(
+            columns={
+                "mean": "mean_resolution_stability_ari",
+                "median": "median_resolution_stability_ari",
+                "min": "min_resolution_stability_ari",
             }
         )
+    )
 
-    if not candidates:
-        raise ValueError("No graph/clustering candidates were available for canonical selection")
+    candidates = graphs.merge(stability, on=["dimensions", "n_neighbors"], how="left", validate="one_to_one")
+    if candidates["median_resolution_stability_ari"].isna().any():
+        raise ValueError("Graph candidates are missing clustering stability summaries")
 
-    ranked = pd.DataFrame(candidates).sort_values(
+    ranked = candidates.sort_values(
         [
-            "selection_score",
-            "stability_ari",
+            "median_resolution_stability_ari",
+            "mean_resolution_stability_ari",
+            "min_resolution_stability_ari",
             "largest_component_fraction",
             "dimensions",
             "n_neighbors",
-            "resolution",
-            "seed",
         ],
-        ascending=[False, False, False, True, True, True, True],
+        ascending=[False, False, False, False, True, True],
         kind="stable",
     )
-    selected = ranked.iloc[0].to_dict()
-    return selected
+    return ranked.iloc[0].to_dict()
+
+
+def choose_clustering(clustering: pd.DataFrame, graph: dict) -> dict:
+    """Choose one reproducible resolution/seed on an already selected graph."""
+    candidates = clustering.loc[
+        clustering["is_medoid_seed"]
+        & clustering["dimensions"].eq(int(graph["dimensions"]))
+        & clustering["n_neighbors"].eq(int(graph["n_neighbors"]))
+    ].copy()
+    if candidates.empty:
+        raise ValueError("Selected graph has no medoid clustering candidates")
+
+    ranked = candidates.sort_values(
+        ["stability_ari", "resolution", "seed"],
+        ascending=[False, True, True],
+        kind="stable",
+    )
+    return ranked.iloc[0].to_dict()
 
 
 def build_graph(
@@ -375,21 +395,26 @@ def main() -> int:
 
     graph_frame = pd.DataFrame(graph_rows)
     clustering_frame = pd.DataFrame(clustering_rows)
-    selected = choose_canonical(clustering_frame, graph_frame)
 
-    selected_dimensions = int(selected["dimensions"])
-    selected_neighbors = int(selected["n_neighbors"])
-    selected_resolution = float(selected["resolution"])
-    selected_seed = int(selected["seed"])
+    selected_graph = choose_graph(clustering_frame, graph_frame)
+    selected_clustering = choose_clustering(clustering_frame, selected_graph)
+
+    selected_dimensions = int(selected_graph["dimensions"])
+    selected_neighbors = int(selected_graph["n_neighbors"])
+    selected_resolution = float(selected_clustering["resolution"])
+    selected_seed = int(selected_clustering["seed"])
 
     LOGGER.info(
-        "[selection] dimensions=%d n_neighbors=%d resolution=%g seed=%d stability_ari=%.4f score=%.4f",
+        "[graph-selection] dimensions=%d n_neighbors=%d median_resolution_stability_ari=%.4f",
         selected_dimensions,
         selected_neighbors,
+        float(selected_graph["median_resolution_stability_ari"]),
+    )
+    LOGGER.info(
+        "[clustering-selection] resolution=%g seed=%d stability_ari=%.4f",
         selected_resolution,
         selected_seed,
-        float(selected["stability_ari"]),
-        float(selected["selection_score"]),
+        float(selected_clustering["stability_ari"]),
     )
 
     canonical = build_graph(
@@ -415,29 +440,43 @@ def main() -> int:
 
     selection = {
         "representation": representation_metadata.get("representation", "unknown"),
-        "selection_policy": {
-            "name": "stability_connectivity",
-            "score": "stability_ari * largest_component_fraction",
+        "graph_selection_policy": {
+            "name": "resolution_aggregated_stability",
+            "primary": "median_resolution_stability_ari descending",
             "tie_break": [
-                "stability_ari descending",
+                "mean_resolution_stability_ari descending",
+                "min_resolution_stability_ari descending",
                 "largest_component_fraction descending",
                 "dimensions ascending",
                 "n_neighbors ascending",
+            ],
+            "annotation_metrics_used_for_selection": False,
+            "technical_metrics_used_for_selection": False,
+        },
+        "clustering_selection_policy": {
+            "name": "seed_stability_on_selected_graph",
+            "primary": "stability_ari descending",
+            "tie_break": [
                 "resolution ascending",
                 "seed ascending",
             ],
             "annotation_metrics_used_for_selection": False,
             "technical_metrics_used_for_selection": False,
         },
-        "selected": {
+        "selected_graph": {
             "dimensions": selected_dimensions,
             "n_neighbors": selected_neighbors,
             "metric": metric,
+            "median_resolution_stability_ari": float(selected_graph["median_resolution_stability_ari"]),
+            "mean_resolution_stability_ari": float(selected_graph["mean_resolution_stability_ari"]),
+            "min_resolution_stability_ari": float(selected_graph["min_resolution_stability_ari"]),
+            "largest_component_fraction": float(selected_graph["largest_component_fraction"]),
+        },
+        "selected_clustering": {
             "resolution": selected_resolution,
             "seed": selected_seed,
-            "stability_ari": float(selected["stability_ari"]),
-            "largest_component_fraction": float(selected["largest_component_fraction"]),
-            "selection_score": float(selected["selection_score"]),
+            "stability_ari": float(selected_clustering["stability_ari"]),
+            "n_clusters": int(selected_clustering["n_clusters"]),
         },
         "candidate_grid": {
             "dimensions": dimensions,
