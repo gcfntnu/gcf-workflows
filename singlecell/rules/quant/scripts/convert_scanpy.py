@@ -595,35 +595,25 @@ def remove_duplicate_cols(df, copy=False):
     return df
 
 def filter_input_by_csv(input_files, aggr_df, verbose=False):
-    """
-    Filter input files based on match with Sample_ID in input path.
-
-    Parameters
-    ----------
-    input_files : list of str
-        List of input file paths.
-    aggr_df : pd.DataFrame
-        DataFrame containing aggregation information.
-    verbose : bool, optional
-        Whether to print verbose output, by default False.
-
-    Returns
-    -------
-    list of str
-        Filtered list of input file paths.
-    """
+    """Select and order input files according to the aggregation library order."""
     filtered_input = []
-    for n, row in aggr_df.iterrows():
-        sample_id = row.iloc[0]
-        patt = os.path.sep + sample_id + os.path.sep
-        for pth in input_files:
-            if patt in str(pth):
-                filtered_input.append(pth)
-            else:
-                logger.debug("Input %s does not match aggregation library %s", pth, sample_id)
+    for library_id in aggr_df.iloc[:, 0].astype(str):
+        patt = os.path.sep + library_id + os.path.sep
+        matches = [path for path in input_files if patt in str(path)]
+        if len(matches) != 1:
+            raise ValueError(
+                f"Aggregation library {library_id!r} matched {len(matches)} input files; "
+                f"expected exactly one. Matches: {[str(path) for path in matches]}"
+            )
+
+        filtered_input.append(matches[0])
+        if verbose:
+            logger.debug("Aggregation library %s -> %s", library_id, matches[0])
+
     if verbose:
-        logger.debug("Total input: {}".format(len(input_files)))
-        logger.debug("Filtered input: {}".format(len(filtered_input)))
+        logger.debug("Total input: %d", len(input_files))
+        logger.debug("Filtered input: %d", len(filtered_input))
+
     return filtered_input
 
 
@@ -2271,7 +2261,8 @@ if __name__ == "__main__":
     # Filter inputs by aggr CSV (optional)
     # -------------------------
     if args.aggr_csv is not None and len(args.input) > 1:
-        logger.info(f"Filtering {len(args.input)} inputs by aggr CSV: {args.aggr_csv}")
+        library_order = args.aggr_csv.iloc[:, 0].astype(str).tolist()
+        logger.info("Ordering %d inputs by aggregation libraries: %s", len(args.input), ", ".join(library_order))
         args.input = filter_input_by_csv(args.input, args.aggr_csv, verbose=args.verbose)
         logger.info(f"Remaining inputs after filter: {len(args.input)}")
 
