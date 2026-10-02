@@ -168,8 +168,6 @@ rule splitpipe_nuclear_fraction_bam_aggr:
         '--barcode-info {input.barcode_info} '
         '--library-id {params.library_ids} '
         '--output {output} '
-        '{params.args} '
-        '--output {output} '
 
 
 rule splitpipe_splice_from_tscp:
