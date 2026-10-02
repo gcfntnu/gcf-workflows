@@ -143,7 +143,7 @@ def _sample_info_reader(fn):
 
 
 def _library_info_reader(fn):
-    return _entity_info_reader(fn, "library_id", _SAMPLE_INFO_BLACKLIST)
+    return _entity_info_reader(fn, "library_id")
 
 def _sniff_sep(path: pathlib.Path) -> str:
     try:
