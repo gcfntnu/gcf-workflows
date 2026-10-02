@@ -567,19 +567,17 @@ def get_multiplex_methods(test_all=False, n_cells=None):
 
     return [dbl_files, demux_files]
 
+
 def multiplex_aggr_input(wildcards):
+    samples = get_processing_samples(wildcards.method, wildcards.aggr_id)
     inputs = {
-        'droplet_types': [
-            join(QUANT_INTERIM, wildcards.method, sample, 'demultiplexing', wildcards.multiplex_method, 'droplet_type.tsv')
-            for sample in AGGR_IDS[wildcards.aggr_id]
-        ]
+        'droplet_types': [join(QUANT_INTERIM, wildcards.method, sample, 'demultiplexing', wildcards.multiplex_method, 'droplet_type.tsv') for sample in samples]
     }
 
     if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger':
         inputs['aggr_csv'] = join(QUANT_INTERIM, 'aggregate', 'description', f'{wildcards.aggr_id}_aggr.csv')
 
     return inputs
-
 
 rule multiplex_droplet_type_aggr:
     input:

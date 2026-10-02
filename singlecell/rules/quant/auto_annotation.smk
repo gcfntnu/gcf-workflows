@@ -33,13 +33,8 @@ def _celltypist_model(wildcards):
 
 
 def _orthogene_premap_aggr_inputs(wildcards):
-    if wildcards.aggr_id not in AGGR_IDS:
-        raise ValueError(f"Unknown aggregation id for ortholog mapping: {wildcards.aggr_id}")
-    return [
-        join(QUANT_INTERIM, wildcards.quantifier, sample, 'annotation', 'orthogene', 'orthologs.tsv')
-        for sample in AGGR_IDS[wildcards.aggr_id]
-    ]
-
+    samples = get_processing_samples(wildcards.quantifier, wildcards.aggr_id)
+    return [join(QUANT_INTERIM, wildcards.quantifier, sample, 'annotation', 'orthogene', 'orthologs.tsv') for sample in samples ]
 
 rule orthogene_premap:
     input:
@@ -88,56 +83,32 @@ rule orthogene_premap_aggr:
 
 def annotation_input_files(wildcards):
     if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger':
-        inputs = [
-            join(
-                QUANT_INTERIM,
-                'aggregate',
-                'cellranger',
-                wildcards.aggr_id,
-                'outs',
-                'count',
-                'filtered_feature_bc_matrix',
-                'matrix.mtx.gz',
-            )
-        ]
+        inputs = [join(QUANT_INTERIM, 'aggregate', 'cellranger', wildcards.aggr_id, 'outs', 'count', 'filtered_feature_bc_matrix', 'matrix.mtx.gz')]
     else:
-        sublibs = AGGR_IDS[wildcards.aggr_id]
+        samples = get_processing_samples(wildcards.method, wildcards.aggr_id)
         if CB_OUTPUT:
-            inputs = [
-                join(QUANT_INTERIM, wildcards.method, sublib, 'cellbender', f'{sublib}_filtered.h5')
-                for sublib in sublibs
-            ]
+            inputs = [join(QUANT_INTERIM, wildcards.method, sample, 'cellbender', f'{sample}_filtered.h5') for sample in samples]
         else:
-            inputs = [
-                _get_filtered_mtx(
-                    SimpleNamespace(method=wildcards.method, sublib=sublib, sample=sublib)
-                )['mtx']
-                for sublib in sublibs
-            ]
+            inputs = [_get_filtered_mtx(SimpleNamespace(method=wildcards.method, sample=sample))['mtx'] for sample in samples]
 
     result = {'counts': inputs}
     if MM_ORG != config['organism']:
-        result['gene_map'] = join(
-            QUANT_INTERIM,
-            'aggregate',
-            wildcards.method,
-            f'{wildcards.aggr_id}_orthologs.tsv',
-        )
+        result['gene_map'] = join(QUANT_INTERIM, 'aggregate', wildcards.method, f'{wildcards.aggr_id}_orthologs.tsv')
     if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger':
-        result['aggr_csv'] = join(
-            QUANT_INTERIM,
-            'aggregate',
-            'description',
-            f'{wildcards.aggr_id}_aggr.csv',
-        )
+        result['aggr_csv'] = join(QUANT_INTERIM, 'aggregate', 'description', f'{wildcards.aggr_id}_aggr.csv')
+
     return result
 
 
 def annotation_input_format(wildcards):
     if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger':
         return 'cellranger_aggr'
-    return wildcards.method
+    return QUANT_INPUT_FORMAT.get(wildcards.method, wildcards.method)
 
+def annotation_input_barcode_rename(wildcards):
+    if wildcards.method in PARSEBIO_STARSOLO_MODES:
+        return 'skip'
+    return BC_RENAME[wildcards.method]
 
 def annotation_input_gene_map_arg(wildcards, input):
     if MM_ORG == config['organism']:
@@ -159,7 +130,7 @@ rule annotation_input:
     params:
         script = src_gcf('scripts/annotation_input.py'),
         input_format = annotation_input_format,
-        barcode_rename = lambda wc: BC_RENAME[wc.method],
+        barcode_rename = annotation_input_barcode_rename,
         src_organism = config['organism'],
         dst_organism = MM_ORG,
         gene_map = annotation_input_gene_map_arg,

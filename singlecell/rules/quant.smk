@@ -7,7 +7,20 @@ from types import SimpleNamespace
 
 AGGR_IDS = collections.defaultdict(list)
 METHODS = [m.strip() for m in config['quant']['method'].split(',') if m.strip()]
+PARSEBIO_STARSOLO_MODES = {
+    'parsebio_starsolo': 'rt_merge',
+    'parsebio_starsolo_rt': 'error_correct_bc1',
+}
+
+QUANT_INPUT_FORMAT = {
+    'parsebio_starsolo_rt': 'parsebio_starsolo',
+}
+QUANT_AVAILABLE_METHODS = METHODS.copy()
+if 'parsebio_starsolo' in METHODS and 'parsebio_starsolo_rt' not in QUANT_AVAILABLE_METHODS:
+    QUANT_AVAILABLE_METHODS.append('parsebio_starsolo_rt')
+
 QUANT_METHOD_PATTERN = '|'.join(METHODS)
+QUANT_AVAILABLE_METHOD_PATTERN = '|'.join(QUANT_AVAILABLE_METHODS)
 AGGR_METHOD = config['quant'].get('aggregate', {}).get('method', 'default')
 if AGGR_METHOD == 'default':
     if config['libprepkit'].startswith('10X Genomics') and 'cellranger' in METHODS:
@@ -77,6 +90,7 @@ BC_RENAME = {
     '10x_starsolo': 'numerical',
     'splitpipe': 'parsebio',
     'parsebio_starsolo': 'parsebio',
+    'parsebio_starsolo_rt': 'parsebio',
 }
 
 
@@ -121,15 +135,14 @@ if not config['quant']['aggregate'].get('skip', False):
 
 
 def barcode_aggr_args(wildcards):
-    sample_ids = ','.join(AGGR_IDS[wildcards.aggr_id])
-    barcode_rename = BC_RENAME[wildcards.method]
+    sample_ids = ','.join(get_processing_samples(wildcards.method, wildcards.aggr_id))
+    barcode_rename = 'none' if wildcards.method in PARSEBIO_STARSOLO_MODES else BC_RENAME[wildcards.method]
     args = f'--barcode-rename {barcode_rename} --sample-id {sample_ids} '
 
     if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger':
         args += '--aggr-csv ' + join(QUANT_INTERIM, 'aggregate', 'description', f'{wildcards.aggr_id}_aggr.csv')
 
     return args
-
 
 def get_raw_mtx(wildcards):
     method = getattr(wildcards, "quantifier", None) or getattr(wildcards, "method", None)
@@ -147,9 +160,14 @@ def get_raw_mtx(wildcards):
         cols = join(base_dir, "genes.tsv")
         rows = join(base_dir, "barcodes.tsv")
         mtx = join(base_dir, "matrix.mtx")
-    elif base in ("parsebio_starsolo", "10x_starsolo"):
+    elif base in PARSEBIO_STARSOLO_MODES:
+        base_dir = join(QUANT_INTERIM, base, sublib, 'Solo.out', STARSOLO_FEATURE, 'raw')
+        cols = join(base_dir, 'features.tsv')
+        rows = join(base_dir, 'barcodes.tsv')
+        mtx = join(base_dir, STARSOLO_MTX)
+    elif base == "10x_starsolo":
         base_dir = join(QUANT_INTERIM, base, sublib, "Solo.out", STARSOLO_FEATURE, "raw")
-        cols = join(base_dir, "genes.tsv")
+        cols = join(base_dir, "features.tsv")
         rows = join(base_dir, "barcodes.tsv")
         mtx = join(base_dir, STARSOLO_MTX)
     else:
@@ -161,43 +179,60 @@ def get_raw_mtx(wildcards):
         "rows": rows,
     }
 
-
 def _get_filtered_mtx(wildcards):
     method = getattr(wildcards, "quantifier", None) or getattr(wildcards, "method", None)
-    sublib = getattr(wildcards, "sublib", None) or getattr(wildcards, "sample", None)
-    if method is None or sublib is None:
-        raise ValueError("Missing required wildcards: quantifier/method and/or sublib/sample")
-    mtx = None
+    sample = getattr(wildcards, "sample", None) or getattr(wildcards, "sublib", None)
+
+    if method is None or sample is None:
+        raise ValueError("Missing required wildcards: quantifier/method and/or sample/sublib")
+
     if method == "cellranger":
-        base_dir = join(QUANT_INTERIM, method, sublib, "outs", "filtered_feature_bc_matrix")
+        base_dir = join(QUANT_INTERIM, method, sample, "outs", "filtered_feature_bc_matrix")
+        mtx = join(base_dir, "matrix.mtx.gz")
         cols = join(base_dir, "features.tsv.gz")
         rows = join(base_dir, "barcodes.tsv.gz")
-        mtx = join(base_dir, "matrix.mtx.gz")
+
     elif method == "splitpipe":
-        base_dir = join(QUANT_INTERIM, method, sublib, "all-sample", "DGE_filtered", "matrix")
-        cols = join(base_dir, "genes.tsv")
-        rows = join(base_dir, "barcodes.tsv")
-    elif method in ("parsebio_starsolo", "10x_starsolo"):
-        base_dir = join(QUANT_INTERIM, method, sublib, "Solo.out", STARSOLO_FEATURE, "filtered")
+        base_dir = join(QUANT_INTERIM, "aggregate", method, sample, "DGE_filtered")
+        mtx = join(base_dir, "count_matrix.mtx")
+        cols = join(base_dir, "all_genes.csv")
+        rows = join(base_dir, "cell_metadata.csv")
+
+    elif method in PARSEBIO_STARSOLO_MODES:
+        base_dir = join(QUANT_INTERIM, "aggregate", method, sample, "Solo.out", STARSOLO_FEATURE, "filtered")
+        mtx = join(base_dir, STARSOLO_MTX)
         cols = join(base_dir, "features.tsv")
         rows = join(base_dir, "barcodes.tsv")
+
+    elif method == "10x_starsolo":
+        base_dir = join(QUANT_INTERIM, method, sample, "Solo.out", STARSOLO_FEATURE, "filtered")
+        mtx = join(base_dir, STARSOLO_MTX)
+        cols = join(base_dir, "features.tsv")
+        rows = join(base_dir, "barcodes.tsv")
+
     else:
         raise ValueError(f"Unsupported quant method: {method}")
 
     return {
-        "mtx": mtx or join(base_dir, "matrix.mtx"),
+        "mtx": mtx,
         "cols": cols,
         "rows": rows,
     }
 
 
+
 def get_filtered_mtx(wildcards):
     method = getattr(wildcards, "quantifier", None) or getattr(wildcards, "method", None)
-    sublib = getattr(wildcards, "sublib", None) or getattr(wildcards, "sample", None)
-    if method is None or sublib is None:
-        raise ValueError("Missing required wildcards: quantifier/method and/or sublib/sample")
+    sample = getattr(wildcards, "sample", None) or getattr(wildcards, "sublib", None)
+
+    if method is None or sample is None:
+        raise ValueError("Missing required wildcards: quantifier/method and/or sample/sublib")
+
     if CB_OUTPUT:
-        base_dir = join(QUANT_INTERIM, method, sublib, "cellbender", "filtered", "matrix")
+        if method in PARSEBIO_STARSOLO_MODES or method == "splitpipe":
+            raise NotImplementedError(f"CellBender is not supported for {method}")
+
+        base_dir = join(QUANT_INTERIM, method, sample, "cellbender", "filtered", "matrix")
         return {
             "mtx": join(base_dir, "matrix.mtx"),
             "cols": join(base_dir, "genes.tsv"),
@@ -207,64 +242,58 @@ def get_filtered_mtx(wildcards):
     return _get_filtered_mtx(wildcards)
 
 
-def get_barcode_info_list(wc):
-    if wc.method == '10x_starsolo' and hasattr(wc, 'aggr_id'):
-        items = [join(QUANT_INTERIM, wc.method, f'{wc.aggr_id}_barcode_info.tsv')]
+def get_barcode_info_list(wc, include_autoqc=True):
+    method = wc.method
+    aggr_id = getattr(wc, 'aggr_id', None)
+    sample = getattr(wc, 'sublib', None) or getattr(wc, 'sample', None)
+
+    dd_method = config.get('quant', {}).get('doublet_detection', {}).get('method')
+    cb_subset = config.get('quant', {}).get('cellbender_call', {}).get('subset')
+    use_doublets = dd_method not in (None, 'skip')
+    use_mapmycells = 'mapmycells' in ANNO_METHODS
+
+    if method in PARSEBIO_STARSOLO_MODES and aggr_id is not None:
+        items = [join(QUANT_INTERIM, 'aggregate', method, f'{aggr_id}_barcode_info.tsv')]
+    elif method == '10x_starsolo' and aggr_id is not None:
+        items = [join(QUANT_INTERIM, method, f'{aggr_id}_barcode_info.tsv')]
     else:
-        items = [join(QUANT_INTERIM, wc.method, 'barcode_info.tsv')]
-    qcfg = config.get('quant', {})
-    dd_method = qcfg.get('doublet_detection', {}).get('method')
-    cb_subset = qcfg.get('cellbender_call', {}).get('subset')
+        items = [join(QUANT_INTERIM, method, 'barcode_info.tsv')]
 
-    if hasattr(wc, 'aggr_id'):
-        aggr_dir = join(QUANT_INTERIM, 'aggregate', wc.method)
+    if aggr_id is not None:
+        aggr_dir = join(QUANT_INTERIM, 'aggregate', method)
 
-        if dd_method not in [None, 'skip']:
-            items.append(join(aggr_dir, f'{wc.aggr_id}_droplet_classification.tsv'))
-            items.append(join(aggr_dir, f'{wc.aggr_id}_droplet_rankdata.tsv'))
+        if use_doublets:
+            items.extend([join(aggr_dir, f'{aggr_id}_droplet_classification.tsv'),
+                          join(aggr_dir, f'{aggr_id}_droplet_rankdata.tsv'),
+                          ])
 
         if SAMPLE_MULTIPLEXING:
-            for multiplex_method in get_multiplex_demux_methods():
-                items.append(join(aggr_dir, 'multiplexing', multiplex_method, f'{wc.aggr_id}_droplet_type.tsv'))
+            for demux_method in get_multiplex_demux_methods():
+                items.append(join(aggr_dir, 'multiplexing', demux_method, f'{aggr_id}_droplet_type.tsv'))
 
-        if 'mapmycells' in ANNO_METHODS:
-            items.append(
-                join(
-                    aggr_dir,
-                    'annotation',
-                    f'{wc.aggr_id}_mapmycells_annotation.tsv',
-                )
-            )
+        if use_mapmycells:
+            items.append(join(aggr_dir, 'annotation', f'{aggr_id}_mapmycells_annotation.tsv'))
 
         if cb_subset:
-            items.append(join(aggr_dir, 'cellbender', f'{wc.aggr_id}_expression_presence.tsv'))
+            items.append(join(aggr_dir, 'cellbender', f'{aggr_id}_expression_presence.tsv'))
 
-        if VELO_OUTPUT:
-            pass
+        if include_autoqc:
+            items.append(join(aggr_dir, 'auto_qc', f'{aggr_id}_autoqc_mask.tsv'))
 
-    else:
-        sub = getattr(wc, 'sublib', None) or getattr(wc, 'sample', None)
+    elif sample is not None:
+        sample_dir = join(QUANT_INTERIM, method, sample)
 
-        if sub:
-            base = join(QUANT_INTERIM, wc.method, sub)
+        if use_doublets:
+            items.append(join(sample_dir, 'doublets', 'doublet_rank_aggr.tsv'))
 
-            if dd_method not in [None, 'skip']:
-                items.append(join(base, 'doublets', 'doublet_rank_aggr.tsv'))
+        if SAMPLE_MULTIPLEXING:
+            for demux_method in get_multiplex_demux_methods():
+                items.append(join(sample_dir, 'demultiplexing', demux_method, 'droplet_type.tsv'))
 
-            if SAMPLE_MULTIPLEXING:
-                for multiplex_method in get_multiplex_demux_methods():
-                    items.append(join(base, 'demultiplexing', multiplex_method, 'droplet_type.tsv'))
+        if use_mapmycells:
+            items.append(join(sample_dir, 'annotation', 'mapmycells', 'annotation.tsv'))
 
-            if 'mapmycells' in ANNO_METHODS:
-                items.append(join(base, 'annotation', 'mapmycells', 'annotation.tsv'))
-
-    dedup = []
-    seen = set()
-    for path in items:
-        if path not in seen:
-            dedup.append(path)
-            seen.add(path)
-    return dedup
+    return list(dict.fromkeys(items))
 
 
 def get_feature_info_list(wildcards):
@@ -319,26 +348,24 @@ if ANNO_ENABLED:
 if PREPROCESS_ENABLED:
     include: 'quant/preprocess.smk'
 
+
 def scanpy_aggr_inputs(wc):
+    samples = get_processing_samples(wc.method, wc.aggr_id)
+
     if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger':
-        inputs = [
-            join(
-                QUANT_INTERIM,
-                'aggregate',
-                'cellranger',
-                wc.aggr_id,
-                'outs',
-                'count',
-                'filtered_feature_bc_matrix',
-                'matrix.mtx.gz',
-            )
-        ]
+        inputs = [join(QUANT_INTERIM, 'aggregate', 'cellranger', wc.aggr_id, 'outs', 'count', 'filtered_feature_bc_matrix', 'matrix.mtx.gz')]
+
+    elif wc.method == 'splitpipe' or wc.method in PARSEBIO_STARSOLO_MODES:
+        if wc.aggr_id != 'all_samples':
+            raise NotImplementedError(f"Parse aggregation currently only supports aggr_id='all_samples', got {wc.aggr_id!r}")
+
+        inputs = [_get_filtered_mtx(SimpleNamespace(method=wc.method, sample=sample))['mtx'] for sample in samples]
+
     else:
-        sublibs = AGGR_IDS[wc.aggr_id]
         if CB_OUTPUT:
-            inputs = [join(QUANT_INTERIM, wc.method, s, 'cellbender', f'{s}_filtered.h5') for s in sublibs]
+            inputs = [join(QUANT_INTERIM, wc.method, sample, 'cellbender', f'{sample}_filtered.h5') for sample in samples]
         else:
-            inputs = [_get_filtered_mtx(SimpleNamespace(method=wc.method, sublib=s, sample=s))['mtx'] for s in sublibs]
+            inputs = [_get_filtered_mtx(SimpleNamespace(method=wc.method, sample=sample))['mtx'] for sample in samples]
 
     output = {
         'inputs': inputs,
@@ -350,7 +377,7 @@ def scanpy_aggr_inputs(wc):
         output['aggr_csv'] = join(QUANT_INTERIM, 'aggregate', 'description', f'{wc.aggr_id}_aggr.csv')
 
     if VELO_OUTPUT and wc.method == 'splitpipe':
-        output['velo_files'] = [join(QUANT_INTERIM, wc.method, s, 'velo', 'spliced.mtx') for s in sublibs]
+        output['velo_files'] = [join(QUANT_INTERIM, wc.method, sample, 'velo', 'spliced.mtx') for sample in samples]
 
     return output
 
@@ -364,7 +391,8 @@ rule tmp_lightweight_raw:
         mtx = temp('_tmp/{quantifier}/raw/{sample}/anndata.mtx_v2/matrix.mtx')
     params:
         script = src_gcf('quant/scripts/convert_scanpy.py'),
-        base = '_tmp/{quantifier}/filtered/{sample}/anndata'
+        base = '_tmp/{quantifier}/raw/{sample}/anndata',
+        input_format = lambda wc: QUANT_INPUT_FORMAT.get(wc.quantifier, wc.quantifier),
     threads:
         8
     shell:
@@ -374,7 +402,7 @@ rule tmp_lightweight_raw:
         '--barcode-rename skip '
         '-o {params.base} '
         '-v '
-        '-f {wildcards.quantifier} '
+        '-f {params.input_format}  '
         '-F anndata_lightweight v2_mtx '
 
 
@@ -387,7 +415,8 @@ rule tmp_lightweight_filtered:
         mtx = temp('_tmp/{quantifier}/filtered/{sample}/anndata.mtx_v2/matrix.mtx')
     params:
         script = src_gcf('quant/scripts/convert_scanpy.py'),
-        base = '_tmp/{quantifier}/filtered/{sample}/anndata'
+        base = '_tmp/{quantifier}/filtered/{sample}/anndata',
+        input_format = lambda wc: QUANT_INPUT_FORMAT.get(wc.quantifier, wc.quantifier),
     threads:
         8
     shell:
@@ -400,98 +429,58 @@ rule tmp_lightweight_filtered:
         '--min-cells-gene 3 '
         '-o {params.base} '
         '-v '
-        '-f {wildcards.quantifier} '
+        '-f {params.input_format}  '
         '-F anndata_lightweight v2_mtx '
 
 
-SCANPY_AGGR_FILTERED_OUTPUT = (
-    join(QUANT_INTERIM, 'aggregate', '{method}', 'cellbender', 'scanpy', '{aggr_id}_filtered.h5ad')
-    if CB_OUTPUT else join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_filtered.h5ad')
-)
-
-
-def scanpy_finalize_inputs(wc):
-    output = scanpy_aggr_inputs(wc)
-    output['qc_cells'] = join(
-        QUANT_INTERIM,
-        'aggregate',
-        wc.method,
-        'auto_qc',
-        f'{wc.aggr_id}_qc_cells.parquet',
-    )
-
-    annotations = []
-    if 'celltypist' in ANNO_METHODS:
-        annotations.append(
-            join(
-                QUANT_INTERIM,
-                'aggregate',
-                wc.method,
-                'annotation',
-                f'{wc.aggr_id}_celltypist_annotation.tsv',
-            )
-        )
-    output['annotation'] = annotations
-    return output
-
-
-def _finalize_annotation_args(wc, input):
-    return ' '.join(f'--annotation {path}' for path in input.annotation)
-
-
-def _finalize_aggr_csv_arg(wc, input):
+def scanpy_aggr_format(wc):
     if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger':
-        return f'--aggr-csv {input.aggr_csv} '
+        return 'cellranger_aggr'
+    return QUANT_INPUT_FORMAT.get(wc.method, wc.method)
+
+
+def scanpy_aggr_csv(wc):
+    if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger':
+        return f'--aggr-csv {join(QUANT_INTERIM, "aggregate", "description", wc.aggr_id + "_aggr.csv")}'
     return ''
 
 
-def _finalize_input_format(wc):
-    if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger':
-        return 'cellranger_aggr'
-    return wc.method
+SCANPY_AGGR_SHELL = (
+    'python {params.script} '
+    '{input.inputs} '
+    '-f {params.input_format} '
+    '--barcode-rename {params.bc_type} '
+    '--feature-info {input.feature_info} '
+    '--barcode-info {input.barcode_info} '
+    '{params.aggr_csv} '
+    '-o {output} '
+    '-F anndata '
+    '-v '
+)
 
 
-def _finalize_velo_arg(wc):
-    supported = {'splitpipe', '10x_starsolo', 'parsebio_starsolo'}
-    return '--use-velo' if VELO_OUTPUT and wc.method in supported else ''
+def scanpy_aggr_barcode_rename(wc):
+    if wc.method in PARSEBIO_STARSOLO_MODES:
+        return 'skip'
+    return BC_RENAME[wc.method]
 
-
-rule scanpy_aggr_finalize:
+rule scanpy_aggr_filtered:
     input:
-        unpack(scanpy_finalize_inputs)
+        unpack(scanpy_aggr_inputs)
     output:
-        SCANPY_AGGR_FILTERED_OUTPUT
+        join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_filtered.h5ad')
     params:
-        script = src_gcf('quant/scripts/finalize_scanpy.py'),
-        converter_script_dir = src_gcf('quant/scripts'),
-        input_format = _finalize_input_format,
-        bc_type = lambda wc: BC_RENAME[wc.method],
-        enable_cb = '--enable-cellbender' if CB_OUTPUT else '',
-        aggr_csv = _finalize_aggr_csv_arg,
-        annotation_args = _finalize_annotation_args,
-        velo = _finalize_velo_arg
+        script = src_gcf('quant/scripts/convert_scanpy.py'),
+        input_format = scanpy_aggr_format,
+        bc_type = scanpy_aggr_barcode_rename,
+        aggr_csv = scanpy_aggr_csv
     threads:
-        48
-    log:
-        join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', 'logs', '{aggr_id}_finalize.log')
-    container:
-        'docker://' + config['docker']['scanpy']
+        8
+    wildcard_constraints:
+        method = QUANT_AVAILABLE_METHOD_PATTERN,
+        aggr_id = '|'.join(AGGR_IDS)
     shell:
-        'python {params.script} '
-        '{input.inputs} '
-        '--converter-script-dir {params.converter_script_dir} '
-        '--input-format {params.input_format} '
-        '--barcode-rename {params.bc_type} '
-        '{params.aggr_csv}'
-        '--feature-info {input.feature_info} '
-        '--barcode-info {input.barcode_info} '
-        '--qc-cells {input.qc_cells} '
-        '{params.annotation_args} '
-        '{params.enable_cb} '
-        '{params.velo} '
-        '--output {output} '
-        '--log {log} '
-        '--verbose '
+        SCANPY_AGGR_SHELL
 
 
 def quant_all_inputs(wc):

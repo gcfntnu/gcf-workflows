@@ -15,31 +15,29 @@ def rename_ints_to_samples(items):
 PARSEBIO_SAMPLES = rename_ints_to_samples(list(config['wells'].keys()))
 SPLITPIPE_AGGR = join(QUANT_INTERIM, 'aggregate', 'splitpipe')
 
-
 rule splitpipe_barcode_info:
     input:
-        cell_metadata = join(QUANT_INTERIM, 'aggregate', 'splitpipe', 'all-sample', 'DGE_unfiltered', 'cell_metadata.csv')
+        cell_metadata = join(QUANT_INTERIM, 'aggregate', 'splitpipe', '{sample}', 'DGE_filtered', 'cell_metadata.csv')
     output:
-        join(QUANT_INTERIM, 'splitpipe', 'barcode_info.tsv')
-    container:
-        'docker://' + config['docker']['default']
+        join(QUANT_INTERIM, 'aggregate', 'splitpipe', '{sample}', 'barcode_info.tsv')
     params:
         script = src_gcf('scripts/splitpipe_barcode_info.py'),
-        config = workflow.configfiles[0],
-        sublibs = " ".join(SUBLIBS)
+        sublibs = ' '.join(SUBLIBS)
+    container:
+        'docker://' + config['docker']['default']
     shell:
         'python {params.script} '
         '--cell-metadata {input.cell_metadata} '
-        '--configfile {params.config} '
-        '--output {output} '
+        '--sample-id {wildcards.sample} '
         '--sublibs {params.sublibs} '
+        '--output {output} '
 
 
 rule splitpipe_sample_list:
     output:
         join(QUANT_INTERIM, 'splitpipe', 'splitpipe_sample_list.txt'),
     params:
-        config = 'config.yaml',
+        config = workflow.configfiles[0],
         script = src_gcf('scripts/create_parse_sample_list.py')
     threads:
         1

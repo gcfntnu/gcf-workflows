@@ -1237,67 +1237,63 @@ def read_cellbender(fn, args, analyzed_barcodes_only=False, **kw):
 
 def read_splitpipe(fn, args, **kw):
     """
-    Read split-pipe data.
+    Read a Split-pipe count matrix.
 
-    Parameters
-    ----------
-    fn : str
-        Path to the split-pipe output mtx file.
-    args : argparse.Namespace
-        Arguments passed to the script.
-
-    Returns
-    -------
-    sc.AnnData
-        AnnData object containing the ParseBio data.
+    cell_metadata.csv defines the matrix barcode axis only. Canonical per-cell
+    metadata is supplied separately through barcode_info.tsv.
     """
+    fn = os.path.abspath(fn)
     dir_name = os.path.dirname(fn)
-    pattern = r"/splitpipe/([^0-9/]+?)(\d+)(?=/)"
-    m = re.search(pattern, fn)
-    if m:
-        sublib_num = m.groups()[-1]
-        sublib = "".join(m.groups())
-    else:
-       raise ValueError(f"expected filename to indicate sublib-id in file: {fn}") 
+    logger.debug(f"Reading Split-pipe matrix from {fn}")
+
     mtx = sp.csr_matrix(mmread(fn)).T.tocsr()
+
     features = None
-    for feature_fn in "all_genes.csv target_genes.csv all_guides.csv".split():
-        pth = os.path.join(dir_name, feature_fn)
-        try:
-            features = pd.read_csv(pth)
-        except:
-            # we might read a 10x mtx subdir
-            pth = os.path.join(os.path.dirname(dir_name), feature_fn)
-            features = pd.read_csv(pth)
-        if features is not None:
-            logger.debug(f"found gene meta at {pth}")
-            features["gene"] = features["gene_name"].fillna(features["gene_id"])
-            if "genome" in features:
-                if (len(features["genome"].unique()) > 1):
-                    features["gene"] = features["gene"] + "_" + features["genome"]
-            features.set_index("gene_id", inplace=True)
-            break
-    try:
-        obs = pd.read_csv(os.path.join(dir_name, "cell_metadata.csv"), index_col="bc_wells")
-    except:
-        dir_name = os.path.dirname(dir_name)
-        obs = pd.read_csv(os.path.join(dir_name, "cell_metadata.csv"), index_col="bc_wells")
-    keep_cols = [i for i in ["sample", "bc1_well", "bc2_well", "bc3_well"] if i in obs.columns]
-    obs = obs[keep_cols]
-    #count_cols = obs.columns[obs.columns.str.endswith("_count")]
-    #obs[count_cols] = obs[count_cols].fillna(0).astype(int)
-    cat_cols = list(set(["sample", "species"]).intersection(obs.columns))
-    obs[cat_cols] = obs[cat_cols].astype("category")
-    if "sample" in obs.columns:
-        obs.rename(columns={"sample": "sample_id"}, inplace=True)
-    obs["sublib"] = pd.Categorical([sublib] * obs.shape[0])
-    obs.index.name = "barcode"
+    for feature_file in ["all_genes.csv", "target_genes.csv", "all_guides.csv"]:
+        pth = join(dir_name, feature_file)
+        if not os.path.exists(pth):
+            pth = join(os.path.dirname(dir_name), feature_file)
+        if not os.path.exists(pth):
+            continue
+
+        features = pd.read_csv(pth)
+        features["gene"] = features["gene_name"].fillna(features["gene_id"])
+        if "genome" in features.columns and features["genome"].nunique() > 1:
+            features["gene"] = features["gene"] + "_" + features["genome"]
+        features.set_index("gene_id", inplace=True)
+        logger.debug(f"Found Split-pipe feature metadata at {pth}")
+        break
+
+    if features is None:
+        raise FileNotFoundError(f"Could not find Split-pipe feature metadata for {fn}")
+
+    metadata_fn = join(dir_name, "cell_metadata.csv")
+    if not os.path.exists(metadata_fn):
+        metadata_fn = join(os.path.dirname(dir_name), "cell_metadata.csv")
+    if not os.path.exists(metadata_fn):
+        raise FileNotFoundError(f"Could not find Split-pipe cell_metadata.csv for {fn}")
+
+    cell_metadata = pd.read_csv(metadata_fn, usecols=["bc_wells"], dtype={"bc_wells": str})
+    barcodes = pd.Index(cell_metadata["bc_wells"], name="barcode")
+
+    if not barcodes.is_unique:
+        duplicates = barcodes[barcodes.duplicated()].unique()
+        raise ValueError(f"{metadata_fn}: duplicate bc_wells values. Examples: {list(duplicates[:5])}")
+
+    if mtx.shape != (len(barcodes), len(features)):
+        raise ValueError(
+            f"Split-pipe matrix/metadata dimensions do not match: matrix={mtx.shape}, "
+            f"barcodes={len(barcodes)}, features={len(features)}"
+        )
+
+    obs = pd.DataFrame(index=barcodes)
     data = anndata.AnnData(X=mtx, obs=obs, var=features)
-    
-    if 'DGE_filtered' in dir_name:
-        velocyto_dir = dir_name.replace('all-sample/DGE_filtered', 'velo')
+
+    if "DGE_filtered" in dir_name:
+        velocyto_dir = dir_name.replace("all-sample/DGE_filtered", "velo")
     else:
-        velocyto_dir = dir_name.replace('all-sample/DGE_unfiltered', 'velo')
+        velocyto_dir = dir_name.replace("all-sample/DGE_unfiltered", "velo")
+
     if os.path.exists(velocyto_dir):
         for velo_name in ["spliced", "unspliced", "ambiguous"]:
             velo_fn = pathlib.Path(join(velocyto_dir, f"{velo_name}.mtx"))
@@ -1315,20 +1311,21 @@ def read_splitpipe(fn, args, **kw):
                     logger.info(features[-3:])
                     logger.info(f"Number unique features: {len(set(features))}")
                     logger.error(f"mismatch between mtx ({S.shape[1]}) and features ({len(features)})")
-                data.layers[velo_name] =  align_sparse_matrix_with_names(S, barcodes, features,
-                                                                         data.obs_names, data.var_names,
-                                                                         verbose=args.verbose, logger=logger)
+                data.layers[velo_name] = align_sparse_matrix_with_names(
+                    S, barcodes, features, data.obs_names, data.var_names, verbose=args.verbose, logger=logger
+                )
+
     barcode_rename = kw.get("barcode_rename", args.barcode_rename)
-    data = barcode_index_rename(data, barcode_rename=barcode_rename, sample_id=sublib, aggr_csv=args.aggr_csv)
+    data = barcode_index_rename(data, barcode_rename=barcode_rename, aggr_csv=args.aggr_csv)
+
     if "gene_id" in data.var.columns and data.var.index.name == "gene_name":
         data.var["gene_name"] = data.var_names.copy()
         data.var_names = data.var["gene_id"]
-    data.var_names_make_unique(join=".")
 
-    # ensure that indices are not categorical
+    data.var_names_make_unique(join=".")
     data.obs.index = data.obs.index.astype(str)
     data.var.index = data.var.index.astype(str)
-    
+
     return data
 
 def mtx_zero_less_than(mtx, thresh, copy=False):
@@ -2377,7 +2374,7 @@ if __name__ == "__main__":
                     logger.info(f"  * {a}")
                 
         data.obs = drop_ci_identical_same_name(data.obs)
-        data.obs = anndata_friendly_dtypes(data.obs, protect_cols=("barcode",), allow_string_dtype=False)
+        data.obs = anndata_friendly_dtypes(data.obs, protect_cols=("barcode","cell_barcode", "stype"), allow_string_dtype=False)
 
     # -------------------------
     # Drop blacklisted feature-info columns (case-insensitive)

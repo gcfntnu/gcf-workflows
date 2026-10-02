@@ -1,137 +1,76 @@
 #!/usr/bin/env python3
-"""
-Generate a unified `barcode_info.tsv` for Parse/ParseBio SplitPipe runs.
-
-Intent
-------
-- Match the schema and behavior of the ParseBio STARsolo variant so aggregation is method-agnostic.
-- Derive `library_idx` from the trailing integer of each `library_id` (Parse convention).
-- Emit final, suffixed barcodes (`<bc1>-<bc2>-<bc3>__s<library_idx>`) as the index.
-- Broadcast sample-level metadata from the config `wells` map onto every barcode.
-"""
 
 import argparse
 import re
-import sys
-from pathlib import Path
 
 import pandas as pd
-import yaml
 
 
-def argparser() -> argparse.Namespace:
-    """Parse CLI arguments.
-
-    Returns
-    -------
-    argparse.Namespace
-        Parsed command line arguments.
-    """
-    p = argparse.ArgumentParser(
-        description="Generate unified ParseBio SplitPipe barcode_info.tsv"
-    )
-    p.add_argument(
-        "--cell-metadata",
-        required=True,
-        help="SplitPipe cell metadata (CSV/TSV) with columns: sample, bc_wells",
-    )
-    p.add_argument(
-        "--configfile",
-        default="config.yaml",
-        help="Snakemake config containing a 'wells' mapping (Sample_ID → metadata incl. 'Wells')",
-    )
-    p.add_argument(
-        "--sublibs",
-        nargs="+",
-        required=True,
-        help="Sub-library names (must end with run number, e.g., lib3)",
-    )
-    p.add_argument(
-        "-o",
-        "--output",
-        default="barcode_info.tsv",
-        help="Output filename (TSV)",
-    )
-    return p.parse_args()
+def parse_args():
+    parser = argparse.ArgumentParser(description="Create minimal Split-pipe barcode metadata.")
+    parser.add_argument("--cell-metadata", required=True)
+    parser.add_argument("--sample-id", required=True)
+    parser.add_argument("--sublibs", nargs="+", required=True)
+    parser.add_argument("--output", required=True)
+    return parser.parse_args()
 
 
-def robust_well_dict(conf):
-    """Parsebio's split-pipe does not like int-like as sammple-ids and prefixes outputs with `sample_`
-    """
-    renamed = {}
-    for k, v in conf['wells'].items():
-        try:
-            i = int(k)
-            pb_id = f"sample_{i}"
-            if 'Sample_ID' in v:
-                v['Sample_ID'] = pb_id
-            renamed[pb_id] =  v
-        except (ValueError, TypeError):
-            renamed[k] = v
-    print(renamed)
-    return renamed
+def library_map(sublibs):
+    mapping = {}
 
-def main() -> int:
-    """Entry point.
+    for sublib in sublibs:
+        match = re.search(r"(\d+)$", sublib)
+        if not match:
+            raise ValueError(f"Sublibrary {sublib!r} does not end in a numeric index")
 
-    Returns
-    -------
-    int
-        Process exit code (0 on success).
-    """
-    args = argparser()
+        idx = int(match.group(1))
+        if idx in mapping:
+            raise ValueError(f"Multiple sublibraries map to library index {idx}")
 
-    # Load config (expects conf['wells'] mapping keyed by Sample_ID)
-    with open(args.configfile, "r") as fh:
-        conf = yaml.safe_load(fh)
-    if "wells" not in conf or not isinstance(conf["wells"], dict):
-        raise ValueError("configfile must contain a 'wells' mapping (Sample_ID → sample metadata)")
+        mapping[idx] = sublib
 
-    # Sample metadata table (index = Sample_ID)
-    well_dict =  robust_well_dict(conf)
-    sample_info = pd.DataFrame.from_dict(well_dict, orient="index")
-
-    # Read SplitPipe cell metadata
-    cm = pd.read_csv(args.cell_metadata, index_col=0)
-    cm = cm.rename(columns={"sample": "Sample_ID"})
-
-    # Validate Sample_ID coverage in config
-    missing_ids = sorted(set(cm["Sample_ID"]) - set(sample_info.index))
-    if missing_ids:
-        raise ValueError(f"Sample_ID values missing from config['wells']: {missing_ids[:10]}...")
-
-    # Attach extra metadata from config wells (exclude 'Wells')
-    extra_cols = [c for c in sample_info.columns if c not in ["Wells", "Sample_ID"]]
-    if extra_cols:
-        S = sample_info.loc[cm["Sample_ID"], extra_cols].reset_index(drop=True)
-        S.index = cm.index
-        cm = pd.concat([cm, S], axis=1)
-
-    # Set index and validate uniqueness
-    cm.index.name = "barcode"
-    if not cm.index.is_unique:
-        dup = cm.index[cm.index.duplicated()].unique().tolist()
-        raise ValueError(f"Duplicate barcodes after suffixing: n={len(dup)}; examples: {dup[:10]}")
+    return mapping
 
 
-    # extract trailing run number from index, e.g. ...__s3 → 3
-    cm["library_idx"] = cm.index.str.extract(r'__s(\d+)$', expand=False).astype("Int64")
+def main():
+    args = parse_args()
 
-    # build lookup and map sublib names
-    lib_id2name = {re.search(r'(\d+)$', s).group(1): s for s in args.sublibs}
-    cm["library_id"] = cm["library_idx"].astype(str).map(lib_id2name)
+    data = pd.read_csv(args.cell_metadata, dtype=str)
 
-    # Reorder output columns to a canonical schema
-    out_cols = ["library_id", "library_idx", "Sample_ID", "bc1_well", "bc2_well", "bc3_well"] + extra_cols
-    out_cols = [c for c in out_cols if c in cm.columns]
+    required = {"bc_wells", "sample"}
+    missing = required - set(data.columns)
+    if missing:
+        raise ValueError(f"cell_metadata missing columns: {sorted(missing)}")
 
-    # Write
-    out_path = Path(args.output)
-    out_path.parent.mkdir(parents=True, exist_ok=True)  # harmless if Snakemake already created it
-    cm[out_cols].to_csv(out_path, sep="\t")
+    if not data["sample"].eq(args.sample_id).all():
+        found = sorted(data["sample"].dropna().unique())
+        raise ValueError(f"Expected Sample_ID {args.sample_id!r}, found {found}")
 
-    return 0
+    libraries = library_map(args.sublibs)
+    library_idx = data["bc_wells"].str.extract(r"__s(\d+)$", expand=False)
+
+    if library_idx.isna().any():
+        barcode = data.loc[library_idx.isna(), "bc_wells"].iloc[0]
+        raise ValueError(f"Barcode is missing sublibrary suffix: {barcode!r}")
+
+    library_idx = library_idx.astype(int)
+
+    unknown = sorted(set(library_idx) - set(libraries))
+    if unknown:
+        raise ValueError(f"Unknown library indices in cell metadata: {unknown}")
+
+    out = pd.DataFrame({
+        "barcode": data["bc_wells"],
+        "Sample_ID": data["sample"],
+        "library_id": library_idx.map(libraries),
+    })
+
+    if out["barcode"].duplicated().any():
+        duplicate = out.loc[out["barcode"].duplicated(), "barcode"].iloc[0]
+        raise ValueError(f"Duplicate barcode: {duplicate!r}")
+
+    out.to_csv(args.output, sep="\t", index=False)
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

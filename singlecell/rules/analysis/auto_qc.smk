@@ -73,49 +73,39 @@ def _qc_mad_metric_flags(cfg):
 
 
 def _qc_barcode_info_list(wc):
-    return get_barcode_info_list(wc)
+    return get_barcode_info_list(wc, include_autoqc=False)
 
 
 def _qc_prepare_inputs(wc):
+    samples = get_processing_samples(wc.method, wc.aggr_id)
+
     if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger':
-        counts = [
-            join(
-                QUANT_INTERIM,
-                'aggregate',
-                'cellranger',
-                wc.aggr_id,
-                'outs',
-                'count',
-                'filtered_feature_bc_matrix',
-                'matrix.mtx.gz',
-            )
-        ]
+        counts = [join(QUANT_INTERIM, 'aggregate', 'cellranger', wc.aggr_id, 'outs', 'count', 'filtered_feature_bc_matrix', 'matrix.mtx.gz')]
     else:
-        counts = [
-            _get_filtered_mtx(SimpleNamespace(method=wc.method, sublib=s, sample=s))['mtx']
-            for s in AGGR_IDS[wc.aggr_id]
-        ]
+        counts = [_get_filtered_mtx(SimpleNamespace(method=wc.method, sample=sample))['mtx'] for sample in samples]
 
     result = {
         'counts': counts,
         'feature_info': [join(REF_DIR, 'anno', 'genes.tsv')],
         'barcode_info': _qc_barcode_info_list(wc),
     }
+
     if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger':
-        result['aggr_csv'] = join(
-            QUANT_INTERIM,
-            'aggregate',
-            'description',
-            f'{wc.aggr_id}_aggr.csv',
-        )
+        result['aggr_csv'] = join(QUANT_INTERIM, 'aggregate', 'description', f'{wc.aggr_id}_aggr.csv')
+
     return result
 
 
 def _qc_prepare_input_format(wc):
     if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger':
         return 'cellranger_aggr'
-    return wc.method
+    return QUANT_INPUT_FORMAT.get(wc.method, wc.method)
 
+
+def _qc_prepare_barcode_rename(wc):
+    if wc.method in PARSEBIO_STARSOLO_MODES:
+        return 'skip'
+    return BC_RENAME[wc.method]
 
 def _qc_prepare_aggr_csv_arg(wc, input):
     if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger':
@@ -133,7 +123,7 @@ rule autoqc_prepare:
         script = src_gcf('scripts/qc_prepare_mtx.py'),
         converter_script_dir = src_gcf('../quant/scripts'),
         input_format = _qc_prepare_input_format,
-        barcode_rename = lambda wc: BC_RENAME[wc.method],
+        barcode_rename = _qc_prepare_barcode_rename,
         aggr_csv = _qc_prepare_aggr_csv_arg,
         qc_sample = lambda wc: _qc_prepare_sample_str(config),
         qc_vars = lambda wc: _qc_prepare_vars_str(config),

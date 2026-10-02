@@ -15,7 +15,7 @@ LINKER_RC        = config["quant"].get("l21_rc", "AACGCAGAGTGAATGGG")
 STARSOLO_TRIMMER = STARSOLO_CONFIG.get("trimmer", "skip")
 TRIMMER          = "" if STARSOLO_TRIMMER == "starsolo" else STARSOLO_TRIMMER
 if STARSOLO_OUTPUT_BAM:
-    STARSOLO_PARSEBIO_BAM_OUTPUT = join(QUANT_INTERIM, 'parsebio_starsolo', '{preprocessor}', '{sublib}', 'Aligned.sortedByCoord.out.bam')
+    STARSOLO_PARSEBIO_BAM_OUTPUT = join(QUANT_INTERIM, '{method}', '{sublib}', 'Aligned.sortedByCoord.out.bam')
 else:
     STARSOLO_PARSEBIO_BAM_OUTPUT = []
 
@@ -84,7 +84,7 @@ STARSOLO_PARSEBIO_ARGS = STARSOLO_COMMON_ARGS + [
 ]
 
 # Both Parse STARsolo representations use barcode-corrected splitcode FASTQs.
-# The FASTQ representation is selected by the {preprocessor} path wildcard, not a global PREP.
+# The FASTQ representation is selected from the STARsolo method via PARSEBIO_STARSOLO_MODES.
 if STARSOLO_TRIMMER not in {"skip", "cutadapt", "starsolo"}:
     raise ValueError(f"Unsupported Parse STARsolo trimmer: {STARSOLO_TRIMMER}")
 STARSOLO_PARSEBIO_ARGS += ["--soloCBmatchWLtype", "EditDist_2"]
@@ -93,19 +93,29 @@ if STARSOLO_TRIMMER == "starsolo":
 
 STARSOLO_PARSEBIO_ARGS = " ".join(STARSOLO_PARSEBIO_ARGS)
 
+
 if VELO_OUTPUT:
-    STARSOLO_PARSEBIO_VELOCYTO_RAW_BARCODES  = join(QUANT_INTERIM, 'parsebio_starsolo', '{preprocessor}', '{sublib}', 'Solo.out', 'Velocyto', 'raw', 'barcodes.tsv')
-    STARSOLO_PARSEBIO_VELOCYTO_RAW_FEATURES  = join(QUANT_INTERIM, 'parsebio_starsolo', '{preprocessor}', '{sublib}', 'Solo.out', 'Velocyto', 'raw', 'features.tsv')
-    STARSOLO_PARSEBIO_VELOCYTO_RAW_SPLICED   = join(QUANT_INTERIM, 'parsebio_starsolo', '{preprocessor}', '{sublib}', 'Solo.out', 'Velocyto', 'raw', 'spliced.mtx')
-    STARSOLO_PARSEBIO_VELOCYTO_RAW_UNSPLICED = join(QUANT_INTERIM, 'parsebio_starsolo', '{preprocessor}', '{sublib}', 'Solo.out', 'Velocyto', 'raw', 'unspliced.mtx')
-    STARSOLO_PARSEBIO_VELOCYTO_RAW_AMBIGUOUS = join(QUANT_INTERIM, 'parsebio_starsolo', '{preprocessor}', '{sublib}', 'Solo.out', 'Velocyto', 'raw', 'ambiguous.mtx')
+    STARSOLO_PARSEBIO_VELOCYTO_RAW_BARCODES  = join(QUANT_INTERIM, '{method}', '{sublib}', 'Solo.out', 'Velocyto', 'raw', 'barcodes.tsv')
+    STARSOLO_PARSEBIO_VELOCYTO_RAW_FEATURES  = join(QUANT_INTERIM, '{method}', '{sublib}', 'Solo.out', 'Velocyto', 'raw', 'features.tsv')
+    STARSOLO_PARSEBIO_VELOCYTO_RAW_SPLICED   = join(QUANT_INTERIM, '{method}', '{sublib}', 'Solo.out', 'Velocyto', 'raw', 'spliced.mtx')
+    STARSOLO_PARSEBIO_VELOCYTO_RAW_UNSPLICED = join(QUANT_INTERIM, '{method}', '{sublib}', 'Solo.out', 'Velocyto', 'raw', 'unspliced.mtx')
+    STARSOLO_PARSEBIO_VELOCYTO_RAW_AMBIGUOUS = join(QUANT_INTERIM, '{method}', '{sublib}', 'Solo.out', 'Velocyto', 'raw', 'ambiguous.mtx')
+    STARSOLO_PARSEBIO_AGGR_VELOCYTO_RAW_BARCODES = join(QUANT_INTERIM, 'aggregate', '{method}', '{sample}', 'Solo.out', 'Velocyto', 'raw', 'barcodes.tsv')
+    STARSOLO_PARSEBIO_AGGR_VELOCYTO_RAW_FEATURES = join(QUANT_INTERIM, 'aggregate', '{method}', '{sample}', 'Solo.out', 'Velocyto', 'raw', 'features.tsv')
+    STARSOLO_PARSEBIO_AGGR_VELOCYTO_RAW_SPLICED = join(QUANT_INTERIM, 'aggregate', '{method}', '{sample}', 'Solo.out', 'Velocyto', 'raw', 'spliced.mtx')
+    STARSOLO_PARSEBIO_AGGR_VELOCYTO_RAW_UNSPLICED = join(QUANT_INTERIM, 'aggregate', '{method}', '{sample}', 'Solo.out', 'Velocyto', 'raw', 'unspliced.mtx')
+    STARSOLO_PARSEBIO_AGGR_VELOCYTO_RAW_AMBIGUOUS = join(QUANT_INTERIM, 'aggregate', '{method}', '{sample}', 'Solo.out', 'Velocyto', 'raw', 'ambiguous.mtx')
 else:
     STARSOLO_PARSEBIO_VELOCYTO_RAW_BARCODES  = []
     STARSOLO_PARSEBIO_VELOCYTO_RAW_FEATURES  = []
     STARSOLO_PARSEBIO_VELOCYTO_RAW_SPLICED   = []
     STARSOLO_PARSEBIO_VELOCYTO_RAW_UNSPLICED = []
     STARSOLO_PARSEBIO_VELOCYTO_RAW_AMBIGUOUS = []
-
+    STARSOLO_PARSEBIO_AGGR_VELOCYTO_RAW_BARCODES = []
+    STARSOLO_PARSEBIO_AGGR_VELOCYTO_RAW_FEATURES = []
+    STARSOLO_PARSEBIO_AGGR_VELOCYTO_RAW_SPLICED = []
+    STARSOLO_PARSEBIO_AGGR_VELOCYTO_RAW_UNSPLICED = []
+    STARSOLO_PARSEBIO_AGGR_VELOCYTO_RAW_AMBIGUOUS = []
 
 
 def _tso_window_args(tso: str, kmax: int = 15) -> str:
@@ -156,6 +166,20 @@ def star_build_preprocessor_string(config, pipe=False):
         raise ValueError
 
 
+rule parsebio_sample_info:
+    output:
+        join(QUANT_INTERIM, 'parsebio_sample_info.tsv')
+    params:
+        script = src_gcf('scripts/parsebio_sample_info.py'),
+        config = workflow.configfiles[0]
+    container:
+        'docker://' + config['docker']['default']
+    shell:
+        'python {params.script} '
+        '--configfile {params.config} '
+        '--output {output} '
+
+
 rule parsebio_ext:
     output:
         join(EXT_DIR, 'parsebio', '{name}_{kit}_{chem}.txt')
@@ -176,6 +200,7 @@ rule parsebio_whitelists:
         barcodes = parsebio_barcode_inputs(KIT, CHEM)
     params:
         script     = src_gcf("scripts/gen_whitelists.py"),
+        config = workflow.configfiles[0],
         barcodes_dir = PARSEBIO_BARCODE_DIR,
         kit        = KIT,
         chemistry  = CHEM,
@@ -190,6 +215,7 @@ rule parsebio_whitelists:
         r1_wm      = join(INTERIM_DIR, "singlecell", "whitelists", "r1_wellmap.txt"),
         r2_wm      = join(INTERIM_DIR, "singlecell", "whitelists", "r2_wellmap.txt"),
         r3_wm      = join(INTERIM_DIR, "singlecell", "whitelists", "r3_wellmap.txt"),
+        r1_sample_mapping = join(INTERIM_DIR, 'singlecell', 'whitelists', 'r1_sample_mapping.tsv'),
     container:
         'docker://' + config['docker']['default']
     shell:
@@ -197,7 +223,9 @@ rule parsebio_whitelists:
         "--kit {params.kit} "
         "--chem {params.chemistry} "
         "--barcodes-dir {params.barcodes_dir} "
+        "--configfile {params.config} "
         "--outdir {params.outdir} "
+
 
 # Reformat (existing) → config.txt
 rule parsebio_splitcode_config_reformat:
@@ -326,6 +354,7 @@ rule parsebio_fastq_error_correct_bc1:
     shell:
         "splitcode -c {input.conf} --summary {log} -t {threads} --nFastqs 2 -o {output.R1},{output.R2} {input.R1} {input.R2}"
 
+
 rule parsebio_fastq_splitcode:
     input:
         R1 = join(FILTER_INTERIM, "fastq", "{sublib}_R1.fastq.gz"),
@@ -413,28 +442,37 @@ rule parsebio_fastq_trim_cutadapt:
 def get_parsebio_starsolo_genome():
     return join(REF_DIR, 'index', 'genome', 'splitpipe', 'SA')
 
-def get_parsebio_starsolo_config():
-    q  = config["quant"]
-    ss = q.get("starsolo", {})
-    preprocessor = ss.get("preprocessor", "").lower()
-    return join(FILTER_INTERIM, "fastq", f"{preprocessor}", "config.txt")
+
+def get_parsebio_starsolo_preprocessor(wc):
+    return PARSEBIO_STARSOLO_MODES[wc.method]
+
+
+def get_parsebio_starsolo_fastq(wc, read):
+    preprocessor = get_parsebio_starsolo_preprocessor(wc)
+    return join(FILTER_INTERIM, 'fastq', preprocessor, TRIMMER, f'{wc.sublib}_{read}.fastq.gz')
+
+
+def get_parsebio_starsolo_r1_whitelist(wc):
+    preprocessor = get_parsebio_starsolo_preprocessor(wc)
+    name = 'r1_T.txt' if preprocessor == 'rt_merge' else 'r1.txt'
+    return join(INTERIM_DIR, 'singlecell', 'whitelists', name)
 
 
 rule parsebio_starsolo_quant:
     input:
-        R1 = join(FILTER_INTERIM, 'fastq', '{preprocessor}', TRIMMER, '{sublib}_R1.fastq.gz'),
-        R2 = join(FILTER_INTERIM, 'fastq', '{preprocessor}', TRIMMER, '{sublib}_R2.fastq.gz'),
-        wl_1 = join(INTERIM_DIR, "singlecell", "whitelists", "r1.txt"),
-        wl_2 = join(INTERIM_DIR, "singlecell", "whitelists", "r2.txt"),
-        wl_3 = join(INTERIM_DIR, "singlecell", "whitelists", "r3.txt"),
+        R1 = lambda wc: get_parsebio_starsolo_fastq(wc, 'R1'),
+        R2 = lambda wc: get_parsebio_starsolo_fastq(wc, 'R2'),
+        wl_1 = get_parsebio_starsolo_r1_whitelist,
+        wl_2 = join(INTERIM_DIR, 'singlecell', 'whitelists', 'r2.txt'),
+        wl_3 = join(INTERIM_DIR, 'singlecell', 'whitelists', 'r3.txt'),
         genome = get_parsebio_starsolo_genome()
     output:
-        raw_mtx = join(QUANT_INTERIM, 'parsebio_starsolo', '{preprocessor}', '{sublib}', 'Solo.out', STARSOLO_FEATURE, 'raw', STARSOLO_MTX),
-        raw_barcodes = join(QUANT_INTERIM, 'parsebio_starsolo', '{preprocessor}', '{sublib}', 'Solo.out', STARSOLO_FEATURE, 'raw', 'barcodes.tsv'),
-        raw_genes = join(QUANT_INTERIM, 'parsebio_starsolo', '{preprocessor}', '{sublib}', 'Solo.out', STARSOLO_FEATURE, 'raw', 'features.tsv'),
-        gene_stats = join(QUANT_INTERIM, 'parsebio_starsolo', '{preprocessor}', '{sublib}', 'Solo.out', STARSOLO_FEATURE, 'Features.stats'),
-        gene_summary = join(QUANT_INTERIM, 'parsebio_starsolo', '{preprocessor}', '{sublib}', 'Solo.out', STARSOLO_FEATURE, 'Summary.csv'),
-        cell_reads = join(QUANT_INTERIM, 'parsebio_starsolo', '{preprocessor}', '{sublib}', 'Solo.out', STARSOLO_FEATURE, 'CellReads.stats'),
+        raw_mtx = join(QUANT_INTERIM, '{method}', '{sublib}', 'Solo.out', STARSOLO_FEATURE, 'raw', STARSOLO_MTX),
+        raw_barcodes = join(QUANT_INTERIM, '{method}', '{sublib}', 'Solo.out', STARSOLO_FEATURE, 'raw', 'barcodes.tsv'),
+        raw_genes = join(QUANT_INTERIM, '{method}', '{sublib}', 'Solo.out', STARSOLO_FEATURE, 'raw', 'features.tsv'),
+        gene_stats = join(QUANT_INTERIM, '{method}', '{sublib}', 'Solo.out', STARSOLO_FEATURE, 'Features.stats'),
+        gene_summary = join(QUANT_INTERIM, '{method}', '{sublib}', 'Solo.out', STARSOLO_FEATURE, 'Summary.csv'),
+        cell_reads = join(QUANT_INTERIM, '{method}', '{sublib}', 'Solo.out', STARSOLO_FEATURE, 'CellReads.stats'),
         bam = STARSOLO_PARSEBIO_BAM_OUTPUT,
         spliced_mtx = STARSOLO_PARSEBIO_VELOCYTO_RAW_SPLICED,
         unspliced_mtx = STARSOLO_PARSEBIO_VELOCYTO_RAW_UNSPLICED,
@@ -442,17 +480,21 @@ rule parsebio_starsolo_quant:
         velo_barcodes = STARSOLO_PARSEBIO_VELOCYTO_RAW_BARCODES,
         velo_features = STARSOLO_PARSEBIO_VELOCYTO_RAW_FEATURES,
     params:
-        outdir = join(QUANT_INTERIM, 'parsebio_starsolo', '{preprocessor}', '{sublib}') + '/',
+        outdir = join(QUANT_INTERIM, '{method}', '{sublib}') + '/',
         genome_dir = os.path.dirname(get_parsebio_starsolo_genome()),
-        soloCBposition = STARSOLO_CONFIG["soloCBposition"],
-        soloUMIposition = STARSOLO_CONFIG["soloUMIposition"],
+        soloCBposition = STARSOLO_CONFIG['soloCBposition'],
+        soloUMIposition = STARSOLO_CONFIG['soloUMIposition'],
         starsolo_args = STARSOLO_PARSEBIO_ARGS
+    threads:
+        32
     log:
-        star = join(QUANT_INTERIM, 'parsebio_starsolo', '{preprocessor}', '{sublib}', 'Log.final.out'),
-        barcodes = join(QUANT_INTERIM, 'parsebio_starsolo', '{preprocessor}', '{sublib}', 'Solo.out', 'Barcodes.stats'),
-        umi_cell = join(QUANT_INTERIM, 'parsebio_starsolo', '{preprocessor}', '{sublib}', 'Solo.out', STARSOLO_FEATURE, 'UMIperCellSorted.txt')
+        star = join(QUANT_INTERIM, '{method}', '{sublib}', 'Log.final.out'),
+        barcodes = join(QUANT_INTERIM, '{method}', '{sublib}', 'Solo.out', 'Barcodes.stats'),
+        umi_cell = join(QUANT_INTERIM, '{method}', '{sublib}', 'Solo.out', STARSOLO_FEATURE, 'UMIperCellSorted.txt')
     benchmark:
-        'benchmarks/parsebio_starsolo/{preprocessor}/{sublib}-starsolo.txt'
+        'benchmarks/{method}/{sublib}-starsolo.txt'
+    wildcard_constraints:
+        method = 'parsebio_starsolo|parsebio_starsolo_rt'
     container:
         'docker://' + config['docker']['star']
     shell:
@@ -466,27 +508,96 @@ rule parsebio_starsolo_quant:
         '--runThreadN {threads} '
         '{params.starsolo_args} '
 
+
+def parsebio_starsolo_sample_raw_inputs(wc):
+    return {
+        'mtx': expand(rules.parsebio_starsolo_quant.output.raw_mtx, method=wc.method, sublib=SUBLIBS),
+        'barcodes': expand(rules.parsebio_starsolo_quant.output.raw_barcodes, method=wc.method, sublib=SUBLIBS),
+        'features': expand(rules.parsebio_starsolo_quant.output.raw_genes, method=wc.method, sublib=SUBLIBS),
+        'cell_reads': expand(rules.parsebio_starsolo_quant.output.cell_reads, method=wc.method, sublib=SUBLIBS),
+        'r1_sample_mapping': join(INTERIM_DIR, 'singlecell', 'whitelists', 'r1_sample_mapping.tsv'),
+        'velo_spliced': expand(rules.parsebio_starsolo_quant.output.spliced_mtx, method=wc.method, sublib=SUBLIBS),
+        'velo_unspliced': expand(rules.parsebio_starsolo_quant.output.unspliced_mtx, method=wc.method, sublib=SUBLIBS),
+        'velo_ambiguous': expand(rules.parsebio_starsolo_quant.output.ambiguous_mtx, method=wc.method, sublib=SUBLIBS),
+        'velo_barcodes': expand(rules.parsebio_starsolo_quant.output.velo_barcodes, method=wc.method, sublib=SUBLIBS),
+        'velo_features': expand(rules.parsebio_starsolo_quant.output.velo_features, method=wc.method, sublib=SUBLIBS),
+    }
+
+
+def parsebio_starsolo_sample_velo_args(wc, input, output):
+    if not VELO_OUTPUT:
+        return ''
+
+    return (
+        f'--velocyto-spliced {" ".join(input.velo_spliced)} '
+        f'--velocyto-unspliced {" ".join(input.velo_unspliced)} '
+        f'--velocyto-ambiguous {" ".join(input.velo_ambiguous)} '
+        f'--velocyto-barcodes {" ".join(input.velo_barcodes)} '
+        f'--velocyto-features {" ".join(input.velo_features)} '
+        f'--output-velocyto-spliced {output.spliced_mtx} '
+        f'--output-velocyto-unspliced {output.unspliced_mtx} '
+        f'--output-velocyto-ambiguous {output.ambiguous_mtx} '
+        f'--output-velocyto-barcodes {output.velo_barcodes} '
+        f'--output-velocyto-features {output.velo_features}'
+    )
+
+
+rule parsebio_starsolo_sample_raw:
+    input:
+        unpack(parsebio_starsolo_sample_raw_inputs)
+    output:
+        mtx = join(QUANT_INTERIM, 'aggregate', '{method}', '{sample}', 'Solo.out', STARSOLO_FEATURE, 'raw', STARSOLO_MTX),
+        barcodes = join(QUANT_INTERIM, 'aggregate', '{method}', '{sample}', 'Solo.out', STARSOLO_FEATURE, 'raw', 'barcodes.tsv'),
+        features = join(QUANT_INTERIM, 'aggregate', '{method}', '{sample}', 'Solo.out', STARSOLO_FEATURE, 'raw', 'features.tsv'),
+        cell_reads = join(QUANT_INTERIM, 'aggregate', '{method}', '{sample}', 'Solo.out', STARSOLO_FEATURE, 'CellReads.stats'),
+        spliced_mtx = STARSOLO_PARSEBIO_AGGR_VELOCYTO_RAW_SPLICED,
+        unspliced_mtx = STARSOLO_PARSEBIO_AGGR_VELOCYTO_RAW_UNSPLICED,
+        ambiguous_mtx = STARSOLO_PARSEBIO_AGGR_VELOCYTO_RAW_AMBIGUOUS,
+        velo_barcodes = STARSOLO_PARSEBIO_AGGR_VELOCYTO_RAW_BARCODES,
+        velo_features = STARSOLO_PARSEBIO_AGGR_VELOCYTO_RAW_FEATURES,
+    params:
+        script = src_gcf('scripts/aggregate_parsebio_starsolo_sample.py'),
+        sublibs = ','.join(SUBLIBS),
+        velo_args = parsebio_starsolo_sample_velo_args
+    wildcard_constraints:
+        method = 'parsebio_starsolo|parsebio_starsolo_rt'
+    container:
+        'docker://' + config['docker']['default']
+    shell:
+        'python {params.script} '
+        '--matrix {input.mtx} '
+        '--barcodes {input.barcodes} '
+        '--features {input.features} '
+        '--cell-reads {input.cell_reads} '
+        '--r1-sample-mapping {input.r1_sample_mapping} '
+        '--sublibs {params.sublibs} '
+        '--sample-id {wildcards.sample} '
+        '--output-matrix {output.mtx} '
+        '--output-barcodes {output.barcodes} '
+        '--output-features {output.features} '
+        '--output-cell-reads {output.cell_reads} '
+        '{params.velo_args}'
+
+
 rule parsebio_starsolo_filtered:
     input:
-        raw_mtx = join(QUANT_INTERIM, 'parsebio_starsolo', '{preprocessor}', '{sublib}', 'Solo.out', STARSOLO_FEATURE, 'raw', STARSOLO_MTX),
-        raw_barcodes = join(QUANT_INTERIM, 'parsebio_starsolo', '{preprocessor}', '{sublib}', 'Solo.out', STARSOLO_FEATURE, 'raw', 'barcodes.tsv'),
-        raw_genes = join(QUANT_INTERIM, 'parsebio_starsolo', '{preprocessor}', '{sublib}', 'Solo.out', STARSOLO_FEATURE, 'raw', 'features.tsv'),
-        bc_info = join(QUANT_INTERIM, 'parsebio_starsolo', '{preprocessor}', '{sublib}', 'barcode_info.tsv')
+        raw_mtx = join(QUANT_INTERIM, 'aggregate', '{method}', '{sample}', 'Solo.out', STARSOLO_FEATURE, 'raw', STARSOLO_MTX),
+        raw_barcodes = join(QUANT_INTERIM, 'aggregate', '{method}', '{sample}', 'Solo.out', STARSOLO_FEATURE, 'raw', 'barcodes.tsv'),
+        raw_genes = join(QUANT_INTERIM, 'aggregate', '{method}', '{sample}', 'Solo.out', STARSOLO_FEATURE, 'raw', 'features.tsv')
     output:
-        mtx = join(QUANT_INTERIM, 'parsebio_starsolo', '{preprocessor}', '{sublib}', 'Solo.out', STARSOLO_FEATURE, 'filtered', 'matrix.mtx'),
-        barcodes = join(QUANT_INTERIM, 'parsebio_starsolo', '{preprocessor}', '{sublib}', 'Solo.out', STARSOLO_FEATURE, 'filtered', 'barcodes.tsv'),
-        genes = join(QUANT_INTERIM, 'parsebio_starsolo', '{preprocessor}', '{sublib}', 'Solo.out', STARSOLO_FEATURE, 'filtered', 'features.tsv')
+        mtx = join(QUANT_INTERIM, 'aggregate', '{method}', '{sample}', 'Solo.out', STARSOLO_FEATURE, 'filtered', STARSOLO_MTX),
+        barcodes = join(QUANT_INTERIM, 'aggregate', '{method}', '{sample}', 'Solo.out', STARSOLO_FEATURE, 'filtered', 'barcodes.tsv'),
+        genes = join(QUANT_INTERIM, 'aggregate', '{method}', '{sample}', 'Solo.out', STARSOLO_FEATURE, 'filtered', 'features.tsv')
     params:
         script = src_gcf('scripts/parsebio_barcode_rank.py'),
         n_expected_cells = N_EXPECTED_CELLS,
         max_cells = BARCODE_RANK_MAX_CELLS,
         cnt_scale_fac = float(config['quant'].get('barcode_rank_cnt_scale_fac', 0.70)),
-        method = config['quant'].get('barcode_rank_method', 'C'),
+        method = config['quant'].get('barcode_rank_method', 'C')
     threads:
         8
     wildcard_constraints:
-        preprocessor = 'rt_merge|error_correct_bc1',
-        sublib = r'[^/]+'
+        method = 'parsebio_starsolo|parsebio_starsolo_rt'
     container:
         'docker://' + config['docker']['default']
     shell:
@@ -496,7 +607,8 @@ rule parsebio_starsolo_filtered:
         '--cnt-scale-fac {params.cnt_scale_fac} '
         '--method {params.method} '
         '--input-mtx {input.raw_mtx} '
-        '--output-mtx {output.mtx} '
+        '--output-mtx {output.mtx}'
+
 
 def parsebio_starsolo_rt_inputs(wc):
     sublibs = AGGR_IDS[wc.aggr_id]
@@ -542,16 +654,16 @@ rule parsebio_starsolo_scanpy_rt_filtered:
 
 rule parsebio_starsolo_mtx_v2_fix:
     input:
-        join(QUANT_INTERIM, 'parsebio_starsolo', '{preprocessor}', '{sublib}', 'Solo.out', STARSOLO_FEATURE, '{dge_type}', 'features.tsv')
+        join(QUANT_INTERIM, '{method}', '{sublib}', 'Solo.out', STARSOLO_FEATURE, '{dge_type}', 'features.tsv')
     output:
-        temp(join(QUANT_INTERIM, 'parsebio_starsolo', '{preprocessor}', '{sublib}', 'Solo.out', STARSOLO_FEATURE, '{dge_type}', 'genes.tsv'))
+        temp(join(QUANT_INTERIM, '{method}', '{sublib}', 'Solo.out', STARSOLO_FEATURE, '{dge_type}', 'genes.tsv'))
     shell:
         'cp {input} {output}'
 
 
 rule parsebio_starsolo_clean_shmem:
     input:
-        expand(rules.parsebio_starsolo_quant.output.raw_mtx, preprocessor='rt_merge', sublib=SUBLIBS)
+        expand(rules.parsebio_starsolo_quant.output.raw_mtx, method='parsebio_starsolo', sublib=SUBLIBS)
     params:
         genome_dir = os.path.dirname(get_parsebio_starsolo_genome())
     output:
@@ -564,43 +676,56 @@ rule parsebio_starsolo_clean_shmem:
         'STAR --genomeDir {params.genome_dir} --genomeLoad Remove || echo "no shared mem"'
 
 
-rule parsebio_starsolo_barcode_sublib:
-    input:
-        r1_wm      = join(INTERIM_DIR, "singlecell", "whitelists", "r1_wellmap.txt"),
-        r2_wm      = join(INTERIM_DIR, "singlecell", "whitelists", "r2_wellmap.txt"),
-        r3_wm      = join(INTERIM_DIR, "singlecell", "whitelists", "r3_wellmap.txt"),
-        barcodes = join(QUANT_INTERIM, "parsebio_starsolo", "{preprocessor}", "{sublib}", "Solo.out", STARSOLO_FEATURE, "raw", "barcodes.tsv")
-    output:
-        info = join(QUANT_INTERIM, "parsebio_starsolo", "{preprocessor}", "{sublib}", "barcode_info.tsv")
-    params:
-        script = src_gcf("scripts/parsebio_starsolo_sampleinfo.py"),
-        config = workflow.configfiles[0],
-        sublib = "{sublib}"
-    wildcard_constraints:
-        preprocessor = 'rt_merge|error_correct_bc1',
-        sublib = r'[^/]+'
-    container:
-        'docker://' + config['docker']['default']
-    shell:
-        "python {params.script} "
-        "--r1-wellmap {input.r1_wm} "
-        "--r2-wellmap {input.r2_wm} "
-        "--r3-wellmap {input.r3_wm} "
-        "--configfile {params.config} "
-        "--sublib {params.sublib} "
-        "--barcodes {input.barcodes} "
-        "--order r3_r2_r1 "
-        "--output {output.info} "
-
 rule parsebio_starsolo_barcode_info:
     input:
-        expand(join(QUANT_INTERIM, "parsebio_starsolo", "rt_merge", "{sublib}", "barcode_info.tsv"), sublib=SUBLIBS)
+        barcodes = join(QUANT_INTERIM, 'aggregate', '{method}', '{sample}', 'Solo.out', STARSOLO_FEATURE, 'filtered', 'barcodes.tsv'),
+        r1_wellmap = join(INTERIM_DIR, 'singlecell', 'whitelists', 'r1_wellmap.txt'),
+        r2_wellmap = join(INTERIM_DIR, 'singlecell', 'whitelists', 'r2_wellmap.txt'),
+        r3_wellmap = join(INTERIM_DIR, 'singlecell', 'whitelists', 'r3_wellmap.txt'),
+        r1_sample_mapping = join(INTERIM_DIR, 'singlecell', 'whitelists', 'r1_sample_mapping.tsv'),
+        r1_R = join(INTERIM_DIR, 'singlecell', 'whitelists', 'r1_R.txt'),
+        r1_T = join(INTERIM_DIR, 'singlecell', 'whitelists', 'r1_T.txt'),
     output:
-        info = join(QUANT_INTERIM, "parsebio_starsolo", "barcode_info.tsv")
+        join(QUANT_INTERIM, 'aggregate', '{method}', '{sample}', 'barcode_info.tsv')
+    params:
+        script = src_gcf('scripts/parsebio_starsolo_sampleinfo.py'),
+        sublibs = ' '.join(SUBLIBS),
+        rt_pairing = lambda wc: '--rt-pairing' if wc.method == 'parsebio_starsolo_rt' else ''
+    wildcard_constraints:
+        method = 'parsebio_starsolo|parsebio_starsolo_rt'
     container:
         'docker://' + config['docker']['default']
     shell:
-        r"""awk 'FNR==1 && NR!=1 {{next}}; 1' {input} > {output.info}"""
+        'python {params.script} '
+        '--barcodes {input.barcodes} '
+        '--r1-wellmap {input.r1_wellmap} '
+        '--r2-wellmap {input.r2_wellmap} '
+        '--r3-wellmap {input.r3_wellmap} '
+        '--r1-sample-mapping {input.r1_sample_mapping} '
+        '--r1-R {input.r1_R} '
+        '--r1-T {input.r1_T} '
+        '--sample-id {wildcards.sample} '
+        '--sublibs {params.sublibs} '
+        '--output {output} '
+        '{params.rt_pairing}'
+
+
+rule parsebio_starsolo_barcode_info_aggr:
+    input:
+        lambda wc: [join(QUANT_INTERIM, 'aggregate', wc.method, sample, 'barcode_info.tsv') for sample in PARSEBIO_SAMPLES]
+    output:
+        join(QUANT_INTERIM, 'aggregate', '{method}', '{aggr_id}_barcode_info.tsv')
+    params:
+        script = src_gcf('scripts/aggr_barcode_info.py')
+    wildcard_constraints:
+        method = 'parsebio_starsolo|parsebio_starsolo_rt'
+    container:
+        'docker://' + config['docker']['default']
+    shell:
+        'python {params.script} '
+        '{input} '
+        '--barcode-rename none '
+        '--output {output} '
 
 
 if not PREPROCESS_ENABLED:

@@ -107,19 +107,6 @@ def load_barcode_info(conv, paths: list[str]) -> list[tuple[str, pd.DataFrame]]:
     return result
 
 
-def split_parsebio_rt_info(
-    barcode_info: list[tuple[str, pd.DataFrame]],
-) -> tuple[tuple[str, pd.DataFrame], list[tuple[str, pd.DataFrame]]]:
-    matches = [item for item in barcode_info if {"barcode_Tmapped", "stype"}.issubset(item[1].columns)]
-    if len(matches) != 1:
-        raise ValueError(
-            "Parse STARsolo requires exactly one barcode-info table with barcode_Tmapped and stype; "
-            f"found {len(matches)}"
-        )
-    rt_info = matches[0]
-    remaining = [item for item in barcode_info if item is not rt_info]
-    return rt_info, remaining
-
 
 def attach_feature_info(adata, feature_info: pd.DataFrame | None) -> None:
     if feature_info is None:
@@ -256,47 +243,23 @@ def main() -> int:
     reader_args = make_reader_args(args, conv)
     reader = reader_for_format(conv, args.input_format)
 
-    if args.input_format == "parsebio_starsolo":
-        from postprocess_starsolo_rt import aggregate_starsolo_cells
-
-        rt_info, barcode_info = split_parsebio_rt_info(barcode_info)
-        data_list = []
-        for path in args.input:
-            LOGGER.info("[prepare] reading matrix %s", path)
-            adata = reader(path, reader_args)
-            adata.obs = merge_columns(adata.obs.copy(), rt_info[1], rt_info[0])
-            data_list.append(adata)
-
-        adata = ad.concat(data_list, join="outer", merge="unique", uns_merge=None)
-        del data_list
-        if not adata.obs_names.is_unique:
-            raise ValueError("Parse STARsolo R/T barcode index is not unique before collapse")
-
-        LOGGER.info("[prepare] collapsing Parse STARsolo R/T observations by barcode_Tmapped")
-        adata = aggregate_starsolo_cells(adata, groupby="barcode_Tmapped")
+    frames = []
+    seen = set()
+    for path in args.input:
+        LOGGER.info("[prepare] reading matrix %s", path)
+        adata = reader(path, reader_args)
+        attach_starsolo_library_id(adata, path, args.input_format)
         attach_feature_info(adata, feature_info)
         attach_barcode_info(adata, barcode_info)
-        frames = [frame_from_anndata(adata, group_cols, qc_vars)]
-        LOGGER.info("[prepare] collapsed matrix n_obs=%d n_vars=%d", adata.n_obs, adata.n_vars)
+
+        duplicate = seen.intersection(adata.obs_names)
+        if duplicate:
+            raise ValueError(f"Duplicate aggregate barcodes across matrix inputs: {sorted(duplicate)[:5]}")
+        seen.update(adata.obs_names)
+
+        LOGGER.info("[prepare] matrix n_obs=%d n_vars=%d", adata.n_obs, adata.n_vars)
+        frames.append(frame_from_anndata(adata, group_cols, qc_vars))
         del adata
-    else:
-        frames = []
-        seen = set()
-        for path in args.input:
-            LOGGER.info("[prepare] reading matrix %s", path)
-            adata = reader(path, reader_args)
-            attach_starsolo_library_id(adata, path, args.input_format)
-            attach_feature_info(adata, feature_info)
-            attach_barcode_info(adata, barcode_info)
-
-            duplicate = seen.intersection(adata.obs_names)
-            if duplicate:
-                raise ValueError(f"Duplicate aggregate barcodes across matrix inputs: {sorted(duplicate)[:5]}")
-            seen.update(adata.obs_names)
-
-            LOGGER.info("[prepare] matrix n_obs=%d n_vars=%d", adata.n_obs, adata.n_vars)
-            frames.append(frame_from_anndata(adata, group_cols, qc_vars))
-            del adata
 
     out = pd.concat(frames, axis=0)
     if not out.index.is_unique:
