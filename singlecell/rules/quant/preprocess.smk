@@ -515,6 +515,8 @@ if 'umap' in PREPROCESS_EMBEDDING_METHODS:
             gpu = 1
         log:
             join(PREPROCESS_LOG_DIR, 'embedding_umap.log')
+        benchmark:
+            join(PREPROCESS_DIR, 'benchmarks', 'embedding_umap.txt')
         wildcard_constraints:
             method = QUANT_METHOD_PATTERN
         container:
