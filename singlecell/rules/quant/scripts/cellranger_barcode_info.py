@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build canonical barcode identity metadata from one Cell Ranger aggregation."""
+"""Build canonical barcode identity metadata for one Cell Ranger aggregation."""
 
 from __future__ import annotations
 
@@ -17,9 +17,10 @@ _BARCODE_SUFFIX_RE = re.compile(r"^(.*?)-(\d+)$")
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--aggr-csv", required=True)
-    parser.add_argument("--barcodes", required=True, help="Aggregated Cell Ranger barcodes.tsv[.gz]")
+    parser.add_argument("--barcodes", nargs="+", required=True)
     parser.add_argument("--sample-info", required=True)
     parser.add_argument("--library-info", required=True)
+    parser.add_argument("--aggregated", action="store_true", help="Barcodes come from cellranger aggr output")
     parser.add_argument("--output", required=True)
     return parser.parse_args()
 
@@ -82,6 +83,15 @@ def library_sample_map(library_ids: list[str], sample_info: pd.DataFrame, librar
     return resolved
 
 
+def infer_library_id(path: Path) -> str:
+    for parent in path.parents:
+        if parent.name == "outs":
+            library_id = parent.parent.name.strip()
+            if library_id:
+                return library_id
+    raise ValueError(f"Cannot infer library_id from Cell Ranger barcode path: {path}")
+
+
 def iter_barcodes(path: Path):
     opener = gzip.open if path.suffix == ".gz" else open
     with opener(path, "rt", encoding="utf-8") as handle:
@@ -91,16 +101,18 @@ def iter_barcodes(path: Path):
                 yield barcode
 
 
-def main() -> int:
-    args = parse_args()
+def barcode_core(barcode: str) -> str:
+    match = _BARCODE_SUFFIX_RE.match(barcode)
+    return match.group(1) if match else barcode
 
-    library_ids = read_library_order(args.aggr_csv)
-    sample_info = read_entity_table(args.sample_info, "Sample_ID")
-    library_info = read_entity_table(args.library_info, "library_id")
-    sample_by_library = library_sample_map(library_ids, sample_info, library_info)
 
+def build_from_aggregated(
+    barcode_path: Path,
+    library_ids: list[str],
+    sample_by_library: dict[str, str],
+) -> pd.DataFrame:
     rows = []
-    for barcode in iter_barcodes(Path(args.barcodes)):
+    for barcode in iter_barcodes(barcode_path):
         match = _BARCODE_SUFFIX_RE.match(barcode)
         if match is None:
             raise ValueError(f"Aggregated Cell Ranger barcode lacks numerical GEM-group suffix: {barcode!r}")
@@ -121,12 +133,68 @@ def main() -> int:
             }
         )
 
-    output = pd.DataFrame(rows)
+    return pd.DataFrame(rows)
+
+
+def build_from_per_library(
+    barcode_paths: list[Path],
+    library_ids: list[str],
+    sample_by_library: dict[str, str],
+) -> pd.DataFrame:
+    path_by_library = {}
+    for path in barcode_paths:
+        library_id = infer_library_id(path)
+        if library_id in path_by_library:
+            raise ValueError(f"Duplicate barcode input for library {library_id!r}")
+        path_by_library[library_id] = path
+
+    missing = [library_id for library_id in library_ids if library_id not in path_by_library]
+    unexpected = sorted(set(path_by_library) - set(library_ids))
+    if missing or unexpected:
+        raise ValueError(
+            f"Cell Ranger barcode inputs do not match aggregation libraries; "
+            f"missing={missing}, unexpected={unexpected}"
+        )
+
+    frames = []
+    for library_idx, library_id in enumerate(library_ids, start=1):
+        source = pd.Series(list(iter_barcodes(path_by_library[library_id])), dtype=str)
+        canonical = source.map(barcode_core).map(lambda barcode: f"{barcode}-{library_idx}")
+        frames.append(
+            pd.DataFrame(
+                {
+                    "barcode": canonical,
+                    "source_barcode": source,
+                    "library_id": library_id,
+                    "Sample_ID": sample_by_library[library_id],
+                }
+            )
+        )
+
+    return pd.concat(frames, axis=0, ignore_index=True)
+
+
+def main() -> int:
+    args = parse_args()
+
+    library_ids = read_library_order(args.aggr_csv)
+    sample_info = read_entity_table(args.sample_info, "Sample_ID")
+    library_info = read_entity_table(args.library_info, "library_id")
+    sample_by_library = library_sample_map(library_ids, sample_info, library_info)
+
+    barcode_paths = [Path(path) for path in args.barcodes]
+    if args.aggregated:
+        if len(barcode_paths) != 1:
+            raise ValueError("--aggregated requires exactly one barcode input")
+        output = build_from_aggregated(barcode_paths[0], library_ids, sample_by_library)
+    else:
+        output = build_from_per_library(barcode_paths, library_ids, sample_by_library)
+
     if output.empty:
-        raise ValueError(f"No barcodes found in {args.barcodes}")
+        raise ValueError("No Cell Ranger barcodes found")
     if output["barcode"].duplicated().any():
         duplicates = output.loc[output["barcode"].duplicated(keep=False), "barcode"].unique().tolist()
-        raise ValueError(f"Duplicate aggregated Cell Ranger barcodes: {duplicates[:10]}")
+        raise ValueError(f"Duplicate canonical Cell Ranger barcodes: {duplicates[:10]}")
 
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
