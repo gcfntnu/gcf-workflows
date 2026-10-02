@@ -1,338 +1,163 @@
 #!/usr/bin/env python3
-"""
-Generate a unified `barcode_info.tsv` for 10x CellRanger libraries,
-using the *canonical* library order from a CellRanger aggr CSV.
-
-Intent
-------
-- Use `{aggr_id}_aggr.csv` (e.g., `all_samples_aggr.csv`) to define the global,
-  stable library indices (`library_idx = 1..N`) by the **row order of `sample_id`**.
-- Infer each `library_id` directly from the per-library barcodes path
-  (`<LIB>/outs/.../barcodes.tsv(.gz)` → `library_id = <LIB>`).
-- Construct final aggregated barcodes in 10x style: `<barcode_core>-<library_idx>`,
-  *replacing* any existing trailing `-<n>` suffix present in raw barcodes.
-- Broadcast sample-level metadata from the Snakemake config YAML (`samples:`) onto each row.
-"""
+"""Build canonical barcode identity metadata for one Cell Ranger aggregation."""
 
 from __future__ import annotations
 
 import argparse
+import gzip
 import re
-import sys
 from pathlib import Path
-from typing import Dict, Iterable, List, Tuple
 
 import pandas as pd
-import yaml
-
-
-def argparser() -> argparse.Namespace:
-    """Parse command-line arguments.
-
-    Returns
-    -------
-    argparse.Namespace
-        Parsed arguments:
-        - `--aggr-csv` : canonical CellRanger aggr CSV (defines library order)
-        - `--barcodes` : per-library barcodes files (paths ending in `barcodes.tsv[.gz]`)
-        - `--configfile` : Snakemake config YAML containing `samples:` metadata
-        - `--output` : output path for the unified `barcode_info.tsv`
-    """
-    p = argparse.ArgumentParser(
-        description="Generate CellRanger barcode_info.tsv (library order from aggr CSV)"
-    )
-    p.add_argument(
-        "--aggr-csv",
-        required=True,
-        help="Canonical aggr CSV (e.g., QUANT_INTERIM/aggregate/description/all_samples_aggr.csv).",
-    )
-    p.add_argument(
-        "--barcodes",
-        nargs="+",
-        required=True,
-        help=(
-            "Per-library barcodes files (barcodes.tsv or barcodes.tsv.gz). "
-            "Library IDs are inferred from the directory immediately above 'outs/'."
-        ),
-    )
-    p.add_argument(
-        "--configfile",
-        default="config.yaml",
-        help="Snakemake config YAML containing sample metadata under the top-level key 'samples'.",
-    )
-    p.add_argument(
-        "-o",
-        "--output",
-        default="barcode_info.tsv",
-        help="Output filename (TSV or TSV.GZ).",
-    )
-    return p.parse_args()
-
-
-def _read_yaml_config(path: str) -> pd.DataFrame:
-    """Read YAML config and extract sample metadata (index = Sample_ID).
-
-    Parameters
-    ----------
-    path : str
-        Path to `config.yaml`.
-
-    Returns
-    -------
-    pandas.DataFrame
-        DataFrame indexed by `Sample_ID` with metadata columns from `samples:`.
-
-    Raises
-    ------
-    ValueError
-        If the config does not contain a mapping at `samples`.
-    """
-    with open(path, "r") as fh:
-        conf = yaml.safe_load(fh) or {}
-    samples = conf.get("samples")
-    if not isinstance(samples, dict):
-        raise ValueError("configfile must contain a mapping at top-level key 'samples'")
-    df = pd.DataFrame.from_dict(samples, orient="index")
-    # Ensure a stable index name for downstream joins
-    df.index.name = "Sample_ID"
-    return df
-
-
-def _read_aggr_csv(path: str) -> List[str]:
-    """Read aggr CSV and return the ordered list of `sample_id` (canonical order).
-
-    Parameters
-    ----------
-    path : str
-        Path to a CellRanger aggr CSV.
-
-    Returns
-    -------
-    list of str
-        Ordered `sample_id` values from the CSV (duplicates not allowed).
-
-    Raises
-    ------
-    ValueError
-        If required columns are missing or `sample_id` entries are empty/duplicated.
-    """
-    df = pd.read_csv(path, dtype=str)
-    cols_lower = {c.lower(): c for c in df.columns}
-    if "sample_id" not in cols_lower:
-        raise ValueError(f"aggr CSV missing required 'sample_id' column: {path}")
-    ordered = df[cols_lower["sample_id"]].tolist()
-    if not ordered:
-        raise ValueError(f"No 'sample_id' rows found in aggr CSV: {path}")
-    if len(set(ordered)) != len(ordered):
-        raise ValueError("Duplicate 'sample_id' entries in aggr CSV; cannot define unique indices.")
-    return ordered
-
-
-def _infer_library_id_from_path(p: Path) -> str:
-    """Infer `library_id` from a barcodes path by locating an `outs/` ancestor.
-
-    Parameters
-    ----------
-    p : pathlib.Path
-        Path to `barcodes.tsv` or `barcodes.tsv.gz`.
-
-    Returns
-    -------
-    str
-        The directory name immediately above the `outs/` folder (used as `library_id`).
-
-    Raises
-    ------
-    ValueError
-        If no `outs` ancestor is found in the provided path.
-
-    Examples
-    --------
-    For a path like:
-        `/.../CR_INTERIM/SAMPLE_X/outs/filtered_feature_bc_matrix/barcodes.tsv.gz`
-    this returns:
-        `SAMPLE_X`
-    """
-    for parent in p.parents:
-        if parent.name == "outs":
-            lib = parent.parent.name
-            if lib:
-                return lib
-            break
-    raise ValueError(f"Cannot infer library_id (no 'outs' ancestor): {p}")
-
-
-def _iter_barcodes(path: Path) -> Iterable[str]:
-    """Stream raw barcodes from a barcodes file.
-
-    Parameters
-    ----------
-    path : pathlib.Path
-        Path to `barcodes.tsv` or `barcodes.tsv.gz`.
-
-    Yields
-    ------
-    str
-        Raw barcode string per line (whitespace trimmed).
-
-    Notes
-    -----
-    - This avoids reading the entire file into memory.
-    - Works with both plain text and gzipped inputs.
-    """
-    import gzip
-
-    open_fn = gzip.open if path.suffix == ".gz" else open
-    with open_fn(path, "rt") as fh:
-        for line in fh:
-            yield line.strip()
 
 
 _BARCODE_SUFFIX_RE = re.compile(r"^(.*?)-(\d+)$")
 
 
-def _split_core(raw: str) -> Tuple[str, str]:
-    """Split a raw 10x barcode into `(core, old_idx)` parts.
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--aggr-csv", required=True)
+    parser.add_argument("--barcodes", nargs="+", required=True)
+    parser.add_argument("--sample-info", required=True)
+    parser.add_argument("--library-info", required=True)
+    parser.add_argument("--output", required=True)
+    return parser.parse_args()
 
-    Parameters
-    ----------
-    raw : str
-        Raw barcode (e.g., `AAAC...-1`, `AAAC...`, or `AAAC...-3`).
 
-    Returns
-    -------
-    tuple of str
-        `(core, old_idx)` where `core` omits any trailing `-<n>`; `old_idx` is the
-        trailing integer suffix if present, else ''.
+def read_entity_table(path: str, key: str) -> pd.DataFrame:
+    frame = pd.read_csv(path, sep="\t", dtype=str)
+    if key not in frame.columns:
+        raise ValueError(f"{path} is missing required column {key!r}")
 
-    Notes
-    -----
-    - The returned `old_idx` is **ignored** when constructing the final barcode.
-    """
-    m = _BARCODE_SUFFIX_RE.match(raw)
-    if m:
-        return m.group(1), m.group(2)
-    return raw, ""
+    frame[key] = frame[key].astype(str).str.strip()
+    if frame[key].eq("").any():
+        raise ValueError(f"{path}: {key} contains empty values")
+    if frame[key].duplicated().any():
+        duplicates = frame.loc[frame[key].duplicated(keep=False), key].unique().tolist()
+        raise ValueError(f"{path}: duplicate {key} values. Examples: {duplicates[:5]}")
+
+    return frame.set_index(key, drop=False)
+
+
+def read_library_order(path: str) -> list[str]:
+    frame = pd.read_csv(path, dtype=str)
+    if "sample_id" not in frame.columns:
+        raise ValueError(f"{path} is missing required column 'sample_id'")
+
+    library_ids = frame["sample_id"].astype(str).str.strip().tolist()
+    if not library_ids:
+        raise ValueError(f"{path} contains no libraries")
+    if any(not library_id for library_id in library_ids):
+        raise ValueError(f"{path} contains an empty sample_id")
+    if len(library_ids) != len(set(library_ids)):
+        raise ValueError(f"{path} contains duplicate sample_id values")
+
+    return library_ids
+
+
+def library_sample_map(library_ids: list[str], sample_info: pd.DataFrame, library_info: pd.DataFrame) -> dict[str, str]:
+    """Resolve library -> biological sample, retaining legacy 10x equality as a compatibility fallback."""
+    if "Sample_ID" in library_info.columns:
+        mapping = library_info["Sample_ID"].dropna().astype(str).str.strip().to_dict()
+    else:
+        mapping = {}
+
+    resolved = {}
+    for library_id in library_ids:
+        sample_id = mapping.get(library_id, "")
+        if not sample_id:
+            if library_id not in sample_info.index:
+                raise ValueError(
+                    f"Cannot resolve Sample_ID for library {library_id!r}: library_info has no Sample_ID mapping "
+                    "and the library ID is not a Sample_ID in sample_info"
+                )
+            sample_id = library_id
+
+        if sample_id not in sample_info.index:
+            raise ValueError(f"Library {library_id!r} resolves to unknown Sample_ID {sample_id!r}")
+        resolved[library_id] = sample_id
+
+    return resolved
+
+
+def infer_library_id(path: Path) -> str:
+    for parent in path.parents:
+        if parent.name == "outs":
+            library_id = parent.parent.name
+            if library_id:
+                return library_id
+    raise ValueError(f"Cannot infer library_id from Cell Ranger barcode path: {path}")
+
+
+def iter_barcodes(path: Path):
+    opener = gzip.open if path.suffix == ".gz" else open
+    with opener(path, "rt", encoding="utf-8") as handle:
+        for line in handle:
+            barcode = line.strip()
+            if barcode:
+                yield barcode
+
+
+def barcode_core(barcode: str) -> str:
+    match = _BARCODE_SUFFIX_RE.match(barcode)
+    return match.group(1) if match else barcode
 
 
 def main() -> int:
-    """Program entry point.
+    args = parse_args()
 
-    Returns
-    -------
-    int
-        Exit code: 0 on success.
+    library_ids = read_library_order(args.aggr_csv)
+    sample_info = read_entity_table(args.sample_info, "Sample_ID")
+    library_info = read_entity_table(args.library_info, "library_id")
+    sample_by_library = library_sample_map(library_ids, sample_info, library_info)
 
-    Workflow
-    --------
-    1. Load canonical library order (`sample_id`) from aggr CSV → `library_idx = 1..N`.
-    2. Infer `library_id` for each provided barcodes path (`<LIB>/outs/...` → `<LIB>`).
-    3. Validate that **every** canonical `sample_id` has a matching barcodes path and metadata.
-    4. For each library in canonical order, stream barcodes and construct final `<core>-<idx>`.
-    5. Join sample metadata from `config.yaml:samples` by `library_id` and write a unified TSV.
-    """
-    args = argparser()
+    path_by_library = {}
+    for value in args.barcodes:
+        path = Path(value)
+        library_id = infer_library_id(path)
+        if library_id in path_by_library:
+            raise ValueError(f"Duplicate barcode input for library {library_id!r}")
+        path_by_library[library_id] = path
 
-    # Canonical order from aggr CSV (defines library_idx)
-    canonical_ids = _read_aggr_csv(args.aggr_csv)
-    lib_idx: Dict[str, int] = {lib: i + 1 for i, lib in enumerate(canonical_ids)}
+    missing = [library_id for library_id in library_ids if library_id not in path_by_library]
+    if missing:
+        raise ValueError(f"Aggregation libraries missing barcode inputs: {missing}")
 
-    # Map each provided barcodes path to a library_id inferred from its path
-    paths = [Path(p) for p in args.barcodes]
-    id_to_path: Dict[str, Path] = {}
-    for p in paths:
-        lib = _infer_library_id_from_path(p)
-        if lib in id_to_path:
-            raise ValueError(f"Duplicate library_id inferred from --barcodes: '{lib}'")
-        id_to_path[lib] = p
+    unexpected = sorted(set(path_by_library) - set(library_ids))
+    if unexpected:
+        raise ValueError(f"Barcode inputs contain libraries outside this aggregation: {unexpected}")
 
-    # Validate that every canonical library has a barcodes path
-    missing_paths = sorted(set(canonical_ids) - set(id_to_path.keys()))
-    if missing_paths:
-        raise ValueError(
-            "The following 'sample_id' values from aggr CSV have no matching barcodes path: "
-            + ", ".join(missing_paths[:10])
-            + (" ..." if len(missing_paths) > 10 else "")
-        )
+    frames = []
+    for library_idx, library_id in enumerate(library_ids, start=1):
+        source = pd.Series(list(iter_barcodes(path_by_library[library_id])), dtype=str)
+        canonical = source.map(barcode_core).map(lambda barcode: f"{barcode}-{library_idx}")
 
-    # Load sample metadata (index=Sample_ID)
-    sample_info = _read_yaml_config(args.configfile)
+        frame = pd.DataFrame(
+            {
+                "barcode": canonical,
+                "source_barcode": source,
+                "library_id": library_id,
+                "Sample_ID": sample_by_library[library_id],
+            }
+        ).set_index("barcode")
 
-    # Validate metadata coverage
-    missing_meta = sorted(set(canonical_ids) - set(sample_info.index))
-    if missing_meta:
-        raise ValueError(
-            "The following 'sample_id' values from aggr CSV are missing in config['samples']: "
-            + ", ".join(missing_meta[:10])
-            + (" ..." if len(missing_meta) > 10 else "")
-        )
+        if not frame.index.is_unique:
+            duplicates = frame.index[frame.index.duplicated()].unique().tolist()
+            raise ValueError(f"Duplicate canonical barcodes within library {library_id!r}: {duplicates[:10]}")
 
-    # Build rows in canonical order
-    rows: List[Tuple[str, str, int, str, str]] = []
-    for lib in canonical_ids:
-        idx = lib_idx[lib]
-        p = id_to_path[lib]
-        for raw in _iter_barcodes(p):
-            core, _old = _split_core(raw)
-            final = f"{core}-{idx}"
-            rows.append((final, lib, idx, raw, core))
+        frames.append(frame)
 
-    if not rows:
-        raise ValueError("No barcodes found across the canonical library set.")
+    output = pd.concat(frames, axis=0)
+    if not output.index.is_unique:
+        duplicates = output.index[output.index.duplicated()].unique().tolist()
+        raise ValueError(f"Duplicate canonical barcodes across aggregation: {duplicates[:10]}")
 
-    # Assemble DataFrame; index = final barcode
-    df = (
-        pd.DataFrame.from_records(
-            rows, columns=["barcode", "library_id", "library_idx", "barcode_raw", "barcode_core"]
-        )
-        .set_index("barcode", drop=True)
-    )
-    df.index.name = "barcode"
-
-    # Ensure uniqueness post-suffixing
-    if not df.index.is_unique:
-        dup = df.index[df.index.duplicated()].unique().tolist()
-        raise ValueError(f"Duplicate final barcodes after suffixing (n={len(dup)}). Examples: {dup[:10]}")
-
-    # Attach all sample metadata columns by library_id.
-    base = df[["library_id", "library_idx", "barcode_core"]].copy()
-    meta = sample_info.loc[df["library_id"]].copy()
-    meta.index = df.index
-
-    if "Sample_ID" not in meta.columns:
-        meta.insert(0, "Sample_ID", df["library_id"].to_numpy())
-
-    # Metadata may repeat canonical columns such as library_id. Keep one copy
-    # only when the values agree; conflicting definitions are an error.
-    overlapping = base.columns.intersection(meta.columns)
-    for column in overlapping:
-        equal = base[column].eq(meta[column]) | (base[column].isna() & meta[column].isna())
-        if not equal.all():
-            mismatches = pd.DataFrame(
-                {
-                    "canonical": base.loc[~equal, column],
-                    "metadata": meta.loc[~equal, column],
-                }
-            )
-            raise ValueError(
-                f"Conflicting values for duplicate column '{column}'. "
-                f"Examples:\n{mismatches.head(10).to_string()}"
-            )
-
-    meta = meta.drop(columns=overlapping)
-    out = pd.concat([base, meta], axis=1)
-
-    if not out.columns.is_unique:
-        duplicates = out.columns[out.columns.duplicated()].unique().tolist()
-        raise ValueError(f"Duplicate output column names: {duplicates}")
-
-    # Write
-    out_path = Path(args.output)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out.to_csv(out_path, sep="\t")
-
+    output.index.name = "barcode"
+    output_path = Path(args.output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output.to_csv(output_path, sep="\t")
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())
