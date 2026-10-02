@@ -310,7 +310,7 @@ def barcode_postfix_type(barcodes):
     return "trimmed"
 
 
-def barcode_index_rename(obj, barcode_rename="numerical", aggr_csv=None, sample_id=None):
+def barcode_index_rename(obj, barcode_rename="numerical", aggr_csv=None, sample_id=None, library_idx=None):
     """
     Rename barcode postfixes based on the specified strategy.
 
@@ -324,6 +324,9 @@ def barcode_index_rename(obj, barcode_rename="numerical", aggr_csv=None, sample_
         DataFrame containing aggregation information, by default None.
     sample_id : str, optional
         Sample ID to use for renaming, by default None.
+    library_idx : int, optional
+        Explicit 1-based library position for deterministic numerical renaming
+        when no aggregation CSV exists.
 
     Returns
     -------
@@ -374,16 +377,25 @@ def barcode_index_rename(obj, barcode_rename="numerical", aggr_csv=None, sample_
             else:
                 postfix = [b.split("-")[1] for b in df.index]
     elif barcode_rename == "numerical":
-        sample_map = dict((n, str(i + 1)) for i, n in enumerate(aggr_csv.iloc[:, 0]))
-        if sample_id is not None:
-            postfix_sample_id = [sample_id] * len(barcodes)
-            postfix = [sample_map[i] for i in postfix_sample_id]
-        else:
-            if df_postfix == "sample_id":
+        if aggr_csv is not None:
+            sample_map = dict((n, str(i + 1)) for i, n in enumerate(aggr_csv.iloc[:, 0]))
+            if sample_id is not None:
+                postfix_sample_id = [sample_id] * len(barcodes)
+                postfix = [sample_map[i] for i in postfix_sample_id]
+            elif df_postfix == "sample_id":
                 postfix_sample_id = [i.split("-")[1] for i in df.index]
                 postfix = [sample_map[i] for i in postfix_sample_id]
             else:
                 postfix = [b.split("-")[1] for b in df.index]
+        elif library_idx is not None:
+            postfix = [str(library_idx)] * len(barcodes)
+        elif sample_id is None and df_postfix == "numerical":
+            postfix = [b.split("-")[1] for b in df.index]
+        else:
+            raise ValueError(
+                "barcode_rename='numerical' requires either aggr_csv or library_idx "
+                f"when sample_id is provided; got sample_id={sample_id!r}"
+            )
     df.index = [f"{i}-{j}" for i, j in zip(barcodes, postfix)]
 
     if is_anndata:
@@ -1073,7 +1085,14 @@ def read_starsolo(fn, args, **kw):
     
     library_id = os.path.normpath(fn).split(os.path.sep)[-5] #library_id
     barcode_rename = kw.get("barcode_rename", args.barcode_rename)
-    data = barcode_index_rename(data, barcode_rename=barcode_rename, sample_id=library_id, aggr_csv=args.aggr_csv)
+    library_idx = kw.get("library_idx")
+    data = barcode_index_rename(
+        data,
+        barcode_rename=barcode_rename,
+        sample_id=library_id,
+        aggr_csv=args.aggr_csv,
+        library_idx=library_idx,
+    )
     #if args.input_format in ['parsebio_starsolo']:
     #    data.obs.rename(columns={"sample_id": "sublib"}, inplace=True)
     return data
@@ -2239,7 +2258,8 @@ if __name__ == "__main__":
     for i, fn in enumerate(args.input, 1):
         abs_fn = os.path.abspath(fn)
         logger.info(f"[{i}/{len(args.input)}] Reading: {abs_fn}")
-        data = reader(abs_fn, args)  # for *_cellbender readers, ensure they pass cb_mode=args.cellbender_mode
+        reader_kwargs = {"library_idx": i} if effective_fmt in {"10x_starsolo", "parsebio_starsolo"} else {}
+        data = reader(abs_fn, args, **reader_kwargs)
 
         if args.identify_empty_droplets:
             logger.info("Identify empty droplets ...")
