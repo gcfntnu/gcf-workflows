@@ -171,7 +171,8 @@ rule cellranger_bam:
 
 rule cellranger_aggr_csv:
     input:
-        sample_info = join(INTERIM_DIR, 'sample_info.tsv'),
+        sample_info = SINGLECELL_SAMPLE_INFO,
+        library_info = SINGLECELL_LIBRARY_INFO,
         mol_h5 = expand(join(CR_INTERIM, '{sample}', 'outs', 'molecule_info.h5'), sample=SAMPLES)
     params:
         script = src_gcf('scripts/cellranger_aggr_csv.py'),
@@ -186,6 +187,7 @@ rule cellranger_aggr_csv:
         '{input.mol_h5} '
         '--outdir {params.outdir} '
         '--sample-info {input.sample_info} '
+        '--library-info {input.library_info} '
         '--groupby {params.groupby} '
         '--verbose '
 
