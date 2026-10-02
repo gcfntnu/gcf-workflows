@@ -1196,9 +1196,19 @@ def read_starsolo(fn, args, **kw):
     
     input_id = os.path.normpath(fn).split(os.path.sep)[-5]
     if args.input_format == "10x_starsolo":
-        data = canonicalize_10x_library_barcodes(
-            data, input_id, args.barcode_info, source="10x STARsolo"
+        has_canonical_mapping = bool(getattr(args, "barcode_info", None)) and any(
+            frame is not None and {"source_barcode", "library_id"}.issubset(frame.columns)
+            for frame in args.barcode_info
         )
+        if has_canonical_mapping:
+            data = canonicalize_10x_library_barcodes(
+                data, input_id, args.barcode_info, source="10x STARsolo"
+            )
+        else:
+            barcode_rename = kw.get("barcode_rename", args.barcode_rename)
+            data = barcode_index_rename(
+                data, barcode_rename=barcode_rename, sample_id=input_id, aggr_csv=args.aggr_csv
+            )
     elif args.input_format == "parsebio_starsolo":
         barcode_rename = kw.get("barcode_rename", args.barcode_rename)
         if barcode_rename == "skip":
