@@ -56,6 +56,12 @@ _GENOME = {
     "GRCm38": "mm10"
 }
 _SAMPLE_INFO_BLACKLIST = ["flowcell_id", "r1", "r2", "wells"]
+_LIBRARY_INFO_BLACKLIST = [
+    "flowcell_name", "flowcell_id",
+    "index1", "index2",
+    "r1", "r1_md5sum",
+    "r2", "r2_md5sum",
+]
 _FEATURE_INFO_BLACKLIST = ["source", "start", "end", "strand", "gene_version", "level", "hgnc_id", "expression_type", "feature_type",
                           "havana_gene", "transcript_type", "havana_transcript", "ccdsid", "ont", "gene_source", "gene_name"]
 _BARCODE_INFO_BLACKLIST = ["flowcell_id", "r1", "r2", "wells"]
@@ -1695,6 +1701,12 @@ def _drop_ci_identical_to_existing(new_df: pd.DataFrame, existing_df: pd.DataFra
     return new_df.drop(columns=to_drop) if to_drop else new_df
 
 
+def _drop_blacklisted_columns(df: pd.DataFrame, blacklist) -> pd.DataFrame:
+    blacklist = {column.lower() for column in blacklist}
+    keep = [column for column in df.columns if column.lower() not in blacklist]
+    return df.loc[:, keep]
+
+
 def broadcast_entity_metadata(axis_df: pd.DataFrame, metadata: pd.DataFrame, key: str, source: str) -> pd.DataFrame:
     """Broadcast entity-indexed metadata through an explicit key on an AnnData axis."""
     if key not in axis_df.columns:
@@ -2401,11 +2413,13 @@ if __name__ == "__main__":
     # -------------------------
     if args.sample_info is not None:
         logger.info("Broadcasting sample_info onto .obs through Sample_ID ...")
-        data.obs = broadcast_entity_metadata(data.obs, args.sample_info, "Sample_ID", "sample_info")
+        sample_info = _drop_blacklisted_columns(args.sample_info, _SAMPLE_INFO_BLACKLIST)
+        data.obs = broadcast_entity_metadata(data.obs, sample_info, "Sample_ID", "sample_info")
 
     if args.library_info is not None:
         logger.info("Broadcasting library_info onto .obs through library_id ...")
-        data.obs = broadcast_entity_metadata(data.obs, args.library_info, "library_id", "library_info")
+        library_info = _drop_blacklisted_columns(args.library_info, _LIBRARY_INFO_BLACKLIST)
+        data.obs = broadcast_entity_metadata(data.obs, library_info, "library_id", "library_info")
 
     # -------------------------
     # Drop blacklisted feature-info columns (case-insensitive)
