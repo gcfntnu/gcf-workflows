@@ -403,9 +403,6 @@ def scanpy_aggr_inputs(wc):
     if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger':
         output['aggr_csv'] = join(QUANT_INTERIM, 'aggregate', 'description', f'{wc.aggr_id}_aggr.csv')
 
-    if VELO_OUTPUT and wc.method == 'splitpipe':
-        output['velo_files'] = [join(QUANT_INTERIM, wc.method, sample, 'velo', 'spliced.mtx') for sample in samples]
-
     return output
 
 
