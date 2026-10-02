@@ -143,7 +143,7 @@ def subset_anndata(
 
     # Keep only the configured count source in X for this computational object.
     work.X = matrix.copy()
-    work.layers.clear()
+    work.layers.clear(keep_x=True)
     work.obs = obs.copy()
     return work
 
