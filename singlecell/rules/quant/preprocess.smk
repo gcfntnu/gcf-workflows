@@ -336,6 +336,8 @@ rule preprocess_native_representation:
         gpu = 1
     log:
         join(PREPROCESS_LOG_DIR, 'native_representation.log')
+    benchmark:
+        join(PREPROCESS_DIR, 'benchmarks', 'native_representation.txt')
     wildcard_constraints:
         method = QUANT_METHOD_PATTERN
     container:
@@ -465,6 +467,8 @@ rule preprocess_optimize_graph_clustering:
         gpu = 1
     log:
         join(PREPROCESS_LOG_DIR, 'graph_clustering.log')
+    benchmark:
+        join(PREPROCESS_DIR, 'benchmarks', 'graph_clustering.txt')
     wildcard_constraints:
         method = QUANT_METHOD_PATTERN
     container:
