@@ -18,6 +18,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--aggr-csv", required=True)
     parser.add_argument("--barcodes", nargs="+", required=True)
+    parser.add_argument(
+        "--source-barcodes",
+        nargs="*",
+        default=None,
+        help="Per-library Cell Ranger barcode files used to retain exact local source_barcode values.",
+    )
     parser.add_argument("--sample-info", required=True)
     parser.add_argument("--library-info", required=True)
     parser.add_argument("--aggregated", action="store_true", help="Barcodes come from cellranger aggr output")
@@ -106,17 +112,57 @@ def barcode_core(barcode: str) -> str:
     return match.group(1) if match else barcode
 
 
+def build_source_barcode_maps(
+    barcode_paths: list[Path],
+    library_ids: list[str],
+) -> dict[str, dict[str, str]]:
+    path_by_library = {}
+    for path in barcode_paths:
+        library_id = infer_library_id(path)
+        if library_id in path_by_library:
+            raise ValueError(f"Duplicate source barcode input for library {library_id!r}")
+        path_by_library[library_id] = path
+
+    missing = [library_id for library_id in library_ids if library_id not in path_by_library]
+    unexpected = sorted(set(path_by_library) - set(library_ids))
+    if missing or unexpected:
+        raise ValueError(
+            "Cell Ranger source barcode inputs do not match aggregation libraries; "
+            f"missing={missing}, unexpected={unexpected}"
+        )
+
+    result = {}
+    for library_id in library_ids:
+        source_by_core = {}
+        for source_barcode in iter_barcodes(path_by_library[library_id]):
+            core = barcode_core(source_barcode)
+            if core in source_by_core:
+                raise ValueError(
+                    f"Duplicate Cell Ranger source barcode core {core!r} in library {library_id!r}"
+                )
+            source_by_core[core] = source_barcode
+        result[library_id] = source_by_core
+
+    return result
+
+
 def build_from_aggregated(
     barcode_path: Path,
     library_ids: list[str],
     sample_by_library: dict[str, str],
+    source_barcode_paths: list[Path] | None = None,
 ) -> pd.DataFrame:
+    source_maps = None
+    if source_barcode_paths:
+        source_maps = build_source_barcode_maps(source_barcode_paths, library_ids)
+
     rows = []
     for barcode in iter_barcodes(barcode_path):
         match = _BARCODE_SUFFIX_RE.match(barcode)
         if match is None:
             raise ValueError(f"Aggregated Cell Ranger barcode lacks numerical GEM-group suffix: {barcode!r}")
 
+        core = match.group(1)
         library_idx = int(match.group(2))
         if library_idx < 1 or library_idx > len(library_ids):
             raise ValueError(
@@ -125,13 +171,22 @@ def build_from_aggregated(
             )
 
         library_id = library_ids[library_idx - 1]
-        rows.append(
-            {
-                "barcode": barcode,
-                "library_id": library_id,
-                "Sample_ID": sample_by_library[library_id],
-            }
-        )
+        row = {
+            "barcode": barcode,
+            "library_id": library_id,
+            "Sample_ID": sample_by_library[library_id],
+        }
+
+        if source_maps is not None:
+            source_barcode = source_maps[library_id].get(core)
+            if source_barcode is None:
+                raise ValueError(
+                    f"Aggregated Cell Ranger barcode {barcode!r} has no matching source barcode "
+                    f"in library {library_id!r}"
+                )
+            row["source_barcode"] = source_barcode
+
+        rows.append(row)
 
     return pd.DataFrame(rows)
 
@@ -183,11 +238,19 @@ def main() -> int:
     sample_by_library = library_sample_map(library_ids, sample_info, library_info)
 
     barcode_paths = [Path(path) for path in args.barcodes]
+    source_barcode_paths = [Path(path) for path in args.source_barcodes] if args.source_barcodes else None
     if args.aggregated:
         if len(barcode_paths) != 1:
             raise ValueError("--aggregated requires exactly one barcode input")
-        output = build_from_aggregated(barcode_paths[0], library_ids, sample_by_library)
+        output = build_from_aggregated(
+            barcode_paths[0],
+            library_ids,
+            sample_by_library,
+            source_barcode_paths=source_barcode_paths,
+        )
     else:
+        if source_barcode_paths:
+            raise ValueError("--source-barcodes is only valid with --aggregated")
         output = build_from_per_library(barcode_paths, library_ids, sample_by_library)
 
     if output.empty:
