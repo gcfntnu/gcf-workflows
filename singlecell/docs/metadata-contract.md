@@ -370,6 +370,36 @@ compatibility adapter.
 
 ## 6. Configuration compatibility and future schema
 
+During the transition from the current upstream config, metadata level is determined conservatively.
+
+The following fields are treated as known library-level metadata:
+
+```text
+Flowcell_Name
+Flowcell_ID
+Index1
+Index2
+R1
+R1_md5sum
+R2
+R2_md5sum
+```
+
+`library_id` is the technical-library key and is not expected as an additional metadata field.
+
+All other metadata columns in legacy `config["samples"]` rows are treated as sample-level by default.
+This deliberately uses a small technical whitelist instead of a growing ontology of biological fields.
+
+For Parse projects, current `config["samples"]` rows represent technical sublibraries and do not
+contain a unique library-to-biological-sample mapping. Therefore non-library columns may be promoted
+to `sample_info.tsv` only when their non-null values are unambiguous across the legacy library rows.
+Conflicting values are errors because the workflow cannot safely assign them to biological
+`Sample_ID` from that table alone. Biological sample-specific values already represented in
+`config["wells"]` remain keyed by the resolved `Sample_ID`.
+
+The legacy `Sample_ID` field on current Parse library rows is a historical library label and is not
+propagated as biological `Sample_ID`.
+
 Current projects may encode one technical library per biological sample under `config["samples"]`.
 The workflow may continue to support this as a compatibility mode:
 
