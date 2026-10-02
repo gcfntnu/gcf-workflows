@@ -107,11 +107,11 @@ def parse_libraries_from_samples(config: dict) -> pd.DataFrame:
         record = {"library_id": library_id}
         for key, value in raw.items():
             if key == "Sample_ID":
-                if pd.notna(value) and str(value).strip() not in {"", library_id}:
-                    raise ValueError(
-                        f"Parse library {library_id!r} has legacy Sample_ID={value!r}; "
-                        "the library-level Sample_ID field must match the library key until upstream metadata is split"
-                    )
+                # Current Parse project metadata is library-level even though the
+                # upstream table historically names this column Sample_ID. Preserve
+                # the supplied value without allowing it to masquerade as biological
+                # Sample_ID in downstream observation metadata.
+                record["library_sample_id"] = value
                 continue
             record[key] = value
         records.append(record)
