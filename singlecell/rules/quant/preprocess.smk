@@ -561,6 +561,8 @@ rule preprocess_diagnostics:
         gpu = 0
     log:
         join(PREPROCESS_LOG_DIR, 'diagnostics.log')
+    benchmark:
+        join(PREPROCESS_DIR, 'benchmarks', 'diagnostics.txt')
     wildcard_constraints:
         method = QUANT_METHOD_PATTERN
     container:
@@ -620,6 +622,8 @@ rule preprocess_finalize:
         gpu = 0
     log:
         join(PREPROCESS_LOG_DIR, 'finalize.log')
+    benchmark:
+        join(PREPROCESS_DIR, 'benchmarks', 'finalize.txt')
     wildcard_constraints:
         method = QUANT_METHOD_PATTERN
     container:
