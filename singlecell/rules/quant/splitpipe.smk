@@ -167,6 +167,7 @@ rule splitpipe_nuclear_fraction_bam_aggr:
         '{input.tables} '
         '--barcode-info {input.barcode_info} '
         '--library-id {params.library_ids} '
+        '--allow-unmapped-source '
         '--output {output} '
 
 
