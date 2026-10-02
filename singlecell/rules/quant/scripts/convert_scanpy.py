@@ -334,12 +334,12 @@ def primary_barcode_mapping(barcode_info, *, source: str) -> pd.DataFrame:
 
     candidates = [
         frame for frame in barcode_info
-        if frame is not None and {"source_barcode", "library_id", "Sample_ID"}.issubset(frame.columns)
+        if frame is not None and {"library_id", "Sample_ID"}.issubset(frame.columns)
     ]
     if len(candidates) != 1:
         raise ValueError(
             f"{source} requires exactly one primary barcode_info table containing "
-            f"source_barcode, library_id and Sample_ID; found {len(candidates)}"
+            f"library_id and Sample_ID; found {len(candidates)}"
         )
 
     return candidates[0]
