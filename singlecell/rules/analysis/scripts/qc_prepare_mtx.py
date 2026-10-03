@@ -86,7 +86,11 @@ def _read_annotation_sidecar(path: str) -> pd.DataFrame:
     if frame.shape[1] < 1:
         raise ValueError(f"Annotation sidecar has no columns: {path}")
     index_col = frame.columns[0]
+    if frame[index_col].isna().any():
+        raise ValueError(f"Annotation sidecar barcode contains missing values: {path}")
     frame[index_col] = frame[index_col].astype(str).str.strip()
+    if frame[index_col].eq("").any():
+        raise ValueError(f"Annotation sidecar barcode contains empty values: {path}")
     frame = frame.set_index(index_col)
     frame.index.name = "barcode"
     if not frame.index.is_unique:
