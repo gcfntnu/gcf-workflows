@@ -292,6 +292,19 @@ def _barcode_info_reader(
                 f"found {sorted(values)[:5]}"
             )
 
+    if "donor_id" in df.columns:
+        if df["donor_id"].isna().any():
+            raise ValueError(f"{fn}: demultiplexing sidecar contains missing donor_id values")
+        if "doublet_type" in df.columns:
+            if df["doublet_type"].isna().any():
+                raise ValueError(f"{fn}: demultiplexing sidecar contains missing doublet_type values")
+            values = set(df["doublet_type"].astype(str))
+            if not values.issubset({"singlet", "doublet", "unassigned"}):
+                raise ValueError(
+                    f"{fn}: demultiplexing doublet_type must contain only "
+                    f"'singlet', 'doublet', or 'unassigned'; found {sorted(values)[:5]}"
+                )
+
     return df
 
 
@@ -2719,6 +2732,19 @@ if __name__ == "__main__":
                         f"{complete_domain} must exactly cover the canonical filtered observation universe; "
                         f"missing={len(missing)} extra={len(extra)}"
                     )
+            elif "donor_id" in bi.columns:
+                extra = bi.index.difference(data.obs.index)
+                if len(extra):
+                    raise ValueError(
+                        "Demultiplexing sidecar must be a subset of the canonical filtered observation universe; "
+                        f"extra={len(extra)}"
+                    )
+                logger.info(
+                    "[barcode-info %d] demultiplexing coverage: %d/%d canonical cells",
+                    i,
+                    len(bi.index),
+                    data.n_obs,
+                )
             bi = bi.reindex(data.obs.index)
             bi = _drop_ci_identical_to_existing(bi, data.obs)
             if bi is None or bi.empty:
