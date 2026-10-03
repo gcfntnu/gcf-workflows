@@ -120,8 +120,10 @@ flags may be stored in `var`.
 
 ### 1.5 Cell metadata
 
-The filtered object should contain available cell-level characterization in `adata.obs`,
-including where configured:
+The filtered object contains cell-level characterization in `adata.obs` when the
+corresponding metadata source or workflow capability is part of the configured path.
+
+Examples include:
 
 - sample identity
 - library/sublibrary identity
@@ -138,6 +140,134 @@ including where configured:
 - other upstream per-cell technical results
 
 These fields characterize cells but do not remove them.
+
+A field being optional at the workflow level does not imply that partial aggregate
+coverage is acceptable once that field is expected from the configured path. Canonical
+assembly must distinguish:
+
+- a capability or metadata source that is not enabled or not applicable
+- semantically valid missing values defined by that result
+- incomplete workflow coverage caused by missing artifacts, failed mappings, or
+  inconsistent per-library inputs
+
+Only the first two are valid states.
+
+### 1.6 Metadata coverage and assembly integrity
+
+Canonical AnnData assembly must not silently convert incomplete workflow coverage into
+ordinary missing values in `adata.obs` or `adata.var`.
+
+The following rules apply independently of library preparation and quantifier.
+
+#### 1.6.1 Canonical identity is complete
+
+Every observation must resolve exactly one:
+
+- canonical `obs_name` / barcode
+- `Sample_ID`
+- `library_id`
+
+Missing, duplicate, or ambiguous canonical identity is an error.
+
+The workflow must not infer a missing biological identity from directory names, barcode
+suffixes, library equality, or other technology-specific conventions during final
+assembly.
+
+#### 1.6.2 Entity metadata broadcast requires complete key resolution
+
+Metadata broadcast from entity tables is keyed explicitly:
+
+- sample metadata through `Sample_ID`
+- library metadata through `library_id`
+
+Every entity represented in the AnnData must resolve to exactly one source metadata row.
+Missing source rows, duplicate entity keys, or multiply resolved keys are errors.
+
+This requirement concerns entity resolution, not the contents of every metadata field.
+A resolved source row may contain a genuinely unknown or intentionally missing value in
+one of its metadata columns. Such source-level missingness is distinct from failure to
+resolve the source entity itself.
+
+#### 1.6.3 Generated results have an explicit coverage domain
+
+Each configured upstream result or sidecar must have a defined coverage domain, for
+example:
+
+- the complete canonical cell universe
+- a declared subset of canonical cells
+- the complete feature universe
+- a declared subset of features
+- one row per sample or library for later broadcast
+
+When a configured result is defined over the complete canonical cell or feature universe,
+every corresponding canonical row must be represented after mapping.
+
+If a result is defined over a subset, subset semantics must be explicit. Assembly must
+not infer subset semantics merely because some rows failed to map.
+
+#### 1.6.4 Optional-global absence differs from partial aggregate coverage
+
+A characterization field may be absent from the canonical AnnData when its producing
+capability is disabled, not applicable, or intentionally omitted by contract.
+
+If that capability is enabled and expected for all aggregate inputs, one library or
+sample silently lacking the corresponding fields is an error. Aggregating inconsistent
+per-library schemas by column union and filling the missing inputs with `NA` does not
+satisfy the canonical contract.
+
+The expected schema is determined by the configured workflow path and the declared
+output contract of the producing step, not by whichever columns happen to be present in
+the first or unioned input tables.
+
+#### 1.6.5 Semantic missingness must be distinguished from missing coverage
+
+Per-cell or per-feature missing values are permitted when missingness is part of the
+defined semantics of that result.
+
+Examples may include an assignment probability that is undefined for an explicitly
+unassigned cell, or an assay-specific result that is contractually defined only for a
+declared subset.
+
+Such semantic missingness must be distinguishable from missing workflow coverage.
+Missing upstream files, missing per-library outputs, failed joins, failed barcode
+mapping, or unexpected schema differences are errors and must not be represented as
+ordinary `NA` values.
+
+#### 1.6.6 Sidecars and aggregate tables must validate before and after mapping
+
+Axis-aligned sidecars must be joined through explicit canonical keys.
+
+Before aggregation or broadcast, the workflow should validate as applicable:
+
+- expected source artifacts exist
+- required columns are present
+- source keys are unique within their declared domain
+- per-input schemas are compatible with the configured result contract
+- source rows can be mapped to the canonical namespace
+
+After mapping, the workflow must validate:
+
+- mapped keys are unique
+- unexpected unmapped or multiply mapped rows are absent
+- declared coverage is satisfied
+- required fields did not become partially populated through aggregation
+
+Broad sidecars may explicitly allow source rows outside the canonical cell universe, but
+the rule for dropping those rows must be part of the sidecar contract. This does not
+permit missing canonical rows when complete canonical coverage is required.
+
+#### 1.6.7 Fail at the earliest reliable boundary
+
+Incomplete coverage should fail as close as possible to the boundary where it can be
+identified reliably.
+
+A producer should fail when a required output artifact is absent. A sidecar aggregator
+should fail when its declared input schemas or mappings are inconsistent. Canonical
+AnnData assembly should independently validate the final coverage it receives.
+
+These checks are complementary. The canonical contract must not depend on a
+technology-specific producer being the only place where incomplete coverage can be
+detected.
 
 ---
 
@@ -702,3 +832,11 @@ The following rules should be treated as invariants.
 15. Optional count/layer representations must align exactly to the canonical AnnData axes.
 16. Unsupported or unvalidated quantifier/capability combinations should fail explicitly rather than silently changing semantics.
 17. The canonical contracts remain stable even when method-specific upstream implementations change.
+18. Missing workflow coverage must not be represented as ordinary metadata missingness.
+19. Every canonical observation must resolve exactly one barcode, `Sample_ID`, and `library_id`.
+20. Broadcast entity metadata requires complete and unambiguous key resolution.
+21. Configured cell- or feature-level results must satisfy their declared coverage domain across all aggregate inputs.
+22. Optional-global absence, declared subset semantics, and semantically valid missing values are distinct from incomplete upstream coverage.
+23. Aggregation must validate expected schemas and coverage rather than silently create partial columns through schema union.
+24. Axis-aligned sidecars must use explicit canonical mappings; unexpected unmapped, duplicate, or multiply mapped rows are errors unless subset semantics explicitly permit them.
+25. Coverage validation should occur at producer, aggregation, mapping, and canonical-assembly boundaries where each boundary can detect the inconsistency reliably.
