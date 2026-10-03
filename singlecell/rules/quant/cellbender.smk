@@ -43,7 +43,9 @@ def get_cellbender_outputs(wildcards):
 
 rule cellbender_run:
     input:
-        h5ad_light = '_tmp/{method}/raw/{sample}/anndata.light.h5ad'
+        mtx = lambda wc: get_raw_mtx(wc)['mtx'],
+        barcodes = lambda wc: get_raw_mtx(wc)['rows'],
+        features = lambda wc: get_raw_mtx(wc)['cols']
     output:
         h5 = join(QUANT_INTERIM, '{method}', '{sample}', 'cellbender', '{sample}.h5'),
         filtered_h5 = join(QUANT_INTERIM, '{method}', '{sample}', 'cellbender', '{sample}_filtered.h5'),
@@ -53,7 +55,7 @@ rule cellbender_run:
         fig = join(QUANT_INTERIM, '{method}', '{sample}', 'cellbender', '{sample}.pdf'),
         report = join(QUANT_INTERIM, '{method}', '{sample}', 'cellbender', '{sample}_report.html')
     params:
-        #input_dir = lambda wildcards, input: os.path.dirname(input['mtx']),
+        input_dir = lambda wildcards, input: os.path.dirname(input.mtx),
         epochs = 150,
         fpr = 0.01,
         num_training_tries = 3,
@@ -69,7 +71,7 @@ rule cellbender_run:
         'shallow' #sandbox checkpoints
     shell:
         'cellbender remove-background '
-        '--input {input.h5ad_light} '
+        '--input {params.input_dir} '
         '--output {output.h5} '
         '--num-training-tries {params.num_training_tries} '
         '--fpr {params.fpr} '
@@ -189,7 +191,7 @@ rule cellbender_filter_cellranger_counts:
 #FIXME: The posterior maybe based on coordinates from unfiltered mtx -> check!
 rule cellbender_expression_presence:
     input:
-        h5ad = rules.cellbender_run.input.h5ad_light,
+        h5ad = '_tmp/{method}/raw/{sample}/anndata.light.h5ad',
         cb_h5 = join(QUANT_INTERIM, '{method}', '{sample}', 'cellbender', '{sample}.h5'),
         cb_posterior = join(QUANT_INTERIM, '{method}', '{sample}', 'cellbender', '{sample}_posterior.h5')
     output:
