@@ -138,23 +138,12 @@ PREPROCESS_FINAL_METADATA = join(
     'preprocessing.yaml',
 )
 
-PREPROCESS_FINAL_ANNDATA = (
-    join(
-        QUANT_INTERIM,
-        'aggregate',
-        '{method}',
-        'cellbender',
-        'scanpy',
-        '{aggr_id}_preprocessed.h5ad',
-    )
-    if CB_OUTPUT else
-    join(
-        QUANT_INTERIM,
-        'aggregate',
-        '{method}',
-        'scanpy',
-        '{aggr_id}_preprocessed.h5ad',
-    )
+PREPROCESS_FINAL_ANNDATA = join(
+    QUANT_INTERIM,
+    'aggregate',
+    '{method}',
+    'scanpy',
+    '{aggr_id}_preprocessed.h5ad',
 )
 
 
