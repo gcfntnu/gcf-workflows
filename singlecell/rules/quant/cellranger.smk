@@ -9,7 +9,7 @@ ORG = config.get('organism', 'homo_sapiens')
 CR_CONF = config['quant']['cellranger']
 
 
-if hasattr(rules, 'txgenomics_org_prebuild'):
+if 'txgenomics_org_prebuild' in workflow._rules:
     ruleorder: txgenomics_org_prebuild > cellranger_symlink_gtf
     ruleorder: txgenomics_org_prebuild > cellranger_mkref
 
@@ -17,7 +17,7 @@ if not '10xgenomics' in REF_DIR:
     CR_REF_DIR = join(REF_DIR, 'cellranger')
 else:
     if ORG not in ['homo_sapiens', 'mus_musculus', 'homo_sapiens__mus_musculus']:
-        if hasattr(rules, 'txgenomics_org_prebuild'):
+        if 'txgenomics_org_prebuild' in workflow._rules:
             ruleorder: cellranger_symlink_gtf > txgenomics_org_prebuild
             ruleorder: cellranger_mkref > txgenomics_org_prebuild
         CR_REF_DIR = join(REF_DIR, 'cellranger')
