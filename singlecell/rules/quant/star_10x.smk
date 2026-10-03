@@ -237,10 +237,10 @@ rule starsolo_barcode_info:
         aggr_csv = lambda wc: aggr_library_order_csv(wc.aggr_id),
         sample_info = SINGLECELL_SAMPLE_INFO,
         library_info = SINGLECELL_LIBRARY_INFO,
-        barcodes = lambda wc: expand(
-            join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, 'filtered', 'barcodes.tsv'),
-            sample=AGGR_IDS[wc.aggr_id],
-        )
+        barcodes = lambda wc: [
+            get_filtered_mtx(SimpleNamespace(method='10x_starsolo', sample=sample))['rows']
+            for sample in AGGR_IDS[wc.aggr_id]
+        ]
     output:
         join(STAR_INTERIM, '{aggr_id}_barcode_info.tsv')
     params:
