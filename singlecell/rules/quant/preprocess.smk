@@ -74,6 +74,7 @@ PREPROCESS_MAPMYCELLS_JSON = join(PREPROCESS_MAPMYCELLS_DIR, 'annotation.json')
 PREPROCESS_MAPMYCELLS_TSV = join(PREPROCESS_MAPMYCELLS_DIR, 'annotation.tsv')
 
 PREPROCESS_CELLTYPIST_DIR = join(PREPROCESS_ANNOTATION_DIR, 'celltypist')
+PREPROCESS_CELLTYPIST_INPUT = join(PREPROCESS_CELLTYPIST_DIR, 'input.h5ad')
 PREPROCESS_CELLTYPIST_TSV = join(PREPROCESS_CELLTYPIST_DIR, 'annotation.tsv')
 PREPROCESS_CELLTYPIST_MODEL = PREPROCESS_ANNOTATION_CFG.get('celltypist', {}).get('model')
 if 'celltypist' in PREPROCESS_ANNOTATION_METHODS and not PREPROCESS_CELLTYPIST_MODEL:
@@ -315,6 +316,20 @@ def preprocess_mapmycells_mouse_metadata_arg(wildcards):
     if ANNOTATION_ORG == 'mus_musculus':
         return '--mouse-metadata ' + abc_mouse_taxonomy_addon_file('cluster_metadata') + ' '
     return ''
+
+
+def preprocess_celltypist_input_files(wildcards):
+    result = {
+        'anndata': get_filtered_anndata(wildcards),
+        'cells': _resolve_preprocess_path(PREPROCESS_CELLS, wildcards),
+    }
+    if CELLTYPIST_ORG != config['organism']:
+        result['gene_map'] = annotation_gene_map_path(wildcards.method, wildcards.aggr_id, CELLTYPIST_ORG)
+    return result
+
+
+def preprocess_celltypist_gene_map_arg(wildcards, input):
+    return annotation_gene_map_arg(config['organism'], CELLTYPIST_ORG, input)
 
 
 def _preprocess_celltypist_model_path(wildcards):
@@ -685,6 +700,35 @@ if 'mapmycells' in PREPROCESS_ANNOTATION_METHODS:
 
 if 'celltypist' in PREPROCESS_ANNOTATION_METHODS:
 
+    rule preprocess_celltypist_input:
+        input:
+            unpack(preprocess_celltypist_input_files)
+        output:
+            h5ad = temp(PREPROCESS_CELLTYPIST_INPUT)
+        params:
+            script = src_gcf('scripts/preprocess_annotation_input.py'),
+            counts_source = PREPROCESS_CFG['expression']['counts_source'],
+            src_organism = config['organism'],
+            dst_organism = CELLTYPIST_ORG,
+            gene_map = preprocess_celltypist_gene_map_arg
+        log:
+            join(PREPROCESS_LOG_DIR, 'annotation_celltypist_input.log')
+        wildcard_constraints:
+            method = QUANT_METHOD_PATTERN
+        container:
+            'docker://' + config['docker']['scanpy']
+        shell:
+            'python {params.script} '
+            '--anndata {input.anndata} '
+            '--cells {input.cells} '
+            '--counts-source {params.counts_source} '
+            '--src-organism {params.src_organism} '
+            '--dst-organism {params.dst_organism} '
+            '{params.gene_map}'
+            '--output {output.h5ad} '
+            '--log {log} '
+
+
     rule preprocess_celltypist_model:
         params:
             celltypist_folder = join(EXT_DIR, 'celltypist')
@@ -700,8 +744,7 @@ if 'celltypist' in PREPROCESS_ANNOTATION_METHODS:
 
     rule preprocess_celltypist:
         input:
-            anndata = get_filtered_anndata,
-            cells = PREPROCESS_CELLS,
+            annotation_h5ad = PREPROCESS_CELLTYPIST_INPUT,
             connectivities = PREPROCESS_CONNECTIVITIES,
             distances = PREPROCESS_DISTANCES,
             graph_selection = PREPROCESS_GRAPH_CLUSTERING_SELECTION,
@@ -710,7 +753,6 @@ if 'celltypist' in PREPROCESS_ANNOTATION_METHODS:
             annotation = PREPROCESS_CELLTYPIST_TSV
         params:
             script = src_gcf('scripts/run_celltypist.py'),
-            counts_source = PREPROCESS_CFG['expression']['counts_source'],
             min_prop = PREPROCESS_ANNOTATION_CFG.get('celltypist', {}).get('min_prop', 0.0)
         threads:
             8
@@ -724,9 +766,7 @@ if 'celltypist' in PREPROCESS_ANNOTATION_METHODS:
             'docker://' + config['docker']['rapids-scanpy']
         shell:
             'python {params.script} '
-            '--anndata {input.anndata} '
-            '--cells {input.cells} '
-            '--counts-source {params.counts_source} '
+            '--input {input.annotation_h5ad} '
             '--connectivities {input.connectivities} '
             '--distances {input.distances} '
             '--graph-selection {input.graph_selection} '
