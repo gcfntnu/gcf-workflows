@@ -41,11 +41,38 @@ def get_cellbender_outputs(wildcards):
             }
 
 
+def get_cellbender_input(wildcards):
+    if wildcards.method == '10x_starsolo':
+        d = join('_tmp', 'cellbender_input', wildcards.method, wildcards.sample)
+        return {
+            'mtx': join(d, 'matrix.mtx'),
+            'rows': join(d, 'barcodes.tsv'),
+            'cols': join(d, 'genes.tsv'),
+        }
+    return get_raw_mtx(wildcards)
+
+
+rule cellbender_prepare_starsolo_input:
+    input:
+        mtx = lambda wc: get_raw_mtx(SimpleNamespace(method='10x_starsolo', sample=wc.sample))['mtx'],
+        barcodes = lambda wc: get_raw_mtx(SimpleNamespace(method='10x_starsolo', sample=wc.sample))['rows'],
+        features = lambda wc: get_raw_mtx(SimpleNamespace(method='10x_starsolo', sample=wc.sample))['cols']
+    output:
+        mtx = join('_tmp', 'cellbender_input', '10x_starsolo', '{sample}', 'matrix.mtx'),
+        barcodes = join('_tmp', 'cellbender_input', '10x_starsolo', '{sample}', 'barcodes.tsv'),
+        genes = join('_tmp', 'cellbender_input', '10x_starsolo', '{sample}', 'genes.tsv')
+    shell:
+        'mkdir -p $(dirname {output.mtx}) && '
+        'ln -sfn $(realpath {input.mtx}) {output.mtx} && '
+        'ln -sfn $(realpath {input.barcodes}) {output.barcodes} && '
+        'cut -f1,2 {input.features} > {output.genes} '
+
+
 rule cellbender_run:
     input:
-        mtx = lambda wc: get_raw_mtx(wc)['mtx'],
-        barcodes = lambda wc: get_raw_mtx(wc)['rows'],
-        features = lambda wc: get_raw_mtx(wc)['cols']
+        mtx = lambda wc: get_cellbender_input(wc)['mtx'],
+        barcodes = lambda wc: get_cellbender_input(wc)['rows'],
+        features = lambda wc: get_cellbender_input(wc)['cols']
     output:
         h5 = join(QUANT_INTERIM, '{method}', '{sample}', 'cellbender', '{sample}.h5'),
         filtered_h5 = join(QUANT_INTERIM, '{method}', '{sample}', 'cellbender', '{sample}_filtered.h5'),
