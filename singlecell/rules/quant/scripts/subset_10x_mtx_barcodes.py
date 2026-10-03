@@ -64,7 +64,7 @@ def main() -> int:
 
     features = read_lines(args.features)
     with open_binary(args.matrix, "r") as handle:
-        matrix = sp.csc_matrix(mmread(handle))
+        matrix = sp.csc_matrix(mmread(handle, spmatrix=True))
 
     if matrix.shape != (len(features), len(barcodes)):
         raise ValueError(
