@@ -79,10 +79,10 @@ def _qc_barcode_info_list(wc):
 def _qc_prepare_inputs(wc):
     samples = get_processing_samples(wc.method, wc.aggr_id)
 
-    if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger':
+    if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger' and not CB_FLAG:
         counts = [join(QUANT_INTERIM, 'aggregate', 'cellranger', wc.aggr_id, 'outs', 'count', 'filtered_feature_bc_matrix', 'matrix.mtx.gz')]
     else:
-        counts = [_get_filtered_mtx(SimpleNamespace(method=wc.method, sample=sample))['mtx'] for sample in samples]
+        counts = [get_filtered_mtx(SimpleNamespace(method=wc.method, sample=sample))['mtx'] for sample in samples]
 
     result = {
         'counts': counts,
@@ -90,14 +90,14 @@ def _qc_prepare_inputs(wc):
         'barcode_info': _qc_barcode_info_list(wc),
     }
 
-    if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger':
+    if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger' and not CB_FLAG:
         result['aggr_csv'] = join(QUANT_INTERIM, 'aggregate', 'description', f'{wc.aggr_id}_aggr.csv')
 
     return result
 
 
 def _qc_prepare_input_format(wc):
-    if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger':
+    if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger' and not CB_FLAG:
         return 'cellranger_aggr'
     return QUANT_INPUT_FORMAT.get(wc.method, wc.method)
 
@@ -108,7 +108,7 @@ def _qc_prepare_barcode_rename(wc):
     return BC_RENAME[wc.method]
 
 def _qc_prepare_aggr_csv_arg(wc, input):
-    if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger':
+    if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger' and not CB_FLAG:
         return f'--aggr-csv {input.aggr_csv} '
     return ''
 
