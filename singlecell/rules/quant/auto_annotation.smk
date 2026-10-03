@@ -10,7 +10,7 @@ def annotation_input_files(wildcards):
 
     result = {'counts': inputs}
     if ANNOTATION_ORG != config['organism']:
-        result['gene_map'] = join(QUANT_INTERIM, 'aggregate', wildcards.method, f'{wildcards.aggr_id}_orthologs.tsv')
+        result['gene_map'] = annotation_gene_map_path(wildcards.method, wildcards.aggr_id, ANNOTATION_ORG)
     if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger' and not CB_FLAG:
         result['aggr_csv'] = join(QUANT_INTERIM, 'aggregate', 'description', f'{wildcards.aggr_id}_aggr.csv')
     if wildcards.method in {'10x_starsolo', 'cellranger', 'splitpipe'} or wildcards.method in PARSEBIO_STARSOLO_MODES:
@@ -52,7 +52,7 @@ rule annotation_input:
         barcode_rename = annotation_input_barcode_rename,
         src_organism = config['organism'],
         dst_organism = ANNOTATION_ORG,
-        gene_map = annotation_gene_map_arg,
+        gene_map = lambda wc, input: annotation_gene_map_arg(config['organism'], ANNOTATION_ORG, input),
         aggr_csv = annotation_input_aggr_csv_arg,
         barcode_info = annotation_input_barcode_info_arg
     log:
