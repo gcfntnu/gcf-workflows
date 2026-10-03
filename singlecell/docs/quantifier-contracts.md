@@ -190,7 +190,28 @@ Cell Ranger result tree.
 The exact filesystem paths are implementation details and may change with future
 quantifier/workflow versions.
 
-## 7. Velocity-like count components
+## 7. Demultiplexing sidecars
+
+Current demultiplexing summaries are observation-level characterization results. They may
+legitimately cover only a subset of canonical filtered cells, for example when a method
+does not return an informative assignment for every called cell.
+
+Canonical assembly therefore requires demultiplexing sidecar rows to be a subset of the
+canonical observation universe, but does not require complete coverage. Rows that are
+present must carry non-missing assignment state, and categorical `doublet_type` values
+use the current convention:
+
+```text
+singlet
+doublet
+unassigned
+```
+
+When several demultiplexing methods are configured simultaneously, their output columns
+are namespaced by method during canonical assembly so method identity is explicit and
+independent of merge order.
+
+## 8. Velocity-like count components
 
 Current preferred support includes STARsolo-based 10x and Parse paths.
 
@@ -213,7 +234,7 @@ For Parse STARsolo, biological-cell velocity components follow the same R/T-coll
 semantics as the ordinary biological-cell expression representation. The uncollapsed
 technical-QC path may retain R/T-resolved components.
 
-## 8. Adding or updating a quantifier
+## 9. Adding or updating a quantifier
 
 When supporting a new technology or a new software version, adapt the upstream
 technology-specific layer rather than changing the semantic AnnData contract merely to
