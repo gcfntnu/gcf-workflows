@@ -491,6 +491,7 @@ rule tmp_lightweight_raw:
         '{input.mtx} '
         '--feature-info {input.feature_info} '
         '--barcode-rename skip '
+        '--no-zero-cell-rm '
         '-o {params.base} '
         '-v '
         '-f {params.input_format}  '
