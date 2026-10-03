@@ -1519,10 +1519,28 @@ def read_cellbender(fn, args, analyzed_barcodes_only=False, **kw):
     data = anndata_from_h5(fn, analyzed_barcodes_only=analyzed_barcodes_only)
     data.obs["sample_id"] = sample_id
 
-    if "gene_id" in data.var.columns and data.var.index.name == "gene_name":
-        data.var["gene_name"] = data.var_names.copy()
-        data.var_names = data.var["gene_id"]
-    data.var_names_make_unique(join=".")
+    if data.var.index.name == "gene_name":
+        gene_id = data.var.get("gene_id")
+        gene_id_valid = gene_id is not None and gene_id.notna().all()
+        if gene_id_valid:
+            gene_id_str = gene_id.astype(str)
+            gene_id_valid = (~gene_id_str.isin({"", "NA", "nan", "None"})).all() and gene_id_str.is_unique
+
+        if gene_id_valid:
+            data.var["gene_name"] = data.var_names.copy()
+            data.var_names = gene_id_str
+        else:
+            # CellBender may label the feature index as gene_name while the index
+            # actually contains the original unique quantifier feature IDs and the
+            # exported gene_id field is entirely NA. Preserve the source feature axis.
+            data.var_names = data.var_names.astype(str)
+            data.var.index.name = "gene_id"
+            if "gene_id" in data.var.columns:
+                data.var = data.var.drop(columns=["gene_id"])
+
+    if not data.var_names.is_unique:
+        duplicates = data.var_names[data.var_names.duplicated()].unique().tolist()[:10]
+        raise ValueError(f"{fn}: duplicate CellBender feature IDs. Examples: {duplicates}")
     barcode_rename = kw.get("barcode_rename", args.barcode_rename)
     data = barcode_index_rename(data, barcode_rename=barcode_rename, sample_id=sample_id, aggr_csv=args.aggr_csv)
     # need to rename `barcodes_analyzed` if present in .uns (this happens when reading the unfiltered data)
