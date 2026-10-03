@@ -129,7 +129,7 @@ rule autoqc_prepare:
         qc_vars = lambda wc: _qc_prepare_vars_str(config),
         exclude_doublets = lambda wc: _qc_fit_exclude_doublets(config),
         doublet_column = lambda wc: config.get('qc', {}).get('fit', {}).get('doublet_column', 'doublet_call'),
-        singlet_value = lambda wc: config.get('qc', {}).get('fit', {}).get('singlet_value', 'singlet'),
+        doublet_value = lambda wc: config.get('qc', {}).get('fit', {}).get('doublet_value', 'doublet'),
     container:
         'docker://gcfntnu/sctk:0.2.2'
     shell:
@@ -146,7 +146,7 @@ rule autoqc_prepare:
         '--qc-vars {params.qc_vars} '
         '--exclude-doublets {params.exclude_doublets} '
         '--doublet-column {params.doublet_column} '
-        '--singlet-value {params.singlet_value} '
+        '--doublet-value {params.doublet_value} '
         '--log-file {output.log} '
         '--verbose 1 '
 
