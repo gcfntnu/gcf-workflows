@@ -606,6 +606,7 @@ rule preprocess_finalize:
         representation = get_preprocess_representation,
         representation_metadata = get_preprocess_representation_metadata,
         connectivities = PREPROCESS_CONNECTIVITIES,
+        distances = PREPROCESS_DISTANCES,
         labels = PREPROCESS_CLUSTERING_LABELS,
         embedding = get_preprocess_embedding,
         embedding_metadata = get_preprocess_embedding_metadata,
@@ -649,6 +650,7 @@ rule preprocess_finalize:
         '--representation {input.representation} '
         '--representation-metadata {input.representation_metadata} '
         '--connectivities {input.connectivities} '
+        '--distances {input.distances} '
         '--labels {input.labels} '
         '--embedding {input.embedding} '
         '--embedding-metadata {input.embedding_metadata} '
