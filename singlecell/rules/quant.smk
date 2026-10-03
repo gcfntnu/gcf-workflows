@@ -147,11 +147,6 @@ PREPROCESS_ANNOTATION_METHODS = [
     method for method in PREPROCESS_ANNOTATION_METHODS if method != 'skip'
 ]
 PREPROCESS_ANNOTATION_ENABLED = bool(PREPROCESS_ANNOTATION_METHODS)
-unknown_preprocess_annotation_methods = set(PREPROCESS_ANNOTATION_METHODS) - {'mapmycells', 'celltypist'}
-if unknown_preprocess_annotation_methods:
-    raise ValueError(
-        f"Unsupported preprocessing annotation method(s): {sorted(unknown_preprocess_annotation_methods)}"
-    )
 if PREPROCESS_ANNOTATION_ENABLED and not PREPROCESS_ENABLED:
     raise ValueError("preprocessing.annotation.methods requires preprocessing.enabled=true")
 
