@@ -339,13 +339,14 @@ def main() -> int:
     os.makedirs(os.path.dirname(args.output_anndata) or ".", exist_ok=True)
     os.makedirs(os.path.dirname(args.output_metadata) or ".", exist_ok=True)
 
+    layer_names = [str(key) for key in adata.layers.keys() if key is not None]
     LOGGER.info(
         "[output] shape=%d cells x %d genes X=%s counts=%s layers=%s obsm=%s",
         adata.n_obs,
         adata.n_vars,
         type(adata.X).__name__,
         type(adata.layers["counts"]).__name__,
-        list(adata.layers.keys()),
+        layer_names,
         list(adata.obsm.keys()),
     )
     adata.write_h5ad(args.output_anndata, compression="gzip")
