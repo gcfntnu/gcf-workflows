@@ -44,7 +44,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--qc-vars", required=True)
     parser.add_argument("--exclude-doublets", type=int, choices=[0, 1], default=0)
     parser.add_argument("--doublet-column", default="doublet_call")
-    parser.add_argument("--singlet-value", default="singlet")
+    parser.add_argument("--doublet-value", default="doublet")
     parser.add_argument("--log-file", default=None)
     parser.add_argument("--verbose", type=int, choices=[0, 1], default=0)
     return parser.parse_args()
@@ -272,7 +272,7 @@ def main() -> int:
         out,
         exclude_doublets=bool(args.exclude_doublets),
         doublet_col=args.doublet_column,
-        singlet_value=args.singlet_value,
+        doublet_value=args.doublet_value,
     )
     out["fit_mask"] = fit_mask.to_numpy(dtype=bool)
     out["fit_exclusion_reason"] = fit_reason.to_numpy(dtype=object)
