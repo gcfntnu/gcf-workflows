@@ -168,12 +168,17 @@ general requirement for future combinatorial-barcoding technologies.
 
 ## 6. CellBender
 
-Current validated support:
+Current implemented support surface:
 
 - 10x Genomics + Cell Ranger
 - 10x Genomics + STARsolo
 
 Current Parse support is `NotImplemented`.
+
+The 10x CellBender path predates the completed AnnData contract audit and is the next
+dedicated validation target. Until that audit is complete, the statements in this section
+describe the intended/current code path rather than an independently revalidated
+CellBender contract.
 
 The present design treats CellBender as a coupled observation-universe and denoised-count
 mode:
