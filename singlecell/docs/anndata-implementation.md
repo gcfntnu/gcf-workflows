@@ -261,13 +261,21 @@ selection.
 
 Finalization currently:
 
+- validates the complete cell/gene selection plans, including filtered positions, retained
+  flags, exclusion reasons, and contiguous preprocessed positions
 - subsets the filtered object to planned retained cells and genes
-- preserves original counts in a canonical count layer
-- creates normalized analysis expression in `X`
+- verifies that filtered observation/feature metadata are inherited without changing
+  existing non-missing values
+- preserves original counts in a canonical count layer and validates original/selected
+  count matrices before normalization
+- creates normalized analysis expression in `X` and checks the result for finite values
 - preserves compatible source count layers
 - attaches preprocessing-derived observation and feature metadata
-- attaches native and optional integrated representations
-- attaches the selected graph, including both connectivities and distances, clustering, and canonical embedding
+- validates native/canonical representation dimensions and declared representation
+  metadata
+- attaches and validates the selected connectivity/distance graph, clustering, and
+  canonical embedding
+- checks that embedding graph metadata agrees with the selected canonical graph
 - stores preprocessing provenance in `uns`
 
 The concrete keys used today are documented in `anndata-schema.md`.
