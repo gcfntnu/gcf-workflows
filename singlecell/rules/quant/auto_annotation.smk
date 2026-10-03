@@ -82,19 +82,19 @@ rule orthogene_premap_aggr:
 
 
 def annotation_input_files(wildcards):
-    if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger':
+    if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger' and not CB_FLAG:
         inputs = [join(QUANT_INTERIM, 'aggregate', 'cellranger', wildcards.aggr_id, 'outs', 'count', 'filtered_feature_bc_matrix', 'matrix.mtx.gz')]
     else:
         samples = get_processing_samples(wildcards.method, wildcards.aggr_id)
         if CB_OUTPUT:
             inputs = [join(QUANT_INTERIM, wildcards.method, sample, 'cellbender', f'{sample}_filtered.h5') for sample in samples]
         else:
-            inputs = [_get_filtered_mtx(SimpleNamespace(method=wildcards.method, sample=sample))['mtx'] for sample in samples]
+            inputs = [get_filtered_mtx(SimpleNamespace(method=wildcards.method, sample=sample))['mtx'] for sample in samples]
 
     result = {'counts': inputs}
     if MM_ORG != config['organism']:
         result['gene_map'] = join(QUANT_INTERIM, 'aggregate', wildcards.method, f'{wildcards.aggr_id}_orthologs.tsv')
-    if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger':
+    if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger' and not CB_FLAG:
         result['aggr_csv'] = join(QUANT_INTERIM, 'aggregate', 'description', f'{wildcards.aggr_id}_aggr.csv')
     if wildcards.method in {'10x_starsolo', 'cellranger', 'splitpipe'} or wildcards.method in PARSEBIO_STARSOLO_MODES:
         result['barcode_info'] = [get_primary_barcode_info(wildcards)]
@@ -103,7 +103,7 @@ def annotation_input_files(wildcards):
 
 
 def annotation_input_format(wildcards):
-    if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger':
+    if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger' and not CB_FLAG:
         return 'cellranger_aggr'
     return QUANT_INPUT_FORMAT.get(wildcards.method, wildcards.method)
 
@@ -119,7 +119,7 @@ def annotation_input_gene_map_arg(wildcards, input):
 
 
 def annotation_input_aggr_csv_arg(wildcards, input):
-    if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger':
+    if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger' and not CB_FLAG:
         return f'--aggr-csv {input.aggr_csv} '
     return ''
 
