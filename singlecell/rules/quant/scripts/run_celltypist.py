@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Run CellTypist on the retained preprocessing cell universe.
+"""Run CellTypist on a prepared post-filter annotation AnnData.
 
-CellTypist has a fixed expression contract: raw counts are normalized to CP10K
-and log1p transformed irrespective of the general preprocessing normalization.
-The configured preprocessing count source and canonical preprocessing graph are
-reused. CellTypist then performs its annotation-specific over-clustering on that
-graph followed by majority voting.
+Input X must contain raw counts for the retained preprocessing cell universe.
+Gene symbols are supplied in var['gene_name']; optional ortholog projection is
+performed upstream by preprocess_annotation_input.py. CellTypist's fixed
+expression contract (CP10K + log1p) is applied here. The canonical preprocessing
+graph is attached and reused for CellTypist over-clustering and majority voting.
 """
 
 from __future__ import annotations
@@ -28,7 +28,6 @@ from celltypist import models
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
 LOGGER = logging.getLogger("run_celltypist")
-GENE_SYMBOL_ALIASES = ("gene_symbols", "gene_symbol", "gene_name", "symbol")
 
 
 def setup_logging(path: str) -> None:
@@ -42,67 +41,6 @@ def setup_logging(path: str) -> None:
         handlers=handlers,
         force=True,
     )
-
-
-def read_cells(path: str) -> pd.Index:
-    frame = pd.read_parquet(path)
-    frame.index = pd.Index(frame.index.astype(str), name="barcode")
-    if not frame.index.is_unique:
-        raise ValueError(f"{path}: duplicate barcode index")
-    if "retained" not in frame.columns:
-        raise KeyError(f"{path}: missing required 'retained' column")
-    retained = frame["retained"].fillna(False).astype(bool)
-    cells = frame.index[retained]
-    if len(cells) == 0:
-        raise ValueError(f"{path}: no retained cells")
-    return cells
-
-
-def select_counts(adata: ad.AnnData, source: str):
-    if source == "X":
-        if adata.X is None:
-            raise ValueError("Configured counts_source='X' but AnnData.X is empty")
-        return adata.X
-    if source not in adata.layers:
-        raise KeyError(f"Configured counts layer {source!r} is not present in AnnData.layers")
-    return adata.layers[source]
-
-
-def subset_source(path: str, cells: pd.Index, counts_source: str) -> ad.AnnData:
-    source = ad.read_h5ad(path, backed="r")
-    try:
-        obs = pd.Index(source.obs_names.astype(str), name="barcode")
-        missing = cells.difference(obs)
-        if len(missing):
-            raise ValueError(f"Retained cells absent from filtered AnnData. Examples: {missing[:10].tolist()}")
-
-        positions = obs.get_indexer(cells)
-        work = source[positions, :].to_memory()
-    finally:
-        if source.isbacked:
-            source.file.close()
-
-    work.obs_names = cells.copy()
-    counts = select_counts(work, counts_source)
-    if not sp.issparse(counts):
-        counts = sp.csr_matrix(counts)
-    else:
-        counts = counts.tocsr()
-    work.X = counts.copy()
-    return work
-
-
-def gene_symbols(adata: ad.AnnData) -> pd.Series:
-    column = next((name for name in GENE_SYMBOL_ALIASES if name in adata.var.columns), None)
-    if column is None:
-        raise KeyError(f"AnnData var is missing a gene-symbol column; tried {GENE_SYMBOL_ALIASES}")
-
-    symbols = adata.var[column].astype("string").str.strip()
-    missing = symbols.isna() | symbols.eq("")
-    if missing.any():
-        LOGGER.warning("[genes] replacing %d missing gene symbols with gene IDs", int(missing.sum()))
-        symbols = symbols.where(~missing, pd.Series(adata.var_names, index=adata.var_names, dtype="string"))
-    return symbols.astype(str)
 
 
 def collapse_duplicate_symbols(adata: ad.AnnData, symbols: pd.Series) -> ad.AnnData:
@@ -136,7 +74,15 @@ def collapse_duplicate_symbols(adata: ad.AnnData, symbols: pd.Series) -> ad.AnnD
 
 
 def prepare_expression(adata: ad.AnnData, model_path: str) -> ad.AnnData:
-    symbols = gene_symbols(adata)
+    if "gene_name" not in adata.var.columns:
+        raise KeyError("Prepared annotation AnnData is missing var['gene_name']")
+
+    symbols = adata.var["gene_name"].astype("string").str.strip()
+    missing = symbols.isna() | symbols.eq("")
+    if missing.any():
+        raise ValueError(f"Prepared annotation AnnData contains {int(missing.sum())} missing gene_name values")
+    symbols = symbols.astype(str)
+
     if symbols.duplicated().any():
         adata = collapse_duplicate_symbols(adata, symbols)
     else:
@@ -235,9 +181,7 @@ def write_predictions(result, output: str) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--anndata", required=True)
-    parser.add_argument("--cells", required=True)
-    parser.add_argument("--counts-source", required=True)
+    parser.add_argument("--input", required=True)
     parser.add_argument("--connectivities", required=True)
     parser.add_argument("--distances", required=True)
     parser.add_argument("--graph-selection", required=True)
@@ -252,8 +196,15 @@ def main() -> int:
     args = parse_args()
     setup_logging(args.log)
 
-    cells = read_cells(args.cells)
-    work = subset_source(args.anndata, cells, args.counts_source)
+    work = ad.read_h5ad(args.input)
+    if not work.obs_names.is_unique:
+        raise ValueError("Prepared CellTypist input has duplicate barcodes")
+    if work.n_obs == 0:
+        raise ValueError("Prepared CellTypist input contains no cells")
+
+    expected_obs = pd.Index(work.obs_names.astype(str), name="barcode")
+    work.obs_names = expected_obs
+
     work = prepare_expression(work, args.model)
     attach_graph(work, args.connectivities, args.distances, args.graph_selection)
 
@@ -270,11 +221,11 @@ def main() -> int:
         min_prop=args.min_prop,
     )
 
-    if not result.predicted_labels.index.equals(cells):
-        missing = cells.difference(result.predicted_labels.index)
-        extra = result.predicted_labels.index.difference(cells)
+    if not result.predicted_labels.index.equals(expected_obs):
+        missing = expected_obs.difference(result.predicted_labels.index)
+        extra = result.predicted_labels.index.difference(expected_obs)
         raise ValueError(
-            "CellTypist predictions do not exactly match retained cells: "
+            "CellTypist predictions do not exactly match prepared cells: "
             f"missing={len(missing)} extra={len(extra)}"
         )
 
