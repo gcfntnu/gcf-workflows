@@ -114,6 +114,11 @@ def _annotation_methods(cfg):
 
 
 ANNO_METHODS = _annotation_methods(config)
+if 'celltypist' in ANNO_METHODS:
+    raise ValueError(
+        "CellTypist is a post-filter preprocessing annotation method; move it from "
+        "celltype_annotation.method to preprocessing.annotation.methods"
+    )
 ANNO_ENABLED = bool(ANNO_METHODS)
 
 PSEUDOBULK_CFG = config.get('pseudobulk', {})
