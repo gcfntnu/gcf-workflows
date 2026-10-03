@@ -103,6 +103,10 @@ PREPROCESS_CONNECTIVITIES = join(
     PREPROCESS_GRAPH_DIR,
     'connectivities.npz',
 )
+PREPROCESS_DISTANCES = join(
+    PREPROCESS_GRAPH_DIR,
+    'distances.npz',
+)
 PREPROCESS_GRAPH_METRICS = join(
     PREPROCESS_METRICS_DIR,
     'graph.parquet',
@@ -450,6 +454,7 @@ rule preprocess_optimize_graph_clustering:
         obs = PREPROCESS_OBS,
     output:
         connectivities = PREPROCESS_CONNECTIVITIES,
+        distances = PREPROCESS_DISTANCES,
         labels = PREPROCESS_CLUSTERING_LABELS,
         graph_metrics = PREPROCESS_GRAPH_METRICS,
         clustering_metrics = PREPROCESS_CLUSTERING_METRICS,
@@ -479,6 +484,7 @@ rule preprocess_optimize_graph_clustering:
         '--representation-metadata {input.representation_metadata} '
         '--obs {input.obs} '
         '--connectivities {output.connectivities} '
+        '--distances {output.distances} '
         '--labels {output.labels} '
         '--graph-metrics {output.graph_metrics} '
         '--clustering-metrics {output.clustering_metrics} '
@@ -543,6 +549,7 @@ rule preprocess_diagnostics:
         representation = get_preprocess_representation,
         representation_metadata = get_preprocess_representation_metadata,
         connectivities = PREPROCESS_CONNECTIVITIES,
+        distances = PREPROCESS_DISTANCES,
         labels = PREPROCESS_CLUSTERING_LABELS,
         obs = PREPROCESS_OBS,
         graph_metrics = PREPROCESS_GRAPH_METRICS,
@@ -573,6 +580,7 @@ rule preprocess_diagnostics:
         '--representation {input.representation} '
         '--representation-metadata {input.representation_metadata} '
         '--connectivities {input.connectivities} '
+        '--distances {input.distances} '
         '--labels {input.labels} '
         '--obs {input.obs} '
         '--graph-metrics {input.graph_metrics} '
