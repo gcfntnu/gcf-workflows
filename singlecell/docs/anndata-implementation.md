@@ -74,7 +74,103 @@ representation is treated as an integrity problem rather than silently removed.
 QC, doublet calls, assignments, and annotation characterize cells in the filtered object.
 Selection based on those fields is deferred to preprocessing.
 
-## 4. Current preprocessing implementation
+## 4. Annotation data flow
+
+Annotation currently spans more than one workflow role. The intended direction is to
+separate QC-support classification from downstream biological annotation rather than
+treat all annotation output as one interchangeable sidecar. The current implementation
+does not yet fully reflect this separation.
+
+### 4.1 QC-support annotation
+
+An early MapMyCells run may be used specifically to derive a coarse QC-support variable,
+for example `qc_cell_class`, before automatic QC.
+
+The intended flow is:
+
+```text
+filtered counts
+      |
+      v
+QC-support MapMyCells
+      |
+      v
+qc_cell_class
+      |
+      v
+auto-QC, optionally stratified by qc_cell_class
+```
+
+This classification has a narrow purpose:
+
+- provide biologically sensible strata for QC distributions
+- remain coarse and robust enough for QC support
+- influence QC only when explicitly configured
+- not be presented as the definitive biological annotation of the final object
+
+The QC-support run may therefore use a reduced taxonomy or reduced output compared with a
+later biological annotation run.
+
+### 4.2 Biological annotation
+
+MapMyCells may also be run later for biological/reference annotation. This role shares its
+goal with CellTypist and is conceptually distinct from the QC-support MapMyCells run.
+
+A likely future flow is:
+
+```text
+filtered AnnData
+      |
+      v
+QC / doublet selection
+      |
+      v
+preprocessing and canonical representation
+      |
+      +--> biological MapMyCells
+      |
+      +--> CellTypist
+      |
+      v
+preprocessed / final AnnData
+```
+
+The exact future placement is intentionally not fixed yet. In particular, biological
+MapMyCells can operate on raw, filtered, or preprocessed expression because its reference
+mapping does not require a query-derived biological clustering. A late placement may
+still be preferable when annotation is intended to describe the same retained population
+as the canonical preprocessed analysis.
+
+### 4.3 CellTypist placement
+
+The current CellTypist workflow already restricts annotation to auto-QC-passing cells and
+can therefore produce useful annotations without first running the canonical preprocessing
+pipeline.
+
+Longer term, however, late preprocessing is the preferred architectural direction because
+CellTypist majority voting depends on a biologically meaningful neighborhood/clustering
+structure. A late placement can reuse the canonical preprocessing representation and
+neighborhood graph, while still allowing annotation-specific over-clustering at a finer
+resolution than the canonical biological clustering.
+
+This avoids maintaining a second largely parallel PCA/neighbors/clustering path solely for
+annotation and keeps CellTypist labels tied to the same analysis geometry as the
+preprocessed object.
+
+The final design is deliberately deferred to a future branch.
+
+### 4.4 Terminology
+
+Keep the two roles distinct in metadata and workflow naming:
+
+- `qc_cell_class`: QC-support classification that may influence QC stratification
+- biological annotation fields: downstream interpretive results intended for the
+  preprocessed/final object
+
+A QC-support classification is an input to QC. It should not be interpreted as equivalent
+to a downstream biological annotation simply because both may originate from MapMyCells.
+
+## 5. Current preprocessing implementation
 
 The current preprocessing pipeline is staged:
 
@@ -121,7 +217,7 @@ Current default behavior includes:
 These are current implementation choices, not permanent requirements of the semantic
 AnnData contract.
 
-## 5. Current representation selection
+## 6. Current representation selection
 
 The current pipeline always computes a native PCA representation.
 
@@ -136,7 +232,7 @@ Graph selection and clustering selection are separate stages. Diagnostics descri
 selected and candidate representations but do not independently redefine the canonical
 selection.
 
-## 6. Current finalization behavior
+## 7. Current finalization behavior
 
 Finalization currently:
 
@@ -151,7 +247,7 @@ Finalization currently:
 
 The concrete keys used today are documented in `anndata-schema.md`.
 
-## 7. Extension guidance
+## 8. Extension guidance
 
 When adding a new technology, chemistry, quantifier, or software version:
 
