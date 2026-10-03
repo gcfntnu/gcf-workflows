@@ -39,7 +39,11 @@ def configure_gpu() -> None:
 
 
 def normalize_index(index: pd.Index, name: str) -> pd.Index:
-    result = pd.Index(index.astype(str), name=name)
+    if index.hasnans:
+        raise ValueError(f"{name} index contains missing values")
+    result = pd.Index(index.astype(str).str.strip(), name=name)
+    if (result.str.len() == 0).any():
+        raise ValueError(f"{name} index contains empty values")
     if not result.is_unique:
         duplicates = result[result.duplicated()].unique().tolist()
         raise ValueError(f"{name} index is not unique. Examples: {duplicates[:5]}")
