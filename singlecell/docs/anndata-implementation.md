@@ -58,6 +58,23 @@ Per-library result tables should be validated before concatenation. Schema union
 be used as a substitute for validating that a configured result family was actually
 produced for all required inputs.
 
+Current observation-sidecar coverage rules include:
+
+- auto-QC masks are complete-domain results and must exactly cover the canonical filtered
+  observation universe
+- aggregate transcriptomic doublet classifications are complete-domain results and must
+  exactly cover the canonical filtered observation universe
+- demultiplexing results are subset-domain results: missing canonical cells are allowed,
+  but sidecar rows outside the canonical observation universe are rejected
+- when multiple demultiplexing methods are present, their columns are namespaced by
+  method; a single demultiplexing method retains the conventional unsuffixed names
+- identical duplicate metadata columns are collapsed, while conflicting same-name
+  columns are rejected rather than resolved through merge-order suffixes
+
+Canonical key fields such as `barcode`, `Sample_ID`, `library_id`, `source_barcode`, and
+`gene_id` are checked for missing or empty values before string conversion so that missing
+identifiers cannot become literal string values such as `"nan"`.
+
 ## 3. Current filtered-object policy
 
 The canonical filtered object retains:
@@ -209,7 +226,9 @@ preprocessed AnnData
 
 Current default behavior includes:
 
-- QC- and doublet-based cell selection
+- QC- and doublet-based cell selection; only cells explicitly classified as `doublet`
+  are excluded by the doublet filter, while non-doublet states such as `unassigned`
+  are not converted into doublet calls
 - gene filtering using `min_cells`
 - normalization to a configured target sum followed by optional `log1p`
 - HVG selection
