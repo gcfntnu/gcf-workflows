@@ -558,11 +558,20 @@ def scanpy_aggr_barcode_rename(wc):
         return 'skip'
     return BC_RENAME[wc.method]
 
+SCANPY_AGGR_FILTERED = join(
+    QUANT_INTERIM,
+    'aggregate',
+    '{method}',
+    'scanpy',
+    '{aggr_id}_filtered.base.h5ad' if CB_FLAG else '{aggr_id}_filtered.h5ad',
+)
+
+
 rule scanpy_aggr_filtered:
     input:
         unpack(scanpy_aggr_inputs)
     output:
-        join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_filtered.h5ad')
+        SCANPY_AGGR_FILTERED
     params:
         script = src_gcf('quant/scripts/convert_scanpy.py'),
         input_format = scanpy_aggr_format,
@@ -576,6 +585,54 @@ rule scanpy_aggr_filtered:
         aggr_id = '|'.join(AGGR_IDS)
     shell:
         SCANPY_AGGR_SHELL
+
+
+if CB_FLAG:
+    def cellbender_layer_inputs(wc):
+        samples = get_processing_samples(wc.method, wc.aggr_id)
+        return {
+            'anndata': SCANPY_AGGR_FILTERED.format(method=wc.method, aggr_id=wc.aggr_id),
+            'matrices': [
+                join(QUANT_INTERIM, wc.method, sample, 'cellbender', 'filtered', 'matrix', 'matrix.mtx')
+                for sample in samples
+            ],
+            'barcodes': [
+                join(QUANT_INTERIM, wc.method, sample, 'cellbender', 'filtered', 'matrix', 'barcodes.tsv')
+                for sample in samples
+            ],
+            'features': [
+                join(QUANT_INTERIM, wc.method, sample, 'cellbender', 'filtered', 'matrix', 'genes.tsv')
+                for sample in samples
+            ],
+            'barcode_info': get_primary_barcode_info(wc),
+        }
+
+
+    rule scanpy_attach_cellbender:
+        input:
+            unpack(cellbender_layer_inputs)
+        output:
+            join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_filtered.h5ad')
+        params:
+            script = src_gcf('quant/scripts/attach_count_layer.py'),
+            library_ids = lambda wc: ' '.join(get_processing_samples(wc.method, wc.aggr_id))
+        threads:
+            8
+        wildcard_constraints:
+            method = '10x_starsolo|cellranger',
+            aggr_id = '|'.join(AGGR_IDS)
+        container:
+            'docker://' + config['docker']['scanpy']
+        shell:
+            'python {params.script} '
+            '--anndata {input.anndata} '
+            '--matrices {input.matrices} '
+            '--barcodes {input.barcodes} '
+            '--features {input.features} '
+            '--library-ids {params.library_ids} '
+            '--barcode-info {input.barcode_info} '
+            '--layer cellbender '
+            '--output {output} '
 
 
 def quant_all_inputs(wc):
