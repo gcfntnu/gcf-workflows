@@ -270,6 +270,18 @@ def _barcode_info_reader(
         dups = df.index[df.index.duplicated()].unique()
         raise ValueError(f"{fn}: duplicate barcode values are not allowed. Examples: {list(dups[:5])}")
 
+    if fn.name.endswith("_autoqc_mask.tsv"):
+        if "autoqc_pass" not in df.columns:
+            raise ValueError(f"{fn}: auto-QC mask is missing required column 'autoqc_pass'")
+        if df["autoqc_pass"].isna().any():
+            raise ValueError(f"{fn}: auto-QC mask contains missing autoqc_pass values")
+        values = set(pd.unique(df["autoqc_pass"]))
+        if not values.issubset({0, 1, False, True}):
+            raise ValueError(
+                f"{fn}: autoqc_pass must contain only 0/1 or boolean values; "
+                f"found {sorted(values, key=str)[:5]}"
+            )
+
     return df
 
 
@@ -2683,6 +2695,14 @@ if __name__ == "__main__":
     if args.barcode_info:
         logger.info(f"Merging {len(args.barcode_info)} barcode-info DataFrame(s) into .obs ...")
         for i, bi in enumerate(args.barcode_info, 1):
+            if "autoqc_pass" in bi.columns:
+                missing = data.obs.index.difference(bi.index)
+                extra = bi.index.difference(data.obs.index)
+                if len(missing) or len(extra):
+                    raise ValueError(
+                        "Auto-QC mask must exactly cover the canonical filtered observation universe; "
+                        f"missing={len(missing)} extra={len(extra)}"
+                    )
             bi = bi.reindex(data.obs.index)
             bi = _drop_ci_identical_to_existing(bi, data.obs)
             if bi is None or bi.empty:
