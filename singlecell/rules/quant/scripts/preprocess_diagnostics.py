@@ -268,6 +268,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--representation", required=True)
     parser.add_argument("--representation-metadata", required=True)
     parser.add_argument("--connectivities", required=True)
+    parser.add_argument("--distances", required=True)
     parser.add_argument("--labels", required=True)
     parser.add_argument("--obs", required=True)
     parser.add_argument("--graph-metrics", required=True)
@@ -298,6 +299,12 @@ def main() -> int:
     graph = sp.load_npz(args.connectivities).tocsr()
     if graph.shape != (obs.shape[0], obs.shape[0]):
         raise ValueError(f"{args.connectivities}: graph shape {graph.shape} does not match obs")
+
+    distances = sp.load_npz(args.distances).tocsr()
+    if distances.shape != graph.shape:
+        raise ValueError(
+            f"{args.distances}: distance graph shape {distances.shape} does not match connectivities {graph.shape}"
+        )
 
     with open(args.representation_metadata) as handle:
         representation_metadata = yaml.safe_load(handle) or {}
