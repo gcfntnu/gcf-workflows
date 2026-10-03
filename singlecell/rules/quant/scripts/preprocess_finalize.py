@@ -101,6 +101,17 @@ def select_counts(adata: ad.AnnData, source: str):
     return adata.layers[source]
 
 
+def validate_count_matrix(matrix, expected_shape: tuple[int, int], label: str) -> None:
+    if matrix.shape != expected_shape:
+        raise ValueError(f"{label} shape {matrix.shape} != expected {expected_shape}")
+
+    values = matrix.data if sp.issparse(matrix) else np.asarray(matrix)
+    if values.size and not np.isfinite(values).all():
+        raise ValueError(f"{label} contains non-finite values")
+    if values.size and np.min(values) < 0:
+        raise ValueError(f"{label} contains negative values")
+
+
 def subset_source(
     path: str,
     cells: pd.DataFrame,
@@ -298,8 +309,8 @@ def main() -> int:
 
     counts_source = str(expression_cfg["counts_source"])
     counts = select_counts(adata, counts_source)
-    if counts.shape != adata.shape:
-        raise ValueError(f"Count source {counts_source!r} shape {counts.shape} != AnnData shape {adata.shape}")
+    validate_count_matrix(counts, adata.shape, f"Count source {counts_source!r}")
+    validate_count_matrix(adata.X, adata.shape, "Original quantifier counts in X")
 
     # Preserve original raw quantifier counts independently of the representation selected for analysis.
     original_counts = adata.X.copy()
@@ -324,6 +335,11 @@ def main() -> int:
         target_sum=float(normalization["target_sum"]),
         log1p=bool(normalization["log1p"]),
     )
+    if adata.X.shape != adata.shape:
+        raise RuntimeError(f"Normalized expression shape {adata.X.shape} != AnnData shape {adata.shape}")
+    normalized_values = adata.X.data if sp.issparse(adata.X) else np.asarray(adata.X)
+    if normalized_values.size and not np.isfinite(normalized_values).all():
+        raise ValueError("Normalized analysis expression contains non-finite values")
 
     adata.obs = full_obs.copy()
     adata.var = full_var.copy()
