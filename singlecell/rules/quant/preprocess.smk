@@ -67,14 +67,14 @@ PREPROCESS_ANNOTATION_DIR = join(PREPROCESS_DIR, 'annotation')
 PREPROCESS_LOG_DIR = join(PREPROCESS_DIR, 'logs')
 
 
+PREPROCESS_ANNOTATION_INPUT = join(PREPROCESS_ANNOTATION_DIR, '{annotator}', 'input.h5ad')
+
 PREPROCESS_MAPMYCELLS_DIR = join(PREPROCESS_ANNOTATION_DIR, 'mapmycells')
-PREPROCESS_MAPMYCELLS_INPUT = join(PREPROCESS_MAPMYCELLS_DIR, 'input.h5ad')
 PREPROCESS_MAPMYCELLS_CSV = join(PREPROCESS_MAPMYCELLS_DIR, 'annotation.csv')
 PREPROCESS_MAPMYCELLS_JSON = join(PREPROCESS_MAPMYCELLS_DIR, 'annotation.json')
 PREPROCESS_MAPMYCELLS_TSV = join(PREPROCESS_MAPMYCELLS_DIR, 'annotation.tsv')
 
 PREPROCESS_CELLTYPIST_DIR = join(PREPROCESS_ANNOTATION_DIR, 'celltypist')
-PREPROCESS_CELLTYPIST_INPUT = join(PREPROCESS_CELLTYPIST_DIR, 'input.h5ad')
 PREPROCESS_CELLTYPIST_TSV = join(PREPROCESS_CELLTYPIST_DIR, 'annotation.tsv')
 PREPROCESS_CELLTYPIST_MODEL = PREPROCESS_ANNOTATION_CFG.get('celltypist', {}).get('model')
 if 'celltypist' in PREPROCESS_ANNOTATION_METHODS and not PREPROCESS_CELLTYPIST_MODEL:
@@ -285,25 +285,65 @@ def preprocess_all_inputs(wildcards):
 
 def preprocess_annotation_outputs(wildcards):
     outputs = []
-    if 'mapmycells' in PREPROCESS_ANNOTATION_METHODS:
+    rule preprocess_annotation_input:
+    input:
+        unpack(preprocess_annotation_input_files)
+    output:
+        h5ad = temp(PREPROCESS_ANNOTATION_INPUT)
+    params:
+        script = src_gcf('scripts/preprocess_annotation_input.py'),
+        counts_source = PREPROCESS_CFG['expression']['counts_source'],
+        src_organism = config['organism'],
+        dst_organism = lambda wc: preprocess_annotation_target_organism(wc.annotator),
+        gene_map = preprocess_annotation_gene_map_arg
+    log:
+        join(PREPROCESS_LOG_DIR, 'annotation_{annotator}_input.log')
+    wildcard_constraints:
+        method = QUANT_METHOD_PATTERN,
+        annotator = '|'.join(PREPROCESS_ANNOTATION_METHODS)
+    container:
+        'docker://' + config['docker']['scanpy']
+    shell:
+        'python {params.script} '
+        '--anndata {input.anndata} '
+        '--cells {input.cells} '
+        '--counts-source {params.counts_source} '
+        '--src-organism {params.src_organism} '
+        '--dst-organism {params.dst_organism} '
+        '{params.gene_map}'
+        '--output {output.h5ad} '
+        '--log {log} '
+
+
+if 'mapmycells' in PREPROCESS_ANNOTATION_METHODS:
         outputs.append(_resolve_preprocess_path(PREPROCESS_MAPMYCELLS_TSV, wildcards))
     if 'celltypist' in PREPROCESS_ANNOTATION_METHODS:
         outputs.append(_resolve_preprocess_path(PREPROCESS_CELLTYPIST_TSV, wildcards))
     return outputs
 
 
-def preprocess_mapmycells_input_files(wildcards):
+def preprocess_annotation_target_organism(annotator):
+    if annotator == 'mapmycells':
+        return ANNOTATION_ORG
+    if annotator == 'celltypist':
+        return CELLTYPIST_ORG
+    raise ValueError(f"Unsupported preprocessing annotator: {annotator}")
+
+
+def preprocess_annotation_input_files(wildcards):
+    dst_org = preprocess_annotation_target_organism(wildcards.annotator)
     result = {
         'anndata': get_filtered_anndata(wildcards),
         'cells': _resolve_preprocess_path(PREPROCESS_CELLS, wildcards),
     }
-    if ANNOTATION_ORG != config['organism']:
-        result['gene_map'] = annotation_gene_map_path(wildcards.method, wildcards.aggr_id, ANNOTATION_ORG)
+    if dst_org != config['organism']:
+        result['gene_map'] = annotation_gene_map_path(wildcards.method, wildcards.aggr_id, dst_org)
     return result
 
 
-def preprocess_mapmycells_gene_map_arg(wildcards, input):
-    return annotation_gene_map_arg(config['organism'], ANNOTATION_ORG, input)
+def preprocess_annotation_gene_map_arg(wildcards, input):
+    dst_org = preprocess_annotation_target_organism(wildcards.annotator)
+    return annotation_gene_map_arg(config['organism'], dst_org, input)
 
 
 def preprocess_mapmycells_mouse_metadata_input(wildcards):
@@ -316,20 +356,6 @@ def preprocess_mapmycells_mouse_metadata_arg(wildcards):
     if ANNOTATION_ORG == 'mus_musculus':
         return '--mouse-metadata ' + abc_mouse_taxonomy_addon_file('cluster_metadata') + ' '
     return ''
-
-
-def preprocess_celltypist_input_files(wildcards):
-    result = {
-        'anndata': get_filtered_anndata(wildcards),
-        'cells': _resolve_preprocess_path(PREPROCESS_CELLS, wildcards),
-    }
-    if CELLTYPIST_ORG != config['organism']:
-        result['gene_map'] = annotation_gene_map_path(wildcards.method, wildcards.aggr_id, CELLTYPIST_ORG)
-    return result
-
-
-def preprocess_celltypist_gene_map_arg(wildcards, input):
-    return annotation_gene_map_arg(config['organism'], CELLTYPIST_ORG, input)
 
 
 def _preprocess_celltypist_model_path(wildcards):
@@ -606,38 +632,11 @@ if 'umap' in PREPROCESS_EMBEDDING_METHODS:
 
 if 'mapmycells' in PREPROCESS_ANNOTATION_METHODS:
 
-    rule preprocess_mapmycells_input:
-        input:
-            unpack(preprocess_mapmycells_input_files)
-        output:
-            h5ad = temp(PREPROCESS_MAPMYCELLS_INPUT)
-        params:
-            script = src_gcf('scripts/preprocess_annotation_input.py'),
-            counts_source = PREPROCESS_CFG['expression']['counts_source'],
-            src_organism = config['organism'],
-            dst_organism = ANNOTATION_ORG,
-            gene_map = preprocess_mapmycells_gene_map_arg
-        log:
-            join(PREPROCESS_LOG_DIR, 'annotation_mapmycells_input.log')
-        wildcard_constraints:
-            method = QUANT_METHOD_PATTERN
-        container:
-            'docker://' + config['docker']['scanpy']
-        shell:
-            'python {params.script} '
-            '--anndata {input.anndata} '
-            '--cells {input.cells} '
-            '--counts-source {params.counts_source} '
-            '--src-organism {params.src_organism} '
-            '--dst-organism {params.dst_organism} '
-            '{params.gene_map}'
-            '--output {output.h5ad} '
-            '--log {log} '
 
 
     rule preprocess_mapmycells:
         input:
-            annotation_h5ad = PREPROCESS_MAPMYCELLS_INPUT,
+            annotation_h5ad = PREPROCESS_ANNOTATION_INPUT.format(annotator='mapmycells'),
             pre_stats_h5 = join(EXT_DIR, 'allen-brain-cell-atlas', 'mapmycells', ANNOTATION_ORG, 'precomputed_stats.h5'),
             markers_json = join(EXT_DIR, 'allen-brain-cell-atlas', 'mapmycells', ANNOTATION_ORG, 'markers.json')
         output:
@@ -700,33 +699,6 @@ if 'mapmycells' in PREPROCESS_ANNOTATION_METHODS:
 
 if 'celltypist' in PREPROCESS_ANNOTATION_METHODS:
 
-    rule preprocess_celltypist_input:
-        input:
-            unpack(preprocess_celltypist_input_files)
-        output:
-            h5ad = temp(PREPROCESS_CELLTYPIST_INPUT)
-        params:
-            script = src_gcf('scripts/preprocess_annotation_input.py'),
-            counts_source = PREPROCESS_CFG['expression']['counts_source'],
-            src_organism = config['organism'],
-            dst_organism = CELLTYPIST_ORG,
-            gene_map = preprocess_celltypist_gene_map_arg
-        log:
-            join(PREPROCESS_LOG_DIR, 'annotation_celltypist_input.log')
-        wildcard_constraints:
-            method = QUANT_METHOD_PATTERN
-        container:
-            'docker://' + config['docker']['scanpy']
-        shell:
-            'python {params.script} '
-            '--anndata {input.anndata} '
-            '--cells {input.cells} '
-            '--counts-source {params.counts_source} '
-            '--src-organism {params.src_organism} '
-            '--dst-organism {params.dst_organism} '
-            '{params.gene_map}'
-            '--output {output.h5ad} '
-            '--log {log} '
 
 
     rule preprocess_celltypist_model:
@@ -744,7 +716,7 @@ if 'celltypist' in PREPROCESS_ANNOTATION_METHODS:
 
     rule preprocess_celltypist:
         input:
-            annotation_h5ad = PREPROCESS_CELLTYPIST_INPUT,
+            annotation_h5ad = PREPROCESS_ANNOTATION_INPUT.format(annotator='celltypist'),
             connectivities = PREPROCESS_CONNECTIVITIES,
             distances = PREPROCESS_DISTANCES,
             graph_selection = PREPROCESS_GRAPH_CLUSTERING_SELECTION,
