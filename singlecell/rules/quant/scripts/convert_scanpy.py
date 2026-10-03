@@ -282,6 +282,16 @@ def _barcode_info_reader(
                 f"found {sorted(values, key=str)[:5]}"
             )
 
+    if "doublet_call" in df.columns:
+        if df["doublet_call"].isna().any():
+            raise ValueError(f"{fn}: doublet_call contains missing values")
+        values = set(df["doublet_call"].astype(str))
+        if not values.issubset({"singlet", "doublet"}):
+            raise ValueError(
+                f"{fn}: doublet_call must contain only 'singlet' or 'doublet'; "
+                f"found {sorted(values)[:5]}"
+            )
+
     return df
 
 
@@ -2695,12 +2705,18 @@ if __name__ == "__main__":
     if args.barcode_info:
         logger.info(f"Merging {len(args.barcode_info)} barcode-info DataFrame(s) into .obs ...")
         for i, bi in enumerate(args.barcode_info, 1):
+            complete_domain = None
             if "autoqc_pass" in bi.columns:
+                complete_domain = "Auto-QC mask"
+            elif "doublet_call" in bi.columns:
+                complete_domain = "Doublet classification"
+
+            if complete_domain is not None:
                 missing = data.obs.index.difference(bi.index)
                 extra = bi.index.difference(data.obs.index)
                 if len(missing) or len(extra):
                     raise ValueError(
-                        "Auto-QC mask must exactly cover the canonical filtered observation universe; "
+                        f"{complete_domain} must exactly cover the canonical filtered observation universe; "
                         f"missing={len(missing)} extra={len(extra)}"
                     )
             bi = bi.reindex(data.obs.index)
