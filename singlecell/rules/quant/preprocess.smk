@@ -319,7 +319,7 @@ def preprocess_mapmycells_mouse_metadata_arg(wildcards):
     return ''
 
 
-def preprocess_celltypist_model(wildcards):
+def _preprocess_celltypist_model_path(wildcards):
     if not PREPROCESS_CELLTYPIST_MODEL:
         raise ValueError("No CellTypist model configured for preprocessing annotation")
     return join(EXT_DIR, 'celltypist', 'data', 'models', PREPROCESS_CELLTYPIST_MODEL)
@@ -707,7 +707,7 @@ if 'celltypist' in PREPROCESS_ANNOTATION_METHODS:
             connectivities = PREPROCESS_CONNECTIVITIES,
             distances = PREPROCESS_DISTANCES,
             graph_selection = PREPROCESS_GRAPH_CLUSTERING_SELECTION,
-            model = preprocess_celltypist_model
+            model = _preprocess_celltypist_model_path
         output:
             annotation = PREPROCESS_CELLTYPIST_TSV
         params:
