@@ -236,7 +236,7 @@ rule cellranger_aggr_bam:
 
 
 def cellranger_barcode_info_inputs(wc):
-    if AGGR_METHOD == 'cellranger':
+    if AGGR_METHOD == 'cellranger' and not CB_FLAG:
         return {
             'aggr_csv': join(QUANT_INTERIM, 'aggregate', 'description', f'{wc.aggr_id}_aggr.csv'),
             'barcodes': [
@@ -255,10 +255,10 @@ def cellranger_barcode_info_inputs(wc):
 
     return {
         'aggr_csv': aggr_library_order_csv(wc.aggr_id),
-        'barcodes': expand(
-            join(CR_INTERIM, '{sample}', 'outs', 'filtered_feature_bc_matrix', 'barcodes.tsv.gz'),
-            sample=AGGR_IDS[wc.aggr_id],
-        ),
+        'barcodes': [
+            get_filtered_mtx(SimpleNamespace(method='cellranger', sample=sample))['rows']
+            for sample in AGGR_IDS[wc.aggr_id]
+        ],
         'sample_info': SINGLECELL_SAMPLE_INFO,
         'library_info': SINGLECELL_LIBRARY_INFO,
     }
@@ -273,9 +273,9 @@ rule cellranger_barcode_info:
         'docker://' + config['docker']['default']
     params:
         script = src_gcf('scripts/cellranger_barcode_info.py'),
-        aggregated = '--aggregated' if AGGR_METHOD == 'cellranger' else '',
+        aggregated = '--aggregated' if AGGR_METHOD == 'cellranger' and not CB_FLAG else '',
         source_barcodes = lambda wc, input: '--source-barcodes ' + ' '.join(input.source_barcodes)
-            if AGGR_METHOD == 'cellranger' else ''
+            if AGGR_METHOD == 'cellranger' and not CB_FLAG else ''
     shell:
         'python {params.script} '
         '--aggr-csv {input.aggr_csv} '
