@@ -74,6 +74,13 @@ representation is treated as an integrity problem rather than silently removed.
 QC, doublet calls, assignments, and annotation characterize cells in the filtered object.
 Selection based on those fields is deferred to preprocessing.
 
+When velocity output is configured, the current implementation validates the upstream
+spliced, unspliced, and ambiguous matrices against their declared barcode and feature
+axes before alignment. Velocity features must map into the canonical feature namespace.
+Canonical cells or genes absent from the velocity source axis are represented by zero
+padding, while `velocity_source_present` in `obs` and `var` records source-axis
+coverage. The raw velocity count layers are not normalized by canonical preprocessing.
+
 ## 4. Annotation data flow
 
 Annotation currently spans more than one workflow role. The intended direction is to
@@ -242,7 +249,7 @@ Finalization currently:
 - preserves compatible source count layers
 - attaches preprocessing-derived observation and feature metadata
 - attaches native and optional integrated representations
-- attaches the selected graph, clustering, and canonical embedding
+- attaches the selected graph, including both connectivities and distances, clustering, and canonical embedding
 - stores preprocessing provenance in `uns`
 
 The concrete keys used today are documented in `anndata-schema.md`.
