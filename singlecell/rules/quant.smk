@@ -439,6 +439,28 @@ def scanpy_aggr_inputs(wc):
     elif wc.method == '10x_starsolo':
         output['aggr_csv'] = aggr_library_order_csv(wc.aggr_id)
 
+        if VELO_OUTPUT:
+            output['velo_spliced'] = [
+                join(QUANT_INTERIM, '10x_starsolo', sample, 'Solo.out', 'Velocyto', 'raw', 'spliced.mtx')
+                for sample in samples
+            ]
+            output['velo_unspliced'] = [
+                join(QUANT_INTERIM, '10x_starsolo', sample, 'Solo.out', 'Velocyto', 'raw', 'unspliced.mtx')
+                for sample in samples
+            ]
+            output['velo_ambiguous'] = [
+                join(QUANT_INTERIM, '10x_starsolo', sample, 'Solo.out', 'Velocyto', 'raw', 'ambiguous.mtx')
+                for sample in samples
+            ]
+            output['velo_barcodes'] = [
+                join(QUANT_INTERIM, '10x_starsolo', sample, 'Solo.out', 'Velocyto', 'raw', 'barcodes.tsv')
+                for sample in samples
+            ]
+            output['velo_features'] = [
+                join(QUANT_INTERIM, '10x_starsolo', sample, 'Solo.out', 'Velocyto', 'raw', 'features.tsv')
+                for sample in samples
+            ]
+
     return output
 
 
