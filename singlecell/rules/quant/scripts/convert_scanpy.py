@@ -1323,7 +1323,7 @@ def read_starsolo(fn, args, **kw):
             velocyto_dir = mtx_dir.replace(os.path.sep + quant_model + os.path.sep, os.path.sep + "Velocyto" + os.path.sep)
             break
     if velocyto_dir and _USE_VELO:
-        velocyto_dir = velocyto_dir.replace(os.path.sep + "filtered", os.path.sep + "raw")
+        velocyto_dir = join(os.path.dirname(velocyto_dir), "raw")
         logger.debug(velocyto_dir)
         data = attach_velocity_layers(
             data,
