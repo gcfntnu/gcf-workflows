@@ -175,25 +175,44 @@ Current implemented support surface:
 
 Current Parse support is `NotImplemented`.
 
-The 10x CellBender path predates the completed AnnData contract audit and is the next
-dedicated validation target. Until that audit is complete, the statements in this section
-describe the intended/current code path rather than an independently revalidated
-CellBender contract.
+The CellBender-enabled 10x path follows three separate semantics:
 
-The present design treats CellBender as a coupled observation-universe and denoised-count
-mode:
-
-1. CellBender defines the selected barcode universe.
+1. CellBender defines the selected barcode/cell universe.
 2. Original quantifier counts are projected from the raw quantifier matrix onto that
-   universe.
-3. Denoised counts are aligned to the same ordered observation and feature axes.
+   universe and remain the canonical filtered count representation in `X`.
+3. CellBender-denoised counts are aligned to the same ordered observation/feature axes
+   and stored separately as the `cellbender` count layer.
 
-For STARsolo, the current implementation materializes filtered and denoised CellBender
-representations under the STARsolo result tree. Cell Ranger uses the analogous current
-Cell Ranger result tree.
+Count-derived sidecars such as transcriptomic doublet detection, automatic QC, and
+QC-support annotation consume the projected original-count matrix, not denoised counts.
+They therefore use the CellBender-selected cell universe without changing their count
+semantics.
 
-The exact filesystem paths are implementation details and may change with future
-quantifier/workflow versions.
+The current projected-original-count locations are:
+
+```text
+10x STARsolo:
+Solo.out/<feature>/cellbender_filtered/
+
+Cell Ranger:
+outs/cellbender_filtered_feature_bc_matrix/
+```
+
+The native quantifier outputs remain unchanged:
+
+```text
+STARsolo:   Solo.out/<feature>/filtered/
+Cell Ranger: outs/filtered_feature_bc_matrix/
+```
+
+Preprocessing independently chooses its count representation through
+`preprocessing.expression.counts_source`. With `counts_source: X`, original quantifier
+counts drive preprocessing. With `counts_source: cellbender`, the denoised CellBender
+layer drives gene filtering, representation construction, and normalized analysis
+expression while original counts remain preserved as count provenance.
+
+The STARsolo path is the first validation target after the AnnData contract audit;
+Cell Ranger will be validated separately against the same semantics.
 
 ## 7. Demultiplexing sidecars
 
