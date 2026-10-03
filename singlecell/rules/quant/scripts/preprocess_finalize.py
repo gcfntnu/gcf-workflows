@@ -229,6 +229,31 @@ def validate_inherited_metadata(source: pd.DataFrame, final: pd.DataFrame, conte
             raise ValueError(f"{context}: inherited non-missing values changed for column {column!r}")
 
 
+def read_annotation_sidecar(path: str, obs_names: pd.Index) -> pd.DataFrame:
+    if path.endswith(".parquet"):
+        frame = pd.read_parquet(path)
+    else:
+        frame = pd.read_csv(path, sep="\t", index_col=0)
+
+    frame.index = normalize_index(frame.index, "barcode")
+    if not frame.index.is_unique:
+        raise ValueError(f"{path}: annotation barcode index is not unique")
+
+    missing = obs_names.difference(frame.index)
+    extra = frame.index.difference(obs_names)
+    if len(missing) or len(extra):
+        raise ValueError(
+            f"{path}: annotation cells do not exactly match preprocessing universe; "
+            f"missing={len(missing)} extra={len(extra)}"
+        )
+
+    frame = frame.reindex(obs_names)
+    if frame.columns.duplicated().any():
+        duplicated = frame.columns[frame.columns.duplicated()].tolist()
+        raise ValueError(f"{path}: duplicate annotation columns: {duplicated[:10]}")
+    return frame
+
+
 def validate_sparse_graph(matrix: sp.csr_matrix, expected_shape: tuple[int, int], path: str, label: str) -> None:
     if matrix.shape != expected_shape:
         raise ValueError(f"{path}: {label} shape {matrix.shape} != {expected_shape}")
@@ -270,6 +295,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--graph-selection", required=True)
     parser.add_argument("--diagnostics", required=True)
     parser.add_argument("--diagnostics-summary", required=True)
+    parser.add_argument("--annotation", nargs="*", default=[])
     parser.add_argument("--output-anndata", required=True)
     parser.add_argument("--output-metadata", required=True)
     parser.add_argument("--expression-json", required=True)
@@ -383,6 +409,10 @@ def main() -> int:
 
     labels = read_labels(args.labels, adata.obs_names)
     adata.obs = merge_frame(adata.obs, labels, "Clustering labels")
+
+    for annotation_path in args.annotation:
+        annotation = read_annotation_sidecar(annotation_path, adata.obs_names)
+        adata.obs = merge_frame(adata.obs, annotation, f"Annotation sidecar {annotation_path}")
 
     embedding = require_array(args.embedding, (adata.n_obs, 2), args.embedding_method)
     adata.obsm[f"X_{args.embedding_method}"] = embedding.astype(np.float32, copy=False)
@@ -520,6 +550,9 @@ def main() -> int:
         "integration": {
             "enabled": integration_enabled,
             "method": args.integration_method if integration_enabled else None,
+        },
+        "annotation": {
+            "sidecars": list(args.annotation),
         },
         "diagnostics": {
             "metrics": args.diagnostics,
