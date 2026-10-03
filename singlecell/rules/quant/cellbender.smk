@@ -19,7 +19,7 @@
 
 
 def get_cellbender_mtx(wildcards):
-    d = join(QUANT_INTERIM, wildcards.method,  wildcards.sublib, 'cellbender', 'filtered', 'matrix')
+    d = join(QUANT_INTERIM, wildcards.method,  wildcards.sample, 'cellbender', 'filtered', 'matrix')
     return {
         'mtx':  join(d, 'matrix.mtx'),
         'cols': join(d, 'genes.tsv'),
@@ -27,17 +27,17 @@ def get_cellbender_mtx(wildcards):
     }
 
 def get_cellbender_outputs(wildcards):
-    sublib = wildcards.sublib
+    sample = wildcards.sample
     method = wildcards.method
-    base = join(QUANT_INTERIM, method, sublib, 'cellbender')
-    return {'h5': join(base, f'{sublib}.h5'),
-            'filtered_h5': join(base, f'{sublib}_filtered.h5'),
-            'raw_h5': join(base, f'{sublib}_raw.h5'),
-            'aggr': join(base, f'{sublib}_cell_barcodes.csv'),
-            'posterior': join(base, f'{sublib}_posterior.h5'),
-            'log': join(base, f'{sublib}.log'),
-            'fig': join(base, f'{sublib}.pdf'),
-            'report': join(base, f'{sublib}_report.html')
+    base = join(QUANT_INTERIM, method, sample, 'cellbender')
+    return {'h5': join(base, f'{sample}.h5'),
+            'filtered_h5': join(base, f'{sample}_filtered.h5'),
+            'raw_h5': join(base, f'{sample}_raw.h5'),
+            'aggr': join(base, f'{sample}_cell_barcodes.csv'),
+            'posterior': join(base, f'{sample}_posterior.h5'),
+            'log': join(base, f'{sample}.log'),
+            'fig': join(base, f'{sample}.pdf'),
+            'report': join(base, f'{sample}_report.html')
             }
 
 
@@ -45,13 +45,13 @@ rule cellbender_run:
     input:
         h5ad_light = '_tmp/{method}/raw/{sample}/anndata.light.h5ad'
     output:
-        h5 = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}.h5'),
-        filtered_h5 = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}_filtered.h5'),
-        aggr = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}_cell_barcodes.csv'),
-        posterior = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}_posterior.h5'),
-        log = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}.log'),
-        fig = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}.pdf'),
-        report = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}_report.html')
+        h5 = join(QUANT_INTERIM, '{method}', '{sample}', 'cellbender', '{sample}.h5'),
+        filtered_h5 = join(QUANT_INTERIM, '{method}', '{sample}', 'cellbender', '{sample}_filtered.h5'),
+        aggr = join(QUANT_INTERIM, '{method}', '{sample}', 'cellbender', '{sample}_cell_barcodes.csv'),
+        posterior = join(QUANT_INTERIM, '{method}', '{sample}', 'cellbender', '{sample}_posterior.h5'),
+        log = join(QUANT_INTERIM, '{method}', '{sample}', 'cellbender', '{sample}.log'),
+        fig = join(QUANT_INTERIM, '{method}', '{sample}', 'cellbender', '{sample}.pdf'),
+        report = join(QUANT_INTERIM, '{method}', '{sample}', 'cellbender', '{sample}_report.html')
     params:
         #input_dir = lambda wildcards, input: os.path.dirname(input['mtx']),
         epochs = 150,
@@ -62,7 +62,7 @@ rule cellbender_run:
     container:
         'docker://' + config['docker']['cellbender']
     benchmark:
-        'benchmarks/cellbender_{method}_{sublib}.txt'
+        'benchmarks/cellbender_{method}_{sample}.txt'
     threads:
         48
     shadow:
@@ -82,23 +82,23 @@ rule cellbender_run:
 
 rule cellbender_rename_raw:
     input:
-        h5 = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}.h5')
+        h5 = join(QUANT_INTERIM, '{method}', '{sample}', 'cellbender', '{sample}.h5')
     output:
-        h5 = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}_raw.h5')
+        h5 = join(QUANT_INTERIM, '{method}', '{sample}', 'cellbender', '{sample}_raw.h5')
     shell:
         'ln -sr {input} {output}'
 
 rule cellbender_to_10x_mtx:
     input:
-        h5 = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}_{dge_type}.h5'),
+        h5 = join(QUANT_INTERIM, '{method}', '{sample}', 'cellbender', '{sample}_{dge_type}.h5'),
     params:
         script = src_gcf('scripts/convert_scanpy.py')
     container:
         'docker://' + config['docker']['cellbender']
     output:
-        mtx      = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{dge_type}', 'matrix', 'matrix.mtx'),
-        barcodes = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{dge_type}', 'matrix', 'barcodes.tsv'),
-        features = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{dge_type}', 'matrix', 'genes.tsv')
+        mtx      = join(QUANT_INTERIM, '{method}', '{sample}', 'cellbender', '{dge_type}', 'matrix', 'matrix.mtx'),
+        barcodes = join(QUANT_INTERIM, '{method}', '{sample}', 'cellbender', '{dge_type}', 'matrix', 'barcodes.tsv'),
+        features = join(QUANT_INTERIM, '{method}', '{sample}', 'cellbender', '{dge_type}', 'matrix', 'genes.tsv')
     threads:
         24
     shell:
@@ -190,10 +190,10 @@ rule cellbender_filter_cellranger_counts:
 rule cellbender_expression_presence:
     input:
         h5ad = rules.cellbender_run.input.h5ad_light,
-        cb_h5 = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}.h5'),
-        cb_posterior = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}_posterior.h5')
+        cb_h5 = join(QUANT_INTERIM, '{method}', '{sample}', 'cellbender', '{sample}.h5'),
+        cb_posterior = join(QUANT_INTERIM, '{method}', '{sample}', 'cellbender', '{sample}_posterior.h5')
     output:
-        tsv = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}_expression_presence.tsv')
+        tsv = join(QUANT_INTERIM, '{method}', '{sample}', 'cellbender', '{sample}_expression_presence.tsv')
     params:
         script = src_gcf("scripts/cellbender_feature_presence_new.py"),
         subset = config["quant"].get("cellbender_call", {}).get("subset", "GeneA,GeneB"),
@@ -203,7 +203,7 @@ rule cellbender_expression_presence:
     container:
         "docker://" + config["docker"]["cellbender"]
     benchmark:
-        "benchmarks/{method}_cellbender_expression_presence_{sublib}.txt"
+        "benchmarks/{method}_cellbender_expression_presence_{sample}.txt"
     threads:
         24
     shell:
@@ -220,9 +220,10 @@ rule cellbender_expression_presence:
 
 def get_expression_presence_inputs(wildcards):
     """Return list of input files for a given aggr_id using AGGR_IDS."""
-    return expand(join(QUANT_INTERIM, wildcards.method, "{sublib}", "cellbender", "{sublib}_expression_presence.tsv"),
-                  sublib=AGGR_IDS[wildcards.aggr_id]
-                  )
+    return expand(
+        join(QUANT_INTERIM, wildcards.method, "{sample}", "cellbender", "{sample}_expression_presence.tsv"),
+        sample=AGGR_IDS[wildcards.aggr_id],
+    )
 
 def get_library_ids_str(wildcards):
     """Return comma-separated library IDs for a given aggr_id."""
