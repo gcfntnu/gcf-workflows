@@ -370,7 +370,7 @@ def get_barcode_info_list(wc, include_autoqc=True):
                 items.append(join(aggr_dir, 'multiplexing', demux_method, f'{aggr_id}_droplet_type.tsv'))
 
         if use_mapmycells:
-            items.append(join(aggr_dir, 'annotation', f'{aggr_id}_mapmycells_annotation.tsv'))
+            items.append(join(aggr_dir, 'annotation', f'{aggr_id}_qc_cell_class.tsv'))
 
         if cb_subset:
             items.append(join(aggr_dir, 'cellbender', f'{aggr_id}_expression_presence.tsv'))
