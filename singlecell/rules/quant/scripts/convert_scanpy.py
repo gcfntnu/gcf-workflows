@@ -1011,20 +1011,22 @@ def read_cellranger(fn, args, add_sample_id=True, **kw):
         data.var["gene_ids"] = list(data.var_names)
         data.var.index.name = "gene_id"
 
-    sample_id = None
-    if add_sample_id:
-        sample_id = os.path.basename(os.path.dirname(dir_name))
-        data.obs["sample_id"] = sample_id
-
+    sample_id = os.path.basename(os.path.dirname(dir_name)) if add_sample_id else None
     has_canonical_mapping = bool(getattr(args, "barcode_info", None)) and any(
         frame is not None and {"source_barcode", "library_id"}.issubset(frame.columns)
         for frame in args.barcode_info
     )
+
     if add_sample_id and has_canonical_mapping:
+        # Canonical identity comes from barcode_info. Do not add the legacy lowercase
+        # sample_id column here: it can case-insensitively shadow canonical Sample_ID
+        # during sidecar merging when library_id == Sample_ID.
         data = canonicalize_10x_library_barcodes(
             data, sample_id, args.barcode_info, source="Cell Ranger"
         )
     else:
+        if add_sample_id:
+            data.obs["sample_id"] = sample_id
         barcode_rename = kw.get("barcode_rename", args.barcode_rename)
         data = barcode_index_rename(data, barcode_rename=barcode_rename, sample_id=sample_id, aggr_csv=args.aggr_csv)
 
