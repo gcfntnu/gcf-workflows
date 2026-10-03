@@ -650,7 +650,7 @@ if 'mapmycells' in PREPROCESS_ANNOTATION_METHODS:
 
     rule preprocess_mapmycells:
         input:
-            annotation_h5ad = PREPROCESS_ANNOTATION_INPUT.format(annotator='mapmycells'),
+            annotation_h5ad = PREPROCESS_ANNOTATION_INPUT.replace('{annotator}', 'mapmycells'),
             pre_stats_h5 = join(EXT_DIR, 'allen-brain-cell-atlas', 'mapmycells', ANNOTATION_ORG, 'precomputed_stats.h5'),
             markers_json = join(EXT_DIR, 'allen-brain-cell-atlas', 'mapmycells', ANNOTATION_ORG, 'markers.json')
         output:
@@ -730,7 +730,7 @@ if 'celltypist' in PREPROCESS_ANNOTATION_METHODS:
 
     rule preprocess_celltypist:
         input:
-            annotation_h5ad = PREPROCESS_ANNOTATION_INPUT.format(annotator='celltypist'),
+            annotation_h5ad = PREPROCESS_ANNOTATION_INPUT.replace('{annotator}', 'celltypist'),
             connectivities = PREPROCESS_CONNECTIVITIES,
             distances = PREPROCESS_DISTANCES,
             graph_selection = PREPROCESS_GRAPH_CLUSTERING_SELECTION,
