@@ -177,44 +177,6 @@ rule mapmycells_aggr_output_processing:
         '--verbose '
 
 
-if 'celltypist' in ANNO_METHODS:
-    rule celltypist_model:
-        params:
-            celltypist_folder = join(EXT_DIR, 'celltypist')
-        output:
-            model = join(EXT_DIR, 'celltypist', 'data', 'models', CELLTYPIST_MODEL)
-        container:
-            'docker://' + config['docker']['rapids-scanpy']
-        shell:
-            'export CELLTYPIST_FOLDER="{params.celltypist_folder}" '
-            '&& '
-            'python -c "from celltypist import models; models.download_models(force_update=True)"'
-
-
-rule run_celltypist:
-    input:
-        annotation_h5ad = join(QUANT_INTERIM, 'aggregate', '{method}', 'annotation', '{aggr_id}_annotation_input.h5ad'),
-        model = _celltypist_model,
-        qc_mask = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', '{aggr_id}_autoqc_mask.tsv')
-    output:
-        anno_tsv = join(QUANT_INTERIM, 'aggregate', '{method}', 'annotation', '{aggr_id}_celltypist_annotation.tsv')
-    params:
-        script = src_gcf('scripts/run_celltypist.py'),
-        args = '--use-GPU --plot '
-    threads:
-        8
-    resources:
-        gpu = 1
-    container:
-        'docker://' + config['docker']['rapids-scanpy']
-    shell:
-        'python {params.script} '
-        '--input {input.annotation_h5ad} '
-        '--model {input.model} '
-        '--output {output.anno_tsv} '
-        '--qc-mask {input.qc_mask} '
-        '{params.args} '
-
 rule mapmycells_qc_cell_class:
     input:
         annotation = join(
