@@ -63,8 +63,24 @@ PREPROCESS_REPRESENTATION_DIR = join(PREPROCESS_DIR, 'representation')
 PREPROCESS_GRAPH_DIR = join(PREPROCESS_DIR, 'graph')
 PREPROCESS_CLUSTERING_DIR = join(PREPROCESS_DIR, 'clustering')
 PREPROCESS_METRICS_DIR = join(PREPROCESS_DIR, 'metrics')
+PREPROCESS_ANNOTATION_DIR = join(PREPROCESS_DIR, 'annotation')
 PREPROCESS_LOG_DIR = join(PREPROCESS_DIR, 'logs')
 
+
+PREPROCESS_MAPMYCELLS_DIR = join(PREPROCESS_ANNOTATION_DIR, 'mapmycells')
+PREPROCESS_MAPMYCELLS_INPUT = join(PREPROCESS_MAPMYCELLS_DIR, 'input.h5ad')
+PREPROCESS_MAPMYCELLS_CSV = join(PREPROCESS_MAPMYCELLS_DIR, 'annotation.csv')
+PREPROCESS_MAPMYCELLS_JSON = join(PREPROCESS_MAPMYCELLS_DIR, 'annotation.json')
+PREPROCESS_MAPMYCELLS_TSV = join(PREPROCESS_MAPMYCELLS_DIR, 'annotation.tsv')
+
+PREPROCESS_CELLTYPIST_DIR = join(PREPROCESS_ANNOTATION_DIR, 'celltypist')
+PREPROCESS_CELLTYPIST_TSV = join(PREPROCESS_CELLTYPIST_DIR, 'annotation.tsv')
+PREPROCESS_CELLTYPIST_MODEL = PREPROCESS_ANNOTATION_CFG.get('celltypist', {}).get('model')
+if 'celltypist' in PREPROCESS_ANNOTATION_METHODS and not PREPROCESS_CELLTYPIST_MODEL:
+    raise ValueError(
+        "CellTypist preprocessing annotation is enabled, but "
+        "preprocessing.annotation.celltypist.model is not configured"
+    )
 
 PREPROCESS_CELLS = join(PREPROCESS_METADATA_DIR, 'cells.parquet')
 PREPROCESS_GENES = join(PREPROCESS_METADATA_DIR, 'genes.parquet')
@@ -264,6 +280,49 @@ def preprocess_all_inputs(wildcards):
                 )
 
     return inputs
+
+
+def preprocess_annotation_outputs(wildcards):
+    outputs = []
+    if 'mapmycells' in PREPROCESS_ANNOTATION_METHODS:
+        outputs.append(_resolve_preprocess_path(PREPROCESS_MAPMYCELLS_TSV, wildcards))
+    if 'celltypist' in PREPROCESS_ANNOTATION_METHODS:
+        outputs.append(_resolve_preprocess_path(PREPROCESS_CELLTYPIST_TSV, wildcards))
+    return outputs
+
+
+def preprocess_mapmycells_input_files(wildcards):
+    result = {
+        'anndata': get_filtered_anndata(wildcards),
+        'cells': _resolve_preprocess_path(PREPROCESS_CELLS, wildcards),
+    }
+    if ANNOTATION_ORG != config['organism']:
+        result['gene_map'] = annotation_gene_map_path(wildcards.method, wildcards.aggr_id)
+    return result
+
+
+def preprocess_mapmycells_gene_map_arg(wildcards, input):
+    if ANNOTATION_ORG == config['organism']:
+        return ''
+    return f'--gene-map {input.gene_map} '
+
+
+def preprocess_mapmycells_mouse_metadata_input(wildcards):
+    if ANNOTATION_ORG == 'mus_musculus':
+        return [abc_mouse_taxonomy_addon_file('cluster_metadata')]
+    return []
+
+
+def preprocess_mapmycells_mouse_metadata_arg(wildcards):
+    if ANNOTATION_ORG == 'mus_musculus':
+        return '--mouse-metadata ' + abc_mouse_taxonomy_addon_file('cluster_metadata') + ' '
+    return ''
+
+
+def preprocess_celltypist_model(wildcards):
+    if not PREPROCESS_CELLTYPIST_MODEL:
+        raise ValueError("No CellTypist model configured for preprocessing annotation")
+    return join(EXT_DIR, 'celltypist', 'data', 'models', PREPROCESS_CELLTYPIST_MODEL)
 
 
 rule preprocess_plan:
@@ -532,6 +591,153 @@ if 'umap' in PREPROCESS_EMBEDDING_METHODS:
             '--log {log} '
 
 
+if 'mapmycells' in PREPROCESS_ANNOTATION_METHODS:
+
+    rule preprocess_mapmycells_input:
+        input:
+            unpack(preprocess_mapmycells_input_files)
+        output:
+            h5ad = temp(PREPROCESS_MAPMYCELLS_INPUT)
+        params:
+            script = src_gcf('scripts/preprocess_annotation_input.py'),
+            counts_source = PREPROCESS_CFG['expression']['counts_source'],
+            src_organism = config['organism'],
+            dst_organism = ANNOTATION_ORG,
+            gene_map = preprocess_mapmycells_gene_map_arg
+        log:
+            join(PREPROCESS_LOG_DIR, 'annotation_mapmycells_input.log')
+        wildcard_constraints:
+            method = QUANT_METHOD_PATTERN
+        container:
+            'docker://' + config['docker']['scanpy']
+        shell:
+            'python {params.script} '
+            '--anndata {input.anndata} '
+            '--cells {input.cells} '
+            '--counts-source {params.counts_source} '
+            '--src-organism {params.src_organism} '
+            '--dst-organism {params.dst_organism} '
+            '{params.gene_map}'
+            '--output {output.h5ad} '
+            '--log {log} '
+
+
+    rule preprocess_mapmycells:
+        input:
+            annotation_h5ad = PREPROCESS_MAPMYCELLS_INPUT,
+            pre_stats_h5 = join(EXT_DIR, 'allen-brain-cell-atlas', 'mapmycells', ANNOTATION_ORG, 'precomputed_stats.h5'),
+            markers_json = join(EXT_DIR, 'allen-brain-cell-atlas', 'mapmycells', ANNOTATION_ORG, 'markers.json')
+        output:
+            anno_csv = PREPROCESS_MAPMYCELLS_CSV,
+            anno_json = PREPROCESS_MAPMYCELLS_JSON
+        params:
+            args = (
+                '--type_assignment.chunk_size 3000 '
+                '--type_assignment.bootstrap_factor 0.5 '
+                '--type_assignment.bootstrap_iteration 100 '
+                '--type_assignment.normalization raw '
+                '--type_assignment.rng_seed 661123 '
+            )
+        threads:
+            48
+        wildcard_constraints:
+            method = QUANT_METHOD_PATTERN
+        container:
+            'docker://gcfntnu/mapmycells:1.5.1'
+        shell:
+            'export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1; '
+            'python -m cell_type_mapper.cli.from_specified_markers '
+            '--precomputed_stats.path {input.pre_stats_h5} '
+            '--query_markers.serialized_lookup {input.markers_json} '
+            '--type_assignment.n_processors {threads} '
+            '--query_path {input.annotation_h5ad} '
+            '--extended_result_path {output.anno_json} '
+            '--csv_result_path {output.anno_csv} '
+            '--tmp_dir /dev/shm/mapmycells_preprocess_{wildcards.aggr_id} '
+            '{params.args} '
+
+
+    rule preprocess_mapmycells_output:
+        input:
+            anno_csv = PREPROCESS_MAPMYCELLS_CSV,
+            taxonomy_cluster = abc_taxonomy_file(ANNOTATION_ORG, 'cluster'),
+            taxonomy_term = abc_taxonomy_file(ANNOTATION_ORG, 'term'),
+            taxonomy_membership = abc_taxonomy_file(ANNOTATION_ORG, 'membership'),
+            mouse_meta = preprocess_mapmycells_mouse_metadata_input
+        output:
+            annotation = PREPROCESS_MAPMYCELLS_TSV
+        params:
+            script = src_gcf('scripts/mapmycells_colormap.py'),
+            mouse_metadata = preprocess_mapmycells_mouse_metadata_arg
+        wildcard_constraints:
+            method = QUANT_METHOD_PATTERN
+        container:
+            'docker://' + config['docker']['default']
+        shell:
+            'python {params.script} '
+            '--annotation {input.anno_csv} '
+            '--taxonomy-cluster {input.taxonomy_cluster} '
+            '--taxonomy-term {input.taxonomy_term} '
+            '--taxonomy-membership {input.taxonomy_membership} '
+            '{params.mouse_metadata}'
+            '--preset minimal '
+            '--out {output.annotation} '
+            '--verbose '
+
+
+if 'celltypist' in PREPROCESS_ANNOTATION_METHODS:
+
+    rule preprocess_celltypist_model:
+        params:
+            celltypist_folder = join(EXT_DIR, 'celltypist')
+        output:
+            model = join(EXT_DIR, 'celltypist', 'data', 'models', PREPROCESS_CELLTYPIST_MODEL)
+        container:
+            'docker://' + config['docker']['rapids-scanpy']
+        shell:
+            'export CELLTYPIST_FOLDER="{params.celltypist_folder}" '
+            '&& '
+            'python -c "from celltypist import models; models.download_models(force_update=True)"'
+
+
+    rule preprocess_celltypist:
+        input:
+            anndata = get_filtered_anndata,
+            cells = PREPROCESS_CELLS,
+            connectivities = PREPROCESS_CONNECTIVITIES,
+            distances = PREPROCESS_DISTANCES,
+            graph_selection = PREPROCESS_GRAPH_CLUSTERING_SELECTION,
+            model = preprocess_celltypist_model
+        output:
+            annotation = PREPROCESS_CELLTYPIST_TSV
+        params:
+            script = src_gcf('scripts/run_celltypist.py'),
+            counts_source = PREPROCESS_CFG['expression']['counts_source'],
+            min_prop = PREPROCESS_ANNOTATION_CFG.get('celltypist', {}).get('min_prop', 0.0)
+        threads:
+            8
+        resources:
+            gpu = 0
+        log:
+            join(PREPROCESS_LOG_DIR, 'annotation_celltypist.log')
+        wildcard_constraints:
+            method = QUANT_METHOD_PATTERN
+        container:
+            'docker://' + config['docker']['rapids-scanpy']
+        shell:
+            'python {params.script} '
+            '--anndata {input.anndata} '
+            '--cells {input.cells} '
+            '--counts-source {params.counts_source} '
+            '--connectivities {input.connectivities} '
+            '--distances {input.distances} '
+            '--graph-selection {input.graph_selection} '
+            '--model {input.model} '
+            '--min-prop {params.min_prop} '
+            '--output {output.annotation} '
+            '--log {log} '
+
+
 rule preprocess_diagnostics:
     input:
         native_representation = PREPROCESS_NATIVE_PCA,
@@ -601,7 +807,8 @@ rule preprocess_finalize:
         embedding_metadata = get_preprocess_embedding_metadata,
         graph_selection = PREPROCESS_GRAPH_CLUSTERING_SELECTION,
         diagnostics = PREPROCESS_DIAGNOSTICS,
-        diagnostics_summary = PREPROCESS_DIAGNOSTICS_PDF
+        diagnostics_summary = PREPROCESS_DIAGNOSTICS_PDF,
+        annotations = preprocess_annotation_outputs
     output:
         anndata = PREPROCESS_FINAL_ANNDATA,
         metadata = PREPROCESS_FINAL_METADATA
@@ -646,6 +853,7 @@ rule preprocess_finalize:
         '--graph-selection {input.graph_selection} '
         '--diagnostics {input.diagnostics} '
         '--diagnostics-summary {input.diagnostics_summary} '
+        '--annotation {input.annotations} '
         '--output-anndata {output.anndata} '
         '--output-metadata {output.metadata} '
         '--expression-json {params.expression} '
