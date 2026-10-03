@@ -95,12 +95,13 @@ def build_cell_plan(obs: pd.DataFrame, cfg: dict) -> tuple[pd.DataFrame, np.ndar
     doublet_pass = np.ones(n_obs, dtype=bool)
     if exclude_doublets:
         doublet_column = cells_cfg["doublet_column"]
-        singlet_value = cells_cfg["singlet_value"]
+        doublet_value = cells_cfg.get("doublet_value", "doublet")
         doublet_values = obs[doublet_column]
         doublet_missing = doublet_values.isna().to_numpy()
-        doublet_pass = doublet_values.eq(singlet_value).fillna(False).to_numpy(dtype=bool)
+        is_doublet = doublet_values.eq(doublet_value).fillna(False).to_numpy(dtype=bool)
+        doublet_pass = ~is_doublet
         _append_reason(reasons, doublet_missing, "doublet_missing")
-        _append_reason(reasons, (~doublet_pass) & (~doublet_missing), "doublet")
+        _append_reason(reasons, is_doublet, "doublet")
 
     retained = reasons == ""
     if not retained.any():
