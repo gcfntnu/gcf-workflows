@@ -522,6 +522,7 @@ SCANPY_AGGR_SHELL = (
     '--library-info {input.library_info} '
     '{params.aggr_csv} '
     '{params.use_velo} '
+    '--canonical-filtered '
     '-o {output} '
     '-F anndata '
     '-v '
