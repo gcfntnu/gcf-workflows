@@ -33,7 +33,15 @@ Where required for source mapping/provenance, the observation metadata may also 
 source_barcode
 ```
 
-Additional technology-specific barcode metadata may be present.
+Additional technology-specific barcode metadata may be present. When velocity output is
+configured, current objects may also include:
+
+```text
+velocity_source_present
+```
+
+on `obs`, indicating whether the canonical cell barcode was represented on the upstream
+velocity source axis before alignment and zero-padding.
 
 ### `X`
 
@@ -61,6 +69,11 @@ Not every optional capability is present in every object.
 
 The filtered object retains the selected feature universe and available reference/feature
 metadata. Zero-count features are retained by contract.
+
+When velocity output is configured, `var["velocity_source_present"]` records whether a
+canonical feature was represented on the upstream velocity feature axis before alignment.
+Velocity features must map into the canonical feature namespace; canonical-only features
+are zero-padded in velocity layers.
 
 ### `layers`
 
@@ -138,10 +151,12 @@ adata.obsm["X_umap"]
 
 ### `obsp`
 
-The currently selected canonical neighborhood graph is stored as:
+The currently selected canonical neighborhood graph is stored using the standard Scanpy
+pair of matrices:
 
 ```python
 adata.obsp["connectivities"]
+adata.obsp["distances"]
 ```
 
 ### `uns`
