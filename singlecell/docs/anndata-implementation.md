@@ -44,7 +44,7 @@ The common finalizer reads the quantifier-specific count representation and comb
 with normalized feature, barcode, sample, library, QC, doublet, demultiplexing, annotation,
 and other configured sidecars.
 
-The current implementation aims to validate:
+The current implementation validates:
 
 - canonical barcode uniqueness
 - exact or declared-subset barcode coverage
