@@ -57,6 +57,23 @@ Depending on configured capabilities, current filtered objects may include:
 
 Not every optional capability is present in every object.
 
+Current observation-sidecar naming and coverage conventions are:
+
+- `autoqc_pass` is complete over the canonical filtered observation universe when
+  auto-QC is configured
+- `doublet_call` is complete over that universe when transcriptomic doublet detection
+  is configured and contains the canonical aggregate call (`singlet` or `doublet`)
+- demultiplexing metadata may cover only a subset of canonical cells; uncovered cells
+  therefore have missing demultiplexing fields after alignment
+- with one demultiplexing method, conventional fields such as `donor_id`,
+  `doublet_type`, and `best_singlet` remain unsuffixed
+- with multiple demultiplexing methods, those fields are prefixed by method, for example
+  `vireo_ref_donor_id` and `demuxalot_ref_donor_id`
+
+Canonical metadata assembly does not create generic `_barcode_infoN` columns to resolve
+conflicts. Identical same-name metadata are collapsed; conflicting same-name metadata are
+an error.
+
 ### `var`
 
 The filtered object retains the selected feature universe and available reference/feature
