@@ -187,6 +187,11 @@ def read_labels(path: str, obs_names: pd.Index) -> pd.DataFrame:
         raise ValueError(f"{path}: clustering labels do not exactly match retained cell order")
     if "leiden" not in frame.columns:
         raise KeyError(f"{path}: missing canonical 'leiden' column")
+    if frame["leiden"].isna().any():
+        raise ValueError(f"{path}: canonical Leiden labels contain missing values")
+    labels = frame["leiden"].astype(str).str.strip()
+    if labels.eq("").any():
+        raise ValueError(f"{path}: canonical Leiden labels contain empty values")
     return frame
 
 
@@ -392,8 +397,19 @@ def main() -> int:
     )
     with open(args.embedding_metadata) as handle:
         embedding_metadata = yaml.safe_load(handle) or {}
+    if str(embedding_metadata.get("embedding", "")) != args.embedding_method:
+        raise ValueError(
+            f"{args.embedding_metadata}: embedding metadata does not describe {args.embedding_method!r}"
+        )
+
     with open(args.graph_selection) as handle:
         graph_selection = yaml.safe_load(handle) or {}
+    selected_clustering = graph_selection.get("selected_clustering")
+    if not isinstance(selected_clustering, dict):
+        raise ValueError(f"{args.graph_selection}: missing selected_clustering")
+    for key in ("resolution", "seed"):
+        if key not in selected_clustering:
+            raise ValueError(f"{args.graph_selection}: selected_clustering is missing {key!r}")
 
     diagnostics = pd.read_parquet(args.diagnostics)
     if not os.path.exists(args.diagnostics_summary):
