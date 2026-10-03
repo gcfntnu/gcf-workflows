@@ -107,8 +107,8 @@ def plot_full_dashboard(out_pdf, rankdata, method_cols, calls_df, pval_cutoff, t
 
     h = ma.Heatmap(X_plot.values, width=6, height=9, cmap="YlGnBu", label="Confidence (1=Doublet, 0=Singlet)")
     h.add_top(Labels(X_plot.columns, label_loc="top"), pad=0.1)
-    h.add_dendrogram("top", method="average", metric="correlation")
-    h.add_dendrogram("left", method="average", metric="correlation")
+    h.add_dendrogram("top", method="average", metric="euclidean")
+    h.add_dendrogram("left", method="average", metric="euclidean")
     h.add_left(Colors(set_labels.astype(str), palette=set_palette, label="doublet-call set", label_loc="top"), pad=0.1)
     
     mv_order = ["doublet", "singlet", "unassigned"]
