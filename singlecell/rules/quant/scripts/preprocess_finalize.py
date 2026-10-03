@@ -180,6 +180,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--representation", required=True)
     parser.add_argument("--representation-metadata", required=True)
     parser.add_argument("--connectivities", required=True)
+    parser.add_argument("--distances", required=True)
     parser.add_argument("--labels", required=True)
     parser.add_argument("--embedding", required=True)
     parser.add_argument("--embedding-metadata", required=True)
@@ -277,9 +278,14 @@ def main() -> int:
         adata.obsm[key] = np.asarray(representation, dtype=np.float32)
 
     graph = sp.load_npz(args.connectivities).tocsr()
-    if graph.shape != (adata.n_obs, adata.n_obs):
-        raise ValueError(f"{args.connectivities}: graph shape {graph.shape} != {(adata.n_obs, adata.n_obs)}")
+    distances = sp.load_npz(args.distances).tocsr()
+    expected_graph_shape = (adata.n_obs, adata.n_obs)
+    if graph.shape != expected_graph_shape:
+        raise ValueError(f"{args.connectivities}: graph shape {graph.shape} != {expected_graph_shape}")
+    if distances.shape != expected_graph_shape:
+        raise ValueError(f"{args.distances}: distance shape {distances.shape} != {expected_graph_shape}")
     adata.obsp["connectivities"] = graph
+    adata.obsp["distances"] = distances
 
     labels = read_labels(args.labels, adata.obs_names)
     adata.obs = merge_frame(adata.obs, labels, "Clustering labels")
@@ -301,6 +307,7 @@ def main() -> int:
     selected_graph = graph_selection.get("selected_graph", {})
     adata.uns["neighbors"] = {
         "connectivities_key": "connectivities",
+        "distances_key": "distances",
         "params": {
             "n_neighbors": int(selected_graph["n_neighbors"]),
             "metric": str(selected_graph["metric"]),
