@@ -27,3 +27,5 @@ jobs:
       working-directory: ./singlecell/.tests
       run: |
         snakemake -n -p --cores 1 multiqc_report
+    - name: Check BFQ notebook defaults and recovery DAGs
+      run: python -m unittest discover -s singlecell/.tests -p 'test_*.py'
