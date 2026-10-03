@@ -297,14 +297,12 @@ def preprocess_mapmycells_input_files(wildcards):
         'cells': _resolve_preprocess_path(PREPROCESS_CELLS, wildcards),
     }
     if ANNOTATION_ORG != config['organism']:
-        result['gene_map'] = annotation_gene_map_path(wildcards.method, wildcards.aggr_id)
+        result['gene_map'] = annotation_gene_map_path(wildcards.method, wildcards.aggr_id, ANNOTATION_ORG)
     return result
 
 
 def preprocess_mapmycells_gene_map_arg(wildcards, input):
-    if ANNOTATION_ORG == config['organism']:
-        return ''
-    return f'--gene-map {input.gene_map} '
+    return annotation_gene_map_arg(config['organism'], ANNOTATION_ORG, input)
 
 
 def preprocess_mapmycells_mouse_metadata_input(wildcards):
