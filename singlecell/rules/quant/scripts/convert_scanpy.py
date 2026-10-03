@@ -896,9 +896,6 @@ def attach_velocity_layers(data, velocyto_dir, feature_filename, source, verbose
             f"Examples: {unsupported_features[:10].tolist()}"
         )
 
-    data.obs["velocity_source_present"] = obs_idx.isin(velocity_barcodes)
-    data.var["velocity_source_present"] = var_idx.isin(velocity_features)
-
     for name, matrix in matrices.items():
         data.layers[name] = align_sparse_matrix_with_names(
             matrix,
