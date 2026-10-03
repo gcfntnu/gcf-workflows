@@ -43,7 +43,11 @@ def configure_gpu() -> None:
 
 def read_obs(path: str) -> pd.DataFrame:
     frame = pd.read_parquet(path)
-    frame.index = pd.Index(frame.index.astype(str), name="barcode")
+    if frame.index.hasnans:
+        raise ValueError(f"{path}: barcode index contains missing values")
+    frame.index = pd.Index(frame.index.astype(str).str.strip(), name="barcode")
+    if (frame.index.str.len() == 0).any():
+        raise ValueError(f"{path}: barcode index contains empty values")
     if not frame.index.is_unique:
         duplicates = frame.index[frame.index.duplicated()].unique().tolist()
         raise ValueError(f"{path}: duplicate barcodes. Examples: {duplicates[:5]}")
