@@ -28,6 +28,13 @@ if AGGR_METHOD == 'default':
     else:
         AGGR_METHOD = 'scanpy'
 CB_FLAG = config.get("quant", {}).get("cellbender", {}).get("enabled", False)
+if CB_FLAG:
+    unsupported_cellbender_methods = sorted(set(METHODS) - {'10x_starsolo', 'cellranger'})
+    if unsupported_cellbender_methods:
+        raise NotImplementedError(
+            f"CellBender is currently supported only for 10x_starsolo and cellranger; "
+            f"unsupported configured methods: {unsupported_cellbender_methods}"
+        )
 
 VELO_OUTPUT = config["quant"].get("use_velo", False)
 
