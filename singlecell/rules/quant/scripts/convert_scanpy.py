@@ -2772,13 +2772,16 @@ if __name__ == "__main__":
                 logger.info(f"[barcode-info {i}] nothing to add (all columns identical to existing)")
                 continue
 
+            existing_columns = {column.lower(): column for column in data.obs.columns}
+            conflicts = [column for column in bi.columns if column.lower() in existing_columns]
+            if conflicts:
+                raise ValueError(
+                    f"[barcode-info {i}] conflicting metadata column(s): {conflicts}. "
+                    "Canonical barcode metadata must not depend on merge-order suffixes."
+                )
+
             before = set(data.obs.columns)
-            data.obs = data.obs.merge(
-                bi, how="left",
-                left_index=True, right_index=True,
-                suffixes=("", f"_barcode_info{i}"),
-                validate="one_to_one",
-            )
+            data.obs = data.obs.join(bi, how="left", validate="one_to_one")
             added = [c for c in data.obs.columns if c not in before]
             if added:
                 #logger.info(f"[barcode-info {i}] added {len(added)} column(s): {', '.join(added[:12])}{'…' if len(added)>12 else ''}")
