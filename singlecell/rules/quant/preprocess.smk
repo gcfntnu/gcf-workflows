@@ -83,6 +83,17 @@ if 'celltypist' in PREPROCESS_ANNOTATION_METHODS and not PREPROCESS_CELLTYPIST_M
         "preprocessing.annotation.celltypist.model is not configured"
     )
 
+PREPROCESS_ANNOTATOR_SPECS = {
+    'mapmycells': {
+        'target_organism': ANNOTATION_ORG,
+        'output': PREPROCESS_MAPMYCELLS_TSV,
+    },
+    'celltypist': {
+        'target_organism': CELLTYPIST_ORG,
+        'output': PREPROCESS_CELLTYPIST_TSV,
+    },
+}
+
 PREPROCESS_CELLS = join(PREPROCESS_METADATA_DIR, 'cells.parquet')
 PREPROCESS_GENES = join(PREPROCESS_METADATA_DIR, 'genes.parquet')
 PREPROCESS_OBS = join(PREPROCESS_METADATA_DIR, 'obs.parquet')
@@ -284,21 +295,17 @@ def preprocess_all_inputs(wildcards):
 
 
 def preprocess_annotation_outputs(wildcards):
-    outputs = []
-    if 'mapmycells' in PREPROCESS_ANNOTATION_METHODS:
-        outputs.append(_resolve_preprocess_path(PREPROCESS_MAPMYCELLS_TSV, wildcards))
-    if 'celltypist' in PREPROCESS_ANNOTATION_METHODS:
-        outputs.append(_resolve_preprocess_path(PREPROCESS_CELLTYPIST_TSV, wildcards))
-    return outputs
+    return [
+        _resolve_preprocess_path(PREPROCESS_ANNOTATOR_SPECS[annotator]['output'], wildcards)
+        for annotator in PREPROCESS_ANNOTATION_METHODS
+    ]
 
 
 def preprocess_annotation_target_organism(annotator):
-
-    if annotator == 'mapmycells':
-        return ANNOTATION_ORG
-    if annotator == 'celltypist':
-        return CELLTYPIST_ORG
-    raise ValueError(f"Unsupported preprocessing annotator: {annotator}")
+    try:
+        return PREPROCESS_ANNOTATOR_SPECS[annotator]['target_organism']
+    except KeyError as error:
+        raise ValueError(f"Unsupported preprocessing annotator: {annotator}") from error
 
 
 def preprocess_annotation_input_files(wildcards):
