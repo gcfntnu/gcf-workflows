@@ -842,6 +842,77 @@ def align_sparse_matrix_with_names(
     return aligned_matrix
 
 
+def load_velocity_source(velocyto_dir, feature_filename, source):
+    """Load and validate raw spliced/unspliced/ambiguous matrices from one velocity source."""
+    velocyto_dir = pathlib.Path(velocyto_dir)
+    required = {
+        "barcodes": velocyto_dir / "barcodes.tsv",
+        "features": velocyto_dir / feature_filename,
+        "spliced": velocyto_dir / "spliced.mtx",
+        "unspliced": velocyto_dir / "unspliced.mtx",
+        "ambiguous": velocyto_dir / "ambiguous.mtx",
+    }
+    missing_files = [str(path) for path in required.values() if not path.exists()]
+    if missing_files:
+        raise FileNotFoundError(f"{source}: missing configured velocity output(s): {missing_files}")
+
+    barcodes = pd.Index(pd.read_csv(required["barcodes"], header=None).iloc[:, 0].astype(str), name="barcode")
+    features = pd.Index(
+        pd.read_csv(required["features"], sep="\\t", header=None).iloc[:, 0].astype(str), name="gene_id"
+    )
+
+    if not barcodes.is_unique:
+        duplicates = barcodes[barcodes.duplicated()].unique().tolist()[:10]
+        raise ValueError(f"{source}: duplicate velocity barcodes. Examples: {duplicates}")
+    if not features.is_unique:
+        duplicates = features[features.duplicated()].unique().tolist()[:10]
+        raise ValueError(f"{source}: duplicate velocity feature IDs. Examples: {duplicates}")
+
+    matrices = {}
+    expected_shape = (len(barcodes), len(features))
+    for name in ["spliced", "unspliced", "ambiguous"]:
+        matrix = mmread(required[name]).T.tocsr()
+        if matrix.shape != expected_shape:
+            raise ValueError(
+                f"{required[name]}: matrix shape {matrix.shape} does not match velocity axes {expected_shape}"
+            )
+        matrices[name] = matrix
+
+    return matrices, barcodes, features
+
+
+def attach_velocity_layers(data, velocyto_dir, feature_filename, source, verbose=False, logger=None):
+    """Align validated raw velocity matrices to AnnData axes and record source-axis coverage."""
+    matrices, velocity_barcodes, velocity_features = load_velocity_source(
+        velocyto_dir, feature_filename, source
+    )
+
+    obs_idx = pd.Index(data.obs_names.astype(str), name=data.obs_names.name)
+    var_idx = pd.Index(data.var_names.astype(str), name=data.var_names.name)
+    unsupported_features = velocity_features.difference(var_idx)
+    if len(unsupported_features):
+        raise ValueError(
+            f"{source}: {len(unsupported_features)} velocity feature IDs are absent from the canonical feature axis. "
+            f"Examples: {unsupported_features[:10].tolist()}"
+        )
+
+    data.obs["velocity_source_present"] = obs_idx.isin(velocity_barcodes)
+    data.var["velocity_source_present"] = var_idx.isin(velocity_features)
+
+    for name, matrix in matrices.items():
+        data.layers[name] = align_sparse_matrix_with_names(
+            matrix,
+            velocity_barcodes,
+            velocity_features,
+            obs_idx,
+            var_idx,
+            verbose=verbose,
+            logger=logger,
+        ).astype(np.int32)
+
+    return data
+
+
 def read_cellranger(fn, args, add_sample_id=True, **kw):
     """
     Read cellranger results.
@@ -1186,52 +1257,16 @@ def read_starsolo(fn, args, **kw):
             break
     if velocyto_dir and _USE_VELO:
         velocyto_dir = velocyto_dir.replace(os.path.sep + "filtered", os.path.sep + "raw")
-        if os.path.exists(velocyto_dir):
-            logger.debug(velocyto_dir)
-            # --- read USA (cells×genes) + their indices ---
-            S = mmread(join(velocyto_dir, "spliced.mtx")).T.tocsr()
-            U = mmread(join(velocyto_dir, "unspliced.mtx")).T.tocsr()
-            A = mmread(join(velocyto_dir, "ambiguous.mtx")).T.tocsr()
+        logger.debug(velocyto_dir)
+        data = attach_velocity_layers(
+            data,
+            velocyto_dir,
+            "features.tsv",
+            source=f"{args.input_format} Velocyto",
+            verbose=args.verbose,
+            logger=logger,
+        )
 
-            usa_barcodes = pd.Index(pd.read_csv(join(velocyto_dir, "barcodes.tsv"), header=None).iloc[:,0].astype(str))
-            usa_feat     = pd.Index(pd.read_csv(join(velocyto_dir, "features.tsv"), sep="\t", header=None).iloc[:,0].astype(str))
-
-            # --- target spaces: data.obs_names / data.var_names ---
-            obs_idx = pd.Index(data.obs_names.astype(str))   # length = n_obs
-            var_idx = pd.Index(data.var_names.astype(str))   # length = n_vars
-
-            # ROW mapping: USA cells -> data cells (zero-pad missing)
-            row_pos = obs_idx.get_indexer(usa_barcodes)       # size n_usa_cells; -1 for not present
-            row_keep = row_pos >= 0
-            # R maps USA rows into data rows: shape (n_obs, n_usa_cells)
-            R = sp.csr_matrix(
-                (np.ones(row_keep.sum(), dtype=np.int8),
-                 (row_pos[row_keep], np.flatnonzero(row_keep))),
-                shape=(obs_idx.size, usa_barcodes.size),
-            )
-
-            # COL mapping: USA genes -> data genes (zero-pad missing)
-            col_pos = var_idx.get_indexer(usa_feat)           # size n_usa_genes; -1 for not present
-            col_keep = col_pos >= 0
-            # C maps USA cols into data cols: shape (n_usa_genes, n_vars)
-            C = sp.csr_matrix(
-                (np.ones(col_keep.sum(), dtype=np.int8),
-                 (np.flatnonzero(col_keep), col_pos[col_keep])),
-                shape=(usa_feat.size, var_idx.size),
-            )
-
-            # Apply both mappings: (R * USA) * C  -> shape (n_obs, n_vars)
-            S_full = (R @ S @ C).astype(np.int32)
-            U_full = (R @ U @ C).astype(np.int32)
-            A_full = (R @ A @ C).astype(np.int32)
-            
-            data.layers["spliced"]   = S_full
-            data.layers["unspliced"] = U_full
-            data.layers["ambiguous"] = A_full
-
-
-    
-    
     input_id = os.path.normpath(fn).split(os.path.sep)[-5]
     if args.input_format == "10x_starsolo":
         has_canonical_mapping = bool(getattr(args, "barcode_info", None)) and any(
@@ -1512,26 +1547,15 @@ def read_splitpipe(fn, args, **kw):
     else:
         velocyto_dir = dir_name.replace("all-sample/DGE_unfiltered", "velo")
 
-    if os.path.exists(velocyto_dir):
-        for velo_name in ["spliced", "unspliced", "ambiguous"]:
-            velo_fn = pathlib.Path(join(velocyto_dir, f"{velo_name}.mtx"))
-            if velo_fn.exists() and _USE_VELO:
-                S = mmread(velo_fn).T
-                logger.debug(f"found velo data at {velo_fn}. Shape ({S.shape[0]}, {S.shape[1]})")
-                barcodes = np.loadtxt(join(velocyto_dir, "barcodes.tsv"), dtype=str)
-                features = np.loadtxt(join(velocyto_dir, "genes.tsv"), dtype=str)
-                if len(barcodes) != S.shape[0]:
-                    logger.info(barcodes[:3])
-                    logger.info(barcodes[-3:])
-                    logger.error(f"mismatch between mtx ({S.shape[0]}) and barcodes ({len(barcodes)})")
-                if len(features) != S.shape[1]:
-                    logger.info(features[:3])
-                    logger.info(features[-3:])
-                    logger.info(f"Number unique features: {len(set(features))}")
-                    logger.error(f"mismatch between mtx ({S.shape[1]}) and features ({len(features)})")
-                data.layers[velo_name] = align_sparse_matrix_with_names(
-                    S, barcodes, features, data.obs_names, data.var_names, verbose=args.verbose, logger=logger
-                )
+    if _USE_VELO:
+        data = attach_velocity_layers(
+            data,
+            velocyto_dir,
+            "genes.tsv",
+            source="Split-pipe Velocyto",
+            verbose=args.verbose,
+            logger=logger,
+        )
 
     barcode_rename = kw.get("barcode_rename", args.barcode_rename)
     if barcode_rename == "skip":
