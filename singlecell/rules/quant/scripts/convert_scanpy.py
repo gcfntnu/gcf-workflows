@@ -1133,11 +1133,40 @@ def read_starsolo(fn, args, **kw):
     barcodes['starsolo_barcodes'] = barcodes.index
     barcodes.index.name = "barcode"
     barcode_stats_fn = join(mtx_dir, "..", "CellReads.stats")
-    if os.path.exists(barcode_stats_fn):
+    require_cell_reads = bool(getattr(args, "canonical_filtered", False)) and args.input_format in {
+        "10x_starsolo",
+        "parsebio_starsolo",
+    }
+
+    if not os.path.exists(barcode_stats_fn):
+        if require_cell_reads:
+            raise FileNotFoundError(
+                f"{barcode_stats_fn}: CellReads.stats is required for canonical STARsolo filtered assembly"
+            )
+    else:
         bc_stats = pd.read_table(barcode_stats_fn, index_col=0)
+        bc_stats.index = bc_stats.index.astype(str)
         bc_stats.index.name = "barcode"
-        barcodes = barcodes.merge(bc_stats, how="left", left_index=True, right_index=True)
-        CBnotInPasslist = bc_stats.iloc[0] #fixme: add this info in adata.uns?
+        bc_stats = bc_stats.drop(index="CBnotInPasslist", errors="ignore")
+
+        if not bc_stats.index.is_unique:
+            duplicates = bc_stats.index[bc_stats.index.duplicated()].unique().tolist()[:10]
+            raise ValueError(f"{barcode_stats_fn}: duplicate barcode rows. Examples: {duplicates}")
+
+        missing = barcodes.index.astype(str).difference(bc_stats.index)
+        if len(missing):
+            raise ValueError(
+                f"{barcode_stats_fn}: missing CellReads.stats coverage for {len(missing)} matrix barcodes. "
+                f"Examples: {missing[:10].tolist()}"
+            )
+
+        barcodes = barcodes.merge(
+            bc_stats,
+            how="left",
+            left_index=True,
+            right_index=True,
+            validate="one_to_one",
+        )
     try:
         features = pd.read_csv(join(mtx_dir, "features.tsv"), sep="\t", dtype=str, header=None, index_col=0)
     except:
