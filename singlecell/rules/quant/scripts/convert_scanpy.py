@@ -1276,12 +1276,12 @@ def read_starsolo(fn, args, **kw):
         "parsebio_starsolo",
     }
 
-    if not os.path.exists(barcode_stats_fn):
-        if require_cell_reads:
+    if require_cell_reads:
+        if not os.path.exists(barcode_stats_fn):
             raise FileNotFoundError(
                 f"{barcode_stats_fn}: CellReads.stats is required for canonical STARsolo filtered assembly"
             )
-    else:
+
         bc_stats = pd.read_table(barcode_stats_fn, index_col=0)
         bc_stats.index = bc_stats.index.astype(str)
         bc_stats.index.name = "barcode"
