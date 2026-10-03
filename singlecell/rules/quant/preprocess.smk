@@ -94,6 +94,12 @@ PREPROCESS_ANNOTATOR_SPECS = {
     },
 }
 
+unknown_preprocess_annotators = set(PREPROCESS_ANNOTATION_METHODS) - set(PREPROCESS_ANNOTATOR_SPECS)
+if unknown_preprocess_annotators:
+    raise ValueError(
+        f"Unsupported preprocessing annotation method(s): {sorted(unknown_preprocess_annotators)}"
+    )
+
 PREPROCESS_CELLS = join(PREPROCESS_METADATA_DIR, 'cells.parquet')
 PREPROCESS_GENES = join(PREPROCESS_METADATA_DIR, 'genes.parquet')
 PREPROCESS_OBS = join(PREPROCESS_METADATA_DIR, 'obs.parquet')
