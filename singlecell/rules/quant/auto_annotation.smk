@@ -86,10 +86,7 @@ def annotation_input_files(wildcards):
         inputs = [join(QUANT_INTERIM, 'aggregate', 'cellranger', wildcards.aggr_id, 'outs', 'count', 'filtered_feature_bc_matrix', 'matrix.mtx.gz')]
     else:
         samples = get_processing_samples(wildcards.method, wildcards.aggr_id)
-        if CB_OUTPUT:
-            inputs = [join(QUANT_INTERIM, wildcards.method, sample, 'cellbender', f'{sample}_filtered.h5') for sample in samples]
-        else:
-            inputs = [get_filtered_mtx(SimpleNamespace(method=wildcards.method, sample=sample))['mtx'] for sample in samples]
+        inputs = [get_filtered_mtx(SimpleNamespace(method=wildcards.method, sample=sample))['mtx'] for sample in samples]
 
     result = {'counts': inputs}
     if MM_ORG != config['organism']:
@@ -143,8 +140,7 @@ rule annotation_input:
         dst_organism = MM_ORG,
         gene_map = annotation_input_gene_map_arg,
         aggr_csv = annotation_input_aggr_csv_arg,
-        barcode_info = annotation_input_barcode_info_arg,
-        cellbender = '--enable-cellbender --cellbender-mode denoised ' if CB_OUTPUT else ''
+        barcode_info = annotation_input_barcode_info_arg
     log:
         join(QUANT_INTERIM, 'aggregate', '{method}', 'annotation', '{aggr_id}_annotation_input.log')
     container:
@@ -162,7 +158,6 @@ rule annotation_input:
         '{params.gene_map}'
         '{params.aggr_csv}'
         '{params.barcode_info}'
-        '{params.cellbender}'
         '--log {log} '
         '-v '
 
