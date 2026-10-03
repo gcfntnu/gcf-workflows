@@ -305,6 +305,16 @@ def _barcode_info_reader(
                     f"'singlet', 'doublet', or 'unassigned'; found {sorted(values)[:5]}"
                 )
 
+        parts = fn.parts
+        for marker in ("multiplexing", "demultiplexing"):
+            if marker in parts:
+                marker_idx = parts.index(marker)
+                if marker_idx + 1 < len(parts):
+                    df.attrs["demultiplex_method"] = parts[marker_idx + 1]
+                    break
+        if "demultiplex_method" not in df.attrs:
+            raise ValueError(f"{fn}: cannot determine demultiplexing method from sidecar path")
+
     return df
 
 
@@ -2717,6 +2727,8 @@ if __name__ == "__main__":
     # -------------------------
     if args.barcode_info:
         logger.info(f"Merging {len(args.barcode_info)} barcode-info DataFrame(s) into .obs ...")
+        demultiplex_frames = [bi for bi in args.barcode_info if bi is not None and "donor_id" in bi.columns]
+        namespace_demultiplex = len(demultiplex_frames) > 1
         for i, bi in enumerate(args.barcode_info, 1):
             complete_domain = None
             if "autoqc_pass" in bi.columns:
@@ -2739,12 +2751,21 @@ if __name__ == "__main__":
                         "Demultiplexing sidecar must be a subset of the canonical filtered observation universe; "
                         f"extra={len(extra)}"
                     )
+                demultiplex_method = bi.attrs["demultiplex_method"]
                 logger.info(
-                    "[barcode-info %d] demultiplexing coverage: %d/%d canonical cells",
+                    "[barcode-info %d] demultiplexing method=%s coverage: %d/%d canonical cells",
                     i,
+                    demultiplex_method,
                     len(bi.index),
                     data.n_obs,
                 )
+                if namespace_demultiplex:
+                    bi = bi.rename(columns={column: f"{demultiplex_method}_{column}" for column in bi.columns})
+                    logger.info(
+                        "[barcode-info %d] namespaced demultiplexing columns with prefix %s_",
+                        i,
+                        demultiplex_method,
+                    )
             bi = bi.reindex(data.obs.index)
             bi = _drop_ci_identical_to_existing(bi, data.obs)
             if bi is None or bi.empty:
