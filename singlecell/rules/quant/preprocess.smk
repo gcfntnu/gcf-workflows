@@ -285,37 +285,7 @@ def preprocess_all_inputs(wildcards):
 
 def preprocess_annotation_outputs(wildcards):
     outputs = []
-    rule preprocess_annotation_input:
-    input:
-        unpack(preprocess_annotation_input_files)
-    output:
-        h5ad = temp(PREPROCESS_ANNOTATION_INPUT)
-    params:
-        script = src_gcf('scripts/preprocess_annotation_input.py'),
-        counts_source = PREPROCESS_CFG['expression']['counts_source'],
-        src_organism = config['organism'],
-        dst_organism = lambda wc: preprocess_annotation_target_organism(wc.annotator),
-        gene_map = preprocess_annotation_gene_map_arg
-    log:
-        join(PREPROCESS_LOG_DIR, 'annotation_{annotator}_input.log')
-    wildcard_constraints:
-        method = QUANT_METHOD_PATTERN,
-        annotator = '|'.join(PREPROCESS_ANNOTATION_METHODS)
-    container:
-        'docker://' + config['docker']['scanpy']
-    shell:
-        'python {params.script} '
-        '--anndata {input.anndata} '
-        '--cells {input.cells} '
-        '--counts-source {params.counts_source} '
-        '--src-organism {params.src_organism} '
-        '--dst-organism {params.dst_organism} '
-        '{params.gene_map}'
-        '--output {output.h5ad} '
-        '--log {log} '
-
-
-if 'mapmycells' in PREPROCESS_ANNOTATION_METHODS:
+    if 'mapmycells' in PREPROCESS_ANNOTATION_METHODS:
         outputs.append(_resolve_preprocess_path(PREPROCESS_MAPMYCELLS_TSV, wildcards))
     if 'celltypist' in PREPROCESS_ANNOTATION_METHODS:
         outputs.append(_resolve_preprocess_path(PREPROCESS_CELLTYPIST_TSV, wildcards))
@@ -323,6 +293,7 @@ if 'mapmycells' in PREPROCESS_ANNOTATION_METHODS:
 
 
 def preprocess_annotation_target_organism(annotator):
+
     if annotator == 'mapmycells':
         return ANNOTATION_ORG
     if annotator == 'celltypist':
@@ -362,6 +333,36 @@ def _preprocess_celltypist_model_path(wildcards):
     if not PREPROCESS_CELLTYPIST_MODEL:
         raise ValueError("No CellTypist model configured for preprocessing annotation")
     return join(EXT_DIR, 'celltypist', 'data', 'models', PREPROCESS_CELLTYPIST_MODEL)
+
+
+rule preprocess_annotation_input:
+    input:
+        unpack(preprocess_annotation_input_files)
+    output:
+        h5ad = temp(PREPROCESS_ANNOTATION_INPUT)
+    params:
+        script = src_gcf('scripts/preprocess_annotation_input.py'),
+        counts_source = PREPROCESS_CFG['expression']['counts_source'],
+        src_organism = config['organism'],
+        dst_organism = lambda wc: preprocess_annotation_target_organism(wc.annotator),
+        gene_map = preprocess_annotation_gene_map_arg
+    log:
+        join(PREPROCESS_LOG_DIR, 'annotation_{annotator}_input.log')
+    wildcard_constraints:
+        method = QUANT_METHOD_PATTERN,
+        annotator = '|'.join(PREPROCESS_ANNOTATION_METHODS)
+    container:
+        'docker://' + config['docker']['scanpy']
+    shell:
+        'python {params.script} '
+        '--anndata {input.anndata} '
+        '--cells {input.cells} '
+        '--counts-source {params.counts_source} '
+        '--src-organism {params.src_organism} '
+        '--dst-organism {params.dst_organism} '
+        '{params.gene_map}'
+        '--output {output.h5ad} '
+        '--log {log} '
 
 
 rule preprocess_plan:
