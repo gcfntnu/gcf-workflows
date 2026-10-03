@@ -31,8 +31,8 @@ def _log(msg):
             f.write(msg.rstrip() + "\n")
     print(msg, file=sys.stderr)
 
-def majority_vote(calls, *, tie_label="unassigned", missing_call="singlet"):
-    """Majority vote with explicit tie handling for 'unassigned' labels."""
+def majority_vote(calls, *, tie_label="unassigned", missing_call="unassigned"):
+    """Majority vote with explicit handling for ties and missing method calls."""
     x = calls.copy().fillna(missing_call).astype(str)
     mode_df = x.mode(axis=1)
     if mode_df.shape[1] == 1:
