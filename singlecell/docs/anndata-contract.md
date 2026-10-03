@@ -1,6 +1,19 @@
 # Aggregate AnnData contract
 
-This document defines the canonical AnnData contracts for the single-cell workflow.
+## Scope
+
+This contract is specific to the `gcf-workflows` single-cell workflow.
+
+It defines the canonical AnnData representations and invariants used by the current
+single-cell quantification, aggregation, QC, annotation, and preprocessing paths.
+
+Other `gcf-workflows` workflows, including bulk RNA-seq and small-RNA workflows, may
+also use AnnData, but they are not governed by this contract at present.
+
+A future repository-level AnnData contract may define common conventions shared across
+workflows, with workflow-specific contracts extending those common rules. Until such a
+shared contract is defined, this document should be interpreted only within the
+single-cell workflow.
 
 The workflow exposes two first-class AnnData deliverables:
 
@@ -46,57 +59,64 @@ CellBender support for Parse Biosciences library preparations is currently
 `NotImplemented`. The biological suitability of the CellBender background model for
 Parse combinatorial barcoding has not been established.
 
+A barcode that belongs to the configured cell-called universe must not be silently
+removed during canonical assembly because its selected count representation sums to
+zero. Such a row indicates an inconsistency between the called-cell universe and the
+selected count representation and must fail explicitly.
+
 ### 1.2 Parse STARsolo R/T-specific data flow
 
-R/T handling is specific to the combination of **Parse Biosciences library preparation
-and `parsebio_starsolo` quantification**. It is not a general branch for Cell Ranger,
-10x STARsolo, or split-pipe.
+R/T handling is specific to Parse Biosciences library preparation quantified through
+the Parse STARsolo paths. It is not a general branch for Cell Ranger, 10x STARsolo, or
+split-pipe.
 
-STARsolo emits technical R- and T-resolved counts. Immediately downstream of those
-outputs, the normal path collapses R/T observations into biological-cell counts,
-analogous to split-pipe. The collapsed raw and filtered count representations feed
-ordinary matrix-dependent downstream processing, including cell calling, doublet
-characterization, demultiplexing where applicable, auto-QC, and canonical aggregate
-AnnData assembly. The ordinary workflow does not consume R/T-resolved rows.
+STARsolo emits technical R- and T-resolved counts. The ordinary biological-cell path
+collapses paired R/T observations before normal matrix-dependent downstream processing.
+That collapsed representation feeds cell calling, doublet characterization,
+demultiplexing where applicable, auto-QC, canonical filtered AnnData assembly, and
+ordinary preprocessing.
 
-An explicit `enable_rt_qc: true` additionally enables a **parallel** R/T-resolved
-technical QC dataflow originating from STARsolo's original output:
+The uncollapsed technical branch is represented by the method name
+`parsebio_starsolo_rt`. Its filtered AnnData is stored under the normal method-specific
+path for that method; it does not use a special filename suffix to distinguish the R/T
+representation.
+
+The two paths are therefore:
 
 ```text
-                 Parse STARsolo R/T output
-                            |
-               +------------+-------------+
-               |                          |
-               v                          v
-         collapse R + T            retain R/T separately
-           (required)               (optional; enable_rt_qc)
-               |                          |
-               v                          v
-      normal count-matrix        parallel technical-QC
-         processing                    processing
-               |                          |
-               v                          v
-    {aggr_id}_filtered.h5ad  {aggr_id}_rt_filtered.h5ad
-       biological cells          technical observations
+                 Parse STARsolo output
+                         |
+              +----------+-----------+
+              |                      |
+              v                      v
+      parsebio_starsolo      parsebio_starsolo_rt
+       collapse R + T          retain R/T units
+              |                      |
+              v                      v
+     biological-cell path       technical-QC path
+              |                      |
+              v                      v
+       *_filtered.h5ad          *_filtered.h5ad
+              |                      |
+              v                      X
+     ordinary preprocessing      terminal endpoint
 ```
 
-Both branches proceed through their respective applicable matrix-dependent processing
-steps. Neither final H5AD is derived from the other final H5AD. The optional technical
-path may reuse QC/characterization infrastructure, but its observation-level results
-are **technical diagnostics**, not automatically biological-cell classifications.
+The `parsebio_starsolo_rt` filtered AnnData has one row per available technical R or T
+observation. It need not contain precisely two technical rows for every biological cell.
+Its observation-level results are technical diagnostics, not automatically
+biological-cell classifications.
 
-The optional R/T dataset has one row per **available technical R or T observation**;
-it need not have precisely two rows for every biological cell. It is intended for
-R/T-specific expression, coverage, and QC comparisons, not ordinary downstream
-analysis or preprocessing. It is not a third canonical biological-cell deliverable.
+The uncollapsed R/T filtered AnnData is a QC endpoint. It must not enter the ordinary
+canonical preprocessing path or be treated as a third canonical biological-cell
+representation.
 
-With `enable_rt_qc: false`, only the mandatory collapsed path is required. For other
-library-preparation/quantifier combinations, R/T QC is not applicable and an enabled
-R/T-QC setting should fail explicitly rather than silently change their workflows.
+The collapsed and uncollapsed paths originate from the quantifier outputs. Neither final
+filtered AnnData is constructed from the other final filtered AnnData.
 
-R/T collapse is a **count-representation normalization step before ordinary downstream
-processing**, not a transformation applied during final H5AD assembly. Preserve
-STARsolo's original technical matrix outputs separately for inspection and provenance.
+R/T collapse is a count-representation normalization step before ordinary downstream
+processing, not a transformation applied during final H5AD assembly. STARsolo's original
+technical matrix outputs must remain separately inspectable for provenance.
 
 ### 1.3 Expression matrix
 
@@ -110,10 +130,22 @@ embedding belongs in the filtered object.
 
 ### 1.4 Feature axis
 
-`adata.var` represents the measured feature universe retained by the quantifier/count
+`adata.var` represents the complete feature universe of the selected quantifier/count
 representation and contains available reference feature metadata.
 
-The filtered object does not perform analysis-specific gene filtering.
+Canonical filtered assembly does not remove features merely because they have zero
+counts across the current aggregate. Zero-count features contribute no stored values to
+a sparse expression matrix and retaining them keeps feature identity independent of the
+observed cell composition.
+
+Analysis-specific gene filtering, including criteria such as `min_cells`, belongs in
+preprocessing.
+
+When multiple count matrices are combined for one canonical aggregate, their feature
+identity must be compatible with the configured count representation. The workflow must
+not silently outer-union incompatible feature universes and reinterpret missing features
+as ordinary zero counts unless such union semantics are explicitly part of that
+quantifier/count-representation contract.
 
 Technical feature annotations such as mitochondrial, ribosomal, hemoglobin, or similar
 flags may be stored in `var`.
@@ -152,14 +184,41 @@ assembly must distinguish:
 
 Only the first two are valid states.
 
-### 1.6 Metadata coverage and assembly integrity
+### 1.6 Metadata ownership and canonical identity
+
+The normalized metadata entities have distinct responsibilities:
+
+- `sample_info.tsv` is keyed by `Sample_ID` and owns biological/sample-level metadata.
+- `library_info.tsv` is keyed by `library_id` and owns technical-library metadata.
+- `barcode_info.tsv` is keyed by canonical `barcode` and owns observation identity,
+  including the explicit mapping to `Sample_ID` and `library_id`, plus genuine
+  barcode-level metadata required by the workflow.
+
+These ownership boundaries prevent biological and technical identity from being inferred
+from filenames, directory structure, suffix conventions, or accidental equality of
+identifiers.
+
+The canonical `obs_name` is the persistent observation identity inside AnnData.
+`source_barcode` records the corresponding upstream/local barcode where such a mapping
+is needed. It is provenance and mapping metadata; it is not a replacement for the
+canonical observation identity.
+
+Aggregation identifiers, GEM-group-like numbering, Parse sublibrary suffixes, and other
+aggregation mechanics are not biological entities. They may participate in constructing
+a globally unique canonical barcode, but they must not be interpreted as `Sample_ID`
+or `library_id` unless that relationship is explicitly represented in the normalized
+metadata.
+
+No persistent `aggregation_info` entity is required by this contract.
+
+### 1.7 Metadata coverage and assembly integrity
 
 Canonical AnnData assembly must not silently convert incomplete workflow coverage into
 ordinary missing values in `adata.obs` or `adata.var`.
 
 The following rules apply independently of library preparation and quantifier.
 
-#### 1.6.1 Canonical identity is complete
+#### 1.7.1 Canonical identity is complete
 
 Every observation must resolve exactly one:
 
@@ -173,7 +232,7 @@ The workflow must not infer a missing biological identity from directory names, 
 suffixes, library equality, or other technology-specific conventions during final
 assembly.
 
-#### 1.6.2 Entity metadata broadcast requires complete key resolution
+#### 1.7.2 Entity metadata broadcast requires complete key resolution
 
 Metadata broadcast from entity tables is keyed explicitly:
 
@@ -188,7 +247,7 @@ A resolved source row may contain a genuinely unknown or intentionally missing v
 one of its metadata columns. Such source-level missingness is distinct from failure to
 resolve the source entity itself.
 
-#### 1.6.3 Generated results have an explicit coverage domain
+#### 1.7.3 Generated results have an explicit coverage domain
 
 Each configured upstream result or sidecar must have a defined coverage domain, for
 example:
@@ -205,7 +264,7 @@ every corresponding canonical row must be represented after mapping.
 If a result is defined over a subset, subset semantics must be explicit. Assembly must
 not infer subset semantics merely because some rows failed to map.
 
-#### 1.6.4 Optional-global absence differs from partial aggregate coverage
+#### 1.7.4 Optional-global absence differs from partial aggregate coverage
 
 A characterization field may be absent from the canonical AnnData when its producing
 capability is disabled, not applicable, or intentionally omitted by contract.
@@ -215,11 +274,12 @@ sample silently lacking the corresponding fields is an error. Aggregating incons
 per-library schemas by column union and filling the missing inputs with `NA` does not
 satisfy the canonical contract.
 
-The expected schema is determined by the configured workflow path and the declared
-output contract of the producing step, not by whichever columns happen to be present in
-the first or unioned input tables.
+The expected schema and coverage domain are determined by the configured workflow path
+and the declared output contract of the producing capability or result family. They must
+not be inferred from whichever columns or non-missing values happen to be present in the
+observed inputs.
 
-#### 1.6.5 Semantic missingness must be distinguished from missing coverage
+#### 1.7.5 Semantic missingness must be distinguished from missing coverage
 
 Per-cell or per-feature missing values are permitted when missingness is part of the
 defined semantics of that result.
@@ -233,11 +293,11 @@ Missing upstream files, missing per-library outputs, failed joins, failed barcod
 mapping, or unexpected schema differences are errors and must not be represented as
 ordinary `NA` values.
 
-#### 1.6.6 Sidecars and aggregate tables must validate before and after mapping
+#### 1.7.6 Sidecars and aggregate tables must validate before and after mapping
 
 Axis-aligned sidecars must be joined through explicit canonical keys.
 
-Before aggregation or broadcast, the workflow should validate as applicable:
+Before aggregation or broadcast, the workflow must validate as applicable:
 
 - expected source artifacts exist
 - required columns are present
@@ -256,14 +316,15 @@ Broad sidecars may explicitly allow source rows outside the canonical cell unive
 the rule for dropping those rows must be part of the sidecar contract. This does not
 permit missing canonical rows when complete canonical coverage is required.
 
-#### 1.6.7 Fail at the earliest reliable boundary
+#### 1.7.7 Fail at the earliest reliable boundary
 
-Incomplete coverage should fail as close as possible to the boundary where it can be
+Incomplete coverage must fail as close as possible to the boundary where it can be
 identified reliably.
 
-A producer should fail when a required output artifact is absent. A sidecar aggregator
-should fail when its declared input schemas or mappings are inconsistent. Canonical
-AnnData assembly should independently validate the final coverage it receives.
+A producer must fail when its contract requires an output artifact and that artifact is
+absent. A sidecar aggregator must fail when its declared input schemas or mappings are
+inconsistent. Canonical AnnData assembly must independently validate the final coverage
+it receives.
 
 These checks are complementary. The canonical contract must not depend on a
 technology-specific producer being the only place where incomplete coverage can be
@@ -319,8 +380,11 @@ qc:
 
 A MapMyCells result used for QC should be transformed or exposed as `cell_class_qc`.
 
-This field is not the workflow's final biological cell-type annotation. General
-annotation remains an analysis/preprocessing concern.
+This field is not the workflow's final biological cell-type annotation.
+
+General biological annotation may also be present in the filtered object when an
+annotation capability is enabled. Such annotation characterizes cells but does not define
+the filtered cell universe unless it is explicitly declared as a QC dependency.
 
 ---
 
@@ -624,90 +688,92 @@ Parse FASTQ -> barcode preprocessing -> STARsolo R/T count outputs
                          +-----------------+------------------+
                          |                                    |
                          v                                    v
-                  R/T collapse                        original R/T counts
-                   required                            enable_rt_qc only
+                parsebio_starsolo                  parsebio_starsolo_rt
+                   collapse R/T                        retain R/T units
                          |                                    |
                          v                                    v
-              collapsed raw/filtered                 R/T-resolved raw/filtered
-                   count path                         technical-QC count path
+              biological-cell counts                  technical-QC counts
                          |                                    |
                          v                                    v
               applicable ordinary                    applicable technical
                downstream steps                        QC/metadata steps
                          |                                    |
                          v                                    v
-                *_filtered.h5ad                       *_rt_filtered.h5ad
+                *_filtered.h5ad                       *_filtered.h5ad
+                         |                                    |
+                         v                                    X
+                 preprocessing                         terminal endpoint
 ```
 
+The normal biological-cell path uses the mandatory collapsed representation before
+ordinary downstream methods. The `parsebio_starsolo_rt` method preserves the uncollapsed
+technical R/T representation for QC and ends at its method-specific filtered AnnData.
+
 The precise ordering and behavior of cell calling relative to the early count-matrix
-collapse must be implemented and validated against the existing barcode-rank behavior;
-this contract does not prescribe an untested change to calling thresholds or the
-called-cell universe.
+collapse must remain consistent with the validated barcode-rank behavior; this contract
+does not prescribe unvalidated changes to calling thresholds or the called-cell universe.
 
 CellBender is currently `NotImplemented` for Parse. STARsolo velocity is supported;
-the normal velocity matrices must follow the collapsed biological-cell identity and
-the optional technical branch may retain R/T-resolved velocity counts.
+the normal velocity matrices must follow the collapsed biological-cell identity, while
+the `parsebio_starsolo_rt` path may retain R/T-resolved velocity information.
 
 ---
 
 ## 8. Canonical preprocessed AnnData
 
-`{aggr_id}_preprocessed.h5ad` is the canonical analysis-ready representation derived from
-the filtered object.
+`{aggr_id}_preprocessed.h5ad` is the canonical analysis-ready representation derived
+from the canonical biological-cell filtered object.
 
 This is where configured analysis-selection and transformation policies are applied.
+The uncollapsed `parsebio_starsolo_rt` filtered AnnData is a QC endpoint and must not
+enter this path.
 
 ### 8.1 Cell selection
 
-Preprocessing may apply:
+Preprocessing applies explicit configured cell-selection policies, which may include:
 
 - `autoqc_pass`
 - optional doublet exclusion
 - optional multiplex/donor inclusion policies
-- other explicit cell-selection rules
+- other explicitly configured cell-selection rules
 
-These selections reduce the observation axis relative to the filtered object.
+These selections may reduce the observation axis relative to the filtered object.
 
-### 8.2 Gene selection
+The preprocessed object inherits the filtered `adata.obs` metadata for every retained
+cell and adds preprocessing-derived results. Configuration fields used to select
+metadata for diagnostics, integration, or other computations do not implicitly delete
+other filtered cell metadata from the canonical deliverable.
+
+### 8.2 Gene selection and feature metadata
 
 Preprocessing may remove low-information genes using configured criteria such as
 `min_cells`.
 
-The stored preprocessed object should not be restricted to HVGs only unless explicitly
-required by a specific downstream method.
+The stored preprocessed object is not restricted to HVGs only unless a future explicit
+contract requires that behavior.
 
-### 8.3 Count provenance
+For retained genes, the preprocessed object inherits available filtered/reference feature
+metadata and adds preprocessing-derived feature metadata such as HVG status.
 
-The preprocessed object always preserves original raw counts:
+### 8.3 Count provenance and layers
+
+The preprocessed object always preserves original raw quantifier counts:
 
 ```python
 adata.layers["counts"]
 ```
 
-If CellBender is enabled, it additionally preserves unnormalized denoised counts:
+`adata.X` contains the normalized expression representation actually used for the
+canonical analysis path.
 
-```python
-adata.layers["denoised_counts"]
-```
-
-The exact preprocessing count-source choice can be finalized in the preprocessing
-implementation.
-
-The intended semantic convention is:
-
-```text
-adata.X
-    = normalized expression representation actually used for analysis
-```
-
-Therefore, when CellBender-denoised counts are selected for preprocessing:
+When CellBender-denoised counts are selected for preprocessing:
 
 ```text
 adata.X
     = normalized denoised expression
 
 adata.layers["counts"]
-    = original raw counts
+    = original raw quantifier counts
 
 adata.layers["denoised_counts"]
     = unnormalized CellBender-denoised counts
@@ -720,30 +786,66 @@ adata.X
     = normalized original expression
 
 adata.layers["counts"]
-    = original raw counts
+    = original raw quantifier counts
 
 adata.layers["denoised_counts"]
     = unnormalized CellBender-denoised counts, if available
 ```
 
+The filtered-object CellBender layer may therefore be renamed to
+`denoised_counts` in the canonical preprocessed object to make its count semantics
+explicit.
+
+Any additional aligned count layer in the filtered object that remains semantically
+valid after cell/gene subsetting must be preserved in the preprocessed object unless the
+capability contract explicitly specifies otherwise. This includes velocity-derived count
+layers when present and aligned.
+
 The workflow does not require `.raw` as the primary provenance mechanism.
 
-### 8.4 Analysis representations
+### 8.4 Native and canonical representations
 
-The preprocessed object may contain:
+The preprocessed object retains the native PCA representation:
 
-- normalized/log-transformed expression
-- HVG annotations
-- PCA
-- optional integrated latent representations
-- neighborhood graphs
-- canonical clustering
-- UMAP or other embeddings
-- general biological annotation
-- analysis provenance
+```python
+adata.obsm["X_pca"]
+```
 
-General cell-type annotation belongs here or in downstream analysis unless it was
-explicitly required earlier as `cell_class_qc`.
+The canonical representation used for graph construction, clustering, and embedding is:
+
+- native PCA when integration is disabled
+- the configured integrated latent representation when integration is enabled
+
+When integration is enabled, the integrated representation is also retained in
+`adata.obsm` under a method-specific key such as `X_harmony` or `X_scvi`.
+
+HVG metadata and representation provenance must be retained so that the canonical
+analysis representation can be interpreted without reconstructing hidden workflow state.
+
+### 8.5 Graph, clustering, embedding, and provenance
+
+A completed canonical preprocessed AnnData contains:
+
+- normalized analysis expression in `adata.X`
+- original raw counts in `adata.layers["counts"]`
+- HVG metadata in `adata.var`
+- native PCA in `adata.obsm["X_pca"]`
+- the integrated latent representation when integration is enabled
+- the selected canonical neighborhood graph in `adata.obsp["connectivities"]`
+- canonical clustering labels in `adata.obs`
+- the configured canonical embedding, currently UMAP, in `adata.obsm`
+- graph/representation semantics in `adata.uns["neighbors"]`
+- preprocessing configuration, selections, and diagnostics provenance in
+  `adata.uns["preprocessing"]`
+
+General biological annotation may be inherited from the filtered object or added by
+downstream analysis. Its presence is not required to define the canonical preprocessed
+cell universe unless explicitly configured as part of cell selection.
+
+Diagnostics may describe candidate representations, graphs, clusterings, and embeddings,
+but they must not silently alter canonical selection outside the configured selection
+procedure.
+
 
 ---
 
@@ -808,35 +910,43 @@ The intended high-level workflow is:
 
 ## 10. Architectural rules
 
-The following rules should be treated as invariants.
+The following rules are invariants of the single-cell AnnData contract.
 
-1. `*_filtered.h5ad` and `*_preprocessed.h5ad` are both first-class deliverables.
+1. `*_filtered.h5ad` and `*_preprocessed.h5ad` are both first-class biological-cell deliverables.
 2. `*_filtered.h5ad` contains all cells in the configured cell-called universe.
-3. Auto-QC and doublet calls characterize filtered cells but do not subset them.
-4. Cell and gene selection occurs in preprocessing.
-5. One row in either canonical biological-cell AnnData represents one biological cell.
-6. Parse STARsolo R/T collapse is mandatory immediately downstream of quantifier
-   count outputs, before normal matrix-dependent downstream methods; it is not an
-   aggregate AnnData finalization operation.
-7. Only Parse library preparation with `parsebio_starsolo` may enable an optional
-   R/T-resolved technical-QC branch ending in `{aggr_id}_rt_filtered.h5ad`.
-   Its observations are technical R/T units, not canonical biological cells.
-8. The normal and optional R/T paths originate from the quantifier's count outputs;
-   neither final AnnData is constructed from the other final AnnData.
-9. General biological annotation is not required to build the filtered object.
-10. QC-specific annotation is explicitly named `cell_class_qc`.
-11. CellBender, when enabled, jointly defines its barcode universe and denoised count representation.
-12. CellBender-filtered original counts are derived from the raw quantifier matrix.
-13. CellBender does not silently redefine Parse workflows; Parse support remains `NotImplemented`.
-14. Velocity and CellBender are independent optional capabilities.
-15. Optional count/layer representations must align exactly to the canonical AnnData axes.
-16. Unsupported or unvalidated quantifier/capability combinations should fail explicitly rather than silently changing semantics.
-17. The canonical contracts remain stable even when method-specific upstream implementations change.
-18. Missing workflow coverage must not be represented as ordinary metadata missingness.
-19. Every canonical observation must resolve exactly one barcode, `Sample_ID`, and `library_id`.
-20. Broadcast entity metadata requires complete and unambiguous key resolution.
-21. Configured cell- or feature-level results must satisfy their declared coverage domain across all aggregate inputs.
-22. Optional-global absence, declared subset semantics, and semantically valid missing values are distinct from incomplete upstream coverage.
-23. Aggregation must validate expected schemas and coverage rather than silently create partial columns through schema union.
-24. Axis-aligned sidecars must use explicit canonical mappings; unexpected unmapped, duplicate, or multiply mapped rows are errors unless subset semantics explicitly permit them.
-25. Coverage validation should occur at producer, aggregation, mapping, and canonical-assembly boundaries where each boundary can detect the inconsistency reliably.
+3. A called cell with zero counts in the selected canonical count representation is an integrity error and must not be silently removed.
+4. The filtered feature axis retains the complete feature universe of the selected count representation, including features with zero counts across the aggregate.
+5. Auto-QC and doublet calls characterize filtered cells but do not subset them.
+6. Cell and gene selection occurs in preprocessing.
+7. One row in either canonical biological-cell AnnData represents one biological cell.
+8. `sample_info.tsv`, `library_info.tsv`, and `barcode_info.tsv` have distinct sample-, library-, and observation-level ownership.
+9. Every canonical biological-cell observation resolves exactly one canonical barcode, `Sample_ID`, and `library_id`.
+10. Biological or technical identity must not be inferred from directory names, barcode suffixes, aggregation numbering, or accidental equality of identifiers.
+11. `source_barcode` is explicit upstream/local-barcode provenance and is not the canonical AnnData observation identity.
+12. Aggregation mechanics such as `aggr_id`, GEM numbering, or Parse sublibrary suffixes are not biological entities, and no persistent `aggregation_info` entity is required.
+13. Multiple matrices entering one canonical aggregate must have feature identity compatible with the configured count representation; incompatible feature universes must not be silently outer-unioned.
+14. General biological annotation may characterize filtered cells but does not define the filtered cell universe unless explicitly declared as a QC dependency.
+15. QC-specific annotation is explicitly named `cell_class_qc`.
+16. Parse STARsolo R/T collapse is mandatory before ordinary biological-cell downstream processing.
+17. The `parsebio_starsolo_rt` method retains the uncollapsed technical R/T representation; its method-specific filtered AnnData is a terminal QC endpoint and must not enter ordinary preprocessing.
+18. The collapsed and uncollapsed Parse STARsolo paths originate from quantifier outputs; neither final filtered AnnData is built from the other final filtered AnnData.
+19. CellBender, when enabled, jointly defines its barcode universe and denoised count representation.
+20. CellBender-filtered original counts are derived from the raw quantifier matrix.
+21. CellBender does not silently redefine Parse workflows; Parse support remains `NotImplemented`.
+22. Velocity and CellBender are independent optional capabilities.
+23. Optional count/layer representations must align exactly to the canonical AnnData axes.
+24. Unsupported or unvalidated quantifier/capability combinations must fail explicitly rather than silently changing semantics.
+25. Missing workflow coverage must not be represented as ordinary metadata missingness.
+26. Broadcast entity metadata requires complete and unambiguous key resolution.
+27. Configured cell- or feature-level results must satisfy their declared coverage domain across all aggregate inputs.
+28. Optional-global absence, declared subset semantics, and semantically valid missing values are distinct from incomplete upstream coverage.
+29. Expected schema and coverage are defined by the configured producing capability/result family, not inferred from observed non-missing values.
+30. Aggregation must validate expected schemas and coverage rather than silently create partial columns through schema union.
+31. Axis-aligned sidecars must use explicit canonical mappings; unexpected unmapped, duplicate, or multiply mapped rows are errors unless subset semantics explicitly permit them.
+32. Coverage validation must occur at producer, aggregation, mapping, and canonical-assembly boundaries where each boundary can reliably detect the inconsistency.
+33. The preprocessed object inherits retained filtered cell and feature metadata rather than discarding metadata solely because it was not selected for a preprocessing computation.
+34. The preprocessed object preserves original raw counts and any additional aligned count layers that remain semantically valid after subsetting.
+35. Native PCA is retained in the preprocessed object; graph, clustering, and embedding use the native or configured integrated canonical representation according to preprocessing configuration.
+36. A completed canonical preprocessed object retains its selected graph, clustering, canonical embedding, and preprocessing provenance.
+37. Diagnostics are descriptive and must not silently redefine canonical selections outside the configured selection procedure.
+38. The canonical contracts remain stable even when method-specific upstream implementations change.
