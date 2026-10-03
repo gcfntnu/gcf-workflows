@@ -54,7 +54,9 @@ def _require_columns(frame: pd.DataFrame, columns: list[str], context: str) -> N
 
 def _normalize_index(frame: pd.DataFrame, name: str) -> pd.DataFrame:
     result = frame.copy()
-    result.index = pd.Index(result.index.astype(str), name=name)
+    if result.index.hasnans:
+        raise ValueError(f"{name} index contains missing values")
+    result.index = pd.Index(result.index.astype(str).str.strip(), name=name)
 
     if not result.index.is_unique:
         duplicates = result.index[result.index.duplicated()].unique().tolist()
@@ -205,6 +207,8 @@ def read_gene_metadata(path: str) -> pd.DataFrame:
     if gene_id_column != "gene_id":
         frame = frame.rename(columns={gene_id_column: "gene_id"})
 
+    if frame["gene_id"].isna().any():
+        raise ValueError(f"{path} contains missing gene_id values")
     frame["gene_id"] = frame["gene_id"].astype(str).str.strip()
     if frame["gene_id"].eq("").any():
         raise ValueError(f"{path} contains empty gene_id values")
