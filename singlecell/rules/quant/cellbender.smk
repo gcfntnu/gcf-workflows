@@ -43,7 +43,7 @@ def get_cellbender_outputs(wildcards):
 
 rule cellbender_run:
     input:
-        h5ad_light = '_tmp/{method}/filtered/{sample}/anndata.light.h5ad'
+        h5ad_light = '_tmp/{method}/raw/{sample}/anndata.light.h5ad'
     output:
         h5 = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}.h5'),
         filtered_h5 = join(QUANT_INTERIM, '{method}', '{sublib}', 'cellbender', '{sublib}_filtered.h5'),
@@ -109,6 +109,82 @@ rule cellbender_to_10x_mtx:
         '--no-zero-cell-rm '
         '-v '
         '-f cellbender -F v2_mtx '
+
+
+rule cellbender_filter_starsolo_counts:
+    input:
+        mtx = lambda wc: get_raw_mtx(SimpleNamespace(method='10x_starsolo', sample=wc.sample))['mtx'],
+        barcodes = lambda wc: get_raw_mtx(SimpleNamespace(method='10x_starsolo', sample=wc.sample))['rows'],
+        features = lambda wc: get_raw_mtx(SimpleNamespace(method='10x_starsolo', sample=wc.sample))['cols'],
+        selected_barcodes = join(
+            QUANT_INTERIM, '10x_starsolo', '{sample}', 'cellbender', 'filtered', 'matrix', 'barcodes.tsv'
+        )
+    output:
+        mtx = join(
+            QUANT_INTERIM, '10x_starsolo', '{sample}', 'Solo.out', STARSOLO_FEATURE,
+            'cellbender_filtered', STARSOLO_MTX
+        ),
+        barcodes = join(
+            QUANT_INTERIM, '10x_starsolo', '{sample}', 'Solo.out', STARSOLO_FEATURE,
+            'cellbender_filtered', 'barcodes.tsv'
+        ),
+        features = join(
+            QUANT_INTERIM, '10x_starsolo', '{sample}', 'Solo.out', STARSOLO_FEATURE,
+            'cellbender_filtered', 'features.tsv'
+        )
+    params:
+        script = src_gcf('scripts/subset_10x_mtx_barcodes.py')
+    threads:
+        4
+    container:
+        'docker://' + config['docker']['scanpy']
+    shell:
+        'python {params.script} '
+        '--matrix {input.mtx} '
+        '--barcodes {input.barcodes} '
+        '--features {input.features} '
+        '--selected-barcodes {input.selected_barcodes} '
+        '--output-matrix {output.mtx} '
+        '--output-barcodes {output.barcodes} '
+        '--output-features {output.features} '
+
+
+rule cellbender_filter_cellranger_counts:
+    input:
+        mtx = lambda wc: get_raw_mtx(SimpleNamespace(method='cellranger', sample=wc.sample))['mtx'],
+        barcodes = lambda wc: get_raw_mtx(SimpleNamespace(method='cellranger', sample=wc.sample))['rows'],
+        features = lambda wc: get_raw_mtx(SimpleNamespace(method='cellranger', sample=wc.sample))['cols'],
+        selected_barcodes = join(
+            QUANT_INTERIM, 'cellranger', '{sample}', 'cellbender', 'filtered', 'matrix', 'barcodes.tsv'
+        )
+    output:
+        mtx = join(
+            QUANT_INTERIM, 'cellranger', '{sample}', 'outs',
+            'cellbender_filtered_feature_bc_matrix', 'matrix.mtx.gz'
+        ),
+        barcodes = join(
+            QUANT_INTERIM, 'cellranger', '{sample}', 'outs',
+            'cellbender_filtered_feature_bc_matrix', 'barcodes.tsv.gz'
+        ),
+        features = join(
+            QUANT_INTERIM, 'cellranger', '{sample}', 'outs',
+            'cellbender_filtered_feature_bc_matrix', 'features.tsv.gz'
+        )
+    params:
+        script = src_gcf('scripts/subset_10x_mtx_barcodes.py')
+    threads:
+        4
+    container:
+        'docker://' + config['docker']['scanpy']
+    shell:
+        'python {params.script} '
+        '--matrix {input.mtx} '
+        '--barcodes {input.barcodes} '
+        '--features {input.features} '
+        '--selected-barcodes {input.selected_barcodes} '
+        '--output-matrix {output.mtx} '
+        '--output-barcodes {output.barcodes} '
+        '--output-features {output.features} '
 
 #FIXME: The posterior maybe based on coordinates from unfiltered mtx -> check!
 rule cellbender_expression_presence:
