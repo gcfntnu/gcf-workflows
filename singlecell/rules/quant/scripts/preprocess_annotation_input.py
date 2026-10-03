@@ -43,12 +43,12 @@ def read_cells(path: str) -> pd.Index:
     frame.index = pd.Index(frame.index.astype(str), name="barcode")
     if not frame.index.is_unique:
         raise ValueError(f"{path}: duplicate barcode index")
-    if "retained" not in frame.columns:
-        raise KeyError(f"{path}: missing required 'retained' column")
-    retained = frame["retained"].fillna(False).astype(bool)
+    if "preprocess_retained" not in frame.columns:
+        raise KeyError(f"{path}: missing required 'preprocess_retained' column")
+    retained = frame["preprocess_retained"].fillna(False).astype(bool)
     cells = frame.index[retained]
     if len(cells) == 0:
-        raise ValueError(f"{path}: no retained cells")
+        raise ValueError(f"{path}: no preprocessing-retained cells")
     return cells
 
 
