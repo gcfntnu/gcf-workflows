@@ -2854,6 +2854,13 @@ if __name__ == "__main__":
         library_info = _drop_blacklisted_columns(args.library_info, _LIBRARY_INFO_BLACKLIST)
         data.obs = broadcast_entity_metadata(data.obs, library_info, "library_id", "library_info")
 
+    # source_barcode is an intermediate identity field used to construct and align
+    # canonical barcodes. Keep it in barcode_info sidecars, but not in AnnData:
+    # the local barcode sequence is recoverable from the canonical obs index.
+    if "source_barcode" in data.obs.columns:
+        data.obs.drop(columns="source_barcode", inplace=True)
+        logger.info("Dropped intermediate source_barcode from .obs")
+
     # -------------------------
     # Drop blacklisted feature-info columns (case-insensitive)
     # -------------------------
