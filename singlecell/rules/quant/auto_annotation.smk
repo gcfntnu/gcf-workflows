@@ -1,85 +1,5 @@
 #-*- mode:snakemake -*-
-"""
-Automatic celltype annotation of single cell RNA-seq data
-"""
-include:
-    join(GCFDB_DIR, 'allen_institute.smk')
-include:
-    join(GCFDB_DIR, 'celltypist.smk')
-
-
-MM_ORG = config.get('celltype_annotation', {}).get('orthologs')
-MM_ORG = MM_ORG or config['organism']
-CELLTYPIST_MODEL = config.get('celltype_annotation', {}).get('celltypist', {}).get('model')
-
-if 'celltypist' in ANNO_METHODS and not CELLTYPIST_MODEL:
-    raise ValueError(
-        'CellTypist annotation is enabled, but '
-        'celltype_annotation.celltypist.model is not configured'
-    )
-
-
-def _celltypist_model(wildcards):
-    if 'celltypist' not in ANNO_METHODS:
-        raise ValueError(
-            "CellTypist rule requested, but 'celltypist' is not enabled in celltype_annotation.method"
-        )
-    if not CELLTYPIST_MODEL:
-        raise ValueError(
-            'CellTypist annotation is enabled, but '
-            'celltype_annotation.celltypist.model is not configured'
-        )
-    return join(EXT_DIR, 'celltypist', 'data', 'models', CELLTYPIST_MODEL)
-
-
-def _orthogene_premap_aggr_inputs(wildcards):
-    samples = get_processing_samples(wildcards.quantifier, wildcards.aggr_id)
-    return [join(QUANT_INTERIM, wildcards.quantifier, sample, 'annotation', 'orthogene', 'orthologs.tsv') for sample in samples ]
-
-rule orthogene_premap:
-    input:
-        unpack(get_raw_mtx)
-    output:
-        gene_map = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'annotation', 'orthogene', 'orthologs.tsv')
-    params:
-        script = src_gcf('scripts/run_orthogene.R'),
-        src_org = config['organism'],
-        dst_org = MM_ORG,
-        method = 'gprofiler',
-        non121_strategy = 'drop_both_species',
-        mthreshold = 'Inf'
-    container:
-        'docker://' + config['docker']['orthogene']
-    threads:
-        24
-    shell:
-        'Rscript {params.script} '
-        '--input {input.mtx} '
-        '--output {output.gene_map} '
-        '--src {params.src_org} '
-        '--dst {params.dst_org} '
-        '--method {params.method} '
-        '--non121-strategy {params.non121_strategy} '
-        '--mthreshold {params.mthreshold} '
-        '--no-cache '
-
-
-rule orthogene_premap_aggr:
-    input:
-        _orthogene_premap_aggr_inputs
-    output:
-        tsv = join(QUANT_INTERIM, 'aggregate', '{quantifier}', '{aggr_id}_orthologs.tsv')
-    params:
-        script = src_gcf('scripts/aggr_orthogene.py')
-    container:
-        'docker://' + config['docker']['default']
-    threads:
-        24
-    shell:
-        'python {params.script} '
-        '--output {output.tsv} '
-        '{input} '
-
+"""Pre-AutoQC MapMyCells classification on the canonical aggregate cell universe."""
 
 def annotation_input_files(wildcards):
     if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger' and not CB_FLAG:
@@ -89,7 +9,7 @@ def annotation_input_files(wildcards):
         inputs = [get_filtered_mtx(SimpleNamespace(method=wildcards.method, sample=sample))['mtx'] for sample in samples]
 
     result = {'counts': inputs}
-    if MM_ORG != config['organism']:
+    if ANNOTATION_ORG != config['organism']:
         result['gene_map'] = join(QUANT_INTERIM, 'aggregate', wildcards.method, f'{wildcards.aggr_id}_orthologs.tsv')
     if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger' and not CB_FLAG:
         result['aggr_csv'] = join(QUANT_INTERIM, 'aggregate', 'description', f'{wildcards.aggr_id}_aggr.csv')
@@ -108,12 +28,6 @@ def annotation_input_barcode_rename(wildcards):
     if wildcards.method in {'10x_starsolo', 'cellranger', 'splitpipe'} or wildcards.method in PARSEBIO_STARSOLO_MODES:
         return 'skip'
     return BC_RENAME[wildcards.method]
-
-def annotation_input_gene_map_arg(wildcards, input):
-    if MM_ORG == config['organism']:
-        return ''
-    return f'--gene-map {input.gene_map} '
-
 
 def annotation_input_aggr_csv_arg(wildcards, input):
     if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger' and not CB_FLAG:
@@ -137,8 +51,8 @@ rule annotation_input:
         input_format = annotation_input_format,
         barcode_rename = annotation_input_barcode_rename,
         src_organism = config['organism'],
-        dst_organism = MM_ORG,
-        gene_map = annotation_input_gene_map_arg,
+        dst_organism = ANNOTATION_ORG,
+        gene_map = annotation_gene_map_arg,
         aggr_csv = annotation_input_aggr_csv_arg,
         barcode_info = annotation_input_barcode_info_arg
     log:
@@ -163,13 +77,13 @@ rule annotation_input:
 
 
 def _mapmycells_mouse_metadata_input(wildcards):
-    if MM_ORG == 'mus_musculus':
+    if ANNOTATION_ORG == 'mus_musculus':
         return [abc_mouse_taxonomy_addon_file('cluster_metadata')]
     return []
 
 
 def _mapmycells_mouse_metadata_arg(wildcards):
-    if MM_ORG == 'mus_musculus':
+    if ANNOTATION_ORG == 'mus_musculus':
         return '--mouse-metadata ' + abc_mouse_taxonomy_addon_file('cluster_metadata') + ' '
     return ''
 
@@ -183,8 +97,8 @@ rule mapmycells_from_specified_markers:
             'annotation',
             '{aggr_id}_annotation_input.h5ad',
         ),
-        pre_stats_h5 = join(EXT_DIR, 'allen-brain-cell-atlas', 'mapmycells', MM_ORG, 'precomputed_stats.h5'),
-        markers_json = join(EXT_DIR, 'allen-brain-cell-atlas', 'mapmycells', MM_ORG, 'markers.json')
+        pre_stats_h5 = join(EXT_DIR, 'allen-brain-cell-atlas', 'mapmycells', ANNOTATION_ORG, 'precomputed_stats.h5'),
+        markers_json = join(EXT_DIR, 'allen-brain-cell-atlas', 'mapmycells', ANNOTATION_ORG, 'markers.json')
     output:
         anno_csv = join(
             QUANT_INTERIM,
@@ -234,9 +148,9 @@ rule mapmycells_aggr_output_processing:
             'annotation',
             '{aggr_id}_mapmycells_annotation.csv',
         ),
-        taxonomy_cluster = abc_taxonomy_file(MM_ORG, 'cluster'),
-        taxonomy_term = abc_taxonomy_file(MM_ORG, 'term'),
-        taxonomy_membership = abc_taxonomy_file(MM_ORG, 'membership'),
+        taxonomy_cluster = abc_taxonomy_file(ANNOTATION_ORG, 'cluster'),
+        taxonomy_term = abc_taxonomy_file(ANNOTATION_ORG, 'term'),
+        taxonomy_membership = abc_taxonomy_file(ANNOTATION_ORG, 'membership'),
         mouse_meta = _mapmycells_mouse_metadata_input
     output:
         extended_anno_tsv = join(
