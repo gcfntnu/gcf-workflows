@@ -443,7 +443,7 @@ def scanpy_aggr_inputs(wc):
         'barcode_info': get_barcode_info_list(wc),
     }
 
-    if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger':
+    if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger' and not CB_FLAG:
         output['aggr_csv'] = join(QUANT_INTERIM, 'aggregate', 'description', f'{wc.aggr_id}_aggr.csv')
     elif wc.method == '10x_starsolo':
         output['aggr_csv'] = aggr_library_order_csv(wc.aggr_id)
