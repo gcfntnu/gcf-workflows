@@ -346,10 +346,14 @@ identity, and biological `Sample_ID` as equivalent.
 
 That equivalence is a legacy compatibility condition, not part of this contract.
 
-The target implementation must distinguish:
+The current implementation distinguishes:
 
 - `library_id`: technical 10x library/count input;
 - `Sample_ID`: biological sample identity.
+
+For legacy one-library-per-sample configurations, equality between the two identifiers is
+accepted only through the explicit compatibility fallback in the 10x barcode-info
+producer.
 
 Cell Ranger aggregation row order may still define the numerical barcode/library suffix used in the
 aggregate output. That numerical mapping is technical provenance and must not be interpreted as
@@ -357,14 +361,15 @@ biological sample identity.
 
 ### 5.4 10x Genomics + STARsolo
 
-The same target semantics apply to 10x STARsolo:
+The same semantics are implemented for 10x STARsolo:
 
 - the matrix/input path establishes technical `library_id`;
-- biological `Sample_ID` must be supplied by an explicit relationship rather than inferred from the
-  library identifier.
+- biological `Sample_ID` is resolved explicitly through normalized metadata;
+- legacy one-library-per-sample projects may map the two identifiers 1:1 through the same
+  compatibility rule used by the 10x barcode-info producer.
 
-Legacy one-library-per-sample projects may map the two identifiers 1:1 through an explicit
-compatibility adapter.
+Downstream consumers must not infer biological sample identity from the technical library
+identifier.
 
 ---
 
@@ -489,23 +494,21 @@ Metadata attachment itself does not remove cells or genes.
 
 ---
 
-## 9. Implementation sequence
+## 9. Current implementation status
 
-The implementation should proceed against the active `preprocess-anndata` dataflow.
+The active `preprocess-anndata` branch now implements the metadata boundary described by
+this contract:
 
-1. Verify the active producers and consumers of `barcode_info`, `feature_info`, optional
-   barcode-indexed sidecars, optional feature-indexed sidecars, `sample_info`, and any current
-   library-level metadata.
-2. Normalize active barcode-info producers to expose `barcode`, `Sample_ID`, and `library_id`
-   consistently.
-3. Add/standardize `library_info.tsv` as the normalized technical-library metadata table where the
-   current lab/project metadata provides library-level rows.
-4. Make `convert_scanpy.py` distinguish direct axis joins from explicit entity broadcasts.
-5. Preserve a strict legacy adapter for current 1:1 10x configurations without making
-   `library_id == Sample_ID` a downstream assumption.
-6. Add synthetic regression fixtures covering one-to-one and many-to-many sample/library designs.
-7. Validate against a representative real Parse project before extracting any generic project
-   metadata API into `gcf-tools`.
+- normalized `sample_info.tsv` and `library_info.tsv` are produced centrally;
+- active biological-cell barcode-info producers expose canonical `barcode`, `Sample_ID`,
+  and `library_id` relationships;
+- 10x Cell Ranger and STARsolo preserve a strict legacy 1:1 compatibility fallback without
+  making `library_id == Sample_ID` a downstream assumption;
+- `convert_scanpy.py` distinguishes direct axis joins from entity broadcasts and rejects
+  missing identities, duplicate keys, conflicting metadata, and invalid coverage;
+- complete-domain and subset-domain observation sidecars are validated according to their
+  declared semantics.
 
-The contract should be generalized upstream only after the working single-cell paths demonstrate the
-required semantics.
+The single-cell contract remains the working boundary for this branch. Generalizing the
+same metadata model into upstream `gcf-tools` configuration generation is a separate
+future change.
