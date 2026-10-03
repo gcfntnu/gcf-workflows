@@ -125,6 +125,31 @@ if isinstance(PSEUDOBULK_ANNOTATION_COLUMNS, str):
 PREPROCESS_CFG = config.get('preprocessing', {})
 PREPROCESS_ENABLED = PREPROCESS_CFG.get('enabled', False)
 
+PREPROCESS_ANNOTATION_CFG = PREPROCESS_CFG.get('annotation', {})
+_raw_preprocess_annotation_methods = PREPROCESS_ANNOTATION_CFG.get('methods', [])
+if isinstance(_raw_preprocess_annotation_methods, str):
+    PREPROCESS_ANNOTATION_METHODS = [
+        item.strip() for item in _raw_preprocess_annotation_methods.split(',') if item.strip()
+    ]
+elif isinstance(_raw_preprocess_annotation_methods, (list, tuple)):
+    PREPROCESS_ANNOTATION_METHODS = [
+        str(item).strip() for item in _raw_preprocess_annotation_methods if str(item).strip()
+    ]
+else:
+    raise TypeError("preprocessing.annotation.methods must be a string or list")
+
+PREPROCESS_ANNOTATION_METHODS = [
+    method for method in PREPROCESS_ANNOTATION_METHODS if method != 'skip'
+]
+PREPROCESS_ANNOTATION_ENABLED = bool(PREPROCESS_ANNOTATION_METHODS)
+unknown_preprocess_annotation_methods = set(PREPROCESS_ANNOTATION_METHODS) - {'mapmycells', 'celltypist'}
+if unknown_preprocess_annotation_methods:
+    raise ValueError(
+        f"Unsupported preprocessing annotation method(s): {sorted(unknown_preprocess_annotation_methods)}"
+    )
+if PREPROCESS_ANNOTATION_ENABLED and not PREPROCESS_ENABLED:
+    raise ValueError("preprocessing.annotation.methods requires preprocessing.enabled=true")
+
 SINGLECELL_METADATA_DIR = join(QUANT_INTERIM, 'metadata')
 SINGLECELL_SAMPLE_INFO = join(SINGLECELL_METADATA_DIR, 'sample_info.tsv')
 SINGLECELL_LIBRARY_INFO = join(SINGLECELL_METADATA_DIR, 'library_info.tsv')
@@ -412,6 +437,8 @@ if CB_FLAG:
     include: 'quant/cellbender.smk'
 if config['libprepkit'].startswith("10X Genomics") or config['libprepkit'].startswith("Parse"):
     include: 'quant/doublets.smk'
+if ANNO_ENABLED or PREPROCESS_ANNOTATION_ENABLED:
+    include: 'quant/annotation_common.smk'
 if ANNO_ENABLED:
     include: 'quant/auto_annotation.smk'
     if PSEUDOBULK_ENABLED:
