@@ -68,5 +68,4 @@ rule bfq_level2_notebooks:
 
 BFQ_LEVEL2_ALL = [rules.bfq_level2_exprs.output,
                   rules.bfq_level2_logs.output,
-                  rules.bfq_level2_figs.output,
-                  rules.bfq_level2_notebooks.output]
+                  rules.bfq_level2_figs.output]
