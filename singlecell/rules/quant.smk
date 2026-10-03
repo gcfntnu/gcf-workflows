@@ -28,7 +28,6 @@ if AGGR_METHOD == 'default':
     else:
         AGGR_METHOD = 'scanpy'
 CB_FLAG = config.get("quant", {}).get("cellbender", {}).get("enabled", False)
-CB_OUTPUT = CB_FLAG and config.get("quant", {}).get("cellbender", {}).get("use_outputs", False)
 
 VELO_OUTPUT = config["quant"].get("use_velo", False)
 
@@ -277,18 +276,26 @@ def get_filtered_mtx(wildcards):
     if method is None or sample is None:
         raise ValueError("Missing required wildcards: quantifier/method and/or sample/sublib")
 
-    if CB_OUTPUT:
-        if method in PARSEBIO_STARSOLO_MODES or method == "splitpipe":
-            raise NotImplementedError(f"CellBender is not supported for {method}")
+    if not CB_FLAG:
+        return _get_filtered_mtx(wildcards)
 
-        base_dir = join(QUANT_INTERIM, method, sample, "cellbender", "filtered", "matrix")
+    if method == "10x_starsolo":
+        base_dir = join(QUANT_INTERIM, method, sample, "Solo.out", STARSOLO_FEATURE, "cellbender_filtered")
         return {
-            "mtx": join(base_dir, "matrix.mtx"),
-            "cols": join(base_dir, "genes.tsv"),
+            "mtx": join(base_dir, STARSOLO_MTX),
+            "cols": join(base_dir, "features.tsv"),
             "rows": join(base_dir, "barcodes.tsv"),
         }
 
-    return _get_filtered_mtx(wildcards)
+    if method == "cellranger":
+        base_dir = join(QUANT_INTERIM, method, sample, "outs", "cellbender_filtered_feature_bc_matrix")
+        return {
+            "mtx": join(base_dir, "matrix.mtx.gz"),
+            "cols": join(base_dir, "features.tsv.gz"),
+            "rows": join(base_dir, "barcodes.tsv.gz"),
+        }
+
+    raise NotImplementedError(f"CellBender is not supported for {method}")
 
 
 def get_primary_barcode_info(wc):
@@ -365,8 +372,7 @@ def get_feature_info_list(wildcards):
 
 
 def _aggregate_scanpy_dir(method):
-    base = join(QUANT_INTERIM, 'aggregate', method)
-    return join(base, 'cellbender', 'scanpy') if CB_OUTPUT else join(base, 'scanpy')
+    return join(QUANT_INTERIM, 'aggregate', method, 'scanpy')
 
 
 def get_filtered_anndata(wildcards):
@@ -384,8 +390,7 @@ def get_filtered_anndata(wildcards):
     if not sublib:
         raise ValueError("get_filtered_anndata: need 'sublib' or 'sample' when aggr_id is absent")
     base = join(QUANT_INTERIM, method, sublib)
-    base = join(base, 'cellbender', 'scanpy') if CB_OUTPUT else join(base, 'scanpy')
-    return join(base, f"{sublib}.h5ad")
+    return join(base, 'scanpy', f"{sublib}.h5ad")
 
 
 if config['libprepkit'].startswith("10X Genomics"):
@@ -411,7 +416,7 @@ if PREPROCESS_ENABLED:
 def scanpy_aggr_inputs(wc):
     samples = get_processing_samples(wc.method, wc.aggr_id)
 
-    if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger':
+    if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger' and not CB_FLAG:
         inputs = [join(QUANT_INTERIM, 'aggregate', 'cellranger', wc.aggr_id, 'outs', 'count', 'filtered_feature_bc_matrix', 'matrix.mtx.gz')]
 
     elif wc.method == 'splitpipe' or wc.method in PARSEBIO_STARSOLO_MODES:
@@ -421,10 +426,7 @@ def scanpy_aggr_inputs(wc):
         inputs = [_get_filtered_mtx(SimpleNamespace(method=wc.method, sample=sample))['mtx'] for sample in samples]
 
     else:
-        if CB_OUTPUT:
-            inputs = [join(QUANT_INTERIM, wc.method, sample, 'cellbender', f'{sample}_filtered.h5') for sample in samples]
-        else:
-            inputs = [_get_filtered_mtx(SimpleNamespace(method=wc.method, sample=sample))['mtx'] for sample in samples]
+        inputs = [get_filtered_mtx(SimpleNamespace(method=wc.method, sample=sample))['mtx'] for sample in samples]
 
     output = {
         'inputs': inputs,
@@ -516,13 +518,13 @@ rule tmp_lightweight_filtered:
 
 
 def scanpy_aggr_format(wc):
-    if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger':
+    if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger' and not CB_FLAG:
         return 'cellranger_aggr'
     return QUANT_INPUT_FORMAT.get(wc.method, wc.method)
 
 
 def scanpy_aggr_csv(wc):
-    if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger':
+    if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger' and not CB_FLAG:
         return f'--aggr-csv {join(QUANT_INTERIM, "aggregate", "description", wc.aggr_id + "_aggr.csv")}'
     if wc.method == '10x_starsolo':
         return f'--aggr-csv {aggr_library_order_csv(wc.aggr_id)}'
