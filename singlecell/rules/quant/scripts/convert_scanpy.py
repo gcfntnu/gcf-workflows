@@ -136,6 +136,8 @@ def _entity_info_reader(fn, key, blacklist=()):
         source_key = matches[0]
         df.rename(columns={source_key: key}, inplace=True)
 
+    if df[key].isna().any():
+        raise ValueError(f"{fn}: {key} contains missing values")
     df[key] = df[key].astype(str).str.strip()
     if df[key].eq("").any():
         raise ValueError(f"{fn}: {key} contains empty values")
@@ -222,7 +224,11 @@ def _feature_info_reader(
         df = df[keep_cols]
 
     # Index: lowercase name, string type, unique
+    if df["gene_id"].isna().any():
+        raise ValueError(f"{fn}: gene_id contains missing values")
     df["gene_id"] = df["gene_id"].astype(str).str.strip()
+    if df["gene_id"].eq("").any():
+        raise ValueError(f"{fn}: gene_id contains empty values")
     df.set_index("gene_id", inplace=True)
     df.index.name = "gene_id"
 
@@ -262,13 +268,32 @@ def _barcode_info_reader(
         df = df[keep_cols]
 
     # Index: lowercase name, string type, unique
+    if df["barcode"].isna().any():
+        raise ValueError(f"{fn}: barcode contains missing values")
     df["barcode"] = df["barcode"].astype(str).str.strip()
+    if df["barcode"].eq("").any():
+        raise ValueError(f"{fn}: barcode contains empty values")
     df.set_index("barcode", inplace=True)
     df.index.name = "barcode"
 
     if not df.index.is_unique:
         dups = df.index[df.index.duplicated()].unique()
         raise ValueError(f"{fn}: duplicate barcode values are not allowed. Examples: {list(dups[:5])}")
+
+    if {"Sample_ID", "library_id"}.issubset(df.columns):
+        for key in ("Sample_ID", "library_id"):
+            if df[key].isna().any():
+                raise ValueError(f"{fn}: primary barcode metadata {key} contains missing values")
+            df[key] = df[key].astype(str).str.strip()
+            if df[key].eq("").any():
+                raise ValueError(f"{fn}: primary barcode metadata {key} contains empty values")
+
+        if "source_barcode" in df.columns:
+            if df["source_barcode"].isna().any():
+                raise ValueError(f"{fn}: primary barcode metadata source_barcode contains missing values")
+            df["source_barcode"] = df["source_barcode"].astype(str).str.strip()
+            if df["source_barcode"].eq("").any():
+                raise ValueError(f"{fn}: primary barcode metadata source_barcode contains empty values")
 
     if fn.name.endswith("_autoqc_mask.tsv"):
         if "autoqc_pass" not in df.columns:
