@@ -214,3 +214,29 @@ rule run_celltypist:
         '--output {output.anno_tsv} '
         '--qc-mask {input.qc_mask} '
         '{params.args} '
+
+rule mapmycells_qc_cell_class:
+    input:
+        annotation = join(
+            QUANT_INTERIM,
+            'aggregate',
+            '{method}',
+            'annotation',
+            '{aggr_id}_mapmycells_annotation.tsv',
+        )
+    output:
+        sidecar = join(
+            QUANT_INTERIM,
+            'aggregate',
+            '{method}',
+            'annotation',
+            '{aggr_id}_qc_cell_class.tsv',
+        )
+    params:
+        script = src_gcf('scripts/mapmycells_qc_cell_class.py')
+    container:
+        'docker://' + config['docker']['default']
+    shell:
+        'python {params.script} '
+        '--input {input.annotation} '
+        '--output {output.sidecar} '
