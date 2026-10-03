@@ -259,6 +259,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--representation-metadata", required=True)
     parser.add_argument("--obs", required=True)
     parser.add_argument("--connectivities", required=True)
+    parser.add_argument("--distances", required=True)
     parser.add_argument("--labels", required=True)
     parser.add_argument("--graph-metrics", required=True)
     parser.add_argument("--clustering-metrics", required=True)
@@ -432,7 +433,17 @@ def main() -> int:
     )
     rsc.get.anndata_to_CPU(canonical, convert_all=True)
 
+    if "connectivities" not in canonical.obsp or "distances" not in canonical.obsp:
+        raise RuntimeError(
+            "RAPIDS neighbor construction did not produce both obsp['connectivities'] and obsp['distances']"
+        )
     connectivities = canonical.obsp["connectivities"].tocsr()
+    distances = canonical.obsp["distances"].tocsr()
+    if distances.shape != connectivities.shape:
+        raise ValueError(
+            f"Selected graph distances shape {distances.shape} != connectivities shape {connectivities.shape}"
+        )
+
     labels = pd.DataFrame(
         {"leiden": canonical.obs["leiden"].astype(str).to_numpy()},
         index=pd.Index(obs.index, name="barcode"),
@@ -489,6 +500,7 @@ def main() -> int:
 
     for path in [
         args.connectivities,
+        args.distances,
         args.labels,
         args.graph_metrics,
         args.clustering_metrics,
@@ -497,6 +509,7 @@ def main() -> int:
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
 
     sp.save_npz(args.connectivities, connectivities)
+    sp.save_npz(args.distances, distances)
     labels.to_parquet(args.labels, index=True)
     graph_frame.to_parquet(args.graph_metrics, index=False)
     clustering_frame.to_parquet(args.clustering_metrics, index=False)
