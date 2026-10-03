@@ -27,6 +27,29 @@ if STARSOLO_OUTPUT_BAM:
 else:
     STARSOLO_BAM_OUTPUT = []
 
+if VELO_OUTPUT:
+    STARSOLO_VELOCYTO_RAW_BARCODES = join(
+        STAR_INTERIM, '{sample}', 'Solo.out', 'Velocyto', 'raw', 'barcodes.tsv'
+    )
+    STARSOLO_VELOCYTO_RAW_FEATURES = join(
+        STAR_INTERIM, '{sample}', 'Solo.out', 'Velocyto', 'raw', 'features.tsv'
+    )
+    STARSOLO_VELOCYTO_RAW_SPLICED = join(
+        STAR_INTERIM, '{sample}', 'Solo.out', 'Velocyto', 'raw', 'spliced.mtx'
+    )
+    STARSOLO_VELOCYTO_RAW_UNSPLICED = join(
+        STAR_INTERIM, '{sample}', 'Solo.out', 'Velocyto', 'raw', 'unspliced.mtx'
+    )
+    STARSOLO_VELOCYTO_RAW_AMBIGUOUS = join(
+        STAR_INTERIM, '{sample}', 'Solo.out', 'Velocyto', 'raw', 'ambiguous.mtx'
+    )
+else:
+    STARSOLO_VELOCYTO_RAW_BARCODES = []
+    STARSOLO_VELOCYTO_RAW_FEATURES = []
+    STARSOLO_VELOCYTO_RAW_SPLICED = []
+    STARSOLO_VELOCYTO_RAW_UNSPLICED = []
+    STARSOLO_VELOCYTO_RAW_AMBIGUOUS = []
+
 
 rule txgenomics_whitelist_v1:
     params:
@@ -163,6 +186,11 @@ rule starsolo_quant:
         raw_barcodes = join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, 'raw', 'barcodes.tsv'),
         raw_genes = join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, 'raw', 'features.tsv'),
         cell_reads = join(STAR_INTERIM, '{sample}', 'Solo.out', STARSOLO_FEATURE, 'CellReads.stats'),
+        velo_spliced = STARSOLO_VELOCYTO_RAW_SPLICED,
+        velo_unspliced = STARSOLO_VELOCYTO_RAW_UNSPLICED,
+        velo_ambiguous = STARSOLO_VELOCYTO_RAW_AMBIGUOUS,
+        velo_barcodes = STARSOLO_VELOCYTO_RAW_BARCODES,
+        velo_features = STARSOLO_VELOCYTO_RAW_FEATURES,
         bam = STARSOLO_BAM_OUTPUT
     container:
         'docker://' + config['docker']['star']
