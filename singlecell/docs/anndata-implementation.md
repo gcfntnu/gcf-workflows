@@ -78,8 +78,7 @@ When velocity output is configured, the current implementation validates the ups
 spliced, unspliced, and ambiguous matrices against their declared barcode and feature
 axes before alignment. Velocity features must map into the canonical feature namespace.
 Canonical cells or genes absent from the velocity source axis are represented by zero
-padding, while `velocity_source_present` in `obs` and `var` records source-axis
-coverage. The raw velocity count layers are not normalized by canonical preprocessing.
+padding. The raw velocity count layers are not normalized by canonical preprocessing.
 
 ## 4. Annotation data flow
 
