@@ -1744,8 +1744,12 @@ def _mtx_features(data, version=3, feature_type="Gene Expression"):
     version < 3  -> genes.tsv     : gene_id, gene_name
     version >= 3 -> features.tsv  : gene_id, gene_name, feature_type
     """
-    # gene_id
-    if "gene_id" in data.var.columns:
+    # gene_id: an explicitly named AnnData feature index is authoritative.
+    # This matters for CellBender, where var_names_make_unique() may resolve duplicate
+    # source IDs while a legacy gene_id column still contains the pre-resolution values.
+    if data.var.index.name == "gene_id":
+        gene_id = pd.Series(data.var_names.astype(str), index=data.var.index, name="gene_id")
+    elif "gene_id" in data.var.columns:
         gene_id = data.var["gene_id"].astype(str).copy()
     else:
         gene_id = pd.Series(data.var_names.astype(str), index=data.var.index, name="gene_id")
