@@ -443,9 +443,9 @@ if ANNO_ENABLED or PREPROCESS_ANNOTATION_ENABLED:
 if ANNO_ENABLED:
     include: 'quant/auto_annotation.smk'
 if PREPROCESS_ENABLED:
+    include: 'quant/preprocess.smk'
     if PSEUDOBULK_ENABLED:
         include: 'quant/pseudobulk.smk'
-    include: 'quant/preprocess.smk'
 
 
 def scanpy_aggr_inputs(wc):
