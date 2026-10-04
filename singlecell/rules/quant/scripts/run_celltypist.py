@@ -30,6 +30,23 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 LOGGER = logging.getLogger("run_celltypist")
 
 
+def celltypist_gpu_available() -> bool:
+    try:
+        import cupy as cp
+        import cuml  # noqa: F401
+
+        n_devices = int(cp.cuda.runtime.getDeviceCount())
+        if n_devices < 1:
+            LOGGER.info("[gpu] no CUDA devices visible; using CPU")
+            return False
+        LOGGER.info("[gpu] CUDA available with cuML; using CellTypist GPU acceleration (%d device%s)",
+                    n_devices, "" if n_devices == 1 else "s")
+        return True
+    except Exception as exc:
+        LOGGER.info("[gpu] CellTypist GPU acceleration unavailable (%s); using CPU", exc)
+        return False
+
+
 def setup_logging(path: str) -> None:
     handlers = [logging.StreamHandler(sys.stdout)]
     if path:
@@ -208,16 +225,18 @@ def main() -> int:
     work = prepare_expression(work, args.model)
     attach_graph(work, args.connectivities, args.distances, args.graph_selection)
 
+    use_gpu = celltypist_gpu_available()
     LOGGER.info(
-        "[celltypist] annotating %d cells with canonical preprocessing graph and majority voting",
+        "[celltypist] annotating %d cells with canonical preprocessing graph and majority voting; use_GPU=%s",
         work.n_obs,
+        use_gpu,
     )
     result = celltypist.annotate(
         work,
         model=args.model,
         majority_voting=True,
         over_clustering=None,
-        use_GPU=False,
+        use_GPU=use_gpu,
         min_prop=args.min_prop,
     )
 
