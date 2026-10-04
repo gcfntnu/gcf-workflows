@@ -66,6 +66,11 @@ PREPROCESS_METRICS_DIR = join(PREPROCESS_DIR, 'metrics')
 PREPROCESS_ANNOTATION_DIR = join(PREPROCESS_DIR, 'annotation')
 PREPROCESS_LOG_DIR = join(PREPROCESS_DIR, 'logs')
 
+PREPROCESS_MAPMYCELLS_ORG = config.get('celltype_annotation', {}).get('orthologs') or config['organism']
+PREPROCESS_CELLTYPIST_ORG = (
+    PREPROCESS_ANNOTATION_CFG.get('celltypist', {}).get('orthologs') or config['organism']
+)
+
 
 PREPROCESS_ANNOTATION_INPUT = join(PREPROCESS_ANNOTATION_DIR, '{annotator}', 'input.h5ad')
 
@@ -85,11 +90,11 @@ if 'celltypist' in PREPROCESS_ANNOTATION_METHODS and not PREPROCESS_CELLTYPIST_M
 
 PREPROCESS_ANNOTATOR_SPECS = {
     'mapmycells': {
-        'target_organism': ANNOTATION_ORG,
+        'target_organism': PREPROCESS_MAPMYCELLS_ORG,
         'output': PREPROCESS_MAPMYCELLS_TSV,
     },
     'celltypist': {
-        'target_organism': CELLTYPIST_ORG,
+        'target_organism': PREPROCESS_CELLTYPIST_ORG,
         'output': PREPROCESS_CELLTYPIST_TSV,
     },
 }
@@ -307,6 +312,18 @@ def preprocess_annotation_outputs(wildcards):
     ]
 
 
+def preprocess_annotation_provenance(wildcards):
+    return {
+        annotator: {
+            'sidecar': _resolve_preprocess_path(PREPROCESS_ANNOTATOR_SPECS[annotator]['output'], wildcards),
+            'source_organism': config['organism'],
+            'target_organism': PREPROCESS_ANNOTATOR_SPECS[annotator]['target_organism'],
+            'config': PREPROCESS_ANNOTATION_CFG.get(annotator, {}),
+        }
+        for annotator in PREPROCESS_ANNOTATION_METHODS
+    }
+
+
 def preprocess_annotation_target_organism(annotator):
     try:
         return PREPROCESS_ANNOTATOR_SPECS[annotator]['target_organism']
@@ -331,13 +348,13 @@ def preprocess_annotation_gene_map_arg(wildcards, input):
 
 
 def preprocess_mapmycells_mouse_metadata_input(wildcards):
-    if ANNOTATION_ORG == 'mus_musculus':
+    if PREPROCESS_MAPMYCELLS_ORG == 'mus_musculus':
         return [abc_mouse_taxonomy_addon_file('cluster_metadata')]
     return []
 
 
 def preprocess_mapmycells_mouse_metadata_arg(wildcards):
-    if ANNOTATION_ORG == 'mus_musculus':
+    if PREPROCESS_MAPMYCELLS_ORG == 'mus_musculus':
         return '--mouse-metadata ' + abc_mouse_taxonomy_addon_file('cluster_metadata') + ' '
     return ''
 
@@ -651,8 +668,8 @@ if 'mapmycells' in PREPROCESS_ANNOTATION_METHODS:
     rule preprocess_mapmycells:
         input:
             annotation_h5ad = PREPROCESS_ANNOTATION_INPUT.replace('{annotator}', 'mapmycells'),
-            pre_stats_h5 = join(EXT_DIR, 'allen-brain-cell-atlas', 'mapmycells', ANNOTATION_ORG, 'precomputed_stats.h5'),
-            markers_json = join(EXT_DIR, 'allen-brain-cell-atlas', 'mapmycells', ANNOTATION_ORG, 'markers.json')
+            pre_stats_h5 = join(EXT_DIR, 'allen-brain-cell-atlas', 'mapmycells', PREPROCESS_MAPMYCELLS_ORG, 'precomputed_stats.h5'),
+            markers_json = join(EXT_DIR, 'allen-brain-cell-atlas', 'mapmycells', PREPROCESS_MAPMYCELLS_ORG, 'markers.json')
         output:
             anno_csv = PREPROCESS_MAPMYCELLS_CSV,
             anno_json = PREPROCESS_MAPMYCELLS_JSON
@@ -686,9 +703,9 @@ if 'mapmycells' in PREPROCESS_ANNOTATION_METHODS:
     rule preprocess_mapmycells_output:
         input:
             anno_csv = PREPROCESS_MAPMYCELLS_CSV,
-            taxonomy_cluster = abc_taxonomy_file(ANNOTATION_ORG, 'cluster'),
-            taxonomy_term = abc_taxonomy_file(ANNOTATION_ORG, 'term'),
-            taxonomy_membership = abc_taxonomy_file(ANNOTATION_ORG, 'membership'),
+            taxonomy_cluster = abc_taxonomy_file(PREPROCESS_MAPMYCELLS_ORG, 'cluster'),
+            taxonomy_term = abc_taxonomy_file(PREPROCESS_MAPMYCELLS_ORG, 'term'),
+            taxonomy_membership = abc_taxonomy_file(PREPROCESS_MAPMYCELLS_ORG, 'membership'),
             mouse_meta = preprocess_mapmycells_mouse_metadata_input
         output:
             annotation = PREPROCESS_MAPMYCELLS_TSV
@@ -845,7 +862,8 @@ rule preprocess_finalize:
         embedding_method = PREPROCESS_EMBEDDING_CANONICAL,
         integration_enabled = str(PREPROCESS_INTEGRATION_ENABLED).lower(),
         integration_method = PREPROCESS_INTEGRATION_METHOD or 'none',
-        execution = quote(json.dumps(PREPROCESS_CFG['execution']['finalize']))
+        execution = quote(json.dumps(PREPROCESS_CFG['execution']['finalize'])),
+        annotation_provenance = lambda wc: quote(json.dumps(preprocess_annotation_provenance(wc)))
     threads:
         PREPROCESS_RESOURCES['finalize']['threads']
     resources:
@@ -880,6 +898,7 @@ rule preprocess_finalize:
         '--diagnostics {input.diagnostics} '
         '--diagnostics-summary {input.diagnostics_summary} '
         '--annotation {input.annotations} '
+        '--annotation-provenance-json {params.annotation_provenance} '
         '--output-anndata {output.anndata} '
         '--output-metadata {output.metadata} '
         '--expression-json {params.expression} '
