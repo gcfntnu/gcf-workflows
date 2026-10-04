@@ -4,10 +4,13 @@ PSEUDOBULK_REPLICATE_COLUMN = PSEUDOBULK_CFG['replicate_column']
 PSEUDOBULK_MIN_CELLS = PSEUDOBULK_CFG['min_cells']
 PSEUDOBULK_MIN_COUNTS = PSEUDOBULK_CFG['min_counts']
 
-if CB_OUTPUT:
-    PSEUDOBULK_ANNDATA = join(QUANT_INTERIM, 'aggregate', '{method}', 'cellbender', 'scanpy', '{aggr_id}_filtered.h5ad')
-else:
-    PSEUDOBULK_ANNDATA = join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_filtered.h5ad')
+PSEUDOBULK_ANNDATA = join(
+    QUANT_INTERIM,
+    'aggregate',
+    '{method}',
+    'scanpy',
+    '{aggr_id}_filtered.h5ad',
+)
 
 def pseudobulk_all_inputs(wc):
     return expand(
