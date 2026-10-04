@@ -62,6 +62,48 @@ def read_labels(path: str, obs: pd.DataFrame) -> pd.DataFrame:
     return frame
 
 
+def read_annotation_sidecar(path: str, obs_names: pd.Index) -> pd.DataFrame:
+    if path.endswith(".parquet"):
+        frame = pd.read_parquet(path)
+    else:
+        frame = pd.read_csv(path, sep="\t", index_col=0)
+
+    if frame.index.hasnans:
+        raise ValueError(f"{path}: annotation barcode index contains missing values")
+    frame.index = pd.Index(frame.index.astype(str).str.strip(), name="barcode")
+    if (frame.index.str.len() == 0).any():
+        raise ValueError(f"{path}: annotation barcode index contains empty values")
+    if not frame.index.is_unique:
+        raise ValueError(f"{path}: annotation barcode index is not unique")
+
+    missing = obs_names.difference(frame.index)
+    extra = frame.index.difference(obs_names)
+    if len(missing) or len(extra):
+        raise ValueError(
+            f"{path}: annotation cells do not exactly match preprocessing universe; "
+            f"missing={len(missing)} extra={len(extra)}"
+        )
+
+    frame = frame.reindex(obs_names)
+    if frame.columns.duplicated().any():
+        duplicated = frame.columns[frame.columns.duplicated()].tolist()
+        raise ValueError(f"{path}: duplicate annotation columns: {duplicated[:10]}")
+    return frame
+
+
+def merge_annotation_sidecars(obs: pd.DataFrame, paths: list[str]) -> pd.DataFrame:
+    result = obs.copy()
+    for path in paths:
+        frame = read_annotation_sidecar(path, result.index)
+        overlap = result.columns.intersection(frame.columns)
+        for column in overlap:
+            if not result[column].equals(frame[column]):
+                raise ValueError(f"{path}: annotation column {column!r} conflicts with preprocessing obs")
+        frame = frame.drop(columns=overlap)
+        result = result.join(frame)
+    return result
+
+
 def read_representation(path: str, n_cells: int, name: str) -> np.ndarray:
     values = np.load(path, mmap_mode="r")
     if values.ndim != 2:
@@ -257,6 +299,35 @@ def plot_resolution_landscape(pdf: PdfPages, clustering_metrics: pd.DataFrame) -
     plt.close(fig)
 
 
+def plot_annotation_composition(
+    pdf: PdfPages,
+    labels: pd.DataFrame,
+    obs: pd.DataFrame,
+    diagnostics_cfg: dict,
+) -> None:
+    for column in diagnostics_cfg.get("annotation_columns", []):
+        if column not in obs.columns:
+            raise KeyError(f"Configured diagnostics annotation column {column!r} is missing after annotation merge")
+
+        table = pd.crosstab(labels["leiden"].astype(str), obs[column].astype(str), normalize="index")
+        if table.empty:
+            continue
+
+        width = max(8.0, min(18.0, 0.35 * table.shape[1] + 5.0))
+        height = max(5.0, min(16.0, 0.28 * table.shape[0] + 3.0))
+        fig, ax = plt.subplots(figsize=(width, height))
+        image = ax.imshow(table.to_numpy(), aspect="auto", vmin=0, vmax=1)
+        ax.set_xticks(np.arange(table.shape[1]), labels=table.columns.astype(str), rotation=90)
+        ax.set_yticks(np.arange(table.shape[0]), labels=table.index.astype(str))
+        ax.set_xlabel(column)
+        ax.set_ylabel("Canonical Leiden cluster")
+        ax.set_title(f"Cluster composition by {column}")
+        fig.colorbar(image, ax=ax, label="Fraction within Leiden cluster")
+        fig.tight_layout()
+        pdf.savefig(fig)
+        plt.close(fig)
+
+
 def plot_cluster_sizes(pdf: PdfPages, labels: pd.DataFrame) -> None:
     counts = labels["leiden"].astype(str).value_counts().sort_values(ascending=False)
     fig, ax = plt.subplots(figsize=(8, 5))
@@ -281,6 +352,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--obs", required=True)
     parser.add_argument("--graph-metrics", required=True)
     parser.add_argument("--clustering-metrics", required=True)
+    parser.add_argument("--annotation", nargs="*", default=[])
     parser.add_argument("--metrics", required=True)
     parser.add_argument("--summary", required=True)
     parser.add_argument("--config-json", required=True)
@@ -301,6 +373,7 @@ def main() -> int:
     integration_enabled = args.integration_enabled == "true"
 
     obs = read_obs(args.obs)
+    obs = merge_annotation_sidecars(obs, args.annotation)
     labels = read_labels(args.labels, obs)
     native = read_representation(args.native_representation, obs.shape[0], "native")
     representation = read_representation(args.representation, obs.shape[0], "canonical")
@@ -345,6 +418,7 @@ def main() -> int:
         plot_stability_grid(pdf, clustering_metrics)
         plot_resolution_landscape(pdf, clustering_metrics)
         plot_cluster_sizes(pdf, labels)
+        plot_annotation_composition(pdf, labels, obs, diagnostics_cfg)
 
     LOGGER.info(
         "[output] metrics=%d rows summary=%s representation=%s integration_enabled=%s",
