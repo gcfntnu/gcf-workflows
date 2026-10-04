@@ -145,10 +145,6 @@ def configured_metadata_columns(cfg: dict) -> list[str]:
         "preprocessing.metadata.biological_columns",
     )
 
-    diagnostics_annotations = _as_list(
-        diagnostics_cfg.get("annotation_columns", []),
-        "preprocessing.diagnostics.annotation_columns",
-    )
     diagnostics_technical = _as_list(
         diagnostics_cfg.get("technical_columns", []),
         "preprocessing.diagnostics.technical_columns",
@@ -163,7 +159,6 @@ def configured_metadata_columns(cfg: dict) -> list[str]:
         *annotations,
         *technical,
         *biological,
-        *diagnostics_annotations,
         *diagnostics_technical,
         *diagnostics_biological,
     ]
