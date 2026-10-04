@@ -132,10 +132,6 @@ def configured_metadata_columns(cfg: dict) -> list[str]:
     diagnostics_cfg = cfg["diagnostics"]
 
     keep = _as_list(metadata_cfg.get("keep", []), "preprocessing.metadata.keep")
-    annotations = _as_list(
-        metadata_cfg.get("annotation_columns", []),
-        "preprocessing.metadata.annotation_columns",
-    )
     technical = _as_list(
         metadata_cfg.get("technical_columns", []),
         "preprocessing.metadata.technical_columns",
@@ -156,7 +152,6 @@ def configured_metadata_columns(cfg: dict) -> list[str]:
 
     required = [
         *keep,
-        *annotations,
         *technical,
         *biological,
         *diagnostics_technical,
