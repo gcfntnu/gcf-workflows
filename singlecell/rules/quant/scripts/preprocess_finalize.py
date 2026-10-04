@@ -414,6 +414,14 @@ def main() -> int:
         annotation = read_annotation_sidecar(annotation_path, adata.obs_names)
         adata.obs = merge_frame(adata.obs, annotation, f"Annotation sidecar {annotation_path}")
 
+    annotation_columns = [str(column) for column in metadata_cfg.get("annotation_columns", [])]
+    missing_annotation_columns = [column for column in annotation_columns if column not in adata.obs.columns]
+    if missing_annotation_columns:
+        raise KeyError(
+            "Configured preprocessing.metadata.annotation_columns are missing after annotation merge: "
+            f"{missing_annotation_columns}"
+        )
+
     embedding = require_array(args.embedding, (adata.n_obs, 2), args.embedding_method)
     adata.obsm[f"X_{args.embedding_method}"] = embedding.astype(np.float32, copy=False)
 
