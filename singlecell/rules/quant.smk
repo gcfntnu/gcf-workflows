@@ -122,7 +122,6 @@ if 'celltypist' in ANNO_METHODS:
 ANNO_ENABLED = bool(ANNO_METHODS)
 
 PSEUDOBULK_CFG = config.get('pseudobulk', {})
-PSEUDOBULK_ENABLED = bool(PSEUDOBULK_CFG) and ANNO_ENABLED
 PSEUDOBULK_ANNOTATION_COLUMNS = PSEUDOBULK_CFG.get('annotation_column', [])
 if isinstance(PSEUDOBULK_ANNOTATION_COLUMNS, str):
     PSEUDOBULK_ANNOTATION_COLUMNS = [column.strip() for column in PSEUDOBULK_ANNOTATION_COLUMNS.split(',') if column.strip()]
@@ -149,6 +148,8 @@ PREPROCESS_ANNOTATION_METHODS = [
 PREPROCESS_ANNOTATION_ENABLED = bool(PREPROCESS_ANNOTATION_METHODS)
 if PREPROCESS_ANNOTATION_ENABLED and not PREPROCESS_ENABLED:
     raise ValueError("preprocessing.annotation.methods requires preprocessing.enabled=true")
+
+PSEUDOBULK_ENABLED = bool(PSEUDOBULK_CFG) and PREPROCESS_ENABLED and PREPROCESS_ANNOTATION_ENABLED
 
 SINGLECELL_METADATA_DIR = join(QUANT_INTERIM, 'metadata')
 SINGLECELL_SAMPLE_INFO = join(SINGLECELL_METADATA_DIR, 'sample_info.tsv')
@@ -441,9 +442,9 @@ if ANNO_ENABLED or PREPROCESS_ANNOTATION_ENABLED:
     include: 'quant/annotation_common.smk'
 if ANNO_ENABLED:
     include: 'quant/auto_annotation.smk'
+if PREPROCESS_ENABLED:
     if PSEUDOBULK_ENABLED:
         include: 'quant/pseudobulk.smk'
-if PREPROCESS_ENABLED:
     include: 'quant/preprocess.smk'
 
 
