@@ -35,6 +35,14 @@ def setup_logging(path: str) -> None:
     )
 
 
+def _float_values(value, name: str) -> list[float]:
+    raw = value if isinstance(value, (list, tuple)) else [value]
+    values = sorted({float(item) for item in raw})
+    if not values:
+        raise ValueError(f"{name} must not be empty")
+    return values
+
+
 def configure_gpu() -> None:
     rmm.reinitialize(managed_memory=False, pool_allocator=False, devices=0)
     cp.cuda.set_allocator(rmm_cupy_allocator)
@@ -193,18 +201,19 @@ def main() -> int:
         raise ValueError("--threads must be >= 1")
 
     cfg = json.loads(args.config_json)
-    min_dist_values = sorted({float(value) for value in cfg["min_dist"]})
+    min_dist_values = _float_values(cfg["min_dist"], "preprocessing.embedding.umap.min_dist")
+    spread_values = _float_values(cfg["spread"], "preprocessing.embedding.umap.spread")
     seeds = sorted({int(value) for value in cfg["random_states"]})
-    spread = float(cfg["spread"])
 
-    if not min_dist_values:
-        raise ValueError("preprocessing.embedding.umap.min_dist must not be empty")
     if min(min_dist_values) < 0:
         raise ValueError("preprocessing.embedding.umap.min_dist must contain values >= 0")
-    if spread <= 0:
-        raise ValueError("preprocessing.embedding.umap.spread must be > 0")
-    if any(value > spread for value in min_dist_values):
-        raise ValueError("UMAP min_dist values must not exceed spread")
+    if min(spread_values) <= 0:
+        raise ValueError("preprocessing.embedding.umap.spread must contain values > 0")
+    if max(min_dist_values) > min(spread_values):
+        raise ValueError(
+            "Every UMAP min_dist candidate must be <= every spread candidate; "
+            f"max(min_dist)={max(min_dist_values):g}, min(spread)={min(spread_values):g}"
+        )
     if not seeds:
         raise ValueError("preprocessing.embedding.umap.random_states must not be empty")
 
@@ -234,14 +243,14 @@ def main() -> int:
     configure_gpu()
     rsc.get.anndata_to_GPU(adata)
 
-    coordinates_by_config: dict[tuple[float, int], np.ndarray] = {}
+    coordinates_by_config: dict[tuple[float, float, int], np.ndarray] = {}
     metric_rows = []
 
-    for min_dist in min_dist_values:
+    for min_dist, spread in itertools.product(min_dist_values, spread_values):
         LOGGER.info("[umap] min_dist=%g spread=%g seeds=%s", min_dist, spread, seeds)
 
         for seed in seeds:
-            key = f"X_umap_md{min_dist:g}_seed{seed}"
+            key = f"X_umap_md{min_dist:g}_sp{spread:g}_seed{seed}"
             rsc.tl.umap(
                 adata,
                 min_dist=min_dist,
@@ -253,9 +262,11 @@ def main() -> int:
             if coords.shape != (obs.shape[0], 2):
                 raise ValueError(f"UMAP returned unexpected coordinate shape {coords.shape}")
             if not np.isfinite(coords).all():
-                raise ValueError(f"UMAP min_dist={min_dist}, seed={seed} produced non-finite coordinates")
+                raise ValueError(
+                    f"UMAP min_dist={min_dist}, spread={spread}, seed={seed} produced non-finite coordinates"
+                )
 
-            coordinates_by_config[(min_dist, seed)] = coords
+            coordinates_by_config[(min_dist, spread, seed)] = coords
             metric_rows.append(
                 {
                     "min_dist": min_dist,
@@ -268,9 +279,9 @@ def main() -> int:
     metrics = pd.DataFrame(metric_rows)
 
     stability_rows = []
-    for min_dist in min_dist_values:
+    for min_dist, spread in itertools.product(min_dist_values, spread_values):
         coordinates = {
-            seed: coordinates_by_config[(min_dist, seed)]
+            seed: coordinates_by_config[(min_dist, spread, seed)]
             for seed in seeds
         }
         mean_disparity, per_seed, medoid_seed = procrustes_stability(coordinates)
@@ -278,6 +289,7 @@ def main() -> int:
             stability_rows.append(
                 {
                     "min_dist": min_dist,
+                    "spread": spread,
                     "seed": seed,
                     "mean_seed_procrustes_disparity": mean_disparity,
                     "seed_mean_procrustes_disparity": per_seed[seed],
@@ -286,15 +298,21 @@ def main() -> int:
             )
 
     stability = pd.DataFrame(stability_rows)
-    metrics = metrics.merge(stability, on=["min_dist", "seed"], how="left", validate="one_to_one")
+    metrics = metrics.merge(
+        stability,
+        on=["min_dist", "spread", "seed"],
+        how="left",
+        validate="one_to_one",
+    )
 
     candidates = metrics.loc[metrics["is_medoid_seed"]].sort_values(
         [
             "mean_seed_procrustes_disparity",
             "min_dist",
+            "spread",
             "seed",
         ],
-        ascending=[True, True, True],
+        ascending=[True, True, True, True],
         kind="stable",
     )
     if candidates.empty:
@@ -302,8 +320,9 @@ def main() -> int:
 
     selected = candidates.iloc[0]
     selected_min_dist = float(selected["min_dist"])
+    selected_spread = float(selected["spread"])
     selected_seed = int(selected["seed"])
-    coordinates = coordinates_by_config[(selected_min_dist, selected_seed)]
+    coordinates = coordinates_by_config[(selected_min_dist, selected_spread, selected_seed)]
 
     metadata = {
         "embedding": "umap",
@@ -318,20 +337,21 @@ def main() -> int:
             "primary": "mean_seed_procrustes_disparity ascending",
             "tie_break": [
                 "min_dist ascending",
+                "spread ascending",
                 "seed ascending",
             ],
             "note": "Procrustes disparity is invariant to translation, rotation, and uniform scaling.",
         },
         "selected": {
             "min_dist": selected_min_dist,
-            "spread": spread,
+            "spread": selected_spread,
             "seed": selected_seed,
             "mean_seed_procrustes_disparity": float(selected["mean_seed_procrustes_disparity"]),
             "seed_mean_procrustes_disparity": float(selected["seed_mean_procrustes_disparity"]),
         },
         "candidate_grid": {
             "min_dist": min_dist_values,
-            "spread": spread,
+            "spread": spread_values,
             "random_states": seeds,
         },
     }
@@ -345,8 +365,9 @@ def main() -> int:
         yaml.safe_dump(metadata, handle, sort_keys=False)
 
     LOGGER.info(
-        "[selection] min_dist=%g seed=%d mean_procrustes_disparity=%.6g",
+        "[selection] min_dist=%g spread=%g seed=%d mean_procrustes_disparity=%.6g",
         selected_min_dist,
+        selected_spread,
         selected_seed,
         float(selected["mean_seed_procrustes_disparity"]),
     )
