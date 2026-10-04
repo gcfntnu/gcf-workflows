@@ -105,6 +105,13 @@ if unknown_preprocess_annotators:
         f"Unsupported preprocessing annotation method(s): {sorted(unknown_preprocess_annotators)}"
     )
 
+PREPROCESS_METADATA_CFG = dict(PREPROCESS_CFG['metadata'])
+PREPROCESS_DIAGNOSTICS_CFG = dict(PREPROCESS_CFG['diagnostics'])
+
+if not PREPROCESS_ANNOTATION_ENABLED:
+    PREPROCESS_METADATA_CFG['annotation_columns'] = []
+    PREPROCESS_DIAGNOSTICS_CFG['annotation_columns'] = []
+
 PREPROCESS_CELLS = join(PREPROCESS_METADATA_DIR, 'cells.parquet')
 PREPROCESS_GENES = join(PREPROCESS_METADATA_DIR, 'genes.parquet')
 PREPROCESS_OBS = join(PREPROCESS_METADATA_DIR, 'obs.parquet')
@@ -582,7 +589,7 @@ rule preprocess_optimize_graph_clustering:
         graph = quote(json.dumps(PREPROCESS_CFG['graph'])),
         clustering = quote(json.dumps(PREPROCESS_CFG['clustering'])),
         rare_cells = quote(json.dumps(PREPROCESS_CFG['rare_cells'])),
-        diagnostics = quote(json.dumps(PREPROCESS_CFG['diagnostics']))
+        diagnostics = quote(json.dumps(PREPROCESS_DIAGNOSTICS_CFG))
     threads:
         PREPROCESS_RESOURCES['graph_clustering']['threads']
     resources:
@@ -796,7 +803,7 @@ rule preprocess_diagnostics:
         summary = PREPROCESS_DIAGNOSTICS_PDF
     params:
         script = src_gcf('scripts/preprocess_diagnostics.py'),
-        cfg = quote(json.dumps(PREPROCESS_CFG['diagnostics'])),
+        cfg = quote(json.dumps(PREPROCESS_DIAGNOSTICS_CFG)),
         integration_enabled = str(PREPROCESS_INTEGRATION_ENABLED).lower()
     threads:
         PREPROCESS_RESOURCES['diagnostics']['threads']
@@ -858,7 +865,7 @@ rule preprocess_finalize:
     params:
         script = src_gcf('scripts/preprocess_finalize.py'),
         expression = quote(json.dumps(PREPROCESS_CFG['expression'])),
-        metadata = quote(json.dumps(PREPROCESS_CFG['metadata'])),
+        metadata = quote(json.dumps(PREPROCESS_METADATA_CFG)),
         embedding_method = PREPROCESS_EMBEDDING_CANONICAL,
         integration_enabled = str(PREPROCESS_INTEGRATION_ENABLED).lower(),
         integration_method = PREPROCESS_INTEGRATION_METHOD or 'none',
