@@ -1,153 +1,43 @@
 #-*- mode:snakemake -*-
-"""
-Automatic celltype annotation of single cell RNA-seq data
-"""
-include:
-    join(GCFDB_DIR, 'allen_institute.smk')
-include:
-    join(GCFDB_DIR, 'celltypist.smk')
-
-
-MM_ORG = config.get('celltype_annotation', {}).get('orthologs')
-MM_ORG = MM_ORG or config['organism']
-CELLTYPIST_MODEL = config.get('celltype_annotation', {}).get('celltypist', {}).get('model')
-
-if 'celltypist' in ANNO_METHODS and not CELLTYPIST_MODEL:
-    raise ValueError(
-        'CellTypist annotation is enabled, but '
-        'celltype_annotation.celltypist.model is not configured'
-    )
-
-
-def _celltypist_model(wildcards):
-    if 'celltypist' not in ANNO_METHODS:
-        raise ValueError(
-            "CellTypist rule requested, but 'celltypist' is not enabled in celltype_annotation.method"
-        )
-    if not CELLTYPIST_MODEL:
-        raise ValueError(
-            'CellTypist annotation is enabled, but '
-            'celltype_annotation.celltypist.model is not configured'
-        )
-    return join(EXT_DIR, 'celltypist', 'data', 'models', CELLTYPIST_MODEL)
-
-
-def _orthogene_premap_aggr_inputs(wildcards):
-    if wildcards.aggr_id not in AGGR_IDS:
-        raise ValueError(f"Unknown aggregation id for ortholog mapping: {wildcards.aggr_id}")
-    return [
-        join(QUANT_INTERIM, wildcards.quantifier, sample, 'annotation', 'orthogene', 'orthologs.tsv')
-        for sample in AGGR_IDS[wildcards.aggr_id]
-    ]
-
-
-rule orthogene_premap:
-    input:
-        unpack(get_raw_mtx)
-    output:
-        gene_map = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'annotation', 'orthogene', 'orthologs.tsv')
-    params:
-        script = src_gcf('scripts/run_orthogene.R'),
-        src_org = config['organism'],
-        dst_org = MM_ORG,
-        method = 'gprofiler',
-        non121_strategy = 'drop_both_species',
-        mthreshold = 'Inf'
-    container:
-        'docker://' + config['docker']['orthogene']
-    threads:
-        24
-    shell:
-        'Rscript {params.script} '
-        '--input {input.mtx} '
-        '--output {output.gene_map} '
-        '--src {params.src_org} '
-        '--dst {params.dst_org} '
-        '--method {params.method} '
-        '--non121-strategy {params.non121_strategy} '
-        '--mthreshold {params.mthreshold} '
-        '--no-cache '
-
-
-rule orthogene_premap_aggr:
-    input:
-        _orthogene_premap_aggr_inputs
-    output:
-        tsv = join(QUANT_INTERIM, 'aggregate', '{quantifier}', '{aggr_id}_orthologs.tsv')
-    params:
-        script = src_gcf('scripts/aggr_orthogene.py')
-    container:
-        'docker://' + config['docker']['default']
-    threads:
-        24
-    shell:
-        'python {params.script} '
-        '--output {output.tsv} '
-        '{input} '
-
+"""Pre-AutoQC MapMyCells classification on the canonical aggregate cell universe."""
 
 def annotation_input_files(wildcards):
-    if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger':
-        inputs = [
-            join(
-                QUANT_INTERIM,
-                'aggregate',
-                'cellranger',
-                wildcards.aggr_id,
-                'outs',
-                'count',
-                'filtered_feature_bc_matrix',
-                'matrix.mtx.gz',
-            )
-        ]
+    if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger' and not CB_FLAG:
+        inputs = [join(QUANT_INTERIM, 'aggregate', 'cellranger', wildcards.aggr_id, 'outs', 'count', 'filtered_feature_bc_matrix', 'matrix.mtx.gz')]
     else:
-        sublibs = AGGR_IDS[wildcards.aggr_id]
-        if CB_OUTPUT:
-            inputs = [
-                join(QUANT_INTERIM, wildcards.method, sublib, 'cellbender', f'{sublib}_filtered.h5')
-                for sublib in sublibs
-            ]
-        else:
-            inputs = [
-                _get_filtered_mtx(
-                    SimpleNamespace(method=wildcards.method, sublib=sublib, sample=sublib)
-                )['mtx']
-                for sublib in sublibs
-            ]
+        samples = get_processing_samples(wildcards.method, wildcards.aggr_id)
+        inputs = [get_filtered_mtx(SimpleNamespace(method=wildcards.method, sample=sample))['mtx'] for sample in samples]
 
     result = {'counts': inputs}
-    if MM_ORG != config['organism']:
-        result['gene_map'] = join(
-            QUANT_INTERIM,
-            'aggregate',
-            wildcards.method,
-            f'{wildcards.aggr_id}_orthologs.tsv',
-        )
-    if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger':
-        result['aggr_csv'] = join(
-            QUANT_INTERIM,
-            'aggregate',
-            'description',
-            f'{wildcards.aggr_id}_aggr.csv',
-        )
+    if ANNOTATION_ORG != config['organism']:
+        result['gene_map'] = annotation_gene_map_path(wildcards.method, wildcards.aggr_id, ANNOTATION_ORG)
+    if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger' and not CB_FLAG:
+        result['aggr_csv'] = join(QUANT_INTERIM, 'aggregate', 'description', f'{wildcards.aggr_id}_aggr.csv')
+    if wildcards.method in {'10x_starsolo', 'cellranger', 'splitpipe'} or wildcards.method in PARSEBIO_STARSOLO_MODES:
+        result['barcode_info'] = [get_primary_barcode_info(wildcards)]
+
     return result
 
 
 def annotation_input_format(wildcards):
-    if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger':
+    if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger' and not CB_FLAG:
         return 'cellranger_aggr'
-    return wildcards.method
+    return QUANT_INPUT_FORMAT.get(wildcards.method, wildcards.method)
 
-
-def annotation_input_gene_map_arg(wildcards, input):
-    if MM_ORG == config['organism']:
-        return ''
-    return f'--gene-map {input.gene_map} '
-
+def annotation_input_barcode_rename(wildcards):
+    if wildcards.method in {'10x_starsolo', 'cellranger', 'splitpipe'} or wildcards.method in PARSEBIO_STARSOLO_MODES:
+        return 'skip'
+    return BC_RENAME[wildcards.method]
 
 def annotation_input_aggr_csv_arg(wildcards, input):
-    if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger':
+    if wildcards.method == 'cellranger' and AGGR_METHOD == 'cellranger' and not CB_FLAG:
         return f'--aggr-csv {input.aggr_csv} '
+    return ''
+
+
+def annotation_input_barcode_info_arg(wildcards, input):
+    if wildcards.method in {'10x_starsolo', 'cellranger', 'splitpipe'} or wildcards.method in PARSEBIO_STARSOLO_MODES:
+        return '--barcode-info ' + ' '.join(input.barcode_info) + ' '
     return ''
 
 
@@ -155,24 +45,16 @@ rule annotation_input:
     input:
         unpack(annotation_input_files)
     output:
-        h5ad = temp(
-            join(
-                QUANT_INTERIM,
-                'aggregate',
-                '{method}',
-                'annotation',
-                '{aggr_id}_annotation_input.h5ad',
-            )
-        )
+        h5ad = temp(join(QUANT_INTERIM, 'aggregate', '{method}', 'annotation', '{aggr_id}_annotation_input.h5ad'))
     params:
         script = src_gcf('scripts/annotation_input.py'),
         input_format = annotation_input_format,
-        barcode_rename = lambda wc: BC_RENAME[wc.method],
+        barcode_rename = annotation_input_barcode_rename,
         src_organism = config['organism'],
-        dst_organism = MM_ORG,
-        gene_map = annotation_input_gene_map_arg,
+        dst_organism = ANNOTATION_ORG,
+        gene_map = lambda wc, input: annotation_gene_map_arg(config['organism'], ANNOTATION_ORG, input),
         aggr_csv = annotation_input_aggr_csv_arg,
-        cellbender = '--enable-cellbender --cellbender-mode denoised ' if CB_OUTPUT else ''
+        barcode_info = annotation_input_barcode_info_arg
     log:
         join(QUANT_INTERIM, 'aggregate', '{method}', 'annotation', '{aggr_id}_annotation_input.log')
     container:
@@ -189,19 +71,19 @@ rule annotation_input:
         '--dst-organism {params.dst_organism} '
         '{params.gene_map}'
         '{params.aggr_csv}'
-        '{params.cellbender}'
+        '{params.barcode_info}'
         '--log {log} '
         '-v '
 
 
 def _mapmycells_mouse_metadata_input(wildcards):
-    if MM_ORG == 'mus_musculus':
+    if ANNOTATION_ORG == 'mus_musculus':
         return [abc_mouse_taxonomy_addon_file('cluster_metadata')]
     return []
 
 
 def _mapmycells_mouse_metadata_arg(wildcards):
-    if MM_ORG == 'mus_musculus':
+    if ANNOTATION_ORG == 'mus_musculus':
         return '--mouse-metadata ' + abc_mouse_taxonomy_addon_file('cluster_metadata') + ' '
     return ''
 
@@ -215,8 +97,8 @@ rule mapmycells_from_specified_markers:
             'annotation',
             '{aggr_id}_annotation_input.h5ad',
         ),
-        pre_stats_h5 = join(EXT_DIR, 'allen-brain-cell-atlas', 'mapmycells', MM_ORG, 'precomputed_stats.h5'),
-        markers_json = join(EXT_DIR, 'allen-brain-cell-atlas', 'mapmycells', MM_ORG, 'markers.json')
+        pre_stats_h5 = join(EXT_DIR, 'allen-brain-cell-atlas', 'mapmycells', ANNOTATION_ORG, 'precomputed_stats.h5'),
+        markers_json = join(EXT_DIR, 'allen-brain-cell-atlas', 'mapmycells', ANNOTATION_ORG, 'markers.json')
     output:
         anno_csv = join(
             QUANT_INTERIM,
@@ -266,9 +148,9 @@ rule mapmycells_aggr_output_processing:
             'annotation',
             '{aggr_id}_mapmycells_annotation.csv',
         ),
-        taxonomy_cluster = abc_taxonomy_file(MM_ORG, 'cluster'),
-        taxonomy_term = abc_taxonomy_file(MM_ORG, 'term'),
-        taxonomy_membership = abc_taxonomy_file(MM_ORG, 'membership'),
+        taxonomy_cluster = abc_taxonomy_file(ANNOTATION_ORG, 'cluster'),
+        taxonomy_term = abc_taxonomy_file(ANNOTATION_ORG, 'term'),
+        taxonomy_membership = abc_taxonomy_file(ANNOTATION_ORG, 'membership'),
         mouse_meta = _mapmycells_mouse_metadata_input
     output:
         extended_anno_tsv = join(
@@ -295,46 +177,28 @@ rule mapmycells_aggr_output_processing:
         '--verbose '
 
 
-if 'celltypist' in ANNO_METHODS:
-    rule celltypist_model:
-        params:
-            celltypist_folder = join(EXT_DIR, 'celltypist')
-        output:
-            model = join(EXT_DIR, 'celltypist', 'data', 'models', CELLTYPIST_MODEL)
-        container:
-            'docker://' + config['docker']['rapids-scanpy']
-        shell:
-            'export CELLTYPIST_FOLDER="{params.celltypist_folder}" '
-            '&& '
-            'python -c "from celltypist import models; models.download_models(force_update=True)"'
-
-
-rule run_celltypist:
+rule mapmycells_qc_cell_class:
     input:
-        annotation_h5ad = join(
+        annotation = join(
             QUANT_INTERIM,
             'aggregate',
             '{method}',
             'annotation',
-            '{aggr_id}_annotation_input.h5ad',
-        ),
-        model = _celltypist_model,
-        qc_mask = join(QUANT_INTERIM, 'aggregate', '{method}', 'auto_qc', '{aggr_id}_autoqc_mask.tsv')
+            '{aggr_id}_mapmycells_annotation.tsv',
+        )
     output:
-        anno_tsv = join(QUANT_INTERIM, 'aggregate', '{method}', 'annotation', '{aggr_id}_celltypist_annotation.tsv')
+        sidecar = join(
+            QUANT_INTERIM,
+            'aggregate',
+            '{method}',
+            'annotation',
+            '{aggr_id}_qc_cell_class.tsv',
+        )
     params:
-        script = src_gcf('scripts/run_celltypist.py'),
-        args = '--use-GPU --plot '
-    threads:
-        8
-    resources:
-        gpu = 1
+        script = src_gcf('scripts/mapmycells_qc_cell_class.py')
     container:
-        'docker://' + config['docker']['rapids-scanpy']
+        'docker://' + config['docker']['default']
     shell:
         'python {params.script} '
-        '--input {input.annotation_h5ad} '
-        '--model {input.model} '
-        '--output {output.anno_tsv} '
-        '--qc-mask {input.qc_mask} '
-        '{params.args} '
+        '--input {input.annotation} '
+        '--output {output.sidecar} '

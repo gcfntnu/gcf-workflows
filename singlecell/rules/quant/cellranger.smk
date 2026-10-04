@@ -9,19 +9,22 @@ ORG = config.get('organism', 'homo_sapiens')
 CR_CONF = config['quant']['cellranger']
 
 
-ruleorder: txgenomics_org_prebuild > cellranger_symlink_gtf
-ruleorder: txgenomics_org_prebuild > cellranger_mkref
+if 'txgenomics_org_prebuild' in workflow._rules:
+    ruleorder: txgenomics_org_prebuild > cellranger_symlink_gtf
+    ruleorder: txgenomics_org_prebuild > cellranger_mkref
+
 if not '10xgenomics' in REF_DIR:
     CR_REF_DIR = join(REF_DIR, 'cellranger')
 else:
     if ORG not in ['homo_sapiens', 'mus_musculus', 'homo_sapiens__mus_musculus']:
-        ruleorder: cellranger_symlink_gtf > txgenomics_org_prebuild
-        ruleorder: cellranger_mkref > txgenomics_org_prebuild
+        if 'txgenomics_org_prebuild' in workflow._rules:
+            ruleorder: cellranger_symlink_gtf > txgenomics_org_prebuild
+            ruleorder: cellranger_mkref > txgenomics_org_prebuild
         CR_REF_DIR = join(REF_DIR, 'cellranger')
     else:
         CR_REF_DIR = REF_DIR
 
-    
+
 def input_fastq_path(wildcards, input):
     pths = set()
     if isinstance(input.R1, six.string_types):
@@ -78,7 +81,7 @@ rule cellranger_symlink_gtf:
         gtf = join(CR_REF_DIR, 'genes', 'genes.gtf')
     shell:
         'gunzip -k {input} && mv {params.gtf} {output}'
- 
+
 rule cellranger_quant_:
     input:
         unpack(get_raw_fastq),
@@ -171,7 +174,8 @@ rule cellranger_bam:
 
 rule cellranger_aggr_csv:
     input:
-        sample_info = join(INTERIM_DIR, 'sample_info.tsv'),
+        sample_info = SINGLECELL_SAMPLE_INFO,
+        library_info = SINGLECELL_LIBRARY_INFO,
         mol_h5 = expand(join(CR_INTERIM, '{sample}', 'outs', 'molecule_info.h5'), sample=SAMPLES)
     params:
         script = src_gcf('scripts/cellranger_aggr_csv.py'),
@@ -186,9 +190,10 @@ rule cellranger_aggr_csv:
         '{input.mol_h5} '
         '--outdir {params.outdir} '
         '--sample-info {input.sample_info} '
+        '--library-info {input.library_info} '
         '--groupby {params.groupby} '
         '--verbose '
-        
+
 rule cellranger_aggr:
     input:
         aggr = join(QUANT_INTERIM, 'aggregate', 'description', '{aggr_id}_aggr.csv')
@@ -233,52 +238,83 @@ rule cellranger_aggr_bam:
         'python {params.script} {input} {output}'
 
 
+def cellranger_barcode_info_inputs(wc):
+    if AGGR_METHOD == 'cellranger' and not CB_FLAG:
+        return {
+            'aggr_csv': join(QUANT_INTERIM, 'aggregate', 'description', f'{wc.aggr_id}_aggr.csv'),
+            'barcodes': [
+                join(
+                    QUANT_INTERIM, 'aggregate', 'cellranger', wc.aggr_id, 'outs', 'count',
+                    'filtered_feature_bc_matrix', 'barcodes.tsv.gz'
+                )
+            ],
+            'source_barcodes': expand(
+                join(CR_INTERIM, '{sample}', 'outs', 'filtered_feature_bc_matrix', 'barcodes.tsv.gz'),
+                sample=AGGR_IDS[wc.aggr_id],
+            ),
+            'sample_info': SINGLECELL_SAMPLE_INFO,
+            'library_info': SINGLECELL_LIBRARY_INFO,
+        }
+
+    return {
+        'aggr_csv': aggr_library_order_csv(wc.aggr_id),
+        'barcodes': [
+            get_filtered_mtx(SimpleNamespace(method='cellranger', sample=sample))['rows']
+            for sample in AGGR_IDS[wc.aggr_id]
+        ],
+        'sample_info': SINGLECELL_SAMPLE_INFO,
+        'library_info': SINGLECELL_LIBRARY_INFO,
+    }
+
+
 rule cellranger_barcode_info:
     input:
-        aggr_csv = join(QUANT_INTERIM, 'aggregate', 'description', 'all_samples_aggr.csv'),
-        barcodes = expand(join(CR_INTERIM, '{sample}', 'outs', 'filtered_feature_bc_matrix', 'barcodes.tsv.gz'),
-                          sample=SAMPLES
-                          )
+        unpack(cellranger_barcode_info_inputs)
     output:
-        join(QUANT_INTERIM, 'cellranger', 'barcode_info.tsv')
+        join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}_barcode_info.tsv')
     container:
         'docker://' + config['docker']['default']
     params:
         script = src_gcf('scripts/cellranger_barcode_info.py'),
-        config = workflow.configfiles[0]
+        aggregated = '--aggregated' if AGGR_METHOD == 'cellranger' and not CB_FLAG else '',
+        source_barcodes = lambda wc, input: '--source-barcodes ' + ' '.join(input.source_barcodes)
+            if AGGR_METHOD == 'cellranger' and not CB_FLAG else ''
     shell:
         'python {params.script} '
         '--aggr-csv {input.aggr_csv} '
         '--barcodes {input.barcodes} '
-        '--configfile {params.config} '
+        '--sample-info {input.sample_info} '
+        '--library-info {input.library_info} '
+        '{params.aggregated} '
+        '{params.source_barcodes} '
         '--output {output} '
 
-        
-rule cellranger_scanpy_pp_ipynb:
-    input:
-        join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', '{aggr_id}_filtered.h5ad')
-    output:
-        preprocessed = join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', '{aggr_id}_preprocessed.h5ad'),
-    threads:
-        24
-    log:
-        notebook = join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', 'notebooks', '{aggr_id}_pp.ipynb')
-    container:
-        'docker://' + config['docker']['jupyter-scanpy']
-    notebook:
-        'scripts/cellranger_preprocess.py.ipynb'
+if not PREPROCESS_ENABLED:
+    rule cellranger_scanpy_pp_ipynb:
+        input:
+            join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', '{aggr_id}_filtered.h5ad')
+        output:
+            preprocessed = join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', '{aggr_id}_preprocessed.h5ad'),
+        threads:
+            24
+        log:
+            notebook = join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', 'notebooks', '{aggr_id}_pp.ipynb')
+        container:
+            'docker://' + config['docker']['jupyter-scanpy']
+        notebook:
+            'scripts/cellranger_preprocess.py.ipynb'
 
 
-rule cellranger_scanpy_pp_ipynb_html:
-    input:
-        rules.cellranger_scanpy_pp_ipynb.output
-    output:
-        join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', 'notebooks', '{aggr_id}_pp.html')
-    params:
-        notebook = rules.cellranger_scanpy_pp_ipynb.log.notebook
-    threads:
-        1
-    container:
-        'docker://' + config['docker']['jupyter-scanpy']
-    shell:
-        'jupyter nbconvert --to html {params.notebook} '
+    rule cellranger_scanpy_pp_ipynb_html:
+        input:
+            rules.cellranger_scanpy_pp_ipynb.output
+        output:
+            join(QUANT_INTERIM, 'aggregate', 'cellranger', 'scanpy', 'notebooks', '{aggr_id}_pp.html')
+        params:
+            notebook = rules.cellranger_scanpy_pp_ipynb.log.notebook
+        threads:
+            1
+        container:
+            'docker://' + config['docker']['jupyter-scanpy']
+        shell:
+            'jupyter nbconvert --to html {params.notebook} '

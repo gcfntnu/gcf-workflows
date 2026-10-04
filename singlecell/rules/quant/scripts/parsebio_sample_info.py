@@ -7,47 +7,17 @@ import pandas as pd
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Create minimal Parse STARsolo barcode metadata.")
+    parser = argparse.ArgumentParser(description="Create Parse STARsolo barcode metadata.")
     parser.add_argument("--barcodes", required=True)
     parser.add_argument("--r1-wellmap", required=True)
     parser.add_argument("--r2-wellmap", required=True)
     parser.add_argument("--r3-wellmap", required=True)
     parser.add_argument("--r1-sample-mapping", required=True)
-    parser.add_argument("--r1-R")
-    parser.add_argument("--r1-T")
     parser.add_argument("--sample-id", required=True)
     parser.add_argument("--sublibs", nargs="+", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--order", choices=["r3_r2_r1", "r1_r2_r3"], default="r3_r2_r1")
-    parser.add_argument("--rt-pairing", action="store_true")
     return parser.parse_args()
-
-
-def read_whitelist(path):
-    with open(path, encoding="utf-8") as handle:
-        seqs = [line.strip() for line in handle if line.strip()]
-
-    if len(seqs) != len(set(seqs)):
-        raise ValueError(f"Duplicate sequences in whitelist: {path}")
-
-    return seqs
-
-
-def rt_pairing_map(r_path, t_path):
-    r_list = read_whitelist(r_path)
-    t_list = read_whitelist(t_path)
-
-    if len(r_list) != len(t_list):
-        raise ValueError(f"r1_R and r1_T length mismatch: {len(r_list)} vs {len(t_list)}")
-
-    overlap = set(r_list) & set(t_list)
-    if overlap:
-        seq = next(iter(overlap))
-        raise ValueError(f"Sequence occurs in both r1_R and r1_T whitelists: {seq!r}")
-
-    mapping = dict(zip(r_list, t_list))
-    mapping.update({t_seq: t_seq for t_seq in t_list})
-    return mapping
 
 
 def well_index_map(df, name):
@@ -110,38 +80,59 @@ def library_map(sublibs):
     return mapping
 
 
+def r1_metadata_map(r1_samples):
+    required = {"sequence", "well", "Sample_ID", "stype"}
+    missing = required - set(r1_samples.columns)
+    if missing:
+        raise ValueError(f"r1 sample mapping missing columns: {sorted(missing)}")
+
+    if r1_samples["sequence"].duplicated().any():
+        duplicate = r1_samples.loc[r1_samples["sequence"].duplicated(keep=False), "sequence"].iloc[0]
+        raise ValueError(f"r1 sample mapping contains duplicated sequence {duplicate!r}")
+
+    invalid_stype = sorted(set(r1_samples["stype"].dropna()) - {"R", "T"})
+    if invalid_stype:
+        raise ValueError(f"r1 sample mapping contains invalid stype values: {invalid_stype}")
+
+    t_rows = r1_samples.loc[r1_samples["stype"].eq("T"), ["well", "sequence"]]
+
+    duplicated_t_wells = t_rows["well"].duplicated(keep=False)
+    if duplicated_t_wells.any():
+        well = t_rows.loc[duplicated_t_wells, "well"].iloc[0]
+        raise ValueError(f"r1 sample mapping contains multiple T sequences for well {well!r}")
+
+    t_by_well = t_rows.set_index("well")["sequence"].to_dict()
+
+    missing_t_wells = sorted(set(r1_samples["well"]) - set(t_by_well))
+    if missing_t_wells:
+        raise ValueError(f"r1 sample mapping has wells without a T sequence; examples: {missing_t_wells[:5]}")
+
+    return r1_samples.set_index("sequence", verify_integrity=True), t_by_well
+
+
 def main():
     args = parse_args()
-
-    if args.rt_pairing and (not args.r1_R or not args.r1_T):
-        raise ValueError("--rt-pairing requires both --r1-R and --r1-T")
 
     r1 = pd.read_csv(args.r1_wellmap, sep="\t", dtype=str)
     r2 = pd.read_csv(args.r2_wellmap, sep="\t", dtype=str)
     r3 = pd.read_csv(args.r3_wellmap, sep="\t", dtype=str)
     r1_samples = pd.read_csv(args.r1_sample_mapping, sep="\t", dtype=str)
 
-    required = {"sequence", "Sample_ID", "stype"}
-    missing = required - set(r1_samples.columns)
-    if missing:
-        raise ValueError(f"r1 sample mapping missing columns: {sorted(missing)}")
-
-    if r1_samples["sequence"].duplicated().any():
-        duplicate = r1_samples.loc[r1_samples["sequence"].duplicated(), "sequence"].iloc[0]
-        raise ValueError(f"Duplicate sequence in r1 sample mapping: {duplicate!r}")
-
     r1_idx = well_index_map(r1, "r1 wellmap")
     r2_idx = well_index_map(r2, "r2 wellmap")
     r3_idx = well_index_map(r3, "r3 wellmap")
 
-    sample_by_r1 = r1_samples.set_index("sequence")["Sample_ID"].to_dict()
-    stype_by_r1 = r1_samples.set_index("sequence")["stype"].to_dict()
+    r1_metadata, t_by_well = r1_metadata_map(r1_samples)
     libraries = library_map(args.sublibs)
-    rt_mapping = rt_pairing_map(args.r1_R, args.r1_T) if args.rt_pairing else None
 
     barcodes = pd.read_csv(args.barcodes, header=None, names=["barcode"], dtype=str)
 
+    if barcodes["barcode"].duplicated().any():
+        duplicate = barcodes.loc[barcodes["barcode"].duplicated(keep=False), "barcode"].iloc[0]
+        raise ValueError(f"Input contains duplicate barcode {duplicate!r}")
+
     rows = []
+
     for barcode in barcodes["barcode"]:
         suffix = re.search(r"__s(\d+)$", barcode)
         if not suffix:
@@ -154,8 +145,12 @@ def main():
         r1_seq, r2_seq, r3_seq = split_barcode(barcode, args.order)
 
         try:
-            sample_id = sample_by_r1[r1_seq]
-            stype = stype_by_r1[r1_seq]
+            metadata = r1_metadata.loc[r1_seq]
+            sample_id = metadata["Sample_ID"]
+            stype = metadata["stype"]
+            t_r1_seq = t_by_well[metadata["well"]]
+
+            cell_barcode = build_barcode(t_r1_seq, r2_seq, r3_seq, library_idx, args.order)
             splitpipe_barcode = f"{r1_idx[r1_seq]}_{r2_idx[r2_seq]}_{r3_idx[r3_seq]}__s{library_idx}"
         except KeyError as exc:
             raise ValueError(f"Barcode {barcode!r} contains an unknown Parse barcode sequence: {exc.args[0]!r}") from exc
@@ -163,33 +158,25 @@ def main():
         if sample_id != args.sample_id:
             raise ValueError(f"Barcode {barcode!r} maps to Sample_ID {sample_id!r}, expected {args.sample_id!r}")
 
-        row = {
+        rows.append({
             "barcode": barcode,
-            "source_barcode": re.sub(r"__s\d+$", "", barcode),
+            "cell_barcode": cell_barcode,
             "Sample_ID": sample_id,
             "library_id": libraries[library_idx],
             "splitpipe_barcode": splitpipe_barcode,
             "stype": stype,
-        }
-
-        if args.rt_pairing:
-            try:
-                cell_r1_seq = rt_mapping[r1_seq]
-            except KeyError as exc:
-                raise ValueError(
-                    f"Barcode {barcode!r} has R1 sequence not present in the R/T whitelists: {r1_seq!r}"
-                ) from exc
-
-            row["cell_barcode"] = build_barcode(r1_seq=cell_r1_seq, r2_seq=r2_seq, r3_seq=r3_seq,
-                                                library_idx=library_idx, order=args.order)
-
-        rows.append(row)
+        })
 
     out = pd.DataFrame(rows)
 
     if out["barcode"].duplicated().any():
-        duplicate = out.loc[out["barcode"].duplicated(), "barcode"].iloc[0]
-        raise ValueError(f"Duplicate barcode: {duplicate!r}")
+        duplicate = out.loc[out["barcode"].duplicated(keep=False), "barcode"].iloc[0]
+        raise ValueError(f"Duplicate barcode {duplicate!r}")
+
+    duplicated_observations = out.duplicated(["cell_barcode", "stype"], keep=False)
+    if duplicated_observations.any():
+        row = out.loc[duplicated_observations, ["cell_barcode", "stype"]].iloc[0]
+        raise ValueError(f"Duplicate {row['stype']} observation for cell_barcode {row['cell_barcode']!r}")
 
     out.to_csv(args.output, sep="\t", index=False)
 

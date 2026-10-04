@@ -53,18 +53,7 @@ rule bfq_level2_data:
             symlink(src, dst)
              
 
-rule bfq_level2_notebooks:
-    input:
-        notebook_inputs("cellranger")
-    output:
-        notebook_outputs()
-    run:
-        for src, dst in zip(input, output):
-            symlink(src, dst)
-
-
 BFQ_LEVEL2_ALL = [rules.bfq_level2_exprs.output,
                   rules.bfq_level2_logs.output,
                   rules.bfq_level2_data.output,
-                  rules.bfq_level2_notebooks.output,
                   rules.bfq_level2_umap_png.output]

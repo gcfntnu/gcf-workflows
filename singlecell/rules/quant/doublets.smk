@@ -17,7 +17,7 @@ if SAMPLE_MULTIPLEXING:
     if os.path.exists(src_gcf("multiplex.smk")):
         include:
             'multiplex.smk'
-        DEMUX_METHODS = [m.strip() for m in DEMUX_CONFIG['method'].split(',')]
+        DMUX_METHODS = [m.strip() for m in DEMUX_CONFIG['method'].split(',')]
         if 'vireo_ref_rescue' in DEMUX_METHODS:
             include: 'vireo_ref_rescue.smk'
     else:
@@ -322,21 +322,34 @@ rule dbl_doublet_rank_aggr:
         """
 
 
+def get_processing_samples(method, aggr_id):
+    if method == 'splitpipe' or method in PARSEBIO_STARSOLO_MODES:
+        if aggr_id != 'all_samples':
+            raise NotImplementedError(f"Parse aggregation currently only supports aggr_id='all_samples', got {aggr_id!r}")
+        return PARSEBIO_SAMPLES
+
+    return AGGR_IDS[aggr_id]
+
 
 def dbl_aggr_input(wildcards):
-    samples_by_aggr_id = AGGR_IDS.get(wildcards.aggr_id)
-    classification = expand(rules.dbl_doublet_rank_aggr.output.classification,
-                      quantifier=wildcards.method,
-                      sample=samples_by_aggr_id)
-    rankdata = expand(rules.dbl_doublet_rank_aggr.output.rankdata,
-                      quantifier=wildcards.method,
-                      sample=samples_by_aggr_id)
-    
-    if wildcards.method.startswith('cellranger'):
-        aggr_csv = join(QUANT_INTERIM, 'aggregate', 'description', f'{wildcards.aggr_id}_aggr.csv')
-        return {'classification': classification, 'rankdata': rankdata, 'aggr_csv': aggr_csv}
-    else:
-        return {'classification': classification, 'rankdata': rankdata}
+    samples = get_processing_samples(wildcards.method, wildcards.aggr_id)
+    inputs = {
+        'classification': expand(
+            rules.dbl_doublet_rank_aggr.output.classification,
+            quantifier=wildcards.method,
+            sample=samples,
+        ),
+        'rankdata': expand(
+            rules.dbl_doublet_rank_aggr.output.rankdata,
+            quantifier=wildcards.method,
+            sample=samples,
+        ),
+    }
+
+    if wildcards.method != 'splitpipe' and wildcards.method not in PARSEBIO_STARSOLO_MODES:
+        inputs['barcode_info'] = get_primary_barcode_info(wildcards)
+
+    return inputs
 
 
 rule dbl_classification_aggr:

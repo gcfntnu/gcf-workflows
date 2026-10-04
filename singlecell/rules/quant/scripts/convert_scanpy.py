@@ -56,6 +56,12 @@ _GENOME = {
     "GRCm38": "mm10"
 }
 _SAMPLE_INFO_BLACKLIST = ["flowcell_id", "r1", "r2", "wells"]
+_LIBRARY_INFO_BLACKLIST = [
+    "flowcell_name", "flowcell_id",
+    "index1", "index2",
+    "r1", "r1_md5sum",
+    "r2", "r2_md5sum",
+]
 _FEATURE_INFO_BLACKLIST = ["source", "start", "end", "strand", "gene_version", "level", "hgnc_id", "expression_type", "feature_type",
                           "havana_gene", "transcript_type", "havana_transcript", "ccdsid", "ont", "gene_source", "gene_name"]
 _BARCODE_INFO_BLACKLIST = ["flowcell_id", "r1", "r2", "wells"]
@@ -111,30 +117,46 @@ def setup_logging(verbose: bool = False,
         logging.getLogger("numba").setLevel(logging.WARNING)
 
 
-def _sample_info_reader(fn):
-    """
-    Read sample information from a file.
-
-    Parameters
-    ----------
-    fn : str or pathlib.Path
-        Path to the sample information file.
-
-    Returns
-    -------
-    pd.DataFrame
-        DataFrame containing sample information.
-    """
+def _entity_info_reader(fn, key, blacklist=()):
+    """Read entity-level metadata with a strict unique key."""
     fn = pathlib.Path(fn)
-    sample_info = pd.read_csv(fn, sep="\t")
-    if "Sample_ID" not in sample_info.columns:
-        raise ValueError("sample_sheet needs a column called `Sample_ID`")
-    sample_info.rename(columns={"Sample_ID": "sample_id"}, inplace=True)
-    sample_info.set_index("sample_id", inplace=True)
-    sample_info.index = [str(i) for i in sample_info.index]
-    keep_cols = [i for i in sample_info.columns if i.lower() not in _SAMPLE_INFO_BLACKLIST]
-    sample_info = sample_info[keep_cols]
-    return sample_info
+    df = pd.read_csv(fn, sep="\t")
+
+    if key in df.columns:
+        source_key = key
+    else:
+        matches = [column for column in df.columns if column.lower() == key.lower()]
+        if not matches:
+            raise ValueError(f"{fn} is missing required column {key!r}")
+        if len(matches) > 1:
+            raise ValueError(
+                f"{fn}: multiple columns match required key {key!r} case-insensitively: {matches}"
+            )
+
+        source_key = matches[0]
+        df.rename(columns={source_key: key}, inplace=True)
+
+    if df[key].isna().any():
+        raise ValueError(f"{fn}: {key} contains missing values")
+    df[key] = df[key].astype(str).str.strip()
+    if df[key].eq("").any():
+        raise ValueError(f"{fn}: {key} contains empty values")
+    if df[key].duplicated().any():
+        duplicates = df.loc[df[key].duplicated(keep=False), key].unique().tolist()
+        raise ValueError(f"{fn}: duplicate {key} values are not allowed. Examples: {duplicates[:5]}")
+
+    keep_cols = [column for column in df.columns if column == key or column.lower() not in blacklist]
+    df = df.loc[:, keep_cols].set_index(key, drop=True)
+    df.index.name = key
+    return df
+
+
+def _sample_info_reader(fn):
+    return _entity_info_reader(fn, "Sample_ID", _SAMPLE_INFO_BLACKLIST)
+
+
+def _library_info_reader(fn):
+    return _entity_info_reader(fn, "library_id")
 
 def _sniff_sep(path: pathlib.Path) -> str:
     try:
@@ -202,7 +224,11 @@ def _feature_info_reader(
         df = df[keep_cols]
 
     # Index: lowercase name, string type, unique
+    if df["gene_id"].isna().any():
+        raise ValueError(f"{fn}: gene_id contains missing values")
     df["gene_id"] = df["gene_id"].astype(str).str.strip()
+    if df["gene_id"].eq("").any():
+        raise ValueError(f"{fn}: gene_id contains empty values")
     df.set_index("gene_id", inplace=True)
     df.index.name = "gene_id"
 
@@ -242,7 +268,11 @@ def _barcode_info_reader(
         df = df[keep_cols]
 
     # Index: lowercase name, string type, unique
+    if df["barcode"].isna().any():
+        raise ValueError(f"{fn}: barcode contains missing values")
     df["barcode"] = df["barcode"].astype(str).str.strip()
+    if df["barcode"].eq("").any():
+        raise ValueError(f"{fn}: barcode contains empty values")
     df.set_index("barcode", inplace=True)
     df.index.name = "barcode"
 
@@ -250,7 +280,193 @@ def _barcode_info_reader(
         dups = df.index[df.index.duplicated()].unique()
         raise ValueError(f"{fn}: duplicate barcode values are not allowed. Examples: {list(dups[:5])}")
 
+    if {"Sample_ID", "library_id"}.issubset(df.columns):
+        for key in ("Sample_ID", "library_id"):
+            if df[key].isna().any():
+                raise ValueError(f"{fn}: primary barcode metadata {key} contains missing values")
+            df[key] = df[key].astype(str).str.strip()
+            if df[key].eq("").any():
+                raise ValueError(f"{fn}: primary barcode metadata {key} contains empty values")
+
+        if "source_barcode" in df.columns:
+            if df["source_barcode"].isna().any():
+                raise ValueError(f"{fn}: primary barcode metadata source_barcode contains missing values")
+            df["source_barcode"] = df["source_barcode"].astype(str).str.strip()
+            if df["source_barcode"].eq("").any():
+                raise ValueError(f"{fn}: primary barcode metadata source_barcode contains empty values")
+
+    if fn.name.endswith("_autoqc_mask.tsv"):
+        if "autoqc_pass" not in df.columns:
+            raise ValueError(f"{fn}: auto-QC mask is missing required column 'autoqc_pass'")
+        if df["autoqc_pass"].isna().any():
+            raise ValueError(f"{fn}: auto-QC mask contains missing autoqc_pass values")
+        values = set(pd.unique(df["autoqc_pass"]))
+        if not values.issubset({0, 1, False, True}):
+            raise ValueError(
+                f"{fn}: autoqc_pass must contain only 0/1 or boolean values; "
+                f"found {sorted(values, key=str)[:5]}"
+            )
+
+    if "doublet_call" in df.columns:
+        if df["doublet_call"].isna().any():
+            raise ValueError(f"{fn}: doublet_call contains missing values")
+        values = set(df["doublet_call"].astype(str))
+        if not values.issubset({"singlet", "doublet"}):
+            raise ValueError(
+                f"{fn}: doublet_call must contain only 'singlet' or 'doublet'; "
+                f"found {sorted(values)[:5]}"
+            )
+
+    if "donor_id" in df.columns:
+        if df["donor_id"].isna().any():
+            raise ValueError(f"{fn}: demultiplexing sidecar contains missing donor_id values")
+        if "doublet_type" in df.columns:
+            if df["doublet_type"].isna().any():
+                raise ValueError(f"{fn}: demultiplexing sidecar contains missing doublet_type values")
+            values = set(df["doublet_type"].astype(str))
+            if not values.issubset({"singlet", "doublet", "unassigned"}):
+                raise ValueError(
+                    f"{fn}: demultiplexing doublet_type must contain only "
+                    f"'singlet', 'doublet', or 'unassigned'; found {sorted(values)[:5]}"
+                )
+
+        parts = fn.parts
+        for marker in ("multiplexing", "demultiplexing"):
+            if marker in parts:
+                marker_idx = parts.index(marker)
+                if marker_idx + 1 < len(parts):
+                    df.attrs["demultiplex_method"] = parts[marker_idx + 1]
+                    break
+        if "demultiplex_method" not in df.attrs:
+            raise ValueError(f"{fn}: cannot determine demultiplexing method from sidecar path")
+
     return df
+
+
+def canonicalize_10x_library_barcodes(data, library_id, barcode_info, *, source: str):
+    """Map one 10x library from source barcodes to canonical aggregation barcodes."""
+    if not barcode_info:
+        raise ValueError(f"{source} requires barcode_info with source_barcode and library_id")
+
+    candidates = [
+        frame for frame in barcode_info
+        if frame is not None and {"source_barcode", "library_id"}.issubset(frame.columns)
+    ]
+    if len(candidates) != 1:
+        raise ValueError(
+            f"{source} requires exactly one barcode_info table containing "
+            f"source_barcode and library_id; found {len(candidates)}"
+        )
+
+    mapping = candidates[0].copy()
+    mapping["library_id"] = mapping["library_id"].astype(str)
+    mapping = mapping.loc[mapping["library_id"] == str(library_id)].copy()
+    if mapping.empty:
+        raise ValueError(f"No canonical barcode mapping found for {source} library {library_id!r}")
+
+    mapping["source_barcode"] = mapping["source_barcode"].astype(str)
+    if mapping["source_barcode"].duplicated().any():
+        duplicates = mapping.loc[mapping["source_barcode"].duplicated(keep=False), "source_barcode"].unique().tolist()
+        raise ValueError(
+            f"Duplicate source_barcode values for {source} library {library_id!r}: {duplicates[:10]}"
+        )
+
+    source_to_canonical = pd.Series(
+        mapping.index.astype(str).to_numpy(),
+        index=pd.Index(mapping["source_barcode"], name="source_barcode"),
+        name="barcode",
+    )
+    matrix_barcodes = pd.Index(data.obs_names.astype(str), name="source_barcode")
+
+    missing = matrix_barcodes.difference(source_to_canonical.index)
+    extra = source_to_canonical.index.difference(matrix_barcodes)
+    if len(missing) or len(extra):
+        raise ValueError(
+            f"{source} barcode mapping mismatch for library {library_id!r}: "
+            f"{len(missing)} matrix barcode(s) missing from barcode_info and "
+            f"{len(extra)} barcode_info source barcode(s) missing from matrix. "
+            f"Missing examples: {missing[:5].tolist()}; extra examples: {extra[:5].tolist()}"
+        )
+
+    canonical = pd.Index(source_to_canonical.reindex(matrix_barcodes).to_numpy(), name="barcode")
+    if not canonical.is_unique:
+        duplicates = canonical[canonical.duplicated()].unique().tolist()
+        raise ValueError(f"Canonical barcode mapping created duplicates for {library_id!r}: {duplicates[:10]}")
+
+    data.obs_names = canonical
+    return data
+
+
+def primary_barcode_mapping(barcode_info, *, source: str) -> pd.DataFrame:
+    """Return the single primary barcode identity table from a barcode-info collection."""
+    if not barcode_info:
+        raise ValueError(f"{source} requires primary barcode_info")
+
+    candidates = [
+        frame for frame in barcode_info
+        if frame is not None and {"library_id", "Sample_ID"}.issubset(frame.columns)
+    ]
+    if len(candidates) != 1:
+        raise ValueError(
+            f"{source} requires exactly one primary barcode_info table containing "
+            f"library_id and Sample_ID; found {len(candidates)}"
+        )
+
+    return candidates[0]
+
+
+def validate_canonical_barcodes(data, barcode_info, *, source: str):
+    """Validate that an already-aggregated matrix uses exactly the canonical barcode namespace."""
+    mapping = primary_barcode_mapping(barcode_info, source=source)
+    observed = pd.Index(data.obs_names.astype(str), name="barcode")
+    expected = pd.Index(mapping.index.astype(str), name="barcode")
+
+    if not observed.is_unique:
+        duplicates = observed[observed.duplicated()].unique().tolist()
+        raise ValueError(f"{source} matrix contains duplicate barcodes: {duplicates[:10]}")
+
+    missing = observed.difference(expected)
+    extra = expected.difference(observed)
+    if len(missing) or len(extra):
+        raise ValueError(
+            f"{source} canonical barcode mismatch: "
+            f"{len(missing)} matrix barcode(s) absent from barcode_info and "
+            f"{len(extra)} barcode_info barcode(s) absent from matrix. "
+            f"Missing examples: {missing[:5].tolist()}; extra examples: {extra[:5].tolist()}"
+        )
+
+    return data
+
+
+def validate_canonical_barcode_subset(data, barcode_info, *, key: str, value: str, source: str):
+    """Validate one already-canonical matrix against the matching subset of primary barcode_info."""
+    mapping = primary_barcode_mapping(barcode_info, source=source)
+    if key not in mapping.columns:
+        raise ValueError(f"{source} primary barcode_info is missing subset key {key!r}")
+
+    values = mapping[key].astype(str)
+    subset = mapping.loc[values == str(value)]
+    if subset.empty:
+        raise ValueError(f"{source}: no barcode_info rows found for {key}={value!r}")
+
+    observed = pd.Index(data.obs_names.astype(str), name="barcode")
+    expected = pd.Index(subset.index.astype(str), name="barcode")
+
+    if not observed.is_unique:
+        duplicates = observed[observed.duplicated()].unique().tolist()
+        raise ValueError(f"{source} matrix contains duplicate barcodes: {duplicates[:10]}")
+
+    missing = observed.difference(expected)
+    extra = expected.difference(observed)
+    if len(missing) or len(extra):
+        raise ValueError(
+            f"{source} canonical barcode mismatch for {key}={value!r}: "
+            f"{len(missing)} matrix barcode(s) absent from barcode_info and "
+            f"{len(extra)} barcode_info barcode(s) absent from matrix. "
+            f"Missing examples: {missing[:5].tolist()}; extra examples: {extra[:5].tolist()}"
+        )
+
+    return data
 
 
 def barcode_postfix_type(barcodes):
@@ -411,7 +627,9 @@ def create_parser():
     parser.add_argument("--aggr-csv", default=None, required=False, type=_aggr_csv_reader,
                         help="aggregation csv with header and two columns. First column is `sample_id` and second column is path to input file")
     parser.add_argument("--sample-info", default=None, required=False, type=_sample_info_reader,
-                        help="samplesheet info, tab seprated file assumes `Sample_ID` in header")
+                        help="sample-level metadata, tab separated with unique `Sample_ID`")
+    parser.add_argument("--library-info", default=None, required=False, type=_library_info_reader,
+                        help="library-level metadata, tab separated with unique `library_id`")
     parser.add_argument("--feature-info", nargs="*", required=False, type=_feature_info_reader,
                         help="extra feature info filename, tab seprated file assumes `gene_id` in header")
     parser.add_argument("--barcode-info", nargs="*", required=False, type=_barcode_info_reader,
@@ -422,6 +640,15 @@ def create_parser():
                         help="normalize depth across the input libraries")
     parser.add_argument("--no-zero-cell-rm", action="store_true",
                         help="do not remove cells with zero counts")
+    parser.add_argument(
+        "--canonical-filtered",
+        action="store_true",
+        help=(
+            "Apply canonical filtered-AnnData assembly invariants: require compatible "
+            "feature axes across inputs, fail on called cells with zero selected counts, "
+            "and retain zero-count features."
+        ),
+    )
     parser.add_argument("--min-counts-cell", type=int, default=0,
                         help="Drop cells with total counts (UMIs) < N. Default 0 (disabled).")
     parser.add_argument("--min-genes-cell", type=int, default=0,
@@ -438,6 +665,8 @@ def create_parser():
                         help="barcode cell identification strategy")
     parser.add_argument("--barcode-rename", default="numerical", choices=["numerical", "sample_id", "trim", "parsebio", "skip"],
                         help="barcode postfix naming strategy")
+    parser.add_argument("--use-velo", action="store_true",
+                        help="load STARsolo/split-pipe velocity matrices when available")
     parser.add_argument("--enable-cellbender", action="store_true",
                         help="Use CellBender outputs instead of raw count matrices for the chosen format.",
                         )
@@ -517,35 +746,25 @@ def remove_duplicate_cols(df, copy=False):
     return df
 
 def filter_input_by_csv(input_files, aggr_df, verbose=False):
-    """
-    Filter input files based on match with Sample_ID in input path.
-
-    Parameters
-    ----------
-    input_files : list of str
-        List of input file paths.
-    aggr_df : pd.DataFrame
-        DataFrame containing aggregation information.
-    verbose : bool, optional
-        Whether to print verbose output, by default False.
-
-    Returns
-    -------
-    list of str
-        Filtered list of input file paths.
-    """
+    """Select and order input files according to the aggregation library order."""
     filtered_input = []
-    for n, row in aggr_df.iterrows():
-        sample_id = row.iloc[0]
-        patt = os.path.sep + sample_id + os.path.sep
-        for pth in input_files:
-            if patt in str(pth):
-                filtered_input.append(pth)
-            else:
-                logger.debug(pth, sample_id)
+    for library_id in aggr_df.iloc[:, 0].astype(str):
+        patt = os.path.sep + library_id + os.path.sep
+        matches = [path for path in input_files if patt in str(path)]
+        if len(matches) != 1:
+            raise ValueError(
+                f"Aggregation library {library_id!r} matched {len(matches)} input files; "
+                f"expected exactly one. Matches: {[str(path) for path in matches]}"
+            )
+
+        filtered_input.append(matches[0])
+        if verbose:
+            logger.debug("Aggregation library %s -> %s", library_id, matches[0])
+
     if verbose:
-        logger.debug("Total input: {}".format(len(input_files)))
-        logger.debug("Filtered input: {}".format(len(filtered_input)))
+        logger.debug("Total input: %d", len(input_files))
+        logger.debug("Filtered input: %d", len(filtered_input))
+
     return filtered_input
 
 
@@ -693,6 +912,74 @@ def align_sparse_matrix_with_names(
     return aligned_matrix
 
 
+def load_velocity_source(velocyto_dir, feature_filename, source):
+    """Load and validate raw spliced/unspliced/ambiguous matrices from one velocity source."""
+    velocyto_dir = pathlib.Path(velocyto_dir)
+    required = {
+        "barcodes": velocyto_dir / "barcodes.tsv",
+        "features": velocyto_dir / feature_filename,
+        "spliced": velocyto_dir / "spliced.mtx",
+        "unspliced": velocyto_dir / "unspliced.mtx",
+        "ambiguous": velocyto_dir / "ambiguous.mtx",
+    }
+    missing_files = [str(path) for path in required.values() if not path.exists()]
+    if missing_files:
+        raise FileNotFoundError(f"{source}: missing configured velocity output(s): {missing_files}")
+
+    barcodes = pd.Index(pd.read_csv(required["barcodes"], header=None).iloc[:, 0].astype(str), name="barcode")
+    features = pd.Index(
+        pd.read_csv(required["features"], sep="\\t", header=None).iloc[:, 0].astype(str), name="gene_id"
+    )
+
+    if not barcodes.is_unique:
+        duplicates = barcodes[barcodes.duplicated()].unique().tolist()[:10]
+        raise ValueError(f"{source}: duplicate velocity barcodes. Examples: {duplicates}")
+    if not features.is_unique:
+        duplicates = features[features.duplicated()].unique().tolist()[:10]
+        raise ValueError(f"{source}: duplicate velocity feature IDs. Examples: {duplicates}")
+
+    matrices = {}
+    expected_shape = (len(barcodes), len(features))
+    for name in ["spliced", "unspliced", "ambiguous"]:
+        matrix = mmread(required[name]).T.tocsr()
+        if matrix.shape != expected_shape:
+            raise ValueError(
+                f"{required[name]}: matrix shape {matrix.shape} does not match velocity axes {expected_shape}"
+            )
+        matrices[name] = matrix
+
+    return matrices, barcodes, features
+
+
+def attach_velocity_layers(data, velocyto_dir, feature_filename, source, verbose=False, logger=None):
+    """Align validated raw velocity matrices to AnnData axes and record source-axis coverage."""
+    matrices, velocity_barcodes, velocity_features = load_velocity_source(
+        velocyto_dir, feature_filename, source
+    )
+
+    obs_idx = pd.Index(data.obs_names.astype(str), name=data.obs_names.name)
+    var_idx = pd.Index(data.var_names.astype(str), name=data.var_names.name)
+    unsupported_features = velocity_features.difference(var_idx)
+    if len(unsupported_features):
+        raise ValueError(
+            f"{source}: {len(unsupported_features)} velocity feature IDs are absent from the canonical feature axis. "
+            f"Examples: {unsupported_features[:10].tolist()}"
+        )
+
+    for name, matrix in matrices.items():
+        data.layers[name] = align_sparse_matrix_with_names(
+            matrix,
+            velocity_barcodes,
+            velocity_features,
+            obs_idx,
+            var_idx,
+            verbose=verbose,
+            logger=logger,
+        ).astype(np.int32)
+
+    return data
+
+
 def read_cellranger(fn, args, add_sample_id=True, **kw):
     """
     Read cellranger results.
@@ -724,12 +1011,24 @@ def read_cellranger(fn, args, add_sample_id=True, **kw):
         data.var["gene_ids"] = list(data.var_names)
         data.var.index.name = "gene_id"
 
-    sample_id = None
-    if add_sample_id:
-        sample_id = os.path.basename(os.path.dirname(dir_name))
-        data.obs["sample_id"] = sample_id
-    barcode_rename = kw.get("barcode_rename", args.barcode_rename)
-    data = barcode_index_rename(data, barcode_rename=barcode_rename, sample_id=sample_id, aggr_csv=args.aggr_csv)
+    sample_id = os.path.basename(os.path.dirname(dir_name)) if add_sample_id else None
+    has_canonical_mapping = bool(getattr(args, "barcode_info", None)) and any(
+        frame is not None and {"source_barcode", "library_id"}.issubset(frame.columns)
+        for frame in args.barcode_info
+    )
+
+    if add_sample_id and has_canonical_mapping:
+        # Canonical identity comes from barcode_info. Do not add the legacy lowercase
+        # sample_id column here: it can case-insensitively shadow canonical Sample_ID
+        # during sidecar merging when library_id == Sample_ID.
+        data = canonicalize_10x_library_barcodes(
+            data, sample_id, args.barcode_info, source="Cell Ranger"
+        )
+    else:
+        if add_sample_id:
+            data.obs["sample_id"] = sample_id
+        barcode_rename = kw.get("barcode_rename", args.barcode_rename)
+        data = barcode_index_rename(data, barcode_rename=barcode_rename, sample_id=sample_id, aggr_csv=args.aggr_csv)
 
     return data
 
@@ -751,12 +1050,7 @@ def read_cellranger_aggr(fn, args):
         AnnData object containing the cellranger-aggr data.
     """
     data = read_cellranger(fn, args, add_sample_id=False, barcode_rename="skip")
-    sample_map = dict((str(i + 1), n) for i, n in enumerate(args.aggr_csv.iloc[:, 0]))
-    postfix_numerical = [i.split("-")[1] for i in data.obs_names]
-    samples = [sample_map[i] for i in postfix_numerical]
-    data.obs["sample_id"] = samples
-    data = barcode_index_rename(data, barcode_rename=args.barcode_rename, sample_id=None, aggr_csv=args.aggr_csv)
-    return data
+    return validate_canonical_barcodes(data, args.barcode_info, source="Cell Ranger aggr")
 
 def read_velocyto_loom(fn, args, **kw):
     """
@@ -979,11 +1273,40 @@ def read_starsolo(fn, args, **kw):
     barcodes['starsolo_barcodes'] = barcodes.index
     barcodes.index.name = "barcode"
     barcode_stats_fn = join(mtx_dir, "..", "CellReads.stats")
-    if os.path.exists(barcode_stats_fn):
+    require_cell_reads = bool(getattr(args, "canonical_filtered", False)) and args.input_format in {
+        "10x_starsolo",
+        "parsebio_starsolo",
+    }
+
+    if require_cell_reads:
+        if not os.path.exists(barcode_stats_fn):
+            raise FileNotFoundError(
+                f"{barcode_stats_fn}: CellReads.stats is required for canonical STARsolo filtered assembly"
+            )
+
         bc_stats = pd.read_table(barcode_stats_fn, index_col=0)
+        bc_stats.index = bc_stats.index.astype(str)
         bc_stats.index.name = "barcode"
-        barcodes = barcodes.merge(bc_stats, how="left", left_index=True, right_index=True)
-        CBnotInPasslist = bc_stats.iloc[0] #fixme: add this info in adata.uns?
+        bc_stats = bc_stats.drop(index="CBnotInPasslist", errors="ignore")
+
+        if not bc_stats.index.is_unique:
+            duplicates = bc_stats.index[bc_stats.index.duplicated()].unique().tolist()[:10]
+            raise ValueError(f"{barcode_stats_fn}: duplicate barcode rows. Examples: {duplicates}")
+
+        missing = barcodes.index.astype(str).difference(bc_stats.index)
+        if len(missing):
+            raise ValueError(
+                f"{barcode_stats_fn}: missing CellReads.stats coverage for {len(missing)} matrix barcodes. "
+                f"Examples: {missing[:10].tolist()}"
+            )
+
+        barcodes = barcodes.merge(
+            bc_stats,
+            how="left",
+            left_index=True,
+            right_index=True,
+            validate="one_to_one",
+        )
     try:
         features = pd.read_csv(join(mtx_dir, "features.tsv"), sep="\t", dtype=str, header=None, index_col=0)
     except:
@@ -1002,58 +1325,46 @@ def read_starsolo(fn, args, **kw):
             velocyto_dir = mtx_dir.replace(os.path.sep + quant_model + os.path.sep, os.path.sep + "Velocyto" + os.path.sep)
             break
     if velocyto_dir and _USE_VELO:
-        velocyto_dir = velocyto_dir.replace(os.path.sep + "filtered", os.path.sep + "raw")
-        if os.path.exists(velocyto_dir):
-            logger.debug(velocyto_dir)
-            # --- read USA (cells×genes) + their indices ---
-            S = mmread(join(velocyto_dir, "spliced.mtx")).T.tocsr()
-            U = mmread(join(velocyto_dir, "unspliced.mtx")).T.tocsr()
-            A = mmread(join(velocyto_dir, "ambiguous.mtx")).T.tocsr()
+        velocyto_dir = join(os.path.dirname(velocyto_dir), "raw")
+        logger.debug(velocyto_dir)
+        data = attach_velocity_layers(
+            data,
+            velocyto_dir,
+            "features.tsv",
+            source=f"{args.input_format} Velocyto",
+            verbose=args.verbose,
+            logger=logger,
+        )
 
-            usa_barcodes = pd.Index(pd.read_csv(join(velocyto_dir, "barcodes.tsv"), header=None).iloc[:,0].astype(str))
-            usa_feat     = pd.Index(pd.read_csv(join(velocyto_dir, "features.tsv"), sep="\t", header=None).iloc[:,0].astype(str))
-
-            # --- target spaces: data.obs_names / data.var_names ---
-            obs_idx = pd.Index(data.obs_names.astype(str))   # length = n_obs
-            var_idx = pd.Index(data.var_names.astype(str))   # length = n_vars
-
-            # ROW mapping: USA cells -> data cells (zero-pad missing)
-            row_pos = obs_idx.get_indexer(usa_barcodes)       # size n_usa_cells; -1 for not present
-            row_keep = row_pos >= 0
-            # R maps USA rows into data rows: shape (n_obs, n_usa_cells)
-            R = sp.csr_matrix(
-                (np.ones(row_keep.sum(), dtype=np.int8),
-                 (row_pos[row_keep], np.flatnonzero(row_keep))),
-                shape=(obs_idx.size, usa_barcodes.size),
+    input_id = os.path.normpath(fn).split(os.path.sep)[-5]
+    if args.input_format == "10x_starsolo":
+        has_canonical_mapping = bool(getattr(args, "barcode_info", None)) and any(
+            frame is not None and {"source_barcode", "library_id"}.issubset(frame.columns)
+            for frame in args.barcode_info
+        )
+        if has_canonical_mapping:
+            data = canonicalize_10x_library_barcodes(
+                data, input_id, args.barcode_info, source="10x STARsolo"
             )
-
-            # COL mapping: USA genes -> data genes (zero-pad missing)
-            col_pos = var_idx.get_indexer(usa_feat)           # size n_usa_genes; -1 for not present
-            col_keep = col_pos >= 0
-            # C maps USA cols into data cols: shape (n_usa_genes, n_vars)
-            C = sp.csr_matrix(
-                (np.ones(col_keep.sum(), dtype=np.int8),
-                 (np.flatnonzero(col_keep), col_pos[col_keep])),
-                shape=(usa_feat.size, var_idx.size),
+        else:
+            barcode_rename = kw.get("barcode_rename", args.barcode_rename)
+            data = barcode_index_rename(
+                data, barcode_rename=barcode_rename, sample_id=input_id, aggr_csv=args.aggr_csv
             )
+    elif args.input_format == "parsebio_starsolo":
+        barcode_rename = kw.get("barcode_rename", args.barcode_rename)
+        if barcode_rename == "skip":
+            data = validate_canonical_barcode_subset(
+                data, args.barcode_info, key="Sample_ID", value=input_id, source="Parse STARsolo"
+            )
+        else:
+            data = barcode_index_rename(
+                data, barcode_rename=barcode_rename, sample_id=input_id, aggr_csv=args.aggr_csv
+            )
+    else:
+        barcode_rename = kw.get("barcode_rename", args.barcode_rename)
+        data = barcode_index_rename(data, barcode_rename=barcode_rename, sample_id=input_id, aggr_csv=args.aggr_csv)
 
-            # Apply both mappings: (R * USA) * C  -> shape (n_obs, n_vars)
-            S_full = (R @ S @ C).astype(np.int32)
-            U_full = (R @ U @ C).astype(np.int32)
-            A_full = (R @ A @ C).astype(np.int32)
-            
-            data.layers["spliced"]   = S_full
-            data.layers["unspliced"] = U_full
-            data.layers["ambiguous"] = A_full
-
-
-    
-    
-    library_id = os.path.normpath(fn).split(os.path.sep)[-5] #library_id
-    barcode_rename = kw.get("barcode_rename", args.barcode_rename)
-    data = barcode_index_rename(data, barcode_rename=barcode_rename, sample_id=library_id, aggr_csv=args.aggr_csv)
-    #if args.input_format in ['parsebio_starsolo']:
-    #    data.obs.rename(columns={"sample_id": "sublib"}, inplace=True)
     return data
 
 
@@ -1210,10 +1521,28 @@ def read_cellbender(fn, args, analyzed_barcodes_only=False, **kw):
     data = anndata_from_h5(fn, analyzed_barcodes_only=analyzed_barcodes_only)
     data.obs["sample_id"] = sample_id
 
-    if "gene_id" in data.var.columns and data.var.index.name == "gene_name":
-        data.var["gene_name"] = data.var_names.copy()
-        data.var_names = data.var["gene_id"]
-    data.var_names_make_unique(join=".")
+    if data.var.index.name == "gene_name":
+        gene_id = data.var.get("gene_id")
+        gene_id_valid = gene_id is not None and gene_id.notna().all()
+        if gene_id_valid:
+            gene_id_str = gene_id.astype(str)
+            gene_id_valid = (~gene_id_str.isin({"", "NA", "nan", "None"})).all() and gene_id_str.is_unique
+
+        if gene_id_valid:
+            data.var["gene_name"] = data.var_names.copy()
+            data.var_names = gene_id_str
+        else:
+            # CellBender may label the feature index as gene_name while the index
+            # actually contains the original unique quantifier feature IDs and the
+            # exported gene_id field is entirely NA. Preserve the source feature axis.
+            data.var_names = data.var_names.astype(str)
+            data.var.index.name = "gene_id"
+            if "gene_id" in data.var.columns:
+                data.var = data.var.drop(columns=["gene_id"])
+
+    if not data.var_names.is_unique:
+        duplicates = data.var_names[data.var_names.duplicated()].unique().tolist()[:10]
+        raise ValueError(f"{fn}: duplicate CellBender feature IDs. Examples: {duplicates}")
     barcode_rename = kw.get("barcode_rename", args.barcode_rename)
     data = barcode_index_rename(data, barcode_rename=barcode_rename, sample_id=sample_id, aggr_csv=args.aggr_csv)
     # need to rename `barcodes_analyzed` if present in .uns (this happens when reading the unfiltered data)
@@ -1237,98 +1566,101 @@ def read_cellbender(fn, args, analyzed_barcodes_only=False, **kw):
 
 def read_splitpipe(fn, args, **kw):
     """
-    Read split-pipe data.
+    Read a Split-pipe count matrix.
 
-    Parameters
-    ----------
-    fn : str
-        Path to the split-pipe output mtx file.
-    args : argparse.Namespace
-        Arguments passed to the script.
-
-    Returns
-    -------
-    sc.AnnData
-        AnnData object containing the ParseBio data.
+    cell_metadata.csv defines the matrix barcode axis only. Canonical per-cell
+    metadata is supplied separately through barcode_info.tsv.
     """
+    fn = os.path.abspath(fn)
     dir_name = os.path.dirname(fn)
-    pattern = r"/splitpipe/([^0-9/]+?)(\d+)(?=/)"
-    m = re.search(pattern, fn)
-    if m:
-        sublib_num = m.groups()[-1]
-        sublib = "".join(m.groups())
-    else:
-       raise ValueError(f"expected filename to indicate sublib-id in file: {fn}") 
-    mtx = sp.csr_matrix(mmread(fn)).T.tocsr()
+    logger.debug(f"Reading Split-pipe matrix from {fn}")
+
+    mtx = sp.csr_matrix(mmread(fn)).tocsr()
+
     features = None
-    for feature_fn in "all_genes.csv target_genes.csv all_guides.csv".split():
-        pth = os.path.join(dir_name, feature_fn)
-        try:
-            features = pd.read_csv(pth)
-        except:
-            # we might read a 10x mtx subdir
-            pth = os.path.join(os.path.dirname(dir_name), feature_fn)
-            features = pd.read_csv(pth)
-        if features is not None:
-            logger.debug(f"found gene meta at {pth}")
-            features["gene"] = features["gene_name"].fillna(features["gene_id"])
-            if "genome" in features:
-                if (len(features["genome"].unique()) > 1):
-                    features["gene"] = features["gene"] + "_" + features["genome"]
-            features.set_index("gene_id", inplace=True)
-            break
-    try:
-        obs = pd.read_csv(os.path.join(dir_name, "cell_metadata.csv"), index_col="bc_wells")
-    except:
-        dir_name = os.path.dirname(dir_name)
-        obs = pd.read_csv(os.path.join(dir_name, "cell_metadata.csv"), index_col="bc_wells")
-    keep_cols = [i for i in ["sample", "bc1_well", "bc2_well", "bc3_well"] if i in obs.columns]
-    obs = obs[keep_cols]
-    #count_cols = obs.columns[obs.columns.str.endswith("_count")]
-    #obs[count_cols] = obs[count_cols].fillna(0).astype(int)
-    cat_cols = list(set(["sample", "species"]).intersection(obs.columns))
-    obs[cat_cols] = obs[cat_cols].astype("category")
-    if "sample" in obs.columns:
-        obs.rename(columns={"sample": "sample_id"}, inplace=True)
-    obs["sublib"] = pd.Categorical([sublib] * obs.shape[0])
-    obs.index.name = "barcode"
-    data = anndata.AnnData(X=mtx, obs=obs, var=features)
-    
-    if 'DGE_filtered' in dir_name:
-        velocyto_dir = dir_name.replace('all-sample/DGE_filtered', 'velo')
+    for feature_file in ["all_genes.csv", "target_genes.csv", "all_guides.csv"]:
+        pth = join(dir_name, feature_file)
+        if not os.path.exists(pth):
+            pth = join(os.path.dirname(dir_name), feature_file)
+        if not os.path.exists(pth):
+            continue
+
+        features = pd.read_csv(pth)
+        features["gene"] = features["gene_name"].fillna(features["gene_id"])
+        if "genome" in features.columns and features["genome"].nunique() > 1:
+            features["gene"] = features["gene"] + "_" + features["genome"]
+        features.set_index("gene_id", inplace=True)
+        logger.debug(f"Found Split-pipe feature metadata at {pth}")
+        break
+
+    if features is None:
+        raise FileNotFoundError(f"Could not find Split-pipe feature metadata for {fn}")
+
+    metadata_fn = join(dir_name, "cell_metadata.csv")
+    if not os.path.exists(metadata_fn):
+        metadata_fn = join(os.path.dirname(dir_name), "cell_metadata.csv")
+    if not os.path.exists(metadata_fn):
+        raise FileNotFoundError(f"Could not find Split-pipe cell_metadata.csv for {fn}")
+
+    cell_metadata = pd.read_csv(metadata_fn, usecols=["bc_wells"], dtype={"bc_wells": str})
+    barcodes = pd.Index(cell_metadata["bc_wells"], name="barcode")
+
+    if not barcodes.is_unique:
+        duplicates = barcodes[barcodes.duplicated()].unique()
+        raise ValueError(f"{metadata_fn}: duplicate bc_wells values. Examples: {list(duplicates[:5])}")
+
+    expected = (len(barcodes), len(features))
+    transposed = (len(features), len(barcodes))
+
+    if mtx.shape == expected:
+        pass
+    elif mtx.shape == transposed:
+        logger.debug(
+            "Transposing Split-pipe matrix from genes×cells to cells×genes: "
+            f"{mtx.shape} -> {expected}"
+        )
+        mtx = mtx.T.tocsr()
     else:
-        velocyto_dir = dir_name.replace('all-sample/DGE_unfiltered', 'velo')
-    if os.path.exists(velocyto_dir):
-        for velo_name in ["spliced", "unspliced", "ambiguous"]:
-            velo_fn = pathlib.Path(join(velocyto_dir, f"{velo_name}.mtx"))
-            if velo_fn.exists() and _USE_VELO:
-                S = mmread(velo_fn).T
-                logger.debug(f"found velo data at {velo_fn}. Shape ({S.shape[0]}, {S.shape[1]})")
-                barcodes = np.loadtxt(join(velocyto_dir, "barcodes.tsv"), dtype=str)
-                features = np.loadtxt(join(velocyto_dir, "genes.tsv"), dtype=str)
-                if len(barcodes) != S.shape[0]:
-                    logger.info(barcodes[:3])
-                    logger.info(barcodes[-3:])
-                    logger.error(f"mismatch between mtx ({S.shape[0]}) and barcodes ({len(barcodes)})")
-                if len(features) != S.shape[1]:
-                    logger.info(features[:3])
-                    logger.info(features[-3:])
-                    logger.info(f"Number unique features: {len(set(features))}")
-                    logger.error(f"mismatch between mtx ({S.shape[1]}) and features ({len(features)})")
-                data.layers[velo_name] =  align_sparse_matrix_with_names(S, barcodes, features,
-                                                                         data.obs_names, data.var_names,
-                                                                         verbose=args.verbose, logger=logger)
+        raise ValueError(
+            f"Split-pipe matrix/metadata dimensions do not match in either orientation: "
+            f"matrix={mtx.shape}, expected cells×genes={expected} or genes×cells={transposed}"
+        )
+
+    obs = pd.DataFrame(index=barcodes)
+    data = anndata.AnnData(X=mtx, obs=obs, var=features)
+
+    if "DGE_filtered" in dir_name:
+        velocyto_dir = dir_name.replace("all-sample/DGE_filtered", "velo")
+    else:
+        velocyto_dir = dir_name.replace("all-sample/DGE_unfiltered", "velo")
+
+    if _USE_VELO:
+        data = attach_velocity_layers(
+            data,
+            velocyto_dir,
+            "genes.tsv",
+            source="Split-pipe Velocyto",
+            verbose=args.verbose,
+            logger=logger,
+        )
+
     barcode_rename = kw.get("barcode_rename", args.barcode_rename)
-    data = barcode_index_rename(data, barcode_rename=barcode_rename, sample_id=sublib, aggr_csv=args.aggr_csv)
+    if barcode_rename == "skip":
+        sample_id = os.path.basename(os.path.dirname(dir_name))
+        data = validate_canonical_barcode_subset(
+            data, args.barcode_info, key="Sample_ID", value=sample_id, source="Split-pipe"
+        )
+    else:
+        data = barcode_index_rename(data, barcode_rename=barcode_rename, aggr_csv=args.aggr_csv)
+
     if "gene_id" in data.var.columns and data.var.index.name == "gene_name":
         data.var["gene_name"] = data.var_names.copy()
         data.var_names = data.var["gene_id"]
-    data.var_names_make_unique(join=".")
 
-    # ensure that indices are not categorical
+    data.var_names_make_unique(join=".")
     data.obs.index = data.obs.index.astype(str)
     data.var.index = data.var.index.astype(str)
-    
+
     return data
 
 def mtx_zero_less_than(mtx, thresh, copy=False):
@@ -1432,8 +1764,12 @@ def _mtx_features(data, version=3, feature_type="Gene Expression"):
     version < 3  -> genes.tsv     : gene_id, gene_name
     version >= 3 -> features.tsv  : gene_id, gene_name, feature_type
     """
-    # gene_id
-    if "gene_id" in data.var.columns:
+    # gene_id: an explicitly named AnnData feature index is authoritative.
+    # This matters for CellBender, where var_names_make_unique() may resolve duplicate
+    # source IDs while a legacy gene_id column still contains the pre-resolution values.
+    if data.var.index.name == "gene_id":
+        gene_id = pd.Series(data.var_names.astype(str), index=data.var.index, name="gene_id")
+    elif "gene_id" in data.var.columns:
         gene_id = data.var["gene_id"].astype(str).copy()
     else:
         gene_id = pd.Series(data.var_names.astype(str), index=data.var.index, name="gene_id")
@@ -1685,6 +2021,46 @@ def _drop_ci_identical_to_existing(new_df: pd.DataFrame, existing_df: pd.DataFra
             if _ci_identical(s1, s2):
                 to_drop.append(col)
     return new_df.drop(columns=to_drop) if to_drop else new_df
+
+
+def _drop_blacklisted_columns(df: pd.DataFrame, blacklist) -> pd.DataFrame:
+    blacklist = {column.lower() for column in blacklist}
+    keep = [column for column in df.columns if column.lower() not in blacklist]
+    return df.loc[:, keep]
+
+
+def broadcast_entity_metadata(axis_df: pd.DataFrame, metadata: pd.DataFrame, key: str, source: str) -> pd.DataFrame:
+    """Broadcast entity-indexed metadata through an explicit key on an AnnData axis."""
+    if key not in axis_df.columns:
+        raise KeyError(f"Cannot broadcast {source}: destination axis is missing key {key!r}")
+    if not metadata.index.is_unique:
+        raise ValueError(f"Cannot broadcast {source}: metadata index {key!r} is not unique")
+
+    if axis_df[key].isna().any():
+        n_missing = int(axis_df[key].isna().sum())
+        raise ValueError(f"Cannot broadcast {source}: destination key {key!r} has {n_missing} missing value(s)")
+
+    keys = axis_df[key].astype(str)
+    missing = sorted(set(keys) - set(metadata.index.astype(str)))
+    if missing:
+        raise ValueError(f"{source}: {len(missing)} {key} value(s) are missing from metadata; examples: {missing[:5]}")
+
+    incoming = metadata.loc[keys].copy()
+    incoming.index = axis_df.index.copy()
+    incoming = _drop_ci_identical_to_existing(incoming, axis_df)
+
+    if incoming is None or incoming.empty:
+        return axis_df
+
+    overlap = {column.lower(): column for column in axis_df.columns}
+    conflicts = [column for column in incoming.columns if column.lower() in overlap]
+    if conflicts:
+        raise ValueError(
+            f"{source}: conflicting metadata column(s) after broadcast: {conflicts}. "
+            "Identical duplicates should have been removed before this check."
+        )
+
+    return axis_df.join(incoming, how="left", validate="one_to_one")
 
 
 def drop_ci_identical_same_name(df: pd.DataFrame) -> pd.DataFrame:
@@ -2107,6 +2483,66 @@ def apply_canonical_filters(
 
 
 
+
+def align_canonical_feature_axes(data_list, input_labels):
+    """Validate and align feature axes before canonical multi-library concatenation."""
+    if len(data_list) != len(input_labels):
+        raise ValueError("Feature-axis validation requires one input label per AnnData object")
+    if not data_list:
+        raise ValueError("No AnnData objects supplied for feature-axis validation")
+
+    reference = pd.Index(data_list[0].var_names.astype(str), name=data_list[0].var_names.name)
+    if not reference.is_unique:
+        duplicated = reference[reference.duplicated()].unique().tolist()[:10]
+        raise ValueError(
+            f"{input_labels[0]}: canonical feature axis contains duplicate feature IDs. "
+            f"Examples: {duplicated}"
+        )
+
+    aligned = [data_list[0]]
+    reference_set = set(reference)
+
+    for data, label in zip(data_list[1:], input_labels[1:]):
+        current = pd.Index(data.var_names.astype(str), name=data.var_names.name)
+        if not current.is_unique:
+            duplicated = current[current.duplicated()].unique().tolist()[:10]
+            raise ValueError(
+                f"{label}: canonical feature axis contains duplicate feature IDs. "
+                f"Examples: {duplicated}"
+            )
+
+        current_set = set(current)
+        missing = reference_set - current_set
+        extra = current_set - reference_set
+        if missing or extra:
+            raise ValueError(
+                "Canonical count inputs have incompatible feature universes: "
+                f"{label} differs from {input_labels[0]}; "
+                f"missing={len(missing)}, extra={len(extra)}, "
+                f"missing_examples={sorted(missing)[:10]}, extra_examples={sorted(extra)[:10]}"
+            )
+
+        if not current.equals(reference):
+            logger.info("Reordering feature axis for %s to match %s", label, input_labels[0])
+            data = data[:, reference].copy()
+
+        aligned.append(data)
+
+    return aligned
+
+
+def validate_canonical_nonempty_cells(data):
+    """Fail when a called cell has zero counts in the selected canonical count representation."""
+    row_sum = np.asarray(data.X.sum(axis=1)).ravel()
+    zero = row_sum == 0
+    if zero.any():
+        examples = data.obs_names[zero].astype(str).tolist()[:10]
+        raise ValueError(
+            "Canonical filtered AnnData contains called cells with zero counts in the selected "
+            f"count representation: n={int(zero.sum())}. Examples: {examples}"
+        )
+
+
 READERS = {
     "cellranger_aggr": read_cellranger_aggr,
     "cellranger": read_cellranger,
@@ -2137,13 +2573,14 @@ if __name__ == "__main__":
     setup_logging(verbose=args.verbose)
     logger = logging.getLogger(__name__)
     logger.info("=== convert_scanpy.py starting ===")
-    _USE_VELO = _USE_VELO and "anndata" in args.output_format
+    _USE_VELO = args.use_velo and "anndata" in args.output_format
 
     # -------------------------
     # Filter inputs by aggr CSV (optional)
     # -------------------------
     if args.aggr_csv is not None and len(args.input) > 1:
-        logger.info(f"Filtering {len(args.input)} inputs by aggr CSV: {args.aggr_csv}")
+        library_order = args.aggr_csv.iloc[:, 0].astype(str).tolist()
+        logger.info("Ordering %d inputs by aggregation libraries: %s", len(args.input), ", ".join(library_order))
         args.input = filter_input_by_csv(args.input, args.aggr_csv, verbose=args.verbose)
         logger.info(f"Remaining inputs after filter: {len(args.input)}")
 
@@ -2166,6 +2603,7 @@ if __name__ == "__main__":
     # Read all inputs (per-file)
     # -------------------------
     data_list = []
+    input_labels = []
     for i, fn in enumerate(args.input, 1):
         abs_fn = os.path.abspath(fn)
         logger.info(f"[{i}/{len(args.input)}] Reading: {abs_fn}")
@@ -2178,6 +2616,10 @@ if __name__ == "__main__":
                 logger.debug(f"Post-empty-droplet: shape={data.shape}")
 
         data_list.append(data)
+        input_labels.append(abs_fn)
+
+    if args.canonical_filtered:
+        data_list = align_canonical_feature_axes(data_list, input_labels)
 
     # -------------------------
     # Optional per-gemgroup downsampling for normalization
@@ -2191,7 +2633,8 @@ if __name__ == "__main__":
     # -------------------------
     if len(data_list) > 1:
         logger.info(f"Concatenating {len(data_list)} AnnData objects")
-        data = anndata.concat(data_list, join="outer", merge="unique", uns_merge=None)
+        join_mode = "inner" if args.canonical_filtered else "outer"
+        data = anndata.concat(data_list, join=join_mode, merge="unique", uns_merge=None)
         # Drop accidental duplicate columns generated by concat naming
         if any(c.endswith("-0") for c in data.var.columns):
             logger.info("Removing duplicate columns in .var (suffix -0)")
@@ -2200,9 +2643,12 @@ if __name__ == "__main__":
         data = data_list[0]
 
     # -------------------------
-    # Remove all-zero cells & genes (unless opted out)
+    # Canonical filtered-object integrity / legacy zero filtering
     # -------------------------
-    if not args.no_zero_cell_rm:
+    if args.canonical_filtered:
+        validate_canonical_nonempty_cells(data)
+        logger.info("Canonical filtered assembly: retaining zero-count features")
+    elif not args.no_zero_cell_rm:
         logger.info("Removing cells/features with all zeros ...")
         # cells
         row_sum = data.X.sum(1)
@@ -2256,31 +2702,6 @@ if __name__ == "__main__":
 
         data = data_filtered
 
-
-    # -------------------------
-    # Merge sample_info (optional)
-    # -------------------------
-    if args.sample_info is not None:
-        logger.info("Merging sample_info into .obs ...")
-        prev_cols = set(data.obs.columns)
-        sample_id_key = "sample_id" if "sample_id" in data.obs.columns else "sublib"
-        sample_ids = [str(i) for i in data.obs[sample_id_key]]
-        lib_ids = pd.unique(sample_ids)
-        for l in lib_ids:
-            if l not in args.sample_info.index:
-                raise ValueError(f"Library `{l}` not present in sample_info")
-
-        obs = args.sample_info.loc[sample_ids, :]
-        obs.index = data.obs.index.copy()
-
-        logger.info(f"Adding {obs.shape[1]} meta columns to .obs (had {len(prev_cols)} columns)")
-        data.obs = data.obs.merge(
-            obs, how="left", left_index=True, right_index=True,
-            suffixes=("", "_sample_info"), validate="one_to_one"
-        )
-        added = [c for c in data.obs.columns if c not in prev_cols]
-        if added:
-            logger.info(f"Added columns to .obs: {', '.join(added)}")
 
     # -------------------------
     # Merge feature_info (optional)
@@ -2355,20 +2776,61 @@ if __name__ == "__main__":
     # -------------------------
     if args.barcode_info:
         logger.info(f"Merging {len(args.barcode_info)} barcode-info DataFrame(s) into .obs ...")
+        demultiplex_frames = [bi for bi in args.barcode_info if bi is not None and "donor_id" in bi.columns]
+        namespace_demultiplex = len(demultiplex_frames) > 1
         for i, bi in enumerate(args.barcode_info, 1):
+            complete_domain = None
+            if "autoqc_pass" in bi.columns:
+                complete_domain = "Auto-QC mask"
+            elif "doublet_call" in bi.columns:
+                complete_domain = "Doublet classification"
+
+            if complete_domain is not None:
+                missing = data.obs.index.difference(bi.index)
+                extra = bi.index.difference(data.obs.index)
+                if len(missing) or len(extra):
+                    raise ValueError(
+                        f"{complete_domain} must exactly cover the canonical filtered observation universe; "
+                        f"missing={len(missing)} extra={len(extra)}"
+                    )
+            elif "donor_id" in bi.columns:
+                extra = bi.index.difference(data.obs.index)
+                if len(extra):
+                    raise ValueError(
+                        "Demultiplexing sidecar must be a subset of the canonical filtered observation universe; "
+                        f"extra={len(extra)}"
+                    )
+                demultiplex_method = bi.attrs["demultiplex_method"]
+                logger.info(
+                    "[barcode-info %d] demultiplexing method=%s coverage: %d/%d canonical cells",
+                    i,
+                    demultiplex_method,
+                    len(bi.index),
+                    data.n_obs,
+                )
+                if namespace_demultiplex:
+                    bi = bi.rename(columns={column: f"{demultiplex_method}_{column}" for column in bi.columns})
+                    logger.info(
+                        "[barcode-info %d] namespaced demultiplexing columns with prefix %s_",
+                        i,
+                        demultiplex_method,
+                    )
             bi = bi.reindex(data.obs.index)
             bi = _drop_ci_identical_to_existing(bi, data.obs)
             if bi is None or bi.empty:
                 logger.info(f"[barcode-info {i}] nothing to add (all columns identical to existing)")
                 continue
 
+            existing_columns = {column.lower(): column for column in data.obs.columns}
+            conflicts = [column for column in bi.columns if column.lower() in existing_columns]
+            if conflicts:
+                raise ValueError(
+                    f"[barcode-info {i}] conflicting metadata column(s): {conflicts}. "
+                    "Canonical barcode metadata must not depend on merge-order suffixes."
+                )
+
             before = set(data.obs.columns)
-            data.obs = data.obs.merge(
-                bi, how="left",
-                left_index=True, right_index=True,
-                suffixes=("", f"_barcode_info{i}"),
-                validate="one_to_one",
-            )
+            data.obs = data.obs.join(bi, how="left", validate="one_to_one")
             added = [c for c in data.obs.columns if c not in before]
             if added:
                 #logger.info(f"[barcode-info {i}] added {len(added)} column(s): {', '.join(added[:12])}{'…' if len(added)>12 else ''}")
@@ -2377,7 +2839,27 @@ if __name__ == "__main__":
                     logger.info(f"  * {a}")
                 
         data.obs = drop_ci_identical_same_name(data.obs)
-        data.obs = anndata_friendly_dtypes(data.obs, protect_cols=("barcode",), allow_string_dtype=False)
+        data.obs = anndata_friendly_dtypes(data.obs, protect_cols=("barcode","cell_barcode", "stype"), allow_string_dtype=False)
+
+    # -------------------------
+    # Broadcast entity-level metadata onto .obs
+    # -------------------------
+    if args.sample_info is not None:
+        logger.info("Broadcasting sample_info onto .obs through Sample_ID ...")
+        sample_info = _drop_blacklisted_columns(args.sample_info, _SAMPLE_INFO_BLACKLIST)
+        data.obs = broadcast_entity_metadata(data.obs, sample_info, "Sample_ID", "sample_info")
+
+    if args.library_info is not None:
+        logger.info("Broadcasting library_info onto .obs through library_id ...")
+        library_info = _drop_blacklisted_columns(args.library_info, _LIBRARY_INFO_BLACKLIST)
+        data.obs = broadcast_entity_metadata(data.obs, library_info, "library_id", "library_info")
+
+    # source_barcode is an intermediate identity field used to construct and align
+    # canonical barcodes. Keep it in barcode_info sidecars, but not in AnnData:
+    # the local barcode sequence is recoverable from the canonical obs index.
+    if "source_barcode" in data.obs.columns:
+        data.obs.drop(columns="source_barcode", inplace=True)
+        logger.info("Dropped intermediate source_barcode from .obs")
 
     # -------------------------
     # Drop blacklisted feature-info columns (case-insensitive)

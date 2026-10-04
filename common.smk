@@ -26,6 +26,6 @@ rule sample_info:
         'docker://' + config['docker']['default']
     params:
         script = src_gcf('scripts/create_sampleinfo.py'),
-        pep = 'config.yaml' if config.get('skip_peppy', False) else workflow.pepfile
+        pep = workflow.configfiles[0] if config.get('skip_peppy', False) else workflow.pepfile
     shell:
         'python {params.script} {params.pep} {output}'
