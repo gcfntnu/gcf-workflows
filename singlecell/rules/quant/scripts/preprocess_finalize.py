@@ -296,6 +296,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--diagnostics", required=True)
     parser.add_argument("--diagnostics-summary", required=True)
     parser.add_argument("--annotation", nargs="*", default=[])
+    parser.add_argument("--annotation-provenance-json", required=True)
     parser.add_argument("--output-anndata", required=True)
     parser.add_argument("--output-metadata", required=True)
     parser.add_argument("--expression-json", required=True)
@@ -319,6 +320,7 @@ def main() -> int:
     expression_cfg = json.loads(args.expression_json)
     metadata_cfg = json.loads(args.metadata_json)
     execution_cfg = json.loads(args.execution_json)
+    annotation_provenance = json.loads(args.annotation_provenance_json)
 
     cells = read_plan(args.cells, "barcode")
     genes = read_plan(args.genes, "gene_id")
@@ -413,6 +415,13 @@ def main() -> int:
     for annotation_path in args.annotation:
         annotation = read_annotation_sidecar(annotation_path, adata.obs_names)
         adata.obs = merge_frame(adata.obs, annotation, f"Annotation sidecar {annotation_path}")
+
+    provenance_sidecars = [entry["sidecar"] for entry in annotation_provenance.values()]
+    if provenance_sidecars != list(args.annotation):
+        raise ValueError(
+            "Annotation provenance sidecars do not match annotation inputs: "
+            f"provenance={provenance_sidecars}, inputs={list(args.annotation)}"
+        )
 
     annotation_columns = [str(column) for column in metadata_cfg.get("annotation_columns", [])]
     missing_annotation_columns = [column for column in annotation_columns if column not in adata.obs.columns]
@@ -511,6 +520,7 @@ def main() -> int:
         "diagnostics_metrics_format": "json_records",
         "diagnostics_metrics_json": diagnostics.to_json(orient="records"),
         "metadata_config": metadata_cfg,
+        "annotation": annotation_provenance,
         "execution": execution_cfg,
     }
 
@@ -559,9 +569,7 @@ def main() -> int:
             "enabled": integration_enabled,
             "method": args.integration_method if integration_enabled else None,
         },
-        "annotation": {
-            "sidecars": list(args.annotation),
-        },
+        "annotation": annotation_provenance,
         "diagnostics": {
             "metrics": args.diagnostics,
             "summary_pdf": args.diagnostics_summary,
