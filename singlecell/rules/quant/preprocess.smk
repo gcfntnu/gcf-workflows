@@ -743,7 +743,7 @@ if 'celltypist' in PREPROCESS_ANNOTATION_METHODS:
         threads:
             8
         resources:
-            gpu = 0
+            gpu = 1
         log:
             join(PREPROCESS_LOG_DIR, 'annotation_celltypist.log')
         wildcard_constraints:
