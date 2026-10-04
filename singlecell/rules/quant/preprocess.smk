@@ -772,7 +772,8 @@ rule preprocess_diagnostics:
         labels = PREPROCESS_CLUSTERING_LABELS,
         obs = PREPROCESS_OBS,
         graph_metrics = PREPROCESS_GRAPH_METRICS,
-        clustering_metrics = PREPROCESS_CLUSTERING_METRICS
+        clustering_metrics = PREPROCESS_CLUSTERING_METRICS,
+        annotations = preprocess_annotation_outputs
     output:
         metrics = PREPROCESS_DIAGNOSTICS,
         summary = PREPROCESS_DIAGNOSTICS_PDF
@@ -804,6 +805,7 @@ rule preprocess_diagnostics:
         '--obs {input.obs} '
         '--graph-metrics {input.graph_metrics} '
         '--clustering-metrics {input.clustering_metrics} '
+        '--annotation {input.annotations} '
         '--metrics {output.metrics} '
         '--summary {output.summary} '
         '--config-json {params.cfg} '
