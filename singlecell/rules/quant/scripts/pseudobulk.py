@@ -15,7 +15,7 @@ def parse_args():
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", required=True, type=Path, help="Input AnnData file.")
-    parser.add_argument("--annotation", required=True, type=Path, help="Barcode annotation TSV.")
+    parser.add_argument("--counts-layer", default="counts", help="AnnData layer containing raw counts.")
     parser.add_argument("--replicate-column", required=True, help="Replicate column in adata.obs.")
     parser.add_argument("--annotation-column", required=True, help="Annotation column used for aggregation.")
     parser.add_argument("--min-cells", required=True, type=int, help="Minimum cells per pseudobulk.")
@@ -42,53 +42,6 @@ def setup_logging(log_file=None):
         format="%(asctime)s - %(levelname)s - %(message)s",
         handlers=handlers,
     )
-
-
-def read_annotation(path):
-    """Read canonical barcode annotation TSV."""
-    annotation = pd.read_csv(path, sep="\t")
-
-    if "barcode" not in annotation.columns:
-        raise ValueError(f"{path} is missing required column 'barcode'")
-
-    annotation["barcode"] = annotation["barcode"].astype(str)
-    annotation = annotation.set_index("barcode")
-
-    if not annotation.index.is_unique:
-        duplicated = annotation.index[annotation.index.duplicated()].unique().tolist()
-        raise ValueError(f"{path} contains duplicate barcodes. Examples: {duplicated[:10]}")
-
-    return annotation
-
-
-def add_annotation(adata, annotation):
-    """Add annotation columns to AnnData observations."""
-    missing = adata.obs_names.difference(annotation.index)
-    if len(missing):
-        raise ValueError(
-            f"{len(missing)} AnnData barcodes are missing from annotation. "
-            f"Examples: {missing[:10].tolist()}"
-        )
-
-    annotation = annotation.reindex(adata.obs_names)
-
-    for column in annotation.columns:
-        if column in adata.obs.columns:
-            existing = adata.obs[column]
-            incoming = annotation[column]
-
-            both = existing.notna() & incoming.notna()
-            mismatch = both & (existing.astype(str) != incoming.astype(str))
-            if mismatch.any():
-                examples = adata.obs_names[mismatch][:10].tolist()
-                raise ValueError(
-                    f"Annotation column '{column}' conflicts with existing adata.obs values. "
-                    f"Examples: {examples}"
-                )
-
-            adata.obs[column] = existing.where(existing.notna(), incoming)
-        else:
-            adata.obs[column] = annotation[column]
 
 
 def validate_replicate_column(adata, column):
@@ -364,8 +317,9 @@ def main():
     logging.info("Reading %s", args.input)
     adata = ad.read_h5ad(args.input)
 
-    annotation = read_annotation(args.annotation)
-    add_annotation(adata, annotation)
+    if args.counts_layer not in adata.layers:
+        raise ValueError(f"Counts layer {args.counts_layer!r} not found in AnnData.layers")
+    adata.X = adata.layers[args.counts_layer]
 
     validate_replicate_column(adata, args.replicate_column)
     validate_annotation_column(adata, args.annotation_column)
