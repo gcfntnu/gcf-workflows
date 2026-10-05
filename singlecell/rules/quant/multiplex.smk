@@ -42,6 +42,12 @@ def demux_config_requires_n_individuals():
 
 
 if DEMUX_CONFIG['method'] != 'skip':
+    if '10x_starsolo' in METHODS and not STARSOLO_OUTPUT_BAM:
+        raise ValueError(
+            'quant.starsolo.output_bam must be true when '
+            '10x_starsolo demultiplexing is enabled.'
+        )
+
     if demux_config_requires_n_individuals() and DEMUX_CONFIG.get('n_individuals', -1) < 1:
         raise ValueError(
             'quant.demultiplex.n_individuals must be set when '
@@ -65,13 +71,12 @@ def get_singlecell_barcodes(wildcards):
     else:
         raise ValueError
 
+
 def get_singlecell_bam(wildcards):
     if wildcards.quantifier == 'cellranger':
         return rules.cellranger_quant.output.bam
     elif wildcards.quantifier == '10x_starsolo':
-        if STARSOLO_OUTPUT_BAM:
-            return rules.starsolo_quant.output.bam
-        return join(QUANT_INTERIM, '10x_starsolo', wildcards.sample, 'Aligned.sortedByCoord.out.bam')
+        return rules.starsolo_quant.output.bam
     elif wildcards.quantifier == 'alevin':
         return rules.starsolo_bam.output
     else:
@@ -80,9 +85,7 @@ def get_singlecell_bam(wildcards):
 
 def get_singlecell_bam_index(wildcards):
     if wildcards.quantifier == '10x_starsolo':
-        if STARSOLO_OUTPUT_BAM:
-            return rules.starsolo_bam_index.output
-        return rules.multiplex_starsolo_bam_index.output.bai
+        return rules.starsolo_bam_index.output
     return []
 
 
@@ -95,22 +98,8 @@ def get_donor_vcf(wildcards):
     else:
         vcf_fn = "cellSNP.cells.chr.vcf"
     return join(donor_dir, wildcards.sample, vcf_fn)
-
-
-if not STARSOLO_OUTPUT_BAM:
-    rule multiplex_starsolo_bam_index:
-        input:
-            bam = join(QUANT_INTERIM, '10x_starsolo', '{sample}', 'Aligned.sortedByCoord.out.bam')
-        output:
-            bai = join(QUANT_INTERIM, '10x_starsolo', '{sample}', 'Aligned.sortedByCoord.out.bam.bai')
-        threads:
-            4
-        container:
-            'docker://' + config['docker']['samtools']
-        shell:
-            'samtools index -@ {threads} {input.bam}'
-
-
+                
+            
 rule bam_rename_chromosomes:
     input:
         bam = get_singlecell_bam,
