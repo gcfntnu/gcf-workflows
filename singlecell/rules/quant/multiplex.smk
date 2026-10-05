@@ -17,11 +17,35 @@ def demux_method_uses_reference(method):
     return method.endswith('_ref') or method in ['vireo_ref_rescue', 'souporcell_ref_demuxafy']
 
 
+def demux_method_requires_n_individuals(method):
+    return method in {
+        'vireo_noref',
+        'souporcell_noref',
+        'souporcell_ref',
+        'souporcell_ref_demuxafy',
+        'freemuxlet_noref',
+        'demuxalot_noref',
+    }
+
+
+def demux_config_requires_n_individuals():
+    method = DEMUX_CONFIG['method']
+
+    if method == 'skip':
+        return False
+    if method == 'default':
+        return not DEMUX_CONFIG.get('donor_dir')
+    if method == 'demuxafy':
+        return True
+
+    return any(demux_method_requires_n_individuals(m) for m in DEMUX_METHODS)
+
+
 if DEMUX_CONFIG['method'] != 'skip':
-    if DEMUX_CONFIG['n_individuals'] < 1:
+    if demux_config_requires_n_individuals() and DEMUX_CONFIG.get('n_individuals', -1) < 1:
         raise ValueError(
             'quant.demultiplex.n_individuals must be set when '
-            'demultiplexing is enabled.'
+            'the selected demultiplexing method requires donor cardinality.'
         )
 
     if any(demux_method_uses_reference(m) for m in DEMUX_METHODS) and not DEMUX_CONFIG.get('donor_dir'):
@@ -45,7 +69,9 @@ def get_singlecell_bam(wildcards):
     if wildcards.quantifier == 'cellranger':
         return rules.cellranger_quant.output.bam
     elif wildcards.quantifier == '10x_starsolo':
-        return rules.starsolo_quant.output.bam
+        if STARSOLO_OUTPUT_BAM:
+            return rules.starsolo_quant.output.bam
+        return join(QUANT_INTERIM, '10x_starsolo', wildcards.sample, 'Aligned.sortedByCoord.out.bam')
     elif wildcards.quantifier == 'alevin':
         return rules.starsolo_bam.output
     else:
@@ -54,7 +80,9 @@ def get_singlecell_bam(wildcards):
 
 def get_singlecell_bam_index(wildcards):
     if wildcards.quantifier == '10x_starsolo':
-        return rules.starsolo_bam_index.output
+        if STARSOLO_OUTPUT_BAM:
+            return rules.starsolo_bam_index.output
+        return rules.multiplex_starsolo_bam_index.output.bai
     return []
 
 
@@ -67,8 +95,22 @@ def get_donor_vcf(wildcards):
     else:
         vcf_fn = "cellSNP.cells.chr.vcf"
     return join(donor_dir, wildcards.sample, vcf_fn)
-                
-            
+
+
+if not STARSOLO_OUTPUT_BAM:
+    rule multiplex_starsolo_bam_index:
+        input:
+            bam = join(QUANT_INTERIM, '10x_starsolo', '{sample}', 'Aligned.sortedByCoord.out.bam')
+        output:
+            bai = join(QUANT_INTERIM, '10x_starsolo', '{sample}', 'Aligned.sortedByCoord.out.bam.bai')
+        threads:
+            4
+        container:
+            'docker://' + config['docker']['samtools']
+        shell:
+            'samtools index -@ {threads} {input.bam}'
+
+
 rule bam_rename_chromosomes:
     input:
         bam = get_singlecell_bam,
@@ -165,6 +207,8 @@ rule vireo_donor_subset:
     container:
         "docker://biocontainers/bcftools:v1.9-1-deb_cv1"
     shell:
+        'bcftools query -l {input.donor_vcf} | grep -q . || '
+        '(echo "ERROR: donor VCF contains no samples: {input.donor_vcf}" >&2; exit 1); '
         'bcftools view '
         '{input.donor_vcf} '
         '-T {input.cellsnp_vcf} '
@@ -206,7 +250,6 @@ rule vireo_ref:
         singlet = join(DEMUX_DIR, "vireo_ref", "prob_singlet.tsv.gz"),
         summary = join(DEMUX_DIR, "vireo_ref", "summary.tsv"),
     params:
-        n = DEMUX_CONFIG["n_individuals"],
         vireo_dir = join(DEMUX_DIR, "vireo_ref"),
         cellsnp_dir = rules.cellsnp_pileup_1a.params.cellsnp_dir,
         force_learn_gt = "--forceLearnGT" if VIREO_CONFIG.get("force_learn_gt", False) else ""
@@ -219,7 +262,6 @@ rule vireo_ref:
         '-d {input.donor_vcf} '
         '-c {params.cellsnp_dir} '
         '-o {params.vireo_dir} '
-        '-N {params.n} '
         '--nproc {threads} '
         '{params.force_learn_gt}'
 
