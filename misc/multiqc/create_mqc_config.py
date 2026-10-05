@@ -25,11 +25,21 @@ QC_PLACEMENT = {
 
 def get_software_versions(args):
     versions = {}
-    with open(os.path.join(args.repo_dir, ".git", "HEAD"), 'r') as head_fh:
-        branch = head_fh.read().split('/')[-1].rstrip()
-    with open(os.path.join(args.repo_dir, ".git", "refs", "heads", branch), 'r') as commit_fh:
-        commit = commit_fh.read().rstrip()
-    versions["Analysis pipeline"] = "github.com/gcfntnu/gcf-workflows/tree/{} commit {}".format(branch, commit)
+    git = ["git", "-C", os.fspath(args.repo_dir)]
+    try:
+        commit = subprocess.run(git + ["rev-parse", "--verify", "HEAD^{commit}"],
+                                check=True, capture_output=True, text=True).stdout.strip()
+        head = subprocess.run(git + ["symbolic-ref", "--quiet", "HEAD"], capture_output=True, text=True)
+        if head.returncode == 1:  # Detached HEAD: use the commit as the tree reference.
+            ref = commit
+        else:
+            head.check_returncode()
+            ref = head.stdout.strip().removeprefix("refs/heads/")
+    except OSError as error:
+        raise RuntimeError(f"Cannot run Git for workflow repository {args.repo_dir!r}: {error}") from error
+    except subprocess.CalledProcessError as error:
+        raise RuntimeError(f"Cannot resolve Git revision for workflow repository {args.repo_dir!r}: {error.stderr.strip()}") from error
+    versions["Analysis pipeline"] = "github.com/gcfntnu/gcf-workflows/tree/{} commit {}".format(ref, commit)
     software = '\n'.join(f"{key}: {val}" for key, val in versions.items())
     return software
 
