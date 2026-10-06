@@ -241,7 +241,8 @@ rule vireo_ref:
     params:
         vireo_dir = join(DEMUX_DIR, "vireo_ref"),
         cellsnp_dir = rules.cellsnp_pileup_1a.params.cellsnp_dir,
-        force_learn_gt = "--forceLearnGT" if VIREO_CONFIG.get("force_learn_gt", False) else ""
+        force_learn_gt = "--forceLearnGT" if VIREO_CONFIG.get("force_learn_gt", False) else "",
+        rand_seed = VIREO_CONFIG.get("rand_seed", 1)
     threads:
         24
     container:
@@ -252,7 +253,8 @@ rule vireo_ref:
         '-c {params.cellsnp_dir} '
         '-o {params.vireo_dir} '
         '--nproc {threads} '
-        '{params.force_learn_gt}'
+        '{params.force_learn_gt} '
+        '--randSeed {params.rand_seed}'
 
 
 rule vireo_droplet_type:
