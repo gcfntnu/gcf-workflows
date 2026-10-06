@@ -117,6 +117,7 @@ rule vireo_ref_rescue:
         manifest = join(QUANT_INTERIM, "{quantifier}", "demultiplexing", "vireo_ref_rescue", "audit", "run_manifest.json"),
     params:
         script = src_gcf("scripts/resolve_vireo_donors.py"),
+        validate_script = src_gcf("scripts/validate_vireo_rescue_components.py"),
         quant_dir = join(QUANT_INTERIM, "{quantifier}"),
         audit_dir = join(QUANT_INTERIM, "{quantifier}", "demultiplexing", "vireo_ref_rescue", "audit"),
         physical_anchors = get_physical_anchor_args(),
@@ -149,3 +150,6 @@ rule vireo_ref_rescue:
         '--targeted-min-shared {params.targeted_min_shared} '
         '--targeted-min-support {params.targeted_min_support} '
         '--targeted-min-margin {params.targeted_min_margin} '
+        '&& python {params.validate_script} '
+        '--component-map {output.component_map} '
+        '--donor-design {input.donor_design}'

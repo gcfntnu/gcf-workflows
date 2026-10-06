@@ -53,12 +53,14 @@ def main():
 
     for sample, vcf in zip(args.samples, args.vcfs):
         donors = read_vcf_samples(vcf)
+        expected_donors = "|".join(donors)
         rows.append(
             {
                 "Sample_ID": str(sample),
-                # Keep the resolver's existing input contract while deriving
-                # donor membership from the authoritative donor VCF header.
-                "patient_source_id": "|".join(donors),
+                "expected_donors": expected_donors,
+                # Transitional compatibility alias for resolve_vireo_donors.py.
+                # Both columns are derived from the authoritative donor VCF header.
+                "patient_source_id": expected_donors,
                 "source_vcf": str(vcf),
             }
         )
