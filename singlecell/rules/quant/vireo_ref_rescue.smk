@@ -1,5 +1,36 @@
 RESCUE_CONFIG = DEMUX_CONFIG["rescue"]
 
+
+def get_rescue_donor_vcfs(wildcards):
+    donor_dir = DEMUX_CONFIG["donor_dir"]
+    vcf_name = "cellSNP.cells.vcf" if config["db"]["reference_db"] == "ensembl" else "cellSNP.cells.chr.vcf"
+    return [join(donor_dir, sample, vcf_name) for sample in SAMPLES]
+
+
+rule vireo_ref_donor_design:
+    input:
+        donor_vcfs = get_rescue_donor_vcfs,
+    output:
+        design = join(
+            QUANT_INTERIM,
+            "{quantifier}",
+            "demultiplexing",
+            "vireo_ref_rescue",
+            "audit",
+            "donor_design.tsv",
+        ),
+    params:
+        script = src_gcf("scripts/build_vireo_donor_design.py"),
+        samples = " ".join(SAMPLES),
+    container:
+        "docker://" + config["docker"]["default"]
+    shell:
+        'python {params.script} '
+        '--samples {params.samples} '
+        '--vcfs {input.donor_vcfs} '
+        '--output {output.design}'
+
+
 rule vireo_ref_donor_fingerprint:
     input:
         cells = rules.cellsnp_pileup_1a.output.samples,
@@ -27,6 +58,7 @@ rule vireo_ref_donor_fingerprint:
         '--summary {output.summary} '
         '--min-prob-max {params.min_prob}'
 
+
 def get_physical_anchor_args():
     args = []
 
@@ -35,6 +67,7 @@ def get_physical_anchor_args():
             args.append(f"--physical-anchor {sample}:{component}:{donor}")
 
     return " ".join(args)
+
 
 def get_residual_pair_args():
     residual_config = RESCUE_CONFIG["residual_pair"]
@@ -51,10 +84,9 @@ def get_residual_pair_args():
     )
 
 
-
 rule vireo_ref_rescue:
     input:
-        sample_info = join(INTERIM_DIR, "sample_info.tsv"),
+        donor_design = rules.vireo_ref_donor_design.output.design,
         fingerprints = expand(
             join(QUANT_INTERIM, "{quantifier}", "{sample}", "demultiplexing", "vireo_ref", "donor_fingerprint.tsv"),
             sample=SAMPLES,
@@ -103,7 +135,7 @@ rule vireo_ref_rescue:
 
     shell:
         'python {params.script} '
-        '--sample-info {input.sample_info} '
+        '--sample-info {input.donor_design} '
         '--quant-dir {params.quant_dir} '
         '--audit-dir {params.audit_dir} '
         '{params.physical_anchors} '
