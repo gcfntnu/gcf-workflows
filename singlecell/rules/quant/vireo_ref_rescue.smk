@@ -37,13 +37,12 @@ rule vireo_ref_donor_fingerprint:
         ad = rules.cellsnp_pileup_1a.output.mtx_ad,
         dp = rules.cellsnp_pileup_1a.output.mtx_dp,
         variants = rules.cellsnp_pileup_1a.output.vcf,
-        donor_ids = rules.vireo_ref.output.donor_ids,
+        droplet_type = join(DEMUX_DIR, "vireo_ref", "droplet_type.tsv"),
     output:
         fingerprint = join(DEMUX_DIR, "vireo_ref", "donor_fingerprint.tsv"),
         summary = join(DEMUX_DIR, "vireo_ref", "donor_fingerprint.summary.tsv"),
     params:
-        script = src_gcf("scripts/build_donor_fingerprint.py"),
-        min_prob = VIREO_CONFIG["min_prob"],
+        script = src_gcf("scripts/build_vireo_donor_fingerprint.py"),
     container:
         "docker://" + config["docker"]["default"]
     shell:
@@ -53,10 +52,9 @@ rule vireo_ref_donor_fingerprint:
         '--ad {input.ad} '
         '--dp {input.dp} '
         '--variants {input.variants} '
-        '--donor-ids {input.donor_ids} '
+        '--droplet-type {input.droplet_type} '
         '--output {output.fingerprint} '
-        '--summary {output.summary} '
-        '--min-prob-max {params.min_prob}'
+        '--summary {output.summary}'
 
 
 def get_physical_anchor_args():
