@@ -3,38 +3,68 @@
 
 BFQ_LEVEL2_ALL = []
 
-# Expect these symbols from the parent workflow:
-# - QUANT_INTERIM, BFQ_INTERIM, CR_INTERIM
-# - AGGR_IDS, SAMPLES
-# - config, CB_OUTPUT
-# - BFQ_ALL (final fan-in list)
-
 from os.path import join
 from snakemake.shell import shell
 
+
 def symlink(src, dst):
     shell("ln -sfnr {src} {dst}")
+
 
 def exprs_aggr_suffix():
     return "preprocessed" if PREPROCESS_ENABLED else "filtered"
 
 
 def exprs_aggr_input(method):
-    return expand(
-        join(QUANT_INTERIM, "aggregate", method, "scanpy", "{aggr_id}_" + exprs_aggr_suffix() + ".h5ad"),
+    paths = expand(
+        join(QUANT_INTERIM, "aggregate", method, "scanpy", "{aggr_id}_filtered.h5ad"),
         aggr_id=AGGR_IDS,
     )
+    if PREPROCESS_ENABLED:
+        paths += expand(
+            join(QUANT_INTERIM, "aggregate", method, "scanpy", "{aggr_id}_preprocessed.h5ad"),
+            aggr_id=AGGR_IDS,
+        )
+    return paths
 
 
 def exprs_aggr_output():
-    return expand(
-        join(BFQ_INTERIM, "exprs", "scanpy", "{aggr_id}_" + exprs_aggr_suffix() + ".h5ad"),
+    paths = expand(
+        join(BFQ_INTERIM, "exprs", "scanpy", "{aggr_id}_filtered.h5ad"),
         aggr_id=AGGR_IDS,
     )
+    if PREPROCESS_ENABLED:
+        paths += expand(
+            join(BFQ_INTERIM, "exprs", "scanpy", "{aggr_id}_preprocessed.h5ad"),
+            aggr_id=AGGR_IDS,
+        )
+    return paths
 
 
 def bfq_aggr_anndata(aggr_id="all_samples"):
     return join(BFQ_INTERIM, "exprs", "scanpy", f"{aggr_id}_{exprs_aggr_suffix()}.h5ad")
+
+
+rule bfq_level2_starsolo_aggr_mtx:
+    input:
+        anndata = join(QUANT_INTERIM, "aggregate", "{method}", "scanpy", "{aggr_id}_filtered.h5ad")
+    output:
+        mtx = join(BFQ_INTERIM, "exprs", "mtx", "{method}", "{aggr_id}", "matrix.mtx"),
+        features = join(BFQ_INTERIM, "exprs", "mtx", "{method}", "{aggr_id}", "features.tsv"),
+        barcodes = join(BFQ_INTERIM, "exprs", "mtx", "{method}", "{aggr_id}", "barcodes.tsv")
+    params:
+        script = src_gcf("quant/scripts/export_anndata_mtx.py")
+    wildcard_constraints:
+        method = "10x_starsolo|parsebio_starsolo",
+        aggr_id = "|".join(AGGR_IDS)
+    container:
+        "docker://" + config["docker"]["scanpy"]
+    shell:
+        "python {params.script} "
+        "--input {input.anndata} "
+        "--matrix {output.mtx} "
+        "--features {output.features} "
+        "--barcodes {output.barcodes} "
 
 
 rule bfq_level2_umap_png:
@@ -48,7 +78,7 @@ rule bfq_level2_umap_png:
         'docker://' + config['docker']['scanpy']
     shell:
         'python {params.script} {input} -o {output}'
-            
+
 rule bfq_level2_umap_yaml:
     input:
         bfq_aggr_anndata()
