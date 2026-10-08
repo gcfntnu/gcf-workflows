@@ -29,11 +29,18 @@ if AGGR_METHOD == 'default':
         AGGR_METHOD = 'scanpy'
 CB_FLAG = config.get("quant", {}).get("cellbender", {}).get("enabled", False)
 if CB_FLAG:
-    unsupported_cellbender_methods = sorted(set(METHODS) - {'10x_starsolo', 'cellranger'})
+    if config['libprepkit'].startswith('Parse Biosciences'):
+        raise NotImplementedError(
+            "CellBender is currently unsupported for Parse Biosciences library preparations; "
+            "its model assumptions have not yet been validated for Parse data."
+        )
+
+    cellbender_methods = {'10x_starsolo', 'cellranger'}
+    unsupported_cellbender_methods = sorted(set(METHODS) - cellbender_methods)
     if unsupported_cellbender_methods:
         raise NotImplementedError(
-            f"CellBender is currently supported only for 10x_starsolo and cellranger; "
-            f"unsupported configured methods: {unsupported_cellbender_methods}"
+            f"CellBender integration is not implemented for quantification method(s): "
+            f"{unsupported_cellbender_methods}"
         )
 
 VELO_OUTPUT = config["quant"].get("use_velo", False)
