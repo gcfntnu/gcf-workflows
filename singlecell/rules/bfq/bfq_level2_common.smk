@@ -72,7 +72,7 @@ rule bfq_level2_starsolo_aggr_mtx:
         features = join(BFQ_INTERIM, "exprs", "mtx", "{method}", "{aggr_id}", "features.tsv"),
         barcodes = join(BFQ_INTERIM, "exprs", "mtx", "{method}", "{aggr_id}", "barcodes.tsv")
     params:
-        script = src_gcf("quant/scripts/export_anndata_mtx.py")
+        script = src_gcf("scripts/export_anndata_mtx.py")
     wildcard_constraints:
         method = "10x_starsolo|parsebio_starsolo",
         aggr_id = "|".join(AGGR_IDS)
@@ -87,53 +87,8 @@ rule bfq_level2_starsolo_aggr_mtx:
 
 
 if PREPROCESS_ENABLED:
-
-    rule preprocess_final_umap_png:
-        input:
-            anndata = join(
-                QUANT_INTERIM,
-                "aggregate",
-                "{method}",
-                "scanpy",
-                "{aggr_id}_preprocessed.h5ad",
-            )
-        output:
-            png = join(
-                QUANT_INTERIM,
-                "aggregate",
-                "{method}",
-                "preprocess",
-                "{aggr_id}",
-                "figures",
-                "umap_{aggr_id}_mqc.png",
-            )
-        params:
-            script = src_gcf("quant/scripts/plot_preprocessed_umap.py")
-        threads:
-            1
-        resources:
-            gpu = 0
-        log:
-            join(
-                QUANT_INTERIM,
-                "aggregate",
-                "{method}",
-                "preprocess",
-                "{aggr_id}",
-                "logs",
-                "final_umap.log",
-            )
-        wildcard_constraints:
-            method = QUANT_METHOD_PATTERN,
-            aggr_id = "|".join(AGGR_IDS)
-        container:
-            "docker://" + config["docker"]["scanpy"]
-        shell:
-            "python {params.script} "
-            "--input {input.anndata} "
-            "--output {output.png} "
-            "--log {log} "
-
+    include:
+        "../quant/preprocess_figures.smk"
 
     rule bfq_level2_preprocess_umap:
         input:
