@@ -952,13 +952,25 @@ def load_velocity_source(velocyto_dir, feature_filename, source):
 
 
 def attach_velocity_layers(data, velocyto_dir, feature_filename, source, verbose=False, logger=None):
-    """Align validated raw velocity matrices to AnnData axes and record source-axis coverage."""
+    """Attach validated velocity matrices to AnnData axes."""
     matrices, velocity_barcodes, velocity_features = load_velocity_source(
         velocyto_dir, feature_filename, source
     )
 
     obs_idx = pd.Index(data.obs_names.astype(str), name=data.obs_names.name)
     var_idx = pd.Index(data.var_names.astype(str), name=data.var_names.name)
+
+    if velocity_barcodes.equals(obs_idx) and velocity_features.equals(var_idx):
+        if verbose:
+            log_fn = logger.debug if logger else print
+            log_fn(
+                f"{source}: velocity axes already match canonical AnnData axes "
+                f"({len(obs_idx)} cells × {len(var_idx)} features)"
+            )
+        for name, matrix in matrices.items():
+            data.layers[name] = matrix.astype(np.int32)
+        return data
+
     unsupported_features = velocity_features.difference(var_idx)
     if len(unsupported_features):
         raise ValueError(
@@ -1278,11 +1290,7 @@ def read_starsolo(fn, args, **kw):
         "parsebio_starsolo",
     }
 
-    if require_cell_reads:
-        if not os.path.exists(barcode_stats_fn):
-            raise FileNotFoundError(
-                f"{barcode_stats_fn}: CellReads.stats is required for canonical STARsolo filtered assembly"
-            )
+    if require_cell_reads and os.path.exists(barcode_stats_fn):
 
         bc_stats = pd.read_table(barcode_stats_fn, index_col=0)
         bc_stats.index = bc_stats.index.astype(str)
@@ -1307,6 +1315,7 @@ def read_starsolo(fn, args, **kw):
             right_index=True,
             validate="one_to_one",
         )
+
     try:
         features = pd.read_csv(join(mtx_dir, "features.tsv"), sep="\t", dtype=str, header=None, index_col=0)
     except:
@@ -1325,7 +1334,13 @@ def read_starsolo(fn, args, **kw):
             velocyto_dir = mtx_dir.replace(os.path.sep + quant_model + os.path.sep, os.path.sep + "Velocyto" + os.path.sep)
             break
     if velocyto_dir and _USE_VELO:
-        velocyto_dir = join(os.path.dirname(velocyto_dir), "raw")
+        expression_representation = os.path.basename(mtx_dir)
+        velocity_representation = (
+            "cellbender_filtered"
+            if expression_representation == "cellbender_filtered"
+            else "raw"
+        )
+        velocyto_dir = join(os.path.dirname(velocyto_dir), velocity_representation)
         logger.debug(velocyto_dir)
         data = attach_velocity_layers(
             data,
