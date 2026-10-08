@@ -14,12 +14,15 @@ elif m == "splitpipe":
     include:
         "bfq_level2_splitpipe.smk"
 
+elif m == "10x_starsolo":
+    include:
+        "bfq_level2_10x_starsolo.smk"
+
 elif m == "parsebio_starsolo":
     include:
         "bfq_level2_parsebio_starsolo.smk"
 
 else:
     pass
-    
-BFQ_ALL.extend(BFQ_LEVEL2_ALL)
 
+BFQ_ALL.extend(BFQ_LEVEL2_ALL)
