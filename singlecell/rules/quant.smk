@@ -478,6 +478,20 @@ def scanpy_aggr_inputs(wc):
         'barcode_info': get_barcode_info_list(wc),
     }
 
+    if CB_FLAG and wc.method in {'10x_starsolo', 'cellranger'}:
+        output['cellbender_matrices'] = [
+            join(QUANT_INTERIM, wc.method, sample, 'cellbender', 'filtered', 'matrix', 'matrix.mtx')
+            for sample in samples
+        ]
+        output['cellbender_barcodes'] = [
+            join(QUANT_INTERIM, wc.method, sample, 'cellbender', 'filtered', 'matrix', 'barcodes.tsv')
+            for sample in samples
+        ]
+        output['cellbender_features'] = [
+            join(QUANT_INTERIM, wc.method, sample, 'cellbender', 'filtered', 'matrix', 'genes.tsv')
+            for sample in samples
+        ]
+
     if wc.method == 'cellranger' and AGGR_METHOD == 'cellranger' and not CB_FLAG:
         output['aggr_csv'] = join(QUANT_INTERIM, 'aggregate', 'description', f'{wc.aggr_id}_aggr.csv')
     elif wc.method == '10x_starsolo':
@@ -576,6 +590,12 @@ def scanpy_aggr_velo(wc):
     return '--use-velo' if VELO_OUTPUT else ''
 
 
+def scanpy_aggr_cellbender_layer(wc):
+    if CB_FLAG and wc.method in {'10x_starsolo', 'cellranger'}:
+        return '--attach-cellbender-layer'
+    return ''
+
+
 SCANPY_AGGR_SHELL = (
     'python {params.script} '
     '{input.inputs} '
@@ -587,6 +607,7 @@ SCANPY_AGGR_SHELL = (
     '--library-info {input.library_info} '
     '{params.aggr_csv} '
     '{params.use_velo} '
+    '{params.cellbender_layer} '
     '--canonical-filtered '
     '-o {output} '
     '-F anndata '
@@ -604,7 +625,7 @@ SCANPY_AGGR_FILTERED = join(
     'aggregate',
     '{method}',
     'scanpy',
-    '{aggr_id}_filtered.base.h5ad' if CB_FLAG else '{aggr_id}_filtered.h5ad',
+    '{aggr_id}_filtered.h5ad',
 )
 
 
@@ -618,7 +639,8 @@ rule scanpy_aggr_filtered:
         input_format = scanpy_aggr_format,
         bc_type = scanpy_aggr_barcode_rename,
         aggr_csv = scanpy_aggr_csv,
-        use_velo = scanpy_aggr_velo
+        use_velo = scanpy_aggr_velo,
+        cellbender_layer = scanpy_aggr_cellbender_layer
     threads:
         8
     wildcard_constraints:
@@ -627,53 +649,6 @@ rule scanpy_aggr_filtered:
     shell:
         SCANPY_AGGR_SHELL
 
-
-if CB_FLAG:
-    def cellbender_layer_inputs(wc):
-        samples = get_processing_samples(wc.method, wc.aggr_id)
-        return {
-            'anndata': SCANPY_AGGR_FILTERED.format(method=wc.method, aggr_id=wc.aggr_id),
-            'matrices': [
-                join(QUANT_INTERIM, wc.method, sample, 'cellbender', 'filtered', 'matrix', 'matrix.mtx')
-                for sample in samples
-            ],
-            'barcodes': [
-                join(QUANT_INTERIM, wc.method, sample, 'cellbender', 'filtered', 'matrix', 'barcodes.tsv')
-                for sample in samples
-            ],
-            'features': [
-                join(QUANT_INTERIM, wc.method, sample, 'cellbender', 'filtered', 'matrix', 'genes.tsv')
-                for sample in samples
-            ],
-            'barcode_info': get_primary_barcode_info(wc),
-        }
-
-
-    rule scanpy_attach_cellbender:
-        input:
-            unpack(cellbender_layer_inputs)
-        output:
-            join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_filtered.h5ad')
-        params:
-            script = src_gcf('quant/scripts/attach_count_layer.py'),
-            library_ids = lambda wc: ' '.join(get_processing_samples(wc.method, wc.aggr_id))
-        threads:
-            8
-        wildcard_constraints:
-            method = '10x_starsolo|cellranger',
-            aggr_id = '|'.join(AGGR_IDS)
-        container:
-            'docker://' + config['docker']['scanpy']
-        shell:
-            'python {params.script} '
-            '--anndata {input.anndata} '
-            '--matrices {input.matrices} '
-            '--barcodes {input.barcodes} '
-            '--features {input.features} '
-            '--library-ids {params.library_ids} '
-            '--barcode-info {input.barcode_info} '
-            '--layer cellbender '
-            '--output {output} '
 
 
 def quant_all_inputs(wc):
