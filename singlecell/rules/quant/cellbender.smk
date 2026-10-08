@@ -1,11 +1,9 @@
 
 # CellBender Quantification Rule
 # -------------------------------
-# This rule runs CellBender on raw count matrices from multiple quantification methods:
-# - splitpipe
-# - cellranger
-# - parsebio_starsolo
-# - 10xgenomics_starsolo 
+# CellBender integration is currently implemented for 10x STARsolo and Cell Ranger.
+# Parse Biosciences library preparations are intentionally blocked upstream until
+# CellBender's model assumptions have been validated for Parse data.
 #
 # Supported Input Format:
 # CellBender expects a folder containing:
@@ -176,6 +174,60 @@ rule cellbender_filter_starsolo_counts:
         '--output-matrix {output.mtx} '
         '--output-barcodes {output.barcodes} '
         '--output-features {output.features} '
+
+
+if VELO_OUTPUT:
+    rule cellbender_filter_starsolo_velocity:
+        input:
+            spliced = join(QUANT_INTERIM, '10x_starsolo', '{sample}', 'Solo.out', 'Velocyto', 'raw', 'spliced.mtx'),
+            unspliced = join(QUANT_INTERIM, '10x_starsolo', '{sample}', 'Solo.out', 'Velocyto', 'raw', 'unspliced.mtx'),
+            ambiguous = join(QUANT_INTERIM, '10x_starsolo', '{sample}', 'Solo.out', 'Velocyto', 'raw', 'ambiguous.mtx'),
+            barcodes = join(QUANT_INTERIM, '10x_starsolo', '{sample}', 'Solo.out', 'Velocyto', 'raw', 'barcodes.tsv'),
+            features = join(QUANT_INTERIM, '10x_starsolo', '{sample}', 'Solo.out', 'Velocyto', 'raw', 'features.tsv'),
+            selected_barcodes = join(
+                QUANT_INTERIM, '10x_starsolo', '{sample}', 'Solo.out', STARSOLO_FEATURE,
+                'cellbender_filtered', 'barcodes.tsv'
+            )
+        output:
+            spliced = join(
+                QUANT_INTERIM, '10x_starsolo', '{sample}', 'Solo.out', 'Velocyto',
+                'cellbender_filtered', 'spliced.mtx'
+            ),
+            unspliced = join(
+                QUANT_INTERIM, '10x_starsolo', '{sample}', 'Solo.out', 'Velocyto',
+                'cellbender_filtered', 'unspliced.mtx'
+            ),
+            ambiguous = join(
+                QUANT_INTERIM, '10x_starsolo', '{sample}', 'Solo.out', 'Velocyto',
+                'cellbender_filtered', 'ambiguous.mtx'
+            ),
+            barcodes = join(
+                QUANT_INTERIM, '10x_starsolo', '{sample}', 'Solo.out', 'Velocyto',
+                'cellbender_filtered', 'barcodes.tsv'
+            ),
+            features = join(
+                QUANT_INTERIM, '10x_starsolo', '{sample}', 'Solo.out', 'Velocyto',
+                'cellbender_filtered', 'features.tsv'
+            )
+        params:
+            script = src_gcf('scripts/subset_velocity_matrices.py')
+        threads:
+            4
+        container:
+            'docker://' + config['docker']['scanpy']
+        shell:
+            'python {params.script} '
+            '--spliced {input.spliced} '
+            '--unspliced {input.unspliced} '
+            '--ambiguous {input.ambiguous} '
+            '--barcodes {input.barcodes} '
+            '--features {input.features} '
+            '--selected-barcodes {input.selected_barcodes} '
+            '--output-spliced {output.spliced} '
+            '--output-unspliced {output.unspliced} '
+            '--output-ambiguous {output.ambiguous} '
+            '--output-barcodes {output.barcodes} '
+            '--output-features {output.features} '
 
 
 rule cellbender_filter_cellranger_counts:
