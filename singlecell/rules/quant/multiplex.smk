@@ -17,11 +17,41 @@ def demux_method_uses_reference(method):
     return method.endswith('_ref') or method in ['vireo_ref_rescue', 'souporcell_ref_demuxafy']
 
 
+def demux_method_requires_n_individuals(method):
+    return method in {
+        'vireo_noref',
+        'souporcell_noref',
+        'souporcell_ref',
+        'souporcell_ref_demuxafy',
+        'freemuxlet_noref',
+        'demuxalot_noref',
+    }
+
+
+def demux_config_requires_n_individuals():
+    method = DEMUX_CONFIG['method']
+
+    if method == 'skip':
+        return False
+    if method == 'default':
+        return not DEMUX_CONFIG.get('donor_dir')
+    if method == 'demuxafy':
+        return True
+
+    return any(demux_method_requires_n_individuals(m) for m in DEMUX_METHODS)
+
+
 if DEMUX_CONFIG['method'] != 'skip':
-    if DEMUX_CONFIG['n_individuals'] < 1:
+    if '10x_starsolo' in METHODS and not STARSOLO_OUTPUT_BAM:
+        raise ValueError(
+            'quant.starsolo.output_bam must be true when '
+            '10x_starsolo demultiplexing is enabled.'
+        )
+
+    if demux_config_requires_n_individuals() and DEMUX_CONFIG.get('n_individuals', -1) < 1:
         raise ValueError(
             'quant.demultiplex.n_individuals must be set when '
-            'demultiplexing is enabled.'
+            'the selected demultiplexing method requires donor cardinality.'
         )
 
     if any(demux_method_uses_reference(m) for m in DEMUX_METHODS) and not DEMUX_CONFIG.get('donor_dir'):
@@ -40,6 +70,7 @@ def get_singlecell_barcodes(wildcards):
         return rules.starsolo_quant.output.barcodes
     else:
         raise ValueError
+
 
 def get_singlecell_bam(wildcards):
     if wildcards.quantifier == 'cellranger':
@@ -165,6 +196,8 @@ rule vireo_donor_subset:
     container:
         "docker://biocontainers/bcftools:v1.9-1-deb_cv1"
     shell:
+        'bcftools query -l {input.donor_vcf} | grep -q . || '
+        '(echo "ERROR: donor VCF contains no samples: {input.donor_vcf}" >&2; exit 1); '
         'bcftools view '
         '{input.donor_vcf} '
         '-T {input.cellsnp_vcf} '
@@ -206,10 +239,10 @@ rule vireo_ref:
         singlet = join(DEMUX_DIR, "vireo_ref", "prob_singlet.tsv.gz"),
         summary = join(DEMUX_DIR, "vireo_ref", "summary.tsv"),
     params:
-        n = DEMUX_CONFIG["n_individuals"],
         vireo_dir = join(DEMUX_DIR, "vireo_ref"),
         cellsnp_dir = rules.cellsnp_pileup_1a.params.cellsnp_dir,
-        force_learn_gt = "--forceLearnGT" if VIREO_CONFIG.get("force_learn_gt", False) else ""
+        force_learn_gt = "--forceLearnGT" if VIREO_CONFIG.get("force_learn_gt", False) else "",
+        rand_seed = VIREO_CONFIG.get("rand_seed", 1)
     threads:
         24
     container:
@@ -219,9 +252,9 @@ rule vireo_ref:
         '-d {input.donor_vcf} '
         '-c {params.cellsnp_dir} '
         '-o {params.vireo_dir} '
-        '-N {params.n} '
         '--nproc {threads} '
-        '{params.force_learn_gt}'
+        '{params.force_learn_gt} '
+        '--randSeed {params.rand_seed}'
 
 
 rule vireo_droplet_type:

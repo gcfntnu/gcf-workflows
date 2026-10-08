@@ -667,6 +667,11 @@ def create_parser():
                         help="barcode postfix naming strategy")
     parser.add_argument("--use-velo", action="store_true",
                         help="load STARsolo/split-pipe velocity matrices when available")
+    parser.add_argument(
+        "--attach-cellbender-layer",
+        action="store_true",
+        help="Attach per-library CellBender-corrected counts as .layers['cellbender'].",
+    )
     parser.add_argument("--enable-cellbender", action="store_true",
                         help="Use CellBender outputs instead of raw count matrices for the chosen format.",
                         )
@@ -941,7 +946,7 @@ def load_velocity_source(velocyto_dir, feature_filename, source):
     matrices = {}
     expected_shape = (len(barcodes), len(features))
     for name in ["spliced", "unspliced", "ambiguous"]:
-        matrix = mmread(required[name]).T.tocsr()
+        matrix = mmread(required[name], spmatrix=True).T.tocsr().astype(np.int32)
         if matrix.shape != expected_shape:
             raise ValueError(
                 f"{required[name]}: matrix shape {matrix.shape} does not match velocity axes {expected_shape}"
@@ -952,13 +957,25 @@ def load_velocity_source(velocyto_dir, feature_filename, source):
 
 
 def attach_velocity_layers(data, velocyto_dir, feature_filename, source, verbose=False, logger=None):
-    """Align validated raw velocity matrices to AnnData axes and record source-axis coverage."""
+    """Attach validated velocity matrices to AnnData axes."""
     matrices, velocity_barcodes, velocity_features = load_velocity_source(
         velocyto_dir, feature_filename, source
     )
 
     obs_idx = pd.Index(data.obs_names.astype(str), name=data.obs_names.name)
     var_idx = pd.Index(data.var_names.astype(str), name=data.var_names.name)
+
+    if velocity_barcodes.equals(obs_idx) and velocity_features.equals(var_idx):
+        if verbose:
+            log_fn = logger.debug if logger else print
+            log_fn(
+                f"{source}: velocity axes already match canonical AnnData axes "
+                f"({len(obs_idx)} cells × {len(var_idx)} features)"
+            )
+        for name, matrix in matrices.items():
+            data.layers[name] = matrix.astype(np.int32)
+        return data
+
     unsupported_features = velocity_features.difference(var_idx)
     if len(unsupported_features):
         raise ValueError(
@@ -979,6 +996,82 @@ def attach_velocity_layers(data, velocyto_dir, feature_filename, source, verbose
 
     return data
 
+
+
+def attach_matching_count_layer(data, matrix_dir, feature_filename, layer, source):
+    """Attach a per-library sparse count matrix aligned to the current AnnData axes."""
+    matrix_dir = pathlib.Path(matrix_dir)
+    required = {
+        "matrix": matrix_dir / "matrix.mtx",
+        "barcodes": matrix_dir / "barcodes.tsv",
+        "features": matrix_dir / feature_filename,
+    }
+    missing_files = [str(path) for path in required.values() if not path.exists()]
+    if missing_files:
+        raise FileNotFoundError(f"{source}: missing count-layer input(s): {missing_files}")
+
+    barcodes = pd.Index(
+        pd.read_csv(required["barcodes"], sep="\t", header=None).iloc[:, 0].astype(str),
+        name="barcode",
+    )
+    features = pd.Index(
+        pd.read_csv(required["features"], sep="\t", header=None).iloc[:, 0].astype(str),
+        name="gene_id",
+    )
+
+    if not barcodes.is_unique:
+        duplicates = barcodes[barcodes.duplicated()].unique().tolist()[:10]
+        raise ValueError(f"{source}: duplicate layer barcodes. Examples: {duplicates}")
+    if not features.is_unique:
+        duplicates = features[features.duplicated()].unique().tolist()[:10]
+        raise ValueError(f"{source}: duplicate layer feature IDs. Examples: {duplicates}")
+
+    matrix = mmread(required["matrix"], spmatrix=True).T.tocsr().astype(np.int32)
+    expected_shape = (len(barcodes), len(features))
+    if matrix.shape != expected_shape:
+        raise ValueError(
+            f"{required['matrix']}: matrix shape {matrix.shape} does not match axes {expected_shape}"
+        )
+
+    obs_idx = pd.Index(data.obs_names.astype(str), name="barcode")
+    var_idx = pd.Index(data.var_names.astype(str), name="gene_id")
+
+    missing_barcodes = obs_idx.difference(barcodes)
+    extra_barcodes = barcodes.difference(obs_idx)
+    if len(missing_barcodes) or len(extra_barcodes):
+        raise ValueError(
+            f"{source}: layer barcode axis disagrees with expression matrix; "
+            f"missing={len(missing_barcodes)} extra={len(extra_barcodes)}"
+        )
+
+    missing_features = var_idx.difference(features)
+    extra_features = features.difference(var_idx)
+    if len(missing_features) or len(extra_features):
+        raise ValueError(
+            f"{source}: layer feature axis disagrees with expression matrix; "
+            f"missing={len(missing_features)} extra={len(extra_features)}"
+        )
+
+    if not barcodes.equals(obs_idx):
+        row_order = barcodes.get_indexer(obs_idx)
+        matrix = matrix[row_order].tocsr()
+
+    if not features.equals(var_idx):
+        col_order = features.get_indexer(var_idx)
+        matrix = matrix[:, col_order].tocsr()
+
+    if layer in data.layers:
+        raise ValueError(f"{source}: AnnData already contains layer {layer!r}")
+
+    data.layers[layer] = matrix
+    logger.info(
+        "%s: attached layer %s shape=%s nnz=%d",
+        source,
+        layer,
+        matrix.shape,
+        matrix.nnz,
+    )
+    return data
 
 def read_cellranger(fn, args, add_sample_id=True, **kw):
     """
@@ -1012,6 +1105,17 @@ def read_cellranger(fn, args, add_sample_id=True, **kw):
         data.var.index.name = "gene_id"
 
     sample_id = os.path.basename(os.path.dirname(dir_name)) if add_sample_id else None
+
+    if getattr(args, "attach_cellbender_layer", False):
+        cellbender_dir = pathlib.Path(dir_name).parent / "cellbender" / "filtered" / "matrix"
+        data = attach_matching_count_layer(
+            data,
+            cellbender_dir,
+            "genes.tsv",
+            layer="cellbender",
+            source=f"CellBender {sample_id}",
+        )
+
     has_canonical_mapping = bool(getattr(args, "barcode_info", None)) and any(
         frame is not None and {"source_barcode", "library_id"}.issubset(frame.columns)
         for frame in args.barcode_info
@@ -1267,7 +1371,7 @@ def read_starsolo(fn, args, **kw):
     """
     fn = os.path.abspath(fn)
     logger.debug(f"Reading starsolo mtx from {fn}")
-    X = mmread(fn).T.tocsr()
+    X = mmread(fn, spmatrix=True).T.tocsr().astype(np.int32)
     mtx_dir = os.path.dirname(fn)
     barcodes = pd.read_table(join(mtx_dir, "barcodes.tsv"), index_col=0, header=None)
     barcodes['starsolo_barcodes'] = barcodes.index
@@ -1278,11 +1382,7 @@ def read_starsolo(fn, args, **kw):
         "parsebio_starsolo",
     }
 
-    if require_cell_reads:
-        if not os.path.exists(barcode_stats_fn):
-            raise FileNotFoundError(
-                f"{barcode_stats_fn}: CellReads.stats is required for canonical STARsolo filtered assembly"
-            )
+    if require_cell_reads and os.path.exists(barcode_stats_fn):
 
         bc_stats = pd.read_table(barcode_stats_fn, index_col=0)
         bc_stats.index = bc_stats.index.astype(str)
@@ -1307,6 +1407,7 @@ def read_starsolo(fn, args, **kw):
             right_index=True,
             validate="one_to_one",
         )
+
     try:
         features = pd.read_csv(join(mtx_dir, "features.tsv"), sep="\t", dtype=str, header=None, index_col=0)
     except:
@@ -1325,7 +1426,13 @@ def read_starsolo(fn, args, **kw):
             velocyto_dir = mtx_dir.replace(os.path.sep + quant_model + os.path.sep, os.path.sep + "Velocyto" + os.path.sep)
             break
     if velocyto_dir and _USE_VELO:
-        velocyto_dir = join(os.path.dirname(velocyto_dir), "raw")
+        expression_representation = os.path.basename(mtx_dir)
+        velocity_representation = (
+            "cellbender_filtered"
+            if expression_representation == "cellbender_filtered"
+            else "raw"
+        )
+        velocyto_dir = join(os.path.dirname(velocyto_dir), velocity_representation)
         logger.debug(velocyto_dir)
         data = attach_velocity_layers(
             data,
@@ -1334,6 +1441,18 @@ def read_starsolo(fn, args, **kw):
             source=f"{args.input_format} Velocyto",
             verbose=args.verbose,
             logger=logger,
+        )
+
+    if getattr(args, "attach_cellbender_layer", False):
+        if args.input_format != "10x_starsolo":
+            raise ValueError("CellBender layer attachment is only supported for 10x STARsolo here")
+        library_dir = pathlib.Path(fn).parents[3]
+        data = attach_matching_count_layer(
+            data,
+            library_dir / "cellbender" / "filtered" / "matrix",
+            "genes.tsv",
+            layer="cellbender",
+            source=f"CellBender {library_dir.name}",
         )
 
     input_id = os.path.normpath(fn).split(os.path.sep)[-5]
@@ -1575,7 +1694,7 @@ def read_splitpipe(fn, args, **kw):
     dir_name = os.path.dirname(fn)
     logger.debug(f"Reading Split-pipe matrix from {fn}")
 
-    mtx = sp.csr_matrix(mmread(fn)).tocsr()
+    mtx = mmread(fn, spmatrix=True).tocsr()
 
     features = None
     for feature_file in ["all_genes.csv", "target_genes.csv", "all_guides.csv"]:
