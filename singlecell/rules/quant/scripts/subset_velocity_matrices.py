@@ -68,7 +68,10 @@ def subset_matrix(
             f"{layer}: matrix shape {matrix.shape} does not match feature/barcode axes {expected_shape}"
         )
 
-    subset = matrix[:, positions].tocoo()
+    subset = matrix[:, positions].tocsc()
+    subset.eliminate_zeros()
+    subset = subset.tocoo()
+
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     with open_binary(output_path, "w") as handle:
         mmwrite(handle, subset)
