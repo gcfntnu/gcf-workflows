@@ -2,6 +2,7 @@
 # Shared helpers for all level2 collectors
 
 BFQ_LEVEL2_ALL = []
+BFQ_METHOD = config['quant']['method']
 
 from os.path import join
 from snakemake.shell import shell
@@ -41,8 +42,26 @@ def exprs_aggr_output():
     return paths
 
 
-def bfq_aggr_anndata(aggr_id="all_samples"):
-    return join(BFQ_INTERIM, "exprs", "scanpy", f"{aggr_id}_{exprs_aggr_suffix()}.h5ad")
+def preprocess_umap_input(method):
+    return expand(
+        join(
+            QUANT_INTERIM,
+            "aggregate",
+            method,
+            "preprocess",
+            "{aggr_id}",
+            "figures",
+            "umap_{aggr_id}_mqc.png",
+        ),
+        aggr_id=AGGR_IDS,
+    )
+
+
+def preprocess_umap_output():
+    return expand(
+        join(BFQ_INTERIM, "figs", "umap_{aggr_id}_mqc.png"),
+        aggr_id=AGGR_IDS,
+    )
 
 
 rule bfq_level2_starsolo_aggr_mtx:
@@ -67,26 +86,66 @@ rule bfq_level2_starsolo_aggr_mtx:
         "--barcodes {output.barcodes} "
 
 
-rule bfq_level2_umap_png:
-    input:
-        bfq_aggr_anndata()
-    output:
-        join(BFQ_INTERIM, 'figs', 'umap_all_samples_mqc.png')
-    params:
-        script = src_gcf('scripts/plotpca.py')
-    container:
-        'docker://' + config['docker']['scanpy']
-    shell:
-        'python {params.script} {input} -o {output}'
+if PREPROCESS_ENABLED:
 
-rule bfq_level2_umap_yaml:
-    input:
-        bfq_aggr_anndata()
-    output:
-        join(BFQ_INTERIM, 'figs', 'all_samples_mqc.yaml')
-    params:
-        script = src_gcf('scripts/plotpca.py')
-    container:
-        'docker://' + config['docker']['scanpy']
-    shell:
-        'python {params.script} {input} -o {output}'
+    rule preprocess_final_umap_png:
+        input:
+            anndata = join(
+                QUANT_INTERIM,
+                "aggregate",
+                "{method}",
+                "scanpy",
+                "{aggr_id}_preprocessed.h5ad",
+            )
+        output:
+            png = join(
+                QUANT_INTERIM,
+                "aggregate",
+                "{method}",
+                "preprocess",
+                "{aggr_id}",
+                "figures",
+                "umap_{aggr_id}_mqc.png",
+            )
+        params:
+            script = src_gcf("quant/scripts/plot_preprocessed_umap.py")
+        threads:
+            1
+        resources:
+            gpu = 0
+        log:
+            join(
+                QUANT_INTERIM,
+                "aggregate",
+                "{method}",
+                "preprocess",
+                "{aggr_id}",
+                "logs",
+                "final_umap.log",
+            )
+        wildcard_constraints:
+            method = QUANT_METHOD_PATTERN,
+            aggr_id = "|".join(AGGR_IDS)
+        container:
+            "docker://" + config["docker"]["scanpy"]
+        shell:
+            "python {params.script} "
+            "--input {input.anndata} "
+            "--output {output.png} "
+            "--log {log} "
+
+
+    rule bfq_level2_preprocess_umap:
+        input:
+            preprocess_umap_input(BFQ_METHOD)
+        output:
+            preprocess_umap_output()
+        run:
+            for src, dst in zip(input, output):
+                symlink(src, dst)
+
+
+    BFQ_PREPROCESS_FIGS = rules.bfq_level2_preprocess_umap.output
+
+else:
+    BFQ_PREPROCESS_FIGS = []

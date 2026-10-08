@@ -19,4 +19,5 @@ rule bfq_level2_exprs:
 BFQ_LEVEL2_ALL = [
     rules.bfq_level2_exprs.output,
     expand(rules.bfq_level2_starsolo_aggr_mtx.output, method='10x_starsolo', aggr_id=AGGR_IDS),
+    BFQ_PREPROCESS_FIGS,
 ]

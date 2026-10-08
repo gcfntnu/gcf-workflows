@@ -68,5 +68,5 @@ BFQ_LEVEL2_ALL = [
     rules.bfq_level2_exprs.output,
     rules.bfq_level2_logs.output,
     rules.bfq_level2_data.output,
-    rules.bfq_level2_umap_png.output,
+    BFQ_PREPROCESS_FIGS,
 ]

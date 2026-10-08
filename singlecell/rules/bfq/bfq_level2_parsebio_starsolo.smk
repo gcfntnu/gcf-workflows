@@ -37,4 +37,5 @@ BFQ_LEVEL2_ALL = [
     rules.bfq_level2_exprs.output,
     expand(rules.bfq_level2_starsolo_aggr_mtx.output, method='parsebio_starsolo', aggr_id=AGGR_IDS),
     rules.bfq_level2_logs.output,
+    BFQ_PREPROCESS_FIGS,
 ]
