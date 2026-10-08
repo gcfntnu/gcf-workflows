@@ -484,24 +484,25 @@ def scanpy_aggr_inputs(wc):
         output['aggr_csv'] = aggr_library_order_csv(wc.aggr_id)
 
         if VELO_OUTPUT:
+            velocity_representation = 'cellbender_filtered' if CB_FLAG else 'raw'
             output['velo_spliced'] = [
-                join(QUANT_INTERIM, '10x_starsolo', sample, 'Solo.out', 'Velocyto', 'raw', 'spliced.mtx')
+                join(QUANT_INTERIM, '10x_starsolo', sample, 'Solo.out', 'Velocyto', velocity_representation, 'spliced.mtx')
                 for sample in samples
             ]
             output['velo_unspliced'] = [
-                join(QUANT_INTERIM, '10x_starsolo', sample, 'Solo.out', 'Velocyto', 'raw', 'unspliced.mtx')
+                join(QUANT_INTERIM, '10x_starsolo', sample, 'Solo.out', 'Velocyto', velocity_representation, 'unspliced.mtx')
                 for sample in samples
             ]
             output['velo_ambiguous'] = [
-                join(QUANT_INTERIM, '10x_starsolo', sample, 'Solo.out', 'Velocyto', 'raw', 'ambiguous.mtx')
+                join(QUANT_INTERIM, '10x_starsolo', sample, 'Solo.out', 'Velocyto', velocity_representation, 'ambiguous.mtx')
                 for sample in samples
             ]
             output['velo_barcodes'] = [
-                join(QUANT_INTERIM, '10x_starsolo', sample, 'Solo.out', 'Velocyto', 'raw', 'barcodes.tsv')
+                join(QUANT_INTERIM, '10x_starsolo', sample, 'Solo.out', 'Velocyto', velocity_representation, 'barcodes.tsv')
                 for sample in samples
             ]
             output['velo_features'] = [
-                join(QUANT_INTERIM, '10x_starsolo', sample, 'Solo.out', 'Velocyto', 'raw', 'features.tsv')
+                join(QUANT_INTERIM, '10x_starsolo', sample, 'Solo.out', 'Velocyto', velocity_representation, 'features.tsv')
                 for sample in samples
             ]
 
