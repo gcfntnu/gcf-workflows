@@ -71,7 +71,10 @@ def update_config2(config, extra_config):
     def _update(d, u):
         for (key, value) in u.items():
             if isinstance(value, Mapping):
-                d[key] = _update(d.get(key, {}), value)
+                if key not in d:
+                    d[key] = {}
+                if isinstance(d[key], Mapping):
+                    d[key] = _update(d[key], value)
             else:
                 if not key in d:
                     try:

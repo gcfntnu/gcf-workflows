@@ -12,12 +12,14 @@ Arnar Flatberg / flatberg <arnar.flatberg@ntnu.no>
 """
 include:
     '../utils.py'
+include:
+    'configuration.py'
 
 extra_conf_fn = src_gcf('singlecell.config')
-if os.path.exists(extra_conf_fn):
-    with open(extra_conf_fn) as fh:
-        c  = yaml.load(fh, Loader=Loader) or {}
-        update_config2(config, c)
+update_config2(config, load_singlecell_defaults(config, extra_conf_fn))
+quant_method = required_singlecell_setting(config, 'quant.method', extra_conf_fn)
+if not isinstance(quant_method, str) or not quant_method.strip():
+    raise singlecell_config_error(config, extra_conf_fn, 'quant.method must be a nonempty string')
     
 if not 'SAMPLES' in locals():
     SAMPLES = list(config.get('samples', {}).keys())
