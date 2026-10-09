@@ -138,42 +138,43 @@ rule cellbender_to_10x_mtx:
         '-f cellbender -F v2_mtx '
 
 
-rule cellbender_filter_starsolo_counts:
-    input:
-        mtx = lambda wc: get_raw_mtx(SimpleNamespace(method='10x_starsolo', sample=wc.sample))['mtx'],
-        barcodes = lambda wc: get_raw_mtx(SimpleNamespace(method='10x_starsolo', sample=wc.sample))['rows'],
-        features = lambda wc: get_raw_mtx(SimpleNamespace(method='10x_starsolo', sample=wc.sample))['cols'],
-        selected_barcodes = join(
-            QUANT_INTERIM, '10x_starsolo', '{sample}', 'cellbender', 'filtered', 'matrix', 'barcodes.tsv'
-        )
-    output:
-        mtx = join(
-            QUANT_INTERIM, '10x_starsolo', '{sample}', 'Solo.out', STARSOLO_FEATURE,
-            'cellbender_filtered', STARSOLO_MTX
-        ),
-        barcodes = join(
-            QUANT_INTERIM, '10x_starsolo', '{sample}', 'Solo.out', STARSOLO_FEATURE,
-            'cellbender_filtered', 'barcodes.tsv'
-        ),
-        features = join(
-            QUANT_INTERIM, '10x_starsolo', '{sample}', 'Solo.out', STARSOLO_FEATURE,
-            'cellbender_filtered', 'features.tsv'
-        )
-    params:
-        script = src_gcf('scripts/subset_10x_mtx_barcodes.py')
-    threads:
-        4
-    container:
-        'docker://' + config['docker']['scanpy']
-    shell:
-        'python {params.script} '
-        '--matrix {input.mtx} '
-        '--barcodes {input.barcodes} '
-        '--features {input.features} '
-        '--selected-barcodes {input.selected_barcodes} '
-        '--output-matrix {output.mtx} '
-        '--output-barcodes {output.barcodes} '
-        '--output-features {output.features} '
+if "10x_starsolo" in METHODS:
+    rule cellbender_filter_starsolo_counts:
+        input:
+            mtx = lambda wc: get_raw_mtx(SimpleNamespace(method='10x_starsolo', sample=wc.sample))['mtx'],
+            barcodes = lambda wc: get_raw_mtx(SimpleNamespace(method='10x_starsolo', sample=wc.sample))['rows'],
+            features = lambda wc: get_raw_mtx(SimpleNamespace(method='10x_starsolo', sample=wc.sample))['cols'],
+            selected_barcodes = join(
+                QUANT_INTERIM, '10x_starsolo', '{sample}', 'cellbender', 'filtered', 'matrix', 'barcodes.tsv'
+            )
+        output:
+            mtx = join(
+                QUANT_INTERIM, '10x_starsolo', '{sample}', 'Solo.out', STARSOLO_FEATURE,
+                'cellbender_filtered', STARSOLO_MTX
+            ),
+            barcodes = join(
+                QUANT_INTERIM, '10x_starsolo', '{sample}', 'Solo.out', STARSOLO_FEATURE,
+                'cellbender_filtered', 'barcodes.tsv'
+            ),
+            features = join(
+                QUANT_INTERIM, '10x_starsolo', '{sample}', 'Solo.out', STARSOLO_FEATURE,
+                'cellbender_filtered', 'features.tsv'
+            )
+        params:
+            script = src_gcf('scripts/subset_10x_mtx_barcodes.py')
+        threads:
+            4
+        container:
+            'docker://' + config['docker']['scanpy']
+        shell:
+            'python {params.script} '
+            '--matrix {input.mtx} '
+            '--barcodes {input.barcodes} '
+            '--features {input.features} '
+            '--selected-barcodes {input.selected_barcodes} '
+            '--output-matrix {output.mtx} '
+            '--output-barcodes {output.barcodes} '
+            '--output-features {output.features} '
 
 
 if VELO_OUTPUT:

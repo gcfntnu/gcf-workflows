@@ -45,57 +45,61 @@ if CB_FLAG:
 
 VELO_OUTPUT = config["quant"].get("use_velo", False)
 
-STARSOLO_CONFIG = config["quant"]["starsolo"]
-STARSOLO_10X_CONFIG = STARSOLO_CONFIG["10x_starsolo"]
-STARSOLO_PARSEBIO_CONFIG = STARSOLO_CONFIG["parsebio_starsolo"]
+if set(METHODS) & {"10x_starsolo", *PARSEBIO_STARSOLO_MODES}:
+    def starsolo_setting(key):
+        return required_singlecell_setting(config, "quant.starsolo." + key, extra_conf_fn)
 
-STARSOLO_FEATURE = STARSOLO_CONFIG["feature_count"]
-STARSOLO_MULTI_MAPPERS = STARSOLO_CONFIG["multi_mappers"]
-STARSOLO_OUTPUT_BAM = STARSOLO_CONFIG["output_bam"]
-STARSOLO_LIMIT_BAM_SORT_RAM = STARSOLO_CONFIG["limit_bam_sort_ram"]
+    STARSOLO_CONFIG = required_singlecell_setting(config, "quant.starsolo", extra_conf_fn)
 
-STARSOLO_10X_UMI_DEDUP = STARSOLO_10X_CONFIG["umi_dedup"]
-STARSOLO_10X_UMI_FILTERING = STARSOLO_10X_CONFIG["umi_filtering"]
-STARSOLO_PARSEBIO_UMI_DEDUP = STARSOLO_PARSEBIO_CONFIG["umi_dedup"]
-STARSOLO_PARSEBIO_UMI_FILTERING = STARSOLO_PARSEBIO_CONFIG["umi_filtering"]
+    STARSOLO_FEATURE = starsolo_setting("feature_count")
+    STARSOLO_MULTI_MAPPERS = starsolo_setting("multi_mappers")
+    STARSOLO_OUTPUT_BAM = starsolo_setting("output_bam")
 
-STARSOLO_FEATURE_LIST = ["Gene", STARSOLO_FEATURE]
-if VELO_OUTPUT:
-    STARSOLO_FEATURE_LIST.append("Velocyto")
-STARSOLO_FEATURE_LIST = list(dict.fromkeys(STARSOLO_FEATURE_LIST))
+    STARSOLO_FEATURE_LIST = ["Gene", STARSOLO_FEATURE]
+    if VELO_OUTPUT:
+        STARSOLO_FEATURE_LIST.append("Velocyto")
+    STARSOLO_FEATURE_LIST = list(dict.fromkeys(STARSOLO_FEATURE_LIST))
 
-if STARSOLO_MULTI_MAPPERS == "Unique":
-    STARSOLO_MTX = "matrix.mtx"
-else:
-    STARSOLO_MTX = f"UniqueAndMult-{STARSOLO_MULTI_MAPPERS}.mtx"
+    if STARSOLO_MULTI_MAPPERS == "Unique":
+        STARSOLO_MTX = "matrix.mtx"
+    else:
+        STARSOLO_MTX = f"UniqueAndMult-{STARSOLO_MULTI_MAPPERS}.mtx"
 
-STARSOLO_BAM_TAGS = list(STARSOLO_CONFIG["bam_tags"]) #copy
-if VELO_OUTPUT:
-    STARSOLO_BAM_TAGS += ["sQ", "sM"]
+    STARSOLO_MITO_NAMES = ["chrM", "M", "MT"]
 
-STARSOLO_MITO_NAMES = ["chrM", "M", "MT"]
-
-STARSOLO_COMMON_ARGS = [
-    "--genomeLoad", "LoadAndKeep",
-    "--soloCellReadStats", "Standard",
-    "--soloFeatures", *STARSOLO_FEATURE_LIST,
-    "--soloMultiMappers", STARSOLO_MULTI_MAPPERS,
-]
-
-if STARSOLO_OUTPUT_BAM:
-    STARSOLO_COMMON_ARGS += [
-        "--outSAMtype", "BAM", "SortedByCoordinate",
-        "--outSAMattributes", *STARSOLO_BAM_TAGS,
-        "--limitBAMsortRAM", str(STARSOLO_LIMIT_BAM_SORT_RAM),
+    STARSOLO_COMMON_ARGS = [
+        "--genomeLoad", "LoadAndKeep",
+        "--soloCellReadStats", "Standard",
+        "--soloFeatures", *STARSOLO_FEATURE_LIST,
+        "--soloMultiMappers", STARSOLO_MULTI_MAPPERS,
     ]
-else:
-    STARSOLO_COMMON_ARGS += ["--outSAMtype", "None"]
 
-if STARSOLO_10X_UMI_FILTERING == "MultiGeneUMI_CR" and STARSOLO_10X_UMI_DEDUP != "1MM_CR":
-    raise ValueError("STARsolo MultiGeneUMI_CR requires umi_dedup=1MM_CR")
+    if STARSOLO_OUTPUT_BAM:
+        STARSOLO_LIMIT_BAM_SORT_RAM = starsolo_setting("limit_bam_sort_ram")
+        STARSOLO_BAM_TAGS = list(starsolo_setting("bam_tags"))
+        if VELO_OUTPUT:
+            STARSOLO_BAM_TAGS += ["sQ", "sM"]
+        STARSOLO_COMMON_ARGS += [
+            "--outSAMtype", "BAM", "SortedByCoordinate",
+            "--outSAMattributes", *STARSOLO_BAM_TAGS,
+            "--limitBAMsortRAM", str(STARSOLO_LIMIT_BAM_SORT_RAM),
+        ]
+    else:
+        STARSOLO_COMMON_ARGS += ["--outSAMtype", "None"]
 
-if STARSOLO_PARSEBIO_UMI_FILTERING == "MultiGeneUMI_CR" and STARSOLO_PARSEBIO_UMI_DEDUP != "1MM_CR":
-    raise ValueError("STARsolo MultiGeneUMI_CR requires umi_dedup=1MM_CR")
+    if "10x_starsolo" in METHODS:
+        for key in ("cb_len", "umi_len", "umi_start"):
+            starsolo_setting(key)
+        STARSOLO_10X_UMI_DEDUP = starsolo_setting("10x_starsolo.umi_dedup")
+        STARSOLO_10X_UMI_FILTERING = starsolo_setting("10x_starsolo.umi_filtering")
+        if STARSOLO_10X_UMI_FILTERING == "MultiGeneUMI_CR" and STARSOLO_10X_UMI_DEDUP != "1MM_CR":
+            raise singlecell_config_error(config, extra_conf_fn, "quant.starsolo.10x_starsolo.umi_filtering=MultiGeneUMI_CR requires umi_dedup=1MM_CR")
+
+    if set(METHODS) & set(PARSEBIO_STARSOLO_MODES):
+        STARSOLO_PARSEBIO_UMI_DEDUP = starsolo_setting("parsebio_starsolo.umi_dedup")
+        STARSOLO_PARSEBIO_UMI_FILTERING = starsolo_setting("parsebio_starsolo.umi_filtering")
+        if STARSOLO_PARSEBIO_UMI_FILTERING == "MultiGeneUMI_CR" and STARSOLO_PARSEBIO_UMI_DEDUP != "1MM_CR":
+            raise singlecell_config_error(config, extra_conf_fn, "quant.starsolo.parsebio_starsolo.umi_filtering=MultiGeneUMI_CR requires umi_dedup=1MM_CR")
 
 
 BC_RENAME = {

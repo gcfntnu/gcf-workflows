@@ -22,8 +22,11 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         python -m pip install snakemake==8.1.1 pyyaml==6.0 peppy rich pulp==2.7.0
+        python -m pip install https://github.com/gcfntnu/gcf-tools/archive/a6a54f03648155091306cde0ef3dae31b93ec2f8.zip
         python --version
     - name: Dry run bfq_all
       working-directory: ./singlecell/.tests
       run: |
         snakemake -n -p --cores 1 multiqc_report
+    - name: Check generated single-cell entry points and configuration diagnostics
+      run: python -m unittest discover -s singlecell/.tests -p 'test_*.py' -v
