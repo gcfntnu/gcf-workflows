@@ -24,12 +24,6 @@ include:
     'rules/immune_config.py'
 
 SINGLECELL_ASSAY = validate_singlecell_assay(config)
-if SINGLECELL_ASSAY == 'tcr':
-    raise ValueError(
-        "TCR configuration is valid, but TCR execution rules are not implemented yet. "
-        "No WT rules will be loaded."
-    )
-
 if not 'SAMPLES' in locals():
     SAMPLES = list(config.get('samples', {}).keys())
 
@@ -41,23 +35,26 @@ wildcard_constraints:
     method = r"[^/]+",
     aggr_id = r"[^/]+"
 
-include:
-    '../common.smk'
-include:
-    'rules/gcfdb.smk'
-include:
-    'rules/filter.smk'
-include:
-    'rules/quant.smk'
-include:
-    'rules/qc.smk'
-include:
-    'rules/bfq.smk'
-include:
-    '../postprocess.smk'
-include:
-    'rules/analysis.smk'
-
+if SINGLECELL_ASSAY == 'tcr':
+    include:
+        'rules/immune.smk'
+else:
+    include:
+        '../common.smk'
+    include:
+        'rules/gcfdb.smk'
+    include:
+        'rules/filter.smk'
+    include:
+        'rules/quant.smk'
+    include:
+        'rules/qc.smk'
+    include:
+        'rules/bfq.smk'
+    include:
+        '../postprocess.smk'
+    include:
+        'rules/analysis.smk'
 
 onsuccess:
     # write config
