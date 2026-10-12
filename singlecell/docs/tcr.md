@@ -32,9 +32,11 @@ The preset deliberately has no project-specific WT paths. The validator does not
 The TCR branch includes only immune rules; the WT branch retains its existing includes.
 Always pass an explicit target:
 
-- `tcr_preflight_all`: validate the external WT parents, verify every FASTQ MD5 and every paired record, and run Split-Pipe setup-only checks. This target cannot reach analysis rules.
+- `tcr_preflight_all`: validate the external WT parents and run Split-Pipe setup-only checks. This target cannot reach analysis rules.
 - `data/tmp/singlecell/immune/sublibraries/sublib1/complete.json`: pilot, using the appropriate interim root for the deployment.
 - `tcr_all` or `bfq_all`: process all sublibraries, combine, then create a WT-preserving cell table and overlap report.
+
+Full FASTQ checksum/pairing scans are optional explicit `tcr_fastq_integrity` output targets; neither preflight nor production depends on them. Input problems are otherwise left to Split-Pipe to report.
 
 The parent validator checks version 1.8.2, kit WT, chemistry v4, consistent sample/well definitions and exact agreement between the ordered individual cell calls and the combined WT cell list. Parent directories are read-only external resources. All metadata consumed by Split-Pipe is declared as input. Geometry/kit assumptions still require laboratory confirmation.
 

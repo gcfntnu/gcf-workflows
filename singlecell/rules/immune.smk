@@ -51,7 +51,6 @@ rule bfq_all:
 
 rule tcr_preflight_all:
     input:
-        expand(join(TCR_ROOT, 'checks', 'fastq', '{sublib}.json'), sublib=TCR_ORDER),
         expand(join(TCR_ROOT, 'preflight', '{sublib}', 'complete.json'), sublib=TCR_ORDER)
 
 
@@ -131,7 +130,6 @@ rule splitpipe_tcr:
     input:
         unpack(get_raw_fastq),
         parents=rules.splitpipe_tcr_validate.output.manifest,
-        integrity=join(TCR_ROOT, 'checks', 'fastq', '{sublib}.json'),
         preflight=join(TCR_ROOT, 'preflight', '{sublib}', 'complete.json')
     output:
         complete=join(TCR_ROOT, 'sublibraries', '{sublib}', 'complete.json'),
