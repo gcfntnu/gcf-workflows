@@ -19,6 +19,17 @@ if os.path.exists(extra_conf_fn):
         c  = yaml.load(fh, Loader=Loader) or {}
         update_config2(config, c)
     
+# Validate assay routing before loading WT-specific rules or resolving their targets.
+include:
+    'rules/immune_config.py'
+
+SINGLECELL_ASSAY = validate_singlecell_assay(config)
+if SINGLECELL_ASSAY == 'tcr':
+    raise ValueError(
+        "TCR configuration is valid, but TCR execution rules are not implemented yet. "
+        "No WT rules will be loaded."
+    )
+
 if not 'SAMPLES' in locals():
     SAMPLES = list(config.get('samples', {}).keys())
 
