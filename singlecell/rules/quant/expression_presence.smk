@@ -36,20 +36,26 @@ def get_expression_presence_inputs(wildcards):
         sublib=AGGR_IDS[wildcards.aggr_id]
     )
 
-def get_sample_ids_str(wildcards):
-    """Return comma-separated sample ID string for a given aggr_id."""
+def get_library_ids_str(wildcards):
+    """Return comma-separated library IDs for a given aggr_id."""
     return ",".join(AGGR_IDS[wildcards.aggr_id])
+
+
+def expression_presence_aggr_inputs(wildcards):
+    return {
+        "tables": get_expression_presence_inputs(wildcards),
+        "barcode_info": get_primary_barcode_info(SimpleNamespace(method="splitpipe", aggr_id=wildcards.aggr_id)),
+    }
 
 
 rule splitpipe_cellbender_expression_presence_aggr:
     input:
-        get_expression_presence_inputs
+        unpack(expression_presence_aggr_inputs)
     output:
         merged = join(QUANT_INTERIM, "aggregate", "splitpipe_cellbender", "{aggr_id}_expression_presence.tsv")
     params:
         script = src_gcf("scripts/aggr_barcode_info.py"),
-        sample_ids = get_sample_ids_str,
-        rename_strategy = "parsebio"
+        library_ids = get_library_ids_str
     container:
         "docker://" + config["docker"]["scanpy"]
     benchmark:
@@ -58,7 +64,8 @@ rule splitpipe_cellbender_expression_presence_aggr:
         4
     shell:
         "python {params.script} "
+        "{input.tables} "
+        "--barcode-info {input.barcode_info} "
+        "--library-id {params.library_ids} "
+        "--allow-unmapped-source "
         "--output {output.merged} "
-        "--barcode-rename {params.rename_strategy} "
-        "--sample-id {params.sample_ids} "
-        "{input}"

@@ -15,31 +15,56 @@ def rename_ints_to_samples(items):
 PARSEBIO_SAMPLES = rename_ints_to_samples(list(config['wells'].keys()))
 SPLITPIPE_AGGR = join(QUANT_INTERIM, 'aggregate', 'splitpipe')
 
-
 rule splitpipe_barcode_info:
     input:
-        cell_metadata = join(QUANT_INTERIM, 'aggregate', 'splitpipe', 'all-sample', 'DGE_unfiltered', 'cell_metadata.csv')
+        cell_metadata = join(QUANT_INTERIM, 'aggregate', 'splitpipe', '{sample}', 'DGE_filtered', 'cell_metadata.csv')
     output:
-        join(QUANT_INTERIM, 'splitpipe', 'barcode_info.tsv')
-    container:
-        'docker://' + config['docker']['default']
+        join(QUANT_INTERIM, 'aggregate', 'splitpipe', '{sample}', 'barcode_info.tsv')
     params:
         script = src_gcf('scripts/splitpipe_barcode_info.py'),
-        config = workflow.configfiles[0],
-        sublibs = " ".join(SUBLIBS)
+        sublibs = ' '.join(SUBLIBS)
+    container:
+        'docker://' + config['docker']['default']
     shell:
         'python {params.script} '
         '--cell-metadata {input.cell_metadata} '
-        '--configfile {params.config} '
-        '--output {output} '
+        '--sample-id {wildcards.sample} '
         '--sublibs {params.sublibs} '
+        '--output {output} '
+
+
+def splitpipe_barcode_info_aggr_inputs(wc):
+    if wc.aggr_id != 'all_samples':
+        raise NotImplementedError(
+            f"Split-pipe barcode aggregation currently only supports aggr_id='all_samples', got {wc.aggr_id!r}"
+        )
+    return expand(
+        join(SPLITPIPE_AGGR, '{sample}', 'barcode_info.tsv'),
+        sample=PARSEBIO_SAMPLES,
+    )
+
+
+rule splitpipe_barcode_info_aggr:
+    input:
+        splitpipe_barcode_info_aggr_inputs
+    output:
+        join(SPLITPIPE_AGGR, '{aggr_id}_barcode_info.tsv')
+    params:
+        script = src_gcf('scripts/aggr_barcode_info.py')
+    container:
+        'docker://' + config['docker']['default']
+    shell:
+        'python {params.script} '
+        '{input} '
+        '--output {output} '
+        '--verbose '
 
 
 rule splitpipe_sample_list:
     output:
         join(QUANT_INTERIM, 'splitpipe', 'splitpipe_sample_list.txt'),
     params:
-        config = 'config.yaml',
+        config = workflow.configfiles[0],
         script = src_gcf('scripts/create_parse_sample_list.py')
     threads:
         1
@@ -88,7 +113,7 @@ rule splitpipe_quant:
         '--nthreads {threads} '
         '--chemistry {params.chemistry} '
         '--kit {params.kit} '
-        '--genome_dir {params.genome_dir} ' 
+        '--genome_dir {params.genome_dir} '
         '--output_dir {params.out_dir} '
         '--fq1 {input.R1} '
         '--fq2 {input.R2} '
@@ -127,21 +152,24 @@ rule splitpipe_nuclear_fraction_bam:
 
 rule splitpipe_nuclear_fraction_bam_aggr:
     input:
-        expand(join(QUANT_INTERIM, 'splitpipe', '{sublib}', 'nuclear_fraction.tsv'), sublib=SUBLIBS)
+        tables = expand(join(QUANT_INTERIM, 'splitpipe', '{sublib}', 'nuclear_fraction.tsv'), sublib=SUBLIBS),
+        barcode_info = lambda wc: get_primary_barcode_info(SimpleNamespace(method='splitpipe', aggr_id=wc.aggr_id))
     output:
         "data/tmp/singlecell/quant/aggregate/splitpipe/{aggr_id}_nuclear_fraction.tsv"
     params:
         script = src_gcf("scripts/aggr_barcode_info.py"),
-        args = lambda wc : ' --barcode-rename parsebio --sample-id ' + ','.join(AGGR_IDS.get(wc.aggr_id))
+        library_ids = lambda wc: ','.join(AGGR_IDS.get(wc.aggr_id))
     container:
         'docker://' + config['docker']['default']
     shell:
         'python {params.script} '
-        '{input} '
-        '{params.args} '
+        '{input.tables} '
+        '--barcode-info {input.barcode_info} '
+        '--library-id {params.library_ids} '
+        '--allow-unmapped-source '
         '--output {output} '
-        
-        
+
+
 rule splitpipe_splice_from_tscp:
     input:
         join(QUANT_INTERIM, 'splitpipe', '{sublib}', 'process', 'tscp_assignment.csv.gz')
@@ -224,33 +252,33 @@ rule splitpipe_to_10x_mtx:
         '--input {input.mtx} '
         '--output {output.mtx} '
 
+if not PREPROCESS_ENABLED:
+    rule splitpipe_scanpy_pp_ipynb:
+        input:
+            join(QUANT_INTERIM, 'aggregate', 'splitpipe', 'scanpy', '{aggr_id}_filtered.h5ad')
+        output:
+            preprocessed = join(QUANT_INTERIM, 'aggregate', 'splitpipe', 'scanpy', '{aggr_id}_preprocessed.h5ad'),
+        log:
+            notebook = join(QUANT_INTERIM, 'aggregate', 'splitpipe', 'scanpy', 'notebooks', '{aggr_id}_pp.ipynb')
+        threads:
+            24
+        container:
+            'docker://' + config['docker']['jupyter-scanpy']
+        notebook:
+            'scripts/splitpipe_preprocess.py.ipynb'
 
-rule splitpipe_scanpy_pp_ipynb:
-    input:
-        join(QUANT_INTERIM, 'aggregate', 'splitpipe', 'scanpy', '{aggr_id}_filtered.h5ad')
-    output:
-        preprocessed = join(QUANT_INTERIM, 'aggregate', 'splitpipe', 'scanpy', '{aggr_id}_preprocessed.h5ad'),
-    log:
-        notebook = join(QUANT_INTERIM, 'aggregate', 'splitpipe', 'scanpy', 'notebooks', '{aggr_id}_pp.ipynb')
-    threads:
-        24
-    container:
-        'docker://' + config['docker']['jupyter-scanpy']
-    notebook:
-        'scripts/splitpipe_preprocess.py.ipynb'
 
-
-rule splitpipe_scanpy_pp_ipynb_html:
-    input:
-        join(QUANT_INTERIM, 'aggregate', 'splitpipe', 'scanpy', '{aggr_id}_preprocessed.h5ad')
-    output:
-        join(QUANT_INTERIM, 'aggregate', 'splitpipe', 'scanpy', 'notebooks', '{aggr_id}_pp.html')
-    params:
-        notebook = join(QUANT_INTERIM, 'aggregate', 'splitpipe', 'scanpy', 'notebooks', '{aggr_id}_pp.ipynb')
-    container:
-        'docker://' + config['docker']['jupyter-scanpy']
-    threads:
-        1
-    shell:
-        'jupyter nbconvert --to html {params.notebook} ' 
+    rule splitpipe_scanpy_pp_ipynb_html:
+        input:
+            join(QUANT_INTERIM, 'aggregate', 'splitpipe', 'scanpy', '{aggr_id}_preprocessed.h5ad')
+        output:
+            join(QUANT_INTERIM, 'aggregate', 'splitpipe', 'scanpy', 'notebooks', '{aggr_id}_pp.html')
+        params:
+            notebook = join(QUANT_INTERIM, 'aggregate', 'splitpipe', 'scanpy', 'notebooks', '{aggr_id}_pp.ipynb')
+        container:
+            'docker://' + config['docker']['jupyter-scanpy']
+        threads:
+            1
+        shell:
+            'jupyter nbconvert --to html {params.notebook} '
 

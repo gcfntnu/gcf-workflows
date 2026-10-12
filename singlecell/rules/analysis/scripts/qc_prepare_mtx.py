@@ -44,7 +44,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--qc-vars", required=True)
     parser.add_argument("--exclude-doublets", type=int, choices=[0, 1], default=0)
     parser.add_argument("--doublet-column", default="doublet_call")
-    parser.add_argument("--singlet-value", default="singlet")
+    parser.add_argument("--doublet-value", default="doublet")
     parser.add_argument("--log-file", default=None)
     parser.add_argument("--verbose", type=int, choices=[0, 1], default=0)
     return parser.parse_args()
@@ -86,7 +86,11 @@ def _read_annotation_sidecar(path: str) -> pd.DataFrame:
     if frame.shape[1] < 1:
         raise ValueError(f"Annotation sidecar has no columns: {path}")
     index_col = frame.columns[0]
+    if frame[index_col].isna().any():
+        raise ValueError(f"Annotation sidecar barcode contains missing values: {path}")
     frame[index_col] = frame[index_col].astype(str).str.strip()
+    if frame[index_col].eq("").any():
+        raise ValueError(f"Annotation sidecar barcode contains empty values: {path}")
     frame = frame.set_index(index_col)
     frame.index.name = "barcode"
     if not frame.index.is_unique:
@@ -106,19 +110,6 @@ def load_barcode_info(conv, paths: list[str]) -> list[tuple[str, pd.DataFrame]]:
             result.append((path, frame))
     return result
 
-
-def split_parsebio_rt_info(
-    barcode_info: list[tuple[str, pd.DataFrame]],
-) -> tuple[tuple[str, pd.DataFrame], list[tuple[str, pd.DataFrame]]]:
-    matches = [item for item in barcode_info if {"barcode_Tmapped", "stype"}.issubset(item[1].columns)]
-    if len(matches) != 1:
-        raise ValueError(
-            "Parse STARsolo requires exactly one barcode-info table with barcode_Tmapped and stype; "
-            f"found {len(matches)}"
-        )
-    rt_info = matches[0]
-    remaining = [item for item in barcode_info if item is not rt_info]
-    return rt_info, remaining
 
 
 def attach_feature_info(adata, feature_info: pd.DataFrame | None) -> None:
@@ -175,25 +166,17 @@ def attach_starsolo_library_id(adata, path: str, input_format: str) -> None:
     adata.obs["library_id"] = library_id
 
 
-def starsolo_aggr_csv_from_inputs(args: argparse.Namespace) -> pd.DataFrame | None:
-    if args.input_format != "10x_starsolo" or args.barcode_rename != "numerical":
-        return None
-
-    library_ids = [starsolo_library_id(path) for path in args.input]
-    if len(library_ids) != len(set(library_ids)):
-        raise ValueError(f"Duplicate 10x STARsolo library IDs in aggregate input: {library_ids}")
-
-    return pd.DataFrame({"sample_id": library_ids})
-
-
-def make_reader_args(args: argparse.Namespace, conv) -> SimpleNamespace:
-    aggr_csv = starsolo_aggr_csv_from_inputs(args)
-    if aggr_csv is None and args.aggr_csv:
-        aggr_csv = conv._aggr_csv_reader(args.aggr_csv)
+def make_reader_args(
+    args: argparse.Namespace,
+    conv,
+    barcode_info: list[tuple[str, pd.DataFrame]],
+) -> SimpleNamespace:
+    aggr_csv = conv._aggr_csv_reader(args.aggr_csv) if args.aggr_csv else None
 
     return SimpleNamespace(
         barcode_rename=args.barcode_rename,
         aggr_csv=aggr_csv,
+        barcode_info=[frame for _, frame in barcode_info],
         no_gex_only=False,
         no_zero_cell_rm=True,
         verbose=bool(args.verbose),
@@ -253,50 +236,26 @@ def main() -> int:
 
     feature_info = load_feature_info(conv, args.feature_info)
     barcode_info = load_barcode_info(conv, args.barcode_info)
-    reader_args = make_reader_args(args, conv)
+    reader_args = make_reader_args(args, conv, barcode_info)
     reader = reader_for_format(conv, args.input_format)
 
-    if args.input_format == "parsebio_starsolo":
-        from postprocess_starsolo_rt import aggregate_starsolo_cells
-
-        rt_info, barcode_info = split_parsebio_rt_info(barcode_info)
-        data_list = []
-        for path in args.input:
-            LOGGER.info("[prepare] reading matrix %s", path)
-            adata = reader(path, reader_args)
-            adata.obs = merge_columns(adata.obs.copy(), rt_info[1], rt_info[0])
-            data_list.append(adata)
-
-        adata = ad.concat(data_list, join="outer", merge="unique", uns_merge=None)
-        del data_list
-        if not adata.obs_names.is_unique:
-            raise ValueError("Parse STARsolo R/T barcode index is not unique before collapse")
-
-        LOGGER.info("[prepare] collapsing Parse STARsolo R/T observations by barcode_Tmapped")
-        adata = aggregate_starsolo_cells(adata, groupby="barcode_Tmapped")
+    frames = []
+    seen = set()
+    for path in args.input:
+        LOGGER.info("[prepare] reading matrix %s", path)
+        adata = reader(path, reader_args)
+        attach_starsolo_library_id(adata, path, args.input_format)
         attach_feature_info(adata, feature_info)
         attach_barcode_info(adata, barcode_info)
-        frames = [frame_from_anndata(adata, group_cols, qc_vars)]
-        LOGGER.info("[prepare] collapsed matrix n_obs=%d n_vars=%d", adata.n_obs, adata.n_vars)
+
+        duplicate = seen.intersection(adata.obs_names)
+        if duplicate:
+            raise ValueError(f"Duplicate aggregate barcodes across matrix inputs: {sorted(duplicate)[:5]}")
+        seen.update(adata.obs_names)
+
+        LOGGER.info("[prepare] matrix n_obs=%d n_vars=%d", adata.n_obs, adata.n_vars)
+        frames.append(frame_from_anndata(adata, group_cols, qc_vars))
         del adata
-    else:
-        frames = []
-        seen = set()
-        for path in args.input:
-            LOGGER.info("[prepare] reading matrix %s", path)
-            adata = reader(path, reader_args)
-            attach_starsolo_library_id(adata, path, args.input_format)
-            attach_feature_info(adata, feature_info)
-            attach_barcode_info(adata, barcode_info)
-
-            duplicate = seen.intersection(adata.obs_names)
-            if duplicate:
-                raise ValueError(f"Duplicate aggregate barcodes across matrix inputs: {sorted(duplicate)[:5]}")
-            seen.update(adata.obs_names)
-
-            LOGGER.info("[prepare] matrix n_obs=%d n_vars=%d", adata.n_obs, adata.n_vars)
-            frames.append(frame_from_anndata(adata, group_cols, qc_vars))
-            del adata
 
     out = pd.concat(frames, axis=0)
     if not out.index.is_unique:
@@ -317,7 +276,7 @@ def main() -> int:
         out,
         exclude_doublets=bool(args.exclude_doublets),
         doublet_col=args.doublet_column,
-        singlet_value=args.singlet_value,
+        doublet_value=args.doublet_value,
     )
     out["fit_mask"] = fit_mask.to_numpy(dtype=bool)
     out["fit_exclusion_reason"] = fit_reason.to_numpy(dtype=object)

@@ -391,7 +391,7 @@ def add_fail_reason(reasons: pd.Series, mask: pd.Series, label: str) -> None:
 
 def write_mask(mask: pd.Series, path: str) -> None:
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    out = pd.DataFrame({"autoqc_mask": mask.astype("int8")}, index=mask.index)
+    out = pd.DataFrame({"autoqc_pass": mask.astype("int8")}, index=mask.index)
     out.index.name = "Barcode"
     out.to_csv(path, sep="\t", index=True)
 

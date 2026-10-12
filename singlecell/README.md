@@ -1,12 +1,21 @@
 # single-cell
-Single cell RNA seq analysis, 10Xgenomics platform
 
-### Introduction
-single-cell: Single cell RNA seq analysis, 10Xgenomics platform
+Single-cell RNA-seq workflow for the Genomics Core Facility.
 
-The pipeline is built using [Snakemake](https://bitbucket.org/snakemake/snakemake), a flexible pipeline tool. It runs within docker containers making installation trivial and results highly reproducible.
+The workflow is implemented in Snakemake and supports multiple quantification paths,
+including 10x Genomics and Parse Biosciences. It is under active development and is
+primarily intended for internal GCF use.
 
+## Documentation
 
-### Documentation
+Developer-facing workflow contracts and implementation notes are maintained under
+`singlecell/docs/`:
 
-No documentation and a fair warning that this is still in development and **not** at the monent useful for anybody outside the Genomics Core Facility.
+- `anndata-contract.md`: durable semantics of canonical filtered and preprocessed AnnData
+- `metadata-contract.md`: sample, library, observation, and feature identity/join semantics
+- `anndata-schema.md`: current concrete AnnData keys and layout
+- `anndata-implementation.md`: current assembly and preprocessing implementation
+- `quantifier-contracts.md`: technology- and quantifier-specific data-flow contracts
+
+The AnnData and metadata contracts are the stable interfaces. Implementation and
+quantifier documents may change as workflow internals evolve.

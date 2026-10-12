@@ -226,7 +226,7 @@ def make_fit_mask(
     *,
     exclude_doublets: bool,
     doublet_col: str,
-    singlet_value: str,
+    doublet_value: str,
 ) -> Tuple[pd.Series, pd.Series]:
     fit_mask = pd.Series(True, index=obs.index, dtype=bool, name="fit_mask")
     reason = pd.Series("", index=obs.index, dtype="object", name="fit_exclusion_reason")
@@ -238,10 +238,10 @@ def make_fit_mask(
         raise KeyError(f"exclude_doublets=1 requires adata.obs[{doublet_col!r}]")
 
     calls = obs[doublet_col].astype("string")
-    is_singlet = calls.eq(singlet_value).fillna(False)
-    fit_mask &= is_singlet.to_numpy(dtype=bool)
+    is_doublet = calls.eq(doublet_value).fillna(False)
+    fit_mask &= ~is_doublet.to_numpy(dtype=bool)
 
-    excluded = ~fit_mask
+    excluded = is_doublet
     if excluded.any():
         labels = calls.fillna("<missing>").astype(str)
         reason.loc[excluded] = doublet_col + "=" + labels.loc[excluded]
@@ -268,7 +268,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--qc-vars", required=True, help="Comma-separated raw QC metrics to retain")
     parser.add_argument("--exclude-doublets", type=int, choices=[0, 1], default=0)
     parser.add_argument("--doublet-column", default="doublet_call")
-    parser.add_argument("--singlet-value", default="singlet")
+    parser.add_argument("--doublet-value", default="doublet")
     parser.add_argument("--log-file", default=None)
     parser.add_argument("--verbose", type=int, choices=[0, 1], default=0)
     return parser.parse_args()
@@ -304,7 +304,7 @@ def main() -> int:
         adata.obs,
         exclude_doublets=bool(args.exclude_doublets),
         doublet_col=args.doublet_column,
-        singlet_value=args.singlet_value,
+        doublet_value=args.doublet_value,
     )
 
     out = pd.DataFrame(index=adata.obs_names.copy())

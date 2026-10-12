@@ -825,7 +825,7 @@ def main() -> int:
 
     # write outputs
     
-    out_mask = pd.DataFrame({"autoqc_mask": mask_global.astype("int8")}, index=df.index)
+    out_mask = pd.DataFrame({"autoqc_pass": mask_global.astype("int8")}, index=df.index)
     out_mask.index.name = "Barcode"
     write_table(out_mask, args.output_mask)
     LOGGER.info("[mask] wrote: %s", args.output_mask)

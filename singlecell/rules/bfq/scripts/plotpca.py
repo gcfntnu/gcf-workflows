@@ -207,53 +207,56 @@ if __name__ == "__main__":
     if adata.n_obs == 0 or adata.n_vars == 0:
         raise ValueError("Empty AnnData after loading / optional subsetting")
 
-    # ---------- Modern Scanpy preprocessing ----------
+    # ---------- Embedding ----------
 
-    # 1) Filter cells / genes (strict, with fallback for tiny test sets)
-    try:
-        sc.pp.filter_cells(adata, min_genes=300)
-        sc.pp.filter_genes(adata, min_cells=5)
-        if adata.n_obs < 100 or adata.n_vars < 10:
-            raise ValueError("Too few cells/genes after strict filtering")
-    except Exception:
-        sc.pp.filter_cells(adata, min_genes=20)
-        sc.pp.filter_genes(adata, min_cells=1)
+    # Canonical preprocessed AnnData already contains the selected UMAP. Keep the
+    # legacy preprocessing path only for older/filtered BFQ inputs.
+    if "X_umap" not in adata.obsm:
+        # 1) Filter cells / genes (strict, with fallback for tiny test sets)
+        try:
+            sc.pp.filter_cells(adata, min_genes=300)
+            sc.pp.filter_genes(adata, min_cells=5)
+            if adata.n_obs < 100 or adata.n_vars < 10:
+                raise ValueError("Too few cells/genes after strict filtering")
+        except Exception:
+            sc.pp.filter_cells(adata, min_genes=20)
+            sc.pp.filter_genes(adata, min_cells=1)
 
-    # 2) Normalize and log-transform
-    sc.pp.normalize_total(adata, target_sum=1e4, key_added="n_counts_all")
-    sc.pp.log1p(adata)
+        # 2) Normalize and log-transform
+        sc.pp.normalize_total(adata, target_sum=1e4, key_added="n_counts_all")
+        sc.pp.log1p(adata)
 
-    # 3) Highly variable genes (new API, replaces filter_genes_dispersion)
-    try:
-        sc.pp.highly_variable_genes(
-            adata,
-            flavor="cell_ranger",
-            n_top_genes=1000,
-            subset=True,
-        )
-    except Exception:
-        sc.pp.highly_variable_genes(
-            adata,
-            flavor="cell_ranger",
-            n_top_genes=None,
-            subset=False,
-        )
+        # 3) Highly variable genes (new API, replaces filter_genes_dispersion)
+        try:
+            sc.pp.highly_variable_genes(
+                adata,
+                flavor="cell_ranger",
+                n_top_genes=1000,
+                subset=True,
+            )
+        except Exception:
+            sc.pp.highly_variable_genes(
+                adata,
+                flavor="cell_ranger",
+                n_top_genes=None,
+                subset=False,
+            )
 
-    # 4) Scale for PCA (this densifies sparse; warning is expected)
-    sc.pp.scale(adata, max_value=10)
+        # 4) Scale for PCA (this densifies sparse; warning is expected)
+        sc.pp.scale(adata, max_value=10)
 
-    # 5) PCA + neighbors + clustering + UMAP
-    sc.tl.pca(adata, n_comps=20, svd_solver="arpack")
-    sc.pp.neighbors(adata)
-    sc.tl.louvain(adata, resolution=0.8)
-    sc.tl.umap(adata)
+        # 5) PCA + neighbors + clustering + UMAP
+        sc.tl.pca(adata, n_comps=20, svd_solver="arpack")
+        sc.pp.neighbors(adata)
+        sc.tl.louvain(adata, resolution=0.8)
+        sc.tl.umap(adata)
 
     # ---------- Outputs ----------
 
     # Figure
     if args.output.endswith("_mqc.png"):
         # ensure color_by gets included if present
-        color_vars = [args.color_by, "louvain", "sample_id"]
+        color_vars = [args.color_by, "leiden", "Sample_ID", "louvain", "sample_id"]
         color_vars += ["n_counts_all", "n_genes", "pct_counts_mt"]
         # keep only those that exist
         color_vars = list(dict.fromkeys(v for v in color_vars if v in adata.obs.columns))

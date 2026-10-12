@@ -4,10 +4,7 @@ PSEUDOBULK_REPLICATE_COLUMN = PSEUDOBULK_CFG['replicate_column']
 PSEUDOBULK_MIN_CELLS = PSEUDOBULK_CFG['min_cells']
 PSEUDOBULK_MIN_COUNTS = PSEUDOBULK_CFG['min_counts']
 
-if CB_OUTPUT:
-    PSEUDOBULK_ANNDATA = join(QUANT_INTERIM, 'aggregate', '{method}', 'cellbender', 'scanpy', '{aggr_id}_filtered.h5ad')
-else:
-    PSEUDOBULK_ANNDATA = join(QUANT_INTERIM, 'aggregate', '{method}', 'scanpy', '{aggr_id}_filtered.h5ad')
+PSEUDOBULK_ANNDATA = PREPROCESS_FINAL_ANNDATA
 
 def pseudobulk_all_inputs(wc):
     return expand(
@@ -39,8 +36,7 @@ def pseudobulk_all_inputs(wc):
 
 rule pseudobulk:
     input:
-        anndata = PSEUDOBULK_ANNDATA,
-        annotation = join(QUANT_INTERIM, 'aggregate', '{method}', 'annotation', '{aggr_id}_mapmycells_annotation.tsv'),
+        anndata = PSEUDOBULK_ANNDATA
     output:
         h5ad = join(QUANT_INTERIM, 'aggregate', '{method}', 'pseudobulk', '{aggr_id}', '{annotation_column}',
                      'pseudobulk.h5ad'),
@@ -56,7 +52,8 @@ rule pseudobulk:
         script = src_gcf('scripts/pseudobulk.py'),
         replicate_column = PSEUDOBULK_REPLICATE_COLUMN,
         min_cells = PSEUDOBULK_MIN_CELLS,
-        min_counts = PSEUDOBULK_MIN_COUNTS
+        min_counts = PSEUDOBULK_MIN_COUNTS,
+        counts_layer = 'counts'
     threads:
         8
     log:
@@ -68,7 +65,7 @@ rule pseudobulk:
     shell:
         'python {params.script} '
         '--input {input.anndata} '
-        '--annotation {input.annotation} '
+        '--counts-layer {params.counts_layer} '
         '--replicate-column {params.replicate_column} '
         '--annotation-column {wildcards.annotation_column} '
         '--min-cells {params.min_cells} '
