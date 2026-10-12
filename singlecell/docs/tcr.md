@@ -27,14 +27,27 @@ Every key must match a TCR `samples` entry. Each relative parent path is unique 
 
 The preset deliberately has no project-specific WT paths. The validator does not access the filesystem, infer pairing, validate FASTQs, or assert that biological kit metadata is correct; those checks belong to workdir preflight. Missing mappings, incompatible settings and unsupported assay values fail explicitly.
 
-## Implementation checkpoint
+## Workflow targets and execution
 
-This change implements configuration and selection only. TCR configuration validation occurs before WT-specific rule includes. A valid TCR configuration then stops with `TCR execution rules are not implemented yet`; it cannot run WT quantification accidentally. Dedicated validate/process/combine/link rules and TCR final targets are the next implementation step. Do not deploy this branch for production TCR execution yet.
+The TCR branch includes only immune rules; the WT branch retains its existing includes.
+Always pass an explicit target:
 
-Run the configuration tests with:
+- `tcr_preflight_all`: validate the external WT parents, verify every FASTQ MD5 and every paired record, and run Split-Pipe setup-only checks. This target cannot reach analysis rules.
+- `data/tmp/singlecell/immune/sublibraries/sublib1/complete.json`: pilot, using the appropriate interim root for the deployment.
+- `tcr_all` or `bfq_all`: process all sublibraries, combine, then create a WT-preserving cell table and overlap report.
+
+The parent validator checks version 1.8.2, kit WT, chemistry v4, consistent sample/well definitions and exact agreement between the ordered individual cell calls and the combined WT cell list. Parent directories are read-only external resources. All metadata consumed by Split-Pipe is declared as input. Geometry/kit assumptions still require laboratory confirmation.
+
+Each run has a separate output directory, command/image/revision/exit provenance, log and benchmark. Existing nonempty output directories are rejected; preserve a failed attempt under a different name before retrying. Snakemake-created empty directories are allowed. Helpers require the installed Split-Pipe 1.8.2 output contract, including compressed AIRR/contig files, barcode and clonotype tables, and an HTML report. Empty-repertoire edge cases must be checked during the real pilot; no real TCR analysis has yet validated those output assumptions.
+
+Combine receives the **combined WT parent** and explicit ordered TCR sublibrary paths. Its setup-only check runs immediately before actual combine, since it requires completed immune outputs. The linked table retains every WT cell, summarizes productive TRA/TRB calls, and leaves the original chain-level AIRR outputs intact. Filtered TCR barcodes absent from WT cause a failure with a saved overlap report. No downstream WT matrix is modified.
+
+Configure scheduler-wide `mem_mb` and `io_jobs` budgets as well as cores. Per-rule resource declarations alone do not enforce OS memory limits; the project launcher also caps its Docker container. Start production with one TCR job until the pilot establishes actual resource use.
+
+Tests:
 
 ```bash
-python -m unittest discover -s singlecell/.tests -p test_immune_config.py -v
+python -m unittest discover -s singlecell/.tests -p 'test_*.py' -v
 ```
 
-The existing CI dry-run command is `snakemake -n -p --cores 1 multiqc_report` from `singlecell/.tests`. Use its normal fixture in addition to the explicit TCR stopping check. Configmaker's `LibprepConfig.select` can check the new entry independently without generating a project or inspecting real sequencing data.
+The legacy CI command remains `snakemake -n -p --cores 1 multiqc_report` from `singlecell/.tests`. The TCR project supplies a small synthetic parent/FASTQ fixture to check the complete DAG without real sequencing data. FASTQ parser tests require pysam, supplied by the pinned immune image.

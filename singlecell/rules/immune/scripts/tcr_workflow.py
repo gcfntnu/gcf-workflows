@@ -22,9 +22,16 @@ def save_json(path, value):
     temporary.replace(path)
 
 
-def sha256(path):
+def file_hash(path, algorithm):
+    digest = hashlib.new(algorithm)
     with open(path, 'rb') as handle:
-        return hashlib.file_digest(handle, 'sha256').hexdigest()
+        for chunk in iter(lambda: handle.read(8 * 1024 * 1024), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def sha256(path):
+    return file_hash(path, 'sha256')
 
 
 def read_cells(path):
@@ -91,8 +98,7 @@ def check_fastqs(paths, expected, output):
     import pysam
     checksums = []
     for path, digest in zip(paths, expected):
-        with open(path, 'rb') as handle:
-            actual = hashlib.file_digest(handle, 'md5').hexdigest()
+        actual = file_hash(path, 'md5')
         if actual != digest:
             raise ValueError(f'MD5 mismatch: {path}: {actual} != {digest}')
         checksums.append(actual)
@@ -143,6 +149,7 @@ def run_splitpipe(args):
             record['commands'].append(command)
             result = subprocess.run(command, check=False)
             if result.returncode:
+                code = result.returncode
                 raise RuntimeError(f'Split-Pipe exited {result.returncode}')
             log = output / 'split-pipe_v1_8_2.log'
             text = log.read_text()
@@ -196,6 +203,7 @@ def link_wt(airr, metadata, output, summary):
                 counts[barcode]['productive_contigs'] += 1
                 if row['locus'] in ('TRA', 'TRB'):
                     counts[barcode][f"productive_{row['locus']}"] += 1
+    detected = set(counts)
     extras = ['tcr_contigs', 'productive_contigs', 'productive_TRA', 'productive_TRB', 'paired_TRA_TRB']
     Path(output).parent.mkdir(parents=True, exist_ok=True)
     with gzip.open(output, 'wt', newline='') as handle:
@@ -206,8 +214,8 @@ def link_wt(airr, metadata, output, summary):
             row.update({key: values[key] for key in extras[:-1]})
             row['paired_TRA_TRB'] = int(values['productive_TRA'] > 0 and values['productive_TRB'] > 0)
             writer.writerow(row)
-    save_json(summary, {'wt_cells': len(wt), 'tcr_cells': len(counts), 'matched_tcr_cells': len(set(counts) & set(wt)),
-                        'unmatched_tcr_cells': sorted(unmatched), 'wt_cells_without_tcr': len(set(wt) - set(counts))})
+    save_json(summary, {'wt_cells': len(wt), 'tcr_cells': len(detected), 'matched_tcr_cells': len(detected & set(wt)),
+                        'unmatched_tcr_cells': sorted(unmatched), 'wt_cells_without_tcr': len(set(wt) - detected)})
     if unmatched:
         raise ValueError('Filtered TCR has cells outside the WT parent; inspect the saved overlap report')
 

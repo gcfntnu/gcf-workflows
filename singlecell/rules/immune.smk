@@ -8,7 +8,7 @@ TCR_PARENT_ROOT = config['immune']['wt_parent']['root']
 TCR_SCRIPT = src_gcf('immune/scripts/tcr_workflow.py')
 TCR_IMAGE = config['docker']['splitpipe_immune']
 TCR_COMMIT = config.get('workflow_commit', 'UNRECORDED')
-TCR_SETTINGS = json.dumps({'immune': config['immune'], 'samples': config['samples']})
+TCR_SETTINGS = json.dumps(config)
 TCR_COMBINED_PARENT = join(TCR_PARENT_ROOT, config['immune']['wt_parent']['combined'])
 TCR_COMBINED = join(TCR_ROOT, 'combined')
 
@@ -35,7 +35,12 @@ rule tcr_all:
     input:
         join(TCR_ROOT, 'linked', 'wt_tcr_cells.tsv.gz'),
         join(TCR_ROOT, 'linked', 'overlap.json'),
-        join(TCR_COMBINED, 'complete.json')
+        join(TCR_COMBINED, 'complete.json'),
+        join(TCR_COMBINED, 'all-sample_analysis_summary.html'),
+        join(TCR_COMBINED, 'all-sample', 'TCR_unfiltered', 'tcr_annotation_airr.tsv.gz'),
+        join(TCR_COMBINED, 'all-sample', 'TCR_filtered', 'barcode_report.tsv'),
+        join(TCR_COMBINED, 'all-sample', 'TCR_filtered', 'clonotype_frequency.tsv'),
+        join(TCR_COMBINED, 'all-sample', 'TCR_filtered', 'tcr_contigs.fa.gz')
     default_target: True
 
 
@@ -133,7 +138,13 @@ rule splitpipe_tcr:
         runproc=join(TCR_ROOT, 'sublibraries', '{sublib}', 'process', 'run_proc_def.json'),
         airr=join(TCR_ROOT, 'sublibraries', '{sublib}', 'all-sample', 'TCR_filtered', 'tcr_annotation_airr.tsv.gz'),
         raw_airr=join(TCR_ROOT, 'sublibraries', '{sublib}', 'all-sample', 'TCR_unfiltered', 'tcr_annotation_airr.tsv.gz'),
-        report=join(TCR_ROOT, 'sublibraries', '{sublib}', 'all-sample_analysis_summary.html')
+        report=join(TCR_ROOT, 'sublibraries', '{sublib}', 'all-sample_analysis_summary.html'),
+        barcode=join(TCR_ROOT, 'sublibraries', '{sublib}', 'all-sample', 'TCR_filtered', 'barcode_report.tsv'),
+        raw_barcode=join(TCR_ROOT, 'sublibraries', '{sublib}', 'all-sample', 'TCR_unfiltered', 'barcode_report.tsv'),
+        contigs=join(TCR_ROOT, 'sublibraries', '{sublib}', 'all-sample', 'TCR_filtered', 'tcr_contigs.fa.gz'),
+        raw_contigs=join(TCR_ROOT, 'sublibraries', '{sublib}', 'all-sample', 'TCR_unfiltered', 'tcr_contigs.fa.gz'),
+        clones=join(TCR_ROOT, 'sublibraries', '{sublib}', 'all-sample', 'TCR_filtered', 'clonotype_frequency.tsv'),
+        raw_clones=join(TCR_ROOT, 'sublibraries', '{sublib}', 'all-sample', 'TCR_unfiltered', 'clonotype_frequency.tsv')
     params:
         script=TCR_SCRIPT,
         output=lambda wc: str(Path(join(TCR_ROOT, 'sublibraries', wc.sublib)).resolve()),
@@ -165,11 +176,18 @@ rule splitpipe_tcr_combine:
         definitions=expand(join(TCR_ROOT, 'sublibraries', '{sublib}', 'process', 'run_proc_def.json'), sublib=TCR_ORDER),
         filtered=expand(join(TCR_ROOT, 'sublibraries', '{sublib}', 'all-sample', 'TCR_filtered', 'tcr_annotation_airr.tsv.gz'), sublib=TCR_ORDER),
         unfiltered=expand(join(TCR_ROOT, 'sublibraries', '{sublib}', 'all-sample', 'TCR_unfiltered', 'tcr_annotation_airr.tsv.gz'), sublib=TCR_ORDER),
+        supporting=expand(join(TCR_ROOT, 'sublibraries', '{sublib}', 'all-sample', 'TCR_{fraction}', '{filename}'),
+                          sublib=TCR_ORDER, fraction=['filtered', 'unfiltered'],
+                          filename=['barcode_report.tsv', 'tcr_contigs.fa.gz', 'clonotype_frequency.tsv']),
         parents=rules.splitpipe_tcr_validate.output.manifest
     output:
         complete=join(TCR_COMBINED, 'complete.json'),
         airr=join(TCR_COMBINED, 'all-sample', 'TCR_filtered', 'tcr_annotation_airr.tsv.gz'),
-        report=join(TCR_COMBINED, 'all-sample_analysis_summary.html')
+        report=join(TCR_COMBINED, 'all-sample_analysis_summary.html'),
+        raw_airr=join(TCR_COMBINED, 'all-sample', 'TCR_unfiltered', 'tcr_annotation_airr.tsv.gz'),
+        barcode=join(TCR_COMBINED, 'all-sample', 'TCR_filtered', 'barcode_report.tsv'),
+        contigs=join(TCR_COMBINED, 'all-sample', 'TCR_filtered', 'tcr_contigs.fa.gz'),
+        clones=join(TCR_COMBINED, 'all-sample', 'TCR_filtered', 'clonotype_frequency.tsv')
     params:
         script=TCR_SCRIPT,
         output=str(Path(TCR_COMBINED).resolve()),
