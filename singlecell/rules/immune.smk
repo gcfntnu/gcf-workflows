@@ -73,28 +73,6 @@ rule splitpipe_tcr_validate:
         'python {params.script:q} validate-parents --settings {params.settings:q} --output {output.manifest:q} > {log:q} 2>&1'
 
 
-rule tcr_fastq_integrity:
-    input:
-        unpack(get_raw_fastq)
-    output:
-        join(TCR_ROOT, 'checks', 'fastq', '{sublib}.json')
-    params:
-        script=TCR_SCRIPT,
-        md5=lambda wc: [config['samples'][wc.sublib]['R1_md5sum'], config['samples'][wc.sublib]['R2_md5sum']]
-    threads: 1
-    resources:
-        mem_mb=2048,
-        io_jobs=1
-    log:
-        join(TCR_ROOT, 'logs', 'integrity_{sublib}.log')
-    benchmark:
-        join(TCR_ROOT, 'benchmarks', 'integrity_{sublib}.tsv')
-    container:
-        'docker://' + TCR_IMAGE
-    shell:
-        'python {params.script:q} check-fastqs --fastqs {input.R1:q} {input.R2:q} --md5 {params.md5:q} --output {output:q} > {log:q} 2>&1'
-
-
 rule splitpipe_tcr_preflight:
     input:
         unpack(get_raw_fastq),

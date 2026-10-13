@@ -5,7 +5,6 @@ import collections
 import csv
 import gzip
 import hashlib
-import itertools
 import json
 import os
 from pathlib import Path
@@ -88,40 +87,6 @@ def validate_parents(settings, output):
         raise ValueError('WT combined barcodes/sample assignments do not match the ordered parents')
     manifest['combined'] = {'cells': len(combined_cells), 'files': {str(p): sha256(p) for p in (definition, path)}}
     save_json(output, manifest)
-
-
-def fastq_id(name):
-    return name[:-2] if name.endswith(('/1', '/2')) else name
-
-
-def check_fastqs(paths, expected, output):
-    import pysam
-    checksums = []
-    for path, digest in zip(paths, expected):
-        actual = file_hash(path, 'md5')
-        if actual != digest:
-            raise ValueError(f'MD5 mismatch: {path}: {actual} != {digest}')
-        checksums.append(actual)
-        print(f'MD5 verified: {path}', flush=True)
-    count = 0
-    lengths = [collections.Counter(), collections.Counter()]
-    with pysam.FastxFile(paths[0], persist=False) as r1, pysam.FastxFile(paths[1], persist=False) as r2:
-        for a, b in itertools.zip_longest(r1, r2):
-            if a is None or b is None:
-                raise ValueError('FASTQ pair has unequal read counts')
-            if fastq_id(a.name) != fastq_id(b.name):
-                raise ValueError(f'FASTQ pair IDs differ at record {count + 1}')
-            for i, record in enumerate((a, b)):
-                if record.quality is None or len(record.sequence) != len(record.quality):
-                    raise ValueError(f'Invalid FASTQ sequence/quality at record {count + 1}')
-                lengths[i][len(record.sequence)] += 1
-            count += 1
-            if count % 10000000 == 0:
-                print(f'Validated {count:,} read pairs', flush=True)
-    if count == 0:
-        raise ValueError('Empty FASTQ pair')
-    save_json(output, {'paths': paths, 'md5': checksums, 'read_pairs': count, 'length_counts': lengths,
-                       'pysam_version': pysam.__version__})
 
 
 def run_splitpipe(args):
@@ -224,7 +189,6 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest='action', required=True)
     p = sub.add_parser('validate-parents'); p.add_argument('--settings', required=True); p.add_argument('--output', required=True)
-    p = sub.add_parser('check-fastqs'); p.add_argument('--fastqs', nargs=2, required=True); p.add_argument('--md5', nargs=2, required=True); p.add_argument('--output', required=True)
     p = sub.add_parser('run')
     for option in ('output-dir', 'parent', 'provenance', 'success', 'image', 'workflow-commit'):
         p.add_argument('--' + option, required=True)
@@ -236,7 +200,6 @@ def main():
         p.add_argument('--' + option, required=True)
     args = parser.parse_args()
     if args.action == 'validate-parents': validate_parents(json.loads(args.settings), args.output)
-    elif args.action == 'check-fastqs': check_fastqs(args.fastqs, args.md5, args.output)
     elif args.action == 'run': run_splitpipe(args)
     elif args.action == 'link-wt': link_wt(args.airr, args.metadata, args.output, args.summary)
 

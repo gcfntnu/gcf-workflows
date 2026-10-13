@@ -1,7 +1,6 @@
 import argparse
 import csv
 import gzip
-import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -72,28 +71,6 @@ class TcrWorkflowTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'outside the WT parent'):
             w.link_wt(airr, meta, self.root / 'linked2.tsv.gz', self.root / 'qc2.json')
         self.assertEqual(json.loads((self.root / 'qc2.json').read_text())['unmatched_tcr_cells'], ['99__s1'])
-
-    @unittest.skipUnless(importlib.util.find_spec('pysam'), 'requires pinned immune image')
-    def test_full_fastq_pairing_and_truncation(self):
-        paths = [str(self.root / 'R1.gz'), str(self.root / 'R2.gz')]
-        for i, p in enumerate(paths, 1):
-            with gzip.open(p, 'wt') as f:
-                f.write(f'@read1/{i}\nACGT\n+\nFFFF\n')
-        digests = [hashlib.md5(Path(p).read_bytes()).hexdigest() for p in paths]
-        w.check_fastqs(paths, digests, self.root / 'fq.json')
-        self.assertEqual(json.loads((self.root / 'fq.json').read_text())['read_pairs'], 1)
-        with gzip.open(paths[1], 'wt') as f:
-            f.write('@different/2\nACGT\n+\nFFFF\n')
-        digests = [hashlib.md5(Path(p).read_bytes()).hexdigest() for p in paths]
-        with self.assertRaisesRegex(ValueError, 'IDs differ'):
-            w.check_fastqs(paths, digests, self.root / 'bad.json')
-        with self.assertRaisesRegex(ValueError, 'MD5 mismatch'):
-            w.check_fastqs(paths, ['0' * 32] * 2, self.root / 'bad.json')
-        with gzip.open(paths[1], 'wt') as f:
-            f.write('@read1/2\nACGT\n+\nFF\n')
-        digests = [hashlib.md5(Path(p).read_bytes()).hexdigest() for p in paths]
-        with self.assertRaises(ValueError):
-            w.check_fastqs(paths, digests, self.root / 'bad.json')
 
     def test_run_refuses_false_success_and_existing_results(self):
         output = self.root / 'run'
