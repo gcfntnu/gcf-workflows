@@ -11,6 +11,7 @@ primarily intended for internal GCF use.
 Developer-facing workflow contracts and implementation notes are maintained under
 `singlecell/docs/`:
 
+- [Parent-linked Parse TCR](docs/tcr.md): required WT inputs, configmaker setup, overlay, execution and outputs
 - `anndata-contract.md`: durable semantics of canonical filtered and preprocessed AnnData
 - `metadata-contract.md`: sample, library, observation, and feature identity/join semantics
 - `anndata-schema.md`: current concrete AnnData keys and layout

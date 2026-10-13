@@ -19,6 +19,11 @@ if os.path.exists(extra_conf_fn):
         c  = yaml.load(fh, Loader=Loader) or {}
         update_config2(config, c)
     
+# Validate assay routing before loading WT-specific rules or resolving their targets.
+include:
+    'rules/immune_config.py'
+
+SINGLECELL_ASSAY = validate_singlecell_assay(config)
 if not 'SAMPLES' in locals():
     SAMPLES = list(config.get('samples', {}).keys())
 
@@ -30,23 +35,26 @@ wildcard_constraints:
     method = r"[^/]+",
     aggr_id = r"[^/]+"
 
-include:
-    '../common.smk'
-include:
-    'rules/gcfdb.smk'
-include:
-    'rules/filter.smk'
-include:
-    'rules/quant.smk'
-include:
-    'rules/qc.smk'
-include:
-    'rules/bfq.smk'
-include:
-    '../postprocess.smk'
-include:
-    'rules/analysis.smk'
-
+if SINGLECELL_ASSAY == 'tcr':
+    include:
+        'rules/immune.smk'
+else:
+    include:
+        '../common.smk'
+    include:
+        'rules/gcfdb.smk'
+    include:
+        'rules/filter.smk'
+    include:
+        'rules/quant.smk'
+    include:
+        'rules/qc.smk'
+    include:
+        'rules/bfq.smk'
+    include:
+        '../postprocess.smk'
+    include:
+        'rules/analysis.smk'
 
 onsuccess:
     # write config
