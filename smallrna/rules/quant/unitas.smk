@@ -228,11 +228,24 @@ rule unitas_isomir_tximport:
         '--type unitas '
         '--output {output} -v '
 
+rule unitas_mirna_vsn:
+    input:
+        rules.unitas_mirtable.output
+    output:
+        join(QUANT_INTERIM, 'unitas', 'mirna_vsd.tsv')
+    params:
+        script = src_gcf('scripts/mirna_vsn.R')
+    container:
+        'docker://' + config['docker']['tximport']
+    shell:
+        'Rscript {params.script:q} --input {input:q} --output {output:q}'
+
 rule unitas_mirna_anndata:
     input:
         mir_table = rules.unitas_mirtable.output,
         sample_info = join(INTERIM_DIR, 'sample_info.tsv'),
-        feature_info = rules. mirbase_genes.output
+        feature_info = rules. mirbase_genes.output,
+        vsn = rules.unitas_mirna_vsn.output
     output:
         join(QUANT_INTERIM, 'unitas', 'adata.h5ad')
     params:
@@ -244,7 +257,7 @@ rule unitas_mirna_anndata:
         '--input {input.mir_table} '
         '--sample-info {input.sample_info} '
         '--feature-info {input.feature_info} '
-        '--add-vsn '
+        '--add-vsn --vsn-input {input.vsn:q} '
         '--output {output} '
 
 rule unitas_biotypes:
