@@ -57,7 +57,21 @@ def vsn(adata, method='auto'):
     adata.uns['varians_transform'] = method
     return adata
 
-        
+
+def encode_metadata_columns(adata):
+    """Escape HDF5 path separators without losing the original metadata labels."""
+    original_names = {}
+    for axis in ('obs', 'var'):
+        frame = getattr(adata, axis)
+        encoded = {name: name.replace('%', '%25').replace('/', '%2F') for name in frame.columns}
+        changed = {name: safe_name for name, safe_name in encoded.items() if name != safe_name}
+        if changed:
+            frame.rename(columns=changed, inplace=True)
+            original_names[axis] = {safe_name: name for name, safe_name in changed.items()}
+    if original_names:
+        adata.uns['metadata_column_names'] = original_names
+
+
 if __name__ == "__main__":
     args = argparser()
     
@@ -99,5 +113,6 @@ if __name__ == "__main__":
         else:
             adata = vsn(adata)
     
+    encode_metadata_columns(adata)
     adata.write(filename=args.output)
     

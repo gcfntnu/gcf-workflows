@@ -217,3 +217,34 @@ def test_cli_precomputed_vsn_large_cohort_records_vst(tmp_path):
     np.testing.assert_allclose(actual.layers["vsd"], transformed.to_numpy().T)
     assert actual.obs_names.tolist() == counts.columns.tolist()
     assert actual.var_names.tolist() == counts.index.tolist()
+
+
+def test_cli_metadata_column_names_escape_hdf5_separators_without_collisions(inputs):
+    root, counts, samples, features = inputs
+    samples["260/280"] = [1.8, 1.9, 2.0]
+    samples["260/230"] = [2.1, 2.2, 2.3]
+    samples["260%2F280"] = [81, 82, 83]
+    features["reference/accession"] = ["ref_a", "ref_b", "ref_c", "ref_unused"]
+    features["reference%2Faccession"] = [11, 12, 13, 14]
+    samples.to_csv(root / "samples.tsv", sep="\t")
+    features.to_csv(root / "features.tsv", sep="\t")
+    result = run_cli(root, "--sample-info", str(root / "samples.tsv"), "--feature-info", str(root / "features.tsv"))
+    assert result.returncode == 0, result.stderr
+    actual = ad.read_h5ad(root / "result.h5ad")
+    assert actual.obs.columns.tolist() == ["group", "260%2F280", "260%2F230", "260%252F280"]
+    assert actual.var.columns.tolist() == ["annotation", "reference%2Faccession", "reference%252Faccession"]
+    np.testing.assert_allclose(actual.obs["260%2F280"], [1.9, 1.8])
+    np.testing.assert_allclose(actual.obs["260%2F230"], [2.2, 2.1])
+    assert actual.obs["260%252F280"].tolist() == [82, 81]
+    assert actual.obs["group"].tolist() == ["B", "A"]
+    assert actual.var["reference%2Faccession"].tolist() == ["ref_c", "ref_a", "ref_b"]
+    assert actual.var["reference%252Faccession"].tolist() == [13, 11, 12]
+    assert actual.var["annotation"].tolist() == ["gamma", "alpha", "beta"]
+    assert actual.uns["metadata_column_names"] == {
+        "obs": {"260%2F280": "260/280", "260%2F230": "260/230", "260%252F280": "260%2F280"},
+        "var": {"reference%2Faccession": "reference/accession", "reference%252Faccession": "reference%2Faccession"},
+    }
+    np.testing.assert_array_equal(actual.X, counts.to_numpy().T)
+    assert actual.X.dtype == np.dtype("float32")
+    assert actual.obs_names.tolist() == counts.columns.tolist()
+    assert actual.var_names.tolist() == counts.index.tolist()
