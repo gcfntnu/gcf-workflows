@@ -27,3 +27,15 @@ jobs:
       working-directory: ./smallrna/.tests
       run: |
         snakemake -n -p --cores 1 multiqc_report
+
+  anndata-regression:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.14'
+    - name: Install supported AnnData test dependencies
+      run: python -m pip install pytest anndata==0.13.3.post0 numpy==2.5.2 pandas==3.0.5
+    - name: Test AnnData creation and VSN layer assembly
+      run: python -m pytest -q smallrna/.tests/test_create_anndata.py

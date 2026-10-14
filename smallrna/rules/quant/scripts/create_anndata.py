@@ -20,30 +20,22 @@ def argparser():
                         help='Optional sample sheet. Will subset expr table if needed')
     parser.add_argument('--add-vsn', dest='vsn', action='store_true',
                         help='Add layer with variance transformed data')
+    parser.add_argument('--vsn-input',
+                        help='Precomputed DESeq2 transform TSV (features by samples); requires --add-vsn')
     parser.add_argument('-o ', '--output', default='adata.h5ad',
                         help='Output filename. Will default to pca_mqc.png, Optional [*.h5ad]')
 
     args = parser.parse_args()
+    if args.vsn_input and not args.vsn:
+        parser.error('--vsn-input requires --add-vsn')
     return args
 
 
 def vsn(adata, method='auto'):
-    import anndata2ri
     from rpy2.robjects.packages import importr
-    from rpy2.robjects import r
-    from rpy2.robjects import globalenv
+    from rpy2.robjects import r, globalenv, default_converter, numpy2ri
     from rpy2.robjects.conversion import localconverter
-    import rpy2.robjects.numpy2ri
-    rpy2.robjects.numpy2ri.activate()
     importr('DESeq2')
-    importr('scran')
-
-    globalenv["adata"] = adata.X
-    #with localconverter(anndata2ri.converter):
-    #    globalenv["adata"] = adata
-    #r('de <- convertTo(adata, type="DESeq2")')
-    #r('de <- estimateSizeFactors(de)')
-    #r('de <- estimateDispersions(de)')
 
     if method == 'auto':
         if adata.shape[0] > 50:
@@ -51,18 +43,35 @@ def vsn(adata, method='auto'):
         else:
             method = 'deseq2_rlog'
     
-    if method == 'deseq2_vst':
-        r('vsd <- varianceStabilizingTransformation(round(adata+1), fitType="mean")')
-    elif method == 'deseq2_rlog':
-        r('vsd <- rlogTransformation(round(adata+1), fitType="mean")')
-    else:
-        raise ValueError
-    X = np.array(r.vsd)
+    with localconverter(default_converter + numpy2ri.converter):
+        # DESeq2 expects features by samples; AnnData stores samples by features.
+        globalenv["adata"] = adata.X.T
+        if method == 'deseq2_vst':
+            r('vsd <- varianceStabilizingTransformation(round(adata+1), fitType="mean")')
+        elif method == 'deseq2_rlog':
+            r('vsd <- rlogTransformation(round(adata+1), fitType="mean")')
+        else:
+            raise ValueError
+        X = np.asarray(r['vsd']).T
     adata.layers['vsd'] = pd.DataFrame(X, index=adata.obs_names, columns=adata.var_names)
     adata.uns['varians_transform'] = method
     return adata
 
-        
+
+def encode_metadata_columns(adata):
+    """Escape HDF5 path separators without losing the original metadata labels."""
+    original_names = {}
+    for axis in ('obs', 'var'):
+        frame = getattr(adata, axis)
+        encoded = {name: name.replace('%', '%25').replace('/', '%2F') for name in frame.columns}
+        changed = {name: safe_name for name, safe_name in encoded.items() if name != safe_name}
+        if changed:
+            frame.rename(columns=changed, inplace=True)
+            original_names[axis] = {safe_name: name for name, safe_name in changed.items()}
+    if original_names:
+        adata.uns['metadata_column_names'] = original_names
+
+
 if __name__ == "__main__":
     args = argparser()
     
@@ -88,10 +97,22 @@ if __name__ == "__main__":
             
         F = F.loc[X.columns,:]
 
-    adata = ad.AnnData(X=X, obs=S, var=F, dtype='f')
+    adata = ad.AnnData(X=X, obs=S, var=F)
 
     if args.vsn:
-        adata = vsn(adata)
+        if args.vsn_input:
+            transformed = pd.read_csv(args.vsn_input, sep="\t", index_col=0).T
+            transformed.index = transformed.index.astype(str)
+            transformed.columns = transformed.columns.astype(str)
+            if not transformed.index.equals(adata.obs_names) or not transformed.columns.equals(adata.var_names):
+                raise ValueError('VSN input sample and feature axes must match the count matrix in order')
+            if not np.isfinite(transformed.to_numpy(dtype=float)).all():
+                raise ValueError('VSN input must contain only finite values')
+            adata.layers['vsd'] = transformed.to_numpy(dtype=float)
+            adata.uns['varians_transform'] = 'deseq2_vst' if adata.n_obs > 50 else 'deseq2_rlog'
+        else:
+            adata = vsn(adata)
     
+    encode_metadata_columns(adata)
     adata.write(filename=args.output)
     
