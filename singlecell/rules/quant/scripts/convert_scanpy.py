@@ -1712,7 +1712,7 @@ def read_splitpipe(fn, args, **kw):
     dir_name = os.path.dirname(fn)
     logger.debug(f"Reading Split-pipe matrix from {fn}")
 
-    mtx = mmread(fn, spmatrix=True).tocsr()
+    mtx = mmread(fn).tocsr()
 
     features = None
     for feature_file in ["all_genes.csv", "target_genes.csv", "all_guides.csv"]:

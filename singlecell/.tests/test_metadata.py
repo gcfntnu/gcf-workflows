@@ -154,6 +154,43 @@ def test_broadcast_reference_checks(failure):
         convert.broadcast_entity_metadata(obs, libraries, 'library_id', 'library_info')
 
 
+@pytest.mark.parametrize('transpose', [False, True], ids=['cells-by-genes', 'genes-by-cells'])
+def test_splitpipe_reader_supports_source_only_mmread(tmp_path, monkeypatch, transpose):
+    import logging
+    from scipy.io import mmread, mmwrite
+    from scipy.sparse import csr_matrix, isspmatrix_csr
+
+    sample, library, barcode = tables(tmp_path)
+    directory = tmp_path / '007' / 'DGE_filtered'
+    directory.mkdir(parents=True)
+    matrix = directory / 'DGE.mtx'
+    expected = np.array([[1, 0, 4], [0, 0, 7]], dtype=np.int64)
+    mmwrite(matrix, csr_matrix(expected.T if transpose else expected))
+    (directory / 'all_genes.csv').write_text('gene_id,gene_name\ng1,GeneA\ng2,\ng3,GeneC\n')
+    # The canonical mapping has a different order and also contains other samples.
+    (directory / 'cell_metadata.csv').write_text('bc_wells\ncell3\ncell1\n')
+    args = convert.create_parser().parse_args(['-f', 'splitpipe', '-o', str(tmp_path / 'out.h5ad'),
+        '--barcode-rename', 'skip', '--sample-info', str(sample), '--library-info', str(library),
+        '--barcode-info', str(barcode)])
+
+    # SciPy 1.11 accepts only source; use real Matrix Market I/O behind that API.
+    def source_only_mmread(source):
+        return mmread(source)
+
+    monkeypatch.setattr(convert, 'mmread', source_only_mmread)
+    monkeypatch.setattr(convert, 'logger', logging.getLogger(__name__), raising=False)
+    monkeypatch.setattr(convert, '_USE_VELO', False)
+    data = convert.read_splitpipe(str(matrix), args)
+
+    assert isspmatrix_csr(data.X)
+    assert np.issubdtype(data.X.dtype, np.integer)
+    np.testing.assert_array_equal(data.X.toarray(), expected)
+    assert data.obs_names.tolist() == ['cell3', 'cell1']
+    assert data.var_names.tolist() == ['g1', 'g2', 'g3']
+    assert data.var.gene.tolist() == ['GeneA', 'g2', 'GeneC']
+    assert data.X[:, 1].nnz == 0  # Retain the zero-count feature and its metadata.
+
+
 @pytest.mark.parametrize('input_format', ['splitpipe', 'splitpipe_aggr'])
 def test_converter_cli_preserves_two_level_metadata(tmp_path, input_format):
     from scipy.io import mmwrite
@@ -233,3 +270,118 @@ def test_generated_prefix_cannot_reuse_observation_column():
     libraries = pd.DataFrame({'custom': ['same']}, index=['lib'])
     with pytest.raises(ValueError, match='prefix collides'):
         convert.parse_library_columns(libraries, samples, ['library_custom'])
+
+
+def lightweight_parse_fixture(tmp_path, method):
+    from scipy.io import mmwrite
+    from scipy.sparse import csr_matrix
+
+    source = {'workflow': 'singlecell', 'organism': 'homo_sapiens', 'project_id': ['SYNTHETIC'],
+        'libprepkit': 'Parse Biosciences Evercode WT v4', 'read_geometry': [64, 58],
+        'machine': 'Synthetic sequencer', 'ref_dir': 'reference',
+        'interim_dir': 'data/tmp', 'ext_dir': 'data/ext', 'fastq_dir': 'data/raw/fastq',
+        'samples': {'lib1': {'R1': 'a.fastq.gz', 'R2': 'a2.fastq.gz'},
+                    'lib2': {'R1': 'b.fastq.gz', 'R2': 'b2.fastq.gz'}},
+        'wells': {'bioA': {'Wells': 'A1'}, 'bioB': {'Wells': 'B1'}},
+        'quant': {'method': method, 'use_velo': False, 'starsolo': {'feature_count': 'Gene'}}}
+    (tmp_path / 'config.yaml').write_text(yaml.safe_dump(source))
+    (tmp_path / 'pep.yaml').write_text('pep_version: 2.0.0\nsample_table: samples.csv\n')
+    (tmp_path / 'samples.csv').write_text(
+        'sample_name,R1,R2,paired_end\nlib1,a.fastq.gz,a2.fastq.gz,1\nlib2,b.fastq.gz,b2.fastq.gz,1\n')
+    workflow = SCRIPTS.parents[2] / 'singlecell.smk'
+    (tmp_path / 'Snakefile').write_text(
+        'pepfile: "pep.yaml"\nconfigfile: "config.yaml"\n' + f'include: {str(workflow)!r}\n')
+    reference = tmp_path / 'reference/anno/genes.tsv'
+    reference.parent.mkdir(parents=True)
+    reference.write_text('gene_id\tgene_symbols\ng1\tGeneA\ng2\tGeneB\ng3\tGeneC\n')
+    base = tmp_path / 'data/tmp/singlecell/quant/aggregate' / method / 'bioA'
+    expected = np.array([[1, 2, 0], [0, 3, 4]], dtype=np.int64)
+    barcodes = ['02_01_01__s2', '01_01_01__s1']
+    if method == 'splitpipe':
+        matrix = base / 'DGE_filtered/count_matrix.mtx'
+        matrix.parent.mkdir(parents=True)
+        mmwrite(matrix, csr_matrix(expected))
+        (matrix.parent / 'all_genes.csv').write_text('gene_id,gene_name\ng1,GeneA\ng2,GeneB\ng3,GeneC\n')
+        (matrix.parent / 'cell_metadata.csv').write_text(
+            'bc_wells,sample\n' + ''.join(barcode + ',bioA\n' for barcode in barcodes))
+    else:
+        matrix = base / 'Solo.out/Gene/filtered/matrix.mtx'
+        matrix.parent.mkdir(parents=True)
+        mmwrite(matrix, csr_matrix(expected.T))
+        (matrix.parent / 'features.tsv').write_text('g1\tGeneA\tGene Expression\ng2\tGeneB\tGene Expression\ng3\tGeneC\tGene Expression\n')
+        (matrix.parent / 'barcodes.tsv').write_text('\n'.join(barcodes) + '\n')
+        (base / 'barcode_info.tsv').write_text(
+            'barcode\tsource_barcode\tSample_ID\tlibrary_id\n'
+            '02_01_01__s2\t02_01_01\tbioA\tlib2\n01_01_01__s1\t01_01_01\tbioA\tlib1\n')
+    target = Path('_tmp') / method / 'filtered/bioA/anndata.light.h5ad'
+    return target, base / 'barcode_info.tsv', expected, barcodes
+
+
+@pytest.mark.parametrize('method', ['splitpipe', 'parsebio_starsolo', 'parsebio_starsolo_rt'])
+def test_parse_lightweight_primary_metadata_delivery(tmp_path, method):
+    import os
+    import shlex
+    from scipy.io import mmread
+    from scipy.sparse import isspmatrix_csr
+
+    target, primary, expected, barcodes = lightweight_parse_fixture(tmp_path, method)
+    env = os.environ.copy()
+    env.pop('GCF_SECRET', None)
+    env['PATH'] = str(Path(sys.executable).parent) + os.pathsep + env['PATH']
+    command = [str(Path(sys.executable).with_name('snakemake')), str(target), '--cores', '1',
+               '--printshellcmds', '--allowed-rules', 'tmp_lightweight_filtered', 'splitpipe_barcode_info']
+    dryrun = subprocess.run(command + ['--dry-run'], cwd=tmp_path, env=env, capture_output=True, text=True)
+    assert dryrun.returncode == 0, dryrun.stdout + dryrun.stderr
+    output = dryrun.stdout + dryrun.stderr
+    converter_line = next(line for line in output.splitlines() if 'convert_scanpy.py ' in line)
+    argv = shlex.split(converter_line)
+    primary_relative = str(primary.relative_to(tmp_path))
+    assert argv[argv.index('--barcode-info') + 1] == primary_relative
+    assert argv[argv.index('-f') + 1] == ('parsebio_starsolo' if method.startswith('parsebio') else method)
+    assert any(line.strip().startswith('input:') and primary_relative in line for line in output.splitlines())
+    assert 'auto_qc/' not in converter_line and 'doublet' not in converter_line
+    if method != 'splitpipe':
+        return  # Other Parse variants have DAG coverage; no STARsolo processing is run.
+
+    # Generate the primary mapping with the real producer, then run the actual rule.
+    assert not primary.exists()
+    assert 'rule splitpipe_barcode_info:' in output
+    result = subprocess.run(command, cwd=tmp_path, env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    mapping = pd.read_csv(primary, sep='\t', dtype=str)
+    assert mapping.barcode.tolist() == barcodes
+    assert mapping.Sample_ID.tolist() == ['bioA', 'bioA']
+    assert mapping.library_id.tolist() == ['lib2', 'lib1']
+    data = anndata.read_h5ad(tmp_path / target)
+    assert isspmatrix_csr(data.X)
+    np.testing.assert_array_equal(data.X.toarray(), expected)
+    assert data.obs_names.tolist() == barcodes
+    assert data.var_names.tolist() == ['g1', 'g2', 'g3']
+    assert data.var.gene_symbol.tolist() == ['GeneA', 'GeneB', 'GeneC']
+    exported = tmp_path / target.parent / 'anndata.mtx_v2'
+    np.testing.assert_array_equal(mmread(exported / 'matrix.mtx').T.toarray(), expected)
+    assert (exported / 'barcodes.tsv').read_text().splitlines() == barcodes
+
+
+@pytest.mark.parametrize('damage', ['missing', 'wrong_barcode', 'wrong_sample'])
+def test_splitpipe_lightweight_requires_exact_primary_mapping(tmp_path, damage):
+    target, primary, _, _ = lightweight_parse_fixture(tmp_path, 'splitpipe')
+    mapping = ('barcode\tsource_barcode\tSample_ID\tlibrary_id\n'
+               '02_01_01__s2\t02_01_01\tbioA\tlib2\n01_01_01__s1\t01_01_01\tbioA\tlib1\n')
+    if damage == 'wrong_barcode':
+        mapping = mapping.replace('01_01_01__s1', '99_01_01__s1')
+    elif damage == 'wrong_sample':
+        mapping = mapping.replace('bioA', 'bioB')
+    primary.write_text(mapping)
+    command = [sys.executable, str(SCRIPTS / 'convert_scanpy.py'),
+        str(primary.parent / 'DGE_filtered/count_matrix.mtx'), '-f', 'splitpipe',
+        '--barcode-rename', 'skip', '-F', 'anndata_lightweight', 'v2_mtx',
+        '-o', str(tmp_path / target.parent / 'anndata')]
+    if damage != 'missing':
+        command.extend(['--barcode-info', str(primary)])
+    result = subprocess.run(command, cwd=tmp_path, capture_output=True, text=True)
+    assert result.returncode != 0
+    expected_error = {'missing': 'requires primary barcode_info', 'wrong_barcode': 'canonical barcode mismatch',
+                      'wrong_sample': 'no barcode_info rows found'}[damage]
+    assert expected_error in result.stderr
+    assert not (tmp_path / target).exists()
