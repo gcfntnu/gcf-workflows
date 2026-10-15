@@ -154,6 +154,43 @@ def test_broadcast_reference_checks(failure):
         convert.broadcast_entity_metadata(obs, libraries, 'library_id', 'library_info')
 
 
+@pytest.mark.parametrize('transpose', [False, True], ids=['cells-by-genes', 'genes-by-cells'])
+def test_splitpipe_reader_supports_source_only_mmread(tmp_path, monkeypatch, transpose):
+    import logging
+    from scipy.io import mmread, mmwrite
+    from scipy.sparse import csr_matrix, isspmatrix_csr
+
+    sample, library, barcode = tables(tmp_path)
+    directory = tmp_path / '007' / 'DGE_filtered'
+    directory.mkdir(parents=True)
+    matrix = directory / 'DGE.mtx'
+    expected = np.array([[1, 0, 4], [0, 0, 7]], dtype=np.int64)
+    mmwrite(matrix, csr_matrix(expected.T if transpose else expected))
+    (directory / 'all_genes.csv').write_text('gene_id,gene_name\ng1,GeneA\ng2,\ng3,GeneC\n')
+    # The canonical mapping has a different order and also contains other samples.
+    (directory / 'cell_metadata.csv').write_text('bc_wells\ncell3\ncell1\n')
+    args = convert.create_parser().parse_args(['-f', 'splitpipe', '-o', str(tmp_path / 'out.h5ad'),
+        '--barcode-rename', 'skip', '--sample-info', str(sample), '--library-info', str(library),
+        '--barcode-info', str(barcode)])
+
+    # SciPy 1.11 accepts only source; use real Matrix Market I/O behind that API.
+    def source_only_mmread(source):
+        return mmread(source)
+
+    monkeypatch.setattr(convert, 'mmread', source_only_mmread)
+    monkeypatch.setattr(convert, 'logger', logging.getLogger(__name__), raising=False)
+    monkeypatch.setattr(convert, '_USE_VELO', False)
+    data = convert.read_splitpipe(str(matrix), args)
+
+    assert isspmatrix_csr(data.X)
+    assert np.issubdtype(data.X.dtype, np.integer)
+    np.testing.assert_array_equal(data.X.toarray(), expected)
+    assert data.obs_names.tolist() == ['cell3', 'cell1']
+    assert data.var_names.tolist() == ['g1', 'g2', 'g3']
+    assert data.var.gene.tolist() == ['GeneA', 'g2', 'GeneC']
+    assert data.X[:, 1].nnz == 0  # Retain the zero-count feature and its metadata.
+
+
 @pytest.mark.parametrize('input_format', ['splitpipe', 'splitpipe_aggr'])
 def test_converter_cli_preserves_two_level_metadata(tmp_path, input_format):
     from scipy.io import mmwrite

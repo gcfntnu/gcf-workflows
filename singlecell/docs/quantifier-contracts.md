@@ -105,6 +105,12 @@ split-pipe
 Current Parse barcode and sublibrary metadata are mapped explicitly into the canonical
 observation namespace.
 
+The Split-pipe matrix reader uses the source-only `scipy.io.mmread` API supported by
+SciPy 1.11 and converts the returned sparse matrix to CSR. Both cells-by-genes and
+genes-by-cells matrices are aligned using `cell_metadata.csv` and feature-table lengths;
+original counts, barcode order, feature order and zero-count features are retained.
+Canonical per-cell metadata still comes from `barcode_info.tsv`.
+
 CellBender support for Parse paths is currently not implemented.
 
 ## 5. Parse Biosciences + STARsolo
