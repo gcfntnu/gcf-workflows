@@ -373,81 +373,64 @@ identifier.
 
 ---
 
-## 6. Configuration compatibility and future schema
+## 6. Configuration ownership and delivery
 
-During the transition from the current upstream config, metadata level is determined conservatively.
+### Parse transcriptome projects
 
-The following fields are treated as known library-level metadata:
+The existing input section determines ownership; equality across sublibraries never
+establishes biological ownership.
 
-```text
-Flowcell_Name
-Flowcell_ID
-Index1
-Index2
-R1
-R1_md5sum
-R2
-R2_md5sum
-```
+| Config source | Table | Key |
+| --- | --- | --- |
+| `wells` | `sample_info.tsv` | Biological `Sample_ID` |
+| `samples` | `library_info.tsv` | Technical `library_id` |
 
-`library_id` is the technical-library key and is not expected as an additional metadata field.
+Every supplied biological column, including custom fields and `Wells`, stays in the
+sample table. Every allowed library column, including custom metrics, concentrations,
+FASTQ paths, checksums and index-read fields, stays in the library table. Different
+concentrations across sublibraries are valid; equal concentrations are still library
+metadata. The historical library-row `Sample_ID` denotes the library key and is
+represented as `library_id`, never as a biological assignment.
 
-All other metadata columns in legacy `config["samples"]` rows are treated as sample-level by default.
-This deliberately uses a small technical whitelist instead of a growing ontology of biological fields.
+`Sample_Group`, `Sample_Biosource` and `External_ID` are reserved for biological
+samples, coordinated with gcf-tools input validation. Populated values in manual
+Parse `samples` config are errors directing the author to `wells` / Cell Multiplexing.
+Empty template fields (missing, blank/whitespace, or exactly `NA`) are omitted from
+library metadata. Numeric zero and boolean false are populated values.
 
-For Parse projects, current `config["samples"]` rows represent technical sublibraries and do not
-contain a unique library-to-biological-sample mapping. Therefore non-library columns may be promoted
-to `sample_info.tsv` only when their non-null values are unambiguous across the legacy library rows.
-Conflicting values are errors because the workflow cannot safely assign them to biological
-`Sample_ID` from that table alone. Biological sample-specific values already represented in
-`config["wells"]` remain keyed by the resolved `Sample_ID`.
+Mapping keys must be nonempty text. Embedded identities, when supplied, must agree
+exactly with their mapping key. Export and attachment preserve the text, including
+leading zeroes and surrounding spaces; they do not repair values transformed upstream.
+TSV metadata is read as text for Parse attachment, so numeric-looking annotations and
+literal strings such as `NA` are not inferred as numbers or nulls. Missing TSV cells
+remain empty strings. Numeric values retain their serialized form, including zero.
 
-The legacy `Sample_ID` field on current Parse library rows is a historical library label and is not
-propagated as biological `Sample_ID`.
+AnnData receives biological annotations through `Sample_ID` and library annotations
+through `library_id`, both established by `barcode_info.tsv`. When both entity tables
+have the same column name (case-insensitive), the library column becomes
+`library_<original-column>`, even if the values happen to agree. A generated name that
+collides with another metadata name is an error. Other conflicting observation columns
+remain errors under the strict broadcast checks.
 
-Current projects may encode one technical library per biological sample under `config["samples"]`.
-The workflow may continue to support this as a compatibility mode:
+Deliberate `.obs` exclusions remain case-insensitive: biological `Flowcell_ID`, `R1`,
+`R2`, `Wells`; library `Flowcell_Name`, `Flowcell_ID`, `Index1`, `Index2`, `R1`,
+`R1_md5sum`, `R2`, `R2_md5sum`. These fields remain in the delivered TSVs. Intermediate
+`source_barcode` is also omitted from `.obs` after canonical barcode alignment.
 
-```text
-legacy configuration
-    no explicit library mapping
-        ->
-    library_id == Sample_ID
-```
+`singlecell_metadata_tables` writes the two tables under the quantification metadata
+directory. The Parse transcriptome `bfq_all` target also collects regular copies under
+`BFQ_INTERIM/metadata/`, so the existing BFQ directory publication includes them in
+project QC delivery and archives. The common FASTQ-level `data/tmp/sample_info.tsv`
+and its reporting role are separate and unchanged. This does not add a TCR or 10x
+multiplexing analysis path.
 
-This is an adapter rule only. Downstream code must not rely on that equality.
+### Non-Parse compatibility
 
-A future configuration may make biological samples and libraries explicit, conceptually:
-
-```yaml
-samples:
-  sample_A:
-    condition: control
-    donor: D01
-
-  sample_B:
-    condition: treated
-    donor: D02
-
-libraries:
-  library_1:
-    measured_cells: 120000
-    concentration_ng_ul: 8.4
-    libprep_batch: PB_2026_04
-
-  library_2:
-    measured_cells: 145000
-    concentration_ng_ul: 7.9
-    libprep_batch: PB_2026_04
-```
-
-A mandatory direct `library_id -> Sample_ID` mapping is deliberately absent from this generic schema
-because it would be invalid for multiplexed designs such as Parse sublibraries.
-
-Assay-specific sample/library relationships are resolved by the appropriate upstream assignment
-mechanism and materialized in `barcode_info.tsv`.
-
-Changes to upstream config generation are outside the immediate scope of this implementation.
+Legacy non-Parse `samples` rows continue to split using the existing technical field
+list: `Flowcell_Name`, `Flowcell_ID`, `Index1`, `Index2`, `R1`, `R1_md5sum`, `R2`,
+`R2_md5sum`. Other columns remain sample metadata. Existing explicit `libraries`
+config handling and the one-library-per-sample compatibility mode are unchanged.
+This change introduces no new config sections or general sample/library API.
 
 ---
 
@@ -496,8 +479,7 @@ Metadata attachment itself does not remove cells or genes.
 
 ## 9. Current implementation status
 
-The active `preprocess-anndata` branch now implements the metadata boundary described by
-this contract:
+The single-cell workflow implements the metadata boundary described by this contract:
 
 - normalized `sample_info.tsv` and `library_info.tsv` are produced centrally;
 - active biological-cell barcode-info producers expose canonical `barcode`, `Sample_ID`,
@@ -509,6 +491,6 @@ this contract:
 - complete-domain and subset-domain observation sidecars are validated according to their
   declared semantics.
 
-The single-cell contract remains the working boundary for this branch. Generalizing the
-same metadata model into upstream `gcf-tools` configuration generation is a separate
-future change.
+The Parse input-validation and config-propagation policy is coordinated with gcf-tools
+#68; workflow table export, AnnData attachment and delivery are covered by #200.
+The existing `samples` and `wells` config sections remain the shared interface.

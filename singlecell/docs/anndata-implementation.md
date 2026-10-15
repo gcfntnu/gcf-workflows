@@ -36,6 +36,20 @@ mapping.
 Canonical assembly must not reconstruct biological identity from suffixes, directory
 names, aggregation order, or `library_id == Sample_ID`.
 
+For Parse transcriptome inputs, `create_metadata_tables.py` retains all biological
+`wells` metadata in the sample table and all allowed `samples` metadata in the library
+table. It rejects populated biological-only library fields and does not promote equal
+library values. `bfq_parse_metadata` copies both TSVs into `BFQ_INTERIM/metadata/` and
+is included in `bfq_all`. Common FASTQ reporting keeps its separate sample table.
+
+The Parse converter reads entity TSVs and barcode relationship keys as exact text.
+It protects identity columns from numeric/bool inference before broadcasting, and
+prefixes library columns that overlap biological annotations with `library_`.
+Both ownership levels survive even when values agree; generated-name collisions fail.
+The technical attachment exclusions and null/text serialization policy are listed in
+[the metadata contract](metadata-contract.md#6-configuration-ownership-and-delivery).
+Non-Parse parsing and broadcast behavior retain the existing compatibility policy.
+
 No persistent `aggregation_info` table is currently used.
 
 ## 2. Current canonical assembly strategy
@@ -68,8 +82,9 @@ Current observation-sidecar coverage rules include:
   but sidecar rows outside the canonical observation universe are rejected
 - when multiple demultiplexing methods are present, their columns are namespaced by
   method; a single demultiplexing method retains the conventional unsuffixed names
-- identical duplicate metadata columns are collapsed, while conflicting same-name
-  columns are rejected rather than resolved through merge-order suffixes
+- identical duplicate observation-sidecar columns are collapsed, while conflicting
+  same-name columns are rejected rather than resolved through merge-order suffixes;
+  Parse cross-entity column names use the explicit `library_` convention above
 
 Canonical key fields such as `barcode`, `Sample_ID`, `library_id`, `source_barcode`, and
 `gene_id` are checked for missing or empty values before string conversion so that missing
@@ -295,3 +310,22 @@ When adding a new technology, chemistry, quantifier, or software version:
 
 A new implementation may use different files, directories, intermediate tables, or
 algorithms while remaining compliant with the same canonical AnnData contract.
+
+
+## Metadata regression checks
+
+With Python 3.11, install the single-cell CI dependencies (`snakemake==8.1.1`,
+`pulp==2.7.0`, `pyyaml`, `peppy`, `rich`) plus `pytest` and `scanpy`, then run:
+
+```bash
+python -m pytest -q singlecell/.tests/test_metadata.py
+```
+
+Synthetic fixtures cover table ownership, custom/falsy values, invalid identities,
+reserved fields, exact TSV/H5AD identifiers, collision handling and real converter CLI
+assembly. The workflow check loads the actual single-cell rules, dry-runs and executes
+only metadata generation/copying, and verifies BFQ target membership and copied bytes.
+It runs no scientific tools. Numeric sample-name rewriting by the existing Split-pipe
+quantifier adapter remains upstream of this boundary and is unchanged; exact-ID tests
+exercise supplied metadata and canonical cell relationships. Facility integration and scientific Parse datasets remain
+separate validation requirements.
