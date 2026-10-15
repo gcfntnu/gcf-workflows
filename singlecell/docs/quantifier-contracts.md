@@ -111,7 +111,17 @@ genes-by-cells matrices are aligned using `cell_metadata.csv` and feature-table 
 original counts, barcode order, feature order and zero-count features are retained.
 Canonical per-cell metadata still comes from `barcode_info.tsv`.
 
+Filtered lightweight conversion declares the biological sample's primary
+`barcode_info.tsv` as a DAG input and passes it to the converter with
+`--barcode-info`. This supplies the existing strict canonical barcode check before
+doublet detection. Only primary metadata is required at this stage; adding downstream
+doublet or Auto-QC sidecars would introduce a dependency cycle. The same wiring applies
+to both Parse STARsolo variants, whose filtered readers require the same primary mapping.
+Synthetic DAG checks cover those variants; WT v4 Split-pipe has the operational integration gate.
+
 CellBender support for Parse paths is currently not implemented.
+The raw lightweight helper is used by CellBender and is not a supported Parse route;
+filtered-cell metadata must not be applied to raw droplets.
 
 ## 5. Parse Biosciences + STARsolo
 

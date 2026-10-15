@@ -326,6 +326,10 @@ reserved fields, exact TSV/H5AD identifiers, collision handling and real convert
 assembly. Split-pipe reader regressions use real Matrix Market files behind a source-only
 `mmread` signature, matching SciPy 1.11, and check both orientations, CSR counts, axis order
 and feature metadata including zero-count features.
+The lightweight Parse regression loads the actual DAG and checks the primary metadata
+input and command argument for Split-pipe and both Parse STARsolo variants. It also runs
+the real Split-pipe barcode metadata producer and lightweight conversion rule on synthetic
+matrices, then verifies both H5AD and Matrix Market counts and axis identities.
 The workflow check loads the actual single-cell rules, dry-runs and executes
 only metadata generation/copying, and verifies BFQ target membership and copied bytes.
 It runs no scientific tools. Numeric sample-name rewriting by the existing Split-pipe

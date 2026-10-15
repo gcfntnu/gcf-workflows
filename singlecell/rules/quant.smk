@@ -548,10 +548,17 @@ rule tmp_lightweight_raw:
         '-F anndata_lightweight v2_mtx '
 
 
+def lightweight_filtered_barcode_info(wildcards):
+    if wildcards.quantifier == 'splitpipe' or wildcards.quantifier in PARSEBIO_STARSOLO_MODES:
+        return [join(QUANT_INTERIM, 'aggregate', wildcards.quantifier, wildcards.sample, 'barcode_info.tsv')]
+    return []
+
+
 rule tmp_lightweight_filtered:
     input:
         unpack(get_filtered_mtx),
-        feature_info = join(REF_DIR, 'anno', 'genes.tsv')
+        feature_info = join(REF_DIR, 'anno', 'genes.tsv'),
+        barcode_info = lightweight_filtered_barcode_info
     output:
         anndata = temp('_tmp/{quantifier}/filtered/{sample}/anndata.light.h5ad'),
         mtx = temp('_tmp/{quantifier}/filtered/{sample}/anndata.mtx_v2/matrix.mtx')
@@ -559,12 +566,14 @@ rule tmp_lightweight_filtered:
         script = src_gcf('quant/scripts/convert_scanpy.py'),
         base = '_tmp/{quantifier}/filtered/{sample}/anndata',
         input_format = lambda wc: QUANT_INPUT_FORMAT.get(wc.quantifier, wc.quantifier),
+        barcode_info_flag = lambda wc, input: '--barcode-info' if input.barcode_info else ''
     threads:
         8
     shell:
         'python {params.script} '
         '{input.mtx} '
         '--feature-info {input.feature_info} '
+        '{params.barcode_info_flag} {input.barcode_info:q} '
         '--barcode-rename skip '
         '-o {params.base} '
         '-v '
