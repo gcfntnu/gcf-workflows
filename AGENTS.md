@@ -36,3 +36,29 @@
 * Do not add fallback logic or auto-detection that could hide incorrect workflow configuration.
 * Preserve existing output-path contracts unless a path change is part of the requested change.
 * Validate Snakemake changes with the repository's normal test/dry-run commands before considering them complete.
+
+## Public repository content
+
+Treat project-specific data and facility infrastructure details as non-public unless
+explicitly approved for publication. This applies even when identifiers are pseudonymous,
+contain no personal information, or cannot independently identify a person.
+
+- Do not introduce real project, customer, sample, donor, pool, library or run identifiers;
+  project-specific assignments or experimental designs; internal hostnames, addresses,
+  storage paths, topology or deployment configuration into public repository content.
+  This includes issues, comments, PR descriptions, commits, documentation, fixtures,
+  logs, screenshots and uploaded artifacts.
+- Describe the general behavior and use clearly synthetic examples. Preserve the
+  relationships and edge cases needed to explain or reproduce the problem without
+  copying real identifiers or unnecessary project details. Do not publish a mapping
+  between synthetic and real identifiers.
+- Reading information in a local file, user conversation, existing issue or repository
+  history does not establish permission to republish it. Existing exposure is not
+  permission to repeat it.
+- Before committing or posting, review the complete content, including generated output
+  and attachments, for project and infrastructure details. Replace unnecessary details
+  with synthetic examples. If exact operational evidence is essential, keep it in an
+  approved private location and publish only a general verification summary.
+- Public software architecture, interfaces and documented path conventions may be
+  described where needed. Distinguish these from facility-specific infrastructure and
+  project-specific configurations.
