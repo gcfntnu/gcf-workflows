@@ -1,4 +1,4 @@
-# This workflow will install snakemake==7.7.0 and test rule bfq_all
+# Check single-cell workflow construction and synthetic metadata contracts.
 
 name: Test single-cell
 
@@ -21,9 +21,11 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        python -m pip install snakemake==8.1.1 pyyaml==6.0 peppy rich pulp==2.7.0
+        python -m pip install snakemake==8.1.1 pyyaml==6.0 peppy rich pulp==2.7.0 pytest scanpy
         python --version
     - name: Dry run bfq_all
       working-directory: ./singlecell/.tests
       run: |
         snakemake -n -p --cores 1 multiqc_report
+    - name: Metadata contracts and delivery
+      run: python -m pytest -q singlecell/.tests/test_metadata.py
