@@ -117,10 +117,10 @@ def setup_logging(verbose: bool = False,
         logging.getLogger("numba").setLevel(logging.WARNING)
 
 
-def _entity_info_reader(fn, key, blacklist=()):
+def _entity_info_reader(fn, key, blacklist=(), *, preserve_text=False):
     """Read entity-level metadata with a strict unique key."""
     fn = pathlib.Path(fn)
-    df = pd.read_csv(fn, sep="\t")
+    df = pd.read_csv(fn, sep="\t", dtype=str, keep_default_na=False) if preserve_text else pd.read_csv(fn, sep="\t")
 
     if key in df.columns:
         source_key = key
@@ -138,8 +138,8 @@ def _entity_info_reader(fn, key, blacklist=()):
 
     if df[key].isna().any():
         raise ValueError(f"{fn}: {key} contains missing values")
-    df[key] = df[key].astype(str).str.strip()
-    if df[key].eq("").any():
+    df[key] = df[key].astype(str) if preserve_text else df[key].astype(str).str.strip()
+    if df[key].str.strip().eq("").any():
         raise ValueError(f"{fn}: {key} contains empty values")
     if df[key].duplicated().any():
         duplicates = df.loc[df[key].duplicated(keep=False), key].unique().tolist()
@@ -151,12 +151,12 @@ def _entity_info_reader(fn, key, blacklist=()):
     return df
 
 
-def _sample_info_reader(fn):
-    return _entity_info_reader(fn, "Sample_ID", _SAMPLE_INFO_BLACKLIST)
+def _sample_info_reader(fn, *, preserve_text=False):
+    return _entity_info_reader(fn, "Sample_ID", _SAMPLE_INFO_BLACKLIST, preserve_text=preserve_text)
 
 
-def _library_info_reader(fn):
-    return _entity_info_reader(fn, "library_id")
+def _library_info_reader(fn, *, preserve_text=False):
+    return _entity_info_reader(fn, "library_id", preserve_text=preserve_text)
 
 def _sniff_sep(path: pathlib.Path) -> str:
     try:
@@ -241,6 +241,7 @@ def _feature_info_reader(
 def _barcode_info_reader(
     fn,
     *,
+    preserve_text=False,
     logger: Optional["logging.Logger"] = None,
 ):
     """
@@ -253,7 +254,11 @@ def _barcode_info_reader(
 
     fn = pathlib.Path(fn)
     sep = _sniff_sep(fn)
-    df = pd.read_csv(fn, sep=sep)
+    converters = None
+    if preserve_text:
+        headers = pd.read_csv(fn, sep=sep, nrows=0).columns
+        converters = {column: str for column in headers if column.lower() in {"barcode", "sample_id", "library_id", "source_barcode"}}
+    df = pd.read_csv(fn, sep=sep, converters=converters)
 
     # Require barcode (case-insensitive), normalize to 'barcode'
     cols_lower = {c.lower(): c for c in df.columns}
@@ -270,8 +275,8 @@ def _barcode_info_reader(
     # Index: lowercase name, string type, unique
     if df["barcode"].isna().any():
         raise ValueError(f"{fn}: barcode contains missing values")
-    df["barcode"] = df["barcode"].astype(str).str.strip()
-    if df["barcode"].eq("").any():
+    df["barcode"] = df["barcode"].astype(str) if preserve_text else df["barcode"].astype(str).str.strip()
+    if df["barcode"].str.strip().eq("").any():
         raise ValueError(f"{fn}: barcode contains empty values")
     df.set_index("barcode", inplace=True)
     df.index.name = "barcode"
@@ -284,15 +289,15 @@ def _barcode_info_reader(
         for key in ("Sample_ID", "library_id"):
             if df[key].isna().any():
                 raise ValueError(f"{fn}: primary barcode metadata {key} contains missing values")
-            df[key] = df[key].astype(str).str.strip()
-            if df[key].eq("").any():
+            df[key] = df[key].astype(str) if preserve_text else df[key].astype(str).str.strip()
+            if df[key].str.strip().eq("").any():
                 raise ValueError(f"{fn}: primary barcode metadata {key} contains empty values")
 
         if "source_barcode" in df.columns:
             if df["source_barcode"].isna().any():
                 raise ValueError(f"{fn}: primary barcode metadata source_barcode contains missing values")
-            df["source_barcode"] = df["source_barcode"].astype(str).str.strip()
-            if df["source_barcode"].eq("").any():
+            df["source_barcode"] = df["source_barcode"].astype(str) if preserve_text else df["source_barcode"].astype(str).str.strip()
+            if df["source_barcode"].str.strip().eq("").any():
                 raise ValueError(f"{fn}: primary barcode metadata source_barcode contains empty values")
 
     if fn.name.endswith("_autoqc_mask.tsv"):
@@ -606,6 +611,19 @@ def _aggr_csv_reader(fn):
     aggr_info = pd.read_csv(fn, dtype=str)
     return aggr_info
 
+class MetadataArgumentParser(argparse.ArgumentParser):
+    def parse_args(self, args=None, namespace=None):
+        parsed = super().parse_args(args, namespace)
+        parsed.parse_metadata = parsed.input_format in {"splitpipe", "splitpipe_aggr", "parsebio_starsolo"}
+        if parsed.sample_info is not None:
+            parsed.sample_info = _sample_info_reader(parsed.sample_info, preserve_text=parsed.parse_metadata)
+        if parsed.library_info is not None:
+            parsed.library_info = _library_info_reader(parsed.library_info, preserve_text=parsed.parse_metadata)
+        if parsed.barcode_info is not None:
+            parsed.barcode_info = [_barcode_info_reader(path, preserve_text=parsed.parse_metadata) for path in parsed.barcode_info]
+        return parsed
+
+
 def create_parser():
     """
     Create an argument parser for the script.
@@ -615,7 +633,7 @@ def create_parser():
     argparse.ArgumentParser
         Argument parser for the script.
     """
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = MetadataArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("input", nargs="*", type=pathlib.Path, default=None,
                         help="input file(s)")
     parser.add_argument("-o", "--outfile", required=True, type=pathlib.Path,
@@ -626,13 +644,13 @@ def create_parser():
                         help="output file format")
     parser.add_argument("--aggr-csv", default=None, required=False, type=_aggr_csv_reader,
                         help="aggregation csv with header and two columns. First column is `sample_id` and second column is path to input file")
-    parser.add_argument("--sample-info", default=None, required=False, type=_sample_info_reader,
+    parser.add_argument("--sample-info", default=None, required=False, type=pathlib.Path,
                         help="sample-level metadata, tab separated with unique `Sample_ID`")
-    parser.add_argument("--library-info", default=None, required=False, type=_library_info_reader,
+    parser.add_argument("--library-info", default=None, required=False, type=pathlib.Path,
                         help="library-level metadata, tab separated with unique `library_id`")
     parser.add_argument("--feature-info", nargs="*", required=False, type=_feature_info_reader,
                         help="extra feature info filename, tab seprated file assumes `gene_id` in header")
-    parser.add_argument("--barcode-info", nargs="*", required=False, type=_barcode_info_reader,
+    parser.add_argument("--barcode-info", nargs="*", required=False, type=pathlib.Path,
                         help="extra barcode info filename, tab seprated file assumes `barcode` in header")
     parser.add_argument("--no-gex-only", action="store_true",
                         help="only keep `Gene Expression` data and ignore other feature types. (only for cellranger)")
@@ -1694,7 +1712,7 @@ def read_splitpipe(fn, args, **kw):
     dir_name = os.path.dirname(fn)
     logger.debug(f"Reading Split-pipe matrix from {fn}")
 
-    mtx = mmread(fn, spmatrix=True).tocsr()
+    mtx = mmread(fn).tocsr()
 
     features = None
     for feature_file in ["all_genes.csv", "target_genes.csv", "all_guides.csv"]:
@@ -2180,6 +2198,17 @@ def broadcast_entity_metadata(axis_df: pd.DataFrame, metadata: pd.DataFrame, key
         )
 
     return axis_df.join(incoming, how="left", validate="one_to_one")
+
+
+def parse_library_columns(library_info: pd.DataFrame, sample_info: pd.DataFrame, obs_columns=()) -> pd.DataFrame:
+    """Keep both ownership levels even when their values happen to agree."""
+    biological = {column.lower() for column in sample_info.columns}
+    rename = {column: "library_" + column for column in library_info.columns if column.lower() in biological}
+    names = [rename.get(column, column) for column in library_info.columns]
+    occupied = biological | {column.lower() for column in obs_columns}
+    if len({name.lower() for name in names}) != len(names) or any(name.lower() in occupied for name in rename.values()):
+        raise ValueError("Parse library metadata prefix collides with an existing sample/library/observation column")
+    return library_info.rename(columns=rename)
 
 
 def drop_ci_identical_same_name(df: pd.DataFrame) -> pd.DataFrame:
@@ -2958,7 +2987,10 @@ if __name__ == "__main__":
                     logger.info(f"  * {a}")
                 
         data.obs = drop_ci_identical_same_name(data.obs)
-        data.obs = anndata_friendly_dtypes(data.obs, protect_cols=("barcode","cell_barcode", "stype"), allow_string_dtype=False)
+        protected = ("barcode", "cell_barcode", "stype")
+        if args.parse_metadata:
+            protected += ("Sample_ID", "library_id", "source_barcode")
+        data.obs = anndata_friendly_dtypes(data.obs, protect_cols=protected, allow_string_dtype=False)
 
     # -------------------------
     # Broadcast entity-level metadata onto .obs
@@ -2971,6 +3003,8 @@ if __name__ == "__main__":
     if args.library_info is not None:
         logger.info("Broadcasting library_info onto .obs through library_id ...")
         library_info = _drop_blacklisted_columns(args.library_info, _LIBRARY_INFO_BLACKLIST)
+        if args.parse_metadata and args.sample_info is not None:
+            library_info = parse_library_columns(library_info, sample_info, data.obs.columns)
         data.obs = broadcast_entity_metadata(data.obs, library_info, "library_id", "library_info")
 
     # source_barcode is an intermediate identity field used to construct and align

@@ -6,3 +6,7 @@ test/
 [#]*[#]
 .[#]*
 .ipynb_checkpoints/
+
+# Isolated local development environments and checks
+.dev/
+__pycache__/

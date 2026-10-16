@@ -59,8 +59,8 @@ def canonical_id(entry_key, metadata: dict, field: str, source: str) -> str:
     return identifier
 
 
-def frame_from_records(records: list[dict], key: str, source: str) -> pd.DataFrame:
-    frame = pd.DataFrame(records)
+def frame_from_records(records: list[dict], key: str, source: str, *, preserve_values=False) -> pd.DataFrame:
+    frame = pd.DataFrame(records, dtype=object if preserve_values else None)
     if key not in frame.columns:
         raise ValueError(f"{source}: missing required key column {key!r}")
     if frame[key].isna().any() or frame[key].astype(str).str.strip().eq("").any():
@@ -105,97 +105,45 @@ def split_legacy_sample_rows(config: dict) -> tuple[pd.DataFrame, pd.DataFrame]:
     )
 
 
-def biological_samples_from_wells(config: dict) -> pd.DataFrame:
-    by_sample: dict[str, dict] = {}
+def parse_identifier(entry_key, metadata: dict, field: str, source: str) -> str:
+    """Parse IDs are exact text; reject ambiguity instead of rewriting it."""
+    if not isinstance(entry_key, str) or not entry_key.strip():
+        raise ValueError(f"{source}: mapping keys must be non-empty text identifiers")
+    if field in metadata and metadata[field] != entry_key:
+        raise ValueError(f"{source}[{entry_key!r}]: {field} disagrees with the mapping key")
+    return entry_key
 
+
+def biological_samples_from_wells(config: dict) -> pd.DataFrame:
+    records = []
     for entry_key, raw in require_mapping(config, "wells").items():
         if not isinstance(raw, dict):
             raise ValueError(f"config['wells'][{entry_key!r}] must be a mapping")
-
-        sample_id = str(raw.get("Sample_ID", entry_key)).strip()
-        if not sample_id:
-            raise ValueError(f"config['wells'][{entry_key!r}] has an empty Sample_ID")
-
-        record = {key: value for key, value in raw.items() if key not in {"Sample_ID", "Wells"}}
-        previous = by_sample.get(sample_id)
-        if previous is not None and previous != record:
-            raise ValueError(
-                f"config['wells'] contains conflicting metadata for biological Sample_ID {sample_id!r}"
-            )
-        by_sample[sample_id] = record
-
-    records = [{"Sample_ID": sample_id, **metadata} for sample_id, metadata in by_sample.items()]
-    return frame_from_records(records, "Sample_ID", "config['wells']")
+        sample_id = parse_identifier(entry_key, raw, "Sample_ID", "config['wells']")
+        records.append({**raw, "Sample_ID": sample_id})
+    return frame_from_records(records, "Sample_ID", "config['wells']", preserve_values=True)
 
 
 def parse_legacy_metadata(config: dict) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Normalize current Parse metadata without inventing library-to-sample mappings."""
+    """Keep Parse biological and library metadata in their source sections."""
     sample_info = biological_samples_from_wells(config)
     library_records = []
-    promoted: dict[str, object] = {}
-
-    rows = require_mapping(config, "samples")
-    candidate_columns = []
-    seen_columns = set()
-
-    for raw in rows.values():
-        if not isinstance(raw, dict):
-            raise ValueError("config['samples'] entries must be mappings")
-        for key in raw:
-            if key == "Sample_ID" or key in LIBRARY_METADATA_COLUMNS or key in seen_columns:
-                continue
-            candidate_columns.append(key)
-            seen_columns.add(key)
-
-    for entry_key, raw in rows.items():
+    # Coordinated with gcf-tools #68; no general biological-field ontology.
+    reserved = {"Sample_Group", "Sample_Biosource", "External_ID"}
+    for entry_key, raw in require_mapping(config, "samples").items():
         if not isinstance(raw, dict):
             raise ValueError(f"config['samples'][{entry_key!r}] must be a mapping")
-
-        library_id = str(entry_key).strip()
-        if not library_id:
-            raise ValueError("config['samples'] contains an empty library key")
-
-        library_record = {"library_id": library_id}
-        for key in LIBRARY_METADATA_COLUMNS:
-            if key in raw:
-                library_record[key] = raw[key]
-        library_records.append(library_record)
-
-    library_info = frame_from_records(library_records, "library_id", "config['samples']")
-
-    for column in candidate_columns:
-        values = []
-        for raw in rows.values():
-            value = raw.get(column)
-            if pd.isna(value) or str(value).strip() == "":
-                continue
-            values.append(value)
-
-        unique = pd.Series(values, dtype=object).drop_duplicates().tolist()
-        if len(unique) > 1:
-            raise ValueError(
-                f"Legacy Parse metadata column {column!r} is not library-specific but differs across libraries. "
-                "The current config cannot resolve those values to biological Sample_ID; "
-                f"examples: {unique[:5]}"
-            )
-        if unique:
-            promoted[column] = unique[0]
-
-    for column, value in promoted.items():
-        if column in sample_info.columns:
-            existing = sample_info[column]
-            comparable = existing.notna() & existing.astype(str).str.strip().ne("")
-            mismatched = comparable & existing.astype(str).ne(str(value))
-            if mismatched.any():
-                bad = sample_info.loc[mismatched, ["Sample_ID", column]].head(5).to_dict("records")
-                raise ValueError(
-                    f"Legacy Parse metadata column {column!r} conflicts with biological sample metadata: {bad}"
-                )
-            sample_info.loc[~comparable, column] = value
-        else:
-            sample_info[column] = value
-
-    return sample_info, library_info
+        library_id = parse_identifier(entry_key, raw, "Sample_ID", "config['samples']")
+        if "library_id" in raw and raw["library_id"] != library_id:
+            raise ValueError(f"config['samples'][{entry_key!r}]: conflicting library_id")
+        for field in reserved & raw.keys():
+            value = raw[field]
+            missing = value is None or (isinstance(value, str) and (not value.strip() or value == "NA"))
+            if not missing and not (pd.api.types.is_scalar(value) and pd.isna(value)):
+                raise ValueError(f"Pooled library {library_id!r}: {field}={value!r} belongs in config.wells / Cell Multiplexing")
+        record = {key: value for key, value in raw.items() if key not in reserved | {"Sample_ID", "library_id"}}
+        library_records.append({"library_id": library_id, **record})
+    return sample_info, frame_from_records(library_records, "library_id", "config['samples']", preserve_values=True)
 
 
 def libraries_from_explicit_config(config: dict) -> pd.DataFrame:
