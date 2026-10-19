@@ -60,7 +60,7 @@ def subset_matrix(
     layer: str,
 ) -> tuple[tuple[int, int], int]:
     with open_binary(matrix_path, "r") as handle:
-        matrix = sp.csc_matrix(mmread(handle, spmatrix=True))
+        matrix = sp.csc_matrix(mmread(handle))
 
     expected_shape = (n_features, n_barcodes)
     if matrix.shape != expected_shape:
