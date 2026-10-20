@@ -194,6 +194,7 @@ rule splitpipe_aggr:
         summary_csv = expand(rules.splitpipe_quant.output.agg_summary_csv, sublib=SUBLIBS),
     output:
         summary_html = join(QUANT_INTERIM, 'aggregate', 'splitpipe', 'all-sample_analysis_summary.html'),
+        all_summaries = join(QUANT_INTERIM, 'aggregate', 'splitpipe', 'all_summaries.zip'),
         all_sample_filtered_genes = join(QUANT_INTERIM, 'aggregate', 'splitpipe', 'all-sample', 'DGE_filtered', 'all_genes.csv'),
         all_sample_filtered_meta = join(QUANT_INTERIM, 'aggregate', 'splitpipe', 'all-sample', 'DGE_filtered', 'cell_metadata.csv'),
         all_sample_filtered_mtx = join(QUANT_INTERIM, 'aggregate', 'splitpipe', 'all-sample', 'DGE_filtered', 'count_matrix.mtx'),
