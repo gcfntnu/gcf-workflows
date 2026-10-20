@@ -37,10 +37,8 @@ rule bfq_level2_logs:
                           aggr_id=AGGR_IDS),
         sample_web = expand(join(CR_INTERIM, '{sample}', 'outs', 'web_summary.html'), sample=SAMPLES),
         sample_metrics = expand(join(CR_INTERIM, '{sample}', 'outs', 'metrics_summary.csv'), sample=SAMPLES),
-        aggr_summary = expand(join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}', 'outs', 'count',
-                                   'summary.json'), aggr_id=AGGR_IDS),
-        aggr_csv = expand(join(QUANT_INTERIM, 'aggregate', 'cellranger', '{aggr_id}', 'outs', 'aggregation.csv'),
-                          aggr_id=AGGR_IDS)
+        aggr_summary = expand(rules.cellranger_aggr.output.summary_json, aggr_id=AGGR_IDS),
+        aggr_csv = expand(rules.cellranger_aggr.output.aggregation_csv, aggr_id=AGGR_IDS)
     output:
         expand(join(BFQ_INTERIM, 'summaries', '{aggr_id}_web_summary.html'), aggr_id=AGGR_IDS),
         expand(join(BFQ_INTERIM, 'summaries', '{sample}_web_summary.html'), sample=SAMPLES),
