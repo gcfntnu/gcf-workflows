@@ -202,12 +202,16 @@ def create_mqc_config(args):
     if len(rg) == 1:
         mqc_conf['extra_fn_clean_exts'].append('_R1')
 
-    s_df = pd.read_csv(args.sample_info, sep='\t')
+    # TSV identifiers and labels are literal text, including leading zeros and "NA".
+    s_df = pd.read_csv(args.sample_info, sep='\t', dtype=str, keep_default_na=False)
 
     if 'Sample_ID' not in s_df.columns:
         raise ValueError(
             f"Sample info {args.sample_info.name!r} is missing required column 'Sample_ID'"
         )
+
+    if s_df['Sample_ID'].str.strip().eq('').any():
+        raise ValueError("Sample info contains blank Sample_ID values")
 
     if s_df['Sample_ID'].duplicated().any():
         duplicates = (
@@ -228,10 +232,16 @@ def create_mqc_config(args):
         drop.append('Organism')
     s_df = s_df.drop(drop, axis=1)
 
+    s_df = s_df.replace('', pd.NA)
+    desc = pep.config.get('descriptors', {})
     na_vals = ['nan', 'NAN', 'na', 'NA', 'n/a', 'N/A', 'None', 'none', '<na>', '<NA>']
-    s_df = s_df.replace(na_vals, pd.NA)
+    for col in s_df.columns:
+        if col != 'External_ID' and desc.get(col, {}).get('dtype') == 'numerical':
+            values = s_df[col].replace(na_vals, pd.NA)
+            numeric = pd.to_numeric(values, errors='coerce').round(2)
+            # Keep annotations such as "<1" instead of silently discarding them.
+            s_df[col] = numeric.astype(object).where(numeric.notna(), values)
     s_df.dropna(how='all', axis=1, inplace=True)
-    s_df = s_df.round(2)
     s_df = s_df.fillna('')
 
     COL_SCALE = {
@@ -271,7 +281,6 @@ def create_mqc_config(args):
     if s_df.shape[-1] > 0: # only if any extra cols exists
         pconfig = {}
         #pconfig['title'] = 'GCF'
-        desc = pep.config.get('descriptors', {})
         for col in list(s_df.columns.values):
             pconfig[col] = {'format': '{}', 'namespace': 'gcf'}
             if col not in desc.keys():
