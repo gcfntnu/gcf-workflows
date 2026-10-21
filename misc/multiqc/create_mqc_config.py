@@ -202,10 +202,27 @@ def create_mqc_config(args):
     if len(rg) == 1:
         mqc_conf['extra_fn_clean_exts'].append('_R1')
 
- 
-    s_df = pep.sample_table
+    s_df = pd.read_csv(args.sample_info, sep='\t')
+
+    if 'Sample_ID' not in s_df.columns:
+        raise ValueError(
+            f"Sample info {args.sample_info.name!r} is missing required column 'Sample_ID'"
+        )
+
+    if s_df['Sample_ID'].duplicated().any():
+        duplicates = (
+            s_df.loc[s_df['Sample_ID'].duplicated(), 'Sample_ID']
+            .astype(str)
+            .unique()
+            .tolist()[:10]
+        )
+        raise ValueError(
+            f"Sample info contains duplicate Sample_ID values: {duplicates}"
+        )
+
+    s_df = s_df.set_index('Sample_ID')
+
     
-    s_df = s_df.rename(columns={'sample_name': 'Sample_ID'}).set_index('Sample_ID')
     drop = list(set(['Flowcell_Name', 'Project_ID', 'R1', 'R2', 'subsample_name', 'sample_name', 'Flowcell_ID', 'Lane', 'lane', 'run_number', 'I1', 'I1_md5sum', 'R1_md5sum', 'R2_md5sum', 'I2', 'I2_md5sum']).intersection(s_df.columns))
     if 'Organism' in s_df.columns and len(set(s_df['Organism'])) == 1:
         drop.append('Organism')
