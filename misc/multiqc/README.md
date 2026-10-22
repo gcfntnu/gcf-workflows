@@ -1,5 +1,17 @@
 # MultiQC configuration
 
+`--sample-info` supplies the authoritative sample metadata for General Statistics.
+The TSV must contain nonblank, unique `Sample_ID` values. IDs are compared as exact
+text: `001` and `1` are distinct, and identifiers such as `NA` or `NULL` are literal
+values. Text metadata, including `External_ID`, retains leading zeros and is not
+inferred as numeric or missing. Empty metadata cells are omitted or displayed blank.
+
+The PEP or native YAML config still supplies report headers and column descriptors.
+Columns explicitly described with `dtype: numerical` use numeric values rounded to
+two decimal places; missing-value tokens in those columns display blank, while
+annotations such as `<1` remain intact. `Sample_ID` and `External_ID` always remain
+text. Sample rows and metadata values are never reconstructed from the config.
+
 `create_mqc_config.py` records the workflow branch and full commit ID in the existing
 `Analysis pipeline` entry. Git resolves the revision in `--repo-dir`, preserving slash-containing
 branch names and supporting packed refs and linked worktrees. Detached checkouts use the commit ID
