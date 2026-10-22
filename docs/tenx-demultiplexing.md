@@ -35,8 +35,16 @@ are rejected. The profile is a bounded contract, not a general assay inference e
 Converter adapter trimming is disabled per row (`AdapterRead1/2=na`). Existing
 adapter sequences fail with an actionable remedy; they are not silently discarded.
 `CreateFastqForIndexReads=0`, `MinimumTrimmedReadLength=8` and
-`MaskShortReads=8` are explicit globals. `TrimUMI` is omitted: BCL Convert 4.2.4 rejects that setting when no U cycles are defined; the profiles retain barcode/UMI bases as Y cycles. Both mismatch allowances are explicit,
-0/1/2 (default 1); shared lane/index collision validation remains active.
+`MaskShortReads=8` are explicit globals. Output is gzip with
+`NoLaneSplitting=true`; conflicting compression/lane settings fail before conversion.
+The converter requires the literal `true` for this sheet setting, not numeric `1`.
+`TrimUMI` is omitted: BCL Convert 4.2.4 rejects that setting when no U cycles are
+defined; the profiles retain barcode/UMI bases as Y cycles. Used-index mismatch
+allowances are explicit, 0/1/2 (default 1). An unused index has a blank per-row
+mismatch cell: 4.2.4 rejects numeric zero for a fully masked index in a mixed
+single/dual-index sheet. A physical dual-index run retains an empty `index2`
+column even in a separate pass that masks i5 entirely. Shared lane/index collision
+validation remains active.
 ATAC barcode-bearing index reads do not inherit this policy.
 
 Named dual inputs require an explicit `Index2Orientation` selection in the BFQ
@@ -60,9 +68,11 @@ Compatible projects combine by default, including different per-sample OverrideC
 and adapter policies. Incompatible BCL Convert global settings require
 explicit `DemultiplexingPass` labels in each affected project's source sheet. BFQ
 executes passes separately, retains their reports, and publishes each project's
-FASTQs without allowing one pass to overwrite another. Mixed legacy/direct-backend plans remain explicitly unsupported until their
-shared assay/index collision contract is verified; standalone historical routes
-remain available. Scientific project selection,
+FASTQs without allowing one pass to overwrite another. Independent multiple-pass
+plans containing a legacy backend remain unsupported until their shared
+assay/index collision contract is verified. The established standalone historical
+route, including a shared legacy sheet with multiple projects, remains available.
+Scientific project selection,
 chemistry and analysis image continue to come from each project's kit configuration.
 
 ## Verification and removal gate
@@ -74,12 +84,54 @@ and existing delivery/recovery contracts. Workflow tests construct synthetic rep
 DAGs for ordinary v3 and Multiome GEX with preprocessing enabled and disabled.
 No quantifiers, containers, SMTP or reference downloads run in these local tests.
 
-Server integration results will be recorded here before handoff, separately for
-actual conversion, sequence/quality equivalence, intended downstream acceptance,
-QC, checksums, archives, reruns and SMTP. Vendor tiny conversion examples alone
-are not downstream scientific evidence. Compression, FASTQ headers, ordering and
-filtering may differ; comparisons must examine assignment/read counts, sequences
-and qualities and retained barcode/UMI content, rather than compressed MD5 equality.
+Authorized server integration used BCL Convert 4.2.4, Cell Ranger analysis 10.0.0
+and the conversion-only legacy Cell Ranger 7.2.0/bcl2fastq 2.20.0.422 image above.
+The following checks are separate from local mocks and DAG construction:
+
+| Input/check | Performed evidence | Scope/limitation |
+| --- | --- | --- |
+| Four-oligo GA GEX | All copied paired sequences, qualities, multiplicities and 28/56 lengths match both direct conversion and actual legacy mkfastq; one logical library per submission row | Controlled BCL re-encoding of copied scientific FASTQs; not historical instrument-hardware validation |
+| GA GEX downstream | Actual Cell Ranger count, aggregation/expression, three doublet detectors, AutoQC, GPU preprocessing and project MultiQC completed; all checksum manifests, project/QC archives, retained analysis snapshot and test SMTP acceptance checked | Existing scientific settings retained; supported reporting rerun preserved FASTQs and their manifest bytes |
+| Copied raw dual-index Multiome GEX | Explicit and symbolic TT derivations agree; every assigned pair across all libraries matches actual legacy mkfastq in sequence, quality, multiplicity and 28/90 lengths; physical PF and Undetermined totals also agree | Actual reverse-complement i5 case; downstream analysis held because its organism/reference is unregistered in the existing inventory, with FASTQs retained |
+| Combined v3 GEX + Multiome GEX conversion | Three logical libraries in two controlled projects share one converter; all paired sequences, qualities, multiplicities and per-project 28/56 versus 28/90 lengths match source reads; native QC and test SMTP acceptance checked | Separate project configurations retain v3 versus `ARC-v1` chemistry and distinct organism/reference selections |
+| Mixed-project scientific analysis and delivery | Both projects completed Cell Ranger count, aggregation/expression, all three doublet detectors, AutoQC, GPU preprocessing and MultiQC; retained configurations and delivered count metrics agree with each project's input geometry/chemistry and read counts; all manifests, four archives, both analysis snapshots and processed/finalized test SMTP records checked | Public Multiome subset consumed all two million pairs and called 583 cells with 100% valid barcodes and UMI sequences; these selected-data metrics are functional acceptance evidence |
+| Scoped Multiome reporting retry | FASTQ bytes and both FASTQ manifests preserved; both analysis snapshots and unselected GEX archives/report/notification records unchanged; rebuilt delivery manifests and archives checked | Existing scoped publication copies the selected project's FASTQs to new inodes; retained originals compare byte-for-byte equal; no quantification rerun |
+| Explicit separate BCL Convert passes | Both passes completed on the same controlled input; all three libraries match source reads independently; project directories publish separately, assigned counts combine once and physical total is counted once; combined Undetermined remains unavailable | Explicit labels forced separate execution with validated 10x globals; incompatible-global rejection is covered locally, and an unsupported independent-index collision policy still fails preflight |
+| Existing legacy GEX and ordinary mixed-project regression | Full analysis, QC, archives, snapshots and test SMTP acceptance completed | Earlier candidate regression baseline, not a complete release-fixture gate on the final candidate |
+| Legacy executable checks | All three pinned aliases execute their version and mkfastq help commands in the test runtime; Cell Ranger legacy conversion additionally exercised for GA and TT above | ATAC/Space Ranger and historical v1/v2 scientific conversion remain unverified |
+
+Comparisons use an independent multiset of paired sequences and qualities, including
+multiplicity and read lengths. Compression, FASTQ headers and ordering may differ;
+compressed MD5 equality is not the scientific compatibility criterion. One raw-run
+file differed in gzip bytes across conversions but had identical decompressed
+content. FASTQ manifests are still checked against each actual delivered file.
+Vendor tiny conversion examples alone are not downstream scientific evidence.
+Test SMTP acceptance was inspected; inbox receipt was not independently checked.
+
+The public Multiome GEX source is 10x Genomics'
+[PBMC from a healthy donor, no cell sorting, 3k dataset](https://www.10xgenomics.com/datasets/pbmc-from-a-healthy-donor-no-cell-sorting-3-k-1-standard-2-0-0),
+used under CC BY 4.0 with attribution to 10x Genomics. A bounded prefix of GEX
+lane L003 was filtered to the first 600 lexicographic vendor-called GEX barcodes
+until two million pairs were retained. Biological bases and qualities were unchanged;
+the selected records were re-encoded as controlled BCL with TT indexes. This is a
+functional consumer fixture, not a representative estimate of full-dataset performance.
+Source URL, archive ETag, selected members/ranges, matrix hash and selection are
+retained privately with the fixture; no whole-archive checksum is claimed for a
+partial HTTP-range download.
+
+Orientation coverage includes a copied raw four-read run using reverse-complement
+i5 and controlled three/four-read MiSeq-format fixtures with forward indexes.
+Controlled fixtures establish software/read-layout behavior, not physical MiSeq
+hardware validation. Other instrument/reagent/orientation combinations remain
+unverified and require deliberate operator selection rather than platform guessing.
+
+The human reference integration exposed a packaging difference: the 2020-A archive
+contains plain `genes.gtf`, whereas other supported archives contain `genes.gtf.gz`.
+The reference rule now publishes either layout through one helper, preserving an
+existing annotation on read/decompression failure. Missing or ambiguous source
+annotations fail explicitly. The reference release, assembly and scientific
+parameters are unchanged. Tiny text-file CLI tests cover both layouts and failure
+preservation; actual human reference preparation also completed on the server.
 
 Unverified historical cases stay on their existing route. Removing a legacy image
 requires representative replacement evidence for every agreed historical case and
@@ -121,5 +173,5 @@ conversion and consumer evidence remains recorded separately in the matrix.
 
 Use repository-plus-digest references (`repository@sha256:...`) in `docker.config`.
 Apptainer's Docker transport rejects references containing both a tag and digest.
-The human-readable version tags above identify the published builds; the config
-uses their immutable digests for execution.
+The table records published software versions and image digests; the config uses
+the immutable digests for execution.
