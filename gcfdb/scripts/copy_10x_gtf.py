@@ -20,6 +20,8 @@ def copy_gtf(genes_dir, destination):
         with opener(source, 'rb') as reader, tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as writer:
             temporary = Path(writer.name)
             shutil.copyfileobj(reader, writer)
+        # Reference annotations are shared read-only across workflow users.
+        temporary.chmod(0o644)
         os.replace(temporary, destination)
     finally:
         if temporary is not None:

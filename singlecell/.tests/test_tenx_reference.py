@@ -23,6 +23,7 @@ def test_reference_annotation_cli_preserves_plain_and_compressed_bytes(tmp_path,
     destination = tmp_path / 'anno/genes.gtf'
     subprocess.run([sys.executable, str(SCRIPT), str(genes), str(destination)], check=True)
     assert destination.read_bytes() == expected
+    assert destination.stat().st_mode & 0o777 == 0o644
 
 
 @pytest.mark.parametrize('ambiguous', [False, True])
