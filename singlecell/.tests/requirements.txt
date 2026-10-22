@@ -6,4 +6,4 @@ pulp==2.7.0
 pytest
 scanpy
 # Immutable shared libprep selector baseline; no local gcf-tools override.
-gcf-tools @ https://github.com/gcfntnu/gcf-tools/archive/975f72395678c1cf4e14e808707554eef3e1c509.zip
+gcf-tools @ https://github.com/gcfntnu/gcf-tools/archive/1daa9822084bc3a3df4b94102c13c6352fa57ecd.zip
