@@ -57,10 +57,12 @@ FASTQ directories; it does not require a mkfastq-only directory. The optional le
 flowcell directory remains an optional archive input.
 
 Compatible projects combine by default, including different per-sample OverrideCycles
-and adapter policies. Incompatible global settings or legacy executables require
+and adapter policies. Incompatible BCL Convert global settings require
 explicit `DemultiplexingPass` labels in each affected project's source sheet. BFQ
 executes passes separately, retains their reports, and publishes each project's
-FASTQs without allowing one pass to overwrite another. Scientific project selection,
+FASTQs without allowing one pass to overwrite another. Mixed legacy/direct-backend plans remain explicitly unsupported until their
+shared assay/index collision contract is verified; standalone historical routes
+remain available. Scientific project selection,
 chemistry and analysis image continue to come from each project's kit configuration.
 
 ## Verification and removal gate
