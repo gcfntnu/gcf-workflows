@@ -202,19 +202,46 @@ def create_mqc_config(args):
     if len(rg) == 1:
         mqc_conf['extra_fn_clean_exts'].append('_R1')
 
- 
-    s_df = pep.sample_table
+    # TSV identifiers and labels are literal text, including leading zeros and "NA".
+    s_df = pd.read_csv(args.sample_info, sep='\t', dtype=str, keep_default_na=False)
+
+    if 'Sample_ID' not in s_df.columns:
+        raise ValueError(
+            f"Sample info {args.sample_info.name!r} is missing required column 'Sample_ID'"
+        )
+
+    if s_df['Sample_ID'].str.strip().eq('').any():
+        raise ValueError("Sample info contains blank Sample_ID values")
+
+    if s_df['Sample_ID'].duplicated().any():
+        duplicates = (
+            s_df.loc[s_df['Sample_ID'].duplicated(), 'Sample_ID']
+            .astype(str)
+            .unique()
+            .tolist()[:10]
+        )
+        raise ValueError(
+            f"Sample info contains duplicate Sample_ID values: {duplicates}"
+        )
+
+    s_df = s_df.set_index('Sample_ID')
+
     
-    s_df = s_df.rename(columns={'sample_name': 'Sample_ID'}).set_index('Sample_ID')
     drop = list(set(['Flowcell_Name', 'Project_ID', 'R1', 'R2', 'subsample_name', 'sample_name', 'Flowcell_ID', 'Lane', 'lane', 'run_number', 'I1', 'I1_md5sum', 'R1_md5sum', 'R2_md5sum', 'I2', 'I2_md5sum']).intersection(s_df.columns))
     if 'Organism' in s_df.columns and len(set(s_df['Organism'])) == 1:
         drop.append('Organism')
     s_df = s_df.drop(drop, axis=1)
 
+    s_df = s_df.replace('', pd.NA)
+    desc = pep.config.get('descriptors', {})
     na_vals = ['nan', 'NAN', 'na', 'NA', 'n/a', 'N/A', 'None', 'none', '<na>', '<NA>']
-    s_df = s_df.replace(na_vals, pd.NA)
+    for col in s_df.columns:
+        if col != 'External_ID' and desc.get(col, {}).get('dtype') == 'numerical':
+            values = s_df[col].replace(na_vals, pd.NA)
+            numeric = pd.to_numeric(values, errors='coerce').round(2)
+            # Keep annotations such as "<1" instead of silently discarding them.
+            s_df[col] = numeric.astype(object).where(numeric.notna(), values)
     s_df.dropna(how='all', axis=1, inplace=True)
-    s_df = s_df.round(2)
     s_df = s_df.fillna('')
 
     COL_SCALE = {
@@ -254,7 +281,6 @@ def create_mqc_config(args):
     if s_df.shape[-1] > 0: # only if any extra cols exists
         pconfig = {}
         #pconfig['title'] = 'GCF'
-        desc = pep.config.get('descriptors', {})
         for col in list(s_df.columns.values):
             pconfig[col] = {'format': '{}', 'namespace': 'gcf'}
             if col not in desc.keys():

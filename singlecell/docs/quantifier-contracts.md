@@ -60,6 +60,26 @@ Cell Ranger raw matrix
 The concrete Cell Ranger output layout is parsed by the current implementation and is not
 part of the durable AnnData contract.
 
+BFQ level-2 delivery always includes the aggregate filtered AnnData and adds the
+preprocessed AnnData when preprocessing is enabled. Native matrix deliveries live
+under `bfq/exprs/mtx/<method>/`: Cell Ranger retains `filtered_feature_bc_matrix/`,
+Split-Pipe retains its `all-sample/` and biological-sample `DGE_filtered/` layout,
+and STARsolo delivers sample and aggregate matrix/features/barcode triplets.
+Cell Ranger H5 matrices and Loupe files are collected separately; aggregate
+workspaces are not mirrored.
+
+Collectors must depend on declared quantifier outputs. In particular,
+`cellranger_aggr` declares `outs/count/summary.json` and `outs/aggregation.csv`
+alongside its matrices and web summary, so BFQ can collect these files on a fresh
+run. The collector references these named outputs directly. Canonical UMAP figures
+depend on the finalized preprocessed AnnData and are collected only when
+preprocessing is enabled.
+
+`python -m pytest -q singlecell/.tests/test_bfq_delivery.py` constructs synthetic
+reporting DAGs for all four methods with preprocessing enabled and disabled. It
+checks delivery dependencies without executing quantifiers or downloading inputs.
+Real quantifier output compatibility and delivery archives require server integration.
+
 ## 3. 10x Genomics + STARsolo
 
 Current non-CellBender path:

@@ -964,7 +964,7 @@ def load_velocity_source(velocyto_dir, feature_filename, source):
     matrices = {}
     expected_shape = (len(barcodes), len(features))
     for name in ["spliced", "unspliced", "ambiguous"]:
-        matrix = mmread(required[name], spmatrix=True).T.tocsr().astype(np.int32)
+        matrix = mmread(required[name]).T.tocsr().astype(np.int32)
         if matrix.shape != expected_shape:
             raise ValueError(
                 f"{required[name]}: matrix shape {matrix.shape} does not match velocity axes {expected_shape}"
@@ -1044,7 +1044,7 @@ def attach_matching_count_layer(data, matrix_dir, feature_filename, layer, sourc
         duplicates = features[features.duplicated()].unique().tolist()[:10]
         raise ValueError(f"{source}: duplicate layer feature IDs. Examples: {duplicates}")
 
-    matrix = mmread(required["matrix"], spmatrix=True).T.tocsr().astype(np.int32)
+    matrix = mmread(required["matrix"]).T.tocsr().astype(np.int32)
     expected_shape = (len(barcodes), len(features))
     if matrix.shape != expected_shape:
         raise ValueError(
@@ -1389,7 +1389,7 @@ def read_starsolo(fn, args, **kw):
     """
     fn = os.path.abspath(fn)
     logger.debug(f"Reading starsolo mtx from {fn}")
-    X = mmread(fn, spmatrix=True).T.tocsr().astype(np.int32)
+    X = sp.csr_matrix(mmread(fn).T, dtype=np.int32)
     mtx_dir = os.path.dirname(fn)
     barcodes = pd.read_table(join(mtx_dir, "barcodes.tsv"), index_col=0, header=None)
     barcodes['starsolo_barcodes'] = barcodes.index

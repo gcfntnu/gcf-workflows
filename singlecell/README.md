@@ -12,6 +12,7 @@ Developer-facing workflow contracts and implementation notes are maintained unde
 `singlecell/docs/`:
 
 - [Parent-linked Parse TCR](docs/tcr.md): required WT inputs, configmaker setup, overlay, execution and outputs
+- [Multiome gene expression](docs/multiome-gex.md): GEX-only Cell Ranger preset, read structure and validation scope
 - `anndata-contract.md`: durable semantics of canonical filtered and preprocessed AnnData
 - `metadata-contract.md`: sample, library, observation, and feature identity/join semantics
 - `anndata-schema.md`: current concrete AnnData keys and layout

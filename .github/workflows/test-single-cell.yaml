@@ -21,11 +21,11 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        python -m pip install snakemake==8.1.1 pyyaml==6.0 peppy rich pulp==2.7.0 pytest scanpy
+        python -m pip install -r singlecell/.tests/requirements.txt
         python --version
     - name: Dry run bfq_all
       working-directory: ./singlecell/.tests
       run: |
         snakemake -n -p --cores 1 multiqc_report
-    - name: Metadata contracts and delivery
-      run: python -m pytest -q singlecell/.tests/test_metadata.py
+    - name: Metadata contracts and BFQ delivery
+      run: python -m pytest -q singlecell/.tests/test_metadata.py singlecell/.tests/test_bfq_delivery.py
