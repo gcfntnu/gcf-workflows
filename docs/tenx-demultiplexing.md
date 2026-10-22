@@ -34,8 +34,8 @@ are rejected. The profile is a bounded contract, not a general assay inference e
 
 Converter adapter trimming is disabled per row (`AdapterRead1/2=na`). Existing
 adapter sequences fail with an actionable remedy; they are not silently discarded.
-`CreateFastqForIndexReads=0`, `TrimUMI=0`, `MinimumTrimmedReadLength=8` and
-`MaskShortReads=8` are explicit globals. Both mismatch allowances are explicit,
+`CreateFastqForIndexReads=0`, `MinimumTrimmedReadLength=8` and
+`MaskShortReads=8` are explicit globals. `TrimUMI` is omitted: BCL Convert 4.2.4 rejects that setting when no U cycles are defined; the profiles retain barcode/UMI bases as Y cycles. Both mismatch allowances are explicit,
 0/1/2 (default 1); shared lane/index collision validation remains active.
 ATAC barcode-bearing index reads do not inherit this policy.
 
