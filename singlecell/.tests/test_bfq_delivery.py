@@ -85,6 +85,7 @@ assert bool(BFQ_PREPROCESS_FIGS) == PREPROCESS_ENABLED
 if PREPROCESS_ENABLED:
     assert Path(rules.preprocess_final_umap_png.params.script).is_file()
 if BFQ_METHOD == 'cellranger':
+    assert Path(rules.txgenomics_org_prebuild.params.script).is_file()
     produced = set(expand(rules.cellranger_aggr.output, aggr_id=AGGR_IDS))
     assert set(rules.bfq_level2_logs.input.aggr_summary).issubset(produced)
     assert set(rules.bfq_level2_logs.input.aggr_csv).issubset(produced)
