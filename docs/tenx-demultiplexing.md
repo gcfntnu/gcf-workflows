@@ -88,3 +88,31 @@ rerun or permits a downstream analysis-version upgrade.
 Vendor references: [BCL Convert examples and trimming policy](https://www.10xgenomics.com/support/software/cell-ranger/8.0/analysis/cr-direct-demultiplexing-bcl-convert),
 [index references](https://www.10xgenomics.com/support/universal-three-prime-gene-expression/documentation/steps/sequencing/sample-index-sets-for-single-cell-3),
 [ATAC-specific retention](https://www.10xgenomics.com/support/software/cell-ranger-atac/2.1/analysis/direct-demultiplexing-with-illumina-software).
+
+## Rebuilding the conversion-only legacy images
+
+The legacy image includes both the 10x executable and the required bcl2fastq 2.20.0.422.
+`containers/legacy-mkfastq.Dockerfile` copies the statically linked bcl2fastq executable
+from a digest-pinned image into a digest-pinned 10x base, then checks both versions and
+`mkfastq --help` during the build. The analysis image keys are unchanged. The new
+conversion-only images are pinned by digest in `docker.config`:
+
+| Key | 10x version | bcl2fastq | Image digest |
+| --- | --- | --- | --- |
+| cellranger-mkfastq | 7.2.0 | 2.20.0.422 | `d007af24db9346c57e0c9432016b4ca3cb8cf6557883b0edf2a8dab9e60fc590` |
+| cellranger-atac-mkfastq | 2.0.0 | 2.20.0.422 | `9ce423733a4c1f3445bb7c6f75fe5474e5bef8ccd4260f1ae72adc3243661218` |
+| spaceranger-mkfastq | 1.3.0 | 2.20.0.422 | `da47a9ebfd85487ba583ff7fa7e0c50287a23fade0ec6d42db888eb8e103ddc9` |
+
+For example, from the repository root:
+
+```bash
+docker build -f containers/legacy-mkfastq.Dockerfile \
+  --build-arg LEGACY_TOOL=cellranger -t local-cellranger-mkfastq containers
+```
+
+For ATAC, set `LEGACY_TOOL=cellranger-atac` and
+`LEGACY_IMAGE=gcfntnu/cellranger-atac@sha256:9db886321105ed100ffd2e653ea12b0353bacc1429e91043a126968896dc666f`.
+For Space Ranger, set `LEGACY_TOOL=spaceranger` and
+`LEGACY_IMAGE=gcfntnu/spaceranger@sha256:d88044220c024e72dce148f5ca67776ff64c6dd92c4e2548af7833e5fff85fab`.
+These checks establish executable/prerequisite availability; representative
+conversion and consumer evidence remains recorded separately in the matrix.
