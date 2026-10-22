@@ -116,3 +116,8 @@ For Space Ranger, set `LEGACY_TOOL=spaceranger` and
 `LEGACY_IMAGE=gcfntnu/spaceranger@sha256:d88044220c024e72dce148f5ca67776ff64c6dd92c4e2548af7833e5fff85fab`.
 These checks establish executable/prerequisite availability; representative
 conversion and consumer evidence remains recorded separately in the matrix.
+
+Use repository-plus-digest references (`repository@sha256:...`) in `docker.config`.
+Apptainer's Docker transport rejects references containing both a tag and digest.
+The human-readable version tags above identify the published builds; the config
+uses their immutable digests for execution.

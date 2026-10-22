@@ -25,7 +25,7 @@ def test_conversion_matrix_is_bounded_and_preserves_legacy_images():
     assert len(names) == len(set(names))
     for label in ('v1', 'v2', 'ATAC', 'Visium'):
         assert any(label in kit for kit in names)
-    assert images['cellranger-mkfastq'].startswith('gcfntnu/cellranger:7.2.0-mkfastq-bcl2fastq2.20.0@sha256:')
+    assert images['cellranger-mkfastq'].startswith('gcfntnu/cellranger@sha256:')
     for key in ('cellranger-mkfastq', 'cellranger-atac-mkfastq', 'spaceranger-mkfastq'):
         assert len(images[key].split('@sha256:')[1]) == 64
     assert images['cellranger'] == 'gcfntnu/cellranger:10.0.0'
