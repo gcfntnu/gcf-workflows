@@ -45,7 +45,8 @@ rule txgenomics_org_prebuild:
     params:
         url = get_10x_url,
         out = get_10x_prefix,
-        proxy = ''
+        proxy = '',
+        script = src_gcf('scripts/copy_10x_gtf.py')
     output:
         json = join(EXT_DIR, '10xgenomics', 'release-{release}', '{organism}', '{assembly}', 'reference.json'),
         gtf = join(EXT_DIR, '10xgenomics', 'release-{release}', '{organism}', '{assembly}', 'anno', 'genes.gtf'),
@@ -57,7 +58,7 @@ rule txgenomics_org_prebuild:
     shell:
         """
         curl {params.proxy} {params.url} | tar xvz --strip-components=1 -C {params.out}
-        zcat {params.out}/genes/genes.gtf.gz > {params.out}/anno/genes.gtf
+        python {params.script:q} {params.out:q}/genes {output.gtf:q}
         echo "10xGenomics Genome,release-{wildcards.release},{params.url},`date -I`" > {log.genome}
         echo "10xGenomics GTF ,release-{wildcards.release},{params.url},`date -I`" > {log.gtf}
         """
