@@ -684,7 +684,7 @@ def create_parser():
     parser.add_argument("--barcode-rename", default="numerical", choices=["numerical", "sample_id", "trim", "parsebio", "skip"],
                         help="barcode postfix naming strategy")
     parser.add_argument("--use-velo", action="store_true",
-                        help="load STARsolo/split-pipe velocity matrices when available")
+                        help="attach required STARsolo velocity matrices (unsupported for Split-Pipe)")
     parser.add_argument(
         "--attach-cellbender-layer",
         action="store_true",
