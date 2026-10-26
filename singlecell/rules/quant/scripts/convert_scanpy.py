@@ -1708,6 +1708,8 @@ def read_splitpipe(fn, args, **kw):
     cell_metadata.csv defines the matrix barcode axis only. Canonical per-cell
     metadata is supplied separately through barcode_info.tsv.
     """
+    if _USE_VELO:
+        raise ValueError("Split-Pipe velocity attachment is unsupported; use parsebio_starsolo for Parse velocity")
     fn = os.path.abspath(fn)
     dir_name = os.path.dirname(fn)
     logger.debug(f"Reading Split-pipe matrix from {fn}")
@@ -1765,21 +1767,6 @@ def read_splitpipe(fn, args, **kw):
 
     obs = pd.DataFrame(index=barcodes)
     data = anndata.AnnData(X=mtx, obs=obs, var=features)
-
-    if "DGE_filtered" in dir_name:
-        velocyto_dir = dir_name.replace("all-sample/DGE_filtered", "velo")
-    else:
-        velocyto_dir = dir_name.replace("all-sample/DGE_unfiltered", "velo")
-
-    if _USE_VELO:
-        data = attach_velocity_layers(
-            data,
-            velocyto_dir,
-            "genes.tsv",
-            source="Split-pipe Velocyto",
-            verbose=args.verbose,
-            logger=logger,
-        )
 
     barcode_rename = kw.get("barcode_rename", args.barcode_rename)
     if barcode_rename == "skip":
@@ -2718,6 +2705,8 @@ if __name__ == "__main__":
     # -------------------------
     parser = create_parser()
     args = parser.parse_args()
+    if args.use_velo and args.input_format in {'splitpipe', 'splitpipe_aggr'}:
+        parser.error("Split-Pipe velocity attachment is unsupported; use parsebio_starsolo for Parse velocity")
     setup_logging(verbose=args.verbose)
     logger = logging.getLogger(__name__)
     logger.info("=== convert_scanpy.py starting ===")

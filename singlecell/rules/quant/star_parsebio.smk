@@ -70,7 +70,8 @@ def _parsebio_genome_name(name: str) -> str:
 pb_assembly_name = _parsebio_genome_name(assembly)
 STARSOLO_PARSEBIO_MITO_NAMES += [f"{pb_assembly_name}_{name}" for name in STARSOLO_MITO_NAMES]
 
-STARSOLO_PARSEBIO_ARGS = STARSOLO_COMMON_ARGS + [
+STARSOLO_PARSEBIO_VELOCITY = any(velocity_enabled(method) for method in PARSEBIO_STARSOLO_MODES)
+STARSOLO_PARSEBIO_ARGS = starsolo_common_args(next(method for method in METHODS if method in PARSEBIO_STARSOLO_MODES)) + [
     "--soloType", "CB_UMI_Complex",
     "--readFilesCommand", "zcat",
     "--soloBarcodeReadLength", "0",
@@ -94,7 +95,7 @@ if STARSOLO_TRIMMER == "starsolo":
 STARSOLO_PARSEBIO_ARGS = " ".join(STARSOLO_PARSEBIO_ARGS)
 
 
-if VELO_OUTPUT:
+if STARSOLO_PARSEBIO_VELOCITY:
     STARSOLO_PARSEBIO_VELOCYTO_RAW_BARCODES  = join(QUANT_INTERIM, '{method}', '{sublib}', 'Solo.out', 'Velocyto', 'raw', 'barcodes.tsv')
     STARSOLO_PARSEBIO_VELOCYTO_RAW_FEATURES  = join(QUANT_INTERIM, '{method}', '{sublib}', 'Solo.out', 'Velocyto', 'raw', 'features.tsv')
     STARSOLO_PARSEBIO_VELOCYTO_RAW_SPLICED   = join(QUANT_INTERIM, '{method}', '{sublib}', 'Solo.out', 'Velocyto', 'raw', 'spliced.mtx')
@@ -525,7 +526,7 @@ def parsebio_starsolo_sample_raw_inputs(wc):
 
 
 def parsebio_starsolo_sample_velo_args(wc, input, output):
-    if not VELO_OUTPUT:
+    if not STARSOLO_PARSEBIO_VELOCITY:
         return ''
 
     return (
