@@ -275,6 +275,11 @@ independent of merge order.
 
 Current preferred support includes STARsolo-based 10x and Parse paths.
 
+Split-Pipe defaults to velocity disabled and rejects explicit velocity requests.
+STARsolo retains its existing enabled default. Resolve these choices per quantifier
+for mixed-method runs; see [velocity settings](velocity.md) for boolean/mapping
+configuration and migration of old explicit settings.
+
 When enabled, aligned count components are carried into canonical AnnData layers.
 Current conventional layer names are:
 

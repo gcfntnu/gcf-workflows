@@ -9,7 +9,7 @@ STARSOLO_CB_LEN = STARSOLO_CONFIG["cb_len"]
 STARSOLO_UMI_LEN = STARSOLO_CONFIG["umi_len"]
 STARSOLO_UMI_START = STARSOLO_CONFIG["umi_start"]
 
-STARSOLO_10X_ARGS = STARSOLO_COMMON_ARGS + [
+STARSOLO_10X_ARGS = starsolo_common_args('10x_starsolo') + [
     "--soloType", "CB_UMI_Simple",
     "--readFilesCommand", "zcat",
     "--outFilterMultimapNmax", "10",
@@ -27,7 +27,7 @@ if STARSOLO_OUTPUT_BAM:
 else:
     STARSOLO_BAM_OUTPUT = []
 
-if VELO_OUTPUT:
+if velocity_enabled('10x_starsolo'):
     STARSOLO_VELOCYTO_RAW_BARCODES = join(
         STAR_INTERIM, '{sample}', 'Solo.out', 'Velocyto', 'raw', 'barcodes.tsv'
     )

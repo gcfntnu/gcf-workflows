@@ -28,4 +28,4 @@ jobs:
       run: |
         snakemake -n -p --cores 1 multiqc_report
     - name: Metadata contracts and BFQ delivery
-      run: python -m pytest -q singlecell/.tests/test_metadata.py singlecell/.tests/test_bfq_delivery.py
+      run: python -m pytest -q singlecell/.tests/test_metadata.py singlecell/.tests/test_bfq_delivery.py singlecell/.tests/test_velocity.py singlecell/.tests/test_demultiplexing_profiles.py singlecell/.tests/test_tenx_reference.py

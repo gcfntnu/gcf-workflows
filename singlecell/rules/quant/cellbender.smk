@@ -176,7 +176,7 @@ rule cellbender_filter_starsolo_counts:
         '--output-features {output.features} '
 
 
-if VELO_OUTPUT:
+if velocity_enabled('10x_starsolo'):
     rule cellbender_filter_starsolo_velocity:
         input:
             spliced = join(QUANT_INTERIM, '10x_starsolo', '{sample}', 'Solo.out', 'Velocyto', 'raw', 'spliced.mtx'),
