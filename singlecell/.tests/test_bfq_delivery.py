@@ -64,7 +64,9 @@ def test_level2_delivery_dag(tmp_path, method, kit, chemistry, preprocess):
     }
     # Cell Ranger method, chemistry and aggregation must come from the preset/defaults.
     if method != 'cellranger':
-        config['quant'].update(method=method, use_velo=False, aggregate={'method': 'scanpy'})
+        config['quant'].update(method=method, aggregate={'method': 'scanpy'})
+        if method != 'splitpipe':
+            config['quant']['use_velo'] = False
     if parse:
         config['wells'] = {'bioA': {'Wells': 'A1'}, 'bioB': {'Wells': 'B1'}}
     (tmp_path / 'config.yaml').write_text(yaml.safe_dump(config))
@@ -133,3 +135,8 @@ assert METHODS == ['cellranger']
         assert 'rule preprocess_final_umap_png:' in result.stdout
     if method in {'10x_starsolo', 'parsebio_starsolo'}:
         assert 'rule bfq_level2_starsolo_aggr_mtx:' in result.stdout
+    if method == 'splitpipe':
+        assert 'rule splitpipe_splice_from_tscp:' not in result.stdout
+        commands = [line for line in result.stdout.splitlines() if 'convert_scanpy.py ' in line]
+        assert commands
+        assert all('--use-velo' not in line for line in commands)

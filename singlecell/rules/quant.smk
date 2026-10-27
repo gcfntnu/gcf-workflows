@@ -4,6 +4,8 @@ import os
 from os.path import join
 from types import SimpleNamespace
 
+include: 'velocity_config.py'
+
 
 AGGR_IDS = collections.defaultdict(list)
 METHODS = [m.strip() for m in config['quant']['method'].split(',') if m.strip()]
@@ -43,7 +45,11 @@ if CB_FLAG:
             f"{unsupported_cellbender_methods}"
         )
 
-VELO_OUTPUT = config["quant"].get("use_velo", False)
+VELOCITY_BY_METHOD = resolve_velocity_methods(config['quant'], METHODS)
+
+
+def velocity_enabled(method):
+    return VELOCITY_BY_METHOD.get(method, False)
 
 STARSOLO_CONFIG = config["quant"]["starsolo"]
 STARSOLO_10X_CONFIG = STARSOLO_CONFIG["10x_starsolo"]
@@ -59,37 +65,35 @@ STARSOLO_10X_UMI_FILTERING = STARSOLO_10X_CONFIG["umi_filtering"]
 STARSOLO_PARSEBIO_UMI_DEDUP = STARSOLO_PARSEBIO_CONFIG["umi_dedup"]
 STARSOLO_PARSEBIO_UMI_FILTERING = STARSOLO_PARSEBIO_CONFIG["umi_filtering"]
 
-STARSOLO_FEATURE_LIST = ["Gene", STARSOLO_FEATURE]
-if VELO_OUTPUT:
-    STARSOLO_FEATURE_LIST.append("Velocyto")
-STARSOLO_FEATURE_LIST = list(dict.fromkeys(STARSOLO_FEATURE_LIST))
-
 if STARSOLO_MULTI_MAPPERS == "Unique":
     STARSOLO_MTX = "matrix.mtx"
 else:
     STARSOLO_MTX = f"UniqueAndMult-{STARSOLO_MULTI_MAPPERS}.mtx"
 
-STARSOLO_BAM_TAGS = list(STARSOLO_CONFIG["bam_tags"]) #copy
-if VELO_OUTPUT:
-    STARSOLO_BAM_TAGS += ["sQ", "sM"]
-
 STARSOLO_MITO_NAMES = ["chrM", "M", "MT"]
 
-STARSOLO_COMMON_ARGS = [
-    "--genomeLoad", "LoadAndKeep",
-    "--soloCellReadStats", "Standard",
-    "--soloFeatures", *STARSOLO_FEATURE_LIST,
-    "--soloMultiMappers", STARSOLO_MULTI_MAPPERS,
-]
 
-if STARSOLO_OUTPUT_BAM:
-    STARSOLO_COMMON_ARGS += [
-        "--outSAMtype", "BAM", "SortedByCoordinate",
-        "--outSAMattributes", *STARSOLO_BAM_TAGS,
-        "--limitBAMsortRAM", str(STARSOLO_LIMIT_BAM_SORT_RAM),
+def starsolo_common_args(method):
+    features = list(dict.fromkeys(["Gene", STARSOLO_FEATURE]))
+    bam_tags = list(STARSOLO_CONFIG["bam_tags"])
+    if velocity_enabled(method):
+        features.append("Velocyto")
+        bam_tags += ["sQ", "sM"]
+    args = [
+        "--genomeLoad", "LoadAndKeep",
+        "--soloCellReadStats", "Standard",
+        "--soloFeatures", *features,
+        "--soloMultiMappers", STARSOLO_MULTI_MAPPERS,
     ]
-else:
-    STARSOLO_COMMON_ARGS += ["--outSAMtype", "None"]
+    if STARSOLO_OUTPUT_BAM:
+        args += [
+            "--outSAMtype", "BAM", "SortedByCoordinate",
+            "--outSAMattributes", *bam_tags,
+            "--limitBAMsortRAM", str(STARSOLO_LIMIT_BAM_SORT_RAM),
+        ]
+    else:
+        args += ["--outSAMtype", "None"]
+    return args
 
 if STARSOLO_10X_UMI_FILTERING == "MultiGeneUMI_CR" and STARSOLO_10X_UMI_DEDUP != "1MM_CR":
     raise ValueError("STARsolo MultiGeneUMI_CR requires umi_dedup=1MM_CR")
@@ -497,7 +501,7 @@ def scanpy_aggr_inputs(wc):
     elif wc.method == '10x_starsolo':
         output['aggr_csv'] = aggr_library_order_csv(wc.aggr_id)
 
-        if VELO_OUTPUT:
+        if velocity_enabled(wc.method):
             velocity_representation = 'cellbender_filtered' if CB_FLAG else 'raw'
             output['velo_spliced'] = [
                 join(QUANT_INTERIM, '10x_starsolo', sample, 'Solo.out', 'Velocyto', velocity_representation, 'spliced.mtx')
@@ -596,7 +600,7 @@ def scanpy_aggr_csv(wc):
 
 
 def scanpy_aggr_velo(wc):
-    return '--use-velo' if VELO_OUTPUT else ''
+    return '--use-velo' if velocity_enabled(wc.method) else ''
 
 
 def scanpy_aggr_cellbender_layer(wc):
