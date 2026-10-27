@@ -61,10 +61,10 @@ def invoke(workflow, work, output, logdir, args, compress=False):
 def test_real_cutadapt_assignments_and_literal_paths(tmp_path, workflow, compress):
     if compress and not shutil.which('pigz'):
         pytest.fail('pigz is required for the compression contract')
-    sample = 'sample [x]; $(touch EXECUTED) `touch BACKTICK`'
-    work = tmp_path / 'input_R1.fastq directory with spaces and \'quotes\''
+    sample = 'sample {name} [x]; $(touch EXECUTED) `touch BACKTICK`'
+    work = tmp_path / 'input_R1.fastq directory with {name} spaces and \'quotes\''
     args = prepare(work, sample)
-    output, logdir = work / 'output [literal]; space', work / 'separate logs $literal'
+    output, logdir = work / 'output {name} [literal]; space', work / 'separate logs $literal'
     result = invoke(workflow, work, output, logdir, args, compress)
     assert result.returncode == 0, result.stderr.decode()
     expected = fastq([('unknown:region=no_adapter', 'T' * 45),

@@ -71,10 +71,10 @@ def cutadapt_worker(args, primers):
     # Only this invocation owns these intermediates. A retry starts from the
     # supplied reads, regardless of stale files from older implementations.
     with TemporaryDirectory(prefix='.qiaseq-', dir=output_dir) as directory, log_path.open('w') as log:
-        work = Path(directory)
+        work = Path(directory).resolve()
 
         def pair(region, prefix=''):
-            return [work / f'{prefix}{sample}_{region}_R{mate}.fastq' for mate in (1, 2)]
+            return [work / f'{prefix}region_{region}_R{mate}.fastq' for mate in (1, 2)]
 
         reads = [Path(args.in1).resolve(), Path(args.in2).resolve()]
         unknown = pair('unknown')
@@ -88,11 +88,13 @@ def cutadapt_worker(args, primers):
             command = [
                 'cutadapt', '-g', f'{region}={primer};min_overlap={len(primer.replace("N", ""))};max_error_rate=0.25',
                 '-G', f'{region}={reverse[region]};min_overlap={len(reverse[region].replace("N", ""))};max_error_rate=0.3',
-                '--pair-adapters', '--untrimmed-output', str(unknown[0]), '--untrimmed-paired-output', str(unknown[1]),
-                '--suffix', ':region={name}', '-o', str(pair('{name}')[0]), '-p', str(pair('{name}')[1]),
+                '--pair-adapters', '--untrimmed-output', unknown[0].name, '--untrimmed-paired-output', unknown[1].name,
+                '--suffix', ':region={name}', '-o', pair('{name}')[0].name, '-p', pair('{name}')[1].name,
                 '--minimum-length', '20', *map(str, reads),
             ]
-            subprocess.run(command, stdout=log, check=True)
+            # Cutadapt expands {name} throughout output templates. Keep sample
+            # names and parent directories out of those templates entirely.
+            subprocess.run(command, cwd=work, stdout=log, check=True)
 
             assigned = pair(region)
             if assigned[0].exists():
@@ -100,10 +102,10 @@ def cutadapt_worker(args, primers):
                 command = [
                     'cutadapt', '-a', str(Seq(reverse[region]).reverse_complement()),
                     '-A', str(Seq(primer).reverse_complement()), '--pair-adapters',
-                    '-o', str(trimmed[0]), '-p', str(trimmed[1]), '--minimum-length', '20', *map(str, assigned),
+                    '-o', trimmed[0].name, '-p', trimmed[1].name, '--minimum-length', '20', *map(str, assigned),
                 ]
                 with (reverse_logs / f'{sample}_{region}_rev_comp.log').open('w') as reverse_log:
-                    subprocess.run(command, stdout=reverse_log, check=True)
+                    subprocess.run(command, cwd=work, stdout=reverse_log, check=True)
                 for source, destination in zip(trimmed, assigned):
                     source.replace(destination)
             regions.append(region)
