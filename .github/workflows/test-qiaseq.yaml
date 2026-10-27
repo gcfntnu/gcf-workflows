@@ -1,0 +1,18 @@
+name: Test QIAseq demultiplexing
+
+on: [push, pull_request]
+
+jobs:
+  paired-reads:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    - name: Install synthetic regression dependencies
+      run: |
+        sudo apt-get update && sudo apt-get install -y pigz
+        python -m pip install pytest pyyaml biopython cutadapt==4.9 snakemake==8.1.1 pulp==2.7.0
+    - name: Check both workflow entry points and rules
+      run: python -m pytest -q common/.tests/test_qiaseq_demultiplex.py

@@ -18,13 +18,13 @@ rule cutadapt_demultiplex:
     container: 
         'docker://' + config['docker']['cutadapt']
     shell:
-        '{params.script} '
-        '--in1 {input.R1} '
-        '--in2 {input.R2} '
-        '--libkit "{params.libkit}" '
-        '--libprepconfig {params.libprepconf} '
-        '--output-dir {params.outdir} '
-        '--log-dir {params.logdir} '
+        '{params.script:q} '
+        '--in1 {input.R1:q} '
+        '--in2 {input.R2:q} '
+        '--libkit {params.libkit:q} '
+        '--libprepconfig {params.libprepconf:q} '
+        '--output-dir {params.outdir:q} '
+        '--log-dir {params.logdir:q} '
 
 rule cutadapt_all:
     input:
