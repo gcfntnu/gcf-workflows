@@ -28,7 +28,8 @@ Each invocation owns a temporary directory under its output directory. It
 uses fixed relative output names within that directory when calling Cutadapt,
 so literal `{name}` text in sample names or parent paths is never expanded.
 It ignores old intermediate files and removes only its own temporary directory;
-no sample-derived cleanup glob can match another sample. Final FASTQs are
+no sample-derived cleanup glob can match another sample. Final FASTQs are staged
+in a separate subdirectory so sample names cannot collide with intermediates. They are
 replaced only after both mates have been produced successfully. Each rename is
 atomic, but publication of the two files together is not a filesystem
 transaction. The workflow must not run the same sample twice concurrently.

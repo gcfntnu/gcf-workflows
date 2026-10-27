@@ -112,7 +112,9 @@ def cutadapt_worker(args, primers):
 
         pairs = [pair(region) for region in regions if pair(region)[0].exists()]
         suffix = '.gz' if args.compress else ''
-        combined = [work / f'{sample}_R{mate}.fastq{suffix}' for mate in (1, 2)]
+        staged = work / 'final'
+        staged.mkdir()
+        combined = [staged / f'{sample}_R{mate}.fastq{suffix}' for mate in (1, 2)]
         for mate, destination in enumerate(combined):
             concatenate([reads[mate] for reads in pairs], destination, args.compress)
         # Publish only after both mates and compression have succeeded.

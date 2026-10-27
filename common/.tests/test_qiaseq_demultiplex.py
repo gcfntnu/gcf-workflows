@@ -99,6 +99,19 @@ def test_real_cutadapt_assignments_and_literal_paths(tmp_path, workflow, compres
 
 
 @pytest.mark.parametrize('workflow', ['microbiome', 'metagenome'])
+@pytest.mark.parametrize('sample', ['region_first', 'region_unknown'])
+def test_sample_name_cannot_collide_with_intermediates(tmp_path, workflow, sample):
+    args = prepare(tmp_path, sample=sample)
+    output = tmp_path / 'output'
+    result = invoke(workflow, tmp_path, output, output / 'log', args)
+    assert result.returncode == 0, result.stderr.decode()
+    expected = fastq([('unknown:region=no_adapter', 'T' * 45),
+                      ('first:region=first', PAYLOAD), ('second:region=second', PAYLOAD)])
+    for mate in (1, 2):
+        assert (output / f'{sample}_R{mate}.fastq').read_bytes() == expected
+
+
+@pytest.mark.parametrize('workflow', ['microbiome', 'metagenome'])
 @pytest.mark.parametrize('empty', [False, True])
 def test_one_region_and_empty_pairs(tmp_path, workflow, empty):
     args = prepare(tmp_path, regions={'first': PRIMERS['first']}, empty=empty)
