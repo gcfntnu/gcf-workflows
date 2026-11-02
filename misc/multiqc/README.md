@@ -96,3 +96,11 @@ To roll back a separate evaluation workdir, restore those reviewed revisions/con
 explicit `docker.multiqc` to the previous image, including the mapping used by the standalone BFQ wrapper.
 Restore any retained workflow copy separately, and regenerate reports only into the evaluation outputs.
 No changes to the legacy MultiQC fork are required by this migration.
+
+## Acceptance checkpoint
+
+The rc4 candidate passed fresh server integration across seven fixtures, with
+eight project and seven sequencing reports accepted against source inputs and
+matched legacy renders. [The acceptance record](https://github.com/gcfntnu/gcf-docker/blob/multiqc/upstream-plugin-candidate/gcf-multiqc/VALIDATION-RC4.md)
+records the artifact and tested boundaries. Production adoption remains pending
+coordinated PR review.
