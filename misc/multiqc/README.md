@@ -42,14 +42,14 @@ that project; updating only `/opt/gcf-workflows` does not update a retained `src
 ## Upstream MultiQC with the GCF extension
 
 The `docker.multiqc` default in the root `docker.config` selects the reporting candidate
-`gcfntnu/gcf-multiqc:1.35-gcf0.1.0-rc3` by its immutable digest:
+`gcfntnu/gcf-multiqc:1.35-gcf0.1.0-rc4` by its immutable digest:
 
 ```text
-gcfntnu/gcf-multiqc@sha256:f3a9873d88241e47f3bd38c0b68ae5b64c746b1d77b63a3182e00bbe3ffcf7b0
+gcfntnu/gcf-multiqc@sha256:2c356684c03d24c11e63be5724d4f107c253eccd8be98c236952bd3df5435878
 ```
 
 It packages upstream MultiQC 1.35 and the
-[GCF extension](https://github.com/gcfntnu/gcf-multiqc) 0.1.0rc3
+[GCF extension](https://github.com/gcfntnu/gcf-multiqc) 0.1.0rc4
 at source revision `df0aef569b77bd8f310c4e5dba77d2d65e03254f`.
 The tag is a readable release label; the digest identifies the candidate to evaluate.
 The configuration generator continues to use `docker.default`.
