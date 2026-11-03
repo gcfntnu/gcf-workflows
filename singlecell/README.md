@@ -75,6 +75,13 @@ BFQ also delivers `summaries/all_samples*.html` as a separate web summary ([READ
 
 Precedence between these sources is described in [docs/configuration.md](../docs/configuration.md#effective-precedence).
 
+### Chromosome names for donor demultiplexing
+
+Demultiplexing consumes the BAM produced by the selected quantifier directly.
+Donor VCFs and common-variant references must use chromosome names compatible with that BAM.
+The unused `bam_rename_chromosomes` rule was removed: its output had no consumer, its input required a missing quantifier wildcard, and its fixed mapping file had no producer.
+No chromosome conversion is applied implicitly. Supporting a different naming scheme requires an explicit reference-compatible mapping and a connected processing step.
+
 ## Tests
 
 - `singlecell/.tests`: synthetic dry-run fixture (10x 3' v3, `mus_musculus`, two samples). CI runs `snakemake -n -p --cores 1 multiqc_report` there (`test-single-cell.yaml`).
