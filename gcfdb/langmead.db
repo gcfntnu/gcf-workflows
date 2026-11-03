@@ -1,9 +1,15 @@
 #-*- mode:snakemake -*-
+from os.path import abspath
+
 PROTOCOL = 'https://'
 
 
 LM_RELEASE = str(config['db']['langmead']['release'])
 LM_ASSEMBLY = config['db']['langmead']['assembly'] or ''
+# Keep RAM copies distinct from other releases, assemblies and database providers.
+LM_SHMEM_DIR = join('/dev/shm', 'langmead', 'release-{}'.format(LM_RELEASE), 'metagenome', LM_ASSEMBLY)
+LM_CHECKSUMS = (abspath(join(GCFDB_DIR, 'checksums', '{}_{}.md5'.format(LM_ASSEMBLY, LM_RELEASE)))
+                if LM_RELEASE == '20260626' and LM_ASSEMBLY in ('k2_pluspf', 'k2_pluspf_16_GB') else '')
 
 
 LM_BRACKEN_N_MERS = [50, 75, 100, 150, 200, 250, 300] if LM_ASSEMBLY.startswith("k2") else [100, 150, 200, 250]
@@ -16,7 +22,9 @@ if LM_ASSEMBLY.startswith("k2"):
             url = PROTOCOL + "genome-idx.s3.amazonaws.com/kraken",
             filename = "{assembly}_{release}.tar.gz".format(assembly=LM_ASSEMBLY, release=LM_RELEASE),
             output = join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY),
-            release = LM_RELEASE
+            release = LM_RELEASE,
+            checksums = LM_CHECKSUMS,
+            verify_checksums = 'yes' if LM_CHECKSUMS else 'no'
         output:
             hash = join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY, 'hash.k2d'),
             taxo = join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY, 'taxo.k2d'),
@@ -29,7 +37,10 @@ if LM_ASSEMBLY.startswith("k2"):
             join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY, 'logs', 'genome.log')
         shell:
             """
-            wget -O- {params.url}/{params.filename} | tar zxv -C {params.output}
+            wget -O- {params.url}/{params.filename} | tar zxv -C {params.output:q}
+            if [ {params.verify_checksums} = yes ]; then
+                (cd {params.output:q} && md5sum --check {params.checksums:q})
+            fi
             echo "Langmead Prebuild,release-{params.release},{params.url}/{params.filename},`date -I`" > {log}
             """
 
@@ -65,12 +76,12 @@ rule langmead_shmem:
         taxo = rules.langmead_kraken_prebuild.output.taxo,
         opts = rules.langmead_kraken_prebuild.output.opts,
     output:
-        hash = temp(join("/dev/shm", LM_ASSEMBLY, "hash.k2d")),
-        taxo = temp(join("/dev/shm", LM_ASSEMBLY, "taxo.k2d")),
-        opts = temp(join("/dev/shm", LM_ASSEMBLY, "opts.k2d")),
+        hash = temp(join(LM_SHMEM_DIR, "hash.k2d")),
+        taxo = temp(join(LM_SHMEM_DIR, "taxo.k2d")),
+        opts = temp(join(LM_SHMEM_DIR, "opts.k2d")),
     threads:
         1
     run:
         for src, dst in zip(input, output):
-            shell('cp {src} {dst}')
+            shell('cp {src:q} {dst:q}')
 
