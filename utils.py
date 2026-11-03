@@ -122,7 +122,15 @@ with open(libprep_fn) as fh:
     LIBPREP_CONF = yaml.load(fh, Loader=Loader) or {}
 kit = config.get("libprepkit")
 if kit is not None:
-    from configmaker.libprep import LibprepConfig, LibprepConfigError
+    # The installed snakemake command shares bin/ with configmaker.py, which otherwise
+    # shadows the configmaker package. Match BFQ's entry-point isolation for this import.
+    import_path = sys.path[:]
+    executable_dir = os.path.dirname(os.path.realpath(sys.argv[0]))
+    try:
+        sys.path[:] = [path for path in sys.path if not path or os.path.realpath(path) != executable_dir]
+        from configmaker.libprep import LibprepConfig, LibprepConfigError
+    finally:
+        sys.path[:] = import_path
 
     # Use the same selection rules as configmaker, including suffix/geometry validation.
     selection = LibprepConfig.load(libprep_fn).select(kit, config['read_geometry'])

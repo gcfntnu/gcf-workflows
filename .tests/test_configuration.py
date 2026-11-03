@@ -76,7 +76,8 @@ class ConfigurationTests(unittest.TestCase):
         if secrets:
             (work / 'secrets.yaml').write_text(yaml.safe_dump(secrets))
             env['GCF_SECRET'] = str(work / 'secrets.yaml')
-        result = subprocess.run([sys.executable, '-m', 'snakemake', '-n', '-p', '--cores', '1', 'multiqc_report'],
+        # Use the installed command: python -m snakemake does not expose sibling-script import shadowing.
+        result = subprocess.run([str(Path(sys.executable).with_name('snakemake')), '-n', '-p', '--cores', '1', 'multiqc_report'],
                                 cwd=work, env=env, capture_output=True, text=True, timeout=120)
         output = result.stdout + result.stderr
         self.assertEqual(result.returncode == 0, success, output)
