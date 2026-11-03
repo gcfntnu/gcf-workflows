@@ -16,7 +16,7 @@ Until then, the environments below reproduce what CI runs. When #237 lands, this
 
 Keep environments inside the checkout under `.dev/`, which Git ignores.
 Each checkout or worktree gets its own `.dev/`; do not share environments between independent tasks.
-Nothing needs to be activated or installed globally: call the environment's `python` explicitly.
+Python packages are never installed globally and nothing needs to be activated: call the environment's `python` explicitly.
 
 Three environments cover the current CI families:
 
@@ -36,13 +36,20 @@ python3.14 -m venv .dev/anndata
 ```
 
 `.dev/ci` is the union of the dependencies of the CI jobs that use Snakemake 8.1.1.
+
+**System prerequisite: `pigz`.** The QIAseq tests compress output with `pigz`, which the Python environments do not provide; CI installs it with `apt-get install -y pigz`. Without it, two compressed cases fail with `pigz is required for the compression contract`. Check with `command -v pigz` and, if it is missing, install it with your system package manager, for example `sudo apt-get install pigz` on Debian/Ubuntu.
 `singlecell/.tests/requirements.txt` pins Snakemake, PyYAML and PuLP and installs `gcf-tools` from a fixed commit, so the environment needs network access once.
 If Python 3.14 is not available, the small-RNA AnnData test can be left to CI; say so in the PR.
 
 ## Run the checks
 
 Run from the repository root.
-Unset `GCF_EXT`, `GCF_INTERIM`, `GCF_FASTQ` and `GCF_SECRET` first, so a personal environment cannot change what the checks resolve.
+Clear the GCF environment variables first, so a personal environment cannot change what the checks resolve.
+`GCF_REFDIR` matters too: when set, the reference readers use it and fixture dry runs fail with missing reference files.
+
+```bash
+unset GCF_EXT GCF_INTERIM GCF_FASTQ GCF_SECRET GCF_REFDIR
+```
 
 | Check | Command | Environment |
 | --- | --- | --- |
@@ -95,7 +102,7 @@ Each file in [.github/workflows](../.github/workflows) runs on every push and pu
 | `test-metagenome.yaml` | `build` | 3.11 | 8.1.1 | `metagenome` dry run |
 | `test-microbiome.yaml` | `build` | 3.11 | 8.1.1 | `microbiome` dry run |
 | `test-wgs.yaml` | `build` | 3.11 | 8.1.1 | `wgs` dry run |
-| `test-qiaseq.yaml` | `paired-reads` | 3.11 | 8.1.1 | QIAseq pytest |
+| `test-qiaseq.yaml` | `paired-reads` | 3.11 | 8.1.1 | QIAseq pytest (installs `pigz` with `apt-get`) |
 
 - Several files still have header comments and step names that mention older Snakemake versions and `bfq_all`. The commands actually run `multiqc_report`. The comments are cleaned up with #237.
 - `wgs/.tests/test_bfq_qc.py`, `singlecell/.tests/test_tcr_workflow.py` and `singlecell/.tests/test_immune_config.py` are not run by CI. Run them locally when you change those areas.
