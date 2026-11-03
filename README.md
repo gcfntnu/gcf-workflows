@@ -115,7 +115,7 @@ It contains no facility data.
 **Requirements:**
 
 - Python 3.11
-- Snakemake 9.7.1 (the supported version; CI still pins 8.1.1 until [#237](https://github.com/gcfntnu/gcf-workflows/issues/237) lands)
+- Snakemake 9.7.1 (the supported version, pinned in every Snakemake CI job)
 - `pandas`, `peppy`, `rich`
 - [gcf-tools](https://github.com/gcfntnu/gcf-tools), which provides `configmaker.py`
 - `git`
@@ -234,7 +234,7 @@ Local checks need no facility data, containers or reference downloads. They are 
 
 - `bash test-all.sh` dry-runs `multiqc_report` in the seven CI workflow fixtures, and exits nonzero and names the failures if any fails.
 - Focused `unittest` and `pytest` suites cover the reporting configuration, reference roots, metagenome references, WGS delivery, single-cell, small-RNA AnnData and QIAseq demultiplexing.
-- CI (`.github/workflows/`) runs them on every push and pull request. Most jobs still pin Snakemake 8.1.1; the move to 9.7.1 is tracked in [#237](https://github.com/gcfntnu/gcf-workflows/issues/237).
+- CI (`.github/workflows/`) runs them on every push and pull request. Every job that uses Snakemake pins 9.7.1.
 
 The [development guide](docs/development.md) has the environments, the exact commands, the CI job matrix and what the checks do and do not prove.
 [CONTRIBUTING.md](CONTRIBUTING.md) describes how to take an issue to a PR.
