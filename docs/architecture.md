@@ -137,4 +137,6 @@ Where to look first for a change, and which tests cover it.
 | Dry-run gate | `test-all.sh` | `.tests/test_test_all.py` |
 | CI | `.github/workflows/` | One workflow file per workflow family; [development guide](development.md#ci) |
 
+Each workflow's README (`<workflow>/README.md`) lists its kits, stages, `bfq/` outputs, key configuration and tests.
+
 `<workflow>/.tests/` holds the synthetic dry-run fixture for each workflow: `Snakefile`, `config.yaml`, `pep/`, and empty FASTQ placeholders under `data/raw/fastq/`.

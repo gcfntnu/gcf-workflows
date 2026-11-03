@@ -29,8 +29,6 @@ This repository owns:
 | Prepare environments and run the checks | [Development guide](docs/development.md) |
 | Work as a coding agent | [AGENTS.md](AGENTS.md) |
 
-Per-workflow READMEs for every workflow are planned in [#236](https://github.com/gcfntnu/gcf-workflows/issues/236) and do not exist yet.
-
 ## The GCF suite
 
 ```mermaid
@@ -66,11 +64,11 @@ flowchart LR
 | `rnaseq` | Active | `rnaseq/rnaseq.smk` | filter, assembly, align, quant, analysis, qc, bfq | [rnaseq/README.md](rnaseq/README.md) |
 | `singlecell` | Active | `singlecell/singlecell.smk` | immune, gcfdb, filter, quant, qc, bfq, analysis | [singlecell/README.md](singlecell/README.md), [singlecell/docs](singlecell/docs) |
 | `smallrna` | Active | `smallrna/smallrna.smk` | gcfdb, filter, align, quant, qc, bfq | [smallrna/README.md](smallrna/README.md) |
-| `metagenome` | Active | `metagenome/metagenome.smk` | reference_db, filter, quant, bfq | |
-| `wgs` | Active | `wgs/wgs.smk` | gcfdb, filter, align, qc, bfq | [wgs/.tests/README.md](wgs/.tests/README.md) |
-| `default` | Active | `default/default.smk` | bfq (shared FASTQ QC) | |
+| `metagenome` | Active | `metagenome/metagenome.smk` | reference_db, filter, quant, bfq | [metagenome/README.md](metagenome/README.md) |
+| `wgs` | Active | `wgs/wgs.smk` | gcfdb, filter, align, qc, bfq | [wgs/README.md](wgs/README.md) |
+| `default` | Active | `default/default.smk` | bfq (shared FASTQ QC) | [default/README.md](default/README.md) |
 | `microbiome` | Unmaintained | `microbiome/microbiome.smk` | reference_db, filter, qc, quant, analysis, bfq | [microbiome/README.md](microbiome/README.md) |
-| `sars-cov2` | Unmaintained | `sars-cov2/sars-cov2.sm` | Vendored external pipelines | |
+| `sars-cov2` | Unmaintained | `sars-cov2/sars-cov2.sm` | Vendored external pipelines | [sars-cov2/README.md](sars-cov2/README.md) |
 
 **Status.** *Active* workflows are maintained and covered by CI dry runs. *Unmaintained* workflows are kept but may not run.
 Maintenance status does not mean every kit, route or output of a workflow has been scientifically validated.
@@ -192,7 +190,7 @@ Everything BFQ delivers from an analysis comes from there, plus the project samp
 | `data/tmp/sample_info.tsv` | `<project>_samplesheet.tsv` |
 
 Other files under `data/tmp/` are intermediate and not delivered.
-What each workflow places in `bfq/` will be described in its per-workflow README ([#236](https://github.com/gcfntnu/gcf-workflows/issues/236)).
+What each workflow places in `bfq/` is listed in its README, linked from the [workflow table](#workflows).
 
 ## Configuration
 
