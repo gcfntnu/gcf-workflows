@@ -14,7 +14,7 @@ Kits whose [libprep.config](../libprep.config) entry sets `workflow: metagenome`
 | Illumina Nextera XT DNA Library Prep | SE, PE | `langmead` |
 | QIAseq 16S ITS Region Panels | PE | `langmead` |
 
-The QIAseq entry also sets `quant.method: qiime2`, which this workflow does not read.
+The QIAseq entry also carries QIIME2 settings (`quant.method: qiime2`, DADA2 parameters, `db.classifier_level`) that this workflow does not read ([#251](https://github.com/gcfntnu/gcf-workflows/issues/251)).
 
 ## Stages
 
