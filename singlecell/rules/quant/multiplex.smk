@@ -103,7 +103,7 @@ def get_donor_vcf(wildcards):
 rule bam_rename_chromosomes:
     input:
         bam = get_singlecell_bam,
-        mapping_file = '/mnt/archive/ext_cache/ext/ensembl/release-109/homo_sapiens/GRCh38/anno/ensembl_to_10xgenomics_2020-A_map.txt'
+        mapping_file = join(EXT_DIR, 'ensembl', 'release-109', 'homo_sapiens', 'GRCh38', 'anno', 'ensembl_to_10xgenomics_2020-A_map.txt')
     output:
         bam = '{sample}_fixed.bam'
     container:

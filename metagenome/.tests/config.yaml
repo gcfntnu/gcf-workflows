@@ -1,5 +1,5 @@
 project_id: &id001
-- GCF-2023-901
+- GCF-0000-002
 organism: metagenome
 filter:
   subsample_fastq: skip
@@ -7,7 +7,7 @@ libprepkit: Illumina Nextera XT DNA Library Prep
 read_geometry:
 - 151
 - 151
-machine: MiSeq StOlav
+machine: MiSeq
 experiment_principal_inverstigator: NA
 experiment_title: *id001
 experiment_summary: NA
@@ -59,20 +59,20 @@ descriptors:
 samples:
   Bact:
     Sample_ID: Bact
-    Project_ID: GCF-2023-901
+    Project_ID: GCF-0000-002
     Organism: pteropus_vampyrus
-    Flowcell_Name: 231002_M03942_0070_000000000-L83M5
-    Flowcell_ID: 000000000-L83M5
-    R1: 231002_M03942_0070_000000000-L83M5/GCF-2023-901/Bact_R1.fastq.gz
-    R2: 231002_M03942_0070_000000000-L83M5/GCF-2023-901/Bact_R2.fastq.gz
+    Flowcell_Name: 000102_M000001_0002_000000000-SYN02
+    Flowcell_ID: 000000000-SYN02
+    R1: 000102_M000001_0002_000000000-SYN02/GCF-0000-002/Bact_R1.fastq.gz
+    R2: 000102_M000001_0002_000000000-SYN02/GCF-0000-002/Bact_R2.fastq.gz
   Yeast:
     Sample_ID: Yeast
-    Project_ID: GCF-2023-901
+    Project_ID: GCF-0000-002
     Organism: saccharomyces_cerevisiae
-    Flowcell_Name: 231002_M03942_0070_000000000-L83M5
-    Flowcell_ID: 000000000-L83M5
-    R1: 231002_M03942_0070_000000000-L83M5/GCF-2023-901/Yeast_R1.fastq.gz
-    R2: 231002_M03942_0070_000000000-L83M5/GCF-2023-901/Yeast_R2.fastq.gz
+    Flowcell_Name: 000102_M000001_0002_000000000-SYN02
+    Flowcell_ID: 000000000-SYN02
+    R1: 000102_M000001_0002_000000000-SYN02/GCF-0000-002/Yeast_R1.fastq.gz
+    R2: 000102_M000001_0002_000000000-SYN02/GCF-0000-002/Yeast_R2.fastq.gz
 db:
   reference_db: langmead
 workflow: metagenome
