@@ -55,6 +55,7 @@ A generated project `Snakefile` loads `config.yaml` and the PEP, then includes `
 - **singlecell includes `rules/analysis.smk` after `postprocess.smk`.** Its analysis rules do not add to `BFQ_ALL`, so `multiqc_report` and BFQ delivery do not depend on them.
 - **The singlecell TCR route has no `multiqc_report`.** With `quant.assay: tcr` it includes neither `common.smk` nor `postprocess.smk`. Its target is `tcr_all`, equivalent to `bfq_all` in that route. It is run as described in [singlecell/docs/tcr.md](../singlecell/docs/tcr.md), not through BFQ's standard `multiqc_report` invocation.
 - **metagenome omits the qc and analysis stages.** Their includes are commented out.
+- **Not every rule file is loaded.** Some files under `rules/<stage>/` are not included by any stage file, for example rnaseq's analysis rules (its `analysis.smk` includes nothing) and several singlecell and smallrna quantifiers. Configuration cannot select them. Each workflow README lists its inactive source.
 - **Some rule files load conditionally.** For example:
   - singlecell's sample-demultiplexing rules (`rules/quant/multiplex.smk`, with `multiplex.config`) load only when `quant.demultiplex.method` is set and not `skip`
   - metagenome and microbiome `rules/reference_db.smk` include different getters depending on `db.reference_db`
@@ -136,5 +137,7 @@ Where to look first for a change, and which tests cover it.
 | default | `default/` | `default/.tests` dry run |
 | Dry-run gate | `test-all.sh` | `.tests/test_test_all.py` |
 | CI | `.github/workflows/` | One workflow file per workflow family; [development guide](development.md#ci) |
+
+Each workflow's README (`<workflow>/README.md`) lists its kits, stages, `bfq/` outputs, key configuration and tests.
 
 `<workflow>/.tests/` holds the synthetic dry-run fixture for each workflow: `Snakefile`, `config.yaml`, `pep/`, and empty FASTQ placeholders under `data/raw/fastq/`.
