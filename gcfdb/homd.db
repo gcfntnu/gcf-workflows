@@ -7,7 +7,6 @@ Citation:
 https://microbiomejournal.biomedcentral.com/articles/10.1186/s40168-020-00841-w
 """
 from os.path import join
-EXT_DIR = "/mnt/archive/ext_cache/ext/"
 HOMDB_VER = '15.2'
 
 URL = "http://www.homd.org/ftp/16S_rRNA_refseq/HOMD_16S_rRNA_RefSeq"

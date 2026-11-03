@@ -1,5 +1,5 @@
 project_id:
-- GCF-2021-999
+- GCF-0000-007
 organism: rangifer_tarandus
 libprepkit: WGS Custom
 read_geometry:
@@ -15,20 +15,20 @@ quant:
     method: skip
 fastq_dir: data/raw/fastq
 samples:
-  NMBU33:
-    R1: rangifer_tarandus_reduced/GCF-2021-999/NMBU33_R1.fastq.gz
-    R2: rangifer_tarandus_reduced/GCF-2021-999/NMBU33_R2.fastq.gz
+  WGS33:
+    R1: rangifer_tarandus_reduced/GCF-0000-007/WGS33_R1.fastq.gz
+    R2: rangifer_tarandus_reduced/GCF-0000-007/WGS33_R2.fastq.gz
     paired_end: 1
-    Sample_ID: NMBU33
+    Sample_ID: WGS33
     External_ID: ''
-    Project_ID: GCF-2021-999
+    Project_ID: GCF-0000-007
     Organism: rangifer_tarandus
     Sample_Biosource: ''
     Index1_p7 (If dual indexed libraries are submitted indicate what index sequence is used P7): ''
     Index2_p5 (If libraries are submitted  indicate what index sequence is used P75): ''
-    Sample_Group: svalbard_wild
+    Sample_Group: group_a
     Customer_Comment: ''
-    Project ID: GCF-2021-999
+    Project ID: GCF-0000-007
     RIN: ''
     SpikeIn: ''
     Fragment_Length: ''
@@ -37,20 +37,20 @@ samples:
     260/280: ''
     260/230: ''
     Lab_Comment: ''
-  NMBU38:
-    R1: rangifer_tarandus_reduced/GCF-2021-999/NMBU38_R1.fastq.gz
-    R2: rangifer_tarandus_reduced/GCF-2021-999/NMBU38_R2.fastq.gz
+  WGS38:
+    R1: rangifer_tarandus_reduced/GCF-0000-007/WGS38_R1.fastq.gz
+    R2: rangifer_tarandus_reduced/GCF-0000-007/WGS38_R2.fastq.gz
     paired_end: 1
-    Sample_ID: NMBU38
+    Sample_ID: WGS38
     External_ID: ''
-    Project_ID: GCF-2021-999
+    Project_ID: GCF-0000-007
     Organism: rangifer_tarandus
     Sample_Biosource: ''
     Index1_p7 (If dual indexed libraries are submitted indicate what index sequence is used P7): ''
     Index2_p5 (If libraries are submitted  indicate what index sequence is used P75): ''
-    Sample_Group: norway_wild
+    Sample_Group: group_b
     Customer_Comment: ''
-    Project ID: GCF-2021-999
+    Project ID: GCF-0000-007
     RIN: ''
     SpikeIn: ''
     Fragment_Length: ''
