@@ -169,16 +169,16 @@ Reference-database (`gcfdb`) configuration and common defaults shared across wor
 The division is not complete:
 
 - **Workflow-specific defaults in `main.config`:**
-  - `assembly.*` and `qc.bam_subset` are read only by rnaseq.
-  - `filter.trim.mirtrace`, `filter.spikein`, `filter.ribosomal` and `filter.contaminants` are read only by smallrna.
-  - `align.transcriptome` and `align.genome` are read by rnaseq and smallrna.
+  - `assembly.*` and `qc.bam_subset` are read only by rnaseq ([#243](https://github.com/gcfntnu/gcf-workflows/issues/243)).
+  - `filter.trim.mirtrace`, `filter.spikein`, `filter.ribosomal` and `filter.contaminants` are read only by smallrna ([#244](https://github.com/gcfntnu/gcf-workflows/issues/244)).
+  - `align.genome.aligner` is read by rnaseq and smallrna; `align.transcriptome.aligner` has no reader ([#245](https://github.com/gcfntnu/gcf-workflows/issues/245)).
   - Because `main.config` takes precedence over a workflow config, a workflow config cannot change these; see [#239](https://github.com/gcfntnu/gcf-workflows/issues/239).
 - **Reference-database settings outside `main.config`:**
   - `libprep.config` entries carry `db:` blocks (for example `reference_db`, `ensembl.add_ercc`) that override `main.config` per kit.
-  - smallrna selects the database for its own getter `smallrna/rules/quant/kraken.db` in `smallrna.config` (`rop.kraken`).
-- **Keys with no reader in the workflow sources:**
-  - in `main.config`: `assembly.base_ref_dir`, `quant.batch.method`, `sample_id`, `sample_group_id`, `batch_id`, `block_id`. The code reads a top-level `base_ref_dir`, which `gcfdb/reference_db.db` sets.
-  - in `rnaseq.config`: `assembly.base_reference_db`.
+  - `smallrna.config` `rop.kraken` configures smallrna's own getter `smallrna/rules/quant/kraken.db`. That getter is not included by any rule, so the setting is unused ([#247](https://github.com/gcfntnu/gcf-workflows/issues/247)).
+- **Keys with no reader in the workflow sources** ([#246](https://github.com/gcfntnu/gcf-workflows/issues/246)):
+  - in `main.config`: `assembly.base_ref_dir`, `quant.batch.method`, `sample_id`, `sample_group_id`, `batch_id`, `block_id`, `db.k2_smallrna_custom`. The code reads a top-level `base_ref_dir`, which `gcfdb/reference_db.db` sets.
+  - in `rnaseq.config`: `assembly.base_reference_db` and `align.method`.
 
 ### `libprep.config`
 
