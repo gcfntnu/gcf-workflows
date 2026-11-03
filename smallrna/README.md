@@ -54,9 +54,9 @@ logs/<sample>/<sample>.fastp.html, .fastp.json, _fastqc.html, _fastqc.zip, .Log.
 | `quant.method` | `unitas` (comma-separated list allowed); selects the `quant_all` targets only, not the delivered UNITAS outputs | [smallrna.config](smallrna.config) |
 | `quant.mirge.db`, `quant.mirge3.db` | `mirbase` | `smallrna.config` |
 | `align.star.args`, `align.star.guided_index` | STAR options for short reads | `smallrna.config` |
-| `align.genome.aligner` | `star` | [main.config](../main.config) ([#245](https://github.com/gcfntnu/gcf-workflows/issues/245)) |
+| `align.genome.aligner` | `star` | [smallrna.config](smallrna.config) |
 | `filter.trim` | Per kit | Kit entry ([#215](https://github.com/gcfntnu/gcf-workflows/issues/215)) |
-| `filter.spikein`, `filter.contaminants`, `filter.ribosomal`, `filter.trim.mirtrace` | `skip`/off; miRTrace protocol per kit | `main.config` ([#244](https://github.com/gcfntnu/gcf-workflows/issues/244)), kit entry |
+| `filter.spikein`, `filter.contaminants`, `filter.ribosomal`, `filter.trim.mirtrace` | `skip`/off; miRTrace protocol per kit | `smallrna.config`, kit entry |
 | `db.reference_db`, `db.mirbase.release` | `ensembl`, releases in `main.config` | Kit entry, `main.config` |
 
 Precedence between these sources is described in [docs/configuration.md](../docs/configuration.md#effective-precedence).

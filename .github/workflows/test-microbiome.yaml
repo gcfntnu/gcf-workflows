@@ -21,7 +21,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        python -m pip install snakemake==8.1.1 pyyaml peppy rich pulp==2.7.0
+        python -m pip install snakemake==8.1.1 pyyaml peppy rich pulp==2.7.0 -r .tests/requirements-config.txt
         python --version
         python --version
     - name: Dry run bfq_all

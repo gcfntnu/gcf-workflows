@@ -110,7 +110,7 @@ Only `BFQ_INTERIM` and `sample_info.tsv` are delivered; see the [README outputs]
 | --- | --- | --- |
 | `GCF_INTERIM`, `GCF_EXT`, `GCF_FASTQ` | `utils.py` | Path defaults when the project does not set `interim_dir`, `ext_dir` or `fastq_dir` ([configuration.md](configuration.md#paths)) |
 | `GCF_SECRET` | `utils.py` | Path to a YAML file merged into the defaults ([configuration.md](configuration.md#effective-precedence)) |
-| `GCF_REFDIR` | `gcfdb/reference_db.db`, metagenome and microbiome `reference_db.smk` | Custom reference directory. Precedence differs by reader ([#240](https://github.com/gcfntnu/gcf-workflows/issues/240)) |
+| `GCF_REFDIR` | `gcfdb/reference_db.db`, metagenome and microbiome `reference_db.smk` | Custom reference directory: nonempty project `ref_dir`, then `GCF_REFDIR`, then the configured getter |
 | `TMPDIR` | `utils.py`, some rules | Temporary directory, default `/tmp` |
 | `BFQ_TEST` | `singlecell/rules/quant/scripts/convert_scanpy.py` | Test switch: forces the `emptydrops` cell-calling strategy |
 

@@ -28,7 +28,7 @@ python3.11 -m venv .dev/ci
 
 # Snakemake 9.7.1: reference-getter, metagenome and WGS delivery tests
 python3.11 -m venv .dev/sm9
-.dev/sm9/bin/python -m pip install 'snakemake==9.7.1' pandas
+.dev/sm9/bin/python -m pip install 'snakemake==9.7.1' pandas -r .tests/requirements-config.txt
 
 # Python 3.14: small-RNA AnnData regression
 python3.14 -m venv .dev/anndata
@@ -38,7 +38,7 @@ python3.14 -m venv .dev/anndata
 `.dev/ci` is the union of the dependencies of the CI jobs that use Snakemake 8.1.1.
 
 **System prerequisite: `pigz`.** The QIAseq tests compress output with `pigz`, which the Python environments do not provide; CI installs it with `apt-get install -y pigz`. Without it, two compressed cases fail with `pigz is required for the compression contract`. Check with `command -v pigz` and, if it is missing, install it with your system package manager, for example `sudo apt-get install pigz` on Debian/Ubuntu.
-`singlecell/.tests/requirements.txt` pins Snakemake, PyYAML and PuLP and installs `gcf-tools` from a fixed commit, so the environment needs network access once.
+`singlecell/.tests/requirements.txt` pins Snakemake, PyYAML and PuLP and includes the shared `.tests/requirements-config.txt` gcf-tools baseline. Every workflow environment needs that selector dependency, so the environment needs network access once.
 If Python 3.14 is not available, the small-RNA AnnData test can be left to CI; say so in the PR.
 
 ## Run the checks
@@ -54,7 +54,7 @@ unset GCF_EXT GCF_INTERIM GCF_FASTQ GCF_SECRET GCF_REFDIR
 | Check | Command | Environment |
 | --- | --- | --- |
 | Reporting dry runs of the seven CI workflows | `PATH="$PWD/.dev/ci/bin:$PATH" bash test-all.sh` | `.dev/ci` |
-| `test-all.sh` failure handling | `.dev/ci/bin/python -m unittest discover -s .tests -p 'test_*.py' -v` | `.dev/ci` |
+| Configuration loading, kit selection and `test-all.sh` failure handling | `.dev/ci/bin/python -m unittest discover -s .tests -p 'test_*.py' -v` | `.dev/ci` |
 | MultiQC configuration and provenance | `.dev/ci/bin/python -m unittest discover -s misc/multiqc/.tests -p 'test_*.py' -v` | `.dev/ci` |
 | Single-cell regressions (CI selection) | `.dev/ci/bin/python -m pytest -q singlecell/.tests/test_metadata.py singlecell/.tests/test_bfq_delivery.py singlecell/.tests/test_velocity.py singlecell/.tests/test_demultiplexing_profiles.py singlecell/.tests/test_tenx_reference.py` | `.dev/ci` |
 | Single-cell TCR and assay configuration (not in CI) | `.dev/ci/bin/python -m pytest -q singlecell/.tests/test_tcr_workflow.py singlecell/.tests/test_immune_config.py` | `.dev/ci` |

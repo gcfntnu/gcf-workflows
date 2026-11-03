@@ -60,12 +60,12 @@ logs/<sample>/aux_info/meta_info.json
 | Key | Default | Set in |
 | --- | --- | --- |
 | `quant.method` | `salmon` | [rnaseq.config](rnaseq.config) |
-| `align.genome.aligner` | `star` | [main.config](../main.config) ([#245](https://github.com/gcfntnu/gcf-workflows/issues/245)) |
+| `align.genome.aligner` | `star` | [rnaseq.config](rnaseq.config) |
 | `align.star.args`, `align.star.guided_index` | STAR options | `rnaseq.config` |
 | `db.reference_db`, `db.ensembl.release` | `ensembl`, release in `main.config` | Kit entry, `main.config` |
 | `read_orientation`, `adapter`, `filter.trim` | Per kit | Kit entry |
-| `assembly.*` | `skip`; `merge.type: fastq` | `main.config` (rnaseq's own `bam` is shadowed: [#239](https://github.com/gcfntnu/gcf-workflows/issues/239), [#243](https://github.com/gcfntnu/gcf-workflows/issues/243)) |
-| `qc.bam_subset` | `housekeeping_genes` | `main.config` ([#243](https://github.com/gcfntnu/gcf-workflows/issues/243)) |
+| `assembly.*` | `skip`; `merge.type: fastq` | `rnaseq.config` (preserves the previously effective `fastq` default) |
+| `qc.bam_subset` | `housekeeping_genes` | `rnaseq.config` |
 
 Precedence between these sources is described in [docs/configuration.md](../docs/configuration.md#effective-precedence).
 
