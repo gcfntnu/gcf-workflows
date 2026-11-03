@@ -155,12 +155,30 @@ Each file has its own consumers. They do not form a single precedence chain.
 
 ### `main.config`
 
-Workflow-time defaults, merged at step 4. Top-level sections:
+Reference-database (`gcfdb`) configuration and common defaults shared across workflows. It is merged at step 4.
 
-- project-level defaults: `organism`, `strain`, `libprepkit`, `read_orientation`, `read_geometry`, `sample_id`, `sample_group_id`, `batch_id`, `block_id`
-- `db`: reference database selection and releases per database (for example `db.ensembl.release`)
-- stage settings: `filter`, `align`, `quant`, `qc`, `analysis`, `assembly`
-- `multiqc.<workflow>.modules`: the comma-separated MultiQC modules passed by `multiqc_report`
+| Section | Contents | Used by |
+| --- | --- | --- |
+| `db` | Reference database selection (`reference_db`, `add_ercc`) and the release or assembly for each database (for example `db.ensembl.release`) | gcfdb getters and reference selection in all workflows |
+| `filter` | Shared FASTQ handling: `subsample_fastq`, `compress_filtered_fastq`, `dedup`, `filter.trim` (fastp) | Shared rules in `common/` |
+| `multiqc.<workflow>.modules` | The MultiQC modules for each workflow's report | `multiqc_report` in `postprocess.smk` |
+| Project-level keys: `organism`, `strain`, `libprepkit`, `read_orientation`, `read_geometry` and others | Empty placeholders; the project configuration normally sets them | `utils.py` and rules |
+
+#### Current exceptions
+
+The division is not complete:
+
+- **Workflow-specific defaults in `main.config`:**
+  - `assembly.*` and `qc.bam_subset` are read only by rnaseq.
+  - `filter.trim.mirtrace`, `filter.spikein`, `filter.ribosomal` and `filter.contaminants` are read only by smallrna.
+  - `align.transcriptome` and `align.genome` are read by rnaseq and smallrna.
+  - Because `main.config` takes precedence over a workflow config, a workflow config cannot change these; see [#239](https://github.com/gcfntnu/gcf-workflows/issues/239).
+- **Reference-database settings outside `main.config`:**
+  - `libprep.config` entries carry `db:` blocks (for example `reference_db`, `ensembl.add_ercc`) that override `main.config` per kit.
+  - smallrna selects the database for its own getter `smallrna/rules/quant/kraken.db` in `smallrna.config` (`rop.kraken`).
+- **Keys with no reader in the workflow sources:**
+  - in `main.config`: `assembly.base_ref_dir`, `quant.batch.method`, `sample_id`, `sample_group_id`, `batch_id`, `block_id`. The code reads a top-level `base_ref_dir`, which `gcfdb/reference_db.db` sets.
+  - in `rnaseq.config`: `assembly.base_reference_db`.
 
 ### `libprep.config`
 
@@ -195,7 +213,7 @@ The profile contract is in [tenx-demultiplexing.md](tenx-demultiplexing.md); `si
 
 ### Workflow configuration files
 
-`<workflow>/<workflow>.config` exists for `default`, `metagenome`, `microbiome`, `rnaseq`, `singlecell` and `smallrna`. `wgs` has none.
+`<workflow>/<workflow>.config` holds the defaults specific to one workflow. It exists for `default`, `metagenome`, `microbiome`, `rnaseq`, `singlecell` and `smallrna`. `default.config` and `metagenome.config` are empty, and `wgs` has none; those workflows take their defaults from `main.config` and the kit entries.
 They are merged last (step 11) and only fill keys still missing.
 singlecell additionally uses `singlecell/rules/quant/multiplex.config` for sample demultiplexing.
 
