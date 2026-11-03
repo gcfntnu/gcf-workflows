@@ -1,4 +1,4 @@
-# This workflow will install snakemake==7.7.0 and test rule bfq_all
+# This workflow will install snakemake==9.7.1 and test rule multiqc_report
 
 name: Test metagenome
 
@@ -13,7 +13,7 @@ jobs:
       with:
         python-version: '3.11'
     - name: Install focused regression dependencies
-      run: python -m pip install 'snakemake>=9,<10' pandas -r .tests/requirements-config.txt
+      run: python -m pip install 'snakemake==9.7.1' pandas -r .tests/requirements-config.txt
     - name: Check Bracken database paths and producer dependencies
       run: python -m unittest discover -s metagenome/.tests -p 'test_*.py' -v
     - name: Check reference root resolution
@@ -35,10 +35,10 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        python -m pip install snakemake==8.1.1 pyyaml==6.0 peppy rich pulp==2.7.0 -r .tests/requirements-config.txt
+        python -m pip install snakemake==9.7.1 pyyaml==6.0 peppy rich pulp==2.7.0 -r .tests/requirements-config.txt
         python --version
         python --version
-    - name: Dry run bfq_all
+    - name: Dry run multiqc_report
       working-directory: ./metagenome/.tests
       run: |
         snakemake -n -p --cores 1 multiqc_report

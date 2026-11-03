@@ -314,7 +314,7 @@ algorithms while remaining compliant with the same canonical AnnData contract.
 
 ## Metadata regression checks
 
-With Python 3.11, install the single-cell CI dependencies (`snakemake==8.1.1`,
+With Python 3.11, install the single-cell CI dependencies (`snakemake==9.7.1`,
 `pulp==2.7.0`, `pyyaml`, `peppy`, `rich`) plus `pytest` and `scanpy`, then run:
 
 ```bash

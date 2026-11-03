@@ -9,8 +9,8 @@ Local checks use synthetic fixtures only. They do not need facility data, contai
 ## Snakemake version
 
 The suite's supported runtime is **Snakemake 9.7.1**.
-CI still pins **Snakemake 8.1.1** for most jobs; moving every job to 9.7.1 is tracked in [#237](https://github.com/gcfntnu/gcf-workflows/issues/237).
-Until then, the environments below reproduce what CI runs. When #237 lands, this guide changes with it.
+Every CI job that uses Snakemake pins this exact version, including the focused reference tests.
+The existing PyYAML 6.0 and PuLP 2.7.0 pins and unpinned peppy requirement are compatible with 9.7.1.
 
 ## Prepare local environments
 
@@ -18,27 +18,23 @@ Keep environments inside the checkout under `.dev/`, which Git ignores.
 Each checkout or worktree gets its own `.dev/`; do not share environments between independent tasks.
 Python packages are never installed globally and nothing needs to be activated: call the environment's `python` explicitly.
 
-Three environments cover the current CI families:
+Two environments cover the current CI families:
 
 ```bash
-# Snakemake 8.1.1: workflow dry runs, test-all.sh, MultiQC, singlecell and QIAseq tests
+# Snakemake 9.7.1: workflow dry runs, test-all.sh, MultiQC, singlecell and QIAseq tests
 python3.11 -m venv .dev/ci
 .dev/ci/bin/python -m pip install --upgrade pip
 .dev/ci/bin/python -m pip install -r singlecell/.tests/requirements.txt pandas matplotlib biopython cutadapt==4.9
-
-# Snakemake 9.7.1: reference-getter, metagenome and WGS delivery tests
-python3.11 -m venv .dev/sm9
-.dev/sm9/bin/python -m pip install 'snakemake==9.7.1' pandas -r .tests/requirements-config.txt
 
 # Python 3.14: small-RNA AnnData regression
 python3.14 -m venv .dev/anndata
 .dev/anndata/bin/python -m pip install pytest anndata==0.13.3.post0 numpy==2.5.2 pandas==3.0.5
 ```
 
-`.dev/ci` is the union of the dependencies of the CI jobs that use Snakemake 8.1.1.
+`.dev/ci` is the union of the dependencies of the CI jobs that use Snakemake 9.7.1.
 
 **System prerequisite: `pigz`.** The QIAseq tests compress output with `pigz`, which the Python environments do not provide; CI installs it with `apt-get install -y pigz`. Without it, two compressed cases fail with `pigz is required for the compression contract`. Check with `command -v pigz` and, if it is missing, install it with your system package manager, for example `sudo apt-get install pigz` on Debian/Ubuntu.
-`singlecell/.tests/requirements.txt` pins Snakemake, PyYAML and PuLP and includes the shared `.tests/requirements-config.txt` gcf-tools baseline. Every workflow environment needs that selector dependency, so the environment needs network access once.
+`singlecell/.tests/requirements.txt` pins Snakemake, PyYAML and PuLP and includes the shared `.tests/requirements-config.txt` gcf-tools baseline. Every workflow environment needs that selector dependency; setup needs network access once.
 If Python 3.14 is not available, the small-RNA AnnData test can be left to CI; say so in the PR.
 
 ## Run the checks
@@ -59,9 +55,9 @@ unset GCF_EXT GCF_INTERIM GCF_FASTQ GCF_SECRET GCF_REFDIR
 | Single-cell regressions (CI selection) | `.dev/ci/bin/python -m pytest -q singlecell/.tests/test_metadata.py singlecell/.tests/test_bfq_delivery.py singlecell/.tests/test_velocity.py singlecell/.tests/test_demultiplexing_profiles.py singlecell/.tests/test_tenx_reference.py` | `.dev/ci` |
 | Single-cell TCR and assay configuration (not in CI) | `.dev/ci/bin/python -m pytest -q singlecell/.tests/test_tcr_workflow.py singlecell/.tests/test_immune_config.py` | `.dev/ci` |
 | QIAseq demultiplexing | `.dev/ci/bin/python -m pytest -q common/.tests/test_qiaseq_demultiplex.py` | `.dev/ci` |
-| Metagenome reference and Bracken paths | `.dev/sm9/bin/python -m unittest discover -s metagenome/.tests -p 'test_*.py' -v` | `.dev/sm9` |
-| Reference roots | `.dev/sm9/bin/python -m unittest discover -s gcfdb/.tests -p 'test_*.py' -v` | `.dev/sm9` |
-| WGS QC delivery (not in CI) | `.dev/sm9/bin/python -m unittest discover -s wgs/.tests -p 'test_bfq_qc.py' -v` | `.dev/sm9` |
+| Metagenome reference and Bracken paths | `.dev/ci/bin/python -m unittest discover -s metagenome/.tests -p 'test_*.py' -v` | `.dev/ci` |
+| Reference roots | `.dev/ci/bin/python -m unittest discover -s gcfdb/.tests -p 'test_*.py' -v` | `.dev/ci` |
+| WGS QC delivery (not in CI) | `.dev/ci/bin/python -m unittest discover -s wgs/.tests -p 'test_bfq_qc.py' -v` | `.dev/ci` |
 | Small-RNA AnnData | `.dev/anndata/bin/python -m pytest -q smallrna/.tests/test_create_anndata.py` | `.dev/anndata` |
 
 Run the checks for the areas you changed; the [area map](architecture.md#area-map) lists them.
@@ -93,18 +89,17 @@ Each file in [.github/workflows](../.github/workflows) runs on every push and pu
 
 | File | Job | Python | Snakemake | Runs |
 | --- | --- | --- | --- | --- |
-| `test-default.yaml` | `build` | 3.11 | 8.1.1 | MultiQC tests, `.tests` (`test-all.sh` harness), `default` dry run |
-| `test-rna-seq.yaml` | `build` | 3.11 | 8.1.1 | `rnaseq` dry run |
-| `test-single-cell.yaml` | `build` | 3.11 | 8.1.1 (`singlecell/.tests/requirements.txt`) | `singlecell` dry run, singlecell pytest selection |
-| `test-small-rna.yml` | `build` | 3.11 | 8.1.1 | `smallrna` dry run |
+| `test-default.yaml` | `build` | 3.11 | 9.7.1 | MultiQC tests, `.tests` (configuration and `test-all.sh` harness), `default` dry run |
+| `test-rna-seq.yaml` | `build` | 3.11 | 9.7.1 | `rnaseq` dry run |
+| `test-single-cell.yaml` | `build` | 3.11 | 9.7.1 (`singlecell/.tests/requirements.txt`) | `singlecell` dry run, singlecell pytest selection |
+| `test-small-rna.yml` | `build` | 3.11 | 9.7.1 | `smallrna` dry run |
 | `test-small-rna.yml` | `anndata-regression` | 3.14 | none | small-RNA AnnData pytest |
-| `test-metagenome.yaml` | `bracken-database` | 3.11 | `>=9,<10` | `metagenome/.tests`, `gcfdb/.tests` |
-| `test-metagenome.yaml` | `build` | 3.11 | 8.1.1 | `metagenome` dry run |
-| `test-microbiome.yaml` | `build` | 3.11 | 8.1.1 | `microbiome` dry run |
-| `test-wgs.yaml` | `build` | 3.11 | 8.1.1 | `wgs` dry run |
-| `test-qiaseq.yaml` | `paired-reads` | 3.11 | 8.1.1 | QIAseq pytest (installs `pigz` with `apt-get`) |
+| `test-metagenome.yaml` | `bracken-database` | 3.11 | 9.7.1 | `metagenome/.tests`, `gcfdb/.tests` |
+| `test-metagenome.yaml` | `build` | 3.11 | 9.7.1 | `metagenome` dry run |
+| `test-microbiome.yaml` | `build` | 3.11 | 9.7.1 | `microbiome` dry run |
+| `test-wgs.yaml` | `build` | 3.11 | 9.7.1 | `wgs` dry run |
+| `test-qiaseq.yaml` | `paired-reads` | 3.11 | 9.7.1 | QIAseq pytest (installs `pigz` with `apt-get`) |
 
-- Several files still have header comments and step names that mention older Snakemake versions and `bfq_all`. The commands actually run `multiqc_report`. The comments are cleaned up with #237.
 - `wgs/.tests/test_bfq_qc.py`, `singlecell/.tests/test_tcr_workflow.py` and `singlecell/.tests/test_immune_config.py` are not run by CI. Run them locally when you change those areas.
 
 ## What the checks prove

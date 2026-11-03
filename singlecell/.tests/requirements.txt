@@ -1,4 +1,4 @@
-snakemake==8.1.1
+snakemake==9.7.1
 pyyaml==6.0
 peppy
 rich

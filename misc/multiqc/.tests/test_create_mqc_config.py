@@ -83,9 +83,11 @@ class GitRevisionTests(unittest.TestCase):
 
     def test_invalid_repository(self):
         for repo in (self.work, self.work / "missing"):
-            with self.subTest(repo=repo), self.assertRaisesRegex(RuntimeError, "Cannot resolve Git revision") as caught:
-                MQC.get_software_versions(SimpleNamespace(repo_dir=repo))
-            self.assertIn(str(repo), str(caught.exception))
+            # TMPDIR may itself be inside the developer's checkout. Do not discover that parent repository.
+            with self.subTest(repo=repo), patch.dict(os.environ, {"GIT_CEILING_DIRECTORIES": str(self.work.parent)}):
+                with self.assertRaisesRegex(RuntimeError, "Cannot resolve Git revision") as caught:
+                    MQC.get_software_versions(SimpleNamespace(repo_dir=repo))
+                self.assertIn(str(repo), str(caught.exception))
 
     def test_unborn_branch(self):
         self.git("checkout", "--orphan", "no-commits", "-q")
