@@ -58,7 +58,8 @@ class ReportContractTests(unittest.TestCase):
             cwd=work, env=env, text=True, capture_output=True, timeout=60,
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        commands = [shlex.split(line) for line in result.stdout.splitlines() if line.startswith("multiqc ")]
+        commands = [shlex.split(line.removeprefix("Shell command: ")) for line in result.stdout.splitlines()
+                    if line.startswith("Shell command: multiqc ")]
         self.assertEqual(len(commands), 1, result.stdout)
         self.assertFalse((work / report_dir / "multiqc_SYNTHETIC.html").exists(), "A dry-run must not execute MultiQC")
         return commands[0], json.loads((work / "contract.json").read_text()), result.stdout
@@ -104,7 +105,8 @@ class ReportContractTests(unittest.TestCase):
 
     def test_report_requires_config_generated_from_curated_metadata(self):
         _, _, output = self.dry_run(prepared_config=False)
-        commands = [shlex.split(line) for line in output.splitlines() if line.startswith("python ")]
+        commands = [shlex.split(line.removeprefix("Shell command: ")) for line in output.splitlines()
+                    if line.startswith("Shell command: python ")]
         self.assertEqual(len(commands), 1, output)
         command = commands[0]
         self.assertEqual(command[1], str(ROOT / "misc/multiqc/create_mqc_config.py"))
