@@ -1,0 +1,17 @@
+ed8d9d37f8924aaf0171128201ff7955  hash.k2d
+bf18289ba0dd3ae0a998ec3981c11ad4  opts.k2d
+626f4e8cd33cfaa0e1420987a17c08a0  taxo.k2d
+a1852c71fc95ea81861c1d7ae3ac5af6  seqid2taxid.map
+49f5dc95780054d96b9684d7d675e566  inspect.txt
+5dd32809f7088c1d8e6224fcd78468ef  ktaxonomy.tsv
+c623bb736cbaec6fba863d040686c4aa  library_report.tsv
+88a1963036ad02403f63098884d88b21  nodes.dmp
+f416ac36abeb8098fc982f216972eb8d  names.dmp
+819198f2b710680306e8a8dedd38b532  database50mers.kmer_distrib
+8f896879a71ec53c997d37d3a31718ee  database75mers.kmer_distrib
+acf3609e74756af0a55880ad735ec4e1  database100mers.kmer_distrib
+509afbdd01e52c6331f44de36527b466  database150mers.kmer_distrib
+c275443fc82a522d2468563dc41846a4  database200mers.kmer_distrib
+89eeed6b8977a3db0d96feddfdbb680d  database250mers.kmer_distrib
+70d87d1abce842b52a376336ea61a22e  database300mers.kmer_distrib
+92d7f9345471ec566014df7c69197242  unmapped_accessions.txt
