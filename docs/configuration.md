@@ -71,9 +71,10 @@ For an ordinary key, the first source that sets it wins:
 2. **The selected `libprep.config` entry**
 3. **The `GCF_SECRET` file**
 4. **`main.config`**
-5. **`<workflow>/<workflow>.config`**
+5. **`docker.config`** (it only contains `docker:` keys)
+6. **`<workflow>/<workflow>.config`**
 
-For `docker` keys: the project configuration, then `docker.config`.
+The same order applies to container images. A `docker:` key set by the project, the kit entry, the `GCF_SECRET` file or `main.config` wins over `docker.config`. When a job runs an unexpected image, check those sources too.
 
 Consequences:
 
@@ -110,6 +111,8 @@ qc:
 multiqc:
   rnaseq:
     modules: from-secret
+docker:
+  default: example/secret-default:1
 ```
 
 | Key | Effective value | Why |
@@ -123,9 +126,9 @@ multiqc:
 | `assembly.transcriptome.merge.type` | `fastq` | `main.config` fills it before `rnaseq.config` (`bam`) can |
 | `read_geometry` | `[74, 149]` | Kit `delta_readlen: [-1, -1]` applied |
 | `docker.multiqc` | `example/project-multiqc:1` | Project wins over `docker.config` |
-| `docker.default` | `gcfntnu/python-default:3.12` | Filled from `docker.config` |
+| `docker.default` | `example/secret-default:1` | The secrets file wins over `docker.config` (`gcfntnu/python-default:3.12`) |
 
-Without `GCF_SECRET`, `qc.secret_only` is absent and `multiqc.rnaseq.modules` comes from `main.config`; all other values are unchanged.
+Without `GCF_SECRET`, `qc.secret_only` is absent, `multiqc.rnaseq.modules` comes from `main.config` and `docker.default` from `docker.config`; all other values are unchanged.
 
 ## Paths
 
@@ -201,7 +204,7 @@ A single `docker:` mapping from image key to image reference (tag or digest).
 
 | Reader | How |
 | --- | --- |
-| Workflow rules | `container: 'docker://' + config['docker']['<key>']`, after the fill-missing merge at step 10. A project can override a key. |
+| Workflow rules | `container: 'docker://' + config['docker']['<key>']`. `docker.config` only fills keys still missing at step 10, so the project, the kit entry, `GCF_SECRET` or `main.config` can set a key first ([Effective precedence](#effective-precedence)). |
 | gcf-bfq | Its tool wrappers (`bcl-convert`, `bcl2fastq`, Cell Ranger and Space Ranger tools, `multiqc`) read the installed file, or the file named by `GCF_WORKFLOWS_DOCKER_CONFIG`. Project values do not apply. |
 
 A rule that references a missing key fails when the workflow is parsed.
