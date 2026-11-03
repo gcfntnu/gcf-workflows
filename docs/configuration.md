@@ -68,7 +68,7 @@ The diagnostic source/hash remain initialization provenance; the workflow does n
 Legacy project files without selection diagnostics use the same selector directly.
 
 The in-memory `libprepkit` becomes the selected entry's canonical spelling without PE/SE, because existing kit-family consumers and region-demultiplexing commands require that form.
-The project file and recorded input kit in `libprep_selection.kit` are not rewritten.
+The project file and recorded input kit in `libprep_selection.kit` are not rewritten. The Parse metadata adapter also accepts case/whitespace variants when it rereads that original file, preserving biological sample IDs and library separation.
 The selector import temporarily excludes the executable directory, following BFQ's entry-point convention, so the neighboring legacy `configmaker.py` command cannot shadow its installed package.
 The selector dependency is pinned for local/CI checks in [.tests/requirements-config.txt](../.tests/requirements-config.txt); the runtime already provides gcf-tools through configmaker.
 

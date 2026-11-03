@@ -234,13 +234,15 @@ def test_export_does_not_coerce_integer_beside_missing_value(tmp_path):
 
 
 @pytest.mark.parametrize('method', ['splitpipe', 'parsebio_starsolo'])
-def test_parse_workflow_metadata_delivery(tmp_path, method):
+@pytest.mark.parametrize('kit', ['Parse Biosciences Evercode WT v3', 'Parse Biosciences Evercode WT v3 PE',
+                               ' parse biosciences evercode wt v3 pe '])
+def test_parse_workflow_metadata_delivery(tmp_path, method, kit):
     import os
 
     source = config()
     # Quantifier sample-name normalization is outside this metadata adapter's scope.
     source['wells'] = {'bio' + key: {**value, 'Sample_ID': 'bio' + key} for key, value in source['wells'].items()}
-    source.update(libprepkit='Parse Biosciences Evercode WT v3', workflow='singlecell',
+    source.update(libprepkit=kit, workflow='singlecell',
                   organism='homo_sapiens', read_geometry=[100, 100], project_id=['SYNTHETIC'],
                   machine='Synthetic sequencer', quant={'method': method})
     (tmp_path / 'config.yaml').write_text(yaml.safe_dump(source))
@@ -263,6 +265,9 @@ def test_parse_workflow_metadata_delivery(tmp_path, method):
         original = tmp_path / 'data/tmp/singlecell/quant/metadata' / name
         assert delivered.read_bytes() == original.read_bytes()
         assert len(pd.read_csv(delivered, sep='\t')) == 2
+    delivered_samples = pd.read_csv(tmp_path / 'data/tmp/singlecell/bfq/metadata/sample_info.tsv', sep='\t', dtype=str)
+    assert delivered_samples.Sample_ID.tolist() == list(source['wells'])
+    assert delivered_samples.Wells.tolist() == ['A1-A2', 'B1']
 
 
 def test_generated_prefix_cannot_reuse_observation_column():
