@@ -17,6 +17,8 @@ This repository owns:
 | --- | --- |
 | Understand how the GCF repositories depend on each other, and how to change a shared interface | [Suite relationships](docs/suite.md) |
 | See which workflows exist and their status | [Workflows](#workflows) |
+| Find your way around the source: include order, stages, interim directories, tests | [Architecture](docs/architecture.md) |
+| Understand how configuration is merged and paths are resolved | [Configuration](docs/configuration.md) |
 | Know what BFQ does with this repository | [How a workflow runs under BFQ](#how-a-workflow-runs-under-bfq) |
 | Run a workflow without BFQ | [Running standalone](#running-standalone) |
 | Find the report and delivered files | [Outputs](#outputs) |
@@ -28,7 +30,6 @@ This repository owns:
 
 The following are planned in [#226](https://github.com/gcfntnu/gcf-workflows/issues/226) and do not exist yet:
 
-- an architecture and configuration guide
 - a contributing and development guide
 - per-workflow READMEs for every workflow
 
@@ -67,7 +68,7 @@ flowchart LR
 | `rnaseq` | Active | `rnaseq/rnaseq.smk` | filter, assembly, align, quant, analysis, qc, bfq | [rnaseq/README.md](rnaseq/README.md) |
 | `singlecell` | Active | `singlecell/singlecell.smk` | immune, gcfdb, filter, quant, qc, bfq, analysis | [singlecell/README.md](singlecell/README.md), [singlecell/docs](singlecell/docs) |
 | `smallrna` | Active | `smallrna/smallrna.smk` | gcfdb, filter, align, quant, qc, bfq | [smallrna/README.md](smallrna/README.md) |
-| `metagenome` | Active | `metagenome/metagenome.smk` | reference_db, filter, qc, quant, analysis, bfq | |
+| `metagenome` | Active | `metagenome/metagenome.smk` | reference_db, filter, quant, bfq | |
 | `wgs` | Active | `wgs/wgs.smk` | gcfdb, filter, align, qc, bfq | [wgs/.tests/README.md](wgs/.tests/README.md) |
 | `default` | Active | `default/default.smk` | bfq (shared FASTQ QC) | |
 | `microbiome` | Unmaintained | `microbiome/microbiome.smk` | reference_db, filter, qc, quant, analysis, bfq | [microbiome/README.md](microbiome/README.md) |
@@ -208,7 +209,8 @@ A project run combines:
 - **Optional site secrets:** a YAML file named by the `GCF_SECRET` environment variable, read by [utils.py](utils.py). Its contents never belong in this repository.
 
 These sources are not combined by simple overriding: some merges fill only missing keys, others overwrite.
-Read [utils.py](utils.py) and the workflow entry points until the configuration guide ([#234](https://github.com/gcfntnu/gcf-workflows/issues/234)) documents the exact order.
+Project values win; a workflow's own `<workflow>.config` has the lowest priority; and `GCF_SECRET` is not an unconditional override.
+[docs/configuration.md](docs/configuration.md) documents the exact order, with a synthetic example, and how paths are resolved.
 [demultiplexing.config](demultiplexing.config) is read by BFQ for 10x conversion profiles, not by the workflows ([docs/tenx-demultiplexing.md](docs/tenx-demultiplexing.md)).
 
 ## Reference data
