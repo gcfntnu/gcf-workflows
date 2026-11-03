@@ -15,15 +15,16 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class BrackenDatabaseTests(unittest.TestCase):
-    def check_database(self, reference, organism, missing_distribution=False):
-        assembly = "k2_pluspf" if reference == "langmead" else "16S"
+    def check_database(self, reference, organism, missing_distribution=False, release="20231009", assembly=None, read_length=151):
+        assembly = assembly or ("k2_pluspf" if reference == "langmead" else "16S")
         with tempfile.TemporaryDirectory() as directory:
             work = Path(directory)
-            db = work / "ext" / reference / "release-20231009" / "metagenome" / assembly
+            db = work / "ext" / reference / f"release-{release}" / "metagenome" / assembly
             db.mkdir(parents=True)
             for name in ("hash.k2d", "opts.k2d", "taxo.k2d", "seqid2taxid.map"):
                 (db / name).touch()
-            distribution = db / "database150mers.kmer_distrib"
+            mers = min([50, 75, 100, 150, 200, 250, 300], key=lambda n: abs(n - read_length))
+            distribution = db / f"database{mers}mers.kmer_distrib"
             if not missing_distribution:
                 distribution.touch()
             report = work / "quant" / "kraken2" / assembly / "13" / "13.kraken.kreport"
@@ -31,7 +32,7 @@ class BrackenDatabaseTests(unittest.TestCase):
             report.write_text("100\t10\t10\tS\t123\tExample species\n")
             settings = {
                 "db": {"reference_db": reference,
-                       reference: {"release": "20231009", "assembly": assembly}},
+                       reference: {"release": release, "assembly": assembly}},
                 "docker": {name: "example/" + name + ":test" for name in
                            ("kraken2", "bracken", "krona", "kraken-biom", "phyloseq")},
                 "winecellar": {"url": "https://example.invalid"},
@@ -45,7 +46,7 @@ class BrackenDatabaseTests(unittest.TestCase):
                 f"QUANT_INTERIM = {str(work / 'quant')!r}\n"
                 f"INTERIM_DIR = {str(work / 'interim')!r}\n"
                 f"ORG = {organism!r}\n"
-                "PE = True\nSAMPLES = ['13']\nread_geometry = [151, 151]\n"
+                f"PE = True\nSAMPLES = ['13']\nread_geometry = [{read_length}, {read_length}]\n"
                 "def get_filtered_fastq(wildcards):\n"
                 "    return {'R1': 'unused_R1.fastq.gz', 'R2': 'unused_R2.fastq.gz'}\n"
                 f"def src_gcf(path):\n    return join({str(ROOT)!r}, path)\n"
@@ -68,6 +69,13 @@ class BrackenDatabaseTests(unittest.TestCase):
             else:
                 self.assertNotIn("rule langmead_kraken_prebuild:", output)
                 self.assertNotIn("rule ncbi_16s_bracken:", output)
+
+    def test_new_full_and_limited_distributions(self):
+        for assembly in ("k2_pluspf", "k2_pluspf_16_GB"):
+            for read_length in (50, 75, 100, 151, 200, 250, 300):
+                with self.subTest(assembly=assembly, read_length=read_length):
+                    self.check_database("langmead", "n/a", release="20260626", assembly=assembly, read_length=read_length)
+            self.check_database("langmead", "n/a", release="20260626", assembly=assembly, missing_distribution=True)
 
     def test_existing_database_independent_of_organism(self):
         for reference in ("langmead", "ncbi_16s"):
