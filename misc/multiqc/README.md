@@ -22,7 +22,7 @@ by `multiqc_config`. The workflow checkout's Git metadata must be readable. Link
 need access to their shared Git directory inside the container. Missing Git, invalid repositories,
 and checkouts without a commit fail explicitly rather than producing unknown or incorrect provenance.
 
-Run the focused checks from the repository root with Git, Snakemake 8.1.1, pandas, PyYAML, matplotlib and peppy installed:
+Run the focused checks from the repository root with Git, Snakemake 9.7.1, pandas, PyYAML, matplotlib and peppy installed:
 
 ```bash
 python -m unittest discover -s misc/multiqc/.tests -p 'test_*.py' -v

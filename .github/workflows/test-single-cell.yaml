@@ -23,7 +23,7 @@ jobs:
         python -m pip install --upgrade pip
         python -m pip install -r singlecell/.tests/requirements.txt
         python --version
-    - name: Dry run bfq_all
+    - name: Dry run multiqc_report
       working-directory: ./singlecell/.tests
       run: |
         snakemake -n -p --cores 1 multiqc_report
