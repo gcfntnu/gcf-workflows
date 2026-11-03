@@ -2,10 +2,8 @@
 
 if 'REF_DIR' in locals() and REF_DIR is not None:
     pass
-elif environ.get('GCF_REFDIR') is not None:
-    REF_DIR = environ.get('GCF_REFDIR')
-elif 'ref_dir' in config:
-    REF_DIR = config['ref_dir']
+elif config.get('ref_dir') or environ.get('GCF_REFDIR'):
+    REF_DIR = config.get('ref_dir') or environ.get('GCF_REFDIR')
 elif 'reference_db' in config['db']:
     ref = config['db']['reference_db']
     if ref == 'langmead':

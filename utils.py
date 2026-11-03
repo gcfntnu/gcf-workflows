@@ -122,20 +122,35 @@ with open(libprep_fn) as fh:
     LIBPREP_CONF = yaml.load(fh, Loader=Loader) or {}
 kit = config.get("libprepkit")
 if kit is not None:
-    if len(config["read_geometry"]) > 1:
-        kit += " PE"
-    else:
-        kit += " SE"
-if kit in LIBPREP_CONF:
-    # overwrite default config
-    kit_conf = LIBPREP_CONF[kit]
+    # The installed snakemake command shares bin/ with configmaker.py, which otherwise
+    # shadows the configmaker package. Match BFQ's entry-point isolation for this import.
+    import_path = sys.path[:]
+    executable_dir = os.path.dirname(os.path.realpath(sys.argv[0]))
+    try:
+        sys.path[:] = [path for path in sys.path if not path or os.path.realpath(path) != executable_dir]
+        from configmaker.libprep import LibprepConfig, LibprepConfigError
+    finally:
+        sys.path[:] = import_path
+
+    # Use the same selection rules as configmaker, including suffix/geometry validation.
+    selection = LibprepConfig.load(libprep_fn).select(kit, config['read_geometry'])
+    recorded = config.get('libprep_selection')
+    if recorded is not None:
+        if not isinstance(recorded, Mapping) or recorded.get('entry') != selection.entry:
+            raise LibprepConfigError('libprep_selection.entry does not match the selected kit {!r}'.format(selection.entry))
+        if recorded.get('read_geometry') != list(selection.read_geometry):
+            raise LibprepConfigError('libprep_selection.read_geometry does not match project read_geometry')
+        if recorded.get('workflow') != selection.workflow:
+            raise LibprepConfigError('libprep_selection.workflow does not match the selected kit workflow')
+    kit = selection.entry
+    kit_conf = selection.parameters
+    # Existing kit-family consumers expect the canonical name without its layout suffix.
+    config['libprepkit'] = re.sub(r' (PE|SE)$', '', kit, flags=re.IGNORECASE)
     update_config(CONF, kit_conf)
 else:
-    if kit is None:
-        logger.warning("Running without LIBREPKIT defined!")
-    else:
-        logger.warning("`{}` is not a valid librepkit name".format(kit))
-        sys.exit()
+    if config.get('libprep_selection') is not None:
+        raise ValueError('libprep_selection requires libprepkit')
+    logger.warning("Running without LIBREPKIT defined!")
 
 # update config (config.yaml). Does not update if key exists
 update_config2(config, CONF)

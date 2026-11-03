@@ -52,7 +52,7 @@ Loading happens in this order:
 | 3 | `organism` is normalized: lowercased, spaces replaced by `_`, `N/A` when missing. `PE` is set from the number of `read_geometry` values. The sections `db`, `quant`, `filter`, `analysis`, `qc`, `bfq`, `samples` and `protocol` are created empty if missing. | — |
 | 4 | A defaults mapping is loaded from [main.config](../main.config). | — |
 | 5 | If `GCF_SECRET` names a file, that YAML is merged into the defaults. | Overwrite (into the defaults) |
-| 6 | The `libprep.config` entry `<libprepkit> PE` or `<libprepkit> SE` (chosen by the number of read lengths) is merged into the defaults. If `libprepkit` is set but that exact key does not exist, loading stops (see below). If `libprepkit` is missing, only a warning is logged. | Overwrite (into the defaults) |
+| 6 | The shared gcf-tools selector resolves `libprepkit` against `libprep.config` and the read geometry, and its entry is merged into the defaults. Recorded selection diagnostics are checked when present (see below). A missing kit without diagnostics still logs a warning. | Overwrite (into the defaults) |
 | 7 | The defaults are merged into the project configuration. | **Fill missing** |
 | 8 | If `delta_readlen` is set, each value is added to the matching `read_geometry` value. | — |
 | 9 | `workflow` defaults to `default` if missing. The per-stage interim directories are derived from it ([architecture.md](architecture.md#interim-directories)). | — |
@@ -60,8 +60,17 @@ Loading happens in this order:
 | 11 | The entry point merges its own `<workflow>/<workflow>.config`, if the file exists. | **Fill missing** |
 | 12 | Workflow-specific additions, for example: singlecell merges `rules/quant/multiplex.config` when sample demultiplexing is enabled, and validates `quant.assay` before loading its rules. | Fill missing / validation |
 
-`utils.py` looks up the kit key exactly as `<libprepkit> PE` or `<libprepkit> SE`. It does not apply gcf-tools' case-insensitive or suffix-aware matching, and configmaker stores `libprepkit` exactly as it was supplied.
-If gcf-tools accepted a differently written kit name, for example `--libkit "<kit> PE"` or a different letter case, the workflow logs that the kit is not valid and stops. **Currently it stops with exit status 0 and no jobs**, so a dry run or BFQ sees success. Use the kit name exactly as in `libprep.config`, without the suffix. This is tracked in [#241](https://github.com/gcfntnu/gcf-workflows/issues/241).
+`utils.py` uses `configmaker.libprep.LibprepConfig` from gcf-tools, the same selector used at initialization.
+Matching ignores outer whitespace and case, accepts a supplied PE/SE suffix that agrees with the read geometry, and supports explicitly defined unsuffixed entries.
+Unknown kits, conflicting suffixes and malformed selections raise an error, so Snakemake exits nonzero rather than reporting an empty successful run.
+When `libprep_selection` is present, its entry, original read geometry and workflow must agree with the selected entry.
+The diagnostic source/hash remain initialization provenance; the workflow does not require an unchanged hash when shared defaults are deliberately edited.
+Legacy project files without selection diagnostics use the same selector directly.
+
+The in-memory `libprepkit` becomes the selected entry's canonical spelling without PE/SE, because existing kit-family consumers and region-demultiplexing commands require that form.
+The project file and recorded input kit in `libprep_selection.kit` are not rewritten. The Parse metadata adapter also accepts case/whitespace variants when it rereads that original file, preserving biological sample IDs and library separation.
+The selector import temporarily excludes the executable directory, following BFQ's entry-point convention, so the neighboring legacy `configmaker.py` command cannot shadow its installed package.
+The selector dependency is pinned for local/CI checks in [.tests/requirements-config.txt](../.tests/requirements-config.txt); the runtime already provides gcf-tools through configmaker.
 
 ### Effective precedence
 
@@ -79,8 +88,8 @@ The same order applies to container images. A `docker:` key set by the project, 
 Consequences:
 
 - **`GCF_SECRET` is not a highest-priority override.** A key set by the project or by the kit entry wins over the secrets file. A secrets value only takes effect for keys the project and kit entry do not set.
-- **A workflow config cannot override `main.config`.** Its values only fill keys that `main.config` (and the kit, secrets and project) leave unset. For example, `rnaseq/rnaseq.config` sets `assembly.transcriptome.merge.type: bam`, but `main.config` sets `fastq`, so the effective value is `fastq`. This is tracked in [#239](https://github.com/gcfntnu/gcf-workflows/issues/239).
-- **`delta_readlen` changes `read_geometry` at load time.** Rules see the adjusted lengths, not the values in `config.yaml`.
+- **Workflow defaults fill missing keys.** This precedence is retained deliberately. Shared and workflow defaults must have disjoint leaf keys; `.tests/test_configuration.py` enforces that rule. Workflow-specific values belong in their workflow file. RNA-seq owns `assembly.transcriptome.merge.type: fastq`, preserving the previously effective value; both assemblers remain `skip`. Project and secret overrides still take precedence.
+- **`delta_readlen` changes `read_geometry` in `utils.py`.** The existing shared `postprocess.smk` subsequently restores the original reporting lengths in place. A dump after the complete entry point therefore shows the original geometry; a dump immediately after `utils.py` shows the adjusted lengths. This cleanup does not change that behaviour.
 - **The merged configuration is not written out.** The `onsuccess` handlers contain a commented-out dump; no effective-configuration file is produced.
 
 ### Synthetic example
@@ -123,7 +132,7 @@ docker:
 | `qc.secret_only` | `from-secret` | Set only by the secrets file |
 | `multiqc.rnaseq.modules` | `from-secret` | The secrets file overwrites `main.config` |
 | `filter.trim.quantifier` | `fastp` | Kit entry overwrites `main.config` (`skip`) |
-| `assembly.transcriptome.merge.type` | `fastq` | `main.config` fills it before `rnaseq.config` (`bam`) can |
+| `assembly.transcriptome.merge.type` | `fastq` | Explicit default in `rnaseq.config` |
 | `read_geometry` | `[74, 149]` | Kit `delta_readlen: [-1, -1]` applied |
 | `docker.multiqc` | `example/project-multiqc:1` | Project wins over `docker.config` |
 | `docker.default` | `example/secret-default:1` | The secrets file wins over `docker.config` (`gcfntnu/python-default:3.12`) |
@@ -143,14 +152,10 @@ For the first three, a **nonempty** project value wins, then the environment var
 An empty project value falls through to the environment variable.
 The directories are created when the workflow loads. Relative paths are relative to the Snakemake working directory.
 
-**Custom reference directory (`ref_dir` / `GCF_REFDIR`).** Some reference-selection code accepts a prebuilt reference directory instead of a getter-managed database. The two readers resolve it in opposite orders:
-
-| Reader | Used by | Order |
-| --- | --- | --- |
-| [gcfdb/reference_db.db](../gcfdb/reference_db.db) | rnaseq, singlecell, smallrna, wgs | Project `ref_dir` (if the key is present), then `GCF_REFDIR` |
-| `metagenome/rules/reference_db.smk`, `microbiome/rules/reference_db.smk` | metagenome, microbiome | `GCF_REFDIR`, then project `ref_dir` |
-
-This inconsistency is tracked in [#240](https://github.com/gcfntnu/gcf-workflows/issues/240).
+**Custom reference directory (`ref_dir` / `GCF_REFDIR`).** All reader families use a nonempty project `ref_dir`, then a nonempty `GCF_REFDIR`, then their configured getter-managed database.
+Empty strings and YAML null values do not suppress an environment default.
+This applies to `gcfdb/reference_db.db` (rnaseq, singlecell, smallrna and wgs) and the metagenome/microbiome `rules/reference_db.smk` readers.
+An already resolved `REF_DIR` remains available when reference rules are included by another rule file.
 
 ## Shared configuration files
 
@@ -169,17 +174,14 @@ Reference-database (`gcfdb`) configuration and common defaults shared across wor
 
 #### Current exceptions
 
-The division is not complete:
+- `sample_id: Sample_ID` is retained in `main.config`: singlecell's `_qc_prepare_sample_str` reads it when `qc.qc_sample` is unset. It is a live default, despite the original no-reader inventory in #246.
+- `libprep.config` entries intentionally carry `db:` blocks that override shared reference defaults per kit.
+- The QIAseq preset intentionally retains dormant QIIME2/DADA2 and classifier settings for an explicit switch back to microbiome; metagenome uses Langmead plusPF ([metagenome guide](../metagenome/README.md)).
 
-- **Workflow-specific defaults in `main.config`:**
-  - `assembly.*` and `qc.bam_subset` are read only by rnaseq ([#243](https://github.com/gcfntnu/gcf-workflows/issues/243)).
-  - `filter.trim.mirtrace`, `filter.spikein`, `filter.ribosomal` and `filter.contaminants` are read only by smallrna ([#244](https://github.com/gcfntnu/gcf-workflows/issues/244)).
-  - `align.genome.aligner` is read by rnaseq and smallrna; `align.transcriptome.aligner` has no reader ([#245](https://github.com/gcfntnu/gcf-workflows/issues/245)).
-  - Because `main.config` takes precedence over a workflow config, a workflow config cannot change these; see [#239](https://github.com/gcfntnu/gcf-workflows/issues/239).
-- **Reference-database settings outside `main.config`:** `libprep.config` entries carry `db:` blocks (for example `reference_db`, `ensembl.add_ercc`) that override `main.config` per kit.
-- **Keys with no reader in the workflow sources** ([#246](https://github.com/gcfntnu/gcf-workflows/issues/246)):
-  - in `main.config`: `assembly.base_ref_dir`, `quant.batch.method`, `sample_id`, `sample_group_id`, `batch_id`, `block_id`. The code reads a top-level `base_ref_dir`, which `gcfdb/reference_db.db` sets.
-  - in `rnaseq.config`: `assembly.base_reference_db` and `align.method`.
+RNA-seq now owns assembly defaults, `qc.bam_subset` and its genome aligner; smallRNA owns its genome aligner and the mirtrace/spike-in/ribosomal/contaminant defaults.
+The unused `sample_group_id`, `batch_id`, `block_id`, `quant.batch.method`, `assembly.base_ref_dir`, `assembly.base_reference_db`, `align.transcriptome.aligner` and RNA-seq `align.method` defaults were removed.
+Existing projects may retain unused keys; loading does not strip project configuration. In particular, the synthetic fixtures retain their explicit `quant.batch.method` values.
+The unused smallRNA Kraken default was already removed by #247.
 
 ### `libprep.config`
 
@@ -189,7 +191,7 @@ One entry per kit, keyed `<kit> PE`, `<kit> SE` or an unsuffixed kit name.
 | --- | --- |
 | gcf-tools | Selects the entry at initialization and writes its values into `config.yaml` |
 | gcf-bfq | Captures the file once per attempt and passes it to configmaker ([suite.md](suite.md#interfaces-provided-by-gcf-workflows)) |
-| `utils.py` | Merges the exact `<libprepkit> PE/SE` entry at step 6 |
+| `utils.py` | Resolves the entry through the shared gcf-tools selector at step 6 |
 | Some rules | Read it directly: metagenome and microbiome cutadapt, microbiome QIIME2, `gcfdb/qiime2_classifiers.smk` |
 
 Fields present in every entry: `libprep_name`, `workflow`, `library_source`, `library_strategy`, `library_selection`, `library_strand`, `read_orientation`, `protocol`.
@@ -225,7 +227,7 @@ There is no complete schema validation of the configuration.
 - [schemas/config.yaml](../schemas/config.yaml) is minimal and inaccurate: it declares `samples` and `db` as strings (they are mappings) and no workflow source validates against it. Do not rely on it. Enforcing a schema would change which projects are accepted and needs its own issue.
 - Checks that do exist:
   - gcf-tools validates SampleSheets, submission forms and kit selection at initialization.
-  - `utils.py` stops when `libprepkit` is set but its `PE`/`SE` entry is missing, currently with exit status 0 ([#241](https://github.com/gcfntnu/gcf-workflows/issues/241)).
+  - `utils.py` rejects unknown kits, read-geometry conflicts and inconsistent selection diagnostics with a nonzero exit status.
   - singlecell validates `quant.assay` and the TCR settings (`singlecell/rules/immune_config.py`).
   - gcf-bfq validates `demultiplexing.config`.
   - Missing keys used by rules fail at parse time or when the rule runs, with a Python `KeyError`.

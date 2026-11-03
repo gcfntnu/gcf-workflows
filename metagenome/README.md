@@ -14,7 +14,7 @@ Kits whose [libprep.config](../libprep.config) entry sets `workflow: metagenome`
 | Illumina Nextera XT DNA Library Prep | SE, PE | `langmead` |
 | QIAseq 16S ITS Region Panels | PE | `langmead` |
 
-The QIAseq entry also carries QIIME2 settings (`quant.method: qiime2`, DADA2 parameters, `db.classifier_level`) that this workflow does not read ([#251](https://github.com/gcfntnu/gcf-workflows/issues/251)).
+The QIAseq entry intentionally retains QIIME2 settings (`quant.method: qiime2`, DADA2 parameters, `db.classifier_level`) for an explicit future switch back to microbiome. They are dormant here: metagenome always runs Kraken2/Bracken. The intended QIAseq database is Langmead **k2_pluspf**, covering 16S and ITS; the 16S-only alternatives are not substituted. This preserves the kit configuration and the decision recorded in [#251](https://github.com/gcfntnu/gcf-workflows/issues/251).
 
 ## Stages
 

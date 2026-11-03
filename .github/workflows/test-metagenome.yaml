@@ -13,7 +13,7 @@ jobs:
       with:
         python-version: '3.11'
     - name: Install focused regression dependencies
-      run: python -m pip install 'snakemake==9.7.1' pandas
+      run: python -m pip install 'snakemake==9.7.1' pandas -r .tests/requirements-config.txt
     - name: Check Bracken database paths and producer dependencies
       run: python -m unittest discover -s metagenome/.tests -p 'test_*.py' -v
     - name: Check reference root resolution
@@ -35,7 +35,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        python -m pip install snakemake==9.7.1 pyyaml==6.0 peppy rich pulp==2.7.0
+        python -m pip install snakemake==9.7.1 pyyaml==6.0 peppy rich pulp==2.7.0 -r .tests/requirements-config.txt
         python --version
         python --version
     - name: Dry run multiqc_report
