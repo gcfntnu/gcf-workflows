@@ -1,0 +1,126 @@
+# Development guide
+
+How to prepare local environments, run the checks and interpret what they prove.
+The contribution process (branches, coordination, PR content) is in [CONTRIBUTING.md](../CONTRIBUTING.md).
+Where code lives is in [architecture.md](architecture.md).
+
+Local checks use synthetic fixtures only. They do not need facility data, containers, reference downloads, network mounts or a running BFQ.
+
+## Snakemake version
+
+The suite's supported runtime is **Snakemake 9.7.1**.
+CI still pins **Snakemake 8.1.1** for most jobs; moving every job to 9.7.1 is tracked in [#237](https://github.com/gcfntnu/gcf-workflows/issues/237).
+Until then, the environments below reproduce what CI runs. When #237 lands, this guide changes with it.
+
+## Prepare local environments
+
+Keep environments inside the checkout under `.dev/`, which Git ignores.
+Each checkout or worktree gets its own `.dev/`; do not share environments between independent tasks.
+Nothing needs to be activated or installed globally: call the environment's `python` explicitly.
+
+Three environments cover the current CI families:
+
+```bash
+# Snakemake 8.1.1: workflow dry runs, test-all.sh, MultiQC, singlecell and QIAseq tests
+python3.11 -m venv .dev/ci
+.dev/ci/bin/python -m pip install --upgrade pip
+.dev/ci/bin/python -m pip install -r singlecell/.tests/requirements.txt pandas matplotlib biopython cutadapt==4.9
+
+# Snakemake 9.7.1: reference-getter, metagenome and WGS delivery tests
+python3.11 -m venv .dev/sm9
+.dev/sm9/bin/python -m pip install 'snakemake==9.7.1' pandas
+
+# Python 3.14: small-RNA AnnData regression
+python3.14 -m venv .dev/anndata
+.dev/anndata/bin/python -m pip install pytest anndata==0.13.3.post0 numpy==2.5.2 pandas==3.0.5
+```
+
+`.dev/ci` is the union of the dependencies of the CI jobs that use Snakemake 8.1.1.
+`singlecell/.tests/requirements.txt` pins Snakemake, PyYAML and PuLP and installs `gcf-tools` from a fixed commit, so the environment needs network access once.
+If Python 3.14 is not available, the small-RNA AnnData test can be left to CI; say so in the PR.
+
+## Run the checks
+
+Run from the repository root.
+Unset `GCF_EXT`, `GCF_INTERIM`, `GCF_FASTQ` and `GCF_SECRET` first, so a personal environment cannot change what the checks resolve.
+
+| Check | Command | Environment |
+| --- | --- | --- |
+| Reporting dry runs of the seven CI workflows | `PATH="$PWD/.dev/ci/bin:$PATH" bash test-all.sh` | `.dev/ci` |
+| `test-all.sh` failure handling | `.dev/ci/bin/python -m unittest discover -s .tests -p 'test_*.py' -v` | `.dev/ci` |
+| MultiQC configuration and provenance | `.dev/ci/bin/python -m unittest discover -s misc/multiqc/.tests -p 'test_*.py' -v` | `.dev/ci` |
+| Single-cell regressions (CI selection) | `.dev/ci/bin/python -m pytest -q singlecell/.tests/test_metadata.py singlecell/.tests/test_bfq_delivery.py singlecell/.tests/test_velocity.py singlecell/.tests/test_demultiplexing_profiles.py singlecell/.tests/test_tenx_reference.py` | `.dev/ci` |
+| Single-cell TCR and assay configuration (not in CI) | `.dev/ci/bin/python -m pytest -q singlecell/.tests/test_tcr_workflow.py singlecell/.tests/test_immune_config.py` | `.dev/ci` |
+| QIAseq demultiplexing | `.dev/ci/bin/python -m pytest -q common/.tests/test_qiaseq_demultiplex.py` | `.dev/ci` |
+| Metagenome reference and Bracken paths | `.dev/sm9/bin/python -m unittest discover -s metagenome/.tests -p 'test_*.py' -v` | `.dev/sm9` |
+| Reference roots | `.dev/sm9/bin/python -m unittest discover -s gcfdb/.tests -p 'test_*.py' -v` | `.dev/sm9` |
+| WGS QC delivery (not in CI) | `.dev/sm9/bin/python -m unittest discover -s wgs/.tests -p 'test_bfq_qc.py' -v` | `.dev/sm9` |
+| Small-RNA AnnData | `.dev/anndata/bin/python -m pytest -q smallrna/.tests/test_create_anndata.py` | `.dev/anndata` |
+
+Run the checks for the areas you changed; the [area map](architecture.md#area-map) lists them.
+Before handoff, run `test-all.sh` and every check whose area the change touches.
+
+### `test-all.sh`
+
+`test-all.sh` dry-runs `multiqc_report` with `-n -p --cores 1` in each of `smallrna`, `singlecell`, `metagenome`, `rnaseq`, `microbiome`, `default` and `wgs`.
+
+- It resolves the checkout from its own location, so it can be run from any directory.
+- It stops with exit status 2 before running anything if `snakemake` is not on `PATH` or a fixture directory is missing.
+- It attempts every workflow, keeps Snakemake's output, names the failed workflows at the end and exits 1 if any dry run failed.
+- It removes only `.snakemake/` directories that the run created.
+
+`singlecell` fails with `ModuleNotFoundError` unless the singlecell test requirements are installed. That is why `.dev/ci` includes them.
+
+### One workflow by hand
+
+```bash
+cd rnaseq/.tests
+../../.dev/ci/bin/snakemake -n -p --cores 1 multiqc_report
+```
+
+To try a real project layout instead of the fixture, use the [standalone recipe](../README.md#running-standalone).
+
+## CI
+
+Each file in [.github/workflows](../.github/workflows) runs on every push and pull request.
+
+| File | Job | Python | Snakemake | Runs |
+| --- | --- | --- | --- | --- |
+| `test-default.yaml` | `build` | 3.11 | 8.1.1 | MultiQC tests, `.tests` (`test-all.sh` harness), `default` dry run |
+| `test-rna-seq.yaml` | `build` | 3.11 | 8.1.1 | `rnaseq` dry run |
+| `test-single-cell.yaml` | `build` | 3.11 | 8.1.1 (`singlecell/.tests/requirements.txt`) | `singlecell` dry run, singlecell pytest selection |
+| `test-small-rna.yml` | `build` | 3.11 | 8.1.1 | `smallrna` dry run |
+| `test-small-rna.yml` | `anndata-regression` | 3.14 | none | small-RNA AnnData pytest |
+| `test-metagenome.yaml` | `bracken-database` | 3.11 | `>=9,<10` | `metagenome/.tests`, `gcfdb/.tests` |
+| `test-metagenome.yaml` | `build` | 3.11 | 8.1.1 | `metagenome` dry run |
+| `test-microbiome.yaml` | `build` | 3.11 | 8.1.1 | `microbiome` dry run |
+| `test-wgs.yaml` | `build` | 3.11 | 8.1.1 | `wgs` dry run |
+| `test-qiaseq.yaml` | `paired-reads` | 3.11 | 8.1.1 | QIAseq pytest |
+
+- Several files still have header comments and step names that mention older Snakemake versions and `bfq_all`. The commands actually run `multiqc_report`. The comments are cleaned up with #237.
+- `wgs/.tests/test_bfq_qc.py`, `singlecell/.tests/test_tcr_workflow.py` and `singlecell/.tests/test_immune_config.py` are not run by CI. Run them locally when you change those areas.
+
+## What the checks prove
+
+| Evidence | Shows | Does not show |
+| --- | --- | --- |
+| Dry run (`snakemake -n`, `test-all.sh`) | Configuration loads, includes resolve and Snakemake can build the job graph to `multiqc_report` | That tools run, containers start, references download, the report renders, or results are scientifically correct |
+| Unit and regression tests | The specific behaviour each test asserts, on synthetic inputs | Behaviour of real data, real containers or BFQ |
+| CI success | The checks above passed in CI's environments | Anything beyond them |
+
+Running real workflows, containers, reference downloads and BFQ integration is outside the local checks.
+When a change affects behaviour that only those can show, say so in the PR and leave that verification to the maintainers' integration process.
+
+## Test fixtures and data
+
+- `<workflow>/.tests/` contains each workflow's dry-run fixture: `Snakefile`, `config.yaml`, `pep/`, and empty FASTQ placeholders under `data/raw/fastq/`. Some fixtures also have `data/tmp/sample_info.tsv` or small reference files.
+- Fixtures use clearly synthetic identifiers, for example projects `GCF-0000-00N`. Keep config, PEP and `sample_info.tsv` consistent when you change them, and preserve the relationships the tests rely on: sample sets, paired mates, groups and quoting edge cases.
+- Unit tests create their own inputs in temporary directories. They must not depend on files outside the checkout or on network access at test time.
+- Never add real project, sample, run or instrument identifiers, customer metadata, facility paths or credentials ([AGENTS.md](../AGENTS.md#public-repository-content)).
+
+## Isolation
+
+- Keep environments, caches and outputs under `.dev/` or an invocation-owned temporary directory.
+- Run independent tasks in separate checkouts or worktrees, each with its own `.dev/`.
+- Dry runs create `.snakemake/` and empty directories under `data/` in the fixture directory. `test-all.sh` removes the `.snakemake/` it creates. `.snakemake/` is ignored by Git.
+- Do not point `GCF_EXT` at a shared reference store for local checks. The checks do not need references, and a dry run must not depend on what a shared store contains.

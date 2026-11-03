@@ -25,13 +25,11 @@ This repository owns:
 | Find reference data and change its location | [Reference data](#reference-data), [gcfdb/README.md](gcfdb/README.md) |
 | Understand the MultiQC report configuration and provenance | [misc/multiqc/README.md](misc/multiqc/README.md) |
 | 10x and QIAseq demultiplexing contracts | [docs/tenx-demultiplexing.md](docs/tenx-demultiplexing.md), [docs/qiaseq-demultiplexing.md](docs/qiaseq-demultiplexing.md) |
-| Run the checks | [Development and testing](#development-and-testing) |
+| Take an issue to a PR, and coordinate with companion repositories | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| Prepare environments and run the checks | [Development guide](docs/development.md) |
 | Work as a coding agent | [AGENTS.md](AGENTS.md) |
 
-The following are planned in [#226](https://github.com/gcfntnu/gcf-workflows/issues/226) and do not exist yet:
-
-- a contributing and development guide
-- per-workflow READMEs for every workflow
+Per-workflow READMEs for every workflow are planned in [#236](https://github.com/gcfntnu/gcf-workflows/issues/236) and do not exist yet.
 
 ## The GCF suite
 
@@ -234,32 +232,14 @@ Releases and assemblies are selected in `main.config` and the project configurat
 
 ## Development and testing
 
-Local checks need no facility data, containers or reference downloads.
+Local checks need no facility data, containers or reference downloads. They are Snakemake dry runs and unit tests on synthetic fixtures:
 
-| Check | Command (from the repository root unless noted) |
-| --- | --- |
-| Reporting dry runs of all seven CI workflows | `bash test-all.sh` |
-| Dry run of one workflow | `snakemake -n -p --cores 1 multiqc_report`, run in `<workflow>/.tests` |
-| `test-all.sh` failure handling | `python -m unittest discover -s .tests -p 'test_*.py' -v` |
-| MultiQC configuration and provenance | `python -m unittest discover -s misc/multiqc/.tests -p 'test_*.py' -v` |
-| Reference roots | `python -m unittest discover -s gcfdb/.tests -p 'test_*.py' -v` |
-| Metagenome reference and Bracken paths | `python -m unittest discover -s metagenome/.tests -p 'test_*.py' -v` |
-| WGS QC delivery | `python -m unittest discover -s wgs/.tests -p 'test_bfq_qc.py' -v` |
-| Single-cell regressions | `python -m pytest -q singlecell/.tests/test_metadata.py singlecell/.tests/test_bfq_delivery.py singlecell/.tests/test_velocity.py singlecell/.tests/test_demultiplexing_profiles.py singlecell/.tests/test_tenx_reference.py` |
-| Small-RNA AnnData | `python -m pytest -q smallrna/.tests/test_create_anndata.py` |
-| QIAseq demultiplexing | `python -m pytest -q common/.tests/test_qiaseq_demultiplex.py` |
+- `bash test-all.sh` dry-runs `multiqc_report` in the seven CI workflow fixtures, and exits nonzero and names the failures if any fails.
+- Focused `unittest` and `pytest` suites cover the reporting configuration, reference roots, metagenome references, WGS delivery, single-cell, small-RNA AnnData and QIAseq demultiplexing.
+- CI (`.github/workflows/`) runs them on every push and pull request. Most jobs still pin Snakemake 8.1.1; the move to 9.7.1 is tracked in [#237](https://github.com/gcfntnu/gcf-workflows/issues/237).
 
-**`test-all.sh`** dry-runs `multiqc_report` in every workflow fixture and attempts them all.
-It exits nonzero if `snakemake` or a fixture directory is missing, or if any dry run fails, and names the failed workflows.
-It needs the union of the CI dependency sets, including `singlecell/.tests/requirements.txt`.
-
-**CI** (`.github/workflows/`) runs these checks with per-job dependencies:
-
-- most jobs use Python 3.11
-- the small-RNA AnnData job uses Python 3.14
-- Snakemake is pinned to 8.1.1, except the focused metagenome reference job
-
-Moving every job to Snakemake 9.7.1 is tracked in [#237](https://github.com/gcfntnu/gcf-workflows/issues/237).
+The [development guide](docs/development.md) has the environments, the exact commands, the CI job matrix and what the checks do and do not prove.
+[CONTRIBUTING.md](CONTRIBUTING.md) describes how to take an issue to a PR.
 
 Test fixtures are synthetic.
 Follow the public-content rules in [AGENTS.md](AGENTS.md): no real project, sample or run identifiers, and no facility infrastructure details, anywhere in this repository or its issues and PRs.

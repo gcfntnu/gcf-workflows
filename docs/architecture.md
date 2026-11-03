@@ -135,6 +135,6 @@ Where to look first for a change, and which tests cover it.
 | wgs | `wgs/` | `wgs/.tests/test_bfq_qc.py`, dry run |
 | default | `default/` | `default/.tests` dry run |
 | Dry-run gate | `test-all.sh` | `.tests/test_test_all.py` |
-| CI | `.github/workflows/` | One workflow file per workflow family; [README](../README.md#development-and-testing) |
+| CI | `.github/workflows/` | One workflow file per workflow family; [development guide](development.md#ci) |
 
 `<workflow>/.tests/` holds the synthetic dry-run fixture for each workflow: `Snakefile`, `config.yaml`, `pep/`, and empty FASTQ placeholders under `data/raw/fastq/`.
