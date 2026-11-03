@@ -23,10 +23,12 @@ The `QIAseq 16S ITS Region Panels` kit is routed to [metagenome](../metagenome/R
 | --- | --- | --- |
 | reference_db | `rules/reference_db.smk` | SILVA, Greengenes or UNITE, by `db.reference_db` |
 | filter | `rules/filter/`, shared `common/` rules | Cutadapt primer trimming and QIAseq region demultiplexing; fastp |
-| qc | `rules/qc/`, shared `common/` rules | FastQC (shared), FastQ Screen, BAM and quantification QC |
-| quant | `rules/quant/` | QIIME2 (`quant.method: qiime2`): denoising, filtering, diversity, PICRUSt |
-| analysis | `rules/analysis/` | phyloseq notebooks, PICRUSt, gneiss, longitudinal |
+| qc | `rules/qc/fastq.smk`, shared `common/` rules | FastQC and FastQ Screen |
+| quant | `rules/quant/qiime2_py.smk`, `qiime2_filter.smk`, `qiime2_diversity.smk`, `qiime2_picrust.smk` | QIIME2 (`quant.method: qiime2`): denoising, filtering, diversity, PICRUSt |
+| analysis | `rules/analysis/phyloseq.smk`, `picrust.smk` | phyloseq notebooks, PICRUSt |
 | bfq | `rules/bfq/` (levels 1–2) | Collect delivery products into `bfq/` |
+
+**Inactive source.** Files present in the source tree are not necessarily loaded. The entry point does not load `rules/qc/bam.smk`, `rules/qc/quant.smk`, `rules/quant/qiime2.smk`, `rules/analysis/qiime2_gneiss.smk` or `qiime2_longitudal.smk`.
 
 ## Known problems
 

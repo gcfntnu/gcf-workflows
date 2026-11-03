@@ -34,10 +34,14 @@ Neither the Drop-Seq and Smart-Seq entries nor `singlecell.config` set `quant.me
 | --- | --- | --- |
 | gcfdb | `rules/gcfdb.smk` | Reference selection |
 | filter | `rules/filter.smk`, shared `common/` rules | FASTQ merging and fastp trimming |
-| quant | `rules/quant/` | Cell Ranger, Split-Pipe, STARsolo (10x and Parse), Alevin; CellBender; doublet detection; sample demultiplexing (`multiplex.smk`, loaded only when `quant.demultiplex.method` is set); velocity; AnnData assembly, preprocessing and annotation |
-| qc | `rules/qc/`, shared `common/` rules | FastQC and Kraken2 screening (shared); FASTQ and BAM QC |
+| quant | `rules/quant.smk` and the files it loads conditionally | Cell Ranger (10x kits); Split-Pipe (Parse kits); STARsolo for 10x or Parse when `quant.method` contains `10x_starsolo` or `parsebio_starsolo`; CellBender when enabled; doublet detection and sample demultiplexing (`multiplex.smk`, only when `quant.demultiplex.method` is set); cell-type annotation, preprocessing and pseudobulk when enabled; AnnData assembly |
+| qc | `rules/qc/fastq.smk`, shared `common/` rules | FastQC and Kraken2 screening (shared); FASTQ QC. The BAM QC include is commented out |
 | bfq | `rules/bfq/` (levels 1–3, per quantifier) | Collect delivery products into `bfq/` |
-| analysis | `rules/analysis/` | Included after `postprocess.smk`; does not add to `BFQ_ALL` |
+| analysis | `rules/analysis/auto_qc.smk` | Included after `postprocess.smk`; does not add to `BFQ_ALL` |
+
+Velocity is produced through the Split-Pipe and STARsolo routes ([docs/velocity.md](docs/velocity.md)).
+
+**Inactive source.** Files present in the source tree are not necessarily loaded. The entry point does not load these: `rules/quant/` `alevin.smk`, `expression_presence.smk`, `parse.smk`, `scsplit.smk`, `souporcell.smk`, `star.smk` and `velocyto.smk`; `rules/qc/bam.smk`; and the `rules/analysis/` files other than `auto_qc.smk` (for example cellbrowser, cellxgene, SCENIC, scmatch, clustering, diffexp).
 
 ## Outputs in `bfq/`
 

@@ -23,6 +23,8 @@ A kit reaches this workflow only through such an entry. Unknown kits are rejecte
 | shared QC | shared `common/` rules | FASTQ merging, fastp, FastQC, Kraken2 screening and Krona |
 | bfq | `rules/bfq/bfq_level1.smk` | Collect the QC products into `bfq/` |
 
+**Inactive source.** Files present in the source tree are not necessarily loaded. `rules/qc.smk` and `rules/qc/fastq.smk` are not loaded by `default.smk`; the QC comes from the shared `common/` rules.
+
 ## Outputs in `bfq/`
 
 `data/tmp/default/bfq/`, as planned by the fixture's dry run (`Custom`, paired-end):

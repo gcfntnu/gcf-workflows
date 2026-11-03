@@ -25,6 +25,8 @@ A project can select another reference, for example a custom assembly with `db.r
 | qc | `rules/qc/`, shared `common/` rules | FastQC and Kraken2 screening (shared); Picard alignment summary, WGS and duplicate metrics; Qualimap BAM QC |
 | bfq | `rules/bfq/` (levels 1–2) | Collect delivery products into `bfq/` |
 
+**Inactive source.** Files present in the source tree are not necessarily loaded. `rules/reference_db.smk` is not loaded; it would include `gcfdb/indexes.rules`, which does not exist. Reference selection uses `rules/gcfdb.smk`.
+
 ## Outputs in `bfq/`
 
 `data/tmp/wgs/bfq/`, as planned by the fixture's dry run (paired-end, custom reference):

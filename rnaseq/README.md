@@ -27,12 +27,16 @@ The kit entries set the strand orientation, adapters, trimming parameters, read-
 | Stage | Rule files | Notes |
 | --- | --- | --- |
 | filter | `rules/filter.smk`, shared `common/` rules | FASTQ merging and fastp trimming |
-| assembly | `rules/assembly.smk` | Transcript and genome assembly; `skip` by default |
-| align | `rules/align/` | STAR by default; HISAT2 available |
-| quant | `rules/quant/` | Salmon by default (`quant.method`); featureCounts and tximport, plus optional routes (alternative splicing, CNVkit, HLA typing, Rockhopper, T-cell repertoire, variant calling) |
-| analysis | `rules/analysis/` | Preprocessing, differential expression (`diff_expr`), co-expression (`co-exprs`) |
-| qc | `rules/qc/`, shared `common/` rules | FastQC and Kraken2 screening (shared); BAM (Picard RNA metrics, RSeQC TIN) and quantification QC |
+| assembly | `rules/assembly.smk` | Transcript and genome assembly rules, loaded only when an assembler is not `skip` (the default) |
+| align | `rules/align/star.smk`, `hisat2.smk` | STAR by default (`align.genome.aligner`); HISAT2 available |
+| quant | `rules/quant/salmon.smk`, `featurecounts.smk`, `tximport.smk` | Salmon by default (`quant.method`), featureCounts, tximport |
+| qc | `rules/qc/fastq.smk`, `bam.smk`, `quant.smk`; shared `common/` rules | FastQC and Kraken2 screening (shared); BAM (Picard RNA metrics, RSeQC TIN) and quantification QC |
 | bfq | `rules/bfq/` (levels 1–3) | Collect delivery products into `bfq/` |
+
+**Inactive source.** Files present in the source tree are not necessarily loaded. The entry point does not load these, so configuration cannot select them:
+
+- `rules/analysis/` (`preprocess`, `diff_expr`, `co-exprs`): `rules/analysis.smk` includes nothing.
+- `rules/quant/` alternative splicing, CNVkit, HLA typing, Rockhopper, T-cell repertoire and variant calling.
 
 ## Outputs in `bfq/`
 

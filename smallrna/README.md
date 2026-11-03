@@ -24,17 +24,19 @@ The kit entries set `filter.trim` (fastp `args` and `trim_args`, miRTrace `proto
 | Stage | Rule files | Notes |
 | --- | --- | --- |
 | gcfdb | `rules/gcfdb.smk` | Reference selection |
-| filter | `rules/filter/`, shared `common/` rules | FASTQ merging; clipping and trimming (`cliptrim.smk`); spike-in calibrators (`calibrators.smk`) |
-| align | `rules/align/` | STAR (smallrna options); Bowtie2 available |
-| quant | `rules/quant/` | UNITAS by default (`quant.method`); miRge, miRge3, QuickMIRSeq and seqbuster available; variance transformation |
+| filter | `rules/filter/cliptrim.smk`, shared `common/` rules | FASTQ merging; clipping and trimming |
+| align | `rules/align/star.smk`, `bowtie2.smk` | STAR (smallrna options); Bowtie2 available |
+| quant | `rules/quant/unitas.smk`, `mirge3.smk`, `quickmirseq.smk` | UNITAS (including its spike-in and variance-transformation rules), miRge3, QuickMIRSeq |
 | qc | `rules/qc/`, shared `common/` rules | FastQC (shared), miRTrace |
 | bfq | `rules/bfq/` (levels 1–3) | Collect delivery products into `bfq/` |
 
-`rules/quant/kraken.smk` and `kraken.db` are not included by any rule file ([#247](https://github.com/gcfntnu/gcf-workflows/issues/247)).
+**`quant.method` and delivery.** `quant.method` selects what the separate `quant_all` target builds: `unitas`, `mirge3` and `quickmirseq` work, `mirge` fails because its rules are not loaded, and other values plan nothing. It does **not** change delivery: `bfq_all` and `multiqc_report` always deliver the UNITAS products (`rules/bfq/bfq_level2.smk`), whatever `quant.method` says.
+
+**Inactive source.** Files present in the source tree are not necessarily loaded. The entry point does not load these: `rules/filter/calibrators.smk`, `rules/quant/mirge.smk`, `seqbuster.smk`, `var_transform.smk`, and `kraken.smk`/`kraken.db` ([#247](https://github.com/gcfntnu/gcf-workflows/issues/247)).
 
 ## Outputs in `bfq/`
 
-`data/tmp/smallrna/bfq/`, as planned by the fixture's dry run (NEXTflex v3, UNITAS). Other quantifiers change the set.
+`data/tmp/smallrna/bfq/`, as planned by the fixture's dry run (NEXTflex v3). The set is the same for every `quant.method`, because delivery always uses UNITAS.
 
 ```text
 multiqc_<project>.html, .multiqc_config.yaml
@@ -49,7 +51,7 @@ logs/<sample>/<sample>.fastp.html, .fastp.json, _fastqc.html, _fastqc.zip, .Log.
 
 | Key | Default | Set in |
 | --- | --- | --- |
-| `quant.method` | `unitas` (comma-separated list allowed) | [smallrna.config](smallrna.config) |
+| `quant.method` | `unitas` (comma-separated list allowed); selects the `quant_all` targets only, not the delivered UNITAS outputs | [smallrna.config](smallrna.config) |
 | `quant.mirge.db`, `quant.mirge3.db` | `mirbase` | `smallrna.config` |
 | `align.star.args`, `align.star.guided_index` | STAR options for short reads | `smallrna.config` |
 | `align.genome.aligner` | `star` | [main.config](../main.config) ([#245](https://github.com/gcfntnu/gcf-workflows/issues/245)) |
