@@ -62,7 +62,7 @@ A change in one repository that alters what another repository reads needs linke
 | **`docker.config`** | **gcf-workflows:** `utils.py` fills missing `config['docker']` keys; image keys set explicitly in a project win.<br>**gcf-bfq:** `containers.py` resolves a fixed tool set (`bcl-convert`, `bcl2fastq`, `cellranger`, `cellranger-atac`, `spaceranger`, their `*-mkfastq` variants, `multiqc`) from `/opt/gcf-workflows/docker.config`, or from the file named by `GCF_WORKFLOWS_DOCKER_CONFIG`. | [docker.config](../docker.config); images from gcf-docker | `misc/multiqc/.tests/test_report_contract.py`; gcf-bfq `tests/test_containers.py` and `scripts/check_install.py` |
 | **`demultiplexing.config`** | **gcf-bfq only:** `tenx_demultiplexing.py` requires `schema_version: 1` and records the file's SHA-256. No workflow rule reads it. | [demultiplexing.config](../demultiplexing.config); contract in [tenx-demultiplexing.md](tenx-demultiplexing.md) | `singlecell/.tests/test_demultiplexing_profiles.py` |
 | **`multiqc_report` target** | **gcf-bfq:** `afterFastq.snakemake_command` runs `snakemake --use-singularity … multiqc_report` in the project workdir, then copies the [delivered outputs](../README.md#outputs). | `postprocess.smk`; `BFQ_ALL` per workflow | Seven CI dry runs; `test-all.sh` |
-| **Project workdir layout** (`config.yaml`, `Snakefile`, `pep/`, `src/gcf-workflows/`, `data/raw/fastq/`, `data/tmp/`) | Created by configmaker. The generated `Snakefile` includes `src/gcf-workflows/<workflow>/<workflow>.smk`. gcf-bfq keeps the workdir without `data/` as an analysis snapshot and reuses it with `fm rerun --from analysis --resume`. | gcf-tools [compatibility.md](https://github.com/gcfntnu/gcf-tools/blob/bfq-dev/docs/compatibility.md); gcf-bfq README | gcf-tools CLI checks; gcf-bfq snapshot and resume tests |
+| **Project workdir layout** (`config.yaml`, `Snakefile`, `pep/`, `src/gcf-workflows/`, `data/raw/fastq/`, `data/tmp/`) | Created by configmaker. The generated `Snakefile` includes `src/gcf-workflows/<workflow>/<workflow>.smk`. gcf-bfq uses it in two separate ways. After finalization it archives the workdir without top-level `data/` as a provenance snapshot, which is not restored or executed. `fm rerun --from analysis --resume` reuses the existing recorded, owned workdir, including `data/` and Snakemake state. | gcf-tools [compatibility.md](https://github.com/gcfntnu/gcf-tools/blob/bfq-dev/docs/compatibility.md); gcf-bfq [snapshots](https://github.com/gcfntnu/gcf-bfq#retained-analysis-workdir-snapshots), [analysis resume](https://github.com/gcfntnu/gcf-bfq/blob/bfq-dev/docs/analysis-resume.md) | gcf-tools CLI checks; gcf-bfq snapshot and resume tests |
 | **Report provenance** | `misc/multiqc/create_mqc_config.py` reads the branch and commit from the Git metadata of `src/gcf-workflows` and writes them into the report. | [misc/multiqc/README.md](../misc/multiqc/README.md) | `misc/multiqc/.tests` |
 | **Reference root** | Every getter and rule resolves reference data under `EXT_DIR`: project `ext_dir`, then `GCF_EXT`, then `data/ext`. | `utils.py`, [gcfdb/README.md](../gcfdb/README.md) | `gcfdb/.tests/test_reference_roots.py` |
 
@@ -70,8 +70,11 @@ A change in one repository that alters what another repository reads needs linke
 
 - **Standalone configmaker vs BFQ.**
   - Standalone, configmaker selects from `src/gcf-workflows/libprep.config`. If `src/gcf-workflows` is missing, it clones the default branch of gcf-workflows, unpinned.
-  - Under BFQ, the configuration is the snapshot captured from the installed checkout. configmaker only verifies it against the hash, entry and read geometry BFQ passes in.
-- **Retained workdir vs installed checkout.** A retained or resumed analysis uses the workflow copy in its own `src/gcf-workflows`. Installing a new gcf-workflows revision does not change it.
+  - Under BFQ, the configuration is the exact `libprep.config` bytes BFQ captured from the installed checkout. configmaker only verifies it against the hash, entry and read geometry BFQ passes in.
+- **Snapshot vs resumable workdir vs installed checkout.**
+  - The provenance snapshot is an archive record without `data/`; it is not a resumable execution context.
+  - A resumed analysis runs in its existing owned workdir and uses the workflow copy in that workdir's `src/gcf-workflows`.
+  - Installing a new gcf-workflows revision changes neither.
 - **Project image keys vs shipped mapping.**
   - Workflow rules take an image key from the project configuration if it is set there, and from `docker.config` otherwise.
   - BFQ's own tool wrappers read only the installed `docker.config`, or the file named by `GCF_WORKFLOWS_DOCKER_CONFIG`.
@@ -89,7 +92,15 @@ Each recipe lists:
 - the checks to run
 - what is deliberately not part of the change
 
-Use issue branches from `bfq-dev` in each repository. Link the PRs to each other.
+Start issue branches from each repository's base branch and link the PRs to each other:
+
+| Repository | Base branch for issue branches |
+| --- | --- |
+| gcf-workflows, gcf-tools, gcf-bfq | `bfq-dev` |
+| gcf-docker | `master` |
+| gcf-multiqc | `main` |
+
+Follow each repository's own contribution guidance where it has one.
 
 ### Add or modify a library-prep kit
 

@@ -99,9 +99,15 @@ The BFQ production image contains a checkout of this repository at `/opt/gcf-wor
 4. **Run the workflow.** BFQ runs `snakemake --use-singularity … multiqc_report` in the workdir.
 5. **Copy the products** listed in [Outputs](#outputs), then archive and deliver them.
 
-After successful finalization, BFQ keeps an archive of the workdir without its top-level `data/`.
-The archive includes `src/gcf-workflows`, so a retained or resumed analysis uses its own copy of the workflows, not the currently installed checkout.
-See the gcf-bfq README for analysis snapshots and `fm rerun --from analysis --resume`.
+Two separate BFQ mechanisms involve the project workdir after a run:
+
+- **Provenance snapshot.** After successful finalization, BFQ writes an archive of the workdir without its top-level `data/`, including `src/gcf-workflows`.
+  It is a record of what ran. BFQ does not restore or execute it, and it cannot be resumed on its own.
+  See [retained analysis workdir snapshots](https://github.com/gcfntnu/gcf-bfq#retained-analysis-workdir-snapshots).
+- **Resume.** `fm rerun --from analysis --resume` reuses the existing workdir that BFQ recorded and owns, including its `data/` and Snakemake state.
+  It checks the workdir's ownership marker, configuration and FASTQ links, and rejects missing workdirs.
+  The resumed run uses the workflow copy in that workdir's `src/gcf-workflows`, not the currently installed checkout.
+  See gcf-bfq [analysis resume](https://github.com/gcfntnu/gcf-bfq/blob/bfq-dev/docs/analysis-resume.md).
 
 ## Running standalone
 
