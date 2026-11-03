@@ -32,7 +32,7 @@ The kit entries set `filter.trim` (fastp `args` and `trim_args`, miRTrace `proto
 
 **`quant.method` and delivery.** `quant.method` selects what the separate `quant_all` target builds: `unitas`, `mirge3` and `quickmirseq` work, `mirge` fails because its rules are not loaded, and other values plan nothing. It does **not** change delivery: `bfq_all` and `multiqc_report` always deliver the UNITAS products (`rules/bfq/bfq_level2.smk`), whatever `quant.method` says.
 
-**Inactive source.** Files present in the source tree are not necessarily loaded. The entry point does not load these: `rules/filter/calibrators.smk`, `rules/quant/mirge.smk`, `seqbuster.smk`, `var_transform.smk`, and `kraken.smk`/`kraken.db` ([#247](https://github.com/gcfntnu/gcf-workflows/issues/247)).
+**Inactive source.** Files present in the source tree are not necessarily loaded. The entry point does not load these: `rules/filter/calibrators.smk`, `rules/quant/mirge.smk`, `seqbuster.smk`, and `var_transform.smk`.
 
 ## Outputs in `bfq/`
 
