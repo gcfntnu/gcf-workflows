@@ -111,6 +111,7 @@ logs/<sample>/<sample>.fastp.html, .fastp.json, _fastqc.html, _fastqc.zip, .Log.
 | --- | --- | --- |
 | `quant.method` | `unitas`. Accepts `unitas`, `mirge3` or both, comma-separated; selects the `quant_all` targets only, not the delivered UNITAS outputs | [smallrna.config](smallrna.config) |
 | `quant.mirge3.db` | `mirbase` | `smallrna.config` |
+| `quant.mirge3.uniq_mol_ids` | `null`; NEXTflex v3 sets `'4,4'` (4N randomized ends). Passed to miRge3 as `--uniq-mol-ids` | `smallrna.config`, kit entry |
 | `align.star.args`, `align.star.guided_index` | STAR options for short reads | `smallrna.config` |
 | `align.genome.aligner` | `star`; any other value stops the workflow at load | [smallrna.config](smallrna.config) |
 | `filter.dedup` | `false`; `true` stops the workflow at load (no read deduplication) | `main.config`, kit entry |
