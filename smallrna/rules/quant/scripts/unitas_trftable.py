@@ -48,6 +48,7 @@ if __name__ == '__main__':
     else:
         out_fn = args.output
     DF.fillna(0, inplace=True)
+    DF.sort_index(inplace=True)
     DF.index.name = 'TRNA_ID'
     DF.to_csv(out_fn, sep='\t')
     

@@ -136,7 +136,7 @@ rule unitas_isotrftable:
     params:
         script = src_gcf('scripts/unitas_isotrftable.py')
     output:
-        join(QUANT_INTERIM, 'unitas', 'isotrf_counts.csv')
+        join(QUANT_INTERIM, 'unitas', 'isotrf_counts.tsv')
     shell:
         'python {params.script} {input} > {output}'
 
