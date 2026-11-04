@@ -7,6 +7,8 @@ STAR, https://github.com/alexdobin/STAR
 """
 
 ALIGNER = config['align']['genome']['aligner']
+if ALIGNER != 'star':
+    raise ValueError('align.genome.aligner: smallrna supports only star, got {!r}'.format(ALIGNER))
         
 def get_sorted_bam(wildcards):
     return join(ALIGN_INTERIM, ALIGNER, wildcards.sample + '.sorted.bam')
@@ -14,8 +16,6 @@ def get_sorted_bam(wildcards):
 def get_namesorted_bam(wildcards):
     return join(ALIGN_INTERIM, ALIGNER, wildcards.sample + '.namesorted.bam')
 
-include:
-    'align/bowtie2.smk'
 include:
     'align/star.smk'
 include:

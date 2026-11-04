@@ -59,7 +59,7 @@ unset GCF_EXT GCF_INTERIM GCF_FASTQ GCF_SECRET GCF_REFDIR
 | Reference roots | `.dev/ci/bin/python -m unittest discover -s gcfdb/.tests -p 'test_*.py' -v` | `.dev/ci` |
 | WGS QC delivery (not in CI) | `.dev/ci/bin/python -m unittest discover -s wgs/.tests -p 'test_bfq_qc.py' -v` | `.dev/ci` |
 | Small-RNA fastp stages | `FASTP_0201="$PWD/.dev/bin/fastp" .dev/ci/bin/python -m pytest -q smallrna/.tests/test_fastp.py` | `.dev/ci`, pinned fastp below |
-| Small-RNA `quant.method` selection | `.dev/ci/bin/python -m pytest -q smallrna/.tests/test_quant_methods.py` | `.dev/ci` |
+| Small-RNA `quant.method` selection and route guards | `.dev/ci/bin/python -m pytest -q smallrna/.tests/test_quant_methods.py smallrna/.tests/test_route_guards.py` | `.dev/ci` |
 | Small-RNA AnnData | `.dev/anndata/bin/python -m pytest -q smallrna/.tests/test_create_anndata.py` | `.dev/anndata` |
 
 Run the checks for the areas you changed; the [area map](architecture.md#area-map) lists them.

@@ -35,7 +35,7 @@ rule picard_mark_duplicates:
         java_opt="-Xms4g -Xmx4g ",
         dup_args = optical_dup_args()
     threads:
-        8
+        1
     container:
         'docker://' + config['docker']['picard_gatk']
     shell:

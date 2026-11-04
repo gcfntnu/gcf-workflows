@@ -1,8 +1,5 @@
 #-*- mode:snakemake -*-
 
-import warnings
-warnings.filterwarnings("ignore", message="numpy.dtype size changed")
-
 include:
     join(GCFDB_DIR, 'unitas.db')
 
@@ -244,7 +241,7 @@ rule unitas_mirna_anndata:
     input:
         mir_table = rules.unitas_mirtable.output,
         sample_info = join(INTERIM_DIR, 'sample_info.tsv'),
-        feature_info = rules. mirbase_genes.output,
+        feature_info = rules.mirbase_genes.output,
         vsn = rules.unitas_mirna_vsn.output
     output:
         join(QUANT_INTERIM, 'unitas', 'adata.h5ad')
@@ -260,9 +257,6 @@ rule unitas_mirna_anndata:
         '--add-vsn --vsn-input {input.vsn:q} '
         '--output {output} '
 
-rule unitas_biotypes:
-    input:
-        
 rule unitas_all:
     input:
         rules.unitas_mirtable.output,
