@@ -52,3 +52,36 @@ def test_supported_settings_plan_delivery(tmp_path, update):
     returncode, output = dry_run(tmp_path, update)
     assert returncode == 0, output
     assert 'rule star_align:' in output
+
+
+def set_spikein(ref):
+    return lambda settings: settings.setdefault('filter', {}).setdefault('spikein', {}).update(quantifier='unitas', ref=ref)
+
+
+@pytest.mark.parametrize('ref, fastas', [('ERCC92,smallrna_calibrators', ['ERCC92.fa', 'smallrna_calibrators.fa']),
+                                         ('ERCC92', ['ERCC92.fa']), ('smallrna_calibrators', ['smallrna_calibrators.fa'])])
+def test_spikein_sets_select_their_fasta_files(tmp_path, ref, fastas):
+    returncode, output = dry_run(tmp_path, set_spikein(ref))
+    assert returncode == 0, output
+    inputs = output.split('rule spikein_unitas:')[1].split('output:')[0]
+    assert sorted(path.rsplit('/', 1)[1] for path in inputs.split('input:')[1].strip().split(', ')) == sorted(fastas)
+
+
+@pytest.mark.parametrize('ref', ['ercc', 'ERCC92,mirbase'])
+def test_unknown_spikein_set_fails(tmp_path, ref):
+    returncode, output = dry_run(tmp_path, set_spikein(ref))
+    assert returncode != 0
+    assert 'filter.spikein.ref: unsupported value' in output
+
+
+@pytest.mark.parametrize('ref', ['', None])
+def test_spikein_quantification_without_sets_fails(tmp_path, ref):
+    returncode, output = dry_run(tmp_path, set_spikein(ref))
+    assert returncode != 0
+    assert 'filter.spikein.ref lists no spike-in sets' in output
+
+
+def test_default_has_no_spikeins(tmp_path):
+    returncode, output = dry_run(tmp_path, lambda settings: None)
+    assert returncode == 0, output
+    assert 'rule spikein_unitas:' not in output and 'spikein/fasta' not in output
