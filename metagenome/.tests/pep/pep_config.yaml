@@ -1,13 +1,13 @@
 pep_version: 2.0.0
 sample_table: sample_table.csv
 project_id: &id001
-- GCF-2023-901
+- GCF-0000-002
 organism: N/A
 experiment_title: *id001
 experiment_summary: NA
 experiment_principal_inverstigator: NA
 workflow: default
-machine: MiSeq StOlav
+machine: MiSeq
 read_geometry:
 - 151
 - 151

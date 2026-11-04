@@ -100,21 +100,6 @@ def get_donor_vcf(wildcards):
     return join(donor_dir, wildcards.sample, vcf_fn)
                 
             
-rule bam_rename_chromosomes:
-    input:
-        bam = get_singlecell_bam,
-        mapping_file = '/mnt/archive/ext_cache/ext/ensembl/release-109/homo_sapiens/GRCh38/anno/ensembl_to_10xgenomics_2020-A_map.txt'
-    output:
-        bam = '{sample}_fixed.bam'
-    container:
-        'docker://lindenb/jvarkit:1b2aedf24'
-    shell:
-        'java -jar /opt/jvarkit/dist/jvarkit.jar bamrenamechr '
-        '-f {input.mapping_file} '
-        '--samoutputformat BAM '
-        '--out {output.bam} '
-        '{input.bam} '
-
 rule sorted_vcf:
     input:
         vcf = join(REF_DIR, 'anno', 'common_variants.vcf'),

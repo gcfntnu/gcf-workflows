@@ -1,4 +1,4 @@
-# This workflow will install snakemake and test rule bfq_all
+# This workflow will install snakemake==9.7.1 and test rule multiqc_report
 
 name: Test small-rna
 
@@ -21,9 +21,9 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        python -m pip install snakemake==8.1.1 pyyaml==6.0 peppy rich pulp==2.7.0
+        python -m pip install snakemake==9.7.1 pyyaml==6.0 peppy rich pulp==2.7.0 -r .tests/requirements-config.txt
         python --version
-    - name: Dry run bfq_all
+    - name: Dry run multiqc_report
       working-directory: ./smallrna/.tests
       run: |
         snakemake -n -p --cores 1 multiqc_report

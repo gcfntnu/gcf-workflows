@@ -164,9 +164,10 @@ def libraries_from_explicit_config(config: dict) -> pd.DataFrame:
 
 
 def normalized_tables(config: dict) -> tuple[pd.DataFrame, pd.DataFrame]:
-    libprepkit = str(config.get("libprepkit", ""))
+    # This reads the original project file, whose accepted kit spelling is preserved by configmaker.
+    libprepkit = str(config.get("libprepkit", "")).strip().casefold()
 
-    if libprepkit.startswith("Parse Biosciences"):
+    if libprepkit.startswith("parse biosciences"):
         return parse_legacy_metadata(config)
 
     if config.get("libraries") is not None:

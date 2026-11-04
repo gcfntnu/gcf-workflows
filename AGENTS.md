@@ -1,3 +1,13 @@
+## Start here
+
+- Read [CONTRIBUTING.md](CONTRIBUTING.md) for the task, verification and PR process, then the issue you are working on.
+- Prepare `.dev/` environments and run checks with the [development guide](docs/development.md).
+- Find source, tests and per-workflow differences in the [architecture guide](docs/architecture.md).
+- Configuration merging and paths are in [docs/configuration.md](docs/configuration.md).
+- Companion repositories and shared interfaces are in [docs/suite.md](docs/suite.md).
+- Work in an issue branch from current `bfq-dev`, in your own worktree, and keep generated files under `.dev/` or an invocation-owned temporary directory.
+- Local checks are dry runs and unit tests on synthetic data. Do not run scientific workflows, containers, reference downloads or anything against production data as a local check.
+
 ## General code formatting
 
 * Prefer semantic line breaks: break lines where structure, meaning, or readability benefits, not at an arbitrary column limit.

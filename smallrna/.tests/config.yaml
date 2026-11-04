@@ -1,6 +1,6 @@
 workflow: smallrna
 project_id:
-- GCF-2018-568
+- GCF-0000-006
 organism: mus_musculus
 libprepkit: Bioo Scientific NEXTflex Small RNA-Seq Kit v3
 read_geometry:
@@ -11,22 +11,21 @@ quant:
     method: skip
 fastq_dir: data/raw/fastq
 samples:
-  S67:
-    R1: smallrna_testdata/GCF-2018-568/S67_R1.fastq.gz
+  SR01:
+    R1: smallrna_testdata/GCF-0000-006/SR01_R1.fastq.gz
     R2: ''
     paired_end: 0
-    Sample_ID: S67
-    External_ID: 136880
-    Project_ID: GCF-2018-568
+    Sample_ID: SR01
+    External_ID: 100001
+    Project_ID: GCF-0000-006
     Organism: mus musculus
-    Sample_Biosource: Spermatozooa cauda/vas
+    Sample_Biosource: tissue type A
     Index1_p7 (If dual indexed libraries are submitted indicate what index sequence is used P7): ''
     Index2_p5 (If libraries are submitted  indicate what index sequence is used P75): ''
-    Sample_Group: 2,5/3/F2/B/Bl6
-    Customer_Comment: RNA is NOT Dnase treated/miRNeasy Mini Kit used (Trizol based
-      - clean up not performed)
-    'Unnamed: 17': Not performed due to low RNA abundance
-    Project ID: 136880.0
+    Sample_Group: 1,5/2/G1/B/StrainX
+    Customer_Comment: Synthetic comment/kit A used (method B - step C not performed)
+    'Unnamed: 17': Synthetic note - not measured
+    Project ID: 100001.0
     RIN: ''
     SpikeIn: ''
     Fragment_Length: ''
@@ -35,22 +34,21 @@ samples:
     260/280: ''
     260/230: ''
     Lab_Comment: ''
-  S76:
-    R1: smallrna_testdata/GCF-2018-568/S76_R1.fastq.gz
+  SR02:
+    R1: smallrna_testdata/GCF-0000-006/SR02_R1.fastq.gz
     R2: ''
     paired_end: 0
-    Sample_ID: S76
-    External_ID: 136151
-    Project_ID: GCF-2018-568
+    Sample_ID: SR02
+    External_ID: 100002
+    Project_ID: GCF-0000-006
     Organism: mus musculus
-    Sample_Biosource: Spermatozooa cauda/vas
+    Sample_Biosource: tissue type A
     Index1_p7 (If dual indexed libraries are submitted indicate what index sequence is used P7): ''
     Index2_p5 (If libraries are submitted  indicate what index sequence is used P75): ''
-    Sample_Group: 2,5/3/F2/B/Bl6
-    Customer_Comment: RNA is NOT Dnase treated/miRNeasy Mini Kit used (Trizol based
-      - clean up not performed)
-    'Unnamed: 17': Not performed due to low RNA abundance
-    Project ID: 136151.0
+    Sample_Group: 1,5/2/G1/B/StrainX
+    Customer_Comment: Synthetic comment/kit A used (method B - step C not performed)
+    'Unnamed: 17': Synthetic note - not measured
+    Project ID: 100002.0
     RIN: ''
     SpikeIn: ''
     Fragment_Length: ''
@@ -59,22 +57,21 @@ samples:
     260/280: ''
     260/230: ''
     Lab_Comment: ''
-  L25:
-    R1: smallrna_testdata/GCF-2018-568/L25_R1.fastq.gz
+  SR03:
+    R1: smallrna_testdata/GCF-0000-006/SR03_R1.fastq.gz
     R2: ''
     paired_end: 0
-    Sample_ID: L25
-    External_ID: 132600
-    Project_ID: GCF-2018-568
+    Sample_ID: SR03
+    External_ID: 100003
+    Project_ID: GCF-0000-006
     Organism: mus musculus
-    Sample_Biosource: Liver Tissue
+    Sample_Biosource: tissue type B
     Index1_p7 (If dual indexed libraries are submitted indicate what index sequence is used P7): ''
     Index2_p5 (If libraries are submitted  indicate what index sequence is used P75): ''
-    Sample_Group: 100/3/F2/A/CBA
-    Customer_Comment: RNA is NOT Dnase treated/miRNeasy Mini Kit used (Trizol based
-      - clean up not performed)
-    'Unnamed: 17': 1.61
-    Project ID: 132600.0
+    Sample_Group: 100/2/G1/A/StrainY
+    Customer_Comment: Synthetic comment/kit A used (method B - step C not performed)
+    'Unnamed: 17': 1.71
+    Project ID: 100003.0
     RIN: ''
     SpikeIn: ''
     Fragment_Length: ''
@@ -83,22 +80,21 @@ samples:
     260/280: ''
     260/230: ''
     Lab_Comment: ''
-  L57:
-    R1: smallrna_testdata/GCF-2018-568/L57_R1.fastq.gz
+  SR04:
+    R1: smallrna_testdata/GCF-0000-006/SR04_R1.fastq.gz
     R2: ''
     paired_end: 0
-    Sample_ID: L57
-    External_ID: 135758
-    Project_ID: GCF-2018-568
+    Sample_ID: SR04
+    External_ID: 100004
+    Project_ID: GCF-0000-006
     Organism: mus musculus
-    Sample_Biosource: Liver Tissue
+    Sample_Biosource: tissue type B
     Index1_p7 (If dual indexed libraries are submitted indicate what index sequence is used P7): ''
     Index2_p5 (If libraries are submitted  indicate what index sequence is used P75): ''
-    Sample_Group: CTRL/F2/Bl6
-    Customer_Comment: RNA is NOT Dnase treated/miRNeasy Mini Kit used (Trizol based
-      - clean up not performed)
-    'Unnamed: 17': 1.81
-    Project ID: 135758.0
+    Sample_Group: CTRL/G1/StrainX
+    Customer_Comment: Synthetic comment/kit A used (method B - step C not performed)
+    'Unnamed: 17': 1.91
+    Project ID: 100004.0
     RIN: ''
     SpikeIn: ''
     Fragment_Length: ''

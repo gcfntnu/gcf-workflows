@@ -1,5 +1,5 @@
 project_id:
-- GCF-2020-746
+- GCF-0000-001
 organism: homo_sapiens
 libprepkit: Custom
 read_geometry:
@@ -11,20 +11,20 @@ quant:
     method: skip
 fastq_dir: data/raw/fastq
 samples:
-  B31:
-    R1: 210519_NB501038_0285_AHC3THBGXJ/GCF-2020-746/B31_R1.fastq.gz
-    R2: 210519_NB501038_0285_AHC3THBGXJ/GCF-2020-746/B31_R2.fastq.gz
+  S01:
+    R1: 000101_NS000001_0001_ASYNTHFC01/GCF-0000-001/S01_R1.fastq.gz
+    R2: 000101_NS000001_0001_ASYNTHFC01/GCF-0000-001/S01_R2.fastq.gz
     paired_end: 1
-    Sample_ID: B31
+    Sample_ID: S01
     External_ID: ''
-    Project_ID: GCF-2020-746
+    Project_ID: GCF-0000-001
     Organism: Human
-    Sample_Biosource: FFPE tumor tissue
+    Sample_Biosource: tissue type A
     Index1_p7 (If dual indexed libraries are submitted indicate what index sequence is used P7): 704
     Index2_p5 (If libraries are submitted  indicate what index sequence is used P75): 510
     Sample_Group: ''
     Customer_Comment: ''
-    Project ID: GCF-2020-746
+    Project ID: GCF-0000-001
     RIN: ''
     SpikeIn: ''
     Fragment_Length: ''
@@ -33,20 +33,20 @@ samples:
     260/280: ''
     260/230: ''
     Lab_Comment: ''
-  B61:
-    R1: 210519_NB501038_0285_AHC3THBGXJ/GCF-2020-746/B61_R1.fastq.gz
-    R2: 210519_NB501038_0285_AHC3THBGXJ/GCF-2020-746/B61_R2.fastq.gz
+  S02:
+    R1: 000101_NS000001_0001_ASYNTHFC01/GCF-0000-001/S02_R1.fastq.gz
+    R2: 000101_NS000001_0001_ASYNTHFC01/GCF-0000-001/S02_R2.fastq.gz
     paired_end: 1
-    Sample_ID: B61
+    Sample_ID: S02
     External_ID: ''
-    Project_ID: GCF-2020-746
+    Project_ID: GCF-0000-001
     Organism: Human
-    Sample_Biosource: Whole blood
+    Sample_Biosource: tissue type B
     Index1_p7 (If dual indexed libraries are submitted indicate what index sequence is used P7): 711
     Index2_p5 (If libraries are submitted  indicate what index sequence is used P75): 505
     Sample_Group: ''
     Customer_Comment: ''
-    Project ID: GCF-2020-746
+    Project ID: GCF-0000-001
     RIN: ''
     SpikeIn: ''
     Fragment_Length: ''
@@ -55,20 +55,20 @@ samples:
     260/280: ''
     260/230: ''
     Lab_Comment: ''
-  B78:
-    R1: 210519_NB501038_0285_AHC3THBGXJ/GCF-2020-746/B78_R1.fastq.gz
-    R2: 210519_NB501038_0285_AHC3THBGXJ/GCF-2020-746/B78_R2.fastq.gz
+  S03:
+    R1: 000101_NS000001_0001_ASYNTHFC01/GCF-0000-001/S03_R1.fastq.gz
+    R2: 000101_NS000001_0001_ASYNTHFC01/GCF-0000-001/S03_R2.fastq.gz
     paired_end: 1
-    Sample_ID: B78
+    Sample_ID: S03
     External_ID: ''
-    Project_ID: GCF-2020-746
+    Project_ID: GCF-0000-001
     Organism: Human
-    Sample_Biosource: Whole blood
+    Sample_Biosource: tissue type B
     Index1_p7 (If dual indexed libraries are submitted indicate what index sequence is used P7): 714
     Index2_p5 (If libraries are submitted  indicate what index sequence is used P75): 506
     Sample_Group: ''
     Customer_Comment: ''
-    Project ID: GCF-2020-746
+    Project ID: GCF-0000-001
     RIN: ''
     SpikeIn: ''
     Fragment_Length: ''
@@ -77,20 +77,20 @@ samples:
     260/280: ''
     260/230: ''
     Lab_Comment: ''
-  B100:
-    R1: 210519_NB501038_0285_AHC3THBGXJ/GCF-2020-746/B100_R1.fastq.gz
-    R2: 210519_NB501038_0285_AHC3THBGXJ/GCF-2020-746/B100_R2.fastq.gz
+  S04:
+    R1: 000101_NS000001_0001_ASYNTHFC01/GCF-0000-001/S04_R1.fastq.gz
+    R2: 000101_NS000001_0001_ASYNTHFC01/GCF-0000-001/S04_R2.fastq.gz
     paired_end: 1
-    Sample_ID: B100
+    Sample_ID: S04
     External_ID: ''
-    Project_ID: GCF-2020-746
+    Project_ID: GCF-0000-001
     Organism: Human
-    Sample_Biosource: Whole blood
+    Sample_Biosource: tissue type B
     Index1_p7 (If dual indexed libraries are submitted indicate what index sequence is used P7): 710
     Index2_p5 (If libraries are submitted  indicate what index sequence is used P75): 503
     Sample_Group: ''
     Customer_Comment: ''
-    Project ID: GCF-2020-746
+    Project ID: GCF-0000-001
     RIN: ''
     SpikeIn: ''
     Fragment_Length: ''

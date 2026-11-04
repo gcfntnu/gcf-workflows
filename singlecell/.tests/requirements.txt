@@ -1,9 +1,8 @@
-snakemake==8.1.1
+snakemake==9.7.1
 pyyaml==6.0
 peppy
 rich
 pulp==2.7.0
 pytest
 scanpy
-# Immutable shared libprep selector baseline; no local gcf-tools override.
-gcf-tools @ https://github.com/gcfntnu/gcf-tools/archive/1daa9822084bc3a3df4b94102c13c6352fa57ecd.zip
+-r ../../.tests/requirements-config.txt
