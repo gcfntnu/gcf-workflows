@@ -80,7 +80,7 @@ They are outside MultiQC's `logs/` scan so the report sees one combined sample, 
 | filter | `rules/filter/cliptrim.smk`, shared `common/` rules | FASTQ merging; clipping and trimming |
 | align | `rules/align/star.smk` | STAR (smallrna options); the only supported genome aligner |
 | quant | `rules/quant/unitas.smk`, `mirge3.smk` | UNITAS (including its spike-in and variance-transformation rules), miRge3 |
-| qc | `rules/qc/`, shared `common/` rules | FastQC (shared), miRTrace |
+| qc | `rules/qc/`, shared `common/` rules | FastQC (shared); miRTrace QC on the merged FASTQs, delivered to `bfq/logs/mirtrace/` and shown in the MultiQC report |
 | bfq | `rules/bfq/` (levels 1–3) | Collect delivery products into `bfq/` |
 
 **`quant.method` and delivery.** `quant.method` selects what the separate `quant_all` target builds: `unitas`, `mirge3` or both (comma-separated). Any other value stops `quant_all` with an error. It does **not** change delivery: `bfq_all` and `multiqc_report` always deliver the UNITAS products (`rules/bfq/bfq_level2.smk`), whatever `quant.method` says.
@@ -102,6 +102,7 @@ exprs/mir_counts.tsv, isomir_counts.tsv, isomir_counts_anno.tsv, trf_counts.tsv,
 figs/gene_high_mqc.yaml, pca_mqc.yaml
 logs/unitas/<sample>  (relative links to quant/unitas/unitas/<sample>)
 provenance/fastp/<sample>.adapter.{json,html}, <sample>.filter.{json,html}
+logs/mirtrace/mirtrace-results.json, mirtrace-report.html, mirtrace-stats-{length,contamination_basic,mirna-complexity}.tsv
 logs/<sample>/<sample>.fastp.html, .fastp.json, _fastqc.html, _fastqc.zip, .Log.final.out
 ```
 
@@ -117,7 +118,9 @@ logs/<sample>/<sample>.fastp.html, .fastp.json, _fastqc.html, _fastqc.zip, .Log.
 | `filter.dedup` | `false`; `true` stops the workflow at load (no read deduplication) | `main.config`, kit entry |
 | `filter.trim` | Per kit | Kit entry ([#215](https://github.com/gcfntnu/gcf-workflows/issues/215)) |
 | `filter.spikein.ref` | `null` (no spike-ins). Otherwise comma-separated spike-in sets, each `ERCC92` or `smallrna_calibrators`, e.g. `ERCC92,smallrna_calibrators`. Unknown sets, or `filter.spikein.quantifier: unitas` without any set, stop the workflow at load | `smallrna.config` |
-| `filter.spikein`, `filter.contaminants`, `filter.ribosomal`, `filter.trim.mirtrace` | `skip`/off; miRTrace protocol per kit | `smallrna.config`, kit entry |
+| `filter.trim.quantifier` | `fastp` or `skip`; any other value stops the workflow at load (the miRTrace filter route was removed) | Kit entry |
+| `filter.trim.mirtrace.protocol` | Per kit: `nextflex` (NEXTflex v3, 4N ends), `illumina` (NEXTflex v4, TruSeq). Required | Kit entry |
+| `filter.spikein`, `filter.contaminants`, `filter.ribosomal` | `skip`/off | `smallrna.config` |
 | `db.reference_db`, `db.mirbase.release` | `ensembl`, releases in `main.config` | Kit entry, `main.config` |
 
 Precedence between these sources is described in [docs/configuration.md](../docs/configuration.md#effective-precedence).
