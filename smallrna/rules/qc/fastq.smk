@@ -1,53 +1,51 @@
 #-*- mode: snakemake -*-
-"""Fastq qc rules on trimmed fastq files
+"""miRTrace quality control on the merged, untrimmed FASTQs.
+
+miRTrace trims adapters itself, using the configured adapter and the kit's protocol.
 """
 
-MIRTRACE_DIR = join(INTERIM_DIR, 'smallrna', 'qc', 'mirtrace')
+MIRTRACE_DIR = join(QC_INTERIM, 'mirtrace')
+MIRTRACE_SPECIES = {'homo_sapiens': 'hsa', 'mus_musculus': 'mmu', 'rattus_norvegicus': 'rno'}
+MIRTRACE_PROTOCOL = config['filter']['trim']['mirtrace']['protocol']
+
+def mirtrace_species():
+    species = MIRTRACE_SPECIES.get(config['organism'])
+    if species is None:
+        raise ValueError('miRTrace QC supports {}, got organism {!r}'.format(', '.join(MIRTRACE_SPECIES), config['organism']))
+    return species
 
 rule mirtrace_config:
     input:
-        expand(join(FILTER_INTERIM, 'fastq', '{sample}_R1.fastq'), sample=SAMPLES)
+        expand(rules.merged_fastq_R1.output, sample=SAMPLES)
     output:
-        temp('.filter_mirtrace.conf')
+        join(MIRTRACE_DIR, 'mirtrace.config')
     params:
         adapter = config['adapter']
     run:
         with open(output[0], 'w') as fh:
-            for k, v in config['samples'].items():
-                fn = join(config['fastq_dir'], v['R1'])
-                els = [fn, k, params.adapter]
-                fh.write(','.join(els) + '\n')            
-
-def mirtrace_species(*args):
-    org_map = {'homo_sapiens': 'hsa',
-               'mus_musculus': 'mmu',
-               'rattus_norvegicus': 'rno'}
-    org = org_map.get(config['organism'])
-    if org is None:
-        raise ValueError('mirtrace qc support onle for human, mouse or rat. Got: {}'.format(config['organism']))
-    return org
+            for sample, fastq in zip(SAMPLES, input):
+                fh.write(','.join([os.path.abspath(fastq), sample, params.adapter]) + '\n')
 
 rule qc_mirtrace:
     input:
-        config = '.filter_mirtrace.conf',
-        samples = expand(join(FILTER_INTERIM, 'fastq', '{sample}.fastq'), sample=SAMPLES)
+        config = rules.mirtrace_config.output,
+        fastq = expand(rules.merged_fastq_R1.output, sample=SAMPLES)
+    output:
+        results = join(MIRTRACE_DIR, 'mirtrace-results.json'),
+        report = join(MIRTRACE_DIR, 'mirtrace-report.html'),
+        length = join(MIRTRACE_DIR, 'mirtrace-stats-length.tsv'),
+        contamination = join(MIRTRACE_DIR, 'mirtrace-stats-contamination_basic.tsv'),
+        complexity = join(MIRTRACE_DIR, 'mirtrace-stats-mirna-complexity.tsv')
     params:
         outdir = MIRTRACE_DIR,
-        protocol = config['filter']['trim']['mirtrace']['protocol'],
+        protocol = MIRTRACE_PROTOCOL,
         species = mirtrace_species(),
         title = config.get('project_id', 'GCF-0000-00')
-    container:
-        'docker://' + config['docker']['mirtrace']
     threads:
         8
-    output:
-        qc = join(MIRTRACE_DIR, 'mirtrace-results.json'),
-        length = join(MIRTRACE_DIR, 'mirtrace-stats-length.tsv')
+    container:
+        'docker://' + config['docker']['mirtrace']
     shell:
-        'mirtrace qc '
-        '-s {params.species} '
-        '-c {input.config} '
-        '-o {params.outdir} '
-        '-p {params.protocol} '
-        '--title {params.title} '
-        '-t {threads} '
+        'mirtrace qc --force '
+        '-s {params.species} -p {params.protocol} -c {input.config} '
+        '-o {params.outdir} --title {params.title} -t {threads}'

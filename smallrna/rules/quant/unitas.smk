@@ -4,22 +4,8 @@ include:
     join(GCFDB_DIR, 'unitas.db')
 
 
-rule unitas_mirtrace_fasta:
-    input:
-        join(FILTER_INTERIM, 'mirtrace', 'qc_passed_reads.all.collapsed', '{sample}_R1.fasta')
-    output:
-        join(FILTER_INTERIM, 'mirtrace', 'unitas_fasta', '{sample}_R1.fasta')
-    shell:
-        """
-        sed -r '/>/ s/(.*)x([[:digit:]]+)(.*)/>\\2/' {input} > {output}
-        """
-
 def get_unitas_seq(wildcards):
-    if config['filter']['trim']['quantifier'] == 'mirtrace':
-        fastq = join(FILTER_INTERIM, 'mirtrace', 'unitas_fasta', '{sample}_R1.fasta')
-    else:
-        fastq = get_filtered_fastq(wildcards)['R1']
-    return fastq
+    return get_filtered_fastq(wildcards)['R1']
 
 SPIKEIN_SETS = ('ERCC92', 'smallrna_calibrators')
 
