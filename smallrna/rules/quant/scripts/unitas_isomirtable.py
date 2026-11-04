@@ -46,14 +46,15 @@ if __name__ == '__main__':
 
     DF.fillna(0, inplace=True)
 
-    isomirs = DF.pivot(columns='Sample_ID', values="total_reads").T
+    # Features (sequence|miR-name) as rows and samples as columns, like the other count tables.
+    isomirs = DF.pivot(columns='Sample_ID', values="total_reads")
     isomirs.fillna(0, inplace=True)
-    isomirs = isomirs.loc[:,isomirs.sum(0) > args.min_count] 
+    isomirs = isomirs.loc[isomirs.sum(1) > args.min_count, :].sort_index()
+    isomirs.columns.name = None
     isomirs.to_csv(args.output, sep='\t')
-    
 
     DF_uniq = DF.loc[~DF.index.duplicated(),:]
-    ANNO = DF_uniq.loc[isomirs.columns,:]
+    ANNO = DF_uniq.loc[isomirs.index,:]
     #ANNO = DF[['miR-name']]
     gene_names = []
     patt = re.compile('(.*)(\\(.*\\))')

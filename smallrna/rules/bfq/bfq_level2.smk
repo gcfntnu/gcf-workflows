@@ -40,7 +40,7 @@ rule bfq_level2_exprs:
         join(BFQ_INTERIM, 'exprs', 'trf_counts.tsv'),
         join(BFQ_INTERIM, 'exprs', 'isomir_counts.tsv'),
         join(BFQ_INTERIM, 'exprs', 'isomir_counts_anno.tsv'),
-        join(BFQ_INTERIM, 'exprs', 'isotrf_counts.csv'),
+        join(BFQ_INTERIM, 'exprs', 'isotrf_counts.tsv'),
         join(BFQ_INTERIM, 'exprs', 'annotations.tsv')
     run:
         for src, dst in zip(input, output):

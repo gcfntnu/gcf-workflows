@@ -98,13 +98,15 @@ They are outside MultiQC's `logs/` scan so the report sees one combined sample, 
 ```text
 multiqc_<project>.html, .multiqc_config.yaml
 align/<sample>.sorted.bam
-exprs/mir_counts.tsv, isomir_counts.tsv, isomir_counts_anno.tsv, trf_counts.tsv, isotrf_counts.csv, annotations.tsv
+exprs/mir_counts.tsv, isomir_counts.tsv, isomir_counts_anno.tsv, trf_counts.tsv, isotrf_counts.tsv, annotations.tsv
 figs/gene_high_mqc.yaml, pca_mqc.yaml
 logs/unitas/<sample>  (relative links to quant/unitas/unitas/<sample>)
 provenance/fastp/<sample>.adapter.{json,html}, <sample>.filter.{json,html}
 logs/mirtrace/mirtrace-results.json, mirtrace-report.html, mirtrace-stats-{length,contamination_basic,mirna-complexity}.tsv
 logs/<sample>/<sample>.fastp.html, .fastp.json, _fastqc.html, _fastqc.zip, .Log.final.out
 ```
+
+**Delivered UNITAS tables.** `mir_counts.tsv`, `trf_counts.tsv` and `isomir_counts.tsv` have features as rows and samples as columns; `isomir_counts.tsv` rows are `sequence|miR-name`, annotated in `isomir_counts_anno.tsv`. `isotrf_counts.tsv` (tab-separated) and `annotations.tsv` are long tables with a `Sample_ID` column. Every `annotations.tsv` row names its parent levels (`Level1`, `Level2`, `Level3`). All tables are sorted, so repeated runs give identical files.
 
 ## Key configuration
 

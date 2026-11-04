@@ -44,10 +44,10 @@ count2TPM <- function(counts, prior.count=0){
 if (args$type == "unitas"){
     counts <- read.delim(args$input, sep="\t", row.names=1, check.names=FALSE)
     anno <- read.delim(args$features, sep="\t", row.names=1, check.names=FALSE)
-    anno <- anno[colnames(counts),]
+    anno <- anno[rownames(counts),]
 }
 
-countsMat <- t(as.matrix(round(counts)))
+countsMat <- as.matrix(round(counts))
 keep.ids <- rowSums(countsMat >= args$minc) >= args$mins
 countsMat <- countsMat[keep.ids,]
 lengthMat <- matrix(1, nrow=nrow(countsMat), ncol=ncol(countsMat))
