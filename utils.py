@@ -195,17 +195,20 @@ def load_model(model_yaml_file):
 # Patterned models are matched first, so 'NextSeq 2000' and 'MiSeq i100' do not fall into the legacy families below.
 PATTERNED_FLOWCELL_MACHINES = ('NovaSeq', 'HiSeq 3000', 'HiSeq 4000', 'HiSeq X', 'NextSeq 1000', 'NextSeq 2000', 'MiSeq i100')
 NONPATTERNED_FLOWCELL_MACHINES = ('MiSeq', 'MiniSeq', 'NextSeq 500', 'NextSeq 550', 'HiSeq 2500')
+# gcf-bfq passes this text instead of an empty value for an instrument missing from configmaker's SEQUENCERS.
+UNKNOWN_MACHINE_VALUES = ('', 'Sequencer could not be automatically determined.')
 
 def picard_duplicate_args(machine, remove_optical_duplicates=False):
     """Picard MarkDuplicates options for the sequencing instrument (`machine` from configmaker).
 
     Duplicates are always tagged (DT:LB or DT:SQ). The optical pixel distance follows Picard's guidance:
-    2500 for patterned flowcells, 100 for non-patterned ones and for an unknown (empty) instrument.
+    2500 for patterned flowcells, 100 for non-patterned ones and for an unknown instrument (empty, or the
+    gcf-bfq text for an undetermined sequencer). Any other unrecognised name stops the workflow.
     """
     machine = (machine or '').strip()
     if machine.startswith(PATTERNED_FLOWCELL_MACHINES):
         distance = 2500
-    elif machine.startswith(NONPATTERNED_FLOWCELL_MACHINES) or not machine:
+    elif machine.startswith(NONPATTERNED_FLOWCELL_MACHINES) or machine in UNKNOWN_MACHINE_VALUES:
         distance = 100
     else:
         raise ValueError('machine: no optical-duplicate distance for {!r}; add it to PATTERNED_FLOWCELL_MACHINES '

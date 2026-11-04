@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def load_helper():
     """Execute only the helper and its constants from utils.py, without Snakemake."""
     tree = ast.parse((ROOT / 'utils.py').read_text())
-    names = {'PATTERNED_FLOWCELL_MACHINES', 'NONPATTERNED_FLOWCELL_MACHINES', 'picard_duplicate_args'}
+    names = {'PATTERNED_FLOWCELL_MACHINES', 'NONPATTERNED_FLOWCELL_MACHINES', 'UNKNOWN_MACHINE_VALUES', 'picard_duplicate_args'}
     nodes = [node for node in tree.body
              if (isinstance(node, ast.FunctionDef) and node.name in names)
              or (isinstance(node, ast.Assign) and {t.id for t in node.targets if isinstance(t, ast.Name)} & names)]
@@ -32,7 +32,8 @@ class PicardDuplicateArgsTests(unittest.TestCase):
     def test_optical_distance_follows_flowcell_type(self):
         cases = {'NovaSeq 6000': 2500, 'HiSeq 4000': 2500, 'HiSeq X': 2500,
                  'NextSeq 1000': 2500, 'NextSeq 2000': 2500, 'MiSeq i100': 2500, 'MiSeq i100 Plus': 2500,
-                 'NextSeq 500': 100, 'NextSeq 550': 100, 'MiSeq NTNU': 100, 'MiniSeq NTNU': 100, 'HiSeq 2500': 100, '': 100, None: 100}
+                 'NextSeq 500': 100, 'NextSeq 550': 100, 'MiSeq NTNU': 100, 'MiniSeq NTNU': 100, 'HiSeq 2500': 100, '': 100, None: 100,
+                 'Sequencer could not be automatically determined.': 100}
         for machine, distance in cases.items():
             with self.subTest(machine=machine):
                 args = picard_duplicate_args(machine).split()
