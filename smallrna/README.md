@@ -15,9 +15,62 @@ Kits whose [libprep.config](../libprep.config) entry sets `workflow: smallrna`. 
 | Bioo Scientific NEXTflex Small RNA-Seq Kit v4 | SE |
 | TruSeq Small RNA Library Prep Kit | SE |
 
-The kit entries set `filter.trim` (fastp `args` and `trim_args`, miRTrace `protocol: nextflex`) and `db.reference_db: ensembl`.
+The kit entries set `filter.trim.fastp.args`, miRTrace `protocol: nextflex` and `db.reference_db: ensembl`.
 
-**Trimming configuration is under review.** How the kit's fastp `args`/`trim_args` relate to the shared fastp `params`, and the final insert-length policy, are being reviewed in [#215](https://github.com/gcfntnu/gcf-workflows/issues/215), which is on hold. This README describes the current behaviour and does not anticipate that review.
+### fastp stages and final insert policy
+
+All three kits use **adapter removal, then final trimming/filtering**, with fastp 0.20.1.
+The workflow generates the adapter-only options `-Q -L -G`: no quality/N-base filtering, optional length filtering or polyG trimming in that pass.
+Empty/null reads are still rejected by fastp and counted in that stage's `too_short_reads`; `-L` does not preserve empty reads.
+Only the second invocation receives `filter.trim.fastp.args`; the workflow supplies `-A` there to prevent repeated adapter removal.
+There is no configurable first-stage option string, and no small-RNA use of the shared rule's `params` key.
+
+| Kit | Fixed clipping after adapter removal | Minimum final insert |
+| --- | --- | --- |
+| NEXTflex v3 SE | Four bases from each exposed end (`-f 4 -t 4`) | 16 nt |
+| NEXTflex v4 SE | None | 15 nt (existing policy preserved) |
+| TruSeq Small RNA SE | None | 15 nt (existing policy preserved) |
+
+Every preset explicitly sets the existing final quality/N-base and low-complexity thresholds:
+`-q 15 -u 40 -n 5 -e 0 --low_complexity_filter --complexity_threshold 30`.
+This rejects reads with more than 40% of bases below Q15 or more than five N bases, with no average-quality requirement;
+low complexity is filtered at fastp's 30% adjacent-base-change threshold.
+Final polyG handling retains fastp 0.20.1's instrument-name detection (enabled automatically for NextSeq/NovaSeq), after adapter removal.
+`-G` in a deliberate final override disables that behavior. Presets do not enable quality end cutting or polyX trimming.
+
+**Why retain two passes for v4 and TruSeq?** A single invocation does not preserve the existing polyG operation order.
+fastp trims polyG before adapters within an invocation; a polyG tract exposed only after adapter removal therefore behaves differently.
+The synthetic regression uses a NextSeq-style header and demonstrates a retained-read difference between the proposed one-pass route and the existing route.
+For v3, fixed end trimming also precedes adapter removal within an invocation, so concatenating its options would clip the wrong 3′ bases.
+See [fastp 0.20.1 processing order](https://github.com/OpenGene/fastp/blob/v0.20.1/src/seprocessor.cpp).
+This bounded correction keeps both stages for all kits; a one-pass change needs a separately validated scientific policy.
+
+The [v4 manufacturer protocol](https://resources.revvity.com/pdfs/man-nextflex-small-rna-trimming-instructions.pdf) recommends cutadapt quality cutting at Q20 and a 16 nt minimum.
+That is a possible future v4 policy, not the current preset, and Q20 end cutting is not equivalent to fastp's read-level quality filtering.
+This change preserves v4's existing policy and does not claim protocol equivalence or require new v4 fixture data.
+The v3 16 nt minimum is the workflow requirement in [#215](https://github.com/gcfntnu/gcf-workflows/issues/215), not a claim about that v4 protocol.
+References, alignment and quantification are outside this change.
+
+### Existing project overrides
+
+New project configurations receive the kit's final options under the existing string key `filter.trim.fastp.args`.
+Projects retaining the old sibling `trim_args` (even empty), or a nonempty `params`, fail early with migration guidance instead of silently changing the stages.
+For an intentional migration, inspect the old effective configuration and remove `trim_args`; do **not** append its `-Q -n 0 -l 0 -G` to the final options.
+Those were first-pass controls. The workflow now supplies equivalent adapter-only controls independently of final filtering.
+Set `args` to the applicable preset above, including v3's `-f 4 -t 4 -l 16`, or preserve explicitly reviewed project-specific final overrides.
+The argument string must specify a final length policy (`-l N` or `-L`, not both); use `-l 0` or `-L` only for deliberately disabled minimum-length filtering.
+In fastp, `-Q` also disables N-base filtering, regardless of `-n`; document that choice when overriding the final policy.
+Resuming an older workdir uses its captured workflow/configuration; deploying this revision does not migrate it automatically.
+
+### Reports
+
+The existing `<sample>.fastp.json` delivery path now contains reconciled original-input/final-output metrics, both commands in execution order,
+and a `processing_stages` array with each stage's summary and rejection counts.
+The merge rejects inconsistent stage accounting or a broken read/base-count chain.
+Raw-input duplication and adapter statistics come from the first pass; final retained-read statistics come from the second.
+The existing `<sample>.fastp.html` is a combined stage/count summary rather than the second pass's native HTML.
+Native reports remain available as `provenance/fastp/<sample>.adapter.{json,html}` and `<sample>.filter.{json,html}`.
+They are outside MultiQC's `logs/` scan so the report sees one combined sample, without duplicate stage samples.
 
 ## Stages
 
@@ -44,6 +97,7 @@ align/<sample>.sorted.bam
 exprs/mir_counts.tsv, isomir_counts.tsv, isomir_counts_anno.tsv, trf_counts.tsv, isotrf_counts.csv, annotations.tsv
 figs/gene_high_mqc.yaml, pca_mqc.yaml
 logs/unitas/
+provenance/fastp/<sample>.adapter.{json,html}, <sample>.filter.{json,html}
 logs/<sample>/<sample>.fastp.html, .fastp.json, _fastqc.html, _fastqc.zip, .Log.final.out
 ```
 
@@ -64,6 +118,7 @@ Precedence between these sources is described in [docs/configuration.md](../docs
 ## Tests
 
 - `smallrna/.tests`: synthetic dry-run fixture (NEXTflex v3, `mus_musculus`, four samples, with small reference FASTA stubs). CI runs `snakemake -n -p --cores 1 multiqc_report` there (`test-small-rna.yml`).
+- `smallrna/.tests/test_fastp.py`: configuration, all-kit dry runs, stage accounting, exact v3 clipping and 15/16/17 nt boundaries, quality/N-base/complexity and polyG outcomes with fastp 0.20.1. All inputs are synthetic; no new v4 fixture is built.
 - `smallrna/.tests/test_create_anndata.py`: AnnData regression, run in CI on Python 3.14 (see below).
 - Commands and environments: [development guide](../docs/development.md#run-the-checks).
 
