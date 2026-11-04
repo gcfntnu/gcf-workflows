@@ -139,7 +139,7 @@ class ConfigurationTests(unittest.TestCase):
     def test_smallrna_defaults_keep_existing_kit_trimming(self):
         config, _ = self.load_fixture('smallrna')
         self.assertEqual(config['align']['genome']['aligner'], 'star')
-        self.assertEqual(config['filter']['spikein']['ref'], 'ERCC92')
+        self.assertIsNone(config['filter']['spikein']['ref'])
         self.assertEqual(config['filter']['ribosomal']['ref'], 'ncbi')
         self.assertEqual(config['filter']['contaminants']['ref'], 'univec_core')
         before = LibprepConfig.load(ROOT / 'libprep.config').select(config['libprepkit'], [75]).parameters

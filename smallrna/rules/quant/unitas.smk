@@ -21,14 +21,18 @@ def get_unitas_seq(wildcards):
         fastq = get_filtered_fastq(wildcards)['R1']
     return fastq
 
+SPIKEIN_SETS = ('ERCC92', 'smallrna_calibrators')
+
 def get_spikein_fasta():
-    ref = config['filter']['spikein'].get('ref', '').lower()
-    if ref == 'ercc':
-        return join(EXT_DIR, 'ERCC', 'fasta', 'ERCC92.fa')
-    elif ref == 'smallrna_calibrators':
-        return join(EXT_DIR, 'spikein', 'fasta', 'smallrna_calibrators.fa')
-    else:
-        return join(EXT_DIR, 'spikein', 'fasta', 'merged_spikein.fa')
+    """FASTA files of the comma-separated spike-in sets in filter.spikein.ref."""
+    ref = config['filter']['spikein'].get('ref')
+    names = [name.strip() for name in str(ref or '').split(',') if name.strip()]
+    unknown = [name for name in names if name not in SPIKEIN_SETS]
+    if unknown:
+        raise ValueError('filter.spikein.ref: unsupported value {!r}; use a comma-separated list of {}'.format(ref, ', '.join(SPIKEIN_SETS)))
+    if not names and config['filter']['spikein']['quantifier'] == 'unitas':
+        raise ValueError('filter.spikein.quantifier is unitas but filter.spikein.ref lists no spike-in sets')
+    return [join(EXT_DIR, 'spikein', 'fasta', name + '.fa') for name in names]
     
 rule spikein_unitas:
     input:
