@@ -78,7 +78,7 @@ They are outside MultiQC's `logs/` scan so the report sees one combined sample, 
 | --- | --- | --- |
 | gcfdb | `rules/gcfdb.smk` | Reference selection |
 | filter | `rules/filter/cliptrim.smk`, shared `common/` rules | FASTQ merging; clipping and trimming |
-| align | `rules/align/star.smk`, `bowtie2.smk` | STAR (smallrna options); Bowtie2 available |
+| align | `rules/align/star.smk` | STAR (smallrna options); the only supported genome aligner |
 | quant | `rules/quant/unitas.smk`, `mirge3.smk` | UNITAS (including its spike-in and variance-transformation rules), miRge3 |
 | qc | `rules/qc/`, shared `common/` rules | FastQC (shared), miRTrace |
 | bfq | `rules/bfq/` (levels 1–3) | Collect delivery products into `bfq/` |
@@ -110,7 +110,8 @@ logs/<sample>/<sample>.fastp.html, .fastp.json, _fastqc.html, _fastqc.zip, .Log.
 | `quant.method` | `unitas`. Accepts `unitas`, `mirge3` or both, comma-separated; selects the `quant_all` targets only, not the delivered UNITAS outputs | [smallrna.config](smallrna.config) |
 | `quant.mirge3.db` | `mirbase` | `smallrna.config` |
 | `align.star.args`, `align.star.guided_index` | STAR options for short reads | `smallrna.config` |
-| `align.genome.aligner` | `star` | [smallrna.config](smallrna.config) |
+| `align.genome.aligner` | `star`; any other value stops the workflow at load | [smallrna.config](smallrna.config) |
+| `filter.dedup` | `false`; `true` stops the workflow at load (no read deduplication) | `main.config`, kit entry |
 | `filter.trim` | Per kit | Kit entry ([#215](https://github.com/gcfntnu/gcf-workflows/issues/215)) |
 | `filter.spikein`, `filter.contaminants`, `filter.ribosomal`, `filter.trim.mirtrace` | `skip`/off; miRTrace protocol per kit | `smallrna.config`, kit entry |
 | `db.reference_db`, `db.mirbase.release` | `ensembl`, releases in `main.config` | Kit entry, `main.config` |
@@ -121,6 +122,7 @@ Precedence between these sources is described in [docs/configuration.md](../docs
 
 - `smallrna/.tests`: synthetic dry-run fixture (NEXTflex v3, `mus_musculus`, four samples, with small reference FASTA stubs). CI runs `snakemake -n -p --cores 1 multiqc_report` there (`test-small-rna.yml`).
 - `smallrna/.tests/test_fastp.py`: configuration, all-kit dry runs, stage accounting, exact v3 clipping and 15/16/17 nt boundaries, quality/N-base/complexity and polyG outcomes with fastp 0.20.1. All inputs are synthetic; no new v4 fixture is built.
+- `smallrna/.tests/test_route_guards.py`: dry runs showing that a non-STAR aligner or `filter.dedup: true` stops at load, while the defaults plan delivery.
 - `smallrna/.tests/test_quant_methods.py`: `quant_all` dry runs for each supported `quant.method`, and errors for removed or unknown values.
 - `smallrna/.tests/test_create_anndata.py`: AnnData regression, run in CI on Python 3.14 (see below).
 - Commands and environments: [development guide](../docs/development.md#run-the-checks).

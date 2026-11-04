@@ -168,7 +168,7 @@ Reference-database (`gcfdb`) configuration and common defaults shared across wor
 | Section | Contents | Used by |
 | --- | --- | --- |
 | `db` | Reference database selection (`reference_db`, `add_ercc`) and the release or assembly for each database (for example `db.ensembl.release`) | gcfdb getters and reference selection in all workflows |
-| `filter` | Shared FASTQ handling: `subsample_fastq`, `compress_filtered_fastq`, `dedup`, `filter.trim` (fastp) | Shared rules in `common/` |
+| `filter` | Shared FASTQ handling: `subsample_fastq`, `compress_filtered_fastq`, `dedup` (read only by smallrna, which requires `false`), `filter.trim` (fastp) | Shared rules in `common/` |
 | `multiqc.<workflow>.modules` | The MultiQC modules for each workflow's report | `multiqc_report` in `postprocess.smk` |
 | Project-level keys: `organism`, `strain`, `libprepkit`, `read_orientation`, `read_geometry` and others | Empty placeholders; the project configuration normally sets them | `utils.py` and rules |
 

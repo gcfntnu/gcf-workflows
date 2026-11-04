@@ -87,6 +87,30 @@ class ConfigurationTests(unittest.TestCase):
         self.assertIn('rule multiqc_report:', output)
         return json.loads((work / 'effective.json').read_text()), output
 
+    def test_configuration_files_have_no_duplicate_keys(self):
+        # PyYAML silently keeps the last duplicate, so a repeated key hides which value is in effect.
+        duplicates = []
+
+        class Loader(yaml.SafeLoader):
+            pass
+
+        def construct_mapping(loader, node, deep=False):
+            seen = set()
+            for key_node, _ in node.value:
+                key = loader.construct_object(key_node, deep=deep)
+                if key in seen:
+                    duplicates.append(f'{Path(loader.name).name}:{key_node.start_mark.line + 1}: {key}')
+                seen.add(key)
+            return yaml.SafeLoader.construct_mapping(loader, node, deep)
+
+        Loader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, construct_mapping)
+        files = [ROOT / name for name in ('main.config', 'libprep.config', 'docker.config', 'demultiplexing.config')]
+        files += sorted(ROOT.glob('*/*.config'))
+        for path in files:
+            with path.open() as stream:
+                yaml.load(stream, Loader=Loader)
+        self.assertEqual(duplicates, [])
+
     def test_shared_and_workflow_defaults_have_no_overlapping_leaves(self):
         shared = set(leaves(yaml.safe_load((ROOT / 'main.config').read_text())))
         for workflow in WORKFLOWS:

@@ -10,25 +10,13 @@ include:
     'scripts/fastp_config.py'
 
 SMALLRNA_FASTP_ARGS = final_fastp_args(config['filter']['trim']['fastp'])
+if config['filter'].get('dedup'):
+    raise ValueError('filter.dedup: read deduplication is not supported in smallrna; set it to false')
 
 
-rule dedup_nextflex:
-    input:
-        rules.merged_fastq_R1.output
-    output:
-        temp(join(FILTER_INTERIM, 'dedup', '{sample}.collapsed.fq'))
-    params:
-        outdir = join(FILTER_INTERIM, 'dedup')
-    threads:
-        2
-    container:
-        'docker://' + config['docker']['bioseqzip']
-    shell:
-        'bioseqzip_collapse -i {input.R1} --csv-report -f fastq -o {params.outdir} -t {threads}'
-        
 rule smallrna_trim_fastp:
     input:
-        R1 = rules.dedup_nextflex.output if config['filter']['dedup'] else rules.merged_fastq_R1.output,
+        R1 = rules.merged_fastq_R1.output,
         adapter_fasta = 'fastp_adapters.fa'
     output:
         R1 = temp(join(FILTER_INTERIM, 'fastp_trimmed', '{sample}_R1.fastq')),
