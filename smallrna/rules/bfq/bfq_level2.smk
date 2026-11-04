@@ -57,7 +57,7 @@ rule bfq_level2_unitas:
             unitas_output_dir = os.path.abspath(os.path.dirname(html_result))
             bfq_dir = os.path.join(output.outdir, sample_name)
             os.makedirs(os.path.dirname(bfq_dir), exist_ok=True)
-            os.symlink(unitas_output_dir, bfq_dir)
+            os.symlink(os.path.relpath(unitas_output_dir, os.path.dirname(bfq_dir)), bfq_dir)
 
 rule bfq_level2_mirtrace:
     input:

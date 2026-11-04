@@ -89,6 +89,8 @@ They are outside MultiQC's `logs/` scan so the report sees one combined sample, 
 
 **Quantifier status.** UNITAS is no longer distributed upstream; the workflow uses an archived image and reference dump, so its annotations cannot be updated. It remains the delivery route until a maintained quantifier replaces it. miRge3 is kept as an alternative `quant_all` route. miRge (v2), QuickMIRSeq and SeqBuster were removed.
 
+**UNITAS execution.** Each sample runs in its own work directory, `quant/unitas/work/<sample>/`, with `seqmap.exe` and the reference dump linked in ([`run_unitas.sh`](rules/quant/scripts/run_unitas.sh)). Exactly one UNITAS result directory must appear there; it is moved to `quant/unitas/unitas/<sample>/` and the work directory is removed. Concurrent or similarly named samples and leftovers from interrupted runs therefore cannot mix.
+
 ## Outputs in `bfq/`
 
 `data/tmp/smallrna/bfq/`, as planned by the fixture's dry run (NEXTflex v3). The set is the same for every `quant.method`, because delivery always uses UNITAS.
@@ -98,7 +100,7 @@ multiqc_<project>.html, .multiqc_config.yaml
 align/<sample>.sorted.bam
 exprs/mir_counts.tsv, isomir_counts.tsv, isomir_counts_anno.tsv, trf_counts.tsv, isotrf_counts.csv, annotations.tsv
 figs/gene_high_mqc.yaml, pca_mqc.yaml
-logs/unitas/
+logs/unitas/<sample>  (relative links to quant/unitas/unitas/<sample>)
 provenance/fastp/<sample>.adapter.{json,html}, <sample>.filter.{json,html}
 logs/<sample>/<sample>.fastp.html, .fastp.json, _fastqc.html, _fastqc.zip, .Log.final.out
 ```
@@ -122,6 +124,7 @@ Precedence between these sources is described in [docs/configuration.md](../docs
 
 - `smallrna/.tests`: synthetic dry-run fixture (NEXTflex v3, `mus_musculus`, four samples, with small reference FASTA stubs). CI runs `snakemake -n -p --cores 1 multiqc_report` there (`test-small-rna.yml`).
 - `smallrna/.tests/test_fastp.py`: configuration, all-kit dry runs, stage accounting, exact v3 clipping and 15/16/17 nt boundaries, quality/N-base/complexity and polyG outcomes with fastp 0.20.1. All inputs are synthetic; no new v4 fixture is built.
+- `smallrna/.tests/test_run_unitas.py` and `test_bfq_unitas_links.py`: per-sample UNITAS work directories with a stand-in `unitas.pl` (concurrent and similarly named samples, interrupted runs, unexpected results), and relative delivery links.
 - `smallrna/.tests/test_route_guards.py`: dry runs showing that a non-STAR aligner or `filter.dedup: true` stops at load, while the defaults plan delivery.
 - `smallrna/.tests/test_quant_methods.py`: `quant_all` dry runs for each supported `quant.method`, and errors for removed or unknown values.
 - `smallrna/.tests/test_create_anndata.py`: AnnData regression, run in CI on Python 3.14 (see below).
