@@ -65,32 +65,13 @@ if len(UNITAS_REFSEQ) > 0:
     UNITAS_ARGS += '-refseq {} '.format(abspath(join(QUANT_INTERIM, 'unitas', 'refseq.fa')))
 
 
-rule unitas_rundir:
-    input:
-        seqmap = rules.unitas_seqmap.output,
-        db_log = rules.unitas_db.log,
-        db = rules.unitas_db.output.db,
-    output:
-        seqmap = 'seqmap.exe'
-    params:
-        outdir = rules.unitas_db.output.db,
-        seqmap = temp('seqmap.exe'),
-        db = directory('UNITAS_refdump_{}'.format(ORG)),
-    shell:
-        """
-        cp {input.seqmap} .
-        ln -srf {params.outdir} .
-        """
-        
 rule unitas:
     input:
-        seqmap = 'seqmap.exe',
         fastq = get_unitas_seq,
-        refseq = rules.unitas_extra_reference.output
-    params:
-        outdir = abspath(join(QUANT_INTERIM, 'unitas', 'unitas', '{sample}')),
-        args = UNITAS_ARGS,
-        org  = config['organism']
+        refseq = rules.unitas_extra_reference.output,
+        seqmap = rules.unitas_seqmap.output,
+        db = rules.unitas_db.output.db,
+        db_log = rules.unitas_db.log
     output:
         html = join(QUANT_INTERIM, 'unitas', 'unitas', '{sample}', 'results.html'),
         trftable = join(QUANT_INTERIM, 'unitas',  'unitas', '{sample}', 'unitas.tRF-table.simplified.txt'),
@@ -102,17 +83,20 @@ rule unitas:
         mirtable = join(QUANT_INTERIM, 'unitas', 'unitas', '{sample}', 'miR-table_{}.simplified.txt'.format(UNITAS_ORG)),
         pirna = join(QUANT_INTERIM, 'unitas', 'unitas', '{sample}', 'unitas.piRcandidates-tails_{}.txt'.format(UNITAS_ORG)),
         mirtable_ext= join(QUANT_INTERIM, 'unitas', 'unitas', '{sample}', 'unitas.miR-table_{}.txt'.format(UNITAS_ORG))
-    container:
-        'docker://' + config['docker']['unitas']
+    params:
+        script = src_gcf('scripts/run_unitas.sh'),
+        workdir = join(QUANT_INTERIM, 'unitas', 'work', '{sample}'),
+        outdir = join(QUANT_INTERIM, 'unitas', 'unitas', '{sample}'),
+        org = config['organism'],
+        args = UNITAS_ARGS
     threads:
         2
+    container:
+        'docker://' + config['docker']['unitas']
     shell:
-        """
-        unitas.pl -input {input.fastq} -s {params.org} -threads {threads} {params.args} 
-        rm -rf {params.outdir}; mkdir -p {params.outdir}
-        mv -f UNITAS_*{wildcards.sample}_R1.fast*_#1/* {params.outdir}/
-        rm -rf UNITAS_*{wildcards.sample}_R1.*fas*_#1
-        """
+        'bash {params.script} --input {input.fastq} --species {params.org} --threads {threads} '
+        '--seqmap {input.seqmap} --refdump {input.db} '
+        '--workdir {params.workdir} --outdir {params.outdir} -- {params.args}'
 
 rule unitas_annotation2yaml:
     input:
