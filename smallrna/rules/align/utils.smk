@@ -7,17 +7,7 @@ Picard tools, https://broadinstitute.github.io/picard/
 """
 
 def optical_dup_args(*args, **kw):
-    args = 'TAGGING_POLICY=All '
-    machine = config.get('machine', 'NextSeq 500')
-    if machine == 'NextSeq 500':
-        args += 'OPTICAL_DUPLICATE_PIXEL_DISTANCE=100 '
-    elif machine == 'HiSeq 2500':
-        args += 'OPTICAL_DUPLICATE_PIXEL_DISTANCE=2500 '
-    else:
-        args = ''
-    if config.get('remove_optical_duplicates') and args:
-        args += 'REMOVE_SEQUENCING_DUPLICATES=TRUE '
-    return args
+    return picard_duplicate_args(config.get('machine', ''), config.get('remove_optical_duplicates', False))
 
 rule picard_mark_duplicates:
     input:

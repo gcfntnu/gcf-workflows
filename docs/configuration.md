@@ -20,6 +20,7 @@ configmaker validates the SampleSheet and submission form, selects the library-p
 
 - `config.yaml`, containing:
   - project metadata: `project_id`, `organism`, `machine`, experiment fields, `descriptors`
+    (`machine` also selects Picard's optical-duplicate distance through `picard_duplicate_args()` in `utils.py`: 2500 for patterned flowcells (NovaSeq, NextSeq 1000/2000, MiSeq i100, HiSeq 3000/4000/X), 100 for MiSeq, MiniSeq, NextSeq 500/550, HiSeq 2500, an empty value and gcf-bfq's "Sequencer could not be automatically determined."; an unrecognised instrument stops the workflow)
   - `read_geometry`: the effective read lengths of the project FASTQs
   - `libprepkit`, `workflow` and the other top-level fields of the selected kit entry, such as `read_orientation`, `adapter` and `delta_readlen`
   - the kit's nested defaults (for example `filter.trim`), filled in only where the project does not set them
