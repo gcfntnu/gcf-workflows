@@ -120,7 +120,7 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(config['filter']['contaminants']['ref'], 'univec_core')
         before = LibprepConfig.load(ROOT / 'libprep.config').select(config['libprepkit'], [75]).parameters
         self.assertEqual(config['filter']['trim']['fastp']['args'], before['filter']['trim']['fastp']['args'])
-        self.assertEqual(config['filter']['trim']['fastp']['trim_args'], before['filter']['trim']['fastp']['trim_args'])
+        self.assertNotIn('trim_args', config['filter']['trim']['fastp'])
 
     def test_singlecell_sample_id_is_a_live_qc_default(self):
         config, output = self.load_fixture('singlecell')

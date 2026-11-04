@@ -15,3 +15,17 @@ rule bfq_level1_all:
             shell('ln -srf {src} {dst}')
 
 BFQ_ALL.extend(rules.bfq_level1_all.output)
+
+# Keep native stage reports outside MultiQC's logs/ scan to avoid duplicate samples.
+rule bfq_fastp_stages:
+    input:
+        expand(join(FILTER_INTERIM, 'fastp_stages', '{sample}.{stage}.{suffix}'),
+               sample=SAMPLES, stage=['adapter', 'filter'], suffix=['json', 'html'])
+    output:
+        expand(join(BFQ_INTERIM, 'provenance', 'fastp', '{sample}.{stage}.{suffix}'),
+               sample=SAMPLES, stage=['adapter', 'filter'], suffix=['json', 'html'])
+    run:
+        for src, dst in zip(input, output):
+            shell('ln -srf {src:q} {dst:q}')
+
+BFQ_ALL.extend(rules.bfq_fastp_stages.output)
