@@ -31,6 +31,8 @@ jobs:
         chmod +x .dev/bin/fastp
     - name: Test small-RNA stages on synthetic reads
       run: FASTP_0201="$PWD/.dev/bin/fastp" python -m pytest -q smallrna/.tests/test_fastp.py
+    - name: Test quant.method selection
+      run: python -m pytest -q smallrna/.tests/test_quant_methods.py
     - name: Dry run multiqc_report
       working-directory: ./smallrna/.tests
       run: |

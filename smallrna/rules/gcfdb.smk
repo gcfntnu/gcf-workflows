@@ -10,4 +10,5 @@ include:
     join(GCFDB_DIR, 'contaminants.db')
 include:
     join(GCFDB_DIR, 'rrna.db')
-
+include:
+    join(GCFDB_DIR, 'mirbase.db')

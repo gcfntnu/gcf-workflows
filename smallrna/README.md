@@ -79,13 +79,15 @@ They are outside MultiQC's `logs/` scan so the report sees one combined sample, 
 | gcfdb | `rules/gcfdb.smk` | Reference selection |
 | filter | `rules/filter/cliptrim.smk`, shared `common/` rules | FASTQ merging; clipping and trimming |
 | align | `rules/align/star.smk`, `bowtie2.smk` | STAR (smallrna options); Bowtie2 available |
-| quant | `rules/quant/unitas.smk`, `mirge3.smk`, `quickmirseq.smk` | UNITAS (including its spike-in and variance-transformation rules), miRge3, QuickMIRSeq |
+| quant | `rules/quant/unitas.smk`, `mirge3.smk` | UNITAS (including its spike-in and variance-transformation rules), miRge3 |
 | qc | `rules/qc/`, shared `common/` rules | FastQC (shared), miRTrace |
 | bfq | `rules/bfq/` (levels 1–3) | Collect delivery products into `bfq/` |
 
-**`quant.method` and delivery.** `quant.method` selects what the separate `quant_all` target builds: `unitas`, `mirge3` and `quickmirseq` work, `mirge` fails because its rules are not loaded, and other values plan nothing. It does **not** change delivery: `bfq_all` and `multiqc_report` always deliver the UNITAS products (`rules/bfq/bfq_level2.smk`), whatever `quant.method` says.
+**`quant.method` and delivery.** `quant.method` selects what the separate `quant_all` target builds: `unitas`, `mirge3` or both (comma-separated). Any other value stops `quant_all` with an error. It does **not** change delivery: `bfq_all` and `multiqc_report` always deliver the UNITAS products (`rules/bfq/bfq_level2.smk`), whatever `quant.method` says.
 
-**Inactive source.** Files present in the source tree are not necessarily loaded. The entry point does not load these: `rules/filter/calibrators.smk`, `rules/quant/mirge.smk`, `seqbuster.smk`, and `var_transform.smk`.
+**Inactive source.** Files present in the source tree are not necessarily loaded. The entry point does not load `rules/filter/calibrators.smk`.
+
+**Quantifier status.** UNITAS is no longer distributed upstream; the workflow uses an archived image and reference dump, so its annotations cannot be updated. It remains the delivery route until a maintained quantifier replaces it. miRge3 is kept as an alternative `quant_all` route. miRge (v2), QuickMIRSeq and SeqBuster were removed.
 
 ## Outputs in `bfq/`
 
@@ -105,8 +107,8 @@ logs/<sample>/<sample>.fastp.html, .fastp.json, _fastqc.html, _fastqc.zip, .Log.
 
 | Key | Default | Set in |
 | --- | --- | --- |
-| `quant.method` | `unitas` (comma-separated list allowed); selects the `quant_all` targets only, not the delivered UNITAS outputs | [smallrna.config](smallrna.config) |
-| `quant.mirge.db`, `quant.mirge3.db` | `mirbase` | `smallrna.config` |
+| `quant.method` | `unitas`. Accepts `unitas`, `mirge3` or both, comma-separated; selects the `quant_all` targets only, not the delivered UNITAS outputs | [smallrna.config](smallrna.config) |
+| `quant.mirge3.db` | `mirbase` | `smallrna.config` |
 | `align.star.args`, `align.star.guided_index` | STAR options for short reads | `smallrna.config` |
 | `align.genome.aligner` | `star` | [smallrna.config](smallrna.config) |
 | `filter.trim` | Per kit | Kit entry ([#215](https://github.com/gcfntnu/gcf-workflows/issues/215)) |
@@ -119,6 +121,7 @@ Precedence between these sources is described in [docs/configuration.md](../docs
 
 - `smallrna/.tests`: synthetic dry-run fixture (NEXTflex v3, `mus_musculus`, four samples, with small reference FASTA stubs). CI runs `snakemake -n -p --cores 1 multiqc_report` there (`test-small-rna.yml`).
 - `smallrna/.tests/test_fastp.py`: configuration, all-kit dry runs, stage accounting, exact v3 clipping and 15/16/17 nt boundaries, quality/N-base/complexity and polyG outcomes with fastp 0.20.1. All inputs are synthetic; no new v4 fixture is built.
+- `smallrna/.tests/test_quant_methods.py`: `quant_all` dry runs for each supported `quant.method`, and errors for removed or unknown values.
 - `smallrna/.tests/test_create_anndata.py`: AnnData regression, run in CI on Python 3.14 (see below).
 - Commands and environments: [development guide](../docs/development.md#run-the-checks).
 
