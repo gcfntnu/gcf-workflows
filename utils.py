@@ -192,6 +192,28 @@ def load_model(model_yaml_file):
         config["model_names"] = list(MODELS.keys())
 
 
+PATTERNED_FLOWCELL_MACHINES = ('NovaSeq', 'HiSeq 3000', 'HiSeq 4000', 'HiSeq X')
+NONPATTERNED_FLOWCELL_MACHINES = ('MiSeq', 'MiniSeq', 'NextSeq', 'HiSeq 2500')
+
+def picard_duplicate_args(machine, remove_optical_duplicates=False):
+    """Picard MarkDuplicates options for the sequencing instrument (`machine` from configmaker).
+
+    Duplicates are always tagged (DT:LB or DT:SQ). The optical pixel distance follows Picard's guidance:
+    2500 for patterned flowcells, 100 for non-patterned ones and for an unknown (empty) instrument.
+    """
+    machine = (machine or '').strip()
+    if machine.startswith(PATTERNED_FLOWCELL_MACHINES):
+        distance = 2500
+    elif machine.startswith(NONPATTERNED_FLOWCELL_MACHINES) or not machine:
+        distance = 100
+    else:
+        raise ValueError('machine: no optical-duplicate distance for {!r}; add it to PATTERNED_FLOWCELL_MACHINES '
+                         'or NONPATTERNED_FLOWCELL_MACHINES in utils.py'.format(machine))
+    args = 'TAGGING_POLICY=All OPTICAL_DUPLICATE_PIXEL_DISTANCE={} '.format(distance)
+    if remove_optical_duplicates:
+        args += 'REMOVE_SEQUENCING_DUPLICATES=TRUE '
+    return args
+
 def get_raw_fastq(wildcards):
     """Returns path to fastq files per sample.
     """
