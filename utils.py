@@ -192,8 +192,9 @@ def load_model(model_yaml_file):
         config["model_names"] = list(MODELS.keys())
 
 
-PATTERNED_FLOWCELL_MACHINES = ('NovaSeq', 'HiSeq 3000', 'HiSeq 4000', 'HiSeq X')
-NONPATTERNED_FLOWCELL_MACHINES = ('MiSeq', 'MiniSeq', 'NextSeq', 'HiSeq 2500')
+# Patterned models are matched first, so 'NextSeq 2000' and 'MiSeq i100' do not fall into the legacy families below.
+PATTERNED_FLOWCELL_MACHINES = ('NovaSeq', 'HiSeq 3000', 'HiSeq 4000', 'HiSeq X', 'NextSeq 1000', 'NextSeq 2000', 'MiSeq i100')
+NONPATTERNED_FLOWCELL_MACHINES = ('MiSeq', 'MiniSeq', 'NextSeq 500', 'NextSeq 550', 'HiSeq 2500')
 
 def picard_duplicate_args(machine, remove_optical_duplicates=False):
     """Picard MarkDuplicates options for the sequencing instrument (`machine` from configmaker).

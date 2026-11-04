@@ -31,7 +31,8 @@ picard_duplicate_args = load_helper()
 class PicardDuplicateArgsTests(unittest.TestCase):
     def test_optical_distance_follows_flowcell_type(self):
         cases = {'NovaSeq 6000': 2500, 'HiSeq 4000': 2500, 'HiSeq X': 2500,
-                 'NextSeq 500': 100, 'MiSeq NTNU': 100, 'MiniSeq NTNU': 100, 'HiSeq 2500': 100, '': 100, None: 100}
+                 'NextSeq 1000': 2500, 'NextSeq 2000': 2500, 'MiSeq i100': 2500, 'MiSeq i100 Plus': 2500,
+                 'NextSeq 500': 100, 'NextSeq 550': 100, 'MiSeq NTNU': 100, 'MiniSeq NTNU': 100, 'HiSeq 2500': 100, '': 100, None: 100}
         for machine, distance in cases.items():
             with self.subTest(machine=machine):
                 args = picard_duplicate_args(machine).split()
@@ -45,8 +46,9 @@ class PicardDuplicateArgsTests(unittest.TestCase):
                 self.assertIn('REMOVE_SEQUENCING_DUPLICATES=TRUE', picard_duplicate_args(machine, True).split())
 
     def test_unknown_instrument_fails(self):
-        with self.assertRaisesRegex(ValueError, "no optical-duplicate distance for 'Unknown Sequencer'"):
-            picard_duplicate_args('Unknown Sequencer')
+        for machine in ('Unknown Sequencer', 'NextSeq 3000'):
+            with self.subTest(machine=machine), self.assertRaisesRegex(ValueError, f"no optical-duplicate distance for '{machine}'"):
+                picard_duplicate_args(machine)
 
 
 class PicardCommandTests(unittest.TestCase):
