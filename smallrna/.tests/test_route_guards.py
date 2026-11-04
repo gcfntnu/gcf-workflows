@@ -1,5 +1,6 @@
 """Unsupported small-RNA routes stop at workflow load instead of failing mid-run."""
 import os
+import shlex
 from pathlib import Path
 import shutil
 import subprocess
@@ -124,3 +125,12 @@ def test_mirtrace_config_lists_merged_fastq_per_sample(tmp_path):
     rows = [line.split(',') for line in (tmp_path / 'data/tmp/smallrna/qc/mirtrace/mirtrace.config').read_text().splitlines()]
     assert [row[1] for row in rows] == ['SR01', 'SR02', 'SR03', 'SR04']
     assert all(row[0].endswith(f'/filter/fastq/{row[1]}_R1.fastq.gz') and row[2] == 'TGGAATTCTCGGGTGCCAAGG' for row in rows)
+
+
+def test_mirtrace_title_is_one_argument_for_several_projects(tmp_path):
+    returncode, output = dry_run(tmp_path, lambda s: s.update(project_id=['GCF-0000-006', 'GCF-0000-007']), printshell=True)
+    assert returncode == 0, output
+    argv = shlex.split(shell_lines(output, 'mirtrace qc ')[0].split('Shell command:', 1)[1])
+    title = argv.index('--title')
+    assert argv[title + 1] == 'GCF-0000-006,GCF-0000-007'
+    assert argv[title + 2] == '-t' and len(argv) == title + 4

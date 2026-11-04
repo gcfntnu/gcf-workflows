@@ -8,6 +8,13 @@ MIRTRACE_DIR = join(QC_INTERIM, 'mirtrace')
 MIRTRACE_SPECIES = {'homo_sapiens': 'hsa', 'mus_musculus': 'mmu', 'rattus_norvegicus': 'rno'}
 MIRTRACE_PROTOCOL = config['filter']['trim']['mirtrace']['protocol']
 
+def mirtrace_title():
+    """One title string; several projects are joined with commas, as in the MultiQC report title."""
+    project_id = config.get('project_id', 'GCF-0000-00')
+    if isinstance(project_id, (list, tuple)):
+        return ','.join(map(str, project_id))
+    return str(project_id)
+
 def mirtrace_species():
     species = MIRTRACE_SPECIES.get(config['organism'])
     if species is None:
@@ -40,7 +47,7 @@ rule qc_mirtrace:
         outdir = MIRTRACE_DIR,
         protocol = MIRTRACE_PROTOCOL,
         species = mirtrace_species(),
-        title = config.get('project_id', 'GCF-0000-00')
+        title = mirtrace_title()
     threads:
         8
     container:
@@ -48,4 +55,4 @@ rule qc_mirtrace:
     shell:
         'mirtrace qc --force '
         '-s {params.species} -p {params.protocol} -c {input.config} '
-        '-o {params.outdir} --title {params.title} -t {threads}'
+        '-o {params.outdir} --title {params.title:q} -t {threads}'
