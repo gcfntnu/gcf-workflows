@@ -1,7 +1,8 @@
 """Rules that download with wget or curl run without a container (#281).
 
-They run in the BFQ image, which provides wget and curl. The default container image has neither, so a
-`container:` on such a rule fails with exit status 127 as soon as the download actually runs.
+They run in the BFQ image, which provides wget and curl. Default container images before
+gcfntnu/python-default:3.12-1 have neither, so a `container:` on such a rule failed there with exit status 127
+as soon as the download actually ran.
 """
 from pathlib import Path
 import re

@@ -40,7 +40,7 @@ Review, merging, production promotion and deployment are separate, deliberate st
   - the reference root contract
 - **Configuration.** `main.config` holds reference-database (`gcfdb`) configuration and defaults shared across workflows; `<workflow>.config` holds workflow-specific defaults. Mind the merge order ([configuration.md](docs/configuration.md#effective-precedence)): a workflow config cannot override `main.config`.
 - **Reference getters** resolve outputs under `EXT_DIR`. They never assign it or hardcode an absolute root (`gcfdb/.tests` checks this).
-- **Download rules** that call `wget` or `curl` have no `container:` directive. They run in the BFQ image, which provides `wget` and `curl`; the default container image has neither (`.tests/test_download_rules.py` checks this).
+- **Download rules** that call `wget` or `curl` have no `container:` directive. They run in the BFQ image, which provides `wget` and `curl`, so they do not depend on a container image (`.tests/test_download_rules.py` checks this).
 - **Tests.** Add regression coverage that proves the changed behaviour, using synthetic inputs in temporary directories. Fixture changes must keep config, PEP and `sample_info.tsv` consistent.
 - **Documentation.** Update the relevant documentation in the same PR as the behaviour it describes.
 - **Public content.** Use only synthetic identifiers and general descriptions in code, fixtures, commits, issues, PRs and logs ([AGENTS.md](AGENTS.md#public-repository-content)). Site-specific settings, real fixtures and operational procedures do not belong in this repository.
