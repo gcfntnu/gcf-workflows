@@ -29,6 +29,10 @@ URLS = {'hairpin': 'https://mirbase.org/ftp/{}/hairpin.fa.gz'.format(MIRBASE_REL
         'gff': 'https://mirbase.org/ftp/{}/genomes'.format(MIRBASE_RELEASE),
         'mirna_str': 'https://mirbase.org/ftp/{}/miRNA.str.gz'.format(MIRBASE_RELEASE)
 }
+# miRBase serves only the current release, 23.1, and only as uncompressed files under /download (#278).
+# /download/<org>.gff3 is raw GFF3; /download/CURRENT/genomes/<org>.gff3 returns an HTML page.
+if MIRBASE_RELEASE == '23.1':
+    URLS['gff'] = 'https://www.mirbase.org/download'
 
 
 rule mirbase_hairpin_fasta:
@@ -82,6 +86,8 @@ rule mirbase_gff:
     shell:
         """
         wget {params.proxy} -O - {params.url}/{params.mirbase_org}.gff3 > {output}
+        head -n 1 {output} | grep -qx '##gff-version 3' || {{ echo "{params.url}/{params.mirbase_org}.gff3 is not GFF3" >&2; exit 1; }}
+        grep -q '^# microRNAs: *miRBase v{MIRBASE_RELEASE}$' {output} || {{ echo "{params.url}/{params.mirbase_org}.gff3 is not miRBase release {MIRBASE_RELEASE}" >&2; exit 1; }}
         echo "Mirbase gff,{MIRBASE_RELEASE},{params.url},{params.date}" > {log}
         """
 

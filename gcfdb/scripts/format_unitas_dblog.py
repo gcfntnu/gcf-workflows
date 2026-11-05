@@ -8,8 +8,8 @@ if __name__ == '__main__':
     with open(sys.argv[1]) as fh:
         txt = fh.read().splitlines()
     
-    for line in txt[1:]:
-        if line == '':
+    for line in txt:
+        if line.strip() == '':
             continue
         name, desc = re.match('(.*)\s\\.+\s(.*)', line).groups()
         name = name.replace('version/date:', '').strip()

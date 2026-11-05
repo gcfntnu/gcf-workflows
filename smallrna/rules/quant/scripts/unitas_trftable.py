@@ -1,5 +1,4 @@
 #!/usr/bin env python
-ORG = 'Human'
 import sys
 import os
 import glob
