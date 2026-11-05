@@ -14,7 +14,7 @@ if __name__ == '__main__':
     hei = 0
     for name, row in df.iterrows():
         if row.feature == 'miRNA':
-            attrs = row[8].split(';')
+            attrs = row['attrs'].split(';')
             for a in attrs:
                 key, value = a.split('=')
                 key = key.lower()
@@ -50,5 +50,5 @@ if __name__ == '__main__':
     
     genes = pd.DataFrame.from_dict(data, orient='index')
     genes.set_index('mirna_id', inplace=True, drop=True)
-    genes.index = genes.index.str.replace('^[a-z]{3}\-', '')
+    genes.index = genes.index.str.replace(r'^[a-z]{3}-', '', regex=True)
     genes.to_csv(sys.stdout, sep='\t', index=True)
