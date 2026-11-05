@@ -5,4 +5,5 @@ rich
 pulp==2.7.0
 pytest
 scanpy
+polars==2.1.0
 -r ../../.tests/requirements-config.txt
