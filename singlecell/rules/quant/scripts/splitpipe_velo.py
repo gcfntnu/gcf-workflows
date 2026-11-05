@@ -110,7 +110,7 @@ def read_transcripts(fn: str, schema: dict, exonic: bool = True) -> pl.DataFrame
         )
         .group_by(["bc_wells", "gene"])
         .agg(pl.col("count").sum().alias("count"))
-        .collect(streaming=True)  # streaming-friendly; falls back if unsupported
+        .collect(engine="streaming")  # `streaming=True` was removed in polars 2.0
     )
 
 
