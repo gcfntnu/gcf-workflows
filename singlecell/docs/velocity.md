@@ -84,6 +84,10 @@ biological-sample velocity delivery route. The matrix converter rejects explicit
 Split-Pipe velocity attachment before reading expression matrices. Full Split-Pipe
 velocity generation/aggregation and BAM-based reconstruction are outside this change.
 
+`singlecell/.tests/test_splitpipe_velo.py` runs `splitpipe_velo.py` on a synthetic
+transcript-assignment table and checks both matrices, with polars deprecation
+warnings as errors so that APIs a later polars release removes are caught early.
+
 `singlecell/.tests/test_velocity.py` exercises actual workflow configuration merging,
 WT presets, STARsolo outputs/arguments, mixed-method aggregation, unsupported
 requests and direct converter validation using synthetic inputs and dry runs.
