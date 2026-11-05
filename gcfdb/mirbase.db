@@ -9,35 +9,29 @@ if os.path.exists(extra_conf_fn):
         c  = yaml.load(fh, Loader=Loader) or {}
         update_config2(config, c)
         
-MIRBASE_RELEASE = str(config['db']['mirbase'].get('release', '22'))
+MIRBASE_RELEASE = str(config['db']['mirbase']['release'])
 config['db']['mirbase']['release'] = MIRBASE_RELEASE
 ORG = config.get('organism', 'homo_sapiens')
-MIR_ORG = {'homo_sapiens': 'hsa',
-           'human': 'hsa',
-           'hsa': 'hsa',
-           'mus_musculus': 'mmu',
-           'mouse': 'mmu',
-           'mmu': 'mmu',
-           'rattus_norvegicus': 'rno',
-           'rat': 'rno',
-           'rno': 'rno'}
+# miRBase serves these releases, uncompressed, under release-specific paths. The /download and
+# /download/CURRENT paths follow the current release, and CURRENT returns HTML pages instead of files.
+MIRBASE_RELEASES = ('20', '21', '22', '23.1')
+if MIRBASE_RELEASE not in MIRBASE_RELEASES:
+    raise ValueError('db.mirbase.release: miRBase serves releases {}, got {!r}'.format(', '.join(MIRBASE_RELEASES), MIRBASE_RELEASE))
+MIR_ORG = {'homo_sapiens': 'hsa', 'mus_musculus': 'mmu', 'rattus_norvegicus': 'rno'}
+if ORG not in MIR_ORG:
+    raise ValueError('miRBase references support organism {}, got {!r}'.format(', '.join(MIR_ORG), ORG))
 
 MIRBASE_EXT = join(EXT_DIR, 'mirbase', ORG, 'release-{}'.format(MIRBASE_RELEASE))
 
-URLS = {'hairpin': 'https://mirbase.org/ftp/{}/hairpin.fa.gz'.format(MIRBASE_RELEASE),
-        'mature': 'https://mirbase.org/ftp/{}/mature.fa.gz'.format(MIRBASE_RELEASE),
-        'gff': 'https://mirbase.org/ftp/{}/genomes'.format(MIRBASE_RELEASE),
-        'mirna_str': 'https://mirbase.org/ftp/{}/miRNA.str.gz'.format(MIRBASE_RELEASE)
-}
-# miRBase serves only the current release, 23.1, and only as uncompressed files under /download (#278).
-# /download/<org>.gff3 is raw GFF3; /download/CURRENT/genomes/<org>.gff3 returns an HTML page.
-if MIRBASE_RELEASE == '23.1':
-    URLS['gff'] = 'https://www.mirbase.org/download'
+URLS = {'hairpin': 'https://www.mirbase.org/download_version_files/{}/hairpin.fa'.format(MIRBASE_RELEASE),
+        'mature': 'https://www.mirbase.org/download_version_files/{}/mature.fa'.format(MIRBASE_RELEASE),
+        'gff': 'https://www.mirbase.org/download_version_genome_files/{}'.format(MIRBASE_RELEASE)}
 
 
 rule mirbase_hairpin_fasta:
     params:
         url = URLS['hairpin'],
+        script = src_gcf('scripts/mirbase_species_fasta.py'),
         mirbase_org = MIR_ORG[ORG],
         proxy = config.get('proxy', {}).get('wget', ''),
         date = datetime.now().strftime("%d-%m-%Y")
@@ -49,13 +43,14 @@ rule mirbase_hairpin_fasta:
         'docker://' + config['docker']['default']
     shell:
         """
-        wget {params.proxy} {params.url} -O- | gunzip -c | grep -A 1 "^>{params.mirbase_org}" | grep -v "^-" | sed 's/U/T/g' > {output.fasta}
+        wget {params.proxy} {params.url} -O- | python {params.script} --species {params.mirbase_org} - > {output.fasta}
         echo "Mirbase hairpin,{MIRBASE_RELEASE},{params.url},{params.date}" > {log}
         """
 
 rule mirbase_mature_fasta:
     params:
         url = URLS['mature'],
+        script = src_gcf('scripts/mirbase_species_fasta.py'),
         mirbase_org = MIR_ORG[ORG],
         proxy = config.get('proxy', {}).get('wget', ''),
         date = datetime.now().strftime("%d-%m-%Y")
@@ -67,7 +62,7 @@ rule mirbase_mature_fasta:
         'docker://' + config['docker']['default']
     shell:
         """
-        wget {params.proxy} {params.url} -O- | gunzip -c | grep -A 1 "^>{params.mirbase_org}" | grep -v "^-" | sed 's/U/T/g' > {output}
+        wget {params.proxy} {params.url} -O- | python {params.script} --species {params.mirbase_org} - > {output.fasta}
         echo "Mirbase mature,{MIRBASE_RELEASE},{params.url},{params.date}" > {log}
         """
 
@@ -103,28 +98,9 @@ rule mirbase_genes:
     shell:
         'python {params.script} {input} > {output}'
         
-rule mirbase_mirna_str:
-    params:
-        url = URLS['mirna_str'],
-        mirbase_org = MIR_ORG[ORG],
-        proxy = config.get('proxy', {}).get('wget', ''),
-        date = datetime.now().strftime("%d-%m-%Y")
-    output:
-        fasta = join(MIRBASE_EXT, 'anno', 'miRNA.str')
-    log:
-        join(MIRBASE_EXT, 'logs', 'mature.log')
-    container:
-        'docker://' + config['docker']['default']
-    shell:
-        """
-        wget {params.proxy} {params.url} -O- | gunzip -c > {output}
-        echo "Mirbase mirna_str,{MIRBASE_RELEASE},{params.url},{params.date}" > {log}
-        """
-
 rule mirbase_db_all:
     input:
         join(MIRBASE_EXT, 'fasta', 'hairpin.fa'),
         join(MIRBASE_EXT, 'fasta', 'mature.fa'),
-        join(MIRBASE_EXT, 'anno', 'genes.gff3'),
-        join(MIRBASE_EXT, 'anno', 'miRNA.str')
+        join(MIRBASE_EXT, 'anno', 'genes.gff3')
                 
