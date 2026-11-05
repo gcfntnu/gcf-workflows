@@ -36,8 +36,6 @@ rule unitas_db:
         url = join(config.get('winecellar', {}).get('url', ''), 'unitas', config['db']['unitas']['release'], 'UNITAS_refdump_{}.tar.gz'.format(ORG))
     log:
         join(UNITAS_RELEASE_DIR, 'logs', 'unitas_{}.log'.format(ORG))
-    container:
-        'docker://' + config['docker']['default']
     shell:
         'set -o pipefail; '
         'mkdir -p {params.refdir} && wget -qO- {params.url} | tar -xz -C {params.refdir} && '

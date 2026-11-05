@@ -128,8 +128,6 @@ rule ncbi_geo_submission_form_template:
         join(EXT_DIR, 'ncbi', 'GEO', 'seq_template.xlsx')
     log:
         join(EXT_DIR, 'ncbi', 'GEO', 'logs', 'seq_template.log')
-    container:
-        'docker://' + config['docker']['default']
     shell:
         """
         wget -O {output} {params.url}

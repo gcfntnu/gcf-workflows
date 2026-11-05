@@ -100,7 +100,7 @@ Only `BFQ_INTERIM` and `sample_info.tsv` are delivered; see the [README outputs]
 
 ## Rules and containers
 
-- **Containers.** Rules run in containers selected by key: `container: 'docker://' + config['docker']['<key>']`. `docker.config` supplies an image only when no earlier source sets the key: the project, the selected kit entry, `GCF_SECRET` or `main.config` ([configuration.md](configuration.md#effective-precedence)). BFQ runs Snakemake with `--use-singularity`.
+- **Containers.** Rules run in containers selected by key: `container: 'docker://' + config['docker']['<key>']`. `docker.config` supplies an image only when no earlier source sets the key: the project, the selected kit entry, `GCF_SECRET` or `main.config` ([configuration.md](configuration.md#effective-precedence)). BFQ runs Snakemake with `--use-singularity`. Rules that download with `wget` or `curl` are the exception: they have no `container:` and run in the BFQ image, which provides both tools.
 - **Scripts.** Substantial processing belongs in standalone command-line scripts. Rules call them through `shell:`, with the script path in `params.script` and inputs, outputs, parameters and threads passed as arguments. Directive order and formatting conventions are in [AGENTS.md](../AGENTS.md#snakemake-conventions). Older rules may still use `script:` or `run:`.
 - **Notebooks.** Some analysis and quant steps use Snakemake `notebook:` templates. Committed notebooks must not contain saved outputs.
 

@@ -39,8 +39,6 @@ rule mirbase_hairpin_fasta:
         fasta = join(MIRBASE_EXT, 'fasta', 'hairpin.fa')
     log:
         join(MIRBASE_EXT, 'logs', 'hairpin.log')
-    container:
-        'docker://' + config['docker']['default']
     shell:
         """
         wget {params.proxy} {params.url} -O- | python {params.script} --species {params.mirbase_org} - > {output.fasta}
@@ -58,8 +56,6 @@ rule mirbase_mature_fasta:
         fasta = join(MIRBASE_EXT, 'fasta', 'mature.fa')
     log:
         join(MIRBASE_EXT, 'logs', 'mature.log')
-    container:
-        'docker://' + config['docker']['default']
     shell:
         """
         wget {params.proxy} {params.url} -O- | python {params.script} --species {params.mirbase_org} - > {output.fasta}
@@ -76,8 +72,6 @@ rule mirbase_gff:
         join(MIRBASE_EXT, 'anno', 'genes.gff3')
     log:
        join(MIRBASE_EXT, 'logs', 'gff.log')
-    container:
-        'docker://' + config['docker']['default']
     shell:
         """
         wget {params.proxy} -O - {params.url}/{params.mirbase_org}.gff3 > {output}
