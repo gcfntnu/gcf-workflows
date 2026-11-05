@@ -136,7 +136,7 @@ docker:
 | `assembly.transcriptome.merge.type` | `fastq` | Explicit default in `rnaseq.config` |
 | `read_geometry` | `[74, 149]` | Kit `delta_readlen: [-1, -1]` applied |
 | `docker.multiqc` | `example/project-multiqc:1` | Project wins over `docker.config` |
-| `docker.default` | `example/secret-default:1` | The secrets file wins over `docker.config` (`gcfntnu/python-default:3.12`) |
+| `docker.default` | `example/secret-default:1` | The secrets file wins over `docker.config` (`gcfntnu/python-default:3.12-1`) |
 
 Without `GCF_SECRET`, `qc.secret_only` is absent, `multiqc.rnaseq.modules` comes from `main.config` and `docker.default` from `docker.config`; all other values are unchanged.
 
