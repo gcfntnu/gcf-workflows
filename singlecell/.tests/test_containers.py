@@ -11,7 +11,8 @@ from test_velocity import PARSE_KIT, TENX_KIT, protected_env, workflow_fixture
 
 ROOT = Path(__file__).resolve().parents[2]
 DOCKER = yaml.safe_load((ROOT / 'docker.config').read_text())['docker']
-DOUBLET_RULES = {'dbl_skip_doubletdetection', 'dbl_doubletdetection', 'dbl_scdblfinder', 'dbl_scds', 'dbl_scrublet'}
+DOUBLET_RULES = {'dbl_skip_doubletdetection', 'dbl_doubletdetection', 'dbl_scdblfinder', 'dbl_scds', 'dbl_scrublet',
+                 'dbl_doublet_rank_aggr'}
 SCANPY_RULES = {'tmp_lightweight_raw', 'tmp_lightweight_filtered', 'scanpy_aggr_filtered'}
 INSPECT = '''
 import json
@@ -36,7 +37,6 @@ def test_doublet_image_is_set_per_rule_only(tmp_path, kit, methods):
     doublet = 'docker://' + DOCKER['doublet-detection']
     assert {name for name, rule in rules.items() if rule['image'] == doublet} == DOUBLET_RULES
     assert all(rules[name]['shell'] for name in DOUBLET_RULES)
-    assert rules['dbl_doublet_rank_aggr']['image'] == 'docker://' + DOCKER['jupyter-doublet-detection']
     for name in SCANPY_RULES:
         assert rules[name]['image'] == 'docker://' + DOCKER['scanpy'], name
     if 'bfq_parse_metadata' in rules:

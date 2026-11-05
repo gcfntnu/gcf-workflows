@@ -317,7 +317,7 @@ rule dbl_doublet_rank_aggr:
     threads:
         4 
     container:
-        'docker://' + config['docker']['jupyter-doublet-detection']
+        'docker://' + config['docker']['doublet-detection']
     shell:
         r"""
         python {params.script} \
