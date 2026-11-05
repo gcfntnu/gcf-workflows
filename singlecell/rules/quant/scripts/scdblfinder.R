@@ -9,11 +9,11 @@ suppressPackageStartupMessages({
   library(Matrix)
 })
 
-setup_threads <- function(n) {
+setup_threads <- function(n, seed) {
   if (.Platform$OS.type == "windows") {
-    BiocParallel::register(BiocParallel::SnowParam(n, progressbar = TRUE), default = TRUE)
+    BiocParallel::register(BiocParallel::SnowParam(n, progressbar = TRUE, RNGseed = seed), default = TRUE)
   } else {
-    BiocParallel::register(BiocParallel::MulticoreParam(n, progressbar = TRUE), default = TRUE)
+    BiocParallel::register(BiocParallel::MulticoreParam(n, progressbar = TRUE, RNGseed = seed), default = TRUE)
   }
   cat(sprintf("[INFO] Using %d thread(s)\n", n), file = stderr())
 }
@@ -56,6 +56,7 @@ main <- function() {
                       help = "Path to matrix.mtx(.gz)")
   parser$add_argument("-t", "--threads", type = "integer", default = NULL,
                       help = "Number of threads")
+  parser$add_argument("--seed", type = "integer", default = 1234, help = "Random seed")
   parser$add_argument("--expected-doublet-rate", type = "double", default = NULL,
                       help = "Explicit biological expected doublet rate")
   parser$add_argument("--derive-10x-doublet-rate", action = "store_true",
@@ -81,7 +82,7 @@ main <- function() {
   if (!is.finite(args$gene_max_frac) || args$gene_max_frac <= 0 || args$gene_max_frac > 1) {
     stop("[ERROR] --gene-max-frac must be in (0, 1]")
   }
-  setup_threads(as.integer(n_threads))
+  setup_threads(as.integer(n_threads), args$seed)
 
   if (!file.exists(args$input)) stop("[ERROR] Input file does not exist")
 
@@ -131,6 +132,7 @@ main <- function() {
     sce_sub <- sce_sub[idx, , drop = FALSE]
   }
 
+  set.seed(args$seed)
   if (is.null(expected_rate)) {
     # Rate-free mode: do not constrain threshold by an expected proportion.
     sce_sub <- scDblFinder(sce_sub, dbr = NULL, dbr.sd = 1)
