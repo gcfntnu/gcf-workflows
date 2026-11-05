@@ -134,3 +134,53 @@ def test_mirtrace_title_is_one_argument_for_several_projects(tmp_path):
     title = argv.index('--title')
     assert argv[title + 1] == 'GCF-0000-006,GCF-0000-007'
     assert argv[title + 2] == '-t' and len(argv) == title + 4
+
+
+@pytest.mark.parametrize('organism', ['danio_rerio', 'human'])
+def test_organism_without_unitas_reference_fails(tmp_path, organism):
+    returncode, output = dry_run(tmp_path, lambda s: s.update(organism=organism))
+    assert returncode != 0
+    assert f"UNITAS supports organism homo_sapiens, mus_musculus, rattus_norvegicus, got '{organism}'" in output
+
+
+def test_unitas_ribosomal_filter_is_rejected(tmp_path):
+    returncode, output = dry_run(tmp_path, lambda s: s.setdefault('filter', {}).setdefault('ribosomal', {}).update(quantifier='unitas'))
+    assert returncode != 0
+    assert "filter.ribosomal.quantifier: smallrna supports only skip, got 'unitas'" in output
+
+
+def test_unitas_uses_the_container_seqmap_and_writes_nothing_in_the_project_root(tmp_path):
+    returncode, output = dry_run(tmp_path, lambda s: None, printshell=True)
+    assert returncode == 0, output
+    assert 'seqmap' not in output and '.unitas_dummy' not in output
+    unitas = shell_lines(output, 'run_unitas.sh')
+    assert len(unitas) == 4 and all('--log data/tmp/smallrna/quant/unitas/logs/SR0' in line for line in unitas)
+
+
+def set_unitas_refseq(spikein, contaminants):
+    def update(settings):
+        filters = settings.setdefault('filter', {})
+        if spikein:
+            filters.setdefault('spikein', {}).update(quantifier='unitas', ref='ERCC92')
+        if contaminants:
+            filters.setdefault('contaminants', {}).update(quantifier='unitas')
+    return update
+
+
+@pytest.mark.parametrize('spikein, contaminants', [(False, False), (True, False), (False, True), (True, True)],
+                         ids=['none', 'spikein', 'contaminants', 'both'])
+def test_extra_unitas_reference_only_when_configured(tmp_path, spikein, contaminants):
+    returncode, output = dry_run(tmp_path, set_unitas_refseq(spikein, contaminants), printshell=True)
+    assert returncode == 0, output
+    unitas = shell_lines(output, 'run_unitas.sh')
+    assert len(unitas) == 4
+    if not (spikein or contaminants):
+        assert 'rule unitas_extra_reference:' not in output
+        assert all(line.rstrip().endswith(' --') for line in unitas)
+        return
+    refseq = str(tmp_path / 'data/tmp/smallrna/quant/unitas/refseq.fa')
+    assert all(line.endswith(f' -- -refseq {refseq}') for line in unitas)
+    concat = shell_lines(output, '> data/tmp/smallrna/quant/unitas/refseq.fa')
+    assert len(concat) == 1
+    assert ('_spikein_unitas_formatted.fa' in concat[0]) == spikein
+    assert ('_contaminants_unitas_formatted.fa' in concat[0]) == contaminants

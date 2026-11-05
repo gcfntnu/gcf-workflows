@@ -1,9 +1,5 @@
 #-*- mode:snakemake -*-
 
-include:
-    join(GCFDB_DIR, 'unitas.db')
-
-
 def get_unitas_seq(wildcards):
     return get_filtered_fastq(wildcards)['R1']
 
@@ -30,36 +26,38 @@ rule spikein_unitas:
     shell:
         'python {params.script} {input} > {output}'
         
-UNITAS_REFSEQ = []
-if config['filter']['spikein']['quantifier'] == 'unitas':
-    UNITAS_REFSEQ.append(rules.spikein_unitas.output)
-if config['filter']['contaminants']['quantifier'] == 'unitas':
-    UNITAS_REFSEQ.append(rules.contaminants_unitas.output)
-    
+if config['filter']['ribosomal']['quantifier'] != 'skip':
+    raise ValueError('filter.ribosomal.quantifier: smallrna supports only skip, got {!r}; '
+                     'UNITAS no longer supports -riborase and smallrna has no other ribosomal filter'.format(config['filter']['ribosomal']['quantifier']))
+
+def get_unitas_refseq_fasta():
+    """Spike-in and contaminant FASTA files that UNITAS adds to its ncRNA reference, if they are configured."""
+    fasta = []
+    if config['filter']['spikein']['quantifier'] == 'unitas':
+        fasta.extend(rules.spikein_unitas.output)
+    if config['filter']['contaminants']['quantifier'] == 'unitas':
+        fasta.extend(rules.contaminants_unitas.output)
+    return fasta
+
 rule unitas_extra_reference:
     input:
-        UNITAS_REFSEQ
+        get_unitas_refseq_fasta()
     output:
         join(QUANT_INTERIM, 'unitas', 'refseq.fa')
-    run:
-        if len(input) > 0:
-            shell('cat {input} > {output}')
-        else:
-            shell('touch {output}')
-    
-UNITAS_ARGS = ''
-if config['filter']['ribosomal']['quantifier'] == 'unitas':
-    UNITAS_ARGS += '--riborase '
+    shell:
+        'cat {input} > {output}'
 
-if len(UNITAS_REFSEQ) > 0:
-    UNITAS_ARGS += '-refseq {} '.format(abspath(join(QUANT_INTERIM, 'unitas', 'refseq.fa')))
+def get_unitas_refseq(wildcards):
+    return rules.unitas_extra_reference.output[0] if get_unitas_refseq_fasta() else []
+
+def unitas_args(wildcards, input):
+    return '-refseq {}'.format(abspath(input.refseq)) if input.refseq else ''
 
 
 rule unitas:
     input:
         fastq = get_unitas_seq,
-        refseq = rules.unitas_extra_reference.output,
-        seqmap = rules.unitas_seqmap.output,
+        refseq = get_unitas_refseq,
         db = rules.unitas_db.output.db,
         db_log = rules.unitas_db.log
     output:
@@ -78,15 +76,17 @@ rule unitas:
         workdir = join(QUANT_INTERIM, 'unitas', 'work', '{sample}'),
         outdir = join(QUANT_INTERIM, 'unitas', 'unitas', '{sample}'),
         org = config['organism'],
-        args = UNITAS_ARGS
+        args = unitas_args
     threads:
         2
+    log:
+        join(QUANT_INTERIM, 'unitas', 'logs', '{sample}.log')
     container:
         'docker://' + config['docker']['unitas']
     shell:
         'bash {params.script} --input {input.fastq} --species {params.org} --threads {threads} '
-        '--seqmap {input.seqmap} --refdump {input.db} '
-        '--workdir {params.workdir} --outdir {params.outdir} -- {params.args}'
+        '--refdump {input.db} --workdir {params.workdir} --outdir {params.outdir} --log {log} '
+        '-- {params.args}'
 
 rule unitas_annotation2yaml:
     input:

@@ -87,9 +87,9 @@ They are outside MultiQC's `logs/` scan so the report sees one combined sample, 
 
 **Inactive source.** Files present in the source tree are not necessarily loaded. The entry point does not load `rules/filter/calibrators.smk`.
 
-**Quantifier status.** UNITAS is no longer distributed upstream; the workflow uses an archived image and reference dump, so its annotations cannot be updated. It remains the delivery route until a maintained quantifier replaces it. miRge3 is kept as an alternative `quant_all` route. miRge (v2), QuickMIRSeq and SeqBuster were removed.
+**Quantifier status.** UNITAS is no longer distributed upstream, and its download server is gone. The workflow uses `gcfntnu/unitas:1.8.0-1`, UNITAS 1.8.0 patched to run offline and to exit non-zero on errors, with reference dumps built from Ensembl, GtRNAdb and miRBase (`db.unitas.release`). Dumps exist only for `homo_sapiens`, `mus_musculus` and `rattus_norvegicus`; any other organism stops the workflow at load. UNITAS remains the delivery route until a maintained quantifier replaces it. miRge3 is kept as an alternative `quant_all` route. miRge (v2), QuickMIRSeq and SeqBuster were removed.
 
-**UNITAS execution.** Each sample runs in its own work directory, `quant/unitas/work/<sample>/`, with `seqmap.exe` and the reference dump linked in ([`run_unitas.sh`](rules/quant/scripts/run_unitas.sh)). Exactly one UNITAS result directory must appear there; it is moved to `quant/unitas/unitas/<sample>/` and the work directory is removed. Concurrent or similarly named samples and leftovers from interrupted runs therefore cannot mix.
+**UNITAS execution.** Each sample runs in its own work directory, `quant/unitas/work/<sample>/`, with the reference dump linked in ([`run_unitas.sh`](rules/quant/scripts/run_unitas.sh)); `seqmap.exe` comes from the image. Exactly one UNITAS result directory must appear there; it is moved to `quant/unitas/unitas/<sample>/` and the work directory is removed. Concurrent or similarly named samples and leftovers from interrupted runs therefore cannot mix. UNITAS console output goes to `quant/unitas/logs/<sample>.log`. The job fails, and prints the end of that log, when UNITAS exits non-zero, reports `ERROR!` or writes no `unitas.annotation_summary.txt`. Spike-in and contaminant sequences are passed to UNITAS with `-refseq` only when `filter.spikein.quantifier` or `filter.contaminants.quantifier` is `unitas`.
 
 ## Outputs in `bfq/`
 
@@ -122,8 +122,10 @@ logs/<sample>/<sample>.fastp.html, .fastp.json, _fastqc.html, _fastqc.zip, .Log.
 | `filter.spikein.ref` | `null` (no spike-ins). Otherwise comma-separated spike-in sets, each `ERCC92` or `smallrna_calibrators`, e.g. `ERCC92,smallrna_calibrators`. Unknown sets, or `filter.spikein.quantifier: unitas` without any set, stop the workflow at load | `smallrna.config` |
 | `filter.trim.quantifier` | `fastp` or `skip`; any other value stops the workflow at load (the miRTrace filter route was removed) | Kit entry |
 | `filter.trim.mirtrace.protocol` | Per kit: `nextflex` (NEXTflex v3, 4N ends), `illumina` (NEXTflex v4, TruSeq). Required | Kit entry |
-| `filter.spikein`, `filter.contaminants`, `filter.ribosomal` | `skip`/off | `smallrna.config` |
-| `db.reference_db`, `db.mirbase.release` | `ensembl`, releases in `main.config` | Kit entry, `main.config` |
+| `filter.spikein`, `filter.contaminants` | `skip`/off; `quantifier: unitas` adds the sequences to the UNITAS reference | `smallrna.config` |
+| `filter.ribosomal.quantifier` | `skip`, the only accepted value. UNITAS no longer supports `-riborase`, so `unitas` stops the workflow at load | `smallrna.config` |
+| `db.reference_db`, `db.mirbase.release` | `ensembl`, releases in `main.config`. miRBase serves only release 23.1; UNITAS dumps from `04-11-2026` use it too | Kit entry, `main.config` |
+| `db.unitas.release` | `04-11-2026`; the reference dump `UNITAS_refdump_<organism>` is downloaded from this release | [main.config](../main.config) |
 
 Precedence between these sources is described in [docs/configuration.md](../docs/configuration.md#effective-precedence).
 
@@ -131,8 +133,8 @@ Precedence between these sources is described in [docs/configuration.md](../docs
 
 - `smallrna/.tests`: synthetic dry-run fixture (NEXTflex v3, `mus_musculus`, four samples, with small reference FASTA stubs). CI runs `snakemake -n -p --cores 1 multiqc_report` there (`test-small-rna.yml`).
 - `smallrna/.tests/test_fastp.py`: configuration, all-kit dry runs, stage accounting, exact v3 clipping and 15/16/17 nt boundaries, quality/N-base/complexity and polyG outcomes with fastp 0.20.1. All inputs are synthetic; no new v4 fixture is built.
-- `smallrna/.tests/test_run_unitas.py` and `test_bfq_unitas_links.py`: per-sample UNITAS work directories with a stand-in `unitas.pl` (concurrent and similarly named samples, interrupted runs, unexpected results), and relative delivery links.
-- `smallrna/.tests/test_route_guards.py`: dry runs showing that a non-STAR aligner or `filter.dedup: true` stops at load, while the defaults plan delivery.
+- `smallrna/.tests/test_run_unitas.py` and `test_bfq_unitas_links.py`: per-sample UNITAS work directories with a stand-in `unitas.pl` (concurrent and similarly named samples, interrupted runs, unexpected results, non-zero exit, `ERROR!` with exit 0, missing annotation summary), and relative delivery links.
+- `smallrna/.tests/test_route_guards.py`: dry runs showing that a non-STAR aligner, `filter.dedup: true`, an organism without a UNITAS reference dump or `filter.ribosomal.quantifier: unitas` stops at load, while the defaults plan delivery; and that `-refseq` reaches UNITAS only when spike-ins or contaminants are configured.
 - `smallrna/.tests/test_quant_methods.py`: `quant_all` dry runs for each supported `quant.method`, and errors for removed or unknown values.
 - `smallrna/.tests/test_create_anndata.py`: AnnData regression, run in CI on Python 3.14 (see below).
 - Commands and environments: [development guide](../docs/development.md#run-the-checks).
