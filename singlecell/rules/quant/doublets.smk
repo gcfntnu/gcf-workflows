@@ -1,5 +1,3 @@
-container: 'docker://gcfntnu/doublet-detection:4.2' 
-
 DBL_DIR = join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets')
 SAMPLE_MULTIPLEXING = (config['quant'].get('demultiplex', {}).get('method') not in [None, 'skip'])
 
@@ -43,6 +41,8 @@ rule dbl_skip_doubletdetection:
         join(QUANT_INTERIM, '{quantifier}', '{sample}', 'doublets',  'skip', 'doublet_type.tsv')
     params:
         script = src_gcf('scripts/skip_doubletdetection.py')
+    container:
+        'docker://' + config['docker']['doublet-detection']
     shell:
         'python {params.script} '
         '-i {input.counts} '
@@ -59,6 +59,8 @@ rule dbl_doubletdetection:
         dbl_rate_arg = dbl_rate_arg()
     threads:
         8
+    container:
+        'docker://' + config['docker']['doublet-detection']
     shell:
         'python {params.script} '
         '-i {input.counts} '
@@ -77,6 +79,8 @@ rule dbl_scdblfinder:
         dbl_rate_arg = dbl_rate_arg()
     threads:
         8
+    container:
+        'docker://' + config['docker']['doublet-detection']
     shell:
         'Rscript {params.script} '
         '--input {input.counts} '
@@ -95,6 +99,8 @@ rule dbl_scds:
         dbl_rate_arg = dbl_rate_arg()
     threads:
         8
+    container:
+        'docker://' + config['docker']['doublet-detection']
     shell:
         'Rscript {params.script} '
         '--input {input.counts} '
@@ -113,6 +119,8 @@ rule dbl_scrublet:
         dbl_rate_arg = dbl_rate_arg()
     threads:
         8
+    container:
+        'docker://' + config['docker']['doublet-detection']
     shell:
         'python {params.script} '
         '-i {input.counts} '
@@ -309,7 +317,7 @@ rule dbl_doublet_rank_aggr:
     threads:
         4 
     container:
-        'docker://gcfntnu/jupyterlab-doublet-detection:4.2.2'
+        'docker://' + config['docker']['jupyter-doublet-detection']
     shell:
         r"""
         python {params.script} \
