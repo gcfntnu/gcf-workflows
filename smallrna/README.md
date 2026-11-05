@@ -124,8 +124,8 @@ logs/<sample>/<sample>.fastp.html, .fastp.json, _fastqc.html, _fastqc.zip, .Log.
 | `filter.trim.mirtrace.protocol` | Per kit: `nextflex` (NEXTflex v3, 4N ends), `illumina` (NEXTflex v4, TruSeq). Required | Kit entry |
 | `filter.spikein`, `filter.contaminants` | `skip`/off; `quantifier: unitas` adds the sequences to the UNITAS reference | `smallrna.config` |
 | `filter.ribosomal.quantifier` | `skip`, the only accepted value. UNITAS no longer supports `-riborase`, so `unitas` stops the workflow at load | `smallrna.config` |
-| `db.reference_db`, `db.mirbase.release` | `ensembl`, releases in `main.config`. `db.mirbase.release` is `23.1`, the release the `04-11-2026` UNITAS dumps use; miRBase also serves `20`, `21` and `22`, and other values stop the workflow at load | Kit entry, `main.config` |
-| `db.unitas.release` | `04-11-2026`; the reference dump `UNITAS_refdump_<organism>` is downloaded from this release | [main.config](../main.config) |
+| `db.reference_db`, `db.mirbase.release` | `ensembl`, releases in `main.config`. `db.mirbase.release` is `23.1`, the release the `05-11-2026` UNITAS dumps use; miRBase also serves `20`, `21` and `22`, and other values stop the workflow at load | Kit entry, `main.config` |
+| `db.unitas.release` | `05-11-2026`; the reference dump `UNITAS_refdump_<organism>` is downloaded from this release | [main.config](../main.config) |
 
 Precedence between these sources is described in [docs/configuration.md](../docs/configuration.md#effective-precedence).
 
