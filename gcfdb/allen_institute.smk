@@ -224,7 +224,7 @@ rule abc_build_colors:
         long = join(ABC_DERIVED, 'taxonomy', '{organism}', 'abc_colors.long.tsv'),
         json = join(ABC_DERIVED, 'taxonomy', '{organism}', 'abc_colors.json')
     params:
-        script = src_gcf('gcfdb/scripts/build_abc_colors_from_taxonomy.py'),
+        script = src_gcf('scripts/build_abc_colors_from_taxonomy.py'),
         levels = _taxonomy_levels
     container:
         DOCKER_DEF
