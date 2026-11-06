@@ -75,6 +75,14 @@ contain no personal information, or cannot independently identify a person.
 
 ## Server integration operations
 
+Treat the server fixtures as a maintained integration-test harness: set up,
+execute the requested profile and its acceptance checks, then report results.
+Use the documented routine profile when no different scope is requested; do not
+infer scope from unrelated development context. Development, exploratory
+comparisons and follow-up fixes are separate operator-requested work, not steps
+to add to a routine integration plan. A dry-run or outline request does not
+authorize image builds, deployment or test execution.
+
 For separately authorized server integration, build and push the BFQ test image
 on the developer's local Docker engine. Never build on the test/production server
 or use a remote Docker context as a fallback. Deploy through the site's single
