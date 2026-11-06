@@ -63,19 +63,14 @@ rule k2_screen:
         output = join(QC_INTERIM, 'kraken2', '{sample}.kraken.out'),
     params:
         db = os.path.dirname(K2_SHMEM[0]),
-        params = '--gzip-compressed --memory-mapping'
+        script = src_gcf('scripts/k2_screen.sh'),
     threads:
         6
     container:
         'docker://' + config['docker']['kraken2']
     shell:
-        'kraken2 '
-        '--db {params.db} '
-        '--output {output.output} '
-        '--report {output.report} '
-        '--threads {threads} '
-        '{params.params} '
-        '{input.fastq} | tee {log} 2>&1 '
+        'bash {params.script:q} {input.fastq:q} {params.db:q} '
+        '{output.output:q} {output.report:q} {threads}'
 
 
 rule k2_screen_krona_text:
