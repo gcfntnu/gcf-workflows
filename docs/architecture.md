@@ -123,7 +123,7 @@ Where to look first for a change, and which tests cover it.
 | Area | Source | Tests and checks |
 | --- | --- | --- |
 | Configuration loading, paths | `utils.py`, `<workflow>/<workflow>.smk` | Workflow dry runs; `gcfdb/.tests/test_reference_roots.py` (reference root) |
-| Shared FASTQ rules | `common.smk`, `common/*.smk` | Workflow dry runs |
+| Shared FASTQ rules | `common.smk`, `common/*.smk` | Workflow dry runs; `.tests/test_kraken_screen.py` (empty/nonempty screening and failures) |
 | QIAseq region demultiplexing | `common/scripts/demultiplex_16s_its.py` and its rules | `common/.tests/test_qiaseq_demultiplex.py` ([qiaseq-demultiplexing.md](qiaseq-demultiplexing.md)) |
 | Reference getters | `gcfdb/*.db`, `gcfdb/indexes.smk`, `gcfdb/convert.smk` | `gcfdb/.tests/`, `metagenome/.tests/test_langmead_release.py`, `metagenome/.tests/test_bracken_database.py` ([gcfdb/README.md](../gcfdb/README.md)) |
 | Reporting and provenance | `postprocess.smk`, `misc/multiqc/` | `misc/multiqc/.tests/` ([misc/multiqc/README.md](../misc/multiqc/README.md)) |
