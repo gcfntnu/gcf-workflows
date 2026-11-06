@@ -1,8 +1,13 @@
 #-*- mode:snakemake -*-
 """UNITAS reference dumps and extra reference sequences for unitas.
 
-The reference dump `UNITAS_refdump_<organism>` is downloaded from the winecellar release `db.unitas.release`.
-UNITAS can no longer download references itself, and dumps exist only for human, mouse and rat.
+The reference dump `UNITAS_refdump_<organism>` is downloaded from a winecellar release:
+`db.unitas.release` for miRBase dumps, or `db.unitas.mirgenedb_release` when `db.unitas.mirna_db` is
+`mirgenedb`. A MirGeneDB dump carries MirGeneDB in place of miRBase, names miRNAs as MirGeneDB does
+(without the species code) and includes the species' MirGeneDB GFF (gcf_mirgenedb.gff3), from which
+`mirgenedb_genes` writes the miRNA feature info. Dumps are built with gcfntnu/unitas'
+unitas_build_refdump.sh. UNITAS can no longer download references itself, and dumps exist only for
+human, mouse and rat.
 
 Extra reference sequences are FASTA files with headers of the form `>ncRNA_type|ncRNA_name`.
 They are added to ncRNA.fas.
@@ -14,7 +19,15 @@ UNITAS_SPECIES = {'homo_sapiens': 'Human', 'mus_musculus': 'Mouse', 'rattus_norv
 if ORG not in UNITAS_SPECIES:
     raise ValueError('UNITAS supports organism {}, got {!r}'.format(', '.join(UNITAS_SPECIES), ORG))
 UNITAS_ORG = UNITAS_SPECIES[ORG]
-UNITAS_RELEASE_DIR = join(EXT_DIR, 'unitas', config['db']['unitas']['release'])
+UNITAS_MIRNA_DB = str(config['db']['unitas'].get('mirna_db') or 'mirbase')
+if UNITAS_MIRNA_DB not in ('mirbase', 'mirgenedb'):
+    raise ValueError('db.unitas.mirna_db: mirbase or mirgenedb, got {!r}'.format(UNITAS_MIRNA_DB))
+UNITAS_RELEASE = config['db']['unitas'].get('mirgenedb_release' if UNITAS_MIRNA_DB == 'mirgenedb' else 'release')
+if not UNITAS_RELEASE:
+    raise ValueError('db.unitas.mirna_db is {}, but db.unitas.{} is not set'.format(
+        UNITAS_MIRNA_DB, 'mirgenedb_release' if UNITAS_MIRNA_DB == 'mirgenedb' else 'release'))
+UNITAS_RELEASE = str(UNITAS_RELEASE)
+UNITAS_RELEASE_DIR = join(EXT_DIR, 'unitas', UNITAS_RELEASE)
 UNITAS_REF_DIR = join(UNITAS_RELEASE_DIR, 'UNITAS_refdump_{}'.format(ORG))
 
 rule contaminants_unitas:
@@ -33,13 +46,30 @@ rule unitas_db:
     params:
         refdir = UNITAS_RELEASE_DIR,
         script = src_gcf('scripts/format_unitas_dblog.py'),
-        url = join(config.get('winecellar', {}).get('url', ''), 'unitas', config['db']['unitas']['release'], 'UNITAS_refdump_{}.tar.gz'.format(ORG))
+        url = join(config.get('winecellar', {}).get('url', ''), 'unitas', UNITAS_RELEASE, 'UNITAS_refdump_{}.tar.gz'.format(ORG)),
+        # A MirGeneDB release must hold MirGeneDB dumps (gcf_mirna_db.tsv, written by unitas_build_refdump.sh).
+        check = ("{{ grep -qx 'mirgenedb\t.*' {0}/gcf_mirna_db.tsv || "
+                 "{{ echo '{0} is not a MirGeneDB dump (gcf_mirna_db.tsv)' >&2; exit 1; }}; }} && ".format(UNITAS_REF_DIR)
+                 if UNITAS_MIRNA_DB == 'mirgenedb' else '')
     log:
         join(UNITAS_RELEASE_DIR, 'logs', 'unitas_{}.log'.format(ORG))
     shell:
         'set -o pipefail; '
         'mkdir -p {params.refdir} && wget -qO- {params.url} | tar -xz -C {params.refdir} && '
+        '{params.check}'
         'python {params.script} {output.db}/db_versions.info > {log}'
+
+rule mirgenedb_genes:
+    input:
+        db = rules.unitas_db.output.db
+    params:
+        script = src_gcf('scripts/mirgenedb_gff2genes.py')
+    output:
+        join(UNITAS_RELEASE_DIR, 'anno', 'mirgenedb_genes_{}.tsv'.format(ORG))
+    container:
+        'docker://' + config['docker']['default']
+    shell:
+        'python {params.script} {input.db}/gcf_mirgenedb.gff3 > {output}'
 
 rule unitas_db_all:
     input:

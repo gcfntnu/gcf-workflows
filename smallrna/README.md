@@ -106,6 +106,8 @@ logs/mirtrace/mirtrace-results.json, mirtrace-report.html, mirtrace-stats-{lengt
 logs/<sample>/<sample>.fastp.html, .fastp.json, _fastqc.html, _fastqc.zip, .Log.final.out
 ```
 
+**MirGeneDB dumps.** With `db.unitas.mirna_db: mirgenedb`, UNITAS annotates miRNAs against MirGeneDB 3.0 instead of miRBase: the curated set (human 514 precursors, 559 mature and 468 star sequences, against about 1,900 human miRBase hairpins), with the other 113 MirGeneDB species for cross-species hits. The rest of the dump (Ensembl, GtRNAdb, piRNA clusters, tRF-1, tRNA leaders, SILVA) is the same as in the miRBase dump. miRNAs are named by MirGeneDB gene and arm, without the species code: `Let-7-P1b-5p` and `Let-7-P1b-3p` for MirGeneDB's `Hsa-Let-7-P1b_5p` and `Hsa-Let-7-P1b_3p*`. That is the name UNITAS also gives reads it places on a hairpin arm (isomiRs), so each arm is counted under one name. Tables are not comparable by name with miRBase runs. `mirgenedb_genes` annotates the AnnData from the dump's MirGeneDB GFF: `star` marks the star arm, and `alias` holds the miRBase accession where there is one. UNITAS' `db_versions.info` still calls the database miRBase; the UNITAS log records `UNITAS MirGeneDB,3.0`. miRge3 keeps using `quant.mirge3.db`.
+
 **Delivered UNITAS tables.** `mir_counts.tsv`, `trf_counts.tsv` and `isomir_counts.tsv` have features as rows and samples as columns; `isomir_counts.tsv` rows are `sequence|miR-name`, annotated in `isomir_counts_anno.tsv`. `isotrf_counts.tsv` (tab-separated) and `annotations.tsv` are long tables with a `Sample_ID` column. Every `annotations.tsv` row names its parent levels (`Level1`, `Level2`, `Level3`). All tables are sorted, so repeated runs give identical files.
 
 ## Key configuration
@@ -125,7 +127,9 @@ logs/<sample>/<sample>.fastp.html, .fastp.json, _fastqc.html, _fastqc.zip, .Log.
 | `filter.spikein`, `filter.contaminants` | `skip`/off; `quantifier: unitas` adds the sequences to the UNITAS reference | `smallrna.config` |
 | `filter.ribosomal.quantifier` | `skip`, the only accepted value. UNITAS no longer supports `-riborase`, so `unitas` stops the workflow at load | `smallrna.config` |
 | `db.reference_db`, `db.mirbase.release` | `ensembl`, releases in `main.config`. `db.mirbase.release` is `23.1`, the release the `05-11-2026` UNITAS dumps use; miRBase also serves `20`, `21` and `22`, and other values stop the workflow at load | Kit entry, `main.config` |
-| `db.unitas.release` | `05-11-2026`; the reference dump `UNITAS_refdump_<organism>` is downloaded from this release | [main.config](../main.config) |
+| `db.unitas.mirna_db` | `mirbase`. `mirgenedb` uses a UNITAS dump built from MirGeneDB instead of miRBase (see below); other values stop the workflow at load | [main.config](../main.config) |
+| `db.unitas.release` | `05-11-2026`; with `mirna_db: mirbase`, the reference dump `UNITAS_refdump_<organism>` is downloaded from this release | [main.config](../main.config) |
+| `db.unitas.mirgenedb_release` | `06-11-2026-mirgenedb` (MirGeneDB 3.0); with `mirna_db: mirgenedb`, the dump is downloaded from this release. It must hold MirGeneDB dumps (`gcf_mirna_db.tsv`), and unset stops the workflow at load | [main.config](../main.config) |
 
 Precedence between these sources is described in [docs/configuration.md](../docs/configuration.md#effective-precedence).
 

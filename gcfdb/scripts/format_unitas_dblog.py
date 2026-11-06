@@ -15,7 +15,12 @@ if __name__ == '__main__':
         name = name.replace('version/date:', '').strip()
         name = name.replace('database', '').strip()
         NAME = 'UNITAS ' + name
-        if 'Release' in desc:
+        if desc.startswith('MirGeneDB '):
+            # MirGeneDB dumps (unitas_build_refdump.sh --mirna-db mirgenedb) fill UNITAS' miRBase line.
+            NAME = 'UNITAS MirGeneDB'
+            RELEASE = desc.split('MirGeneDB ')[-1]
+            DATE = 'NA'
+        elif 'Release' in desc:
             RELEASE = desc.split('Release ')[-1]
             DATE = 'NA'
         else:

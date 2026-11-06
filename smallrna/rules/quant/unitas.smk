@@ -215,7 +215,8 @@ rule unitas_mirna_anndata:
     input:
         mir_table = rules.unitas_mirtable.output,
         sample_info = join(INTERIM_DIR, 'sample_info.tsv'),
-        feature_info = rules.mirbase_genes.output,
+        # MirGeneDB dumps name miRNAs as MirGeneDB does; annotate them from the dump's own GFF.
+        feature_info = rules.mirgenedb_genes.output if UNITAS_MIRNA_DB == 'mirgenedb' else rules.mirbase_genes.output,
         vsn = rules.unitas_mirna_vsn.output
     output:
         join(QUANT_INTERIM, 'unitas', 'adata.h5ad')
