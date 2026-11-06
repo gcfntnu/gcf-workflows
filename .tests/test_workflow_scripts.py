@@ -13,14 +13,8 @@ SRC_GCF = re.compile(r'''src_gcf\(\s*(['"])([^'"]+)\1\s*\)''')
 
 # Pre-existing missing paths, tracked in #306. Remove entries as they are fixed.
 KNOWN_MISSING = {
-    ('rnaseq/rules/quant/rockhopper.smk', 'src/gcf-workflows/rnaseq/rules/quant/scripts/create_anndata.py'),
-    ('singlecell/rules/analysis/preprocess/scanpy.smk', 'scripts/scanpy_read.py'),
-    ('singlecell/rules/analysis/scenic.smk', 'scripts/pyscenic_grn_input.py {input} {params.out}'),
-    ('singlecell/rules/analysis/scenic.smk', 'scripts/pyscenic_grn_input.py'),
-    ('singlecell/rules/quant/parse.smk', 'scripts/parsebio_to_10x_mtx.py'),
     ('singlecell/rules/quant/preprocess.smk', 'scripts/preprocess_integrate_harmony.py'),
     ('singlecell/rules/quant/preprocess.smk', 'scripts/preprocess_integrate_scvi.py'),
-    ('singlecell/rules/quant/scsplit.smk', 'scripts/scsplit_scanpy.py'),
 }
 
 
