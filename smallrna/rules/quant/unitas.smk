@@ -1,37 +1,20 @@
 #-*- mode:snakemake -*-
 
-import warnings
-warnings.filterwarnings("ignore", message="numpy.dtype size changed")
-
-include:
-    join(GCFDB_DIR, 'unitas.db')
-
-
-rule unitas_mirtrace_fasta:
-    input:
-        join(FILTER_INTERIM, 'mirtrace', 'qc_passed_reads.all.collapsed', '{sample}_R1.fasta')
-    output:
-        join(FILTER_INTERIM, 'mirtrace', 'unitas_fasta', '{sample}_R1.fasta')
-    shell:
-        """
-        sed -r '/>/ s/(.*)x([[:digit:]]+)(.*)/>\\2/' {input} > {output}
-        """
-
 def get_unitas_seq(wildcards):
-    if config['filter']['trim']['quantifier'] == 'mirtrace':
-        fastq = join(FILTER_INTERIM, 'mirtrace', 'unitas_fasta', '{sample}_R1.fasta')
-    else:
-        fastq = get_filtered_fastq(wildcards)['R1']
-    return fastq
+    return get_filtered_fastq(wildcards)['R1']
+
+SPIKEIN_SETS = ('ERCC92', 'smallrna_calibrators')
 
 def get_spikein_fasta():
-    ref = config['filter']['spikein'].get('ref', '').lower()
-    if ref == 'ercc':
-        return join(EXT_DIR, 'ERCC', 'fasta', 'ERCC92.fa')
-    elif ref == 'smallrna_calibrators':
-        return join(EXT_DIR, 'spikein', 'fasta', 'smallrna_calibrators.fa')
-    else:
-        return join(EXT_DIR, 'spikein', 'fasta', 'merged_spikein.fa')
+    """FASTA files of the comma-separated spike-in sets in filter.spikein.ref."""
+    ref = config['filter']['spikein'].get('ref')
+    names = [name.strip() for name in str(ref or '').split(',') if name.strip()]
+    unknown = [name for name in names if name not in SPIKEIN_SETS]
+    if unknown:
+        raise ValueError('filter.spikein.ref: unsupported value {!r}; use a comma-separated list of {}'.format(ref, ', '.join(SPIKEIN_SETS)))
+    if not names and config['filter']['spikein']['quantifier'] == 'unitas':
+        raise ValueError('filter.spikein.quantifier is unitas but filter.spikein.ref lists no spike-in sets')
+    return [join(EXT_DIR, 'spikein', 'fasta', name + '.fa') for name in names]
     
 rule spikein_unitas:
     input:
@@ -43,57 +26,40 @@ rule spikein_unitas:
     shell:
         'python {params.script} {input} > {output}'
         
-UNITAS_REFSEQ = []
-if config['filter']['spikein']['quantifier'] == 'unitas':
-    UNITAS_REFSEQ.append(rules.spikein_unitas.output)
-if config['filter']['contaminants']['quantifier'] == 'unitas':
-    UNITAS_REFSEQ.append(rules.contaminants_unitas.output)
-    
+if config['filter']['ribosomal']['quantifier'] != 'skip':
+    raise ValueError('filter.ribosomal.quantifier: smallrna supports only skip, got {!r}; '
+                     'UNITAS no longer supports -riborase and smallrna has no other ribosomal filter'.format(config['filter']['ribosomal']['quantifier']))
+
+def get_unitas_refseq_fasta():
+    """Spike-in and contaminant FASTA files that UNITAS adds to its ncRNA reference, if they are configured."""
+    fasta = []
+    if config['filter']['spikein']['quantifier'] == 'unitas':
+        fasta.extend(rules.spikein_unitas.output)
+    if config['filter']['contaminants']['quantifier'] == 'unitas':
+        fasta.extend(rules.contaminants_unitas.output)
+    return fasta
+
 rule unitas_extra_reference:
     input:
-        UNITAS_REFSEQ
+        get_unitas_refseq_fasta()
     output:
         join(QUANT_INTERIM, 'unitas', 'refseq.fa')
-    run:
-        if len(input) > 0:
-            shell('cat {input} > {output}')
-        else:
-            shell('touch {output}')
-    
-UNITAS_ARGS = ''
-if config['filter']['ribosomal']['quantifier'] == 'unitas':
-    UNITAS_ARGS += '--riborase '
-
-if len(UNITAS_REFSEQ) > 0:
-    UNITAS_ARGS += '-refseq {} '.format(abspath(join(QUANT_INTERIM, 'unitas', 'refseq.fa')))
-
-
-rule unitas_rundir:
-    input:
-        seqmap = rules.unitas_seqmap.output,
-        db_log = rules.unitas_db.log,
-        db = rules.unitas_db.output.db,
-    output:
-        seqmap = 'seqmap.exe'
-    params:
-        outdir = rules.unitas_db.output.db,
-        seqmap = temp('seqmap.exe'),
-        db = directory('UNITAS_refdump_{}'.format(ORG)),
     shell:
-        """
-        cp {input.seqmap} .
-        ln -srf {params.outdir} .
-        """
-        
+        'cat {input} > {output}'
+
+def get_unitas_refseq(wildcards):
+    return rules.unitas_extra_reference.output[0] if get_unitas_refseq_fasta() else []
+
+def unitas_args(wildcards, input):
+    return '-refseq {}'.format(abspath(input.refseq)) if input.refseq else ''
+
+
 rule unitas:
     input:
-        seqmap = 'seqmap.exe',
         fastq = get_unitas_seq,
-        refseq = rules.unitas_extra_reference.output
-    params:
-        outdir = abspath(join(QUANT_INTERIM, 'unitas', 'unitas', '{sample}')),
-        args = UNITAS_ARGS,
-        org  = config['organism']
+        refseq = get_unitas_refseq,
+        db = rules.unitas_db.output.db,
+        db_log = rules.unitas_db.log
     output:
         html = join(QUANT_INTERIM, 'unitas', 'unitas', '{sample}', 'results.html'),
         trftable = join(QUANT_INTERIM, 'unitas',  'unitas', '{sample}', 'unitas.tRF-table.simplified.txt'),
@@ -105,17 +71,22 @@ rule unitas:
         mirtable = join(QUANT_INTERIM, 'unitas', 'unitas', '{sample}', 'miR-table_{}.simplified.txt'.format(UNITAS_ORG)),
         pirna = join(QUANT_INTERIM, 'unitas', 'unitas', '{sample}', 'unitas.piRcandidates-tails_{}.txt'.format(UNITAS_ORG)),
         mirtable_ext= join(QUANT_INTERIM, 'unitas', 'unitas', '{sample}', 'unitas.miR-table_{}.txt'.format(UNITAS_ORG))
-    container:
-        'docker://' + config['docker']['unitas']
+    params:
+        script = src_gcf('scripts/run_unitas.sh'),
+        workdir = join(QUANT_INTERIM, 'unitas', 'work', '{sample}'),
+        outdir = join(QUANT_INTERIM, 'unitas', 'unitas', '{sample}'),
+        org = config['organism'],
+        args = unitas_args
     threads:
         2
+    log:
+        join(QUANT_INTERIM, 'unitas', 'logs', '{sample}.log')
+    container:
+        'docker://' + config['docker']['unitas']
     shell:
-        """
-        unitas.pl -input {input.fastq} -s {params.org} -threads {threads} {params.args} 
-        rm -rf {params.outdir}; mkdir -p {params.outdir}
-        mv -f UNITAS_*{wildcards.sample}_R1.fast*_#1/* {params.outdir}/
-        rm -rf UNITAS_*{wildcards.sample}_R1.*fas*_#1
-        """
+        'bash {params.script} --input {input.fastq} --species {params.org} --threads {threads} '
+        '--refdump {input.db} --workdir {params.workdir} --outdir {params.outdir} --log {log} '
+        '-- {params.args}'
 
 rule unitas_annotation2yaml:
     input:
@@ -165,7 +136,7 @@ rule unitas_isotrftable:
     params:
         script = src_gcf('scripts/unitas_isotrftable.py')
     output:
-        join(QUANT_INTERIM, 'unitas', 'isotrf_counts.csv')
+        join(QUANT_INTERIM, 'unitas', 'isotrf_counts.tsv')
     shell:
         'python {params.script} {input} > {output}'
 
@@ -244,7 +215,7 @@ rule unitas_mirna_anndata:
     input:
         mir_table = rules.unitas_mirtable.output,
         sample_info = join(INTERIM_DIR, 'sample_info.tsv'),
-        feature_info = rules. mirbase_genes.output,
+        feature_info = rules.mirbase_genes.output,
         vsn = rules.unitas_mirna_vsn.output
     output:
         join(QUANT_INTERIM, 'unitas', 'adata.h5ad')
@@ -260,9 +231,6 @@ rule unitas_mirna_anndata:
         '--add-vsn --vsn-input {input.vsn:q} '
         '--output {output} '
 
-rule unitas_biotypes:
-    input:
-        
 rule unitas_all:
     input:
         rules.unitas_mirtable.output,

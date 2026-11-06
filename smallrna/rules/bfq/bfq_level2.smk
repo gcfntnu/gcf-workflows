@@ -40,7 +40,7 @@ rule bfq_level2_exprs:
         join(BFQ_INTERIM, 'exprs', 'trf_counts.tsv'),
         join(BFQ_INTERIM, 'exprs', 'isomir_counts.tsv'),
         join(BFQ_INTERIM, 'exprs', 'isomir_counts_anno.tsv'),
-        join(BFQ_INTERIM, 'exprs', 'isotrf_counts.csv'),
+        join(BFQ_INTERIM, 'exprs', 'isotrf_counts.tsv'),
         join(BFQ_INTERIM, 'exprs', 'annotations.tsv')
     run:
         for src, dst in zip(input, output):
@@ -57,18 +57,23 @@ rule bfq_level2_unitas:
             unitas_output_dir = os.path.abspath(os.path.dirname(html_result))
             bfq_dir = os.path.join(output.outdir, sample_name)
             os.makedirs(os.path.dirname(bfq_dir), exist_ok=True)
-            os.symlink(unitas_output_dir, bfq_dir)
+            os.symlink(os.path.relpath(unitas_output_dir, os.path.dirname(bfq_dir)), bfq_dir)
 
 rule bfq_level2_mirtrace:
     input:
-        rules.qc_mirtrace.output.qc,
-        rules.qc_mirtrace.output.length
+        rules.qc_mirtrace.output.results,
+        rules.qc_mirtrace.output.report,
+        rules.qc_mirtrace.output.length,
+        rules.qc_mirtrace.output.contamination,
+        rules.qc_mirtrace.output.complexity
     output:
-        join(BFQ_INTERIM, 'logs', 'mirtrace-results.json'),
-        join(BFQ_INTERIM, 'logs', 'mirtrace-stats-length.tsv')
+        join(BFQ_INTERIM, 'logs', 'mirtrace', 'mirtrace-results.json'),
+        join(BFQ_INTERIM, 'logs', 'mirtrace', 'mirtrace-report.html'),
+        join(BFQ_INTERIM, 'logs', 'mirtrace', 'mirtrace-stats-length.tsv'),
+        join(BFQ_INTERIM, 'logs', 'mirtrace', 'mirtrace-stats-contamination_basic.tsv'),
+        join(BFQ_INTERIM, 'logs', 'mirtrace', 'mirtrace-stats-mirna-complexity.tsv')
     run:
         for src, dst in zip(input, output):
-            os.makedirs(os.path.dirname(dst), exist_ok=True)
             shell('ln -srf {src} {dst}')
 
 rule bfq_level2_aligned:
@@ -94,5 +99,6 @@ BFQ_LEVEL2_ALL = [join(BFQ_INTERIM, 'figs', 'pca_mqc.yaml'),
                   rules.bfq_level2_logs.output,
                   rules.bfq_level2_exprs.output,
                   rules.bfq_level2_unitas.output,
+                  rules.bfq_level2_mirtrace.output,
                   rules.bfq_level2_aligned.output]
 BFQ_ALL.extend(BFQ_LEVEL2_ALL)

@@ -44,16 +44,18 @@ def file2pandas(fn):
     txt = txt.replace('   ', ';')
     header = '\t'.join(['Level1', 'Level2', 'Level3', 'Count'])
     new_lines = [header]
+    parents = ['', '', '']
     for line in txt.split('\n'):
         if not line:
             break
         desc, count = line.split('\t')
         level = desc.count(';')
-        desc  = desc.replace(';', '\t')
-        desc += '\t'*(2-level)
-        new_lines.append(desc + '\t' + count)
+        # Each row names its parent levels, so the table does not depend on row order.
+        parents[level] = desc.replace(';', '')
+        parents[level + 1:] = [''] * (2 - level)
+        new_lines.append('\t'.join(parents) + '\t' + count)
     txt = '\n'.join(new_lines)
-    df = pd.read_csv(io.StringIO(txt), sep='\t')
+    df = pd.read_csv(io.StringIO(txt), sep='\t', keep_default_na=False, dtype={'Level1': str, 'Level2': str, 'Level3': str})
     #df.Level1 = fill_col(df.Level1)
     #df = df.apply(fill_row, axis=1)
     return df
@@ -81,6 +83,7 @@ if __name__ == '__main__':
         df['Sample_ID'] = [sample_id] * df.shape[0]
         df_list.append(df)
     DF = pd.concat(df_list, axis=0, join='outer', sort=False)
+    DF.sort_values(['Sample_ID', 'Level1', 'Level2', 'Level3'], kind='mergesort', inplace=True)
     if args.output is None:
         out_fn = sys.stdout
     else:

@@ -55,7 +55,7 @@ A generated project `Snakefile` loads `config.yaml` and the PEP, then includes `
 - **singlecell includes `rules/analysis.smk` after `postprocess.smk`.** Its analysis rules do not add to `BFQ_ALL`, so `multiqc_report` and BFQ delivery do not depend on them.
 - **The singlecell TCR route has no `multiqc_report`.** With `quant.assay: tcr` it includes neither `common.smk` nor `postprocess.smk`. Its target is `tcr_all`, equivalent to `bfq_all` in that route. It is run as described in [singlecell/docs/tcr.md](../singlecell/docs/tcr.md), not through BFQ's standard `multiqc_report` invocation.
 - **metagenome omits the qc and analysis stages.** Their includes are commented out.
-- **Not every rule file is loaded.** Some files under `rules/<stage>/` are not included by any stage file, for example rnaseq's analysis rules (its `analysis.smk` includes nothing) and several singlecell and smallrna quantifiers. Configuration cannot select them. Each workflow README lists its inactive source.
+- **Not every rule file is loaded.** Some files under `rules/<stage>/` are not included by any stage file, for example rnaseq's analysis rules (its `analysis.smk` includes nothing), several singlecell quantifiers and smallrna's `rules/filter/calibrators.smk`. Configuration cannot select them. Each workflow README lists its inactive source.
 - **Some rule files load conditionally.** For example:
   - singlecell's sample-demultiplexing rules (`rules/quant/multiplex.smk`, with `multiplex.config`) load only when `quant.demultiplex.method` is set and not `skip`
   - metagenome and microbiome `rules/reference_db.smk` include different getters depending on `db.reference_db`
@@ -100,7 +100,7 @@ Only `BFQ_INTERIM` and `sample_info.tsv` are delivered; see the [README outputs]
 
 ## Rules and containers
 
-- **Containers.** Rules run in containers selected by key: `container: 'docker://' + config['docker']['<key>']`. `docker.config` supplies an image only when no earlier source sets the key: the project, the selected kit entry, `GCF_SECRET` or `main.config` ([configuration.md](configuration.md#effective-precedence)). BFQ runs Snakemake with `--use-singularity`.
+- **Containers.** Rules run in containers selected by key: `container: 'docker://' + config['docker']['<key>']`. `docker.config` supplies an image only when no earlier source sets the key: the project, the selected kit entry, `GCF_SECRET` or `main.config` ([configuration.md](configuration.md#effective-precedence)). BFQ runs Snakemake with `--use-singularity`. Rules that download with `wget` or `curl` are the exception: they have no `container:` and run in the BFQ image, which provides both tools.
 - **Scripts.** Substantial processing belongs in standalone command-line scripts. Rules call them through `shell:`, with the script path in `params.script` and inputs, outputs, parameters and threads passed as arguments. Directive order and formatting conventions are in [AGENTS.md](../AGENTS.md#snakemake-conventions). Older rules may still use `script:` or `run:`.
 - **Notebooks.** Some analysis and quant steps use Snakemake `notebook:` templates. Committed notebooks must not contain saved outputs.
 
@@ -123,7 +123,7 @@ Where to look first for a change, and which tests cover it.
 | Area | Source | Tests and checks |
 | --- | --- | --- |
 | Configuration loading, paths | `utils.py`, `<workflow>/<workflow>.smk` | Workflow dry runs; `gcfdb/.tests/test_reference_roots.py` (reference root) |
-| Shared FASTQ rules | `common.smk`, `common/*.smk` | Workflow dry runs |
+| Shared FASTQ rules | `common.smk`, `common/*.smk` | Workflow dry runs; `.tests/test_kraken_screen.py` (empty/nonempty screening and failures) |
 | QIAseq region demultiplexing | `common/scripts/demultiplex_16s_its.py` and its rules | `common/.tests/test_qiaseq_demultiplex.py` ([qiaseq-demultiplexing.md](qiaseq-demultiplexing.md)) |
 | Reference getters | `gcfdb/*.db`, `gcfdb/indexes.smk`, `gcfdb/convert.smk` | `gcfdb/.tests/`, `metagenome/.tests/test_langmead_release.py`, `metagenome/.tests/test_bracken_database.py` ([gcfdb/README.md](../gcfdb/README.md)) |
 | Reporting and provenance | `postprocess.smk`, `misc/multiqc/` | `misc/multiqc/.tests/` ([misc/multiqc/README.md](../misc/multiqc/README.md)) |

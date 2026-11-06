@@ -87,6 +87,30 @@ class ConfigurationTests(unittest.TestCase):
         self.assertIn('rule multiqc_report:', output)
         return json.loads((work / 'effective.json').read_text()), output
 
+    def test_configuration_files_have_no_duplicate_keys(self):
+        # PyYAML silently keeps the last duplicate, so a repeated key hides which value is in effect.
+        duplicates = []
+
+        class Loader(yaml.SafeLoader):
+            pass
+
+        def construct_mapping(loader, node, deep=False):
+            seen = set()
+            for key_node, _ in node.value:
+                key = loader.construct_object(key_node, deep=deep)
+                if key in seen:
+                    duplicates.append(f'{Path(loader.name).name}:{key_node.start_mark.line + 1}: {key}')
+                seen.add(key)
+            return yaml.SafeLoader.construct_mapping(loader, node, deep)
+
+        Loader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, construct_mapping)
+        files = [ROOT / name for name in ('main.config', 'libprep.config', 'docker.config', 'demultiplexing.config')]
+        files += sorted(ROOT.glob('*/*.config'))
+        for path in files:
+            with path.open() as stream:
+                yaml.load(stream, Loader=Loader)
+        self.assertEqual(duplicates, [])
+
     def test_shared_and_workflow_defaults_have_no_overlapping_leaves(self):
         shared = set(leaves(yaml.safe_load((ROOT / 'main.config').read_text())))
         for workflow in WORKFLOWS:
@@ -115,12 +139,12 @@ class ConfigurationTests(unittest.TestCase):
     def test_smallrna_defaults_keep_existing_kit_trimming(self):
         config, _ = self.load_fixture('smallrna')
         self.assertEqual(config['align']['genome']['aligner'], 'star')
-        self.assertEqual(config['filter']['spikein']['ref'], 'ERCC92')
+        self.assertIsNone(config['filter']['spikein']['ref'])
         self.assertEqual(config['filter']['ribosomal']['ref'], 'ncbi')
         self.assertEqual(config['filter']['contaminants']['ref'], 'univec_core')
         before = LibprepConfig.load(ROOT / 'libprep.config').select(config['libprepkit'], [75]).parameters
         self.assertEqual(config['filter']['trim']['fastp']['args'], before['filter']['trim']['fastp']['args'])
-        self.assertEqual(config['filter']['trim']['fastp']['trim_args'], before['filter']['trim']['fastp']['trim_args'])
+        self.assertNotIn('trim_args', config['filter']['trim']['fastp'])
 
     def test_singlecell_sample_id_is_a_live_qc_default(self):
         config, output = self.load_fixture('singlecell')

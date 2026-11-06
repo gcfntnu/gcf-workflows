@@ -15,9 +15,62 @@ Kits whose [libprep.config](../libprep.config) entry sets `workflow: smallrna`. 
 | Bioo Scientific NEXTflex Small RNA-Seq Kit v4 | SE |
 | TruSeq Small RNA Library Prep Kit | SE |
 
-The kit entries set `filter.trim` (fastp `args` and `trim_args`, miRTrace `protocol: nextflex`) and `db.reference_db: ensembl`.
+The kit entries set `filter.trim.fastp.args`, miRTrace `protocol: nextflex` and `db.reference_db: ensembl`.
 
-**Trimming configuration is under review.** How the kit's fastp `args`/`trim_args` relate to the shared fastp `params`, and the final insert-length policy, are being reviewed in [#215](https://github.com/gcfntnu/gcf-workflows/issues/215), which is on hold. This README describes the current behaviour and does not anticipate that review.
+### fastp stages and final insert policy
+
+All three kits use **adapter removal, then final trimming/filtering**, with fastp 0.20.1.
+The workflow generates the adapter-only options `-Q -L -G`: no quality/N-base filtering, optional length filtering or polyG trimming in that pass.
+Empty/null reads are still rejected by fastp and counted in that stage's `too_short_reads`; `-L` does not preserve empty reads.
+Only the second invocation receives `filter.trim.fastp.args`; the workflow supplies `-A` there to prevent repeated adapter removal.
+There is no configurable first-stage option string, and no small-RNA use of the shared rule's `params` key.
+
+| Kit | Fixed clipping after adapter removal | Minimum final insert |
+| --- | --- | --- |
+| NEXTflex v3 SE | Four bases from each exposed end (`-f 4 -t 4`) | 16 nt |
+| NEXTflex v4 SE | None | 15 nt (existing policy preserved) |
+| TruSeq Small RNA SE | None | 15 nt (existing policy preserved) |
+
+Every preset explicitly sets the existing final quality/N-base and low-complexity thresholds:
+`-q 15 -u 40 -n 5 -e 0 --low_complexity_filter --complexity_threshold 30`.
+This rejects reads with more than 40% of bases below Q15 or more than five N bases, with no average-quality requirement;
+low complexity is filtered at fastp's 30% adjacent-base-change threshold.
+Final polyG handling retains fastp 0.20.1's instrument-name detection (enabled automatically for NextSeq/NovaSeq), after adapter removal.
+`-G` in a deliberate final override disables that behavior. Presets do not enable quality end cutting or polyX trimming.
+
+**Why retain two passes for v4 and TruSeq?** A single invocation does not preserve the existing polyG operation order.
+fastp trims polyG before adapters within an invocation; a polyG tract exposed only after adapter removal therefore behaves differently.
+The synthetic regression uses a NextSeq-style header and demonstrates a retained-read difference between the proposed one-pass route and the existing route.
+For v3, fixed end trimming also precedes adapter removal within an invocation, so concatenating its options would clip the wrong 3′ bases.
+See [fastp 0.20.1 processing order](https://github.com/OpenGene/fastp/blob/v0.20.1/src/seprocessor.cpp).
+This bounded correction keeps both stages for all kits; a one-pass change needs a separately validated scientific policy.
+
+The [v4 manufacturer protocol](https://resources.revvity.com/pdfs/man-nextflex-small-rna-trimming-instructions.pdf) recommends cutadapt quality cutting at Q20 and a 16 nt minimum.
+That is a possible future v4 policy, not the current preset, and Q20 end cutting is not equivalent to fastp's read-level quality filtering.
+This change preserves v4's existing policy and does not claim protocol equivalence or require new v4 fixture data.
+The v3 16 nt minimum is the workflow requirement in [#215](https://github.com/gcfntnu/gcf-workflows/issues/215), not a claim about that v4 protocol.
+References, alignment and quantification are outside this change.
+
+### Existing project overrides
+
+New project configurations receive the kit's final options under the existing string key `filter.trim.fastp.args`.
+Projects retaining the old sibling `trim_args` (even empty), or a nonempty `params`, fail early with migration guidance instead of silently changing the stages.
+For an intentional migration, inspect the old effective configuration and remove `trim_args`; do **not** append its `-Q -n 0 -l 0 -G` to the final options.
+Those were first-pass controls. The workflow now supplies equivalent adapter-only controls independently of final filtering.
+Set `args` to the applicable preset above, including v3's `-f 4 -t 4 -l 16`, or preserve explicitly reviewed project-specific final overrides.
+The argument string must specify a final length policy (`-l N` or `-L`, not both); use `-l 0` or `-L` only for deliberately disabled minimum-length filtering.
+In fastp, `-Q` also disables N-base filtering, regardless of `-n`; document that choice when overriding the final policy.
+Resuming an older workdir uses its captured workflow/configuration; deploying this revision does not migrate it automatically.
+
+### Reports
+
+The existing `<sample>.fastp.json` delivery path now contains reconciled original-input/final-output metrics, both commands in execution order,
+and a `processing_stages` array with each stage's summary and rejection counts.
+The merge rejects inconsistent stage accounting or a broken read/base-count chain.
+Raw-input duplication and adapter statistics come from the first pass; final retained-read statistics come from the second.
+The existing `<sample>.fastp.html` is a combined stage/count summary rather than the second pass's native HTML.
+Native reports remain available as `provenance/fastp/<sample>.adapter.{json,html}` and `<sample>.filter.{json,html}`.
+They are outside MultiQC's `logs/` scan so the report sees one combined sample, without duplicate stage samples.
 
 ## Stages
 
@@ -25,14 +78,18 @@ The kit entries set `filter.trim` (fastp `args` and `trim_args`, miRTrace `proto
 | --- | --- | --- |
 | gcfdb | `rules/gcfdb.smk` | Reference selection |
 | filter | `rules/filter/cliptrim.smk`, shared `common/` rules | FASTQ merging; clipping and trimming |
-| align | `rules/align/star.smk`, `bowtie2.smk` | STAR (smallrna options); Bowtie2 available |
-| quant | `rules/quant/unitas.smk`, `mirge3.smk`, `quickmirseq.smk` | UNITAS (including its spike-in and variance-transformation rules), miRge3, QuickMIRSeq |
-| qc | `rules/qc/`, shared `common/` rules | FastQC (shared), miRTrace |
+| align | `rules/align/star.smk` | STAR (smallrna options); the only supported genome aligner |
+| quant | `rules/quant/unitas.smk`, `mirge3.smk` | UNITAS (including its spike-in and variance-transformation rules), miRge3 |
+| qc | `rules/qc/`, shared `common/` rules | FastQC (shared); miRTrace QC on the merged FASTQs, delivered to `bfq/logs/mirtrace/` and shown in the MultiQC report |
 | bfq | `rules/bfq/` (levels 1–3) | Collect delivery products into `bfq/` |
 
-**`quant.method` and delivery.** `quant.method` selects what the separate `quant_all` target builds: `unitas`, `mirge3` and `quickmirseq` work, `mirge` fails because its rules are not loaded, and other values plan nothing. It does **not** change delivery: `bfq_all` and `multiqc_report` always deliver the UNITAS products (`rules/bfq/bfq_level2.smk`), whatever `quant.method` says.
+**`quant.method` and delivery.** `quant.method` selects what the separate `quant_all` target builds: `unitas`, `mirge3` or both (comma-separated). Any other value stops `quant_all` with an error. It does **not** change delivery: `bfq_all` and `multiqc_report` always deliver the UNITAS products (`rules/bfq/bfq_level2.smk`), whatever `quant.method` says.
 
-**Inactive source.** Files present in the source tree are not necessarily loaded. The entry point does not load these: `rules/filter/calibrators.smk`, `rules/quant/mirge.smk`, `seqbuster.smk`, and `var_transform.smk`.
+**Inactive source.** Files present in the source tree are not necessarily loaded. The entry point does not load `rules/filter/calibrators.smk`.
+
+**Quantifier status.** UNITAS is no longer distributed upstream, and its download server is gone. The workflow uses `gcfntnu/unitas:1.8.0-1`, UNITAS 1.8.0 patched to run offline and to exit non-zero on errors, with reference dumps built from Ensembl, GtRNAdb and miRBase (`db.unitas.release`). Dumps exist only for `homo_sapiens`, `mus_musculus` and `rattus_norvegicus`; any other organism stops the workflow at load. UNITAS remains the delivery route until a maintained quantifier replaces it. miRge3 is kept as an alternative `quant_all` route. miRge (v2), QuickMIRSeq and SeqBuster were removed.
+
+**UNITAS execution.** Each sample runs in its own work directory, `quant/unitas/work/<sample>/`, with the reference dump linked in ([`run_unitas.sh`](rules/quant/scripts/run_unitas.sh)); `seqmap.exe` comes from the image. Exactly one UNITAS result directory must appear there; it is moved to `quant/unitas/unitas/<sample>/` and the work directory is removed. Concurrent or similarly named samples and leftovers from interrupted runs therefore cannot mix. UNITAS console output goes to `quant/unitas/logs/<sample>.log`. The job fails, and prints the end of that log, when UNITAS exits non-zero, reports `ERROR!` or writes no `unitas.annotation_summary.txt`. Spike-in and contaminant sequences are passed to UNITAS with `-refseq` only when `filter.spikein.quantifier` or `filter.contaminants.quantifier` is `unitas`.
 
 ## Outputs in `bfq/`
 
@@ -41,29 +98,44 @@ The kit entries set `filter.trim` (fastp `args` and `trim_args`, miRTrace `proto
 ```text
 multiqc_<project>.html, .multiqc_config.yaml
 align/<sample>.sorted.bam
-exprs/mir_counts.tsv, isomir_counts.tsv, isomir_counts_anno.tsv, trf_counts.tsv, isotrf_counts.csv, annotations.tsv
+exprs/mir_counts.tsv, isomir_counts.tsv, isomir_counts_anno.tsv, trf_counts.tsv, isotrf_counts.tsv, annotations.tsv
 figs/gene_high_mqc.yaml, pca_mqc.yaml
-logs/unitas/
+logs/unitas/<sample>  (relative links to quant/unitas/unitas/<sample>)
+provenance/fastp/<sample>.adapter.{json,html}, <sample>.filter.{json,html}
+logs/mirtrace/mirtrace-results.json, mirtrace-report.html, mirtrace-stats-{length,contamination_basic,mirna-complexity}.tsv
 logs/<sample>/<sample>.fastp.html, .fastp.json, _fastqc.html, _fastqc.zip, .Log.final.out
 ```
+
+**Delivered UNITAS tables.** `mir_counts.tsv`, `trf_counts.tsv` and `isomir_counts.tsv` have features as rows and samples as columns; `isomir_counts.tsv` rows are `sequence|miR-name`, annotated in `isomir_counts_anno.tsv`. `isotrf_counts.tsv` (tab-separated) and `annotations.tsv` are long tables with a `Sample_ID` column. Every `annotations.tsv` row names its parent levels (`Level1`, `Level2`, `Level3`). All tables are sorted, so repeated runs give identical files.
 
 ## Key configuration
 
 | Key | Default | Set in |
 | --- | --- | --- |
-| `quant.method` | `unitas` (comma-separated list allowed); selects the `quant_all` targets only, not the delivered UNITAS outputs | [smallrna.config](smallrna.config) |
-| `quant.mirge.db`, `quant.mirge3.db` | `mirbase` | `smallrna.config` |
+| `quant.method` | `unitas`. Accepts `unitas`, `mirge3` or both, comma-separated; selects the `quant_all` targets only, not the delivered UNITAS outputs | [smallrna.config](smallrna.config) |
+| `quant.mirge3.db` | `mirbase` | `smallrna.config` |
+| `quant.mirge3.uniq_mol_ids` | `null`; NEXTflex v3 sets `'4,4'` (4N randomized ends). Passed to miRge3 as `--uniq-mol-ids` | `smallrna.config`, kit entry |
 | `align.star.args`, `align.star.guided_index` | STAR options for short reads | `smallrna.config` |
-| `align.genome.aligner` | `star` | [smallrna.config](smallrna.config) |
+| `align.genome.aligner` | `star`; any other value stops the workflow at load | [smallrna.config](smallrna.config) |
+| `filter.dedup` | `false`; `true` stops the workflow at load (no read deduplication) | `main.config`, kit entry |
 | `filter.trim` | Per kit | Kit entry ([#215](https://github.com/gcfntnu/gcf-workflows/issues/215)) |
-| `filter.spikein`, `filter.contaminants`, `filter.ribosomal`, `filter.trim.mirtrace` | `skip`/off; miRTrace protocol per kit | `smallrna.config`, kit entry |
-| `db.reference_db`, `db.mirbase.release` | `ensembl`, releases in `main.config` | Kit entry, `main.config` |
+| `filter.spikein.ref` | `null` (no spike-ins). Otherwise comma-separated spike-in sets, each `ERCC92` or `smallrna_calibrators`, e.g. `ERCC92,smallrna_calibrators`. Unknown sets, or `filter.spikein.quantifier: unitas` without any set, stop the workflow at load | `smallrna.config` |
+| `filter.trim.quantifier` | `fastp` or `skip`; any other value stops the workflow at load (the miRTrace filter route was removed) | Kit entry |
+| `filter.trim.mirtrace.protocol` | Per kit: `nextflex` (NEXTflex v3, 4N ends), `illumina` (NEXTflex v4, TruSeq). Required | Kit entry |
+| `filter.spikein`, `filter.contaminants` | `skip`/off; `quantifier: unitas` adds the sequences to the UNITAS reference | `smallrna.config` |
+| `filter.ribosomal.quantifier` | `skip`, the only accepted value. UNITAS no longer supports `-riborase`, so `unitas` stops the workflow at load | `smallrna.config` |
+| `db.reference_db`, `db.mirbase.release` | `ensembl`, releases in `main.config`. `db.mirbase.release` is `23.1`, the release the `04-11-2026` UNITAS dumps use; miRBase also serves `20`, `21` and `22`, and other values stop the workflow at load | Kit entry, `main.config` |
+| `db.unitas.release` | `04-11-2026`; the reference dump `UNITAS_refdump_<organism>` is downloaded from this release | [main.config](../main.config) |
 
 Precedence between these sources is described in [docs/configuration.md](../docs/configuration.md#effective-precedence).
 
 ## Tests
 
 - `smallrna/.tests`: synthetic dry-run fixture (NEXTflex v3, `mus_musculus`, four samples, with small reference FASTA stubs). CI runs `snakemake -n -p --cores 1 multiqc_report` there (`test-small-rna.yml`).
+- `smallrna/.tests/test_fastp.py`: configuration, all-kit dry runs, stage accounting, exact v3 clipping and 15/16/17 nt boundaries, quality/N-base/complexity and polyG outcomes with fastp 0.20.1. All inputs are synthetic; no new v4 fixture is built.
+- `smallrna/.tests/test_run_unitas.py` and `test_bfq_unitas_links.py`: per-sample UNITAS work directories with a stand-in `unitas.pl` (concurrent and similarly named samples, interrupted runs, unexpected results, non-zero exit, `ERROR!` with exit 0, missing annotation summary), and relative delivery links.
+- `smallrna/.tests/test_route_guards.py`: dry runs showing that a non-STAR aligner, `filter.dedup: true`, an organism without a UNITAS reference dump or `filter.ribosomal.quantifier: unitas` stops at load, while the defaults plan delivery; and that `-refseq` reaches UNITAS only when spike-ins or contaminants are configured.
+- `smallrna/.tests/test_quant_methods.py`: `quant_all` dry runs for each supported `quant.method`, and errors for removed or unknown values.
 - `smallrna/.tests/test_create_anndata.py`: AnnData regression, run in CI on Python 3.14 (see below).
 - Commands and environments: [development guide](../docs/development.md#run-the-checks).
 

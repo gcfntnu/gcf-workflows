@@ -50,18 +50,38 @@ unset GCF_EXT GCF_INTERIM GCF_FASTQ GCF_SECRET GCF_REFDIR
 | Check | Command | Environment |
 | --- | --- | --- |
 | Reporting dry runs of the seven CI workflows | `PATH="$PWD/.dev/ci/bin:$PATH" bash test-all.sh` | `.dev/ci` |
-| Configuration loading, kit selection and `test-all.sh` failure handling | `.dev/ci/bin/python -m unittest discover -s .tests -p 'test_*.py' -v` | `.dev/ci` |
+| Configuration loading, kit selection, download-rule containers and `test-all.sh` failure handling | `.dev/ci/bin/python -m unittest discover -s .tests -p 'test_*.py' -v` | `.dev/ci` |
+| Shared Kraken2 screening, including empty FASTQs | `.dev/ci/bin/python -m unittest discover -s .tests -p 'test_kraken_screen.py' -v` | `.dev/ci`; Bash/gzip/awk, mocked classifier |
 | MultiQC configuration and provenance | `.dev/ci/bin/python -m unittest discover -s misc/multiqc/.tests -p 'test_*.py' -v` | `.dev/ci` |
-| Single-cell regressions (CI selection) | `.dev/ci/bin/python -m pytest -q singlecell/.tests/test_metadata.py singlecell/.tests/test_bfq_delivery.py singlecell/.tests/test_velocity.py singlecell/.tests/test_demultiplexing_profiles.py singlecell/.tests/test_tenx_reference.py` | `.dev/ci` |
+| Single-cell regressions (CI selection) | `.dev/ci/bin/python -m pytest -q singlecell/.tests/test_metadata.py singlecell/.tests/test_bfq_delivery.py singlecell/.tests/test_velocity.py singlecell/.tests/test_splitpipe_velo.py singlecell/.tests/test_demultiplexing_profiles.py singlecell/.tests/test_tenx_reference.py singlecell/.tests/test_doublet_seeds.py` | `.dev/ci` |
 | Single-cell TCR and assay configuration (not in CI) | `.dev/ci/bin/python -m pytest -q singlecell/.tests/test_tcr_workflow.py singlecell/.tests/test_immune_config.py` | `.dev/ci` |
 | QIAseq demultiplexing | `.dev/ci/bin/python -m pytest -q common/.tests/test_qiaseq_demultiplex.py` | `.dev/ci` |
 | Metagenome reference and Bracken paths | `.dev/ci/bin/python -m unittest discover -s metagenome/.tests -p 'test_*.py' -v` | `.dev/ci` |
-| Reference roots | `.dev/ci/bin/python -m unittest discover -s gcfdb/.tests -p 'test_*.py' -v` | `.dev/ci` |
+| Reference roots and miRBase rules | `.dev/ci/bin/python -m unittest discover -s gcfdb/.tests -p 'test_*.py' -v` | `.dev/ci` |
 | WGS QC delivery (not in CI) | `.dev/ci/bin/python -m unittest discover -s wgs/.tests -p 'test_bfq_qc.py' -v` | `.dev/ci` |
+| Small-RNA fastp stages | `FASTP_0201="$PWD/.dev/bin/fastp" .dev/ci/bin/python -m pytest -q smallrna/.tests/test_fastp.py` | `.dev/ci`, pinned fastp below |
+| Small-RNA `quant.method` selection, route guards and UNITAS execution | `.dev/ci/bin/python -m pytest -q smallrna/.tests/test_quant_methods.py smallrna/.tests/test_route_guards.py smallrna/.tests/test_run_unitas.py smallrna/.tests/test_bfq_unitas_links.py smallrna/.tests/test_unitas_tables.py` | `.dev/ci` |
 | Small-RNA AnnData | `.dev/anndata/bin/python -m pytest -q smallrna/.tests/test_create_anndata.py` | `.dev/anndata` |
 
 Run the checks for the areas you changed; the [area map](architecture.md#area-map) lists them.
 Before handoff, run `test-all.sh` and every check whose area the change touches.
+
+### Small-RNA fastp regression
+
+The issue #215 regression executes only fastp 0.20.1 on tiny synthetic FASTQs in pytest-owned temporary directories.
+It does not run alignment/quantification, containers, real fixtures or SMTP.
+Prepare the binary once (the same checksum is enforced in CI):
+
+```bash
+mkdir -p .dev/bin
+curl -fsSL https://opengene.org/fastp/fastp.0.20.1 -o .dev/bin/fastp
+echo "7860c80dea92c42ee0583544aa66057a7ce1ad1c37b99a22557bdb7f4c9497e3  .dev/bin/fastp" | sha256sum -c -
+chmod +x .dev/bin/fastp
+```
+
+Set `FASTP_0201` as shown in the check table. Without it, read-outcome cases skip explicitly;
+configuration, reporting-unit and dry-run cases still run. CI always supplies the pinned executable.
+See [small-RNA stage policy](../smallrna/README.md#fastp-stages-and-final-insert-policy) for the scientific scope.
 
 ### `test-all.sh`
 
@@ -92,7 +112,7 @@ Each file in [.github/workflows](../.github/workflows) runs on every push and pu
 | `test-default.yaml` | `build` | 3.11 | 9.7.1 | MultiQC tests, `.tests` (configuration and `test-all.sh` harness), `default` dry run |
 | `test-rna-seq.yaml` | `build` | 3.11 | 9.7.1 | `rnaseq` dry run |
 | `test-single-cell.yaml` | `build` | 3.11 | 9.7.1 (`singlecell/.tests/requirements.txt`) | `singlecell` dry run, singlecell pytest selection |
-| `test-small-rna.yml` | `build` | 3.11 | 9.7.1 | `smallrna` dry run |
+| `test-small-rna.yml` | `build` | 3.11 | 9.7.1 | `smallrna` dry run and synthetic fastp 0.20.1 regressions |
 | `test-small-rna.yml` | `anndata-regression` | 3.14 | none | small-RNA AnnData pytest |
 | `test-metagenome.yaml` | `bracken-database` | 3.11 | 9.7.1 | `metagenome/.tests`, `gcfdb/.tests` |
 | `test-metagenome.yaml` | `build` | 3.11 | 9.7.1 | `metagenome` dry run |

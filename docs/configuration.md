@@ -20,6 +20,7 @@ configmaker validates the SampleSheet and submission form, selects the library-p
 
 - `config.yaml`, containing:
   - project metadata: `project_id`, `organism`, `machine`, experiment fields, `descriptors`
+    (`machine` also selects Picard's optical-duplicate distance through `picard_duplicate_args()` in `utils.py`: 2500 for patterned flowcells (NovaSeq, NextSeq 1000/2000, MiSeq i100, HiSeq 3000/4000/X), 100 for MiSeq, MiniSeq, NextSeq 500/550, HiSeq 2500, an empty value and gcf-bfq's "Sequencer could not be automatically determined."; an unrecognised instrument stops the workflow)
   - `read_geometry`: the effective read lengths of the project FASTQs
   - `libprepkit`, `workflow` and the other top-level fields of the selected kit entry, such as `read_orientation`, `adapter` and `delta_readlen`
   - the kit's nested defaults (for example `filter.trim`), filled in only where the project does not set them
@@ -135,7 +136,7 @@ docker:
 | `assembly.transcriptome.merge.type` | `fastq` | Explicit default in `rnaseq.config` |
 | `read_geometry` | `[74, 149]` | Kit `delta_readlen: [-1, -1]` applied |
 | `docker.multiqc` | `example/project-multiqc:1` | Project wins over `docker.config` |
-| `docker.default` | `example/secret-default:1` | The secrets file wins over `docker.config` (`gcfntnu/python-default:3.12`) |
+| `docker.default` | `example/secret-default:1` | The secrets file wins over `docker.config` (`gcfntnu/python-default:3.12-1`) |
 
 Without `GCF_SECRET`, `qc.secret_only` is absent, `multiqc.rnaseq.modules` comes from `main.config` and `docker.default` from `docker.config`; all other values are unchanged.
 
@@ -168,7 +169,7 @@ Reference-database (`gcfdb`) configuration and common defaults shared across wor
 | Section | Contents | Used by |
 | --- | --- | --- |
 | `db` | Reference database selection (`reference_db`, `add_ercc`) and the release or assembly for each database (for example `db.ensembl.release`) | gcfdb getters and reference selection in all workflows |
-| `filter` | Shared FASTQ handling: `subsample_fastq`, `compress_filtered_fastq`, `dedup`, `filter.trim` (fastp) | Shared rules in `common/` |
+| `filter` | Shared FASTQ handling: `subsample_fastq`, `compress_filtered_fastq`, `dedup` (read only by smallrna, which requires `false`), `filter.trim` (fastp) | Shared rules in `common/` |
 | `multiqc.<workflow>.modules` | The MultiQC modules for each workflow's report | `multiqc_report` in `postprocess.smk` |
 | Project-level keys: `organism`, `strain`, `libprepkit`, `read_orientation`, `read_geometry` and others | Empty placeholders; the project configuration normally sets them | `utils.py` and rules |
 

@@ -1,32 +1,21 @@
 #-*- mode:snakemake -*-
-"""Extra reference sequences for unitas.
+"""UNITAS reference dumps and extra reference sequences for unitas.
 
-Additional files that contain reference sequeces in FASTA format. FASTA headers should have the following format: >ncRNA_type|ncRNA_name 
+The reference dump `UNITAS_refdump_<organism>` is downloaded from the winecellar release `db.unitas.release`.
+UNITAS can no longer download references itself, and dumps exist only for human, mouse and rat.
 
-This will be added to ncRNA.fas
+Extra reference sequences are FASTA files with headers of the form `>ncRNA_type|ncRNA_name`.
+They are added to ncRNA.fas.
 """
 include:
     'contaminants.db'
 
-CALIBRATORS_EXTEND = config['filter'].get('calibrators_extend', False)
-UNITAS_REFSEQ = []
-
-_unitas_map = {'homo_sapiens': 'Human',
-              'human': 'Human',
-               'hsa': 'Human',
-               'mus_musculus': 'Mouse',
-               'mouse': 'Mouse',
-               'mmu': 'Mouse',
-               'rattus_norvegicus': 'Rat',
-               'rat': 'Rat',
-               'rno': 'Rat'}
-UNITAS_ORG = _unitas_map.get(ORG, ORG)
-UNITAS_REF_DIR = join(EXT_DIR, 'unitas', config['db']['unitas']['release'], 'UNITAS_refdump_{}'.format(ORG))
-
-rule unitas_dummy_input:
-    output:
-        touch(os.path.abspath('.unitas_dummy.txt'))
-    
+UNITAS_SPECIES = {'homo_sapiens': 'Human', 'mus_musculus': 'Mouse', 'rattus_norvegicus': 'Rat'}
+if ORG not in UNITAS_SPECIES:
+    raise ValueError('UNITAS supports organism {}, got {!r}'.format(', '.join(UNITAS_SPECIES), ORG))
+UNITAS_ORG = UNITAS_SPECIES[ORG]
+UNITAS_RELEASE_DIR = join(EXT_DIR, 'unitas', config['db']['unitas']['release'])
+UNITAS_REF_DIR = join(UNITAS_RELEASE_DIR, 'UNITAS_refdump_{}'.format(ORG))
 
 rule contaminants_unitas:
     input:
@@ -38,41 +27,19 @@ rule contaminants_unitas:
     shell:
         'python {params.script} {input} > {output}'
 
-rule unitas_seqmap:
-    output:
-        join(EXT_DIR, 'unitas', 'seqmap.exe'),
-    params:
-        refdir = join(EXT_DIR, 'unitas'),
-        url = join(config.get('winecellar', {}).get('url', ''), 'seqmap', 'seqmap.exe')
-    shell:
-        """
-        mkdir -p {params.refdir}
-        cd {params.refdir}
-        wget {params.url}
-        chmod a+x seqmap.exe
-        """
-        
 rule unitas_db:
-    input:
-        rules.unitas_dummy_input.output,
-        rules.unitas_seqmap.output
     output:
         db = directory(UNITAS_REF_DIR)
     params:
-        refdir = join(EXT_DIR, 'unitas', config['db']['unitas']['release']),
+        refdir = UNITAS_RELEASE_DIR,
         script = src_gcf('scripts/format_unitas_dblog.py'),
-        url = join(config.get('winecellar', {}).get('url', ''), 'unitas', config['db']['unitas']['release'], 'UNITAS_refdump_{}.tar.gz'.format(ORG)),
-        versions_info = join(EXT_DIR, 'unitas', config['db']['unitas']['release'],'UNITAS_refdump_{}'.format(ORG),'db_versions.info')
+        url = join(config.get('winecellar', {}).get('url', ''), 'unitas', config['db']['unitas']['release'], 'UNITAS_refdump_{}.tar.gz'.format(ORG))
     log:
-        join(EXT_DIR, 'unitas', config['db']['unitas']['release'], 'UNITAS_refdump_{}'.format(ORG), 'logs', 'unitas.log')
-    container:
-        'docker://' + config['docker']['default'] 
+        join(UNITAS_RELEASE_DIR, 'logs', 'unitas_{}.log'.format(ORG))
     shell:
-        """
-        cd {params.refdir}
-        wget -qO- {params.url} | tar xvz 
-        python {params.script} {params.versions_info} > {log}
-        """
+        'set -o pipefail; '
+        'mkdir -p {params.refdir} && wget -qO- {params.url} | tar -xz -C {params.refdir} && '
+        'python {params.script} {output.db}/db_versions.info > {log}'
 
 rule unitas_db_all:
     input:

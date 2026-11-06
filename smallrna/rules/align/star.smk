@@ -29,7 +29,7 @@ def star_input_params(wildcards):
     R1 = expand(get_filtered_fastq(wildcards)['R1'], sample=wildcards.sample)
     if isinstance(R1, str):
         R1 = [R1]
-    input_string = ' '.join(R1)
+    input_string = ','.join(R1)
     return input_string
 
 def star_genome_dir():
@@ -39,8 +39,7 @@ def star_genome_dir():
 rule star_align:
     input:
         unpack(get_filtered_fastq),
-        genome = join(star_genome_dir(), 'SA'),
-        gtf = join(REF_DIR, 'anno', 'genes.gtf')
+        genome = join(star_genome_dir(), 'SA')
     params:
         fastq = star_input_params,
         prefix = lambda wildcards, output: output.bam.split('Aligned.sortedByCoord.out.bam')[0],
