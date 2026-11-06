@@ -36,7 +36,7 @@ The kit entries set the strand orientation, adapters, trimming parameters, read-
 **Inactive source.** Files present in the source tree are not necessarily loaded. The entry point does not load these, so configuration cannot select them:
 
 - `rules/analysis/` (`preprocess`, `diff_expr`, `co-exprs`): `rules/analysis.smk` includes nothing.
-- `rules/quant/` alternative splicing, CNVkit, HLA typing, Rockhopper, T-cell repertoire and variant calling.
+- `rules/quant/` alternative splicing, CNVkit, HLA typing, T-cell repertoire and variant calling.
 
 ## Outputs in `bfq/`
 
