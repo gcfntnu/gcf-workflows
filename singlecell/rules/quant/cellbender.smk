@@ -267,20 +267,22 @@ rule cellbender_filter_cellranger_counts:
         '--output-barcodes {output.barcodes} '
         '--output-features {output.features} '
 
-#FIXME: The posterior maybe based on coordinates from unfiltered mtx -> check!
 rule cellbender_expression_presence:
     input:
-        h5ad = '_tmp/{method}/raw/{sample}/anndata.light.h5ad',
+        mtx = lambda wc: get_cellbender_input(wc)['mtx'],
+        barcodes = lambda wc: get_cellbender_input(wc)['rows'],
+        features = lambda wc: get_cellbender_input(wc)['cols'],
         cb_h5 = join(QUANT_INTERIM, '{method}', '{sample}', 'cellbender', '{sample}.h5'),
         cb_posterior = join(QUANT_INTERIM, '{method}', '{sample}', 'cellbender', '{sample}_posterior.h5')
     output:
         tsv = join(QUANT_INTERIM, '{method}', '{sample}', 'cellbender', '{sample}_expression_presence.tsv')
     params:
-        script = src_gcf("scripts/cellbender_feature_presence_new.py"),
+        script = src_gcf("scripts/cellbender_feature_presence.py"),
         subset = config["quant"].get("cellbender_call", {}).get("subset", "GeneA,GeneB"),
         threshold = config["quant"].get("cellbender_call", {}).get("threshold", 0.5),
         method = config["quant"].get("cellbender_call", {}).get("method", "AND"),
-        allow_fuzzy = "--allow-fuzzy-gene-match" if config["quant"].get("cellbender_call", {}).get("allow_fuzzy", False) else ""
+        allow_fuzzy = "--allow-fuzzy-gene-match" if config["quant"].get("cellbender_call", {}).get("allow_fuzzy", False) else "",
+        counts_dir = lambda wildcards, input: os.path.dirname(input.mtx)
     container:
         "docker://" + config["docker"]["cellbender"]
     benchmark:
@@ -289,7 +291,7 @@ rule cellbender_expression_presence:
         24
     shell:
         "python {params.script} "
-        "--raw-h5ad {input.h5ad} "
+        "--counts {params.counts_dir} "
         "--cb-out-h5 {input.cb_h5} "
         "--posterior {input.cb_posterior} "
         "--subset \"{params.subset}\"  "
