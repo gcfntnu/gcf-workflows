@@ -85,7 +85,7 @@ No chromosome conversion is applied implicitly. Supporting a different naming sc
 ## Tests
 
 - `singlecell/.tests`: synthetic dry-run fixture (10x 3' v3, `mus_musculus`, two samples). CI runs `snakemake -n -p --cores 1 multiqc_report` there (`test-single-cell.yaml`).
-- In CI: `test_metadata.py`, `test_bfq_delivery.py`, `test_velocity.py`, `test_demultiplexing_profiles.py`, `test_tenx_reference.py`, `test_containers.py`, `test_doublet_seeds.py`, `test_lightweight_encoding.py`.
+- In CI: `test_metadata.py`, `test_bfq_delivery.py`, `test_velocity.py`, `test_demultiplexing_profiles.py`, `test_tenx_reference.py`, `test_containers.py`, `test_doublet_seeds.py`, `test_lightweight_encoding.py`, `test_cellbender_presence.py`.
 - Not in CI: `test_tcr_workflow.py`, `test_immune_config.py`.
 - Commands and environments: [development guide](../docs/development.md#run-the-checks). These checks do not run quantifiers or containers.
 

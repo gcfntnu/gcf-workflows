@@ -267,10 +267,12 @@ rule cellbender_filter_cellranger_counts:
         '--output-barcodes {output.barcodes} '
         '--output-features {output.features} '
 
-#FIXME: The posterior maybe based on coordinates from unfiltered mtx -> check!
 rule cellbender_expression_presence:
     input:
-        mtx = '_tmp/{method}/raw/{sample}/anndata.mtx_v2/matrix.mtx',
+        mtx = lambda wc: get_cellbender_input(wc)['mtx'],
+        barcodes = lambda wc: get_cellbender_input(wc)['rows'],
+        features = lambda wc: get_cellbender_input(wc)['cols'],
+        cb_h5 = join(QUANT_INTERIM, '{method}', '{sample}', 'cellbender', '{sample}.h5'),
         cb_posterior = join(QUANT_INTERIM, '{method}', '{sample}', 'cellbender', '{sample}_posterior.h5')
     output:
         tsv = join(QUANT_INTERIM, '{method}', '{sample}', 'cellbender', '{sample}_expression_presence.tsv')
@@ -290,6 +292,7 @@ rule cellbender_expression_presence:
     shell:
         "python {params.script} "
         "--counts {params.counts_dir} "
+        "--cb-out-h5 {input.cb_h5} "
         "--posterior {input.cb_posterior} "
         "--subset \"{params.subset}\"  "
         "--output {output.tsv} "
