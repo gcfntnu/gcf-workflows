@@ -540,6 +540,8 @@ rule tmp_lightweight_raw:
         input_format = lambda wc: QUANT_INPUT_FORMAT.get(wc.quantifier, wc.quantifier),
     threads:
         8
+    container:
+        'docker://' + config['docker']['scanpy']
     shell:
         'python {params.script} '
         '{input.mtx} '
@@ -573,6 +575,8 @@ rule tmp_lightweight_filtered:
         barcode_info_flag = lambda wc, input: '--barcode-info' if input.barcode_info else ''
     threads:
         8
+    container:
+        'docker://' + config['docker']['scanpy']
     shell:
         'python {params.script} '
         '{input.mtx} '
@@ -659,6 +663,8 @@ rule scanpy_aggr_filtered:
     wildcard_constraints:
         method = QUANT_AVAILABLE_METHOD_PATTERN,
         aggr_id = '|'.join(AGGR_IDS)
+    container:
+        'docker://' + config['docker']['scanpy']
     shell:
         SCANPY_AGGR_SHELL
 

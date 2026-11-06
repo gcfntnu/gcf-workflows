@@ -2508,6 +2508,11 @@ def to_anndata_lightweight(adata):
     if not sp.issparse(X): X = sp.csr_matrix(X)
     elif X.format != "csr": X = X.tocsr()
     lw = anndata.AnnData(X=X, obs=obs_min, var=var_min)
+    # Lightweight files are read by images with anndata 0.8-0.10 (solo-sc, socube, cellbender), which cannot
+    # read the nullable-string encoding written for pandas string indexes; object indexes give string-array.
+    lw.obs.index = lw.obs.index.astype(object)
+    lw.var.index = lw.var.index.astype(object)
+    lw.var["gene_symbol"] = lw.var["gene_symbol"].astype(object)
     lw.var.index.name = "gene_id"
     lw.uns.clear(); lw.layers.clear(); lw.obsm.clear(); lw.varm.clear(); lw.obsp.clear()
     return lw

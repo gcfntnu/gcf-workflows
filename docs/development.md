@@ -50,10 +50,10 @@ unset GCF_EXT GCF_INTERIM GCF_FASTQ GCF_SECRET GCF_REFDIR
 | Check | Command | Environment |
 | --- | --- | --- |
 | Reporting dry runs of the seven CI workflows | `PATH="$PWD/.dev/ci/bin:$PATH" bash test-all.sh` | `.dev/ci` |
-| Configuration loading, kit selection, download-rule containers and `test-all.sh` failure handling | `.dev/ci/bin/python -m unittest discover -s .tests -p 'test_*.py' -v` | `.dev/ci` |
+| Configuration loading, kit selection, download-rule and workflow-level containers and `test-all.sh` failure handling | `.dev/ci/bin/python -m unittest discover -s .tests -p 'test_*.py' -v` | `.dev/ci` |
 | Shared Kraken2 screening, including empty FASTQs | `.dev/ci/bin/python -m unittest discover -s .tests -p 'test_kraken_screen.py' -v` | `.dev/ci`; Bash/gzip/awk, mocked classifier |
 | MultiQC configuration and provenance | `.dev/ci/bin/python -m unittest discover -s misc/multiqc/.tests -p 'test_*.py' -v` | `.dev/ci` |
-| Single-cell regressions (CI selection) | `.dev/ci/bin/python -m pytest -q singlecell/.tests/test_metadata.py singlecell/.tests/test_bfq_delivery.py singlecell/.tests/test_velocity.py singlecell/.tests/test_splitpipe_velo.py singlecell/.tests/test_demultiplexing_profiles.py singlecell/.tests/test_tenx_reference.py singlecell/.tests/test_doublet_seeds.py` | `.dev/ci` |
+| Single-cell regressions (CI selection) | `.dev/ci/bin/python -m pytest -q singlecell/.tests/test_metadata.py singlecell/.tests/test_bfq_delivery.py singlecell/.tests/test_velocity.py singlecell/.tests/test_splitpipe_velo.py singlecell/.tests/test_demultiplexing_profiles.py singlecell/.tests/test_tenx_reference.py singlecell/.tests/test_containers.py singlecell/.tests/test_doublet_seeds.py singlecell/.tests/test_lightweight_encoding.py` | `.dev/ci` |
 | Single-cell TCR and assay configuration (not in CI) | `.dev/ci/bin/python -m pytest -q singlecell/.tests/test_tcr_workflow.py singlecell/.tests/test_immune_config.py` | `.dev/ci` |
 | QIAseq demultiplexing | `.dev/ci/bin/python -m pytest -q common/.tests/test_qiaseq_demultiplex.py` | `.dev/ci` |
 | Metagenome reference and Bracken paths | `.dev/ci/bin/python -m unittest discover -s metagenome/.tests -p 'test_*.py' -v` | `.dev/ci` |
