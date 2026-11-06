@@ -88,3 +88,10 @@ inside that container using its maintained setup scripts, fixture helpers and
 reuse prepared inputs and reference/image caches, with mutable state/results in
 the helper-managed sessions. Local source worktrees remain isolated. Keep actual
 site paths, host details and operational evidence in the private operations repo.
+
+Reuse the main shared operator window for routine launches instead of creating
+one per image. Inspect its panes, container processes and execution leases
+immediately before redeployment. If idle, proceed without further confirmation.
+If work is running, check with an operator before stopping it, replacing the
+container or repurposing the active pane. Use the fixed container name specified
+by the private runbook; do not invent task-specific names.
