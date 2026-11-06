@@ -13,11 +13,6 @@ SRC_GCF = re.compile(r'''src_gcf\(\s*(['"])([^'"]+)\1\s*\)''')
 
 # Pre-existing missing paths, tracked in #306. Remove entries as they are fixed.
 KNOWN_MISSING = {
-    ('gcfdb/allen_institute.smk', 'gcfdb/scripts/build_abc_colors_from_taxonomy.py'),
-    ('gcfdb/lncbook.db', 'lncbook.config'),
-    ('gcfdb/mirbase.db', 'mirbase.config'),
-    ('gcfdb/mircarta.db', 'mircarta.config'),
-    ('gcfdb/sortmerna.db', 'sortmerna.config'),
     ('rnaseq/rules/quant/rockhopper.smk', 'src/gcf-workflows/rnaseq/rules/quant/scripts/create_anndata.py'),
     ('singlecell/rules/analysis/preprocess/scanpy.smk', 'scripts/scanpy_read.py'),
     ('singlecell/rules/analysis/scenic.smk', 'scripts/pyscenic_grn_input.py {input} {params.out}'),
@@ -26,7 +21,6 @@ KNOWN_MISSING = {
     ('singlecell/rules/quant/preprocess.smk', 'scripts/preprocess_integrate_harmony.py'),
     ('singlecell/rules/quant/preprocess.smk', 'scripts/preprocess_integrate_scvi.py'),
     ('singlecell/rules/quant/scsplit.smk', 'scripts/scsplit_scanpy.py'),
-    ('wgs/wgs.smk', 'wgs.config'),
 }
 
 

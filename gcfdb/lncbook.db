@@ -127,14 +127,6 @@ In the "experiment" column, "1" indicates experimentally validated interactions 
 
 
 """
-# config
-extra_conf_fn = src_gcf('lncbook.config')
-if os.path.exists(extra_conf_fn):
-    with open(extra_conf_fn) as fh:
-        c  = yaml.load(fh, Loader=Loader) or {}
-        update_config2(config, c)
-
-        
 ASSEMBLY = config['db']['assembly']
 URL = 'ftp://download.big.ac.cn/lncbook'
 LNCB_RELEASE = config['db']['lncbook']['release']
