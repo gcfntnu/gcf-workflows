@@ -2,16 +2,25 @@
 # Validate the subsampled gzip FASTQ before handling the zero-read case.
 set -euo pipefail
 
-if [[ $# -ne 5 ]]; then
-    echo "Usage: $0 INPUT.fastq.gz DATABASE CLASSIFICATIONS REPORT THREADS" >&2
+usage() {
+    echo "Usage: $0 --input INPUT.fastq.gz --db DATABASE --output CLASSIFICATIONS --report REPORT --threads THREADS" >&2
     exit 2
-fi
+}
 
-fastq=$1
-database=$2
-classifications=$3
-report=$4
-threads=$5
+fastq= database= classifications= report= threads=
+while [[ $# -gt 0 ]]; do
+    [[ $# -ge 2 ]] || usage
+    case "$1" in
+        --input) fastq=$2 ;;
+        --db) database=$2 ;;
+        --output) classifications=$2 ;;
+        --report) report=$2 ;;
+        --threads) threads=$2 ;;
+        *) usage ;;
+    esac
+    shift 2
+done
+[[ -n $fastq && -n $database && -n $classifications && -n $report && -n $threads ]] || usage
 if [[ ! $threads =~ ^[1-9][0-9]*$ ]]; then
     echo 'Kraken2 screening requires a positive thread count' >&2
     exit 2

@@ -69,8 +69,8 @@ rule k2_screen:
     container:
         'docker://' + config['docker']['kraken2']
     shell:
-        'bash {params.script:q} {input.fastq:q} {params.db:q} '
-        '{output.output:q} {output.report:q} {threads}'
+        'bash {params.script:q} --input {input.fastq:q} --db {params.db:q} '
+        '--output {output.output:q} --report {output.report:q} --threads {threads}'
 
 
 rule k2_screen_krona_text:

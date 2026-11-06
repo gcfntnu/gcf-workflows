@@ -46,8 +46,8 @@ Path(sys.argv[sys.argv.index('--report') + 1]).write_text('100.00\\t1\\t1\\tD\\t
         self.fastq.write_bytes(gzip.compress(content, mtime=0))
 
     def run_screen(self, success=True, threads='6'):
-        result = subprocess.run(['bash', str(SCRIPT), str(self.fastq), str(self.database),
-                                 str(self.classifications), str(self.report), threads],
+        result = subprocess.run(['bash', str(SCRIPT), '--input', str(self.fastq), '--db', str(self.database),
+                                 '--output', str(self.classifications), '--report', str(self.report), '--threads', threads],
                                 env=self.env, cwd=self.work, capture_output=True, text=True, timeout=20)
         self.assertEqual(result.returncode == 0, success, result.stdout+result.stderr)
         return result
