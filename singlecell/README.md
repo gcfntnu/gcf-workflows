@@ -41,7 +41,7 @@ Neither the Drop-Seq and Smart-Seq entries nor `singlecell.config` set `quant.me
 
 Velocity is produced through the Split-Pipe and STARsolo routes ([docs/velocity.md](docs/velocity.md)).
 
-**Inactive source.** Files present in the source tree are not necessarily loaded. Which quant files load depends on the kit and configuration (see the quant row above). The following are never loaded under any configuration: `rules/quant/` `alevin.smk`, `expression_presence.smk`, `parse.smk`, `scsplit.smk`, `souporcell.smk`, `star.smk` and `velocyto.smk`; `rules/qc/bam.smk`; and the `rules/analysis/` files other than `auto_qc.smk` (for example cellbrowser, cellxgene, SCENIC, scmatch, clustering, diffexp). Several of them duplicate capabilities that loaded files provide: souporcell demultiplexing is in `multiplex.smk`, expression presence is in `cellbender.smk`, and velocity comes from the Split-Pipe and STARsolo routes. The Alevin quantifier is not available.
+**Inactive source.** Files present in the source tree are not necessarily loaded. Which quant files load depends on the kit and configuration (see the quant row above). The following are never loaded under any configuration: `rules/quant/` `alevin.smk`, `expression_presence.smk`, `parse.smk`, `scsplit.smk`, `souporcell.smk`, `star.smk` and `velocyto.smk`; `rules/qc/bam.smk`; and the `rules/analysis/` files other than `auto_qc.smk` (for example cellxgene, SCENIC, scmatch, clustering, diffexp). Several of them duplicate capabilities that loaded files provide: souporcell demultiplexing is in `multiplex.smk`, expression presence is in `cellbender.smk`, and velocity comes from the Split-Pipe and STARsolo routes. The Alevin quantifier is not available.
 
 ## Outputs in `bfq/`
 
@@ -85,7 +85,7 @@ No chromosome conversion is applied implicitly. Supporting a different naming sc
 ## Tests
 
 - `singlecell/.tests`: synthetic dry-run fixture (10x 3' v3, `mus_musculus`, two samples). CI runs `snakemake -n -p --cores 1 multiqc_report` there (`test-single-cell.yaml`).
-- In CI: `test_metadata.py`, `test_bfq_delivery.py`, `test_velocity.py`, `test_demultiplexing_profiles.py`, `test_tenx_reference.py`, `test_doublet_seeds.py`.
+- In CI: `test_metadata.py`, `test_bfq_delivery.py`, `test_velocity.py`, `test_demultiplexing_profiles.py`, `test_tenx_reference.py`, `test_containers.py`, `test_doublet_seeds.py`, `test_lightweight_encoding.py`.
 - Not in CI: `test_tcr_workflow.py`, `test_immune_config.py`.
 - Commands and environments: [development guide](../docs/development.md#run-the-checks). These checks do not run quantifiers or containers.
 
