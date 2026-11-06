@@ -57,7 +57,7 @@ unset GCF_EXT GCF_INTERIM GCF_FASTQ GCF_SECRET GCF_REFDIR
 | Single-cell TCR and assay configuration (not in CI) | `.dev/ci/bin/python -m pytest -q singlecell/.tests/test_tcr_workflow.py singlecell/.tests/test_immune_config.py` | `.dev/ci` |
 | QIAseq demultiplexing | `.dev/ci/bin/python -m pytest -q common/.tests/test_qiaseq_demultiplex.py` | `.dev/ci` |
 | Metagenome reference and Bracken paths | `.dev/ci/bin/python -m unittest discover -s metagenome/.tests -p 'test_*.py' -v` | `.dev/ci` |
-| Reference roots and miRBase rules | `.dev/ci/bin/python -m unittest discover -s gcfdb/.tests -p 'test_*.py' -v` | `.dev/ci` |
+| Reference roots, miRBase rules and UNITAS dump selection (miRBase or MirGeneDB) | `.dev/ci/bin/python -m unittest discover -s gcfdb/.tests -p 'test_*.py' -v` | `.dev/ci` |
 | WGS QC delivery (not in CI) | `.dev/ci/bin/python -m unittest discover -s wgs/.tests -p 'test_bfq_qc.py' -v` | `.dev/ci` |
 | Small-RNA fastp stages | `FASTP_0201="$PWD/.dev/bin/fastp" .dev/ci/bin/python -m pytest -q smallrna/.tests/test_fastp.py` | `.dev/ci`, pinned fastp below |
 | Small-RNA `quant.method` selection, route guards and UNITAS execution | `.dev/ci/bin/python -m pytest -q smallrna/.tests/test_quant_methods.py smallrna/.tests/test_route_guards.py smallrna/.tests/test_run_unitas.py smallrna/.tests/test_bfq_unitas_links.py smallrna/.tests/test_unitas_tables.py` | `.dev/ci` |

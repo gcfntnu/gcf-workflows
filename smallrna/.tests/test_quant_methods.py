@@ -11,7 +11,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def dry_run(tmp_path, method, update=None, printshell=False):
+def dry_run(tmp_path, method, update=None, printshell=False, target='quant_all'):
     shutil.copytree(ROOT / 'smallrna/.tests', tmp_path, dirs_exist_ok=True,
                     ignore=shutil.ignore_patterns('.snakemake', '__pycache__'))
     settings = yaml.safe_load((tmp_path / 'config.yaml').read_text())
@@ -23,7 +23,7 @@ def dry_run(tmp_path, method, update=None, printshell=False):
                                       f'include: {str(ROOT / "smallrna/smallrna.smk")!r}\n')
     env = {k: v for k, v in os.environ.items() if not k.startswith('GCF_')}
     env.update(TMPDIR=str(tmp_path), XDG_CACHE_HOME=str(tmp_path / '.cache'))
-    result = subprocess.run([str(Path(sys.executable).with_name('snakemake')), '-n', *(['-p'] if printshell else []), '--cores', '1', 'quant_all'],
+    result = subprocess.run([str(Path(sys.executable).with_name('snakemake')), '-n', *(['-p'] if printshell else []), '--cores', '1', target],
                             cwd=tmp_path, env=env, capture_output=True, text=True, timeout=120)
     return result.returncode, result.stdout + result.stderr
 
@@ -87,3 +87,16 @@ def test_mirge3_spikein_flag_when_sets_are_listed(tmp_path):
     returncode, output = dry_run(tmp_path, 'mirge3', update, printshell=True)
     assert returncode == 0, output
     assert '--spikeIn' in mirge3_command(output)
+
+
+@pytest.mark.parametrize('mirna_db, feature_info', [
+    ('mirbase', 'data/ext/mirbase/mus_musculus/release-23.1/anno/genes.tsv'),
+    ('mirgenedb', 'data/ext/unitas/06-11-2026-mirgenedb/anno/mirgenedb_genes_mus_musculus.tsv')])
+def test_unitas_mirna_feature_info_follows_the_dump(tmp_path, mirna_db, feature_info):
+    """A MirGeneDB dump names miRNAs as MirGeneDB does, so the AnnData annotation comes from the dump's GFF."""
+    def select(settings):
+        settings.setdefault('db', {}).setdefault('unitas', {})['mirna_db'] = mirna_db
+    returncode, output = dry_run(tmp_path, 'unitas', update=select, target='unitas_mirna_anndata')
+    assert returncode == 0, output
+    rule = output.split('rule unitas_mirna_anndata:', 1)[1]
+    assert feature_info in rule.split('output:', 1)[0], output
