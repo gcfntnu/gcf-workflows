@@ -72,3 +72,26 @@ contain no personal information, or cannot independently identify a person.
 - Public software architecture, interfaces and documented path conventions may be
   described where needed. Distinguish these from facility-specific infrastructure and
   project-specific configurations.
+
+## Server integration operations
+
+For separately authorized server integration, build and push the BFQ test image
+on the developer's local Docker engine. Never build on the test/production server
+or use a remote Docker context as a fallback. Deploy through the site's single
+canonical operator launcher, following the maintained private operations runbook.
+Humans and agents use the same entry point; do not create per-issue or per-branch
+server installations or ad hoc Docker launch commands.
+
+Perform the remaining setup, fixture preparation/selection and lifecycle changes
+inside that container using its maintained setup scripts, fixture helpers and
+`fm` commands. Keep task evidence separate from the permanent operator directories;
+reuse prepared inputs and reference/image caches, with mutable state/results in
+the helper-managed sessions. Local source worktrees remain isolated. Keep actual
+site paths, host details and operational evidence in the private operations repo.
+
+Reuse the main shared operator window for routine launches instead of creating
+one per image. Inspect its panes, container processes and execution leases
+immediately before redeployment. If idle, proceed without further confirmation.
+If work is running, check with an operator before stopping it, replacing the
+container or repurposing the active pane. Use the fixed container name specified
+by the private runbook; do not invent task-specific names.
