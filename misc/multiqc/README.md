@@ -42,16 +42,24 @@ that project; updating only `/opt/gcf-workflows` does not update a retained `src
 ## Upstream MultiQC with the GCF extension
 
 The `docker.multiqc` default in the root `docker.config` selects the reporting candidate
-`gcfntnu/gcf-multiqc:1.35-gcf0.1.0-rc4` by its immutable digest:
+`gcfntnu/gcf-multiqc:1.35-gcf0.1.0-rc4-issue7` by its immutable digest:
 
 ```text
-gcfntnu/gcf-multiqc@sha256:2c356684c03d24c11e63be5724d4f107c253eccd8be98c236952bd3df5435878
+gcfntnu/gcf-multiqc@sha256:d6acc3ebe9eb23323cfd37ef730c988f0ae2c0d51d7629b04ebe7bbd614778ab
 ```
 
 It packages upstream MultiQC 1.35 and the
 [GCF extension](https://github.com/gcfntnu/gcf-multiqc) 0.1.0rc4
-at source revision `df0aef569b77bd8f310c4e5dba77d2d65e03254f`.
+at source revision `90d3e253f2f837c6779b3c77aa5422f5a9bae117`
+([plugin PR 8](https://github.com/gcfntnu/gcf-multiqc/pull/8)).
 The tag is a readable release label; the digest identifies the candidate to evaluate.
+GCF fastp reports omit the overrepresented-sequence chart and top-sequences
+table. Raw fastp data, the other QC sections and FastQC overrepresentation
+remain available. Native fastp with `gcf_compatibility: false` retains upstream's
+displays. All 123 plugin reporting tests passed inside the built image, including
+flat-image rendering; manual project-report acceptance remains pending.
+Image preparation is tracked in [gcf-docker issue 34](https://github.com/gcfntnu/gcf-docker/issues/34)
+and this mapping in [issue 318](https://github.com/gcfntnu/gcf-workflows/issues/318).
 The configuration generator continues to use `docker.default`.
 The shared report rule retains its existing CLI, profile module lists, `.multiqc_config.yaml` input,
 `multiqc_<project>.html` output, and log/figure search paths.
@@ -67,10 +75,10 @@ it does not change a Snakemake project's configuration.
 
 This branch prepares adoption; it does not establish report parity on operational inputs.
 For an evaluation build or runtime checkout, select the reviewed head of
-`issues/221-multiqc-adoption`, record its full commit ID, and verify that the packaged workflow
+`issues/318-multiqc-no-overrepresentation`, record its full commit ID, and verify that the packaged workflow
 checkout and `docker.config` match that revision.
-Keep the companion [BFQ adoption change](https://github.com/gcfntnu/gcf-bfq/issues/173)
-with that checkout so its standalone wrapper and workflow reports resolve the same candidate.
+Use the same reviewed image mapping when evaluating BFQ's standalone wrapper,
+via `GCF_WORKFLOWS_DOCKER_CONFIG` if needed. This does not change project overrides.
 Record the BFQ revision, workflow revision, effective project overrides and resolved image digest
 alongside the eventual acceptance results. A branch name alone does not identify reproducible inputs.
 
@@ -90,7 +98,8 @@ Synthetic dry-runs validate orchestration only; they cannot establish numerical 
 
 ### Rollback
 
-The previous reporting image is `gcfntnu/multiqc:1.18dev-6`.
+The previous reporting image is `gcfntnu/gcf-multiqc:1.35-gcf0.1.0-rc4`, pinned as
+`gcfntnu/gcf-multiqc@sha256:2c356684c03d24c11e63be5724d4f107c253eccd8be98c236952bd3df5435878`.
 Before evaluation, record the prior workflow/BFQ revisions and effective image configuration.
 To roll back a separate evaluation workdir, restore those reviewed revisions/configuration or set its
 explicit `docker.multiqc` to the previous image, including the mapping used by the standalone BFQ wrapper.
@@ -99,8 +108,10 @@ No changes to the legacy MultiQC fork are required by this migration.
 
 ## Acceptance checkpoint
 
-The rc4 candidate passed fresh server integration across seven fixtures, with
+The previous rc4 candidate passed fresh server integration across seven fixtures, with
 eight project and seven sequencing reports accepted against source inputs and
 matched legacy renders. [The acceptance record](https://github.com/gcfntnu/gcf-docker/blob/multiqc/upstream-plugin-candidate/gcf-multiqc/VALIDATION-RC4.md)
-records the artifact and tested boundaries. Production adoption remains pending
-coordinated PR review.
+records that artifact and its tested boundaries. This historical evidence does
+not establish acceptance of the issue-7 candidate. Its image-level reporting
+checks passed; manual report review, merges, production promotion and deployment
+remain separate steps.
