@@ -97,17 +97,25 @@ See [small-RNA stage policy](../smallrna/README.md#fastp-stages-and-final-insert
 #### Keep the output in a log
 
 `-p` prints every planned shell command of seven workflows. A coding agent should not read that into its context when only the result is needed.
-Write the output to a git-ignored log and read back the exit status and the summary line:
+Write the output to a git-ignored log and read back the exit status and the summary line.
+The subshell keeps `test-all.sh`'s exit status as the command's own, also under `bash -e`, without exiting an interactive shell:
 
 ```bash
-PATH="$PWD/.dev/ci/bin:$PATH" bash test-all.sh > .dev/test-all.log 2>&1; echo "test-all.sh exit $?"; tail -n 1 .dev/test-all.log
+(
+    status=0
+    PATH="$PWD/.dev/ci/bin:$PATH" bash test-all.sh > .dev/test-all.log 2>&1 || status=$?
+    printf 'test-all.sh exit %s\n' "$status"
+    tail -n 1 .dev/test-all.log
+    exit "$status"
+)
 ```
 
-- Exit 0: the summary line confirms all seven workflows. There is no need to read the log.
+- Exit 0: the summary line confirms all seven workflows. There is no need to read the full log for routine pass/fail verification; inspect warnings or planned commands when they are relevant to the change.
 - Exit 1: the summary line names the failed workflows. `grep -n '^=== ' .dev/test-all.log` lists where each workflow's section starts and which failed; read only the failed sections.
 - Exit 2: the last lines name the missing `snakemake` or fixture directory.
 
-The log stays in the checkout as the record of the exact command and its result for the PR.
+The log is retained diagnostic output, not a complete record: it does not capture the outer invocation, source revision, environment or final exit status, and the next run overwrites it.
+Keep the exact commands, revisions, environments and results in the PR's verification summary, as [CONTRIBUTING.md](../CONTRIBUTING.md#verify) requires.
 
 ### One workflow by hand
 
