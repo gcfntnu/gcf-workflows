@@ -49,7 +49,7 @@ unset GCF_EXT GCF_INTERIM GCF_FASTQ GCF_SECRET GCF_REFDIR
 
 | Check | Command | Environment |
 | --- | --- | --- |
-| Reporting dry runs of the seven CI workflows | `PATH="$PWD/.dev/ci/bin:$PATH" bash test-all.sh` | `.dev/ci` |
+| Reporting dry runs of the seven CI workflows | `PATH="$PWD/.dev/ci/bin:$PATH" bash test-all.sh` (agents: [log-file form](#keep-the-output-in-a-log)) | `.dev/ci` |
 | Configuration loading, kit selection, download-rule and workflow-level containers, `src_gcf` script paths and `test-all.sh` failure handling | `.dev/ci/bin/python -m unittest discover -s .tests -p 'test_*.py' -v` | `.dev/ci` |
 | Shared Kraken2 screening, including empty FASTQs | `.dev/ci/bin/python -m unittest discover -s .tests -p 'test_kraken_screen.py' -v` | `.dev/ci`; Bash/gzip/awk, mocked classifier |
 | MultiQC configuration and provenance | `.dev/ci/bin/python -m unittest discover -s misc/multiqc/.tests -p 'test_*.py' -v` | `.dev/ci` |
@@ -93,6 +93,21 @@ See [small-RNA stage policy](../smallrna/README.md#fastp-stages-and-final-insert
 - It removes only `.snakemake/` directories that the run created.
 
 `singlecell` fails with `ModuleNotFoundError` unless the singlecell test requirements are installed. That is why `.dev/ci` includes them.
+
+#### Keep the output in a log
+
+`-p` prints every planned shell command of seven workflows. A coding agent should not read that into its context when only the result is needed.
+Write the output to a git-ignored log and read back the exit status and the summary line:
+
+```bash
+PATH="$PWD/.dev/ci/bin:$PATH" bash test-all.sh > .dev/test-all.log 2>&1; echo "test-all.sh exit $?"; tail -n 1 .dev/test-all.log
+```
+
+- Exit 0: the summary line confirms all seven workflows. There is no need to read the log.
+- Exit 1: the summary line names the failed workflows. `grep -n '^=== ' .dev/test-all.log` lists where each workflow's section starts and which failed; read only the failed sections.
+- Exit 2: the last lines name the missing `snakemake` or fixture directory.
+
+The log stays in the checkout as the record of the exact command and its result for the PR.
 
 ### One workflow by hand
 
