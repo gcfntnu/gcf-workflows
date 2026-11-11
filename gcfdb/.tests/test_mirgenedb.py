@@ -83,6 +83,8 @@ class DumpSelectionTests(unittest.TestCase):
         self.assertEqual(returncode, 0, output)
         self.assertIn('https://wine.example/gcf/unitas/05-11-2026/UNITAS_refdump_homo_sapiens.tar.gz', output)
         self.assertNotIn('gcf_mirna_db.tsv', output)
+        self.assertIn('--release-url https://wine.example/gcf/unitas/05-11-2026 '
+                      '--output data/ext/unitas/05-11-2026/verify/UNITAS_refdump_homo_sapiens.tsv', output)
 
     def test_mirgenedb_uses_its_release_checks_the_dump_and_annotates_from_its_gff(self):
         target = 'data/ext/unitas/06-11-2026-mirgenedb/anno/mirgenedb_genes_homo_sapiens.tsv'

@@ -211,9 +211,30 @@ rule unitas_mirna_vsn:
     shell:
         'Rscript {params.script:q} --input {input:q} --output {output:q}'
 
+rule unitas_reference:
+    input:
+        db = rules.unitas_db.output.db,
+        verification = rules.unitas_db_verify.output,
+        annotation = rules.mirbase_gff.output if UNITAS_MIRNA_DB == 'mirbase' else []
+    output:
+        join(QUANT_INTERIM, 'unitas', 'reference.tsv')
+    params:
+        script = src_gcf('scripts/unitas_reference.py'),
+        mirna_db = UNITAS_MIRNA_DB,
+        # A MirGeneDB dump is annotated from its own GFF (mirgenedb_genes), a miRBase dump from db.mirbase.release.
+        annotation = rules.mirbase_gff.output[0] if UNITAS_MIRNA_DB == 'mirbase' else join(UNITAS_REF_DIR, 'gcf_mirgenedb.gff3'),
+        release = UNITAS_RELEASE,
+        mirbase_releases = ','.join(MIRBASE_RELEASES)
+    shell:
+        'python {params.script} --dump {input.db} --verification {input.verification} --mirna-db {params.mirna_db} '
+        '--annotation {params.annotation} --release {params.release} --mirbase-releases {params.mirbase_releases} '
+        '--output {output}'
+
 rule unitas_mirna_anndata:
     input:
         mir_table = rules.unitas_mirtable.output,
+        # Checks that the dump and the feature annotation are from the same miRNA release (joined by name).
+        reference = rules.unitas_reference.output,
         sample_info = join(INTERIM_DIR, 'sample_info.tsv'),
         # MirGeneDB dumps name miRNAs as MirGeneDB does; annotate them from the dump's own GFF.
         feature_info = rules.mirgenedb_genes.output if UNITAS_MIRNA_DB == 'mirgenedb' else rules.mirbase_genes.output,
@@ -234,6 +255,7 @@ rule unitas_mirna_anndata:
 
 rule unitas_all:
     input:
+        rules.unitas_reference.output,
         rules.unitas_mirtable.output,
         rules.unitas_trftable.output,
         rules.unitas_isomirtable.output,
