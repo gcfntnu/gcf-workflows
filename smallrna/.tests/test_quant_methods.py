@@ -100,3 +100,19 @@ def test_unitas_mirna_feature_info_follows_the_dump(tmp_path, mirna_db, feature_
     assert returncode == 0, output
     rule = output.split('rule unitas_mirna_anndata:', 1)[1]
     assert feature_info in rule.split('output:', 1)[0], output
+
+
+@pytest.mark.parametrize('mirna_db, annotation', [
+    ('mirbase', 'data/ext/mirbase/mus_musculus/release-23.1/anno/genes.gff3'),
+    ('mirgenedb', 'data/ext/unitas/06-11-2026-mirgenedb/UNITAS_refdump_mus_musculus/gcf_mirgenedb.gff3')])
+def test_unitas_reference_is_checked_before_counts_meet_annotations(tmp_path, mirna_db, annotation):
+    """The dump is verified once in EXT_DIR, then checked against the annotation the AnnData joins it to."""
+    def select(settings):
+        settings.setdefault('db', {}).setdefault('unitas', {})['mirna_db'] = mirna_db
+    returncode, output = dry_run(tmp_path, 'unitas', update=select, target='unitas_mirna_anndata', printshell=True)
+    assert returncode == 0, output
+    release = '06-11-2026-mirgenedb' if mirna_db == 'mirgenedb' else '05-11-2026'
+    assert f'--output data/ext/unitas/{release}/verify/UNITAS_refdump_mus_musculus.tsv' in output
+    check = output.split('rule unitas_reference:', 1)[1].split('rule ', 1)[0]
+    assert f'--mirna-db {mirna_db} --annotation {annotation} --release {release}' in check
+    assert 'data/tmp/smallrna/quant/unitas/reference.tsv' in output.split('rule unitas_mirna_anndata:', 1)[1].split('output:', 1)[0]

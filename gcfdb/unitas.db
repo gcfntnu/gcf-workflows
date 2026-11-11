@@ -9,6 +9,12 @@ The reference dump `UNITAS_refdump_<organism>` is downloaded from a winecellar r
 unitas_build_refdump.sh. UNITAS can no longer download references itself, and dumps exist only for
 human, mouse and rat.
 
+`unitas_db_verify` checks a dump once, the first time it is used: when its release publishes `SHA256SUMS`,
+the archive is downloaded, its checksum compared and the cached dump compared file by file with it
+(scripts/unitas_verify_dump.py). It writes `verify/UNITAS_refdump_<organism>.tsv` beside the dump and never
+changes the dump; releases without `SHA256SUMS` are recorded as not verified. `unitas_db` itself is left as it
+was, so existing dumps are neither downloaded again nor rerun.
+
 Extra reference sequences are FASTA files with headers of the form `>ncRNA_type|ncRNA_name`.
 They are added to ncRNA.fas.
 """
@@ -71,6 +77,18 @@ rule mirgenedb_genes:
     shell:
         'python {params.script} {input.db}/gcf_mirgenedb.gff3 > {output}'
 
+rule unitas_db_verify:
+    input:
+        db = rules.unitas_db.output.db
+    output:
+        join(UNITAS_RELEASE_DIR, 'verify', 'UNITAS_refdump_{}.tsv'.format(ORG))
+    params:
+        script = src_gcf('scripts/unitas_verify_dump.py'),
+        url = join(config.get('winecellar', {}).get('url', ''), 'unitas', UNITAS_RELEASE)
+    shell:
+        'python {params.script} --dump {input.db} --release-url {params.url} --output {output}'
+
 rule unitas_db_all:
     input:
-        rules.unitas_db.output
+        rules.unitas_db.output,
+        rules.unitas_db_verify.output
