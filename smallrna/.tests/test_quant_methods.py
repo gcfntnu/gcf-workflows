@@ -82,11 +82,76 @@ def test_mirge3_image_and_spikein_come_from_configuration(tmp_path):
     assert 'quay.io/biocontainers/mirge3' not in (ROOT / 'smallrna/rules/quant/mirge3.smk').read_text()
 
 
-def test_mirge3_spikein_flag_when_sets_are_listed(tmp_path):
-    update = lambda s: s.setdefault('filter', {}).setdefault('spikein', {}).update(ref='ERCC92')
+def rule_block(output, rule):
+    return output.split(f'rule {rule}:', 1)[1].split('\nrule ', 1)[0]
+
+
+@pytest.mark.parametrize('ref, fasta', [(None, []), ('ERCC92', ['ERCC92']), ('smallrna_calibrators', ['smallrna_calibrators']),
+                                        ('smallrna_calibrators, ERCC92', ['smallrna_calibrators', 'ERCC92'])])
+def test_mirge3_spikein_index_follows_the_configured_sets(tmp_path, ref, fasta):
+    """The spike-in index is built from the gcfdb sets of filter.spikein.ref before miRge3 runs, or removed."""
+    update = lambda s: s.setdefault('filter', {}).setdefault('spikein', {}).update(ref=ref)
     returncode, output = dry_run(tmp_path, 'mirge3', update, printshell=True)
     assert returncode == 0, output
-    assert '--spikeIn' in mirge3_command(output)
+    spikein = rule_block(output, 'mirge3_spikein')
+    command = next(line for line in spikein.splitlines() if 'mirge3_spikein.py' in line)
+    assert '--index-dir data/ext/mirge3/09-11-2026/mouse/index.Libs --organism-name mouse' in command
+    assert command.split('--output data/tmp/smallrna/quant/mirge3/spikein.tsv', 1)[1].split() == \
+        [f'data/ext/spikein/fasta/{name}.fa' for name in fasta]
+    assert 'data/tmp/smallrna/quant/mirge3/spikein.tsv' in rule_block(output, 'mirge3_quant').split('output:', 1)[0]
+    assert ('--spikeIn' in mirge3_command(output)) == bool(fasta)
+
+
+def test_unknown_spikein_set_fails_at_load(tmp_path):
+    update = lambda s: s.setdefault('filter', {}).setdefault('spikein', {}).update(ref='ERCC')
+    returncode, output = dry_run(tmp_path, 'mirge3', update)
+    assert returncode != 0
+    assert "filter.spikein.ref: unsupported value 'ERCC'" in output
+
+
+@pytest.mark.parametrize('db, name', [('mirbase', 'miRBase'), ('mirgenedb', 'MirGeneDB'), ('MirGeneDB', 'MirGeneDB')])
+def test_mirge3_library_release_and_database_selection(tmp_path, db, name):
+    update = lambda s: s['quant'].setdefault('mirge3', {}).update(db=db)
+    returncode, output = dry_run(tmp_path, 'mirge3', update, printshell=True)
+    assert returncode == 0, output
+    library = rule_block(output, 'mirge3_library')
+    assert '--release-url mirge3/09-11-2026 --release 09-11-2026 --species mus_musculus --organism-name mouse' in library
+    assert '--output data/ext/mirge3/09-11-2026/verify/miRge3_lib_mus_musculus.tsv' in library
+    reference = rule_block(output, 'mirge3_reference')
+    assert (f'--library data/ext/mirge3/09-11-2026/mouse --mirna-db {db.lower()} --release 09-11-2026 '
+            '--verification data/ext/mirge3/09-11-2026/verify/miRge3_lib_mus_musculus.tsv') in reference
+    command = ' '.join(mirge3_command(output).split())
+    assert f'--mir-DB {name} --libraries-path data/ext/mirge3/09-11-2026 --organism-name mouse' in command
+    assert 'data/tmp/smallrna/quant/mirge3/reference.tsv' in rule_block(output, 'quant_all')
+
+
+def test_explicit_mirge3_release_selects_its_own_directory(tmp_path):
+    update = lambda s: s.setdefault('db', {}).setdefault('mirge3', {}).update(release='01-12-2026')
+    returncode, output = dry_run(tmp_path, 'mirge3', update, printshell=True)
+    assert returncode == 0, output
+    assert '--release-url mirge3/01-12-2026' in rule_block(output, 'mirge3_library')
+    assert '--libraries-path data/ext/mirge3/01-12-2026 ' in mirge3_command(output)
+
+
+def test_sourceforge_library_stays_at_its_old_place(tmp_path):
+    update = lambda s: s.setdefault('db', {}).setdefault('mirge3', {}).update(release='sourceforge')
+    returncode, output = dry_run(tmp_path, 'mirge3', update, printshell=True)
+    assert returncode == 0, output
+    assert 'rule mirge3_library:' not in output
+    assert 'data/ext/mirge3/mus_musculus/mouse/index.Libs/mouse_snorna.3.ebwt' in rule_block(output, 'mirge3_prebuild')
+    reference = rule_block(output, 'mirge3_reference')
+    assert '--library data/ext/mirge3/mus_musculus/mouse --mirna-db mirbase --release sourceforge  --output' in reference
+    assert '--libraries-path data/ext/mirge3/mus_musculus --organism-name mouse' in mirge3_command(output)
+    assert '--index-dir data/ext/mirge3/mus_musculus/mouse/index.Libs' in rule_block(output, 'mirge3_spikein')
+
+
+@pytest.mark.parametrize('update, message', [
+    (lambda s: s['quant'].setdefault('mirge3', {}).update(db='mirbase22'), "quant.mirge3.db: mirbase or mirgenedb, got 'mirbase22'"),
+    (lambda s: s.setdefault('db', {}).setdefault('mirge3', {}).update(release=None), 'db.mirge3.release is not set')])
+def test_invalid_mirge3_selection_fails_at_load(tmp_path, update, message):
+    returncode, output = dry_run(tmp_path, 'mirge3', update)
+    assert returncode != 0
+    assert message in output
 
 
 @pytest.mark.parametrize('mirna_db, feature_info', [

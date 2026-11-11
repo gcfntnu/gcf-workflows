@@ -1,6 +1,8 @@
 #-*- mode:snakemake -*-
 
 include:
+    'quant/spikein.smk'
+include:
     'quant/mirge3.smk'
 include:
     'quant/unitas.smk'
