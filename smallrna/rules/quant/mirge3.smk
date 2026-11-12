@@ -9,18 +9,32 @@ MIRGE3_DB = str(config['quant']['mirge3'].get('db') or '').lower()
 if MIRGE3_DB not in MIRGE3_DATABASES:
     raise ValueError('quant.mirge3.db: mirbase or mirgenedb, got {!r}'.format(config['quant']['mirge3'].get('db')))
 
+# miRge3 reads the shared filtered reads, like UNITAS and mirflowz: the kit's adapter removal, clipping and filtering
+# are done, so miRge3 gets no --adapter (cutadapt then trims nothing), no --nextseq-trim (fastp handles polyG) and no
+# --uniq-mol-ids (no deduplication; the NEXTflex v3 4N ends are clipped by the filter). Its own minimum read length
+# (16 nt by default) is set to the kit's final minimum, so it keeps every read the filter kept.
+import shlex
+
+MIRGE3_MIN_LENGTH = final_length_required(config['filter']['trim']['fastp']) or 1
+
 def get_args(wildcards):
     args = ''
     if config['organism'] == 'homo_sapiens':
         args += ' --tRNA-frag '
-    if config.get('machine', '').lower().startswith('nextseq'):
-        args += ' --nextseq-trim 10 '
     if SPIKEIN_REF_SETS:
         args += ' --spikeIn '
-    umi = config['quant']['mirge3'].get('uniq_mol_ids')
-    if umi:
-        args += ' --uniq-mol-ids {} '.format(umi)
     return args
+
+def mirge3_links(wildcards, input):
+    """Links named <sample>.fastq, so miRge3 names its columns by sample; made inside the job because the filtered
+    reads are temporary files that must stay inputs of mirge3_quant itself. Targets are absolute at run time ("$PWD",
+    the project directory, which has the same path inside the container): the miRge3 image's BusyBox ln has no -r."""
+    reads = get_filtered_fastq(None)['R1']
+    return ' && '.join('ln -sf "$PWD"/{} {}'.format(shlex.quote(reads.format(sample=sample)),
+                                                   shlex.quote(join(MIRGE3_FASTQ_DIR, sample + '.fastq')))
+                       for sample in SAMPLES)
+
+MIRGE3_FASTQ_DIR = join(QUANT_INTERIM, 'mirge3', 'fastq')
 
 # Root passed to miRge3 as --libraries-path: this project's library, links to the shared one plus its spike-in index.
 MIRGE3_PROJECT_LIB = join(QUANT_INTERIM, 'mirge3', 'lib')
@@ -63,17 +77,9 @@ rule mirge3_reference:
         'python {params.script} --library {params.library} --mirna-db {params.db} --release {params.release} '
         '{params.verification} --output {output}'
 
-rule mirge3_symlink:
-    input:
-        rules.merged_fastq_R1.output
-    output:
-        fastq = join(QUANT_INTERIM, 'mirge3', 'fastq', '{sample}.fastq.gz')
-    shell:
-        'ln -sr {input} {output.fastq}'
-
 rule mirge3_quant:
     input:
-        fastq = expand(join(QUANT_INTERIM, 'mirge3', 'fastq', '{sample}.fastq.gz'), sample=SAMPLES),
+        fastq = expand(get_filtered_fastq(None)['R1'], sample=SAMPLES),
         # Project library with this project's spike-in index; miRNA database present and its release recorded.
         library = rules.mirge3_project_library.output.library,
         reference = rules.mirge3_reference.output
@@ -84,13 +90,15 @@ rule mirge3_quant:
         umapped = join(QUANT_INTERIM, 'mirge3', 'unmapped.csv'),
         a2i = join(QUANT_INTERIM, 'mirge3', 'a2IEditing.report.newform.csv')
     params:
-        fastq = lambda wildcards, input: ','.join(input.fastq),
+        fastq = ','.join(join(MIRGE3_FASTQ_DIR, sample + '.fastq') for sample in SAMPLES),
+        fastq_dir = MIRGE3_FASTQ_DIR,
+        links = mirge3_links,
+        min_length = MIRGE3_MIN_LENGTH,
         lib = MIRGE3_PROJECT_LIB,
         org = MIRGE_ORG,
         db = MIRGE3_DATABASES[MIRGE3_DB],
         args = '--gff-out --isoform-entropy --AtoI ',
         specific_args = get_args,
-        adapter = config['adapter'],
         tmp_out = join(QUANT_INTERIM, 'mirge3', MIRGE3_DB),
         out = join(QUANT_INTERIM, 'mirge3')
     threads:
@@ -98,10 +106,10 @@ rule mirge3_quant:
     container:
         'docker://' + config['docker']['mirge3']
     shell:
-        'mkdir -p {params.tmp_out} && '
+        'rm -rf {params.fastq_dir} && mkdir -p {params.fastq_dir} {params.tmp_out} && {params.links} && '
         'miRge3.0 '
-        '--samples {params.fastq} '
-        '--adapter {params.adapter} '
+        '--samples {params.fastq:q} '
+        '--minimum-length {params.min_length} '
         '--mir-DB {params.db} '
         '--libraries-path {params.lib} '
         '--organism-name {params.org} '
@@ -110,7 +118,7 @@ rule mirge3_quant:
         '--threads {threads} '
         '--outDir {params.tmp_out} '
         '&& mv {params.tmp_out}/miRge*/* {params.out} '
-        '&& rm -rf {params.tmp_out} '
+        '&& rm -rf {params.tmp_out} {params.fastq_dir} '
 
 rule mirge3_unmapped:
     input:

@@ -68,6 +68,18 @@ if config['filter']['trim']['quantifier'] not in TRIM_QUANTIFIERS:
     raise ValueError('filter.trim.quantifier: smallrna supports {}, got {!r}'.format(
         ' or '.join(TRIM_QUANTIFIERS), config['filter']['trim']['quantifier']))
 
+rule smallrna_untrimmed_fastq:
+    """With filter.trim.quantifier: skip, the quantifiers read the merged reads unchanged, as plain FASTQ: no adapter
+    removal or filtering anywhere, so skip is for reads that were trimmed before they reach the workflow."""
+    input:
+        rules.merged_fastq_R1.output
+    output:
+        temp(join(FILTER_INTERIM, 'fastq', '{sample}_R1.fastq'))
+    wildcard_constraints:
+        sample = r'[^/]+'
+    shell:
+        'gzip -dc {input} > {output}'
+
 def get_filtered_fastq(wildcards):
     if config['filter']['trim']['quantifier'] == 'skip':
         R1 = join(FILTER_INTERIM, 'fastq', '{sample}_R1.fastq')
