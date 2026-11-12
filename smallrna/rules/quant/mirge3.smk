@@ -22,26 +22,30 @@ def get_args(wildcards):
         args += ' --uniq-mol-ids {} '.format(umi)
     return args
 
-rule mirge3_spikein:
-    """Spike-in index of this project's filter.spikein.ref sets, written into the shared library before miRge3 runs.
+# Root passed to miRge3 as --libraries-path: this project's library, links to the shared one plus its spike-in index.
+MIRGE3_PROJECT_LIB = join(QUANT_INTERIM, 'mirge3', 'lib')
 
-    miRge3 counts spike-ins only from <library>/index.Libs/<org>_spike-in, so the index is replaced on every run (or
-    removed when no sets are configured). The output is this project's record, not the shared index: another project
-    therefore always rebuilds the index for its own sets.
+rule mirge3_project_library:
+    """This project's miRge3 library: links to the shared library and a spike-in index of its filter.spikein.ref sets.
+
+    miRge3 counts spike-ins only from <libraries-path>/<org>/index.Libs/<org>_spike-in. Building that index in the
+    project's own library leaves the shared library unchanged, so projects cannot use each other's spike-ins, and
+    Snakemake tracks the index as part of this rule's output.
     """
     input:
         fasta = spikein_fasta(),
         library = MIRGE3_LIBRARY
     output:
-        join(QUANT_INTERIM, 'mirge3', 'spikein.tsv')
+        library = directory(join(MIRGE3_PROJECT_LIB, MIRGE_ORG)),
+        record = join(QUANT_INTERIM, 'mirge3', 'spikein.tsv')
     params:
-        script = src_gcf('scripts/mirge3_spikein.py'),
-        index_dir = join(MIRGE3_EXT, 'index.Libs'),
-        org = MIRGE_ORG
+        script = src_gcf('scripts/mirge3_project_library.py'),
+        shared = MIRGE3_EXT,
+        sets = ','.join(SPIKEIN_REF_SETS) or 'none'
     container:
         'docker://' + config['docker']['mirge3']
     shell:
-        'python {params.script} --index-dir {params.index_dir} --organism-name {params.org} --output {output} {input.fasta}'
+        'python {params.script} --library {params.shared} --output {output.library} --record {output.record} {input.fasta}'
 
 rule mirge3_reference:
     input:
@@ -52,10 +56,11 @@ rule mirge3_reference:
     params:
         script = src_gcf('scripts/mirge3_reference.py'),
         library = MIRGE3_EXT,
+        db = MIRGE3_DB,
         verification = lambda wildcards, input: '--verification {}'.format(input.verification) if input.verification else '',
         release = MIRGE3_RELEASE
     shell:
-        'python {params.script} --library {params.library} --mirna-db {MIRGE3_DB} --release {params.release} '
+        'python {params.script} --library {params.library} --mirna-db {params.db} --release {params.release} '
         '{params.verification} --output {output}'
 
 rule mirge3_symlink:
@@ -69,10 +74,9 @@ rule mirge3_symlink:
 rule mirge3_quant:
     input:
         fastq = expand(join(QUANT_INTERIM, 'mirge3', 'fastq', '{sample}.fastq.gz'), sample=SAMPLES),
-        library = MIRGE3_LIBRARY,
-        # miRNA database present and its release recorded; spike-in index built for this project's sets.
-        reference = rules.mirge3_reference.output,
-        spikein = rules.mirge3_spikein.output
+        # Project library with this project's spike-in index; miRNA database present and its release recorded.
+        library = rules.mirge3_project_library.output.library,
+        reference = rules.mirge3_reference.output
     output:
         mirtable = join(QUANT_INTERIM, 'mirge3', 'miR.Counts.csv'),
         mirtable_ext = join(QUANT_INTERIM, 'mirge3', 'isomirs.csv'),
@@ -81,7 +85,7 @@ rule mirge3_quant:
         a2i = join(QUANT_INTERIM, 'mirge3', 'a2IEditing.report.newform.csv')
     params:
         fastq = lambda wildcards, input: ','.join(input.fastq),
-        lib = MIRGE3_LIB,
+        lib = MIRGE3_PROJECT_LIB,
         org = MIRGE_ORG,
         db = MIRGE3_DATABASES[MIRGE3_DB],
         args = '--gff-out --isoform-entropy --AtoI ',

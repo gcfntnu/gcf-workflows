@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 """Record the selected miRge3 library and check that it holds the requested miRNA database.
 
-The library must hold the files miRge3 0.1.4 opens for `quant.mirge3.db` (annotation, FASTA and bowtie indexes of
-that database); a missing file stops with an error naming it. The miRNA release is read from the library's
+The library must hold the files miRge3 0.1.4 opens for `quant.mirge3.db` (annotation, FASTA and complete six-file
+Bowtie indexes of that database); a missing file stops with an error naming it. The miRNA release is read from the library's
 `gcf_mirna_db.tsv`, other sources from `gcf_manifest.tsv`, and the archive check from the `mirge3_library.py`
 record. Libraries without these files (the SourceForge library) are recorded as `NA`; nothing is filled in from
 current settings. miRge3 counts are not joined to another annotation, so no other release is checked.
@@ -18,6 +18,7 @@ from pathlib import Path
 import sys
 
 DATABASES = {'mirbase': 'miRBase', 'mirgenedb': 'MirGeneDB'}
+BOWTIE_SUFFIXES = ('1.ebwt', '2.ebwt', '3.ebwt', '4.ebwt', 'rev.1.ebwt', 'rev.2.ebwt')
 MANIFEST = ('ensembl_release', 'genome_assembly', 'mirbase_gff_assembly', 'mirgenedb_gff_assembly', 'bowtie', 'builder_image')
 
 
@@ -28,8 +29,8 @@ def fail(message):
 def database_files(org, db):
     return ['annotation.Libs/{}_{}.gff3'.format(org, db), 'annotation.Libs/{}_merges_{}.csv'.format(org, db),
             'annotation.Libs/{}_miRNAs_in_repetitive_element_{}.csv'.format(org, db),
-            'fasta.Libs/{}_mature_{}.fa'.format(org, db), 'fasta.Libs/{}_mirna_SNP_pseudo_{}.fa'.format(org, db),
-            'index.Libs/{}_hairpin_{}.1.ebwt'.format(org, db), 'index.Libs/{}_mirna_{}.1.ebwt'.format(org, db)]
+            'fasta.Libs/{}_mature_{}.fa'.format(org, db), 'fasta.Libs/{}_mirna_SNP_pseudo_{}.fa'.format(org, db)] + \
+        ['index.Libs/{}_{}_{}.{}'.format(org, kind, db, suffix) for kind in ('hairpin', 'mirna') for suffix in BOWTIE_SUFFIXES]
 
 
 def read_table(path, key, value):

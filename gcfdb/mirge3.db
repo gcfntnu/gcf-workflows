@@ -8,8 +8,9 @@
   `EXT_DIR/mirge3/<release>/<org>/` (scripts/mirge3_library.py). The archive must match the release's `SHA256SUMS`
   before it is unpacked; the files miRge3 opens and the provenance files (`gcf_mirna_db.tsv`, `gcf_manifest.tsv`,
   `gcf_sources.tsv`) must be present. The library's own spike-in index is removed: spike-ins are a library prep
-  choice, and smallrna builds the spike-in index from `filter.spikein.ref` before miRge3 runs. The result is recorded
-  in `EXT_DIR/mirge3/<release>/verify/miRge3_lib_<organism>.tsv`.
+  choice, and smallrna builds the spike-in index from `filter.spikein.ref` in each project's own library (links to
+  this one), so the shared library is not changed after installation. The result is recorded in
+  `EXT_DIR/mirge3/<release>/verify/miRge3_lib_<organism>.tsv`.
 - `sourceforge`: the unversioned miRge3 SourceForge library, kept for retained analyses at its old place,
   `EXT_DIR/mirge3/<organism>/<org>/`, so existing copies are neither moved nor downloaded again. It has no checksums
   or provenance records.

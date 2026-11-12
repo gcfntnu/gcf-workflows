@@ -9,7 +9,8 @@ The archive's SHA-256 must equal the published one before anything is unpacked. 
 every file miRge3 0.1.4 opens for the options gcf-workflows uses (both miRNA databases; tRNA annotation for human)
 and the provenance files `gcf_mirna_db.tsv`, `gcf_manifest.tsv` and `gcf_sources.tsv`, which stay in the library.
 The library's own spike-in index (`index.Libs/<org>_spike-in.*`) is removed: spike-ins are a library prep choice,
-and smallrna builds that index from `filter.spikein.ref` before each miRge3 run.
+and smallrna builds that index from `filter.spikein.ref` in each project's own library (links to this one).
+Every Bowtie index must be complete: all six files (`.1.ebwt` to `.4.ebwt`, `.rev.1.ebwt`, `.rev.2.ebwt`).
 
 The library is moved into `<libraries-path>/<org>/` only when every check passed. An existing `<org>/` without
 this record is not replaced: the script stops and names it. A missing `SHA256SUMS`, an unlisted archive or any
@@ -38,10 +39,16 @@ DATABASES = ('miRBase', 'MirGeneDB')
 INDEXES = ('genome', 'mature_trna', 'pre_trna', 'mrna', 'ncrna_others', 'rrna', 'snorna')
 TRNA_ANNOTATION = ('trna.str', 'trna_aminoacid_anticodon.csv', 'trna_deduplicated_list.csv', 'tRF_infor.csv', 'tRF_merges.csv')
 PROVENANCE = ('gcf_mirna_db.tsv', 'gcf_manifest.tsv', 'gcf_sources.tsv')
+BOWTIE_SUFFIXES = ('1.ebwt', '2.ebwt', '3.ebwt', '4.ebwt', 'rev.1.ebwt', 'rev.2.ebwt')
 
 
 def fail(message):
     sys.exit('mirge3_library.py: ' + message)
+
+
+def bowtie_index(prefix):
+    """The six files of a Bowtie index."""
+    return ['index.Libs/{}.{}'.format(prefix, suffix) for suffix in BOWTIE_SUFFIXES]
 
 
 def library_files(org):
@@ -50,9 +57,10 @@ def library_files(org):
     for db in DATABASES:
         files += ['annotation.Libs/{}_{}.gff3'.format(org, db), 'annotation.Libs/{}_merges_{}.csv'.format(org, db),
                   'annotation.Libs/{}_miRNAs_in_repetitive_element_{}.csv'.format(org, db),
-                  'fasta.Libs/{}_mature_{}.fa'.format(org, db), 'fasta.Libs/{}_mirna_SNP_pseudo_{}.fa'.format(org, db),
-                  'index.Libs/{}_hairpin_{}.1.ebwt'.format(org, db), 'index.Libs/{}_mirna_{}.1.ebwt'.format(org, db)]
-    files += ['index.Libs/{}_{}.1.ebwt'.format(org, index) for index in INDEXES]
+                  'fasta.Libs/{}_mature_{}.fa'.format(org, db), 'fasta.Libs/{}_mirna_SNP_pseudo_{}.fa'.format(org, db)]
+        files += bowtie_index('{}_hairpin_{}'.format(org, db)) + bowtie_index('{}_mirna_{}'.format(org, db))
+    for index in INDEXES:
+        files += bowtie_index('{}_{}'.format(org, index))
     if org == 'human':
         files += ['annotation.Libs/{}_{}'.format(org, name) for name in TRNA_ANNOTATION]
     return files + list(PROVENANCE)

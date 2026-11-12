@@ -8,9 +8,11 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / 'smallrna/rules/quant/scripts/mirge3_reference.py'
+SUFFIXES = ('1.ebwt', '2.ebwt', '3.ebwt', '4.ebwt', 'rev.1.ebwt', 'rev.2.ebwt')
 FILES = ['annotation.Libs/mouse_{db}.gff3', 'annotation.Libs/mouse_merges_{db}.csv',
          'annotation.Libs/mouse_miRNAs_in_repetitive_element_{db}.csv', 'fasta.Libs/mouse_mature_{db}.fa',
-         'fasta.Libs/mouse_mirna_SNP_pseudo_{db}.fa', 'index.Libs/mouse_hairpin_{db}.1.ebwt', 'index.Libs/mouse_mirna_{db}.1.ebwt']
+         'fasta.Libs/mouse_mirna_SNP_pseudo_{db}.fa'] + \
+    ['index.Libs/mouse_{}_{{db}}.{}'.format(kind, suffix) for kind in ('hairpin', 'mirna') for suffix in SUFFIXES]
 
 
 def make_library(tmp_path, databases=('miRBase', 'MirGeneDB'), provenance=True):
@@ -55,6 +57,15 @@ def test_library_without_the_requested_database_fails_naming_the_files(tmp_path)
     assert result.returncode != 0
     assert 'quant.mirge3.db is mirgenedb' in result.stderr
     assert 'index.Libs/mouse_mirna_MirGeneDB.1.ebwt' in result.stderr
+    assert rows == {}
+
+
+def test_incomplete_bowtie_index_fails_naming_the_file(tmp_path):
+    lib = make_library(tmp_path)
+    (lib / 'index.Libs/mouse_mirna_miRBase.rev.1.ebwt').unlink()
+    result, rows = run(tmp_path, lib, 'mirbase')
+    assert result.returncode != 0
+    assert 'index.Libs/mouse_mirna_miRBase.rev.1.ebwt' in result.stderr
     assert rows == {}
 
 

@@ -115,6 +115,16 @@ class LibraryTests(unittest.TestCase):
         self.assertIn('gcf_manifest.tsv', result.stderr)
         self.assertNotInstalled(record)
 
+    def test_incomplete_bowtie_index_fails_although_its_checksum_matches(self):
+        """The checksum shows agreement with the published archive, not that every index is complete."""
+        self.assertIn('index.Libs/mouse_mrna.rev.2.ebwt', mirge3_library.library_files(ORG))
+        self.publish(library(drop=('index.Libs/mouse_mrna.rev.2.ebwt', 'index.Libs/mouse_hairpin_miRBase.3.ebwt')))
+        result, record = self.run_script()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('index.Libs/mouse_mrna.rev.2.ebwt', result.stderr)
+        self.assertIn('index.Libs/mouse_hairpin_miRBase.3.ebwt', result.stderr)
+        self.assertNotInstalled(record)
+
     def test_archive_for_another_organism_name_fails(self):
         self.publish(library(), top='human')
         result, record = self.run_script()

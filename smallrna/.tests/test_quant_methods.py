@@ -4,6 +4,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import time
 
 import pytest
 import yaml
@@ -11,21 +12,41 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def dry_run(tmp_path, method, update=None, printshell=False, target='quant_all'):
-    shutil.copytree(ROOT / 'smallrna/.tests', tmp_path, dirs_exist_ok=True,
-                    ignore=shutil.ignore_patterns('.snakemake', '__pycache__'))
+def configure(tmp_path, method, update=None):
+    if not (tmp_path / 'Snakefile').exists():
+        shutil.copytree(ROOT / 'smallrna/.tests', tmp_path, dirs_exist_ok=True,
+                        ignore=shutil.ignore_patterns('.snakemake', '__pycache__'))
+        (tmp_path / 'Snakefile').write_text('configfile: "config.yaml"\npepfile: "pep/pep_config.yaml"\n'
+                                          f'include: {str(ROOT / "smallrna/smallrna.smk")!r}\n')
     settings = yaml.safe_load((tmp_path / 'config.yaml').read_text())
     settings.setdefault('quant', {})['method'] = method
     if update:
         update(settings)
     (tmp_path / 'config.yaml').write_text(yaml.safe_dump(settings))
-    (tmp_path / 'Snakefile').write_text('configfile: "config.yaml"\npepfile: "pep/pep_config.yaml"\n'
-                                      f'include: {str(ROOT / "smallrna/smallrna.smk")!r}\n')
+
+
+def snakemake(tmp_path, *args):
     env = {k: v for k, v in os.environ.items() if not k.startswith('GCF_')}
     env.update(TMPDIR=str(tmp_path), XDG_CACHE_HOME=str(tmp_path / '.cache'))
-    result = subprocess.run([str(Path(sys.executable).with_name('snakemake')), '-n', *(['-p'] if printshell else []), '--cores', '1', target],
+    result = subprocess.run([str(Path(sys.executable).with_name('snakemake')), '--cores', '1', *args],
                             cwd=tmp_path, env=env, capture_output=True, text=True, timeout=120)
     return result.returncode, result.stdout + result.stderr
+
+
+def dry_run(tmp_path, method, update=None, printshell=False, target='quant_all'):
+    configure(tmp_path, method, update)
+    return snakemake(tmp_path, '-n', *(['-p'] if printshell else []), target)
+
+
+def record_as_done(tmp_path, *files):
+    """Create files in order (inputs first) and record them as made by the current configuration."""
+    for name in files:
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.mkdir() if name.endswith('/') else path.touch()
+        time.sleep(0.01)
+    returncode, output = snakemake(tmp_path, '--touch', '--force', files[-1].rstrip('/'))
+    assert returncode == 0, output
 
 
 @pytest.mark.parametrize('method, rule', [('unitas', 'unitas_mirtable'), ('mirge3', 'mirge3_quant'),
@@ -93,13 +114,16 @@ def test_mirge3_spikein_index_follows_the_configured_sets(tmp_path, ref, fasta):
     update = lambda s: s.setdefault('filter', {}).setdefault('spikein', {}).update(ref=ref)
     returncode, output = dry_run(tmp_path, 'mirge3', update, printshell=True)
     assert returncode == 0, output
-    spikein = rule_block(output, 'mirge3_spikein')
-    command = next(line for line in spikein.splitlines() if 'mirge3_spikein.py' in line)
-    assert '--index-dir data/ext/mirge3/09-11-2026/mouse/index.Libs --organism-name mouse' in command
-    assert command.split('--output data/tmp/smallrna/quant/mirge3/spikein.tsv', 1)[1].split() == \
+    project = rule_block(output, 'mirge3_project_library')
+    command = next(line for line in project.splitlines() if 'mirge3_project_library.py' in line)
+    assert ('--library data/ext/mirge3/09-11-2026/mouse --output data/tmp/smallrna/quant/mirge3/lib/mouse '
+            '--record data/tmp/smallrna/quant/mirge3/spikein.tsv') in command
+    assert command.split('--record data/tmp/smallrna/quant/mirge3/spikein.tsv', 1)[1].split() == \
         [f'data/ext/spikein/fasta/{name}.fa' for name in fasta]
-    assert 'data/tmp/smallrna/quant/mirge3/spikein.tsv' in rule_block(output, 'mirge3_quant').split('output:', 1)[0]
-    assert ('--spikeIn' in mirge3_command(output)) == bool(fasta)
+    assert 'data/tmp/smallrna/quant/mirge3/lib/mouse' in rule_block(output, 'mirge3_quant').split('output:', 1)[0]
+    command = ' '.join(mirge3_command(output).split())
+    assert '--libraries-path data/tmp/smallrna/quant/mirge3/lib --organism-name mouse' in command
+    assert ('--spikeIn' in command) == bool(fasta)
 
 
 def test_unknown_spikein_set_fails_at_load(tmp_path):
@@ -121,7 +145,7 @@ def test_mirge3_library_release_and_database_selection(tmp_path, db, name):
     assert (f'--library data/ext/mirge3/09-11-2026/mouse --mirna-db {db.lower()} --release 09-11-2026 '
             '--verification data/ext/mirge3/09-11-2026/verify/miRge3_lib_mus_musculus.tsv') in reference
     command = ' '.join(mirge3_command(output).split())
-    assert f'--mir-DB {name} --libraries-path data/ext/mirge3/09-11-2026 --organism-name mouse' in command
+    assert f'--mir-DB {name} --libraries-path data/tmp/smallrna/quant/mirge3/lib --organism-name mouse' in command
     assert 'data/tmp/smallrna/quant/mirge3/reference.tsv' in rule_block(output, 'quant_all')
 
 
@@ -130,7 +154,7 @@ def test_explicit_mirge3_release_selects_its_own_directory(tmp_path):
     returncode, output = dry_run(tmp_path, 'mirge3', update, printshell=True)
     assert returncode == 0, output
     assert '--release-url mirge3/01-12-2026' in rule_block(output, 'mirge3_library')
-    assert '--libraries-path data/ext/mirge3/01-12-2026 ' in mirge3_command(output)
+    assert '--library data/ext/mirge3/01-12-2026/mouse ' in rule_block(output, 'mirge3_project_library')
 
 
 def test_sourceforge_library_stays_at_its_old_place(tmp_path):
@@ -141,8 +165,35 @@ def test_sourceforge_library_stays_at_its_old_place(tmp_path):
     assert 'data/ext/mirge3/mus_musculus/mouse/index.Libs/mouse_snorna.3.ebwt' in rule_block(output, 'mirge3_prebuild')
     reference = rule_block(output, 'mirge3_reference')
     assert '--library data/ext/mirge3/mus_musculus/mouse --mirna-db mirbase --release sourceforge  --output' in reference
-    assert '--libraries-path data/ext/mirge3/mus_musculus --organism-name mouse' in mirge3_command(output)
-    assert '--index-dir data/ext/mirge3/mus_musculus/mouse/index.Libs' in rule_block(output, 'mirge3_spikein')
+    assert '--library data/ext/mirge3/mus_musculus/mouse --output' in rule_block(output, 'mirge3_project_library')
+
+
+LIBRARY = 'data/ext/mirge3/09-11-2026/verify/miRge3_lib_mus_musculus.tsv'
+
+
+def test_switching_the_mirna_database_reruns_the_reference_check(tmp_path):
+    """reference.tsv names the database it checked, so a switch in an existing workdir checks and records it again."""
+    configure(tmp_path, 'mirge3', lambda s: s['quant'].setdefault('mirge3', {}).update(db='mirbase'))
+    record_as_done(tmp_path, LIBRARY, 'data/tmp/smallrna/quant/mirge3/reference.tsv')
+    returncode, output = dry_run(tmp_path, 'mirge3', lambda s: s['quant']['mirge3'].update(db='mirgenedb'),
+                                 target='data/tmp/smallrna/quant/mirge3/reference.tsv')
+    assert returncode == 0, output
+    assert "Params have changed since last execution" in rule_block(output, 'mirge3_reference')
+    assert "before: 'mirbase' now: 'mirgenedb'" in rule_block(output, 'mirge3_reference')
+
+
+def test_changing_the_spikein_sets_rebuilds_the_project_library(tmp_path):
+    """Each project's spike-in index is part of its own library, rebuilt when its sets change."""
+    spikein = lambda ref: lambda s: s.setdefault('filter', {}).setdefault('spikein', {}).update(ref=ref)
+    configure(tmp_path, 'mirge3', spikein('smallrna_calibrators'))
+    record_as_done(tmp_path, LIBRARY, 'data/ext/spikein/fasta/smallrna_calibrators.fa', 'data/ext/spikein/fasta/ERCC92.fa',
+                   'data/tmp/smallrna/quant/mirge3/lib/mouse/', 'data/tmp/smallrna/quant/mirge3/spikein.tsv')
+    returncode, output = dry_run(tmp_path, 'mirge3', target='data/tmp/smallrna/quant/mirge3/lib/mouse')
+    assert returncode == 0, output
+    assert 'Nothing to be done' in output
+    returncode, output = dry_run(tmp_path, 'mirge3', spikein('ERCC92'), target='data/tmp/smallrna/quant/mirge3/lib/mouse')
+    assert returncode == 0, output
+    assert 'rule mirge3_project_library:' in output
 
 
 @pytest.mark.parametrize('update, message', [
