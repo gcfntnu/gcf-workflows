@@ -69,20 +69,36 @@ def mirge3_command(output):
     return next(line for line in output.splitlines() if 'miRge3.0 ' in line)
 
 
-@pytest.mark.parametrize('kit, umi', [('Bioo Scientific NEXTflex Small RNA-Seq Kit v3', '--uniq-mol-ids 4,4'),
-                                      ('Bioo Scientific NEXTflex Small RNA-Seq Kit v4', None),
-                                      ('TruSeq Small RNA Library Prep Kit', None)])
-def test_mirge3_unique_molecule_ids_follow_the_kit(tmp_path, kit, umi):
-    returncode, output = dry_run(tmp_path, 'mirge3', lambda s: s.update(libprepkit=kit), printshell=True)
+@pytest.mark.parametrize('kit, min_length', [('Bioo Scientific NEXTflex Small RNA-Seq Kit v3', 16),
+                                             ('Bioo Scientific NEXTflex Small RNA-Seq Kit v4', 15),
+                                             ('TruSeq Small RNA Library Prep Kit', 15)])
+def test_mirge3_reads_the_filtered_reads_without_its_own_preprocessing(tmp_path, kit, min_length):
+    """Like UNITAS and mirflowz: no adapter trimming, NextSeq trimming or UMI collapsing; the kit's minimum length."""
+    update = lambda s: s.update(libprepkit=kit, machine='NextSeq 500')
+    returncode, output = dry_run(tmp_path, 'mirge3', update, printshell=True)
     assert returncode == 0, output
+    quant = rule_block(output, 'mirge3_quant')
+    assert all('data/tmp/smallrna/filter/fastp/{}_R1.fastq'.format(s) in quant.split('output:', 1)[0]
+               for s in ('SR01', 'SR02', 'SR03', 'SR04'))
+    assert 'ln -sf "$PWD"/data/tmp/smallrna/filter/fastp/SR01_R1.fastq data/tmp/smallrna/quant/mirge3/fastq/SR01.fastq' in quant
     command = ' '.join(mirge3_command(output).split())
-    if umi:
-        assert umi in command
-    else:
-        assert '--uniq-mol-ids' not in command
+    assert '--samples data/tmp/smallrna/quant/mirge3/fastq/SR01.fastq,' in command
+    assert '--minimum-length {} '.format(min_length) in command
+    for option in ('--adapter', '--nextseq-trim', '--uniq-mol-ids'):
+        assert option not in command
+    assert 'rule mirge3_symlink:' not in output
 
 
-def test_mirge3_reads_merged_fastq_from_every_lane(tmp_path):
+def test_mirge3_minimum_length_is_1_without_a_length_filter(tmp_path):
+    """With -L the filter keeps every non-empty read, so miRge3 does too."""
+    args = '-L -q 15 -u 40 -n 5 -e 0'
+    update = lambda s: s.setdefault('filter', {}).setdefault('trim', {}).setdefault('fastp', {}).update(args=args)
+    returncode, output = dry_run(tmp_path, 'mirge3', update, printshell=True)
+    assert returncode == 0, output
+    assert '--minimum-length 1 ' in ' '.join(mirge3_command(output).split())
+
+
+def test_mirge3_reads_every_lane_through_the_filter(tmp_path):
     def two_lanes(settings):
         sample = next(iter(settings['samples']))
         first = settings['samples'][sample]['R1']
@@ -91,10 +107,21 @@ def test_mirge3_reads_merged_fastq_from_every_lane(tmp_path):
         shutil.copy(tmp_path / settings['fastq_dir'] / first, lane2)
     returncode, output = dry_run(tmp_path, 'mirge3', two_lanes, printshell=True)
     assert returncode == 0, output
-    links = [line for line in output.splitlines() if 'ln -sr ' in line and '/mirge3/fastq/' in line]
-    assert links and all('/filter/fastq/' in line for line in links)
     merge = [line for line in output.splitlines() if '_R1_lane2' in line]
     assert merge, 'the second lane was not merged'
+    assert 'data/tmp/smallrna/filter/fastp/SR01_R1.fastq' in rule_block(output, 'mirge3_quant').split('output:', 1)[0]
+
+
+@pytest.mark.parametrize('method, rule', [('mirge3', 'mirge3_quant'), ('unitas', 'unitas')])
+def test_with_trimming_skipped_quantifiers_read_the_merged_reads(tmp_path, method, rule):
+    """filter.trim.quantifier: skip gives the merged reads unchanged, uncompressed for the quantifiers."""
+    update = lambda s: s.setdefault('filter', {}).setdefault('trim', {}).update(quantifier='skip')
+    returncode, output = dry_run(tmp_path, method, update, printshell=True)
+    assert returncode == 0, output
+    assert 'data/tmp/smallrna/filter/fastq/SR01_R1.fastq' in rule_block(output, rule).split('output:', 1)[0]
+    assert 'gzip -dc data/tmp/smallrna/filter/fastq/SR01_R1.fastq.gz > data/tmp/smallrna/filter/fastq/SR01_R1.fastq' in \
+        rule_block(output, 'smallrna_untrimmed_fastq')
+    assert 'rule smallrna_fastp:' not in output
 
 
 def test_mirge3_image_and_spikein_come_from_configuration(tmp_path):
