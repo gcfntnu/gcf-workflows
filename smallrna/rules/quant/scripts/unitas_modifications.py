@@ -9,6 +9,12 @@ warnings.filterwarnings("ignore", message="numpy.dtype size changed")
 
 from snakemake.logging import logger
 
+# Columns of each table when no sample has rows for it.
+EMPTY_COLUMNS = {'modification_per_position': ['Sample_ID'],
+                 'internal_modification': ['Modification', 'Count', 'Sample_ID'],
+                 'internal_modification_position': ['Position', 'Count', 'Sample_ID'],
+                 'NT_3p_extension': ['NT_Tail', 'Count', 'Sample_ID']}
+
 def samplesheet_ids(fn, sep='\t'):
     sample_ids = []
     with open(fn) as fh:
@@ -89,9 +95,14 @@ if __name__ == '__main__':
                     logger.info('missing {} from sample {}'.format(basename, sample_id))
                     df_lists[basename].append(None)
                 
-    for basename, dfl in df_lists.items():
+    # Every table is written, as the workflow declares all four. Without rows in any sample, a table holds only its
+    # header: the fixed columns and Sample_ID (per-position columns are the modifications found, so only Sample_ID).
+    os.makedirs(args.output, exist_ok=True)
+    for basename, columns in EMPTY_COLUMNS.items():
+        dfl = df_lists.get(basename, [])
         if all([i is None for i in dfl]):
-            logger.warning('No samples with {}'.format(basename))
+            logger.warning('No samples with {}; writing an empty table'.format(basename))
+            pd.DataFrame(columns=columns).to_csv(os.path.join(args.output, basename + '.tsv'), sep='\t', index=False)
             continue
         DF = pd.concat(dfl, axis=0, join='outer', sort=False)
         DF.fillna(0, inplace=True)
