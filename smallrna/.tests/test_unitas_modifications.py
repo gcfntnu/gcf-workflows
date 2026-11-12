@@ -40,15 +40,16 @@ def test_tables_without_rows_are_written_with_their_header(tmp_path):
     assert lines[0] == 'NT_Tail\tCount\tSample_ID' and 'A\t5\tS01' in lines and 'A\t5\tS02' in lines
 
 
+# Output of the script before #339 for [WITH_INTERNAL, TAILS_ONLY]; tables with rows must not change.
+EXPECTED_WITH_ROWS = {
+    'modification_per_position': 'A->G\tC->T\tSample_ID\n3\t0\tS01\n0\t1\tS01\n',
+    'internal_modification': 'Modification\tCount\tSample_ID\nA->G\t3\tS01\nC->T\t1\tS01\n',
+    'internal_modification_position': 'Position\tCount\tSample_ID\n5\t3\tS01\n12\t1\tS01\n',
+    'NT_3p_extension': 'NT_Tail\tCount\tSample_ID\nA\t5\tS01\nU\t2\tS01\nA\t5\tS02\nAA\t0\tS02\nC\t0\tS02\n'}
+
+
 def test_tables_with_rows_are_unchanged(tmp_path):
-    """Compare with the script before #339, taken from git."""
-    old = tmp_path / 'old_unitas_modifications.py'
-    old.write_text(subprocess.run(['git', '-C', str(ROOT), 'show', 'origin/bfq-dev:smallrna/rules/quant/scripts/unitas_modifications.py'],
-                                  capture_output=True, text=True, check=True).stdout)
-    (tmp_path / 'old').mkdir()
-    old_result, old_tables = run(tmp_path, [WITH_INTERNAL, TAILS_ONLY], script=old, out='old')
-    new_result, new_tables = run(tmp_path, [WITH_INTERNAL, TAILS_ONLY], out='new')
-    assert old_result.returncode == 0 and new_result.returncode == 0, new_result.stderr
+    result, tables = run(tmp_path, [WITH_INTERNAL, TAILS_ONLY])
+    assert result.returncode == 0, result.stderr
     for name in TABLES:
-        assert new_tables[name].read_text() == old_tables[name].read_text(), name
-    assert 'A->G\t3\tS01' in new_tables['internal_modification'].read_text()
+        assert tables[name].read_text() == EXPECTED_WITH_ROWS[name], name
