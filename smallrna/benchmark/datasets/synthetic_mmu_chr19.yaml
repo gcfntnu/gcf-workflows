@@ -1,0 +1,26 @@
+# Synthetic mouse reads of known origin on chromosome 19; a quick check while developing a method.
+name: synthetic_mmu_chr19
+kind: synthetic
+organism: mus_musculus
+libprepkit: Bioo Scientific NEXTflex Small RNA-Seq Kit v4
+adapter: TGGAATTCTCGGGTGCCAAGG
+umi: 0                      # random nucleotides at each end of the insert (NEXTflex v3: 4)
+methods: [unitas, mirge3, mirflowz]
+reference:                  # reduced reference, relative to EXT_DIR (reduce_reference.py)
+  name: mmu-chr19
+  dir: benchmark/references/mmu-chr19
+synthetic:
+  seed: 1
+  samples: 2
+  mirnas:                   # reads per sample
+    mmu-miR-192-5p: 40
+    mmu-miR-194-5p: 25
+    mmu-miR-204-5p: 10
+    mmu-miR-5136-3p: 12      # 3' end TGG, the start of the adapter
+    mmu-miR-6715-3p: 8       # 3' end TGG
+  random_mirnas: {n: 15, count: [5, 60]}   # drawn from the miRNAs annotated on the reference
+  isomirs:
+    - {mirna: mmu-miR-146b-5p, change: 3p_trim_1, count: 6}   # sequence repeated on chr19 near Mir146b
+    - {mirna: mmu-miR-192-5p, change: 3p_add_A, count: 5}
+    - {mirna: mmu-miR-101b-3p, change: 5p_trim_1, count: 4}
+  random_reads: {n: 10, length: 22}
