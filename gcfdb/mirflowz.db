@@ -152,4 +152,4 @@ rule mirflowz_prepare:
     shell:
         'python {params.script} --genome {input.genome} --gtf {input.gtf} --mirna-gff {input.mirna_gff} '
         '--chr-map {input.chr_map} --mirbase-release {params.mirbase} --ensembl-release {params.release} '
-        '--assembly {params.assembly} --threads {threads} --mem-gb {MIRFLOWZ_MEM_GB} --output {output.prepared} --record {output.record}'
+        '--assembly {params.assembly} --threads {threads} --mem-mb {resources.mem_mb} --output {output.prepared} --record {output.record}'

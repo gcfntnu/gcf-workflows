@@ -73,7 +73,7 @@ def run(setup, fail=False, prepared=None, samples=None):
     out = tmp_path / 'quant/mirflowz'
     samples = samples or ['S1={}'.format(tmp_path / 'S1_R1.fastq'), 'S2={}'.format(tmp_path / 'S2_R1.fastq.gz')]
     result = subprocess.run([sys.executable, str(SCRIPT), '--prepared', str(prepared or default_prepared), '--adapter', ADAPTER,
-                             '--minimum-length', '16', '--threads', '3', '--mem-gb', '12', '--output', str(out), *samples],
+                             '--minimum-length', '16', '--threads', '3', '--mem-mb', '12800', '--output', str(out), *samples],
                             capture_output=True, text=True, env=env, timeout=60)
     call = json.loads((tmp_path / 'call.json').read_text()) if (tmp_path / 'call.json').exists() else None
     return result, out, call
@@ -137,6 +137,14 @@ def test_nested_resources_stay_within_the_outer_budget(setup):
     assert 'map_transcriptome_segemehl:mem=10' in set_resources
     assert args[args.index('--resources') + 1:args.index('--resources') + 3] == ['threads=3', 'mem=12']
     assert args[args.index('--cores') + 1] == '3'
+
+
+def test_memory_budget_below_one_gb_is_rejected(setup):
+    tmp_path, _, prepared, env = setup
+    result = subprocess.run([sys.executable, str(SCRIPT), '--prepared', str(prepared), '--adapter', ADAPTER, '--minimum-length', '16',
+                             '--threads', '2', '--mem-mb', '512', '--output', str(tmp_path / 'out'), 'S1={}'.format(tmp_path / 'S1_R1.fastq')],
+                            capture_output=True, text=True, env=env, timeout=60)
+    assert result.returncode != 0 and 'below 1 GB' in result.stderr
 
 
 def test_incomplete_prepared_reference_fails_before_running(setup):

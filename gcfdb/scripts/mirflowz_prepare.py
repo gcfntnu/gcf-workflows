@@ -14,12 +14,12 @@ in file order; `Alias` and all other fields are unchanged. The work directory is
 not changed.
 
 mirflowz declares threads and memory (GB) as custom resources, which `--cores` does not limit: each rule's values are
-capped at `--threads` and `--mem-gb`, and `--resources` limits their totals.
+capped at `--threads` and `--mem-mb` (the outer job's allocation, in whole GB), and `--resources` limits their totals.
 
 Writes a two-column TSV (field, value): releases, assembly, inputs with SHA-256, and the mirflowz version.
 
 Usage: mirflowz_prepare.py --genome FA[.gz] --gtf GTF[.gz] --mirna-gff GFF3[.gz] --chr-map TSV --mirbase-release R
-                           --ensembl-release R --assembly A --threads N --mem-gb N --output DIR --record TSV
+                           --ensembl-release R --assembly A --threads N --mem-mb N --output DIR --record TSV
 """
 import argparse
 import gzip
@@ -79,6 +79,13 @@ def write_mirflowz_gff(source, target):
     return renamed
 
 
+def mem_budget_gb(mem_mb):
+    """The memory budget in whole GB, the unit of mirflowz's own declarations; at least 1 GB."""
+    if mem_mb < 1024:
+        fail('memory budget {} MB is below 1 GB; mirflowz declares memory in GB'.format(mem_mb))
+    return mem_mb // 1024
+
+
 def resource_args(resources, threads, mem_gb):
     """Snakemake options that cap each rule's declared threads and memory and limit their totals."""
     set_threads, set_resources = [], []
@@ -117,7 +124,7 @@ def main():
     for name in ('--mirbase-release', '--ensembl-release', '--assembly'):
         parser.add_argument(name, required=True)
     parser.add_argument('--threads', type=int, default=1)
-    parser.add_argument('--mem-gb', type=int, required=True, help='memory budget of the nested run (GB)')
+    parser.add_argument('--mem-mb', type=int, required=True, help="the outer job's memory allocation (MB)")
     args = parser.parse_args()
 
     mirflowz_dir = Path(os.environ.get('MIRFLOWZ_DIR', ''))
@@ -152,7 +159,7 @@ def main():
                                  # skips reading the conda files that mirflowz's rules name (conda is not used).
                                  '--drop-metadata',
                                  # Last: these options take several values each, so a target after them would be read as one.
-                                 *resource_args(RESOURCES, args.threads, args.mem_gb)],
+                                 *resource_args(RESOURCES, args.threads, mem_budget_gb(args.mem_mb))],
                                 capture_output=True, text=True, env=env)
         if result.returncode != 0:
             logs = sorted((work / 'logs/local').glob('*.log'), key=os.path.getmtime)

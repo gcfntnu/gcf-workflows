@@ -45,7 +45,7 @@ rule mirflowz_quant:
         'docker://' + config['docker']['mirflowz']
     shell:
         'python {params.script} --prepared {input.prepared} --adapter {params.adapter} '
-        '--minimum-length {params.min_length} --threads {threads} --mem-gb {MIRFLOWZ_MEM_GB} --output {params.out} {params.samples}'
+        '--minimum-length {params.min_length} --threads {threads} --mem-mb {resources.mem_mb} --output {params.out} {params.samples}'
 
 rule mirflowz_all:
     input:

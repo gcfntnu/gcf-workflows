@@ -63,7 +63,7 @@ class PrepareTests(unittest.TestCase):
                    WRITE=','.join(write), CALL_COPY=str(self.tmp / 'call.json'), FAIL='1' if fail else '')
         result = subprocess.run([sys.executable, str(SCRIPT), '--genome', str(self.tmp / 'genome.fa'), '--gtf', str(self.tmp / 'genes.gtf.gz'),
                                  '--mirna-gff', str(self.tmp / 'mirna.gff3.gz'), '--chr-map', str(self.tmp / 'chr_map.tsv'),
-                                 '--mirbase-release', '23.1', '--ensembl-release', '116', '--assembly', 'GRCm39', '--threads', '4', '--mem-gb', '30',
+                                 '--mirbase-release', '23.1', '--ensembl-release', '116', '--assembly', 'GRCm39', '--threads', '4', '--mem-mb', '30720',
                                  '--output', str(self.ref / 'prepared'), '--record', str(self.ref / 'mirflowz_reference.tsv')],
                                 capture_output=True, text=True, env=env, timeout=60)
         call = json.loads((self.tmp / 'call.json').read_text()) if (self.tmp / 'call.json').exists() else None
@@ -116,7 +116,7 @@ class PrepareTests(unittest.TestCase):
     def test_outside_the_mirflowz_image_fails_clearly(self):
         env = dict(os.environ, MIRFLOWZ_DIR=str(self.tmp / 'nowhere'))
         result = subprocess.run([sys.executable, str(SCRIPT), '--genome', 'g', '--gtf', 'g', '--mirna-gff', 'g', '--chr-map', 'c',
-                                 '--mirbase-release', '23.1', '--ensembl-release', '116', '--assembly', 'GRCm39', '--mem-gb', '30',
+                                 '--mirbase-release', '23.1', '--ensembl-release', '116', '--assembly', 'GRCm39', '--mem-mb', '30720',
                                  '--output', str(self.tmp / 'p'), '--record', str(self.tmp / 'r.tsv')],
                                 capture_output=True, text=True, env=env, timeout=60)
         self.assertNotEqual(result.returncode, 0)

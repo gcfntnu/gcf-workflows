@@ -1,7 +1,7 @@
 """Dry-run contract for the mirflowz route: selection, reference planning, assembly checks and read settings."""
 import pytest
 
-from test_quant_methods import dry_run, rule_block
+from test_quant_methods import configure, dry_run, rule_block, snakemake
 
 REF_116 = 'data/ext/mirflowz/mirbase-23.1_ensembl-116'
 
@@ -82,3 +82,18 @@ def test_invalid_mirflowz_settings_fail_at_load_only_when_selected(tmp_path, upd
     assert message in output
     returncode, output = dry_run(tmp_path / 'unitas', 'unitas', update)
     assert message not in output
+
+
+@pytest.mark.parametrize('override, mem_mb', [
+    (('--resources', 'mem_mb=12288'), 12288),
+    (('--set-resources', 'mirflowz_prepare:mem_mb=8192', 'mirflowz_quant:mem_mb=8192'), 8192),
+    ((), 61440)])
+def test_nested_runs_receive_the_effective_outer_memory(tmp_path, override, mem_mb):
+    """The wrappers get the job's effective mem_mb, also when Snakemake lowers it, not the configured budget."""
+    configure(tmp_path, 'mirflowz')
+    returncode, output = snakemake(tmp_path, 'quant_all', '-n', '-p', *override)
+    assert returncode == 0, output
+    for rule in ('mirflowz_prepare', 'mirflowz_quant'):
+        block = rule_block(output, rule)
+        assert 'mem_mb={}'.format(mem_mb) in block
+        assert '--mem-mb {} '.format(mem_mb) in block

@@ -17,13 +17,13 @@ collide). Samples are therefore passed to mirflowz as `gcf_sample_<n>` and given
 table headers and alignment directories; `mirflowz_samples.tsv` keeps both.
 
 mirflowz declares its threads and memory (GB) as custom resources (`resources: threads=8, mem=50`), which `--cores`
-does not limit. Each rule's `threads` and `mem` are capped at `--threads` and `--mem-gb`, Snakemake's core count is
+does not limit. Each rule's `threads` and `mem` are capped at `--threads` and `--mem-mb` (the outer job's allocation, in whole GB), Snakemake's core count is
 set to the same threads, and `--resources` limits the totals, so concurrent jobs stay within the outer rule's budget.
 
 Outputs in `--output`: `all_mirna_counts.tab` (miRNAs and isomiRs), `all_pri-mir_counts.tab`, `alignments/<sample>/`
 (mirflowz's per-sample SAM and BAM files) and the generated `mirflowz_config.yaml` and `mirflowz_samples.tsv`.
 
-Usage: run_mirflowz.py --prepared DIR --adapter SEQ --minimum-length N --threads N --mem-gb N --output DIR SAMPLE=FASTQ ...
+Usage: run_mirflowz.py --prepared DIR --adapter SEQ --minimum-length N --threads N --mem-mb N --output DIR SAMPLE=FASTQ ...
 """
 import argparse
 import gzip
@@ -80,6 +80,13 @@ def fastq_to_fasta(source, target):
             count += 1
 
 
+def mem_budget_gb(mem_mb):
+    """The memory budget in whole GB, the unit of mirflowz's own declarations; at least 1 GB."""
+    if mem_mb < 1024:
+        fail('memory budget {} MB is below 1 GB; mirflowz declares memory in GB'.format(mem_mb))
+    return mem_mb // 1024
+
+
 def resource_args(resources, threads, mem_gb):
     """Snakemake options that cap each rule's declared threads and memory and limit their totals."""
     set_threads, set_resources = [], []
@@ -112,7 +119,7 @@ def main():
     parser.add_argument('--adapter', required=True, help="the kit's 3' adapter")
     parser.add_argument('--minimum-length', required=True, type=int)
     parser.add_argument('--threads', type=int, default=1)
-    parser.add_argument('--mem-gb', type=int, required=True, help='memory budget of the nested run (GB)')
+    parser.add_argument('--mem-mb', type=int, required=True, help="the outer job's memory allocation (MB)")
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('samples', nargs='+', type=sample_arg, metavar='SAMPLE=FASTQ')
     args = parser.parse_args()
@@ -157,7 +164,7 @@ def main():
                                  # skips reading the conda files that mirflowz's rules name (conda is not used).
                                  '--drop-metadata',
                                  # Last: these options take several values each, so a target after them would be read as one.
-                                 *resource_args(RESOURCES, args.threads, args.mem_gb)],
+                                 *resource_args(RESOURCES, args.threads, mem_budget_gb(args.mem_mb))],
                                 capture_output=True, text=True, env=env)
         if result.returncode != 0:
             logs = sorted((work / 'logs/local').glob('*.log'), key=os.path.getmtime)
