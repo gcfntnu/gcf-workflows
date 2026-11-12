@@ -63,7 +63,7 @@ class PrepareTests(unittest.TestCase):
                    WRITE=','.join(write), CALL_COPY=str(self.tmp / 'call.json'), FAIL='1' if fail else '')
         result = subprocess.run([sys.executable, str(SCRIPT), '--genome', str(self.tmp / 'genome.fa'), '--gtf', str(self.tmp / 'genes.gtf.gz'),
                                  '--mirna-gff', str(self.tmp / 'mirna.gff3.gz'), '--chr-map', str(self.tmp / 'chr_map.tsv'),
-                                 '--mirbase-release', '23.1', '--ensembl-release', '116', '--assembly', 'GRCm39', '--threads', '4',
+                                 '--mirbase-release', '23.1', '--ensembl-release', '116', '--assembly', 'GRCm39', '--threads', '4', '--mem-gb', '30',
                                  '--output', str(self.ref / 'prepared'), '--record', str(self.ref / 'mirflowz_reference.tsv')],
                                 capture_output=True, text=True, env=env, timeout=60)
         call = json.loads((self.tmp / 'call.json').read_text()) if (self.tmp / 'call.json').exists() else None
@@ -75,8 +75,13 @@ class PrepareTests(unittest.TestCase):
         result, call, record = self.run_script()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(call['snakefile'], "include: '{}'\n".format(self.mirflowz / 'workflow/rules/prepare.smk'))
-        self.assertEqual(call['args'][-1], 'finish_prepare')
-        self.assertEqual(call['args'][call['args'].index('--cores') + 1], '4')
+        self.assertEqual(call['args'][call['args'].index('--nolock') + 3], 'finish_prepare')
+        args = call['args']
+        self.assertEqual(args[args.index('--cores') + 1], '4')
+        self.assertIn('generate_segemehl_index_genome=4', args)
+        self.assertIn('generate_segemehl_index_genome:mem=30', args)
+        self.assertIn('generate_segemehl_index_transcriptome:mem=10', args)
+        self.assertEqual(args[args.index('--resources') + 1:args.index('--resources') + 3], ['threads=4', 'mem=30'])
         self.assertEqual(call['config']['scripts_dir'], str(self.mirflowz / 'scripts') + '/')
         self.assertEqual(call['config']['map_chr_file'], str(self.tmp / 'chr_map.tsv'))
         self.assertEqual(call['config']['extension'], 6)
@@ -111,7 +116,7 @@ class PrepareTests(unittest.TestCase):
     def test_outside_the_mirflowz_image_fails_clearly(self):
         env = dict(os.environ, MIRFLOWZ_DIR=str(self.tmp / 'nowhere'))
         result = subprocess.run([sys.executable, str(SCRIPT), '--genome', 'g', '--gtf', 'g', '--mirna-gff', 'g', '--chr-map', 'c',
-                                 '--mirbase-release', '23.1', '--ensembl-release', '116', '--assembly', 'GRCm39',
+                                 '--mirbase-release', '23.1', '--ensembl-release', '116', '--assembly', 'GRCm39', '--mem-gb', '30',
                                  '--output', str(self.tmp / 'p'), '--record', str(self.tmp / 'r.tsv')],
                                 capture_output=True, text=True, env=env, timeout=60)
         self.assertNotEqual(result.returncode, 0)

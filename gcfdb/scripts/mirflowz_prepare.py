@@ -13,10 +13,13 @@ annotation step (gffutils) stops on repeated IDs. The first occurrence keeps its
 in file order; `Alias` and all other fields are unchanged. The work directory is removed afterwards; the inputs are
 not changed.
 
+mirflowz declares threads and memory (GB) as custom resources, which `--cores` does not limit: each rule's values are
+capped at `--threads` and `--mem-gb`, and `--resources` limits their totals.
+
 Writes a two-column TSV (field, value): releases, assembly, inputs with SHA-256, and the mirflowz version.
 
 Usage: mirflowz_prepare.py --genome FA[.gz] --gtf GTF[.gz] --mirna-gff GFF3[.gz] --chr-map TSV --mirbase-release R
-                           --ensembl-release R --assembly A --threads N --output DIR --record TSV
+                           --ensembl-release R --assembly A --threads N --mem-gb N --output DIR --record TSV
 """
 import argparse
 import gzip
@@ -29,6 +32,8 @@ import sys
 import tempfile
 
 EXTENSION = 6
+# Resources (threads, mem in GB) that mirflowz 0.10.0's preparation rules declare.
+RESOURCES = {'generate_segemehl_index_genome': (8, 60), 'generate_segemehl_index_transcriptome': (8, 10)}
 # Files of the prepared reference that mirflowz 0.10.0's mapping and quantification rules read.
 PREPARED = ('genome_processed.fa', 'segemehl_genome_index.idx', 'transcriptome_trimmed_id.fa',
             'segemehl_transcriptome_index.idx', 'exons.bed', 'genome_header.sam', 'chr_size.tsv',
@@ -74,6 +79,19 @@ def write_mirflowz_gff(source, target):
     return renamed
 
 
+def resource_args(resources, threads, mem_gb):
+    """Snakemake options that cap each rule's declared threads and memory and limit their totals."""
+    set_threads, set_resources = [], []
+    for rule, (rule_threads, rule_mem) in resources.items():
+        capped = min(rule_threads, threads)
+        set_threads.append('{}={}'.format(rule, capped))
+        set_resources.append('{}:threads={}'.format(rule, capped))
+        if rule_mem is not None:
+            set_resources.append('{}:mem={}'.format(rule, min(rule_mem, mem_gb)))
+    return ['--set-threads', *set_threads, '--set-resources', *set_resources,
+            '--resources', 'threads={}'.format(threads), 'mem={}'.format(mem_gb)]
+
+
 def mirflowz_config(work, genome, gtf, gff, chr_map, intermediates, samples, mirflowz_dir):
     """mirflowz's configuration; every key of its template must be present."""
     return {'samples': str(samples), 'genome_file': str(genome), 'gtf_file': str(gtf), 'mirna_file': str(gff),
@@ -99,6 +117,7 @@ def main():
     for name in ('--mirbase-release', '--ensembl-release', '--assembly'):
         parser.add_argument(name, required=True)
     parser.add_argument('--threads', type=int, default=1)
+    parser.add_argument('--mem-gb', type=int, required=True, help='memory budget of the nested run (GB)')
     args = parser.parse_args()
 
     mirflowz_dir = Path(os.environ.get('MIRFLOWZ_DIR', ''))
@@ -128,10 +147,12 @@ def main():
         (work / 'Snakefile').write_text('include: {!r}\n'.format(str(mirflowz_dir / 'workflow/rules/prepare.smk')))
         env = dict(os.environ, XDG_CACHE_HOME=str(work / '.cache'))
         result = subprocess.run(['snakemake', '-s', str(work / 'Snakefile'), '--configfile', str(work / 'config.yaml'),
-                                 '--directory', str(work), '--cores', str(args.threads), '--nolock',
+                                 '--directory', str(work), '--cores', str(args.threads), '--nolock', '--workflow-profile', 'none', 'finish_prepare',
                                  # The work directory is removed afterwards, so no metadata is kept; Snakemake then also
                                  # skips reading the conda files that mirflowz's rules name (conda is not used).
-                                 '--drop-metadata', 'finish_prepare'],
+                                 '--drop-metadata',
+                                 # Last: these options take several values each, so a target after them would be read as one.
+                                 *resource_args(RESOURCES, args.threads, args.mem_gb)],
                                 capture_output=True, text=True, env=env)
         if result.returncode != 0:
             logs = sorted((work / 'logs/local').glob('*.log'), key=os.path.getmtime)

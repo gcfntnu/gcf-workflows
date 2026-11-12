@@ -12,10 +12,18 @@ the adapter length (only a complete adapter is trimmed, so 3' ends matching
 the start of the adapter are kept), `minimum_length` the kit's final minimum, and no limit on N bases. mirflowz's
 cutadapt call always trims N bases at read ends (`--trim-n`).
 
+mirflowz reads its sample table with pandas type inference, so names such as `1` or `01` would become numbers (and
+collide). Samples are therefore passed to mirflowz as `gcf_sample_<n>` and given their own names back in the count
+table headers and alignment directories; `mirflowz_samples.tsv` keeps both.
+
+mirflowz declares its threads and memory (GB) as custom resources (`resources: threads=8, mem=50`), which `--cores`
+does not limit. Each rule's `threads` and `mem` are capped at `--threads` and `--mem-gb`, Snakemake's core count is
+set to the same threads, and `--resources` limits the totals, so concurrent jobs stay within the outer rule's budget.
+
 Outputs in `--output`: `all_mirna_counts.tab` (miRNAs and isomiRs), `all_pri-mir_counts.tab`, `alignments/<sample>/`
 (mirflowz's per-sample SAM and BAM files) and the generated `mirflowz_config.yaml` and `mirflowz_samples.tsv`.
 
-Usage: run_mirflowz.py --prepared DIR --adapter SEQ --minimum-length N --threads N --output DIR SAMPLE=FASTQ ...
+Usage: run_mirflowz.py --prepared DIR --adapter SEQ --minimum-length N --threads N --mem-gb N --output DIR SAMPLE=FASTQ ...
 """
 import argparse
 import gzip
@@ -32,6 +40,10 @@ PREPARED = ('genome_processed.fa', 'segemehl_genome_index.idx', 'transcriptome_t
             'segemehl_transcriptome_index.idx', 'exons.bed', 'genome_header.sam', 'chr_size.tsv',
             'extended_mirna_annotation_{}_nt.gff3'.format(EXTENSION), 'extended_primir_annotation_{}_nt.gff3'.format(EXTENSION))
 TABLES = ('all_mirna_counts.tab', 'all_pri-mir_counts.tab')
+# Resources (threads, mem in GB) that mirflowz 0.10.0's mapping and quantification rules declare.
+RESOURCES = {'remove_adapters': (8, None), 'map_genome_segemehl': (8, 50), 'map_transcriptome_segemehl': (8, 10),
+             'map_genome_oligomap': (8, 50), 'map_transcriptome_oligomap': (8, 10), 'sort_genome_oligomap': (8, None),
+             'sort_transcriptome_oligomap': (8, None), 'remove_inferiors': (4, 15), 'filter_by_indels': (4, 15)}
 TARGET = '''
 rule gcf_mirflowz_all:
     input:
@@ -68,6 +80,19 @@ def fastq_to_fasta(source, target):
             count += 1
 
 
+def resource_args(resources, threads, mem_gb):
+    """Snakemake options that cap each rule's declared threads and memory and limit their totals."""
+    set_threads, set_resources = [], []
+    for rule, (rule_threads, rule_mem) in resources.items():
+        capped = min(rule_threads, threads)
+        set_threads.append('{}={}'.format(rule, capped))
+        set_resources.append('{}:threads={}'.format(rule, capped))
+        if rule_mem is not None:
+            set_resources.append('{}:mem={}'.format(rule, min(rule_mem, mem_gb)))
+    return ['--set-threads', *set_threads, '--set-resources', *set_resources,
+            '--resources', 'threads={}'.format(threads), 'mem={}'.format(mem_gb)]
+
+
 def mirflowz_config(work, prepared, mirflowz_dir, adapter, minimum_length):
     """mirflowz's configuration for mapping and quantification; every key of its template must be present."""
     return {'samples': str(work / 'samples.tsv'),
@@ -87,6 +112,7 @@ def main():
     parser.add_argument('--adapter', required=True, help="the kit's 3' adapter")
     parser.add_argument('--minimum-length', required=True, type=int)
     parser.add_argument('--threads', type=int, default=1)
+    parser.add_argument('--mem-gb', type=int, required=True, help='memory budget of the nested run (GB)')
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('samples', nargs='+', type=sample_arg, metavar='SAMPLE=FASTQ')
     args = parser.parse_args()
@@ -110,13 +136,14 @@ def main():
         for name in PREPARED:
             os.symlink((args.prepared / name).resolve(), work / 'intermediates' / name)
         (work / 'reads').mkdir()
-        rows = []
-        for name, path in args.samples:
-            target = work / 'reads' / (name + '.fa.gz')
+        rows, internal = [], {}
+        for i, (name, path) in enumerate(args.samples, 1):
+            internal[name] = 'gcf_sample_{}'.format(i)
+            target = work / 'reads' / (internal[name] + '.fa.gz')
             reads = fastq_to_fasta(path, target)
             if not reads:
                 fail('{} ({}) holds no reads'.format(path, name))
-            rows.append('{}\t{}\t{}\tfa\n'.format(name, target, args.adapter))
+            rows.append('{}\t{}\t{}\tfa\n'.format(internal[name], target, args.adapter))
         (work / 'samples.tsv').write_text('sample\tsample_file\tadapter\tformat\n' + ''.join(rows))
         (work / 'empty.bed').touch()
         config = mirflowz_config(work, args.prepared.resolve(), mirflowz_dir, args.adapter, args.minimum_length)
@@ -125,10 +152,12 @@ def main():
         (work / 'Snakefile').write_text('include: {!r}\ninclude: {!r}\n'.format(str(rules / 'map.smk'), str(rules / 'quantify.smk')) + TARGET)
         env = dict(os.environ, XDG_CACHE_HOME=str(work / '.cache'))
         result = subprocess.run(['snakemake', '-s', str(work / 'Snakefile'), '--configfile', str(work / 'config.yaml'),
-                                 '--directory', str(work), '--cores', str(args.threads), '--nolock',
+                                 '--directory', str(work), '--cores', str(args.threads), '--nolock', '--workflow-profile', 'none', 'gcf_mirflowz_all',
                                  # The work directory is removed afterwards, so no metadata is kept; Snakemake then also
                                  # skips reading the conda files that mirflowz's rules name (conda is not used).
-                                 '--drop-metadata', 'gcf_mirflowz_all'],
+                                 '--drop-metadata',
+                                 # Last: these options take several values each, so a target after them would be read as one.
+                                 *resource_args(RESOURCES, args.threads, args.mem_gb)],
                                 capture_output=True, text=True, env=env)
         if result.returncode != 0:
             logs = sorted((work / 'logs/local').glob('*.log'), key=os.path.getmtime)
@@ -144,11 +173,18 @@ def main():
             shutil.rmtree(alignments)
         alignments.mkdir()
         for name in names:
-            os.replace(results / name, alignments / name)
-        shutil.copy(work / 'config.yaml', args.output / 'mirflowz_config.yaml')
-        shutil.copy(work / 'samples.tsv', args.output / 'mirflowz_samples.tsv')
+            os.replace(results / internal[name], alignments / name)
+        original = {v: k for k, v in internal.items()}
         for name in TABLES:
-            os.replace(results / 'TABLES' / name, args.output / name)
+            lines = (results / 'TABLES' / name).read_text().split('\n', 1)
+            header = lines[0].split('\t')
+            if sorted(header[1:]) != sorted(original):
+                fail('{} has columns {}, expected the samples {}'.format(name, ', '.join(header[1:]), ', '.join(sorted(original))))
+            lines[0] = '\t'.join(header[:1] + [original[c] for c in header[1:]])
+            (args.output / name).write_text('\n'.join(lines))
+        shutil.copy(work / 'config.yaml', args.output / 'mirflowz_config.yaml')
+        (args.output / 'mirflowz_samples.tsv').write_text('sample\tmirflowz_sample\tsample_file\tadapter\tformat\n' + ''.join(
+            '{}\t{}'.format(original[row.split('\t', 1)[0]], row) for row in rows))
 
 
 if __name__ == '__main__':

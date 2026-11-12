@@ -15,15 +15,21 @@ PREPARED = ('genome_processed.fa', 'segemehl_genome_index.idx', 'transcriptome_t
             'segemehl_transcriptome_index.idx', 'exons.bed', 'genome_header.sam', 'chr_size.tsv',
             'extended_mirna_annotation_6_nt.gff3', 'extended_primir_annotation_6_nt.gff3')
 
-# Records the call, the sample table and the reads as mirflowz sees them, and writes mirflowz's outputs.
-FAKE_SNAKEMAKE = '''#!/usr/bin/env python3
+# Records the call, the sample table and the reads as mirflowz sees them, and writes mirflowz's outputs. Like mirflowz,
+# it reads the sample table with pandas type inference and looks samples up by their string wildcard.
+FAKE_SNAKEMAKE = '''#!{python}
 import gzip, json, os, sys
 from pathlib import Path
+import pandas as pd
 args = sys.argv[1:]
 config = {k: json.loads(v) for k, v in (l.split(': ', 1) for l in open(args[args.index('--configfile') + 1]).read().splitlines())}
 work = Path(args[args.index('--directory') + 1])
 inter = Path(config['intermediates_dir'])
 rows = [l.split('\\t') for l in open(config['samples']).read().splitlines()]
+table = pd.read_csv(config['samples'], header=0, index_col=0, comment='#', engine='python', sep='\\t')
+assert table.index.is_unique, 'duplicate sample index'
+for r in rows[1:]:
+    table.loc[r[0]]  # KeyError when pandas turned the ID into a number
 call = {'args': args, 'config': config, 'snakefile': Path(args[args.index('-s') + 1]).read_text(), 'rows': rows,
         'links': {p.name: os.readlink(p) for p in inter.iterdir() if p.is_symlink()},
         'reads': {r[0]: gzip.open(r[1], 'rt').read() for r in rows[1:]}}
@@ -38,7 +44,7 @@ for name in ('mirna', 'pri-mir'):
 for r in rows[1:]:
     (out / r[0]).mkdir()
     (out / r[0] / 'alignments_intersecting_mirna_uncollapsed_sorted.bam').write_text('bam ' + r[0])
-'''
+'''.replace('{python}', sys.executable)
 
 
 @pytest.fixture
@@ -67,7 +73,7 @@ def run(setup, fail=False, prepared=None, samples=None):
     out = tmp_path / 'quant/mirflowz'
     samples = samples or ['S1={}'.format(tmp_path / 'S1_R1.fastq'), 'S2={}'.format(tmp_path / 'S2_R1.fastq.gz')]
     result = subprocess.run([sys.executable, str(SCRIPT), '--prepared', str(prepared or default_prepared), '--adapter', ADAPTER,
-                             '--minimum-length', '16', '--threads', '3', '--output', str(out), *samples],
+                             '--minimum-length', '16', '--threads', '3', '--mem-gb', '12', '--output', str(out), *samples],
                             capture_output=True, text=True, env=env, timeout=60)
     call = json.loads((tmp_path / 'call.json').read_text()) if (tmp_path / 'call.json').exists() else None
     return result, out, call
@@ -80,15 +86,16 @@ def test_mapping_and_quantification_use_the_linked_reference_and_keep_the_output
     rules = mirflowz / 'workflow/rules'
     assert call['snakefile'].startswith("include: '{}'\ninclude: '{}'\n".format(rules / 'map.smk', rules / 'quantify.smk'))
     assert 'prepare.smk' not in call['snakefile'] and 'rule gcf_mirflowz_all:' in call['snakefile']
-    assert call['args'][-1] == 'gcf_mirflowz_all' and call['args'][call['args'].index('--cores') + 1] == '3'
+    assert call['args'][call['args'].index('--nolock') + 3] == 'gcf_mirflowz_all' and call['args'][call['args'].index('--cores') + 1] == '3'
     assert call['links'] == {name: str((prepared / name).resolve()) for name in PREPARED}
-    assert [row[0] for row in call['rows']] == ['sample', 'S1', 'S2'] and all(row[2:] == [ADAPTER, 'fa'] for row in call['rows'][1:])
+    assert [row[0] for row in call['rows']] == ['sample', 'gcf_sample_1', 'gcf_sample_2']
+    assert all(row[2:] == [ADAPTER, 'fa'] for row in call['rows'][1:])
     # FASTA input skips mirflowz's quality filter; names and sequences are kept.
-    assert call['reads'] == {'S1': '>r1\nTGAGGTAGTAGGTTGTATAGTT\n', 'S2': '>r2\nTAGCTTATCAGACTGATGTTGA\n'}
+    assert call['reads'] == {'gcf_sample_1': '>r1\nTGAGGTAGTAGGTTGTATAGTT\n', 'gcf_sample_2': '>r2\nTAGCTTATCAGACTGATGTTGA\n'}
     assert sorted(p.name for p in out.iterdir()) == ['alignments', 'all_mirna_counts.tab', 'all_pri-mir_counts.tab',
                                                     'mirflowz_config.yaml', 'mirflowz_samples.tsv']
     assert (out / 'all_mirna_counts.tab').read_text() == 'ID\tS1\tS2\n'
-    assert (out / 'alignments/S2/alignments_intersecting_mirna_uncollapsed_sorted.bam').read_text() == 'bam S2'
+    assert (out / 'alignments/S2/alignments_intersecting_mirna_uncollapsed_sorted.bam').read_text() == 'bam gcf_sample_2'
     assert all((prepared / name).read_text() == name for name in PREPARED)
 
 
@@ -101,6 +108,35 @@ def test_mirflowz_does_not_filter_the_filtered_reads_again(setup):
     assert config['minimum_length'] == 16
     assert config['max_n'] >= 1000
     assert config['extension'] == 6 and config['lib_dict'] == {}
+
+
+@pytest.mark.parametrize('names', [('1', '2'), ('01', '1'), ('S1', 'NA')])
+def test_numeric_and_leading_zero_sample_names_keep_their_identity(setup, names):
+    """mirflowz's pandas sample table would turn 1 into a number and collapse 01 and 1; internal IDs avoid that."""
+    tmp_path = setup[0]
+    result, out, call = run(setup, samples=['{}={}'.format(names[0], tmp_path / 'S1_R1.fastq'),
+                                            '{}={}'.format(names[1], tmp_path / 'S2_R1.fastq.gz')])
+    assert result.returncode == 0, result.stderr
+    assert (out / 'all_mirna_counts.tab').read_text() == 'ID\t{}\t{}\n'.format(*names)
+    assert (out / 'all_pri-mir_counts.tab').read_text().splitlines()[0] == 'ID\t{}\t{}'.format(*names)
+    assert sorted(p.name for p in (out / 'alignments').iterdir()) == sorted(names)
+    assert (out / 'alignments' / names[1] / 'alignments_intersecting_mirna_uncollapsed_sorted.bam').read_text() == 'bam gcf_sample_2'
+    samples = (out / 'mirflowz_samples.tsv').read_text().splitlines()
+    assert [line.split('\t')[:2] for line in samples[1:]] == [[names[0], 'gcf_sample_1'], [names[1], 'gcf_sample_2']]
+
+
+def test_nested_resources_stay_within_the_outer_budget(setup):
+    """mirflowz's custom threads/mem resources are capped per rule and limited in total."""
+    _, _, call = run(setup)
+    args = call['args']
+    set_threads = args[args.index('--set-threads') + 1:args.index('--set-resources')]
+    set_resources = args[args.index('--set-resources') + 1:args.index('--resources')]
+    assert 'remove_adapters=3' in set_threads and 'filter_by_indels=3' in set_threads
+    assert all(int(item.split('=')[1]) <= 3 for item in set_threads)
+    assert 'map_genome_segemehl:threads=3' in set_resources and 'map_genome_segemehl:mem=12' in set_resources
+    assert 'map_transcriptome_segemehl:mem=10' in set_resources
+    assert args[args.index('--resources') + 1:args.index('--resources') + 3] == ['threads=3', 'mem=12']
+    assert args[args.index('--cores') + 1] == '3'
 
 
 def test_incomplete_prepared_reference_fails_before_running(setup):

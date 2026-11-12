@@ -18,7 +18,7 @@ load against the Ensembl lookup table and again against the downloaded GFF's `ge
 
 Reference directory: `EXT_DIR/mirflowz/mirbase-<release>_ensembl-<release>/<organism>/` or
 `EXT_DIR/mirflowz/custom-<name>/<organism>/`. Checks stop the workflow only when the mirflowz route is selected
-(`MIRFLOWZ_SELECTED`, set by smallrna/rules/quant/mirflowz.smk).
+(`MIRFLOWZ_SELECTED`, set by smallrna/rules/quant/mirflowz.smk, with the memory budget `MIRFLOWZ_MEM_GB`).
 """
 import gzip
 
@@ -145,9 +145,11 @@ rule mirflowz_prepare:
         assembly = MIRFLOWZ_ASSEMBLY or 'NA'
     threads:
         16
+    resources:
+        mem_mb = MIRFLOWZ_MEM_GB * 1024
     container:
         'docker://' + config['docker']['mirflowz']
     shell:
         'python {params.script} --genome {input.genome} --gtf {input.gtf} --mirna-gff {input.mirna_gff} '
         '--chr-map {input.chr_map} --mirbase-release {params.mirbase} --ensembl-release {params.release} '
-        '--assembly {params.assembly} --threads {threads} --output {output.prepared} --record {output.record}'
+        '--assembly {params.assembly} --threads {threads} --mem-gb {MIRFLOWZ_MEM_GB} --output {output.prepared} --record {output.record}'

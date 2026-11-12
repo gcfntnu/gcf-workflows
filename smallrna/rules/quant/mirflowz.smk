@@ -13,6 +13,8 @@ trims N bases at read ends (cutadapt --trim-n; it has no option to turn that off
 
 MIRFLOWZ_SELECTED = 'mirflowz' in [m.strip() for m in str(config['quant']['method']).split(',')]
 
+MIRFLOWZ_MEM_GB = int(config['quant']['mirflowz']['mem_gb'])
+
 include:
     join(GCFDB_DIR, 'mirflowz.db')
 
@@ -37,11 +39,13 @@ rule mirflowz_quant:
         out = MIRFLOWZ_OUT
     threads:
         8
+    resources:
+        mem_mb = MIRFLOWZ_MEM_GB * 1024
     container:
         'docker://' + config['docker']['mirflowz']
     shell:
         'python {params.script} --prepared {input.prepared} --adapter {params.adapter} '
-        '--minimum-length {params.min_length} --threads {threads} --output {params.out} {params.samples}'
+        '--minimum-length {params.min_length} --threads {threads} --mem-gb {MIRFLOWZ_MEM_GB} --output {params.out} {params.samples}'
 
 rule mirflowz_all:
     input:
