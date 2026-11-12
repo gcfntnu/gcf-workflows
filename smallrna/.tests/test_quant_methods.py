@@ -50,7 +50,8 @@ def record_as_done(tmp_path, *files):
 
 
 @pytest.mark.parametrize('method, rule', [('unitas', 'unitas_mirtable'), ('mirge3', 'mirge3_quant'),
-                                          ('unitas,mirge3', 'mirge3_quant')])
+                                          ('unitas,mirge3', 'mirge3_quant'), ('mirflowz', 'mirflowz_quant'),
+                                          ('unitas,mirflowz', 'mirflowz_quant')])
 def test_supported_methods_plan_their_quantifier(tmp_path, method, rule):
     returncode, output = dry_run(tmp_path, method)
     assert returncode == 0, output

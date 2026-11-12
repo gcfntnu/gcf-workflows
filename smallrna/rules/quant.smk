@@ -6,8 +6,10 @@ include:
     'quant/mirge3.smk'
 include:
     'quant/unitas.smk'
+include:
+    'quant/mirflowz.smk'
 
-QUANT_METHODS = ('unitas', 'mirge3')
+QUANT_METHODS = ('unitas', 'mirge3', 'mirflowz')
 
 def quant_all(wildcards):
     methods = [m.strip() for m in str(config['quant']['method']).split(',')]
@@ -20,6 +22,8 @@ def quant_all(wildcards):
             out.extend(rules.unitas_all.input)
         elif m == 'mirge3':
             out.extend(rules.mirge3_all.input)
+        elif m == 'mirflowz':
+            out.extend(rules.mirflowz_all.input)
     return out
 
 rule quant_all:

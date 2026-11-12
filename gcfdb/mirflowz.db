@@ -1,0 +1,153 @@
+#-*- mode:snakemake -*-
+"""mirflowz references (https://github.com/zavolanlab/mirflowz), for the smallrna mirflowz route.
+
+mirflowz maps reads to the Ensembl genome and transcriptome and intersects them with miRBase GFF coordinates, so the
+genome, GTF and GFF must be on one assembly and their chromosome names must agree. The Ensembl release is fixed per
+organism in `db.mirflowz.ensembl_release` (on the assembly of the miRBase GFF, not `db.ensembl.release`), checked at
+load against the Ensembl lookup table and again against the downloaded GFF's `genome-build-id`.
+
+- Genome and GTF: the project's Ensembl files when `db.reference_db` is ensembl and its release and assembly are
+  mirflowz's, otherwise downloaded into the reference directory. The miRBase GFF comes from gcfdb/mirbase.db.
+- `db.mirflowz.custom` (name, genome, gtf, mirna_gff) replaces all three, e.g. for a reduced reference; the reference
+  directory is then named after `name` and no assembly is checked.
+- The chromosome map (UCSC names of the GFF to genome names) is built from the files and stops on any unmapped GFF
+  chromosome (scripts/mirflowz_chr_map.py), except those in `MIRFLOWZ_GFF_REMOVE`, which belong to no sequence of the
+  assembly and are removed from the annotation.
+- mirflowz's own preparation rules (segemehl indexes, processed genome, transcriptome and annotations) run once into
+  `<reference>/prepared/` (scripts/mirflowz_prepare.py), recorded in `<reference>/mirflowz_reference.tsv`.
+
+Reference directory: `EXT_DIR/mirflowz/mirbase-<release>_ensembl-<release>/<organism>/` or
+`EXT_DIR/mirflowz/custom-<name>/<organism>/`. Checks stop the workflow only when the mirflowz route is selected
+(`MIRFLOWZ_SELECTED`, set by smallrna/rules/quant/mirflowz.smk).
+"""
+import gzip
+
+# Assembly of the miRBase GFF coordinates per miRBase release; other releases are not supported by this route.
+MIRFLOWZ_MIRBASE_ASSEMBLY = {'23.1': {'homo_sapiens': 'GRCh38', 'mus_musculus': 'GRCm39', 'rattus_norvegicus': 'Rnor_6.0'}}
+# GFF chromosomes that belong to no sequence of the assembly, removed from the mirflowz annotation with the reason.
+MIRFLOWZ_GFF_REMOVE = {('23.1', 'rattus_norvegicus'): {
+    '901866519': 'NCBI GI 901866519 is a Plasmodium vivax contig (KQ234965.1), not a rat sequence; rno-mir-16-2 and its arms'}}
+MIRFLOWZ_CONF = config['db'].get('mirflowz', {})
+MIRFLOWZ_CUSTOM = {k: v for k, v in (MIRFLOWZ_CONF.get('custom') or {}).items() if v}
+MIRFLOWZ_MIRBASE = str(config['db']['mirbase']['release'])
+
+
+def mirflowz_fail(message):
+    if MIRFLOWZ_SELECTED:
+        raise ValueError(message)
+
+
+def mirflowz_ensembl_assembly(release, organism):
+    """Assembly of organism in the gcfdb Ensembl lookup table of release (patch level removed), or None."""
+    table = src_gcf('tables/ensembl-{}.gz'.format(release))
+    if not os.path.exists(table):
+        return None
+    for row in gzip.open(table, 'rt'):
+        species, assembly = row.rstrip('\n').split('\t')[:2]
+        if species == organism:
+            return assembly.split('.p')[0]
+    return None
+
+
+if MIRFLOWZ_CUSTOM:
+    missing = [k for k in ('name', 'genome', 'gtf', 'mirna_gff') if k not in MIRFLOWZ_CUSTOM]
+    if missing:
+        mirflowz_fail('db.mirflowz.custom: set name, genome, gtf and mirna_gff together; missing {}'.format(', '.join(missing)))
+    MIRFLOWZ_RELEASE, MIRFLOWZ_ASSEMBLY = 'NA', 'NA'
+    MIRFLOWZ_REF = join(EXT_DIR, 'mirflowz', 'custom-{}'.format(MIRFLOWZ_CUSTOM.get('name')), ORG)
+else:
+    MIRFLOWZ_RELEASE = str((MIRFLOWZ_CONF.get('ensembl_release') or {}).get(ORG) or '')
+    MIRFLOWZ_ASSEMBLY = MIRFLOWZ_MIRBASE_ASSEMBLY.get(MIRFLOWZ_MIRBASE, {}).get(ORG)
+    if MIRFLOWZ_MIRBASE not in MIRFLOWZ_MIRBASE_ASSEMBLY:
+        mirflowz_fail('mirflowz: no GFF assembly known for db.mirbase.release {}; supported: {}'.format(
+            MIRFLOWZ_MIRBASE, ', '.join(MIRFLOWZ_MIRBASE_ASSEMBLY)))
+    elif not MIRFLOWZ_ASSEMBLY:
+        mirflowz_fail('mirflowz references support organism {}, got {!r}'.format(
+            ', '.join(MIRFLOWZ_MIRBASE_ASSEMBLY[MIRFLOWZ_MIRBASE]), ORG))
+    elif not MIRFLOWZ_RELEASE:
+        mirflowz_fail('db.mirflowz.ensembl_release has no release for {}'.format(ORG))
+    else:
+        ensembl_assembly = mirflowz_ensembl_assembly(MIRFLOWZ_RELEASE, ORG)
+        if ensembl_assembly != MIRFLOWZ_ASSEMBLY:
+            mirflowz_fail('db.mirflowz.ensembl_release {} for {} is on {}, but miRBase {} GFF coordinates are on {}'.format(
+                MIRFLOWZ_RELEASE, ORG, ensembl_assembly or 'an unknown assembly (no gcfdb lookup table)',
+                MIRFLOWZ_MIRBASE, MIRFLOWZ_ASSEMBLY))
+    MIRFLOWZ_REF = join(EXT_DIR, 'mirflowz', 'mirbase-{}_ensembl-{}'.format(MIRFLOWZ_MIRBASE, MIRFLOWZ_RELEASE), ORG)
+
+# The project's Ensembl genome and GTF are reused when they are mirflowz's release and assembly.
+MIRFLOWZ_REUSE_ENSEMBL = (not MIRFLOWZ_CUSTOM and config['db'].get('reference_db') == 'ensembl'
+                          and str(config['db']['ensembl']['release']) == MIRFLOWZ_RELEASE
+                          and globals().get('ENS_ASSEMBLY') == MIRFLOWZ_ASSEMBLY)
+MIRFLOWZ_URL = 'https://ftp.ensembl.org/pub/release-{}'.format(MIRFLOWZ_RELEASE)
+MIRFLOWZ_DNA = 'primary_assembly' if ORG in ('homo_sapiens', 'mus_musculus') else 'toplevel'
+
+if not MIRFLOWZ_CUSTOM and not MIRFLOWZ_REUSE_ENSEMBL:
+    rule mirflowz_ensembl_genome:
+        output:
+            join(MIRFLOWZ_REF, 'sources', 'genome.fa.gz')
+        params:
+            proxy = config.get('proxy', {}).get('wget', ''),
+            url = '{}/fasta/{}/dna/{}.{}.dna.{}.fa.gz'.format(MIRFLOWZ_URL, ORG, ORG.capitalize(), MIRFLOWZ_ASSEMBLY, MIRFLOWZ_DNA)
+        log:
+            join(MIRFLOWZ_REF, 'logs', 'genome.log')
+        shell:
+            'wget {params.proxy} -q -O {output}.part {params.url} && mv {output}.part {output} && '
+            'echo "Ensembl genome,release-{MIRFLOWZ_RELEASE},{params.url},`date -I`" > {log}'
+
+    rule mirflowz_ensembl_gtf:
+        output:
+            join(MIRFLOWZ_REF, 'sources', 'genes.gtf.gz')
+        params:
+            proxy = config.get('proxy', {}).get('wget', ''),
+            url = '{0}/gtf/{1}/{2}.{3}.{4}.gtf.gz'.format(MIRFLOWZ_URL, ORG, ORG.capitalize(), MIRFLOWZ_ASSEMBLY, MIRFLOWZ_RELEASE)
+        log:
+            join(MIRFLOWZ_REF, 'logs', 'gtf.log')
+        shell:
+            'wget {params.proxy} -q -O {output}.part {params.url} && mv {output}.part {output} && '
+            'echo "Ensembl GTF,release-{MIRFLOWZ_RELEASE},{params.url},`date -I`" > {log}'
+
+
+def mirflowz_sources():
+    """Genome, GTF and miRNA GFF of the mirflowz reference."""
+    if MIRFLOWZ_CUSTOM:
+        return {k: MIRFLOWZ_CUSTOM[k] for k in ('genome', 'gtf', 'mirna_gff')}
+    if MIRFLOWZ_REUSE_ENSEMBL:
+        genome, gtf = rules.ensembl_genome.output.genome, rules.ensembl_gtf.output[0]
+    else:
+        genome, gtf = rules.mirflowz_ensembl_genome.output[0], rules.mirflowz_ensembl_gtf.output[0]
+    return {'genome': genome, 'gtf': gtf, 'mirna_gff': rules.mirbase_gff.output[0]}
+
+
+rule mirflowz_chr_map:
+    input:
+        unpack(lambda wildcards: mirflowz_sources())
+    output:
+        join(MIRFLOWZ_REF, 'chr_map.tsv')
+    params:
+        script = src_gcf('scripts/mirflowz_chr_map.py'),
+        checks = '' if MIRFLOWZ_CUSTOM else ' '.join(['--assembly {}'.format(MIRFLOWZ_ASSEMBLY)] +
+                                                      ['--remove ' + name for name in MIRFLOWZ_GFF_REMOVE.get((MIRFLOWZ_MIRBASE, ORG), {})])
+    shell:
+        'python {params.script} --genome {input.genome} --mirna-gff {input.mirna_gff} {params.checks} --output {output}'
+
+
+rule mirflowz_prepare:
+    input:
+        unpack(lambda wildcards: mirflowz_sources()),
+        chr_map = rules.mirflowz_chr_map.output
+    output:
+        prepared = directory(join(MIRFLOWZ_REF, 'prepared')),
+        record = join(MIRFLOWZ_REF, 'mirflowz_reference.tsv')
+    params:
+        script = src_gcf('scripts/mirflowz_prepare.py'),
+        mirbase = MIRFLOWZ_MIRBASE,
+        release = MIRFLOWZ_RELEASE,
+        assembly = MIRFLOWZ_ASSEMBLY or 'NA'
+    threads:
+        16
+    container:
+        'docker://' + config['docker']['mirflowz']
+    shell:
+        'python {params.script} --genome {input.genome} --gtf {input.gtf} --mirna-gff {input.mirna_gff} '
+        '--chr-map {input.chr_map} --mirbase-release {params.mirbase} --ensembl-release {params.release} '
+        '--assembly {params.assembly} --threads {threads} --output {output.prepared} --record {output.record}'

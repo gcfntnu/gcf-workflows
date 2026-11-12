@@ -16,6 +16,11 @@ def final_fastp_args(settings):
     args = settings.get('args')
     if not isinstance(args, str) or not args.strip():
         raise ValueError('filter.trim.fastp.args must be a nonempty final-filter option string')
+    _length_options(args)
+    return args
+
+
+def _length_options(args):
     parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
     parser.add_argument('-l', '--length_required', type=int)
     parser.add_argument('-L', '--disable_length_filtering', action='store_true')
@@ -25,4 +30,9 @@ def final_fastp_args(settings):
                          '(NEXTflex v3: 16) or -L/--disable_length_filtering')
     if options.length_required is not None and options.disable_length_filtering:
         raise ValueError('Small-RNA fastp args cannot combine -l with -L: choose one final length policy')
-    return args
+    return options
+
+
+def final_length_required(settings):
+    """The final minimum read length of filter.trim.fastp.args, or None with -L (only empty reads are removed)."""
+    return _length_options(final_fastp_args(settings)).length_required
