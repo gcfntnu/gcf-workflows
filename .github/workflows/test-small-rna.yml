@@ -31,8 +31,8 @@ jobs:
         chmod +x .dev/bin/fastp
     - name: Test small-RNA stages on synthetic reads
       run: FASTP_0201="$PWD/.dev/bin/fastp" python -m pytest -q smallrna/.tests/test_fastp.py
-    - name: Test quant.method selection, route guards and UNITAS execution
-      run: python -m pytest -q smallrna/.tests/test_quant_methods.py smallrna/.tests/test_route_guards.py smallrna/.tests/test_run_unitas.py smallrna/.tests/test_bfq_unitas_links.py smallrna/.tests/test_unitas_tables.py smallrna/.tests/test_unitas_reference.py
+    - name: Test quant.method selection, route guards, UNITAS execution and miRge3 references
+      run: python -m pytest -q smallrna/.tests/test_quant_methods.py smallrna/.tests/test_route_guards.py smallrna/.tests/test_run_unitas.py smallrna/.tests/test_bfq_unitas_links.py smallrna/.tests/test_unitas_tables.py smallrna/.tests/test_unitas_reference.py smallrna/.tests/test_mirge3_reference.py smallrna/.tests/test_mirge3_project_library.py
     - name: Dry run multiqc_report
       working-directory: ./smallrna/.tests
       run: |
