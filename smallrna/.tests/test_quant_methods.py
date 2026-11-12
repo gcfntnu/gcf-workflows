@@ -118,9 +118,11 @@ def test_with_trimming_skipped_quantifiers_read_the_merged_reads(tmp_path, metho
     update = lambda s: s.setdefault('filter', {}).setdefault('trim', {}).update(quantifier='skip')
     returncode, output = dry_run(tmp_path, method, update, printshell=True)
     assert returncode == 0, output
-    assert 'data/tmp/smallrna/filter/fastq/SR01_R1.fastq' in rule_block(output, rule).split('output:', 1)[0]
-    assert 'gzip -dc data/tmp/smallrna/filter/fastq/SR01_R1.fastq.gz > data/tmp/smallrna/filter/fastq/SR01_R1.fastq' in \
-        rule_block(output, 'smallrna_untrimmed_fastq')
+    # Jobs are planned in no fixed order, so look at every job of a rule.
+    blocks = lambda name: [b.split('\nrule ', 1)[0] for b in output.split('rule {}:'.format(name))[1:]]
+    assert any('data/tmp/smallrna/filter/fastq/SR01_R1.fastq' in b.split('output:', 1)[0] for b in blocks(rule))
+    assert any('gzip -dc data/tmp/smallrna/filter/fastq/SR01_R1.fastq.gz > data/tmp/smallrna/filter/fastq/SR01_R1.fastq' in b
+               for b in blocks('smallrna_untrimmed_fastq'))
     assert 'rule smallrna_fastp:' not in output
 
 
