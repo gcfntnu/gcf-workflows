@@ -3,12 +3,18 @@
 adding a biotype annotation to gtf
 [optional]: renaming ERCC probes features to `gene` to get the exons counted in a gene count pipeline
 """
+from os.path import abspath
 
 ERCC_DIR = join(EXT_DIR, 'spikein')
-    
+# Thermo Fisher's asset server; the old tools.thermofisher.com links return HTTP 403 (#336).
+ERCC_URL = 'https://assets.thermofisher.com/TFS-Assets/LSG/manuals/'
+# SHA-256 of ERCC92.fa, ERCC92.gtf (inside ERCC92.zip) and cms_095046.txt; the files are dated 2015.
+ERCC_CHECKSUMS = abspath(join(GCFDB_DIR, 'checksums', 'ERCC92.sha256'))
+
 rule ercc_files:
     params:
-        url = 'https://tools.thermofisher.com/content/sfs/manuals/ERCC92.zip',
+        url = ERCC_URL + 'ERCC92.zip',
+        checksums = ERCC_CHECKSUMS,
         proxy = config.get('proxy', {}).get('wget', '')
     output:
         ercc_gtf = temp(join(ERCC_DIR, 'anno', '_ERCC92.gtf')),
@@ -17,11 +23,13 @@ rule ercc_files:
        join(ERCC_DIR, 'logs', 'ERCC92.log') 
     shell:
         """
-        wget {params.proxy} {params.url}
-        unzip ERCC92.zip
-        mv ERCC92.gtf {output.ercc_gtf}
-        mv ERCC92.fa {output.ercc_fasta}
-        rm ERCC92.zip
+        tmp=$(mktemp -d {output[0]}.XXXXXX)
+        trap 'rm -rf "$tmp"' EXIT
+        wget {params.proxy} -q -O $tmp/ERCC92.zip {params.url}
+        unzip -q $tmp/ERCC92.zip ERCC92.fa ERCC92.gtf -d $tmp
+        (cd $tmp && grep -E ' (ERCC92.fa|ERCC92.gtf)$' {params.checksums:q} | sha256sum --check --quiet -)
+        mv $tmp/ERCC92.gtf {output.ercc_gtf}
+        mv $tmp/ERCC92.fa {output.ercc_fasta}
         echo "ERCC,NA,{params.url},`date -I`" > {log}
         """
 
@@ -48,7 +56,8 @@ rule ercc_gtf_gene:
 
 rule ercc_annotations:
     params:
-        url = 'http://tools.thermofisher.com/content/sfs/manuals/cms_095046.txt',
+        url = ERCC_URL + 'cms_095046.txt',
+        checksums = ERCC_CHECKSUMS,
         proxy = config.get('proxy', {}).get('wget', '')
     output:
         join(ERCC_DIR, 'anno', 'ERCC92.anno')
@@ -56,7 +65,11 @@ rule ercc_annotations:
         join(ERCC_DIR, 'logs', 'ERCC_anno.log') 
     shell:
         """
-        wget {params.proxy} -O - {params.url} > {output}
+        tmp=$(mktemp -d {output[0]}.XXXXXX)
+        trap 'rm -rf "$tmp"' EXIT
+        wget {params.proxy} -q -O $tmp/cms_095046.txt {params.url}
+        (cd $tmp && grep -E ' cms_095046.txt$' {params.checksums:q} | sha256sum --check --quiet -)
+        mv $tmp/cms_095046.txt {output}
         echo "ERCC annotations,NA,{params.url},`date -I`" > {log}
         """
         
