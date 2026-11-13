@@ -97,7 +97,8 @@ rule mirge3_quant:
         lib = MIRGE3_PROJECT_LIB,
         org = MIRGE_ORG,
         db = MIRGE3_DATABASES[MIRGE3_DB],
-        args = '--gff-out --isoform-entropy --AtoI ',
+        # --crThreshold 0: miRge3 otherwise zeroes miRNAs whose exact reads are at most 10% of their isomiR reads (#347)
+        args = '--gff-out --isoform-entropy --AtoI --crThreshold 0 ',
         specific_args = get_args,
         tmp_out = join(QUANT_INTERIM, 'mirge3', MIRGE3_DB),
         out = join(QUANT_INTERIM, 'mirge3')

@@ -86,6 +86,7 @@ def test_mirge3_reads_the_filtered_reads_without_its_own_preprocessing(tmp_path,
     assert '--minimum-length {} '.format(min_length) in command
     for option in ('--adapter', '--nextseq-trim', '--uniq-mol-ids'):
         assert option not in command
+    assert '--crThreshold 0 ' in command  # no hidden canonical-ratio filter (#347)
     assert 'rule mirge3_symlink:' not in output
 
 
