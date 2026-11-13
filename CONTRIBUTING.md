@@ -64,7 +64,8 @@ A change that alters what another repository reads, or that needs a change there
 
 ## Verify
 
-Run `test-all.sh` and the checks for every area the change touches ([development guide](docs/development.md#run-the-checks)).
+Run the checks for every area the change touches, and the dry run of each workflow the change can affect ([development guide](docs/development.md#run-the-checks)).
+CI dry-runs all seven workflows on every push and PR; run `test-all.sh` locally when the change reaches most workflows, e.g. configuration merging or `src_gcf`.
 Record exact commands, environments and results. An aggregate "all green" is not enough.
 
 Local checks are dry runs and unit tests on synthetic data. They do not show that tools run, containers start, reports render or results are scientifically correct.
