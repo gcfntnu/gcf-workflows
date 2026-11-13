@@ -109,7 +109,7 @@ def test_mirtrace_qc_is_delivered_and_reported(tmp_path, kit, protocol):
 def test_mirtrace_filter_route_is_rejected(tmp_path):
     returncode, output = dry_run(tmp_path, lambda s: s.setdefault('filter', {}).setdefault('trim', {}).update(quantifier='mirtrace'))
     assert returncode != 0
-    assert "filter.trim.quantifier: smallrna supports fastp or skip, got 'mirtrace'" in output
+    assert "filter.trim.quantifier: smallrna supports fastp, cutadapt or skip, got 'mirtrace'" in output
 
 
 def test_missing_mirtrace_protocol_fails(tmp_path):
