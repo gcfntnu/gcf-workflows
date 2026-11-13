@@ -50,6 +50,7 @@ unset GCF_EXT GCF_INTERIM GCF_FASTQ GCF_SECRET GCF_REFDIR
 | Check | Command | Environment |
 | --- | --- | --- |
 | Reporting dry runs of the seven CI workflows | `PATH="$PWD/.dev/ci/bin:$PATH" bash test-all.sh` (agents: [log-file form](#keep-the-output-in-a-log)) | `.dev/ci` |
+| Reporting dry run of one workflow | `(cd <workflow>/.tests && ../../.dev/ci/bin/snakemake -n --cores 1 multiqc_report)` | `.dev/ci` |
 | Configuration loading, kit selection, download-rule and workflow-level containers, `src_gcf` script paths and `test-all.sh` failure handling | `.dev/ci/bin/python -m unittest discover -s .tests -p 'test_*.py' -v` | `.dev/ci` |
 | Shared Kraken2 screening, including empty FASTQs | `.dev/ci/bin/python -m unittest discover -s .tests -p 'test_kraken_screen.py' -v` | `.dev/ci`; Bash/gzip/awk, mocked classifier |
 | MultiQC configuration and provenance | `.dev/ci/bin/python -m unittest discover -s misc/multiqc/.tests -p 'test_*.py' -v` | `.dev/ci` |
@@ -64,7 +65,13 @@ unset GCF_EXT GCF_INTERIM GCF_FASTQ GCF_SECRET GCF_REFDIR
 | Small-RNA AnnData | `.dev/anndata/bin/python -m pytest -q smallrna/.tests/test_create_anndata.py` | `.dev/anndata` |
 
 Run the checks for the areas you changed; the [area map](architecture.md#area-map) lists them.
-Before handoff, run `test-all.sh` and every check whose area the change touches.
+Before handoff, run every check whose area the change touches and dry-run the workflows the change can affect:
+
+- a change inside `<workflow>/`: that workflow;
+- a change to a shared file in `gcfdb/` or `common/`: the workflows that include it, directly or through another include (`grep -rl '<file name>' --include='*.smk' --include='*.db' .`);
+- a change that reaches most workflows (configuration merging, `src_gcf`, `test-all.sh` itself): `test-all.sh`.
+
+CI runs all seven dry runs on every push and PR, so the full sweep need not be repeated locally.
 
 ### Small-RNA fastp regression
 
