@@ -15,7 +15,7 @@ if MIRGE3_DB not in MIRGE3_DATABASES:
 # (16 nt by default) is set to the kit's final minimum, so it keeps every read the filter kept.
 import shlex
 
-MIRGE3_MIN_LENGTH = final_length_required(config['filter']['trim']['fastp']) or 1
+MIRGE3_MIN_LENGTH = filtered_min_length() or 1
 
 def get_args(wildcards):
     args = ''
