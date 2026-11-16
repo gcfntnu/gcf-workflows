@@ -69,7 +69,7 @@ def mirge3_command(output):
     return next(line for line in output.splitlines() if 'miRge3.0 ' in line)
 
 
-@pytest.mark.parametrize('kit, min_length', [('Bioo Scientific NEXTflex Small RNA-Seq Kit v3', 16),
+@pytest.mark.parametrize('kit, min_length', [('Bioo Scientific NEXTflex Small RNA-Seq Kit v3', 15),
                                              ('Bioo Scientific NEXTflex Small RNA-Seq Kit v4', 15),
                                              ('TruSeq Small RNA Library Prep Kit', 15)])
 def test_mirge3_reads_the_filtered_reads_without_its_own_preprocessing(tmp_path, kit, min_length):
@@ -78,9 +78,9 @@ def test_mirge3_reads_the_filtered_reads_without_its_own_preprocessing(tmp_path,
     returncode, output = dry_run(tmp_path, 'mirge3', update, printshell=True)
     assert returncode == 0, output
     quant = rule_block(output, 'mirge3_quant')
-    assert all('data/tmp/smallrna/filter/fastp/{}_R1.fastq'.format(s) in quant.split('output:', 1)[0]
+    assert all('data/tmp/smallrna/filter/cutadapt/{}_R1.fastq'.format(s) in quant.split('output:', 1)[0]
                for s in ('SR01', 'SR02', 'SR03', 'SR04'))
-    assert 'ln -sf "$PWD"/data/tmp/smallrna/filter/fastp/SR01_R1.fastq data/tmp/smallrna/quant/mirge3/fastq/SR01.fastq' in quant
+    assert 'ln -sf "$PWD"/data/tmp/smallrna/filter/cutadapt/SR01_R1.fastq data/tmp/smallrna/quant/mirge3/fastq/SR01.fastq' in quant
     command = ' '.join(mirge3_command(output).split())
     assert '--samples data/tmp/smallrna/quant/mirge3/fastq/SR01.fastq,' in command
     assert '--minimum-length {} '.format(min_length) in command
@@ -91,9 +91,8 @@ def test_mirge3_reads_the_filtered_reads_without_its_own_preprocessing(tmp_path,
 
 
 def test_mirge3_minimum_length_is_1_without_a_length_filter(tmp_path):
-    """With -L the filter keeps every non-empty read, so miRge3 does too."""
-    args = '-L -q 15 -u 40 -n 5 -e 0'
-    update = lambda s: s.setdefault('filter', {}).setdefault('trim', {}).setdefault('fastp', {}).update(args=args)
+    """With fastp's -L the filter keeps every non-empty read, so miRge3 does too."""
+    update = lambda s: s.setdefault('filter', {}).update(trim={'quantifier': 'fastp', 'fastp': {'args': '-L -q 15 -u 40 -n 5 -e 0'}})
     returncode, output = dry_run(tmp_path, 'mirge3', update, printshell=True)
     assert returncode == 0, output
     assert '--minimum-length 1 ' in ' '.join(mirge3_command(output).split())
@@ -110,7 +109,7 @@ def test_mirge3_reads_every_lane_through_the_filter(tmp_path):
     assert returncode == 0, output
     merge = [line for line in output.splitlines() if '_R1_lane2' in line]
     assert merge, 'the second lane was not merged'
-    assert 'data/tmp/smallrna/filter/fastp/SR01_R1.fastq' in rule_block(output, 'mirge3_quant').split('output:', 1)[0]
+    assert 'data/tmp/smallrna/filter/cutadapt/SR01_R1.fastq' in rule_block(output, 'mirge3_quant').split('output:', 1)[0]
 
 
 @pytest.mark.parametrize('method, rule', [('mirge3', 'mirge3_quant'), ('unitas', 'unitas')])

@@ -136,14 +136,17 @@ class ConfigurationTests(unittest.TestCase):
                 self.assertNotIn('method', config['align'])
                 self.assertNotIn('transcriptome', config['align'])
 
-    def test_smallrna_defaults_keep_existing_kit_trimming(self):
+    def test_smallrna_defaults_keep_kit_trimming(self):
         config, _ = self.load_fixture('smallrna')
         self.assertEqual(config['align']['genome']['aligner'], 'star')
         self.assertIsNone(config['filter']['spikein']['ref'])
         self.assertEqual(config['filter']['ribosomal']['ref'], 'ncbi')
         self.assertEqual(config['filter']['contaminants']['ref'], 'univec_core')
-        before = LibprepConfig.load(ROOT / 'libprep.config').select(config['libprepkit'], [75]).parameters
-        self.assertEqual(config['filter']['trim']['fastp']['args'], before['filter']['trim']['fastp']['args'])
+        kit = LibprepConfig.load(ROOT / 'libprep.config').select(config['libprepkit'], [75]).parameters
+        # cutadapt is the kit default (#350); main.config's shared fastp params stay empty, and no kit fastp args
+        self.assertEqual(config['filter']['trim']['quantifier'], 'cutadapt')
+        self.assertEqual(config['filter']['trim']['cutadapt'], kit['filter']['trim']['cutadapt'])
+        self.assertNotIn('args', config['filter']['trim']['fastp'])
         self.assertNotIn('trim_args', config['filter']['trim']['fastp'])
 
     def test_singlecell_sample_id_is_a_live_qc_default(self):

@@ -98,7 +98,10 @@ def shell_lines(output, needle):
 def trim_route(kit, quantifier):
     def update(settings):
         settings['libprepkit'] = kit
-        settings.setdefault('filter', {}).setdefault('trim', {})['quantifier'] = quantifier
+        trim = settings.setdefault('filter', {}).setdefault('trim', {})
+        trim['quantifier'] = quantifier
+        if quantifier == 'fastp':  # no kit default since #350: the project sets it
+            trim['fastp'] = {'args': '-l 15 -q 15 -u 40 -n 5 -e 0 --low_complexity_filter --complexity_threshold 30'}
     return update
 
 

@@ -15,9 +15,10 @@ if config['filter']['trim']['quantifier'] == 'cutadapt':
             join(FILTER_INTERIM, 'cutadapt', 'five_prime_adapters.fa')
         params:
             script = src_gcf('scripts/cutadapt_config.py'),
-            adapter5 = CUTADAPT_SETTINGS['adapter5']
+            adapter5 = CUTADAPT_SETTINGS['adapter5'],
+            piece = CUTADAPT_SETTINGS['five_prime_piece']
         shell:
-            'python {params.script:q} five-prime-fasta {params.adapter5} > {output:q}'
+            'python {params.script:q} five-prime-fasta {params.adapter5} {params.piece} > {output:q}'
 
     rule smallrna_three_prime_artefacts:
         output:

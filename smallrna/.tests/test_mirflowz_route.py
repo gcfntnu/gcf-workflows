@@ -65,7 +65,7 @@ def test_read_settings_follow_the_kit(tmp_path):
     assert returncode == 0, output
     quant = rule_block(output, 'mirflowz_quant')
     assert '--adapter TGGAATTCTCGGGTGCCAAGG --minimum-length 15 --threads' in quant
-    assert 'SR01=data/tmp/smallrna/filter/fastp/SR01_R1.fastq' in quant
+    assert 'SR01=data/tmp/smallrna/filter/cutadapt/SR01_R1.fastq' in quant
 
 
 @pytest.mark.parametrize('update, message', [

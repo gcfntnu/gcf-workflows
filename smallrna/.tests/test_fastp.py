@@ -1,4 +1,6 @@
-"""Synthetic small-RNA stage contracts and read outcomes with fastp 0.20.1."""
+"""Synthetic small-RNA stage contracts and read outcomes with fastp 0.20.1, for the fastp route
+(filter.trim.quantifier: fastp): no kit default since #350, kept by projects initialized before it, whose config.yaml
+carries the fastp settings the kit entries had (FASTP_PRESETS)."""
 import copy
 import importlib.util
 import json
@@ -16,6 +18,11 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / 'smallrna/rules/filter/scripts'
 KITS = yaml.safe_load((ROOT / 'libprep.config').read_text())
 SMALLRNA = {name: kit for name, kit in KITS.items() if kit['workflow'] == 'smallrna'}
+# filter.trim.fastp.args of the kit entries before #350 (v3: #215)
+FASTP_PRESETS = {
+    'Bioo Scientific NEXTflex Small RNA-Seq Kit v3 SE': '-f 4 -t 4 -l 16 -q 15 -u 40 -n 5 -e 0 --low_complexity_filter --complexity_threshold 30',
+    'Bioo Scientific NEXTflex Small RNA-Seq Kit v4 SE': '-l 15 -q 15 -u 40 -n 5 -e 0 --low_complexity_filter --complexity_threshold 30',
+    'TruSeq Small RNA Library Prep Kit SE': '-l 15 -q 15 -u 40 -n 5 -e 0 --low_complexity_filter --complexity_threshold 30'}
 ADAPTER = 'TGGAATTCTCGGGTGCCAAGG'
 INSERT = 'ACGTACGTACGTACGTA'
 
@@ -31,12 +38,15 @@ policy = load('fastp_config')
 reports = load('merge_fastp')
 
 
-@pytest.mark.parametrize('kit', SMALLRNA.values(), ids=SMALLRNA.keys())
-def test_presets_have_one_explicit_final_policy(kit):
-    settings = kit['filter']['trim']['fastp']
-    assert set(settings) == {'args'}
-    args = shlex.split(policy.final_fastp_args(settings))
-    assert args[args.index('-l') + 1] == ('16' if 'v3' in kit['libprep_name'] else '15')
+def test_kits_no_longer_set_fastp():
+    assert set(FASTP_PRESETS) == set(SMALLRNA)
+    assert all('fastp' not in kit['filter']['trim'] and kit['filter']['trim']['quantifier'] == 'cutadapt' for kit in SMALLRNA.values())
+
+
+@pytest.mark.parametrize('name', FASTP_PRESETS)
+def test_presets_have_one_explicit_final_policy(name):
+    args = shlex.split(policy.final_fastp_args({'args': FASTP_PRESETS[name]}))
+    assert args[args.index('-l') + 1] == ('16' if 'v3' in name else '15')
     assert all(flag in args for flag in ('-q', '-u', '-n', '-e', '--low_complexity_filter', '--complexity_threshold'))
     assert '-Q' not in args and '-L' not in args
     assert policy.ADAPTER_ONLY_ARGS == '-Q -L -G'
@@ -60,6 +70,7 @@ def test_resolved_workflow_commands(tmp_path, name):
                     ignore=shutil.ignore_patterns('.snakemake', '__pycache__'))
     settings = yaml.safe_load((tmp_path / 'config.yaml').read_text())
     settings['libprepkit'] = name
+    settings['filter'] = {'trim': {'quantifier': 'fastp', 'fastp': {'args': FASTP_PRESETS[name]}}}  # a pre-#350 project
     (tmp_path / 'config.yaml').write_text(yaml.safe_dump(settings))
     (tmp_path / 'Snakefile').write_text('configfile: "config.yaml"\npepfile: "pep/pep_config.yaml"\n'
                                       f'include: {str(ROOT / "smallrna/smallrna.smk")!r}\n')
@@ -136,7 +147,7 @@ def test_read_outcomes_and_reconciled_reports(fastp, tmp_path, name):
     if v3:
         # N bases and poor quality in the random ends must not discard a valid insert in pass one.
         records += [('tags', 'NNNN' + INSERT + 'NNNN' + ADAPTER, '!!!!' + 'I' * 17 + '!!!!' + 'I' * len(ADAPTER))]
-    intermediate, retained, first, final = run_stages(fastp, tmp_path, records, SMALLRNA[name]['filter']['trim']['fastp']['args'])
+    intermediate, retained, first, final = run_stages(fastp, tmp_path, records, FASTP_PRESETS[name])
     expected = {'16', '17', 'N5'} | ({'tags'} if v3 else {'15'})
     assert set(retained) == expected
     for n in ('16', '17'):
@@ -180,7 +191,7 @@ def test_disabled_length_retains_nonempty_reads_only(fastp, tmp_path, length):
 def test_other_kits_match_previous_route_and_one_pass_changes_polyg(fastp, tmp_path, name):
     records = [('polyg', 'ACGTACGTACGTACGT' + 'G' * 12 + ADAPTER, None),
                ('normal', INSERT + ADAPTER, None), ('short', INSERT[:14] + ADAPTER, None), ('empty', ADAPTER, None)]
-    args = SMALLRNA[name]['filter']['trim']['fastp']['args']
+    args = FASTP_PRESETS[name]
     _, retained, first, final = run_stages(fastp, tmp_path, records, args, nextseq=True)
     old_trim, _, old_first = run_fastp(fastp, tmp_path, 'old_adapter', tmp_path / 'input.fq',
                                       '-Q -n 0 -l 0 -G --adapter_sequence ' + ADAPTER)

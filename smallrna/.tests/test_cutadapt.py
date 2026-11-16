@@ -1,5 +1,6 @@
-"""Small-RNA filtering with cutadapt only (filter.trim.quantifier: cutadapt, #350): settings, commands, the truncated
-5' adapter set, the merged report, the workflow route, and read outcomes with cutadapt 5.2 on synthetic reads.
+"""Small-RNA filtering with cutadapt only (filter.trim.quantifier: cutadapt, the kit default since #350): settings,
+commands, the truncated 5' adapter set, the merged report, the workflow route, and read outcomes with cutadapt 5.2 on
+synthetic reads.
 
 The read-outcome tests run cutadapt from PATH and skip when it is not version 5.2 (CI installs it).
 """
@@ -24,6 +25,7 @@ V4 = 'Bioo Scientific NEXTflex Small RNA-Seq Kit v4'
 TRUSEQ = 'TruSeq Small RNA Library Prep Kit'
 ADAPTER3 = 'TGGAATTCTCGGGTGCCAAGG'
 ADAPTER5 = 'GTTCAGAGTTCTACAGTCCGACGATC'
+ADAPTER5_V4 = 'TCTTTCCCTACACGACGCTCTTCCGATCT'  # NEXTflex 5' Adapter v4 (manual, Appendix A), Illumina Read 1 sequence
 
 
 def load(name):
@@ -48,18 +50,25 @@ def kit_config(kit, **cutadapt):
 # Settings and commands
 
 def test_kit_presets():
-    v3, truseq = policy.cutadapt_settings(kit_config(V3)), policy.cutadapt_settings(kit_config(TRUSEQ))
-    assert policy.filter_args(v3) == '-u 4 -u -4 --action=none --discard-trimmed -m 16 --max-n 5'
-    assert policy.filter_args(truseq) == '--action=none --discard-trimmed -m 15 --max-n 5'
-    assert policy.adapter_args(v3) == "-a 'TGGAATTCTCGGGTGCCAAGG;min_overlap=5'"
-    with pytest.raises(ValueError, match='none for .*v4'):  # v4's 5' adapter is not verified: no preset
-        policy.cutadapt_settings(kit_config(V4))
+    v3, v4, truseq = (policy.cutadapt_settings(kit_config(kit)) for kit in (V3, V4, TRUSEQ))
+    assert policy.filter_args(v3) == '-u 4 -u -4 --action=none --discard-trimmed -m 15 --max-n 5 --max-ee 1'
+    assert policy.filter_args(v4) == policy.filter_args(truseq) == '--action=none --discard-trimmed -m 15 --max-n 5 --max-ee 1'
+    assert (v3['five_prime_piece'], truseq['five_prime_piece'], v4['five_prime_piece']) == (14, 14, 15)
+    assert policy.adapter_args(v3) == policy.adapter_args(v4) == "-a 'TGGAATTCTCGGGTGCCAAGG;min_overlap=5'"
+    assert v3['adapter5'] == truseq['adapter5'] == ADAPTER5 and v4['adapter5'] == ADAPTER5_V4
+    assert all(KITS[kit + ' SE']['filter']['trim']['quantifier'] == 'cutadapt' for kit in (V3, V4, TRUSEQ))
+
+
+def test_settings_are_required():
+    with pytest.raises(ValueError, match='none for .*Custom'):
+        policy.cutadapt_settings({'libprepkit': 'Custom', 'adapter': ADAPTER3, 'filter': {'trim': {}}})
 
 
 @pytest.mark.parametrize('change, message', [
     ({'adapter5': None}, 'adapter5'), ({'adapter5': 'GTTCAGAGTTC'}, 'at least 12'), ({'adapter5': 'GTTCAGAGTTCUACAG'}, 'adapter5'),
     ({'random_ends': -1}, 'random_ends'), ({'minimum_length': None}, 'minimum_length'), ({'minimum_length': 0}, 'minimum_length'),
-    ({'max_n': 'five'}, 'max_n'), ({'max_ee': 0}, 'max_ee'), ({'trim_args': '-q 20'}, 'unknown setting')])
+    ({'max_n': 'five'}, 'max_n'), ({'max_ee': 0}, 'max_ee'), ({'five_prime_piece': None}, 'five_prime_piece'),
+    ({'five_prime_piece': 13}, 'five_prime_piece'), ({'five_prime_piece': 27}, 'five_prime_piece'), ({'trim_args': '-q 20'}, 'unknown setting')])
 def test_invalid_settings_fail(change, message):
     with pytest.raises(ValueError, match=message):
         policy.cutadapt_settings(kit_config(TRUSEQ, **change))
@@ -78,7 +87,7 @@ def test_optional_expected_errors():
 
 
 def test_five_prime_fasta_truncates_the_adapter_and_lists_its_pieces():
-    records = policy.five_prime_fasta(ADAPTER5).splitlines()[1::2]
+    records = policy.five_prime_fasta(ADAPTER5, 14).splitlines()[1::2]
     assert all(r.endswith(';max_error_rate=0.1') for r in records)
     truncated = [r for r in records if ';min_overlap=12;' in r]
     pieces = [r.split(';')[0] for r in records if ';min_overlap=14;' in r]
@@ -86,9 +95,11 @@ def test_five_prime_fasta_truncates_the_adapter_and_lists_its_pieces():
     assert truncated[-1] == 'X' + ADAPTER5 + ';min_overlap=12;max_error_rate=0.1' and len(truncated) == len(ADAPTER5) - 12 + 1
     assert 'ACAGTCCGACGATC' in pieces and 'GTTCAGAGTTCTAC' in pieces and all(len(p) >= 14 and p in ADAPTER5 for p in pieces)
     assert len(pieces) == len(set(pieces)) == 91  # every piece of 14-26 nt, prefixes included
-    result = subprocess.run(['python', str(SCRIPTS / 'cutadapt_config.py'), 'five-prime-fasta', ADAPTER5],
+    result = subprocess.run(['python', str(SCRIPTS / 'cutadapt_config.py'), 'five-prime-fasta', ADAPTER5, '14'],
                             capture_output=True, text=True, timeout=30)
-    assert result.returncode == 0 and result.stdout == policy.five_prime_fasta(ADAPTER5)
+    assert result.returncode == 0 and result.stdout == policy.five_prime_fasta(ADAPTER5, 14)
+    v4_pieces = [r.split(';')[0] for r in policy.five_prime_fasta(ADAPTER5_V4, 15).splitlines()[1::2] if ';min_overlap=15;' in r]
+    assert all(len(p) >= 15 and p in ADAPTER5_V4 for p in v4_pieces) and len(v4_pieces) == 15 * 16 // 2
 
 
 def test_three_prime_artefact_fasta_lists_adapter_primer_and_p7_pieces():
@@ -156,8 +167,8 @@ def test_route_filters_with_cutadapt_only(tmp_path):
     adapter = rule_block(output, 'smallrna_cutadapt_adapter')
     assert "-a 'TGGAATTCTCGGGTGCCAAGG;min_overlap=5'" in adapter
     filtered = rule_block(output, 'smallrna_cutadapt_filter')
-    assert '-g file:data/tmp/smallrna/filter/cutadapt/five_prime_adapters.fa -u 4 -u -4 --action=none --discard-trimmed -m 16 --max-n 5' in filtered
-    assert 'five-prime-fasta GTTCAGAGTTCTACAGTCCGACGATC' in rule_block(output, 'smallrna_five_prime_adapters')
+    assert '-g file:data/tmp/smallrna/filter/cutadapt/five_prime_adapters.fa -u 4 -u -4 --action=none --discard-trimmed -m 15 --max-n 5 --max-ee 1' in filtered
+    assert 'five-prime-fasta GTTCAGAGTTCTACAGTCCGACGATC 14 ' in rule_block(output, 'smallrna_five_prime_adapters')
     artefacts = rule_block(output, 'smallrna_cutadapt_artefacts')
     assert 'input: data/tmp/smallrna/filter/cutadapt_filtered/SR0' in artefacts
     assert '-g file:data/tmp/smallrna/filter/cutadapt/three_prime_artefacts.fa --action=none --discard-trimmed' in artefacts
@@ -177,15 +188,35 @@ def test_route_sets_the_minimum_length_of_the_quantifiers(tmp_path):
     assert '-u 4' not in rule_block(output, 'smallrna_cutadapt_filter')
 
 
-def test_route_without_kit_settings_stops_at_load(tmp_path):
-    returncode, output = dry_run(tmp_path, 'unitas', use_cutadapt(V4))
-    assert returncode != 0 and 'needs filter.trim.cutadapt settings' in output
+@pytest.mark.parametrize('kit', [V3, V4, TRUSEQ])
+def test_cutadapt_is_the_default(tmp_path, kit):
+    returncode, output = dry_run(tmp_path, 'unitas', lambda s: s.update(libprepkit=kit), printshell=True, target='multiqc_report')
+    assert returncode == 0, output
+    assert 'rule smallrna_cutadapt_filter:' in output and 'rule smallrna_fastp:' not in output
+    adapter5 = ADAPTER5_V4 + ' 15 ' if kit == V4 else ADAPTER5 + ' 14 '
+    assert 'five-prime-fasta ' + adapter5 in rule_block(output, 'smallrna_five_prime_adapters')
 
 
-def test_fastp_stays_the_default(tmp_path):
-    returncode, output = dry_run(tmp_path, 'unitas', target='multiqc_report')
+def test_projects_with_fastp_settings_keep_the_fastp_route(tmp_path):
+    """Projects initialized before #350 carry the kit's fastp route and settings in config.yaml."""
+    def update(settings):
+        settings.setdefault('filter', {})['trim'] = {'quantifier': 'fastp', 'fastp': {'args': '-f 4 -t 4 -l 16 -q 15 -u 40 -n 5 -e 0'}}
+    returncode, output = dry_run(tmp_path, 'mirge3', update, printshell=True)
     assert returncode == 0, output
     assert 'rule smallrna_fastp:' in output and 'rule smallrna_cutadapt_filter:' not in output
+    assert '--minimum-length 16 ' in rule_block(output, 'mirge3_quant')
+
+
+@pytest.mark.parametrize('quantifier', [None, 'cutadapt', 'skip'])
+def test_fastp_settings_with_another_route_stop(tmp_path, quantifier):
+    def update(settings):
+        trim = settings.setdefault('filter', {}).setdefault('trim', {})
+        trim['fastp'] = {'args': '-l 15 -q 15'}
+        if quantifier:
+            trim['quantifier'] = quantifier
+    returncode, output = dry_run(tmp_path, 'unitas', update)
+    assert returncode != 0
+    assert "filter.trim.fastp.args is set, but filter.trim.quantifier is '{}', so fastp does not run".format(quantifier or 'cutadapt') in output
 
 
 # Read outcomes with cutadapt 5.2
@@ -215,7 +246,7 @@ def run_kit(tmp_path, kit, inserts):
         for i, insert in enumerate(inserts):
             read = (ends + insert + ends[::-1] + ADAPTER3 + 'ATCTCGTATG')[:75]
             fh.write('@r{}\n{}\n+\n{}\n'.format(i, read, 'I' * len(read)))
-    (tmp_path / 'five.fa').write_text(policy.five_prime_fasta(settings['adapter5']))
+    (tmp_path / 'five.fa').write_text(policy.five_prime_fasta(settings['adapter5'], settings['five_prime_piece']))
     (tmp_path / 'three.fa').write_text(policy.three_prime_artefact_fasta(settings['adapter3']))
     first = [cutadapt, *shlex.split(policy.adapter_args(settings)), '--json', str(tmp_path / 'a.json'), '-o', str(tmp_path / 'a.fastq'), str(raw)]
     second = [cutadapt, '-g', 'file:' + str(tmp_path / 'five.fa'), *shlex.split(policy.filter_args(settings)),
@@ -240,6 +271,31 @@ def test_artefacts_go_and_real_mirnas_stay(tmp_path, kit):
     assert counts['input'] == len(inserts) and counts['output'] == 6
     assert counts['filtered']['discard_trimmed'] == len(ARTEFACTS) and counts['filtered']['too_short'] == 1
     assert counts['filtered']['gcf_three_prime_artefacts'] == 0
+
+
+# NEXTflex v4: its 5' adapter is the Illumina Read 1 sequence; hsa-miR-6865-3p matches its 14-nt pieces with one error
+MIR6865_3P = 'ACACCCTCTTTCCCTACCGCC'
+V4_ARTEFACTS = ['CCTACACGACGCTCTTCCG', 'TCTTTCCCTACACGACGC', 'AAAACACGACGCTCTTCCGATC', 'CTACACGACGCTCTTCCGATCTGGA']
+
+
+def test_v4_artefacts_go_and_mir_6865_3p_stays(tmp_path):
+    inserts = [MIR6865_3P] * 2 + [MIR21_5P, MIR22_5P] + V4_ARTEFACTS + ['']
+    kept, merged = run_kit(tmp_path, V4, inserts)
+    assert sorted(kept) == sorted([MIR6865_3P] * 2 + [MIR21_5P, MIR22_5P])
+    assert merged['read_counts']['filtered']['discard_trimmed'] == len(V4_ARTEFACTS)
+
+
+@pytest.mark.parametrize('piece, kept', [(14, False), (15, True)])
+def test_v4_needs_15_nt_pieces(tmp_path, piece, kept):
+    cutadapt = cutadapt_52()
+    if not cutadapt:
+        pytest.skip('cutadapt 5.2 not on PATH')
+    (tmp_path / 'five.fa').write_text(policy.five_prime_fasta(ADAPTER5_V4, piece))
+    (tmp_path / 'r.fastq').write_text('@r\n{}\n+\n{}\n'.format(MIR6865_3P, 'I' * len(MIR6865_3P)))
+    result = subprocess.run([cutadapt, '-g', 'file:' + str(tmp_path / 'five.fa'), '--action=none', '--discard-trimmed',
+                             str(tmp_path / 'r.fastq')], capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines()[1::4] == ([MIR6865_3P] if kept else [])
 
 
 # The 3' artefact pass (#353): reads seen in public plasma data after the 3' adapter and 5' artefact passes
@@ -283,7 +339,7 @@ def test_five_prime_matches_by_position_and_errors(tmp_path):
     if not cutadapt:
         pytest.skip('cutadapt 5.2 not on PATH')
     reads = FIVE_PRIME_KEPT + FIVE_PRIME_DISCARDED
-    (tmp_path / 'five.fa').write_text(policy.five_prime_fasta(ADAPTER5))
+    (tmp_path / 'five.fa').write_text(policy.five_prime_fasta(ADAPTER5, 14))
     (tmp_path / 'r.fastq').write_text(''.join('@r{}\n{}\n+\n{}\n'.format(i, r, 'I' * len(r)) for i, r in enumerate(reads)))
     result = subprocess.run([cutadapt, '-g', 'file:' + str(tmp_path / 'five.fa'), '--action=none', '--discard-trimmed',
                              str(tmp_path / 'r.fastq')], capture_output=True, text=True, timeout=60)
