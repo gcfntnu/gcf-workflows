@@ -22,6 +22,9 @@ import csv
 import sys
 
 MIN_PROJECT_EXACT = 2
+# mapped.csv's annotation columns (miRge3 0.1.4 digest.py; `spike-in` only with --spikeIn); the other columns are samples
+ANNOTATION_COLUMNS = {'Sequence', 'annotFlag', 'exact miRNA', 'hairpin miRNA', 'mature tRNA', 'primary tRNA', 'snoRNA',
+                      'rRNA', 'ncrna others', 'mRNA', 'isomiR miRNA', 'spike-in'}
 
 
 def read_merges(path):
@@ -51,7 +54,7 @@ def count(mapped, merges, names, samples):
     exact_reads = dict.fromkeys(names, 0)
     reader = csv.DictReader(mapped)
     missing = [s for s in samples if s not in reader.fieldnames]
-    extra = [c for c in reader.fieldnames[reader.fieldnames.index('isomiR miRNA') + 1:] if c not in samples]
+    extra = [c for c in reader.fieldnames if c not in ANNOTATION_COLUMNS and c not in samples]
     if missing or extra:
         raise ValueError('mapped.csv and miRge3 table samples differ: missing {}, extra {}'.format(missing, extra))
     for row in reader:

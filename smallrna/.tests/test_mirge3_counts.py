@@ -80,3 +80,26 @@ def test_command_line_keeps_the_mirge3_table_format(tmp_path):
     assert result.stdout.splitlines() == ['miRNA,S1,S2', 'mmu-miR-1a-3p,15,5', 'mmu-miR-2-5p,0,0',
                                           'mmu-miR-3a-5p/3b-5p,3,1', 'mmu-miR-4-3p,1,6', 'mmu-miR-5-5p,0,0',
                                           'mmu-miR-6-5p,1,1', 'mmu-miR-7-3p,0,0']
+
+
+def test_spike_in_column_is_an_annotation_not_a_sample(tmp_path):
+    """With --spikeIn, miRge3 adds a `spike-in` column after `isomiR miRNA`; spike-in reads are not miRNA reads."""
+    columns = HEADER.strip().replace('isomiR miRNA,S1,S2', 'isomiR miRNA,spike-in,S1,S2').split(',')
+
+    def row(**values):
+        return ','.join(str(values.get(c.replace(' ', '_').replace('-', '_'), '')) for c in columns) + '\n'
+
+    mapped = ','.join(columns) + '\n' + ''.join([
+        row(Sequence='AAAA', annotFlag=1, exact_miRNA='mmu-miR-1a-3p', S1=10, S2=1),
+        row(Sequence='AAAAC', annotFlag=1, isomiR_miRNA='mmu-miR-1a-3p', S1=5, S2=4),
+        row(Sequence='TTTTGG', annotFlag=1, spike_in='ERCC-00002', S1=100, S2=200),  # spike-in only
+    ])
+    counts = counts_module.count(io.StringIO(mapped), merges(tmp_path), NAMES, ['S1', 'S2'])
+    assert counts['mmu-miR-1a-3p'] == {'S1': 15, 'S2': 5}
+    assert all(sum(c.values()) == 0 for name, c in counts.items() if name != 'mmu-miR-1a-3p')
+
+
+def test_missing_and_extra_samples_are_still_detected(tmp_path):
+    header = HEADER.replace('isomiR miRNA,S1,S2', 'isomiR miRNA,spike-in,S1,S3')
+    with pytest.raises(ValueError, match=r"missing \['S2'\], extra \['S3'\]"):
+        counts_module.count(io.StringIO(header), merges(tmp_path), NAMES, ['S1', 'S2'])
