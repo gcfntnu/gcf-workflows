@@ -84,7 +84,9 @@ rule mirge3_quant:
         library = rules.mirge3_project_library.output.library,
         reference = rules.mirge3_reference.output
     output:
-        mirtable = join(QUANT_INTERIM, 'mirge3', 'miR.Counts.csv'),
+        # miRge3's own miRNA table, kept for comparison; miR.Counts.csv is made from mapped.csv (mirge3_counts, #349)
+        mirtable = join(QUANT_INTERIM, 'mirge3', 'miR.Counts.mirge3.csv'),
+        mapped = join(QUANT_INTERIM, 'mirge3', 'mapped.csv'),
         mirtable_ext = join(QUANT_INTERIM, 'mirge3', 'isomirs.csv'),
         annotation = join(QUANT_INTERIM, 'mirge3', 'annotation.report.csv'),
         umapped = join(QUANT_INTERIM, 'mirge3', 'unmapped.csv'),
@@ -119,7 +121,26 @@ rule mirge3_quant:
         '--threads {threads} '
         '--outDir {params.tmp_out} '
         '&& mv {params.tmp_out}/miRge*/* {params.out} '
+        '&& mv {params.out}/miR.Counts.csv {output.mirtable} '
         '&& rm -rf {params.tmp_out} {params.fastq_dir} '
+
+rule mirge3_counts:
+    """miRNA counts from miRge3's mapped.csv: exact and isomiR reads, names folded by the library's merge file, for
+    miRNAs with at least 2 exact reads in the project; miRge3's own table requires 2 exact reads per sample (#349).
+    """
+    input:
+        mapped = rules.mirge3_quant.output.mapped,
+        mirtable = rules.mirge3_quant.output.mirtable,
+        library = rules.mirge3_project_library.output.library
+    output:
+        join(QUANT_INTERIM, 'mirge3', 'miR.Counts.csv')
+    params:
+        script = src_gcf('scripts/mirge3_counts.py'),
+        merges = join(MIRGE3_PROJECT_LIB, MIRGE_ORG, 'annotation.Libs',
+                      '{}_merges_{}.csv'.format(MIRGE_ORG, MIRGE3_DATABASES[MIRGE3_DB]))
+    shell:
+        'python {params.script:q} --mapped {input.mapped:q} --merges {params.merges:q} '
+        '--mirge3-table {input.mirtable:q} > {output:q}'
 
 rule mirge3_unmapped:
     input:
