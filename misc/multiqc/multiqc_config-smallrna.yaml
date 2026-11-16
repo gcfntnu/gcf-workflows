@@ -61,6 +61,12 @@ remove_sections:
  - fastqc_sequence_duplication_levels
  - fastqc_status_checks
  - star_spliced_reads
+ # miRTrace (#352): its QC plot, RNA categories and read lengths repeat the filter, UNITAS and FastQC sections
+ - mirtrace_qc
+ - mirtrace_rna_categories
+ - mirtrace_length
+section_comments:
+  mirtrace: "Here miRTrace runs on the filtered reads used for quantification, without adapter trimming, as a check for miRNAs of other clades (contamination) and for miRNA complexity. Reads shorter than 18 nt or of low complexity or low quality are left out of these two plots only, not out of the counts."
 table_columns_visible:
   fastp:
     pct_duplication: False

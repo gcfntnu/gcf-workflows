@@ -80,10 +80,14 @@ rule smallrna_untrimmed_fastq:
     shell:
         'gzip -dc {input} > {output}'
 
+def filtered_fastq_pattern():
+    """The filtered reads the quantifiers (and miRTrace) read, with a {sample} wildcard."""
+    stage = {'skip': 'fastq', 'cutadapt': 'cutadapt'}.get(config['filter']['trim']['quantifier'], 'fastp')
+    return join(FILTER_INTERIM, stage, '{sample}_R1.fastq')
+
+
 def get_filtered_fastq(wildcards):
-    quantifier = config['filter']['trim']['quantifier']
-    stage = {'skip': 'fastq', 'cutadapt': 'cutadapt'}.get(quantifier, 'fastp')
-    return {'R1': join(FILTER_INTERIM, stage, '{sample}_R1.fastq')}
+    return {'R1': filtered_fastq_pattern()}
 
 
 def filtered_min_length():

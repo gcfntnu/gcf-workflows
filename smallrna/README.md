@@ -15,7 +15,7 @@ Kits whose [libprep.config](../libprep.config) entry sets `workflow: smallrna`. 
 | Bioo Scientific NEXTflex Small RNA-Seq Kit v4 | SE |
 | TruSeq Small RNA Library Prep Kit | SE |
 
-The kit entries set `filter.trim.fastp.args`, miRTrace `protocol: nextflex` and `db.reference_db: ensembl`.
+The kit entries set `filter.trim.fastp.args`, `filter.trim.cutadapt` (NEXTflex v3, TruSeq) and `db.reference_db: ensembl`.
 
 ### fastp stages and final insert policy
 
@@ -91,7 +91,7 @@ Settings per kit in `libprep.config` under `filter.trim.cutadapt`: `adapter5` (t
 | filter | `rules/filter/cliptrim.smk`, shared `common/` rules | FASTQ merging; clipping and trimming |
 | align | `rules/align/star.smk` | STAR (smallrna options); the only supported genome aligner |
 | quant | `rules/quant/spikein.smk`, `unitas.smk`, `mirge3.smk`, `mirflowz.smk` | Spike-in sets shared by UNITAS and miRge3; UNITAS (including its variance-transformation rules); miRge3; mirflowz |
-| qc | `rules/qc/`, shared `common/` rules | FastQC (shared); miRTrace QC on the merged FASTQs, delivered to `bfq/logs/mirtrace/` and shown in the MultiQC report |
+| qc | `rules/qc/`, shared `common/` rules | FastQC (shared); miRTrace on the filtered reads the quantifiers read, without adapter trimming (no adapter, `-p illumina`): its contamination check and miRNA complexity are shown in the MultiQC report, its QC plot, RNA categories and read lengths are not (they repeat the filter, UNITAS and FastQC sections). miRTrace's fixed filters (under 18 nt, low complexity, low PHRED) only leave reads out of its own statistics. Delivered to `bfq/logs/mirtrace/` ([#352](https://github.com/gcfntnu/gcf-workflows/issues/352)) |
 | bfq | `rules/bfq/` (levels 1–3) | Collect delivery products into `bfq/` |
 
 **`quant.method` and delivery.** `quant.method` selects what the separate `quant_all` target builds: `unitas`, `mirge3`, `mirflowz`, or several of them (comma-separated). Any other value stops `quant_all` with an error. It does **not** change delivery: `bfq_all` and `multiqc_report` always deliver the UNITAS products (`rules/bfq/bfq_level2.smk`), whatever `quant.method` says.
@@ -190,7 +190,6 @@ Full-genome references have not been built yet: segemehl needs about 60 GB of me
 | `filter.spikein.ref` | `null` (no spike-ins). Otherwise comma-separated spike-in sets, each `ERCC92` or `smallrna_calibrators`, e.g. `ERCC92,smallrna_calibrators`; UNITAS (with `quantifier: unitas`) and miRge3 use these sets. Unknown sets, or `filter.spikein.quantifier: unitas` without any set, stop the workflow at load | `smallrna.config` |
 | `filter.trim.quantifier` | `fastp`, `cutadapt` ([cutadapt route](#cutadapt-route-filtertrimquantifier-cutadapt)) or `skip`; any other value stops the workflow at load (the miRTrace filter route was removed) | Kit entry |
 | `filter.trim.cutadapt` | Per kit: `adapter5`, `random_ends`, `minimum_length`, `max_n`, optional `max_ee`; required with `filter.trim.quantifier: cutadapt`, set for NEXTflex v3 and TruSeq | Kit entry |
-| `filter.trim.mirtrace.protocol` | Per kit: `nextflex` (NEXTflex v3, 4N ends), `illumina` (NEXTflex v4, TruSeq). Required | Kit entry |
 | `filter.spikein`, `filter.contaminants` | `skip`/off; `quantifier: unitas` adds the sequences to the UNITAS reference | `smallrna.config` |
 | `filter.ribosomal.quantifier` | `skip`, the only accepted value. UNITAS no longer supports `-riborase`, so `unitas` stops the workflow at load | `smallrna.config` |
 | `db.reference_db`, `db.mirbase.release` | `ensembl`, releases in `main.config`. `db.mirbase.release` is `23.1`, the release the `05-11-2026` UNITAS dumps use, and must equal the selected miRBase dump's release (checked by `unitas_reference`); miRBase also serves `20`, `21` and `22`, and other values stop the workflow at load | Kit entry, `main.config` |
@@ -206,7 +205,7 @@ Precedence between these sources is described in [docs/configuration.md](../docs
 - `smallrna/.tests/test_fastp.py`: configuration, all-kit dry runs, stage accounting, exact v3 clipping and 15/16/17 nt boundaries, quality/N-base/complexity and polyG outcomes with fastp 0.20.1. All inputs are synthetic; no new v4 fixture is built.
 - `smallrna/.tests/test_cutadapt.py`: the cutadapt route's settings and their validation, commands per kit, the truncated 5′ adapter set, the merged report and the route's dry runs; with cutadapt 5.2 on synthetic reads, that 5′-adapter fragments and adapter dimers are removed while miR-22-5p and miR-139-5p are kept, and that a 3′ adapter with a deletion is trimmed.
 - `smallrna/.tests/test_run_unitas.py` and `test_bfq_unitas_links.py`: per-sample UNITAS work directories with a stand-in `unitas.pl` (concurrent and similarly named samples, interrupted runs, unexpected results, non-zero exit, `ERROR!` with exit 0, missing annotation summary), and relative delivery links.
-- `smallrna/.tests/test_route_guards.py`: dry runs showing that a non-STAR aligner, `filter.dedup: true`, an organism without a UNITAS reference dump or `filter.ribosomal.quantifier: unitas` stops at load, while the defaults plan delivery; and that `-refseq` reaches UNITAS only when spike-ins or contaminants are configured.
+- `smallrna/.tests/test_route_guards.py`: dry runs showing that a non-STAR aligner, `filter.dedup: true`, an organism without a UNITAS reference dump or `filter.ribosomal.quantifier: unitas` stops at load, while the defaults plan delivery; and that `-refseq` reaches UNITAS only when spike-ins or contaminants are configured; miRTrace reads each route's filtered reads (fastp, cutadapt, skip) without an adapter (`-p illumina`, two-column config file), and the MultiQC template shows only its contamination and complexity sections.
 - `smallrna/.tests/test_quant_methods.py`: `quant_all` dry runs for each supported `quant.method`, miRge3 on the filtered reads per kit (no own trimming or deduplication, the kit's minimum length) and the merged reads with trimming skipped, and errors for removed or unknown values; the dump verification and reference check planned before the UNITAS AnnData, for miRBase and MirGeneDB dumps.
 - `smallrna/.tests/test_mirflowz_route.py`: mirflowz dry runs: combined route with delivery unchanged, reuse of the project's Ensembl files for mouse, Ensembl 104 downloads and the removed contig for rat, custom references, kit read settings, and load errors only when mirflowz is selected.
 - `smallrna/.tests/test_run_mirflowz.py` and `gcfdb/.tests/test_mirflowz_prepare.py`: the nested mirflowz runs with a stand-in `snakemake`: only the needed rule files included, linked prepared reference, read settings, input conversion, outputs kept, missing files and failures reported with the tool log.

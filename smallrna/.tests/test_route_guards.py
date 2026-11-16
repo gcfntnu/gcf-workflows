@@ -9,6 +9,8 @@ import sys
 import pytest
 import yaml
 
+from test_quant_methods import rule_block
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -93,14 +95,31 @@ def shell_lines(output, needle):
     return [line for line in output.splitlines() if line.startswith('Shell command:') and needle in line]
 
 
-@pytest.mark.parametrize('kit, protocol', [('Bioo Scientific NEXTflex Small RNA-Seq Kit v3', 'nextflex'),
-                                           ('Bioo Scientific NEXTflex Small RNA-Seq Kit v4', 'illumina'),
-                                           ('TruSeq Small RNA Library Prep Kit', 'illumina')])
-def test_mirtrace_qc_is_delivered_and_reported(tmp_path, kit, protocol):
-    returncode, output = dry_run(tmp_path, lambda s: s.update(libprepkit=kit), printshell=True)
+def trim_route(kit, quantifier):
+    def update(settings):
+        settings['libprepkit'] = kit
+        settings.setdefault('filter', {}).setdefault('trim', {})['quantifier'] = quantifier
+    return update
+
+
+MIRTRACE_ROUTES = [('Bioo Scientific NEXTflex Small RNA-Seq Kit v3', 'fastp', 'fastp'),
+                   ('Bioo Scientific NEXTflex Small RNA-Seq Kit v3', 'cutadapt', 'cutadapt'),
+                   ('Bioo Scientific NEXTflex Small RNA-Seq Kit v4', 'fastp', 'fastp'),
+                   ('TruSeq Small RNA Library Prep Kit', 'cutadapt', 'cutadapt'),
+                   ('TruSeq Small RNA Library Prep Kit', 'skip', 'fastq')]
+
+
+@pytest.mark.parametrize('kit, quantifier, stage', MIRTRACE_ROUTES)
+def test_mirtrace_reads_the_filtered_reads_without_trimming(tmp_path, kit, quantifier, stage):
+    """miRTrace reads the filtered reads the quantifiers read, with no adapter and protocol illumina (#352)."""
+    returncode, output = dry_run(tmp_path, trim_route(kit, quantifier), printshell=True)
     assert returncode == 0, output
+    mirtrace_input = rule_block(output, 'qc_mirtrace').split('output:', 1)[0]
+    assert all(f'data/tmp/smallrna/filter/{stage}/{sample}_R1.fastq' in mirtrace_input for sample in ['SR01', 'SR02', 'SR03', 'SR04'])
+    assert '_R1.fastq.gz' not in mirtrace_input  # not the merged reads
+    assert f'input: data/tmp/smallrna/filter/{stage}/SR0' in rule_block(output, 'unitas')  # the quantifiers' reads
     mirtrace = shell_lines(output, 'mirtrace qc ')
-    assert len(mirtrace) == 1 and f'-p {protocol} ' in mirtrace[0] and '--force' in mirtrace[0]
+    assert len(mirtrace) == 1 and ' -p illumina ' in mirtrace[0] and ' -a ' not in mirtrace[0] and '--force' in mirtrace[0]
     assert 'rule bfq_level2_mirtrace:' in output
     assert 'bfq/logs/mirtrace/mirtrace-stats-mirna-complexity.tsv' in output
     assert any('-m mirtrace' in line for line in shell_lines(output, 'multiqc '))
@@ -112,19 +131,22 @@ def test_mirtrace_filter_route_is_rejected(tmp_path):
     assert "filter.trim.quantifier: smallrna supports fastp, cutadapt or skip, got 'mirtrace'" in output
 
 
-def test_missing_mirtrace_protocol_fails(tmp_path):
-    update = lambda s: s.setdefault('filter', {}).setdefault('trim', {}).setdefault('mirtrace', {}).update(protocol=None)
-    returncode, output = dry_run(tmp_path, update)
-    assert returncode != 0
-    assert 'filter.trim.mirtrace.protocol: set the miRTrace protocol' in output
-
-
-def test_mirtrace_config_lists_merged_fastq_per_sample(tmp_path):
-    returncode, output = dry_run(tmp_path, lambda s: None, target='data/tmp/smallrna/qc/mirtrace/mirtrace.config', dry=False)
+@pytest.mark.parametrize('quantifier, stage', [('fastp', 'fastp'), ('cutadapt', 'cutadapt')])
+def test_mirtrace_config_lists_filtered_reads_without_adapter(tmp_path, quantifier, stage):
+    update = trim_route('Bioo Scientific NEXTflex Small RNA-Seq Kit v3', quantifier)
+    returncode, output = dry_run(tmp_path, update, target='data/tmp/smallrna/qc/mirtrace/mirtrace.config', dry=False)
     assert returncode == 0, output
     rows = [line.split(',') for line in (tmp_path / 'data/tmp/smallrna/qc/mirtrace/mirtrace.config').read_text().splitlines()]
     assert [row[1] for row in rows] == ['SR01', 'SR02', 'SR03', 'SR04']
-    assert all(row[0].endswith(f'/filter/fastq/{row[1]}_R1.fastq.gz') and row[2] == 'TGGAATTCTCGGGTGCCAAGG' for row in rows)
+    assert all(len(row) == 2 and row[0].endswith(f'/filter/{stage}/{row[1]}_R1.fastq') for row in rows)  # no adapter column
+
+
+def test_report_shows_mirtrace_contamination_and_complexity_only():
+    template = yaml.safe_load((ROOT / 'misc/multiqc/multiqc_config-smallrna.yaml').read_text())
+    removed = set(template['remove_sections'])
+    assert {'mirtrace_qc', 'mirtrace_rna_categories', 'mirtrace_length'} <= removed
+    assert not {'mirtrace_contamination_check', 'mirtrace_complexity'} & removed
+    assert 'filtered reads used for quantification' in template['section_comments']['mirtrace']
 
 
 def test_mirtrace_title_is_one_argument_for_several_projects(tmp_path):
