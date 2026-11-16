@@ -29,8 +29,8 @@ end, and finds an internal 5' adapter only when it is complete, so two sets are 
 - the adapter truncated at every end position (adapter5[:j]) as non-internal adapters (`X` prefix), minimum overlap
   FIVE_PRIME_MIN_OVERLAP: a fragment adapter5[i:j] at the read start is a partial match of adapter5[:j], and these
   records never match inside the read;
-- every piece of the adapter of at least FIVE_PRIME_PIECE nt (adapter5[i:i+L], prefixes included), which matches when
-  complete anywhere in the read, e.g. after junk bases (`AAACAGTCCGACGATC`).
+- every piece of the adapter of at least `five_prime_piece` nt (a kit setting; adapter5[i:i+L], prefixes included),
+  which matches when complete anywhere in the read, e.g. after junk bases (`AAACAGTCCGACGATC`).
 
 Every record has the error rate FIVE_PRIME_MAX_ERROR_RATE set explicitly (cutadapt's default, mismatches and indels):
 one error in matches of 12-19 nt, two in matches of 20-26 nt. A count of one error is not possible: cutadapt scales an
@@ -38,11 +38,15 @@ absolute count to the full record, so partial matches would get none; with one e
 (e.g. adapter fragments with a two-base deletion) were kept. The lengths are essential: a 10-nt overlap also removed
 miR-22-5p and miR-139-5p (their first 11 bases match the adapter with one mismatch), and 12-13 nt pieces anywhere match
 miR-625-5p; with 12 at the read start and 14 anywhere, the rule matches only miR-3168-5p among the 2,789 human mature
-miRNAs of miRBase 23.1. The match only flags the read (--action=none), so the report counts discarded artefacts as such
+miRNAs of miRBase 23.1. The piece length is a kit setting because it depends on the adapter: 14 for the TruSeq/NEXTflex
+v3 adapter, 15 for the NEXTflex v4 adapter (TCTTTCCCTACACGACGCTCTTCCGATCT), whose 14-nt pieces match hsa-miR-6865-3p
+with one error; from 15 nt nothing in human mature miRNAs or the small-RNA references matches. 15 nt for the v3/TruSeq
+adapter would keep artefacts (in a low-yield public plasma library 0.3% of kept reads, mostly 11-13 nt of the adapter's
+end after a few other bases, e.g. AAAAGTCCGACGATC) (#350). The match only flags the read (--action=none), so the report counts discarded artefacts as such
 rather than as too short.
 
 Included by smallrna/rules/filter/cutadapt.smk; also a command-line script for the adapter FASTAs:
-    cutadapt_config.py five-prime-fasta ADAPTER5 > five_prime_adapters.fa
+    cutadapt_config.py five-prime-fasta ADAPTER5 PIECE > five_prime_adapters.fa
     cutadapt_config.py three-prime-artefact-fasta ADAPTER3 > three_prime_artefacts.fa
 """
 import argparse
@@ -50,7 +54,7 @@ import re
 
 THREE_PRIME_MIN_OVERLAP = 5
 FIVE_PRIME_MIN_OVERLAP = 12
-FIVE_PRIME_PIECE = 14
+MIN_FIVE_PRIME_PIECE = 14  # 12-13-nt pieces anywhere match miR-625-5p
 FIVE_PRIME_MAX_ERROR_RATE = 0.1
 THREE_PRIME_ARTEFACT_PIECE = 16
 ILLUMINA_INDEX_PRIMER_START = 'AACTCCAGTCAC'
@@ -65,7 +69,7 @@ def cutadapt_settings(config):
     if not settings:
         raise ValueError('filter.trim.quantifier: cutadapt needs filter.trim.cutadapt settings, none for {!r}; '
                          'set them in libprep.config or the project configuration'.format(kit))
-    unknown = sorted(set(settings) - {'adapter5', 'random_ends', 'minimum_length', 'max_n', 'max_ee'})
+    unknown = sorted(set(settings) - {'adapter5', 'five_prime_piece', 'random_ends', 'minimum_length', 'max_n', 'max_ee'})
     if unknown:
         raise ValueError('filter.trim.cutadapt: unknown setting(s) {}'.format(', '.join(unknown)))
     adapter3 = config.get('adapter')
@@ -76,6 +80,10 @@ def cutadapt_settings(config):
     if not isinstance(adapter5, str) or not DNA.match(adapter5) or len(adapter5) < FIVE_PRIME_MIN_OVERLAP:
         raise ValueError('filter.trim.cutadapt.adapter5: the kit\'s 5\' adapter as an A/C/G/T sequence of at least {} nt, '
                          'got {!r}'.format(FIVE_PRIME_MIN_OVERLAP, adapter5))
+    piece = settings.get('five_prime_piece')
+    if not isinstance(piece, int) or isinstance(piece, bool) or not MIN_FIVE_PRIME_PIECE <= piece <= len(adapter5):
+        raise ValueError('filter.trim.cutadapt.five_prime_piece: the minimum length of 5\' adapter pieces matched anywhere, '
+                         'from {} nt to the adapter length, got {!r}'.format(MIN_FIVE_PRIME_PIECE, piece))
     random_ends = settings.get('random_ends', 0)
     minimum_length = settings.get('minimum_length')
     max_n = settings.get('max_n')
@@ -88,7 +96,7 @@ def cutadapt_settings(config):
         raise ValueError('filter.trim.cutadapt.max_n: a number of N bases >= 0, or null, got {!r}'.format(max_n))
     if max_ee is not None and (isinstance(max_ee, bool) or not isinstance(max_ee, (int, float)) or max_ee <= 0):
         raise ValueError('filter.trim.cutadapt.max_ee: expected errors > 0, or null, got {!r}'.format(max_ee))
-    return {'adapter3': adapter3, 'adapter5': adapter5, 'random_ends': random_ends, 'minimum_length': minimum_length,
+    return {'adapter3': adapter3, 'adapter5': adapter5, 'five_prime_piece': piece, 'random_ends': random_ends, 'minimum_length': minimum_length,
             'max_n': max_n, 'max_ee': max_ee}
 
 
@@ -110,17 +118,17 @@ def filter_args(settings):
     return ' '.join(args)
 
 
-def five_prime_fasta(adapter5):
+def five_prime_fasta(adapter5, piece):
     """cutadapt adapter FASTA: adapter5 truncated at every end position (from FIVE_PRIME_MIN_OVERLAP nt) as non-internal
-    adapters, then every piece of at least FIVE_PRIME_PIECE nt; all with FIVE_PRIME_MAX_ERROR_RATE."""
+    adapters, then every piece of at least `piece` nt; all with FIVE_PRIME_MAX_ERROR_RATE."""
     truncated = [adapter5[:j] for j in range(FIVE_PRIME_MIN_OVERLAP, len(adapter5) + 1)]
-    pieces = sorted({adapter5[i:i + n] for n in range(FIVE_PRIME_PIECE, len(adapter5) + 1) for i in range(len(adapter5) - n + 1)},
+    pieces = sorted({adapter5[i:i + n] for n in range(piece, len(adapter5) + 1) for i in range(len(adapter5) - n + 1)},
                     key=lambda p: (-len(p), adapter5.index(p)))
     rate = FIVE_PRIME_MAX_ERROR_RATE
     return (''.join('>five_prime_{0}\nX{1};min_overlap={2};max_error_rate={3}\n'.format(len(t), t, FIVE_PRIME_MIN_OVERLAP, rate)
                     for t in truncated) +
             ''.join('>five_prime_piece_{0}_{1}\n{2};min_overlap={3};max_error_rate={4}\n'.format(
-                adapter5.index(p), len(p), p, FIVE_PRIME_PIECE, rate) for p in pieces))
+                adapter5.index(p), len(p), p, piece, rate) for p in pieces))
 
 
 def artefact_args():
@@ -146,6 +154,7 @@ def main():
     sub = parser.add_subparsers(dest='command', required=True)
     fasta = sub.add_parser('five-prime-fasta')
     fasta.add_argument('adapter5')
+    fasta.add_argument('piece', type=int)
     artefacts = sub.add_parser('three-prime-artefact-fasta')
     artefacts.add_argument('adapter3')
     args = parser.parse_args()
@@ -156,7 +165,9 @@ def main():
         return
     if not DNA.match(args.adapter5) or len(args.adapter5) < FIVE_PRIME_MIN_OVERLAP:
         parser.error('adapter5 must be an A/C/G/T sequence of at least {} nt'.format(FIVE_PRIME_MIN_OVERLAP))
-    print(five_prime_fasta(args.adapter5), end='')
+    if not MIN_FIVE_PRIME_PIECE <= args.piece <= len(args.adapter5):
+        parser.error('piece must be from {} nt to the adapter length'.format(MIN_FIVE_PRIME_PIECE))
+    print(five_prime_fasta(args.adapter5, args.piece), end='')
 
 
 if __name__ == '__main__':

@@ -9,7 +9,20 @@ ruleorder: smallrna_fastp > fastp_log > fastp
 include:
     'scripts/fastp_config.py'
 
-SMALLRNA_FASTP_ARGS = final_fastp_args(config['filter']['trim']['fastp'])
+TRIM_QUANTIFIERS = ('fastp', 'cutadapt', 'skip')
+if config['filter']['trim']['quantifier'] not in TRIM_QUANTIFIERS:
+    raise ValueError('filter.trim.quantifier: smallrna supports {} or {}, got {!r}'.format(
+        ', '.join(TRIM_QUANTIFIERS[:-1]), TRIM_QUANTIFIERS[-1], config['filter']['trim']['quantifier']))
+# The kits filter with cutadapt (#350); fastp runs only when the project selects it, with its own filter.trim.fastp.args.
+# Projects initialized before keep their fastp settings and route; fastp settings with another route would be ignored.
+if config['filter']['trim']['quantifier'] == 'fastp':
+    SMALLRNA_FASTP_ARGS = final_fastp_args(config['filter']['trim']['fastp'])
+elif (config['filter']['trim'].get('fastp') or {}).get('args'):
+    raise ValueError('filter.trim.fastp.args is set, but filter.trim.quantifier is {!r}, so fastp does not run (smallrna '
+                     'filters with cutadapt by default since #350). Remove filter.trim.fastp.args, or set '
+                     'filter.trim.quantifier: fastp to filter with fastp.'.format(config['filter']['trim']['quantifier']))
+else:
+    SMALLRNA_FASTP_ARGS = None
 if config['filter'].get('dedup'):
     raise ValueError('filter.dedup: read deduplication is not supported in smallrna; set it to false')
 
@@ -63,11 +76,6 @@ rule fastp_log:
         'python {params.script:q} {input.trim_log:q} {input.filter_log:q} --html {output.html:q} > {output.json:q}'
 
 
-TRIM_QUANTIFIERS = ('fastp', 'cutadapt', 'skip')
-if config['filter']['trim']['quantifier'] not in TRIM_QUANTIFIERS:
-    raise ValueError('filter.trim.quantifier: smallrna supports {} or {}, got {!r}'.format(
-        ', '.join(TRIM_QUANTIFIERS[:-1]), TRIM_QUANTIFIERS[-1], config['filter']['trim']['quantifier']))
-
 rule smallrna_untrimmed_fastq:
     """With filter.trim.quantifier: skip, the quantifiers read the merged reads unchanged, as plain FASTQ: no adapter
     removal or filtering anywhere, so skip is for reads that were trimmed before they reach the workflow."""
@@ -92,7 +100,8 @@ def get_filtered_fastq(wildcards):
 
 def filtered_min_length():
     """The final minimum length of the filtered reads (None: only empty reads removed), for quantifiers that apply one
-    of their own: the kit's cutadapt minimum_length with filter.trim.quantifier: cutadapt, else fastp's -l."""
-    if config['filter']['trim']['quantifier'] == 'cutadapt':
-        return cutadapt_settings(config)['minimum_length']
-    return final_length_required(config['filter']['trim']['fastp'])
+    of their own: fastp's -l with filter.trim.quantifier: fastp, else the kit's cutadapt minimum_length (with skip, the
+    kit's length policy for reads trimmed before the workflow)."""
+    if config['filter']['trim']['quantifier'] == 'fastp':
+        return final_length_required(config['filter']['trim']['fastp'])
+    return cutadapt_settings(config)['minimum_length']
