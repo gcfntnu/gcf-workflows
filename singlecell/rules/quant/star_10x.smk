@@ -54,7 +54,6 @@ else:
 rule txgenomics_whitelist_v1:
     params:
         url = join(config.get('winecellar', {}).get('url', ''), '10xgenomics', 'whitelists', '737K-april-2014_rc.txt'),
-        date = datetime.now().strftime("%d-%m-%Y"),
         proxy = config.get('proxy', {}).get('wget', ''),
     output:
         join(EXT_DIR, '10xgenomics', '737K-april-2014_rc.txt')
@@ -63,13 +62,12 @@ rule txgenomics_whitelist_v1:
     shell:
         """
         wget {params.proxy} -O {output} {params.url}
-        echo "10xGenomics whitelist v1,NA,{params.url},{params.date}" > {log}
+        echo "10xGenomics whitelist v1,NA,{params.url},$(date +%d-%m-%Y)" > {log}
         """
 
 rule txgenomics_whitelist_v2:
     params:
         url = join(config.get('winecellar', {}).get('url', ''), '10xgenomics', 'whitelists', '737K-august-2016.txt'),
-        date = datetime.now().strftime("%d-%m-%Y"),
         proxy = config.get('proxy', {}).get('wget', '')
     output:
         join(EXT_DIR, '10xgenomics', '737K-august-2016.txt.txt')
@@ -78,13 +76,12 @@ rule txgenomics_whitelist_v2:
     shell:
         """
         wget {params.proxy} -O {output} {params.url}
-        echo "10xGenomics whitelist v2,NA,{params.url},{params.date}" > {log}
+        echo "10xGenomics whitelist v2,NA,{params.url},$(date +%d-%m-%Y)" > {log}
         """
 
 rule txgenomics_whitelist_v3:
     params:
         url = join(config.get('winecellar', {}).get('url', ''), '10xgenomics', 'whitelists', '3M-february-2018_TRU.txt'),
-        date = datetime.now().strftime("%d-%m-%Y"),
         proxy = config.get('proxy', {}).get('wget', '')
     output:
         join(EXT_DIR, '10xgenomics', '3M-february-2018_TRU.txt')
@@ -93,13 +90,12 @@ rule txgenomics_whitelist_v3:
     shell:
         """
         wget {params.proxy} -O {output} {params.url}
-        echo "10xGenomics whitelist v3,NA,{params.url},{params.date}" > {log}
+        echo "10xGenomics whitelist v3,NA,{params.url},$(date +%d-%m-%Y)" > {log}
         """
 
 rule txgenomics_whitelist_v4:
     params:
         url = join(config.get('winecellar', {}).get('url', ''), '10xgenomics', 'whitelists', '3M-3pgex-may-2023_TRU.txt'),
-        date = datetime.now().strftime("%d-%m-%Y"),
         proxy = config.get('proxy', {}).get('wget', '')
     output:
         join(EXT_DIR, '10xgenomics', '3M-3pgex-may-2023_TRU.txt')
@@ -108,7 +104,7 @@ rule txgenomics_whitelist_v4:
     shell:
         """
         wget {params.proxy} -O {output} {params.url}
-        echo "10xGenomics whitelist v4,NA,{params.url},{params.date}" > {log}
+        echo "10xGenomics whitelist v4,NA,{params.url},$(date +%d-%m-%Y)" > {log}
         """
 
 
