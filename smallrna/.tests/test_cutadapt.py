@@ -79,12 +79,13 @@ def test_optional_expected_errors():
 
 def test_five_prime_fasta_truncates_the_adapter_and_lists_its_pieces():
     records = policy.five_prime_fasta(ADAPTER5).splitlines()[1::2]
-    truncated = [r for r in records if r.endswith(';min_overlap=12')]
-    pieces = [r.split(';')[0] for r in records if r.endswith(';min_overlap=14')]
-    assert truncated[0] == 'GTTCAGAGTTCT;min_overlap=12' and truncated[-1] == ADAPTER5 + ';min_overlap=12'
-    assert len(truncated) == len(ADAPTER5) - 12 + 1
-    assert 'ACAGTCCGACGATC' in pieces and all(len(p) >= 14 and p in ADAPTER5 and not ADAPTER5.startswith(p) for p in pieces)
-    assert len(pieces) == len(set(pieces)) == 78  # pieces of 14-26 nt (91) less those starting at the adapter's start
+    assert all(r.endswith(';max_error_rate=0.1') for r in records)
+    truncated = [r for r in records if ';min_overlap=12;' in r]
+    pieces = [r.split(';')[0] for r in records if ';min_overlap=14;' in r]
+    assert truncated[0] == 'XGTTCAGAGTTCT;min_overlap=12;max_error_rate=0.1'  # non-internal: only at the read start
+    assert truncated[-1] == 'X' + ADAPTER5 + ';min_overlap=12;max_error_rate=0.1' and len(truncated) == len(ADAPTER5) - 12 + 1
+    assert 'ACAGTCCGACGATC' in pieces and 'GTTCAGAGTTCTAC' in pieces and all(len(p) >= 14 and p in ADAPTER5 for p in pieces)
+    assert len(pieces) == len(set(pieces)) == 91  # every piece of 14-26 nt, prefixes included
     result = subprocess.run(['python', str(SCRIPTS / 'cutadapt_config.py'), 'five-prime-fasta', ADAPTER5],
                             capture_output=True, text=True, timeout=30)
     assert result.returncode == 0 and result.stdout == policy.five_prime_fasta(ADAPTER5)
@@ -207,6 +208,30 @@ def test_artefacts_go_and_real_mirnas_stay(tmp_path, kit):
     counts = merged['read_counts']
     assert counts['input'] == len(inserts) and counts['output'] == 6
     assert counts['filtered']['discard_trimmed'] == len(ARTEFACTS) and counts['filtered']['too_short'] == 1
+
+
+# Where and with how many errors the 5' adapter set matches (review of #351): 12-13 nt only at the read start, 14 nt
+# anywhere, 10% errors (one below 20 nt, two from 20 nt).
+FIVE_PRIME_KEPT = ['CCCCGTTCAGAGTTCTGGCCCC',          # 12-nt prefix inside the read (next two bases differ)
+                   'GTTCACAGTTCAACAGTCCTTTTTTTTTT']   # 19-nt prefix at the read start with two mismatches
+FIVE_PRIME_DISCARDED = ['CCCGTTCAGAGTTCTACCCCC',     # 14-nt prefix inside the read
+                        'CCCCCCCCGTTCAGAGTTCTA',      # 13-nt prefix at the read end: a 14-nt piece with one deletion
+                        'CCCCGTTCAGAGTTCTCCCC',       # 14 nt inside the read with one mismatch
+                        'GTTCAGAGTTGTGGGGAAAAAA',     # 12-nt prefix at the read start with one mismatch
+                        'TTCAGAGTACAACAGTCCGACG']     # 22 nt at the read start with two mismatches
+
+
+def test_five_prime_matches_by_position_and_errors(tmp_path):
+    cutadapt = cutadapt_52()
+    if not cutadapt:
+        pytest.skip('cutadapt 5.2 not on PATH')
+    reads = FIVE_PRIME_KEPT + FIVE_PRIME_DISCARDED
+    (tmp_path / 'five.fa').write_text(policy.five_prime_fasta(ADAPTER5))
+    (tmp_path / 'r.fastq').write_text(''.join('@r{}\n{}\n+\n{}\n'.format(i, r, 'I' * len(r)) for i, r in enumerate(reads)))
+    result = subprocess.run([cutadapt, '-g', 'file:' + str(tmp_path / 'five.fa'), '--action=none', '--discard-trimmed',
+                             str(tmp_path / 'r.fastq')], capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines()[1::4] == FIVE_PRIME_KEPT
 
 
 def test_three_prime_adapter_with_a_deletion_is_trimmed(tmp_path):

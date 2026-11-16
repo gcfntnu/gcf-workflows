@@ -11,18 +11,22 @@ Two cutadapt passes per sample:
 end, and sometimes follow a few other bases. cutadapt accepts a partial 5' adapter only when it runs to the adapter's 3'
 end, and finds an internal 5' adapter only when it is complete, so two sets are given (five_prime_fasta):
 
-- the adapter truncated at every end position (adapter5[:j]), minimum overlap FIVE_PRIME_MIN_OVERLAP: a fragment
-  adapter5[i:j] at the read start is a partial match of adapter5[:j];
-- every piece of the adapter of at least FIVE_PRIME_PIECE nt (adapter5[i:i+L]), which matches when complete anywhere in
-  the read, e.g. after junk bases (`AAACAGTCCGACGATC`).
+- the adapter truncated at every end position (adapter5[:j]) as non-internal adapters (`X` prefix), minimum overlap
+  FIVE_PRIME_MIN_OVERLAP: a fragment adapter5[i:j] at the read start is a partial match of adapter5[:j], and these
+  records never match inside the read;
+- every piece of the adapter of at least FIVE_PRIME_PIECE nt (adapter5[i:i+L], prefixes included), which matches when
+  complete anywhere in the read, e.g. after junk bases (`AAACAGTCCGACGATC`).
 
-With cutadapt's default error rate both allow one mismatch. The lengths are essential: a 10-nt overlap also removed
+Every record has the error rate FIVE_PRIME_MAX_ERROR_RATE set explicitly (cutadapt's default, mismatches and indels):
+one error in matches of 12-19 nt, two in matches of 20-26 nt. A count of one error is not possible: cutadapt scales an
+absolute count to the full record, so partial matches would get none; with one error, or without indels, real artefacts
+(e.g. adapter fragments with a two-base deletion) were kept. The lengths are essential: a 10-nt overlap also removed
 miR-22-5p and miR-139-5p (their first 11 bases match the adapter with one mismatch), and 12-13 nt pieces anywhere match
 miR-625-5p; with 12 at the read start and 14 anywhere, the rule matches only miR-3168-5p among the 2,789 human mature
 miRNAs of miRBase 23.1. The match only flags the read (--action=none), so the report counts discarded artefacts as such
 rather than as too short.
 
-Included by smallrna/rules/filter/cutadapt.smk; also a command-line script for the truncated adapter FASTA:
+Included by smallrna/rules/filter/cutadapt.smk; also a command-line script for the 5' adapter FASTA:
     cutadapt_config.py five-prime-fasta ADAPTER5 > five_prime_adapters.fa
 """
 import argparse
@@ -31,6 +35,7 @@ import re
 THREE_PRIME_MIN_OVERLAP = 5
 FIVE_PRIME_MIN_OVERLAP = 12
 FIVE_PRIME_PIECE = 14
+FIVE_PRIME_MAX_ERROR_RATE = 0.1
 DNA = re.compile(r'^[ACGT]+$')
 
 
@@ -87,18 +92,20 @@ def filter_args(settings):
 
 
 def five_prime_fasta(adapter5):
-    """cutadapt adapter FASTA: adapter5 truncated at every end position (from FIVE_PRIME_MIN_OVERLAP nt), then every
-    other piece of at least FIVE_PRIME_PIECE nt."""
+    """cutadapt adapter FASTA: adapter5 truncated at every end position (from FIVE_PRIME_MIN_OVERLAP nt) as non-internal
+    adapters, then every piece of at least FIVE_PRIME_PIECE nt; all with FIVE_PRIME_MAX_ERROR_RATE."""
     truncated = [adapter5[:j] for j in range(FIVE_PRIME_MIN_OVERLAP, len(adapter5) + 1)]
-    pieces = sorted({adapter5[i:i + n] for n in range(FIVE_PRIME_PIECE, len(adapter5) + 1)
-                     for i in range(len(adapter5) - n + 1)} - set(truncated), key=lambda p: (-len(p), adapter5.index(p)))
-    return (''.join('>five_prime_{0}\n{1};min_overlap={2}\n'.format(len(t), t, FIVE_PRIME_MIN_OVERLAP) for t in truncated) +
-            ''.join('>five_prime_piece_{0}_{1}\n{2};min_overlap={3}\n'.format(adapter5.index(p), len(p), p, FIVE_PRIME_PIECE)
-                    for p in pieces))
+    pieces = sorted({adapter5[i:i + n] for n in range(FIVE_PRIME_PIECE, len(adapter5) + 1) for i in range(len(adapter5) - n + 1)},
+                    key=lambda p: (-len(p), adapter5.index(p)))
+    rate = FIVE_PRIME_MAX_ERROR_RATE
+    return (''.join('>five_prime_{0}\nX{1};min_overlap={2};max_error_rate={3}\n'.format(len(t), t, FIVE_PRIME_MIN_OVERLAP, rate)
+                    for t in truncated) +
+            ''.join('>five_prime_piece_{0}_{1}\n{2};min_overlap={3};max_error_rate={4}\n'.format(
+                adapter5.index(p), len(p), p, FIVE_PRIME_PIECE, rate) for p in pieces))
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Write the truncated 5\' adapter FASTA for cutadapt.')
+    parser = argparse.ArgumentParser(description='Write the 5\' adapter FASTA for cutadapt.')
     sub = parser.add_subparsers(dest='command', required=True)
     fasta = sub.add_parser('five-prime-fasta')
     fasta.add_argument('adapter5')
