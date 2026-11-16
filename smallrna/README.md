@@ -99,7 +99,7 @@ They are outside MultiQC's `logs/` scan so the report sees one combined sample, 
 multiqc_<project>.html, .multiqc_config.yaml
 align/<sample>.sorted.bam
 exprs/mir_counts.tsv, isomir_counts.tsv, isomir_counts_anno.tsv, trf_counts.tsv, isotrf_counts.tsv, annotations.tsv
-figs/gene_high_mqc.yaml, pca_mqc.yaml
+figs/gene_high_mqc.yaml, pca_mqc.yaml (PCA only with at least three samples)
 logs/unitas/<sample>  (relative links to quant/unitas/unitas/<sample>)
 provenance/fastp/<sample>.adapter.{json,html}, <sample>.filter.{json,html}
 logs/mirtrace/mirtrace-results.json, mirtrace-report.html, mirtrace-stats-{length,contamination_basic,mirna-complexity}.tsv
@@ -203,7 +203,12 @@ Precedence between these sources is described in [docs/configuration.md](../docs
 - `smallrna/.tests/test_unitas_reference.py`: dump records against synthetic annotations: matching miRBase and MirGeneDB releases, release and database mismatches, inconsistent or unreadable dump records, and missing records reported as `NA`.
 - `gcfdb/.tests/test_unitas_verify.py`: a cached dump against a synthetic published archive: verified, checksum mismatch, edited, extra or missing files, no `SHA256SUMS`, archive not listed or not downloadable.
 - `smallrna/.tests/test_create_anndata.py`: AnnData regression, run in CI on Python 3.14 (see below).
+- `smallrna/.tests/test_report_figures.py`: report figures: the PCA on log2(CPM + 1) (a library differing only in depth lands on its original; explained variance on the axes), the top-miRNA plot in counts per million miRNA reads, and no PCA below three samples (dry run). The figure tests run in CI with the scanpy image's scanpy and anndata versions.
 - Commands and environments: [development guide](../docs/development.md#run-the-checks).
+
+## Report figures
+
+`bfq_level2_pca` writes the report's PCA from the UNITAS miRNA counts: log2(CPM + 1), with CPM over all miRNA reads, of the miRNAs detected in at least min(3, samples) samples; the axes give the share of variance explained. Projects with fewer than three samples get no PCA. `bfq_level2_mirna_high` shows the ten miRNAs with the highest mean counts per million miRNA reads, as CPM and as read counts. Neither uses the DESeq2 layer below.
 
 ## UNITAS AnnData and variance transformation
 
