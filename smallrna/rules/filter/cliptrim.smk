@@ -63,10 +63,10 @@ rule fastp_log:
         'python {params.script:q} {input.trim_log:q} {input.filter_log:q} --html {output.html:q} > {output.json:q}'
 
 
-TRIM_QUANTIFIERS = ('fastp', 'skip')
+TRIM_QUANTIFIERS = ('fastp', 'cutadapt', 'skip')
 if config['filter']['trim']['quantifier'] not in TRIM_QUANTIFIERS:
-    raise ValueError('filter.trim.quantifier: smallrna supports {}, got {!r}'.format(
-        ' or '.join(TRIM_QUANTIFIERS), config['filter']['trim']['quantifier']))
+    raise ValueError('filter.trim.quantifier: smallrna supports {} or {}, got {!r}'.format(
+        ', '.join(TRIM_QUANTIFIERS[:-1]), TRIM_QUANTIFIERS[-1], config['filter']['trim']['quantifier']))
 
 rule smallrna_untrimmed_fastq:
     """With filter.trim.quantifier: skip, the quantifiers read the merged reads unchanged, as plain FASTQ: no adapter
@@ -81,8 +81,14 @@ rule smallrna_untrimmed_fastq:
         'gzip -dc {input} > {output}'
 
 def get_filtered_fastq(wildcards):
-    if config['filter']['trim']['quantifier'] == 'skip':
-        R1 = join(FILTER_INTERIM, 'fastq', '{sample}_R1.fastq')
-    else:
-        R1 = join(FILTER_INTERIM, 'fastp', '{sample}_R1.fastq')
-    return {'R1': R1}
+    quantifier = config['filter']['trim']['quantifier']
+    stage = {'skip': 'fastq', 'cutadapt': 'cutadapt'}.get(quantifier, 'fastp')
+    return {'R1': join(FILTER_INTERIM, stage, '{sample}_R1.fastq')}
+
+
+def filtered_min_length():
+    """The final minimum length of the filtered reads (None: only empty reads removed), for quantifiers that apply one
+    of their own: the kit's cutadapt minimum_length with filter.trim.quantifier: cutadapt, else fastp's -l."""
+    if config['filter']['trim']['quantifier'] == 'cutadapt':
+        return cutadapt_settings(config)['minimum_length']
+    return final_length_required(config['filter']['trim']['fastp'])

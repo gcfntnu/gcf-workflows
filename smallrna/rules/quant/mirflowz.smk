@@ -18,7 +18,7 @@ MIRFLOWZ_MEM_GB = int(config['quant']['mirflowz']['mem_gb'])
 include:
     join(GCFDB_DIR, 'mirflowz.db')
 
-MIRFLOWZ_MIN_LENGTH = final_length_required(config['filter']['trim']['fastp']) or 1
+MIRFLOWZ_MIN_LENGTH = filtered_min_length() or 1
 MIRFLOWZ_OUT = join(QUANT_INTERIM, 'mirflowz')
 
 rule mirflowz_quant:
