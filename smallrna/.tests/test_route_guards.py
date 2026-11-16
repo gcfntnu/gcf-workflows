@@ -219,5 +219,6 @@ def test_report_template_orders_sections_and_tables_for_smallrna():
     assert template['table_columns_placement']['cutadapt'] == {k: v for k, v in template['table_columns_placement']['fastp'].items()
                                                                if k in ('before_filtering_total_reads', 'pct_surviving', 'pct_adapter')}
     assert '5′ adapter artefacts' in template['section_comments']['cutadapt']
+    assert 'three passes' in template['section_comments']['cutadapt'] and 'Illumina primer' in template['section_comments']['cutadapt']
     assert template['table_columns_visible']['Custom content: gcf'] == {'paired_end': False}
     assert template['table_columns_name'] == {'unitas': {'miRNA_Detected': '# miRNAs'}}
