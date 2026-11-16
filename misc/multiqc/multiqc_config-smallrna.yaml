@@ -24,25 +24,29 @@ base_count_multiplier: 1
 base_count_prefix: ''
 base_count_desc: ''
 
+# In the order of the reads (#358): filtering, read QC, alignment, annotation and counts, then the exploratory PCA.
+# Keys are module and section IDs as reported; `exploratory` is the PCA/UMAP parent section.
 report_section_order:
-  pca:
-    order: 1000
-  umap:
-    order: 1000
   fastp:
     order: 950
   cutadapt:
     order: 950
   fastqc_rnaseq:
     order: 900
+  mirtrace:
+    order: 850
   fastq_screen:
     order: 800
   star:
     order: 700
   picard:
     order: 600
+  unitas:
+    order: 550
   gene_high:
     order: 500
+  exploratory:
+    order: 450
   gene_biotypes:
     order: 400
 remove_sections:
@@ -66,19 +70,29 @@ remove_sections:
  - mirtrace_rna_categories
  - mirtrace_length
 section_comments:
+  cutadapt: "Reads are filtered with cutadapt in two passes: the 3′ adapter is trimmed; then reads that contain the 5′ adapter (5′ adapter artefacts, fragments of the 5′ adapter that would otherwise be counted as miRNAs), reads that are too short and reads with too many N are discarded. Reads is the number before filtering; % Adapter is the share in which the 3′ adapter was found."
   mirtrace: "Here miRTrace runs on the filtered reads used for quantification, without adapter trimming, as a check for miRNAs of other clades (contamination) and for miRNA complexity. Reads shorter than 18 nt or of low complexity or low quality are left out of these two plots only, not out of the counts."
 table_columns_visible:
   fastp:
     pct_duplication: False
+  'Custom content: gcf':
+    paired_end: False
   star:
     total_spliced_percent: False
     novel_spliced_percent: False
+table_columns_name:
+  unitas:
+    miRNA_Detected: '# miRNAs'
 table_columns_placement:
   fastp:
     before_filtering_total_reads: 110
     pct_surviving: 112
     pct_adapter: 114
     after_filtering_gc_content: 116
+  cutadapt:
+    before_filtering_total_reads: 110
+    pct_surviving: 112
+    pct_adapter: 114
   STAR:
     uniquely_mapped_percent: 120
     uniquely_mapped: 125
