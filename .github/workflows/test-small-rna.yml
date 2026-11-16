@@ -60,4 +60,4 @@ jobs:
     - name: Install the scanpy image's versions
       run: python -m pip install pytest pyyaml scanpy==1.12.3 anndata==0.13.3.post0
     - name: Test the PCA and top-miRNA report figures
-      run: python -m pytest -q smallrna/.tests/test_report_figures.py -k 'not left_out'
+      run: python -m pytest -q smallrna/.tests/test_report_figures.py

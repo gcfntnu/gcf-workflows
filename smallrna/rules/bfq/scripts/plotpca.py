@@ -77,6 +77,14 @@ def multiqc_section(args, min_samples=None):
     section['plot_type'] = 'scatter'
     return section
 
+def multiqc_note(args, reason):
+    """A text section in place of the plot when no two-component PCA can be made."""
+    section = multiqc_section(args)
+    section['description'] = 'Principal Component Analysis of tabulated counts.'
+    section['plot_type'] = 'html'
+    section['data'] = '<p>PCA not shown: {}.</p>'.format(reason)
+    return section
+
 def multiqc_pconfig(args):
     pconfig = {}
     pconfig['id'] = 'pca_scatter'
@@ -212,7 +220,22 @@ if __name__ == "__main__":
 
     elif args.recipe == 'vsd':
         pass
-        
+
+    # Components from the matrix after filtering; two are needed for the plot.
+    n_comps = min(20, min(adata.shape) - 1)
+    if n_comps < 2:
+        if n_samples < 3:
+            reason = 'the project has fewer than three samples'
+        elif args.recipe == 'smallrna':
+            reason = 'fewer than three miRNAs are detected in at least three samples'
+        else:
+            reason = 'fewer than three features are left after filtering'
+        if not args.output.endswith('_mqc.yaml'):
+            raise ValueError('No PCA: {}'.format(reason))
+        with open(args.output, 'w') as fh:
+            yaml.dump(multiqc_note(args, reason), fh, default_flow_style=False, sort_keys=False)
+        sys.exit(0)
+
     sc.tl.pca(adata, svd_solver='arpack', n_comps=n_comps)
 
     if args.method == 'umap':

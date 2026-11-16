@@ -1,6 +1,7 @@
 """Small-RNA report figures (#354): the PCA on log2(CPM + 1) and the top-miRNA plot in counts per million.
 
-The figure tests need the workflow's scanpy and anndata (the `scanpy` image); the dry runs need Snakemake only.
+The figure tests need the workflow's scanpy and anndata (the `scanpy` image) and skip without them; the dry runs
+need Snakemake and skip without it.
 """
 import importlib.util
 import subprocess
@@ -11,7 +12,7 @@ import numpy as np
 import pytest
 import yaml
 
-from test_quant_methods import ROOT, configure, dry_run
+from test_quant_methods import ROOT, configure, dry_run, record_as_done
 
 SCRIPTS = ROOT / 'smallrna/rules/bfq/scripts'
 
@@ -62,6 +63,23 @@ def test_pca_of_three_samples(tmp_path):
     assert sorted(section['data'][0]) == ['S1', 'S2', 'S3']
 
 
+def test_pca_components_come_from_the_filtered_matrix(tmp_path):
+    """Three of six miRNAs are detected in at least three samples: two components from the filtered matrix."""
+    counts = [[100, 20, 10, 5, 0, 0], [20, 100, 10, 0, 5, 0], [40, 20, 100, 0, 0, 5], [60, 40, 20, 0, 0, 0]]
+    section = run_pca(tmp_path, counts)
+    assert section['plot_type'] == 'scatter' and sorted(section['data'][0]) == ['S1', 'S2', 'S3', 'S4']
+    assert section['pconfig']['xlab'].startswith('PC1 (')
+
+
+@pytest.mark.parametrize('counts, reason', [
+    ([[5, 0, 3, 8], [0, 5, 3, 8], [5, 5, 0, 0]], 'fewer than three miRNAs are detected in at least three samples'),
+    ([[5, 0, 3], [0, 5, 3]], 'the project has fewer than three samples')])
+def test_pca_is_a_note_when_two_components_are_impossible(tmp_path, counts, reason):
+    section = run_pca(tmp_path, counts)
+    assert section['plot_type'] == 'html' and section['data'] == '<p>PCA not shown: {}.</p>'.format(reason)
+    assert section['id'] == 'pca' and section['parent_id'] == 'exploratory'
+
+
 def load_highly_expressed():
     pytest.importorskip('scanpy')
     spec = importlib.util.spec_from_file_location('plot_highly_expressed', SCRIPTS / 'plot_highly_expressed.py')
@@ -91,12 +109,29 @@ def keep_samples(names):
     return update
 
 
-@pytest.mark.parametrize('names, planned', [(['SR01', 'SR02'], False), (['SR01', 'SR02', 'SR03'], True)])
-def test_pca_is_left_out_below_three_samples(tmp_path, names, planned):
-    configure(tmp_path, 'unitas', keep_samples(names))  # copy the fixture, then cut the sample table to match
+def cut_samples(tmp_path, names):
+    configure(tmp_path, 'unitas', keep_samples(names))
     table = (tmp_path / 'pep/sample_table.csv').read_text().splitlines()
     (tmp_path / 'pep/sample_table.csv').write_text('\n'.join([table[0]] + [r for r in table[1:] if r.split(',')[0] in names]) + '\n')
+
+
+@pytest.mark.parametrize('names', [['SR01', 'SR02'], ['SR01', 'SR02', 'SR03']])
+def test_pca_section_is_always_written(tmp_path, names):
+    pytest.importorskip('snakemake')  # dry runs; the figure tests also run in a scanpy-only environment
+    configure(tmp_path, 'unitas')  # copy the fixture
+    cut_samples(tmp_path, names)
     returncode, output = dry_run(tmp_path, 'unitas', keep_samples(names), target='multiqc_report')
     assert returncode == 0, output
-    assert ('rule bfq_level2_pca:' in output) == planned
-    assert 'rule bfq_level2_mirna_high:' in output
+    assert 'rule bfq_level2_pca:' in output and 'rule bfq_level2_mirna_high:' in output
+
+
+def test_earlier_pca_is_rewritten_when_a_project_drops_below_three_samples(tmp_path):
+    """A PCA made with four samples is not left in figs/ for the report when two samples remain."""
+    pytest.importorskip('snakemake')
+    configure(tmp_path, 'unitas')
+    record_as_done(tmp_path, 'data/tmp/smallrna/quant/unitas/adata.h5ad', 'data/tmp/smallrna/bfq/figs/pca_mqc.yaml')
+    cut_samples(tmp_path, ['SR01', 'SR02'])
+    returncode, output = dry_run(tmp_path, 'unitas', keep_samples(['SR01', 'SR02']), target='multiqc_report')
+    assert returncode == 0, output
+    pca = output.split('rule bfq_level2_pca:', 1)[1].split('\nrule ', 1)[0]
+    assert 'output: data/tmp/smallrna/bfq/figs/pca_mqc.yaml' in pca
