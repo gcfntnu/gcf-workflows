@@ -263,3 +263,16 @@ def test_unitas_reference_is_checked_before_counts_meet_annotations(tmp_path, mi
     check = output.split('rule unitas_reference:', 1)[1].split('rule ', 1)[0]
     assert f'--mirna-db {mirna_db} --annotation {annotation} --release {release}' in check
     assert 'data/tmp/smallrna/quant/unitas/reference.tsv' in output.split('rule unitas_mirna_anndata:', 1)[1].split('output:', 1)[0]
+
+
+@pytest.mark.parametrize('db, name', [('mirbase', 'miRBase'), ('mirgenedb', 'MirGeneDB')])
+def test_mirge3_counts_are_made_from_its_mapped_reads(tmp_path, db, name):
+    """miR.Counts.csv comes from mapped.csv with the library's merge file; miRge3's own table is kept (#349)."""
+    returncode, output = dry_run(tmp_path, 'mirge3', lambda s: s['quant'].setdefault('mirge3', {}).update(db=db),
+                                 printshell=True)
+    assert returncode == 0, output
+    quant = rule_block(output, 'mirge3_quant')
+    assert 'data/tmp/smallrna/quant/mirge3/miR.Counts.mirge3.csv' in quant and 'quant/mirge3/mapped.csv' in quant
+    counts = rule_block(output, 'mirge3_counts')
+    assert 'output: data/tmp/smallrna/quant/mirge3/miR.Counts.csv' in counts
+    assert f'--merges data/tmp/smallrna/quant/mirge3/lib/mouse/annotation.Libs/mouse_merges_{name}.csv' in counts
