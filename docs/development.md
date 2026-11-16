@@ -24,14 +24,14 @@ Two environments cover the current CI families:
 # Snakemake 9.7.1: workflow dry runs, test-all.sh, MultiQC, singlecell and QIAseq tests
 python3.11 -m venv .dev/ci
 .dev/ci/bin/python -m pip install --upgrade pip
-.dev/ci/bin/python -m pip install -r singlecell/.tests/requirements.txt pandas matplotlib biopython cutadapt==4.9
+.dev/ci/bin/python -m pip install -r singlecell/.tests/requirements.txt pandas matplotlib biopython cutadapt==4.9 pytest-xdist
 
 # Python 3.14: small-RNA AnnData regression
 python3.14 -m venv .dev/anndata
 .dev/anndata/bin/python -m pip install pytest anndata==0.13.3.post0 numpy==2.5.2 pandas==3.0.5
 ```
 
-`.dev/ci` is the union of the dependencies of the CI jobs that use Snakemake 9.7.1.
+`.dev/ci` is the union of the dependencies of the CI jobs that use Snakemake 9.7.1, plus `pytest-xdist` for parallel local runs (see [Run the checks](#run-the-checks)).
 
 **System prerequisite: `pigz`.** The QIAseq tests compress output with `pigz`, which the Python environments do not provide; CI installs it with `apt-get install -y pigz`. Without it, two compressed cases fail with `pigz is required for the compression contract`. Check with `command -v pigz` and, if it is missing, install it with your system package manager, for example `sudo apt-get install pigz` on Debian/Ubuntu.
 `singlecell/.tests/requirements.txt` pins Snakemake, PyYAML and PuLP and includes the shared `.tests/requirements-config.txt` gcf-tools baseline. Every workflow environment needs that selector dependency; setup needs network access once.
@@ -46,6 +46,10 @@ Clear the GCF environment variables first, so a personal environment cannot chan
 ```bash
 unset GCF_EXT GCF_INTERIM GCF_FASTQ GCF_SECRET GCF_REFDIR
 ```
+
+**Parallel pytest.** Add `-n auto` (`pytest-xdist`) to any `pytest` command below to run its tests in parallel.
+Each test works in its own pytest temporary directory, so the results are the same as a serial run; most of the time goes into the Snakemake dry runs the tests start, so the dry-run-heavy selections take about a quarter of the time (`smallrna/.tests`: about 4 minutes serially, 1 minute in parallel).
+The `unittest discover` commands are unaffected, and CI runs the tests serially.
 
 | Check | Command | Environment |
 | --- | --- | --- |
