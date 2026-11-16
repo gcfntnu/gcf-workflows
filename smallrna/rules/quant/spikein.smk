@@ -3,9 +3,19 @@
 
 Spike-ins are a library prep choice. `filter.spikein.ref` lists sets, comma-separated: gcfdb sets by name (sequences
 in `EXT_DIR/spikein/fasta/<set>.fa`), or a project's own FASTA by its path (ending in .fa or .fasta, relative to the
-working directory), e.g. synthetic non-human sequences added to the libraries. Whatever the route, the same sequences
-are used: the bowtie route counts each spike-in (rules/filter/spikein_bowtie.smk), UNITAS adds them to its reference
-with `-refseq`, and miRge3 gets a spike-in index built from them.
+working directory), e.g. synthetic non-human sequences added to the libraries.
+
+`filter.spikein.quantifier` says who estimates them, from the same sequences:
+- `bowtie`: a prefilter (rules/filter/spikein_bowtie.smk) counts each spike-in in the filtered reads and removes those
+  reads, so every later step reads reads without spike-ins and none estimates them: UNITAS gets no spike-in reference
+  and miRge3 no spike-in index;
+- `native`: every quantifier that supports spike-ins estimates them itself from the reads with the spike-ins: UNITAS
+  adds them to its reference with `-refseq`, miRge3 gets a spike-in index built from them. The bowtie prefilter still
+  runs for the steps without spike-in support (mirflowz, miRTrace, STAR, FastQC), and its counts per spike-in are
+  delivered as well;
+- `skip`: no spike-in estimation; then no sets may be listed.
+`unitas`, the former name of `native`, and `filter.spikein.filter`, now implied by `bowtie`, stop the workflow. A project's own FASTA is used as a copy in DNA letters
+(U to T), so RNA-letter files work for every route.
 
 `filter.spikein.quantifier`: `skip`, `bowtie` or `unitas`. `filter.spikein.filter: true` removes the reads matching a
 spike-in before quantification; bowtie route only.
@@ -13,7 +23,7 @@ spike-in before quantification; bowtie route only.
 import re
 
 SPIKEIN_SETS = ('ERCC92', 'smallrna_calibrators')
-SPIKEIN_QUANTIFIERS = ('skip', 'bowtie', 'unitas')
+SPIKEIN_QUANTIFIERS = ('skip', 'bowtie', 'native')
 CUSTOM_SPIKEIN = re.compile(r'\.(fa|fasta)$')
 
 
@@ -61,19 +71,35 @@ def spikein_sets():
 
 SPIKEIN_REF_SETS = spikein_sets()
 
-if config['filter']['spikein'].get('quantifier') not in SPIKEIN_QUANTIFIERS:
-    raise ValueError('filter.spikein.quantifier: smallrna supports {}, got {!r}'.format(
-        ', '.join(SPIKEIN_QUANTIFIERS), config['filter']['spikein'].get('quantifier')))
-if config['filter']['spikein']['quantifier'] != 'skip' and not SPIKEIN_REF_SETS:
-    raise ValueError('filter.spikein.quantifier is {} but filter.spikein.ref lists no spike-in sets'.format(
-        config['filter']['spikein']['quantifier']))
-if config['filter']['spikein'].get('filter') not in (True, False):
-    raise ValueError('filter.spikein.filter: true or false, got {!r}'.format(config['filter']['spikein'].get('filter')))
-if config['filter']['spikein']['filter'] and config['filter']['spikein']['quantifier'] != 'bowtie':
-    raise ValueError('filter.spikein.filter: true removes spike-in reads with the bowtie route only; set '
-                     'filter.spikein.quantifier: bowtie, got {!r}'.format(config['filter']['spikein']['quantifier']))
+SPIKEIN_QUANTIFIER = config['filter']['spikein'].get('quantifier')
+if SPIKEIN_QUANTIFIER == 'unitas':
+    raise ValueError('filter.spikein.quantifier: unitas is now called native (every quantifier that supports spike-ins '
+                     'estimates them: UNITAS with -refseq, miRge3 with a spike-in index); set filter.spikein.quantifier: native')
+if SPIKEIN_QUANTIFIER not in SPIKEIN_QUANTIFIERS:
+    raise ValueError('filter.spikein.quantifier: smallrna supports {}, got {!r}'.format(', '.join(SPIKEIN_QUANTIFIERS), SPIKEIN_QUANTIFIER))
+if SPIKEIN_QUANTIFIER != 'skip' and not SPIKEIN_REF_SETS:
+    raise ValueError('filter.spikein.quantifier is {} but filter.spikein.ref lists no spike-in sets'.format(SPIKEIN_QUANTIFIER))
+if SPIKEIN_QUANTIFIER == 'skip' and SPIKEIN_REF_SETS:
+    raise ValueError('filter.spikein.ref lists spike-in sets but filter.spikein.quantifier is skip; set bowtie (count and '
+                     'remove them before quantification) or native (the quantifiers estimate them), or remove the sets')
+if 'filter' in config['filter']['spikein']:
+    raise ValueError('filter.spikein.filter is no longer used: filter.spikein.quantifier: bowtie counts and removes spike-in '
+                     'reads before quantification, native leaves them to the quantifiers; remove filter.spikein.filter')
+
+
+# A project's own FASTA files, by their name in the filter interim directory: rule spikein_project_fasta
+# (filter/spikein_bowtie.smk) writes each in DNA letters there, so every route reads the same sequences.
+SPIKEIN_CUSTOM = {'custom{}'.format(i): path for i, path in enumerate([n for n in SPIKEIN_REF_SETS if n not in SPIKEIN_SETS], 1)}
+
+
+def native_spikein_fasta():
+    """The spike-in FASTA files for quantifiers with their own spike-in support (UNITAS, miRge3): those of
+    spikein_fasta() with filter.spikein.quantifier: native, none otherwise."""
+    return spikein_fasta() if SPIKEIN_QUANTIFIER == 'native' else []
 
 
 def spikein_fasta():
-    """FASTA files of the configured spike-in sets: gcfdb's for set names, the project's own for paths."""
-    return [join(EXT_DIR, 'spikein', 'fasta', name + '.fa') if name in SPIKEIN_SETS else name for name in SPIKEIN_REF_SETS]
+    """FASTA files of the configured spike-in sets, in order: gcfdb's for set names, the DNA copy for project files."""
+    custom = {path: name for name, path in SPIKEIN_CUSTOM.items()}
+    return [join(EXT_DIR, 'spikein', 'fasta', name + '.fa') if name in SPIKEIN_SETS
+            else join(FILTER_INTERIM, 'spikein', 'sets', custom[name] + '.fa') for name in SPIKEIN_REF_SETS]

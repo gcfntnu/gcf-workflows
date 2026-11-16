@@ -4,14 +4,31 @@
 The configured spike-in sets (`filter.spikein.ref`, quant/spikein.smk) are combined into one bowtie reference per
 project. Each sample's filtered reads are matched exactly over their whole length, forward strand only
 (`-v 0 --norc`), so a read counts for a spike-in only when it is an exact piece of it. A read matching more than one
-spike-in counts as `__ambiguous` (`-k 2` finds up to two). Every sample gets a table with every spike-in, zeros
-included, and the project a matrix of them, delivered as `exprs/spikein_counts.tsv`.
+spike-in counts as `__ambiguous`. bowtie reports every alignment (`-a`): `-k` caps alignment positions, not distinct
+spike-ins, so a read matching one spike-in twice and another once would be counted for the first. Every sample gets a
+table with every spike-in, zeros included, and the project a matrix of them, delivered as `exprs/spikein_counts.tsv`.
 
-With `filter.spikein.filter: true`, the quantifiers and miRTrace read the reads that matched no spike-in (bowtie's
-`--un`); otherwise the spike-ins are only counted.
+It runs whenever a spike-in route is set (filter.spikein.quantifier: bowtie or native) and is then the prefilter for
+every step that does not estimate spike-ins (mirflowz, miRTrace, STAR, FastQC, ...): they read the reads that matched
+no spike-in (bowtie's `--un`). With bowtie, UNITAS and miRge3 read those reads too and estimate no spike-ins; with
+native, they read the reads with the spike-ins and estimate them themselves (quant/spikein.smk, filter/cliptrim.smk).
 """
 
-if config['filter']['spikein']['quantifier'] == 'bowtie':
+rule spikein_project_fasta:
+    """A project's own spike-in FASTA (filter.spikein.ref) in DNA letters, the copy every route uses."""
+    input:
+        lambda wildcards: SPIKEIN_CUSTOM[wildcards.name]
+    output:
+        join(FILTER_INTERIM, 'spikein', 'sets', '{name}.fa')
+    params:
+        script = src_gcf('scripts/spikein_bowtie.py')
+    wildcard_constraints:
+        name = r'custom\d+'
+    shell:
+        'python {params.script:q} dna {input:q} > {output:q}'
+
+
+if config['filter']['spikein']['quantifier'] in ('bowtie', 'native'):
     SPIKEIN_BOWTIE = join(FILTER_INTERIM, 'spikein')
     SPIKEIN_INDEX_SUFFIXES = ('1.ebwt', '2.ebwt', '3.ebwt', '4.ebwt', 'rev.1.ebwt', 'rev.2.ebwt')
 
@@ -48,7 +65,7 @@ if config['filter']['spikein']['quantifier'] == 'bowtie':
             hits = temp(join(SPIKEIN_BOWTIE, 'bowtie', '{sample}.hits'))
         params:
             index = join(SPIKEIN_BOWTIE, 'index', 'spikein'),
-            args = '-q -v 0 --norc -k 2'
+            args = '-q -v 0 --norc -a'
         threads:
             4
         log:

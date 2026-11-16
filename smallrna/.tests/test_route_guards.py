@@ -59,7 +59,7 @@ def test_supported_settings_plan_delivery(tmp_path, update):
 
 
 def set_spikein(ref):
-    return lambda settings: settings.setdefault('filter', {}).setdefault('spikein', {}).update(quantifier='unitas', ref=ref)
+    return lambda settings: settings.setdefault('filter', {}).setdefault('spikein', {}).update(quantifier='native', ref=ref)
 
 
 @pytest.mark.parametrize('ref, fastas', [('ERCC92,smallrna_calibrators', ['ERCC92.fa', 'smallrna_calibrators.fa']),
@@ -186,7 +186,7 @@ def set_unitas_refseq(spikein, contaminants):
     def update(settings):
         filters = settings.setdefault('filter', {})
         if spikein:
-            filters.setdefault('spikein', {}).update(quantifier='unitas', ref='ERCC92')
+            filters.setdefault('spikein', {}).update(quantifier='native', ref='ERCC92')
         if contaminants:
             filters.setdefault('contaminants', {}).update(quantifier='unitas')
     return update

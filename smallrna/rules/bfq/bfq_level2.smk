@@ -1,3 +1,4 @@
+import shlex
 
 rule bfq_level2_pca:
     input:
@@ -104,7 +105,7 @@ BFQ_LEVEL2_ALL = [join(BFQ_INTERIM, 'figs', 'pca_mqc.yaml'),
                   rules.bfq_level2_aligned.output]
 BFQ_ALL.extend(BFQ_LEVEL2_ALL)
 
-if config['filter']['spikein']['quantifier'] == 'bowtie':
+if config['filter']['spikein']['quantifier'] in ('bowtie', 'native'):
     rule bfq_level2_spikein:
         input:
             rules.spikein_bowtie_matrix.output
@@ -114,3 +115,28 @@ if config['filter']['spikein']['quantifier'] == 'bowtie':
             'ln -srf {input:q} {output:q}'
 
     BFQ_ALL.extend(rules.bfq_level2_spikein.output)
+
+# Spike-in reads per sample in MultiQC's General Statistics, from the configured spike-in route (#336)
+if config['filter']['spikein']['quantifier'] in ('bowtie', 'native'):
+    def spikein_mqc_args(wildcards, input):
+        if config['filter']['spikein']['quantifier'] == 'bowtie':
+            return 'bowtie --counts {} --logs {}'.format(' '.join(map(shlex.quote, input.counts)), ' '.join(map(shlex.quote, input.logs)))
+        return 'unitas ' + ' '.join(map(shlex.quote, input.summaries))
+
+    rule bfq_level2_spikein_mqc:
+        input:
+            **({'counts': expand(join(FILTER_INTERIM, 'spikein', 'bowtie', '{sample}.tsv'), sample=SAMPLES),
+                'logs': expand(join(FILTER_INTERIM, 'spikein', 'bowtie', '{sample}.log'), sample=SAMPLES)}
+               if config['filter']['spikein']['quantifier'] == 'bowtie' else
+               {'summaries': expand(rules.unitas.output.annotation, sample=SAMPLES)})
+        output:
+            join(BFQ_INTERIM, 'figs', 'spikein_mqc.yaml')
+        params:
+            script = src_gcf('scripts/spikein_mqc.py'),
+            args = spikein_mqc_args
+        container:
+            'docker://' + config['docker']['default']
+        shell:
+            'python {params.script:q} {params.args} > {output:q}'
+
+    BFQ_ALL.extend(rules.bfq_level2_spikein_mqc.output)

@@ -1,13 +1,17 @@
 #!/usr/bin/env python
 """Per-spike-in read counts of the bowtie spike-in route (filter.spikein.quantifier: bowtie, #336).
 
+    spikein_bowtie.py dna PROJECT.fa > custom1.fa
+        A project's spike-in FASTA with its sequences in upper-case DNA (U to T), headers unchanged: the copy every
+        route (bowtie, UNITAS, miRge3) uses, so an RNA-letter FASTA gives the same spike-ins everywhere.
     spikein_bowtie.py fasta SET.fa [SET.fa ...] > spikein.fa
         The configured sets as one bowtie reference: names cut at the first whitespace, sequences in upper case DNA
         (U to T). Fails on a name used twice, within or across sets.
     spikein_bowtie.py counts --fasta spikein.fa --hits SAMPLE.hits > SAMPLE.tsv
         One table per sample: every spike-in of the reference in its order, with the reads matching it (0 if none),
-        then `__ambiguous`, reads matching more than one spike-in. HITS is bowtie's default output with -k 2: one line
-        per alignment (read name, strand, reference name, ...).
+        then `__ambiguous`, reads matching more than one spike-in. HITS is bowtie's default output with -a (every
+        alignment; -k would cap alignment positions, not distinct spike-ins): one line per alignment (read name,
+        strand, reference name, ...).
     spikein_bowtie.py matrix SAMPLE.tsv [SAMPLE.tsv ...] > spikein_counts.tsv
         The per-sample tables side by side, one column per sample (named by the file name without .tsv); fails when
         the tables do not list the same spike-ins.
@@ -31,6 +35,12 @@ def read_fasta(path):
             elif line:
                 records[-1][1] += line
     return [tuple(record) for record in records]
+
+
+def dna(path):
+    """The FASTA text with sequence lines in upper-case DNA; headers and line layout unchanged."""
+    with open(path) as fh:
+        return ''.join(line if line.startswith('>') else line.upper().replace('U', 'T') for line in fh)
 
 
 def combine(paths):
@@ -88,6 +98,7 @@ def matrix(paths):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     sub = parser.add_subparsers(dest='command', required=True)
+    sub.add_parser('dna').add_argument('fasta')
     sub.add_parser('fasta').add_argument('fasta', nargs='+')
     counts_parser = sub.add_parser('counts')
     counts_parser.add_argument('--fasta', required=True)
@@ -95,7 +106,9 @@ def main():
     sub.add_parser('matrix').add_argument('tables', nargs='+')
     args = parser.parse_args()
     try:
-        if args.command == 'fasta':
+        if args.command == 'dna':
+            sys.stdout.write(dna(args.fasta))
+        elif args.command == 'fasta':
             sys.stdout.write(''.join('>{}\n{}\n'.format(name, sequence) for name, sequence in combine(args.fasta)))
         elif args.command == 'counts':
             names = [name for name, _ in read_fasta(args.fasta)]

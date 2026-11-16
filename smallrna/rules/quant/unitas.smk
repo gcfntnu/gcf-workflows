@@ -1,7 +1,7 @@
 #-*- mode:snakemake -*-
 
 def get_unitas_seq(wildcards):
-    return get_filtered_fastq(wildcards)['R1']
+    return native_spikein_fastq_pattern().format(sample=wildcards.sample)
 
 rule spikein_unitas:
     input:
@@ -11,7 +11,7 @@ rule spikein_unitas:
     output:
         join(QUANT_INTERIM, 'unitas', '_spikein_unitas_formatted.fa')
     shell:
-        'python {params.script} {input} > {output}'
+        'python {params.script:q} {input:q} > {output:q}'
         
 if config['filter']['ribosomal']['quantifier'] != 'skip':
     raise ValueError('filter.ribosomal.quantifier: smallrna supports only skip, got {!r}; '
@@ -20,7 +20,7 @@ if config['filter']['ribosomal']['quantifier'] != 'skip':
 def get_unitas_refseq_fasta():
     """Spike-in and contaminant FASTA files that UNITAS adds to its ncRNA reference, if they are configured."""
     fasta = []
-    if config['filter']['spikein']['quantifier'] == 'unitas':
+    if config['filter']['spikein']['quantifier'] == 'native':
         fasta.extend(rules.spikein_unitas.output)
     if config['filter']['contaminants']['quantifier'] == 'unitas':
         fasta.extend(rules.contaminants_unitas.output)

@@ -140,8 +140,9 @@ def rule_block(output, rule):
 @pytest.mark.parametrize('ref, fasta', [(None, []), ('ERCC92', ['ERCC92']), ('smallrna_calibrators', ['smallrna_calibrators']),
                                         ('smallrna_calibrators, ERCC92', ['smallrna_calibrators', 'ERCC92'])])
 def test_mirge3_spikein_index_follows_the_configured_sets(tmp_path, ref, fasta):
-    """The spike-in index is built from the gcfdb sets of filter.spikein.ref before miRge3 runs, or removed."""
-    update = lambda s: s.setdefault('filter', {}).setdefault('spikein', {}).update(ref=ref)
+    """With filter.spikein.quantifier: native, the spike-in index is built from the gcfdb sets of filter.spikein.ref
+    before miRge3 runs; without sets there is none."""
+    update = lambda s: s.setdefault('filter', {}).setdefault('spikein', {}).update(ref=ref, quantifier='native' if ref else 'skip')
     returncode, output = dry_run(tmp_path, 'mirge3', update, printshell=True)
     assert returncode == 0, output
     project = rule_block(output, 'mirge3_project_library')
@@ -214,7 +215,7 @@ def test_switching_the_mirna_database_reruns_the_reference_check(tmp_path):
 
 def test_changing_the_spikein_sets_rebuilds_the_project_library(tmp_path):
     """Each project's spike-in index is part of its own library, rebuilt when its sets change."""
-    spikein = lambda ref: lambda s: s.setdefault('filter', {}).setdefault('spikein', {}).update(ref=ref)
+    spikein = lambda ref: lambda s: s.setdefault('filter', {}).setdefault('spikein', {}).update(ref=ref, quantifier='native')
     configure(tmp_path, 'mirge3', spikein('smallrna_calibrators'))
     record_as_done(tmp_path, LIBRARY, 'data/ext/spikein/fasta/smallrna_calibrators.fa', 'data/ext/spikein/fasta/ERCC92.fa',
                    'data/tmp/smallrna/quant/mirge3/lib/mouse/', 'data/tmp/smallrna/quant/mirge3/spikein.tsv')
