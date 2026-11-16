@@ -138,6 +138,7 @@ def test_route_filters_with_cutadapt_only(tmp_path):
     assert 'input: data/tmp/smallrna/filter/cutadapt/SR0' in rule_block(output, 'unitas').split('output:', 1)[0]  # any sample's job
     assert 'bfq/logs/SR01/SR01.cutadapt.json' in output and 'bfq/provenance/cutadapt/SR01.filter.json' in output
     assert 'SR01.fastp.json' not in output
+    assert '-m cutadapt' in rule_block(output, 'multiqc_report')
 
 
 def test_route_sets_the_minimum_length_of_the_quantifiers(tmp_path):

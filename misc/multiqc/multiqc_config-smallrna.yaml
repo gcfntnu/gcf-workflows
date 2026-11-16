@@ -31,6 +31,8 @@ report_section_order:
     order: 1000
   fastp:
     order: 950
+  cutadapt:
+    order: 950
   fastqc_rnaseq:
     order: 900
   fastq_screen:
