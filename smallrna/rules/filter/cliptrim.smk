@@ -88,10 +88,18 @@ rule smallrna_untrimmed_fastq:
     shell:
         'gzip -dc {input} > {output}'
 
-def filtered_fastq_pattern():
-    """The filtered reads the quantifiers (and miRTrace) read, with a {sample} wildcard."""
+def trimmed_fastq_pattern():
+    """The reads after adapter removal and filtering by the trim route, with a {sample} wildcard."""
     stage = {'skip': 'fastq', 'cutadapt': 'cutadapt'}.get(config['filter']['trim']['quantifier'], 'fastp')
     return join(FILTER_INTERIM, stage, '{sample}_R1.fastq')
+
+
+def filtered_fastq_pattern():
+    """The filtered reads the quantifiers (and miRTrace) read, with a {sample} wildcard: the trimmed reads, without the
+    reads matching a spike-in with filter.spikein.filter: true (bowtie route, spikein_bowtie.smk)."""
+    if config['filter']['spikein']['filter']:
+        return join(FILTER_INTERIM, 'spikein', 'bowtie', '{sample}_R1.fastq')
+    return trimmed_fastq_pattern()
 
 
 def get_filtered_fastq(wildcards):

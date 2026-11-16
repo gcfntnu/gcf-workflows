@@ -103,3 +103,14 @@ BFQ_LEVEL2_ALL = [join(BFQ_INTERIM, 'figs', 'pca_mqc.yaml'),
                   rules.bfq_level2_mirtrace.output,
                   rules.bfq_level2_aligned.output]
 BFQ_ALL.extend(BFQ_LEVEL2_ALL)
+
+if config['filter']['spikein']['quantifier'] == 'bowtie':
+    rule bfq_level2_spikein:
+        input:
+            rules.spikein_bowtie_matrix.output
+        output:
+            join(BFQ_INTERIM, 'exprs', 'spikein_counts.tsv')
+        shell:
+            'ln -srf {input:q} {output:q}'
+
+    BFQ_ALL.extend(rules.bfq_level2_spikein.output)

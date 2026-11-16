@@ -3,9 +3,6 @@
 def get_unitas_seq(wildcards):
     return get_filtered_fastq(wildcards)['R1']
 
-if not SPIKEIN_REF_SETS and config['filter']['spikein']['quantifier'] == 'unitas':
-    raise ValueError('filter.spikein.quantifier is unitas but filter.spikein.ref lists no spike-in sets')
-
 rule spikein_unitas:
     input:
         spikein_fasta()
