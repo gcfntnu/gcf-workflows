@@ -196,6 +196,8 @@ def create_mqc_config(args):
         {'Lib prep kit': pep.config.get('libprepkit', args.libkit)},
         {'Workflow': pep.config.get('workflow', args.workflow)}
     ]
+    if getattr(args, 'blockers', None):
+        report_header.insert(4, {'Small RNA blockers': args.blockers})
 
     mqc_conf['report_header_info'] = report_header
 
@@ -321,6 +323,7 @@ if __name__ == '__main__':
     parser.add_argument("--organism",  help="Organism (if applicable to all samples). Overrides value from samplesheet.", default='N/A')
     parser.add_argument("--libkit",  help="Library preparation kit name. (if applicable for all samples). Overrides value from samplesheet.", default='default')
     parser.add_argument("--workflow",  help="Snakemake workflow.", default='default')    
+    parser.add_argument("--blockers", help="Small RNA blockers used in library preparation (NEXTflex v4), or none; omitted for kits without them.", default=None)
     parser.add_argument("--machine",  help="Sequencer model.", default='')
     parser.add_argument("--read-geometry",  help="Read geometry.", default=[75])
     parser.add_argument("--repo-dir",  help="Path to git repo of workflow.", required=True)

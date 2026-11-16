@@ -146,7 +146,7 @@ class SampleMetadataTests(unittest.TestCase):
         version.start()
         self.addCleanup(version.stop)
 
-    def generate(self, project, contents, descriptors=None):
+    def generate(self, project, contents, descriptors=None, **extra):
         config = yaml.safe_load(project.read_text())
         config["descriptors"] = descriptors or {}
         project.write_text(yaml.safe_dump(config))
@@ -156,10 +156,17 @@ class SampleMetadataTests(unittest.TestCase):
             args = SimpleNamespace(
                 pep=pep, sample_info=info, config_template=io.StringIO("extra_fn_clean_exts: []\n"),
                 header_template=io.StringIO("Project {pname}"), project_id="GCF-TEST", read_geometry=[75, 75],
-                machine="Synthetic", organism="N/A", libkit="default", workflow="default", repo_dir=self.work,
+                machine="Synthetic", organism="N/A", libkit="default", workflow="default", repo_dir=self.work, **extra,
             )
             # Verify the serialized configuration consumed by MultiQC, including key types.
             return yaml.safe_load(yaml.safe_dump(MQC.create_mqc_config(args)))
+
+    def test_blockers_header_row_only_when_given(self):
+        rows = lambda report: [list(row)[0] for row in report["report_header_info"]]
+        report = self.generate(self.config, "Sample_ID\nS1\n", blockers="tRNA/YRNA")
+        self.assertIn({"Small RNA blockers": "tRNA/YRNA"}, report["report_header_info"])
+        self.assertEqual(rows(report)[-2:], ["Small RNA blockers", "Workflow"])
+        self.assertNotIn("Small RNA blockers", rows(self.generate(self.config, "Sample_ID\nS1\n")))
 
     def test_tsv_is_authoritative(self):
         for project in self.projects:

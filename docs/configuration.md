@@ -196,7 +196,7 @@ One entry per kit, keyed `<kit> PE`, `<kit> SE` or an unsuffixed kit name.
 | Some rules | Read it directly: metagenome and microbiome cutadapt, microbiome QIIME2, `gcfdb/qiime2_classifiers.smk` |
 
 Fields present in every entry: `libprep_name`, `workflow`, `library_source`, `library_strategy`, `library_selection`, `library_strand`, `read_orientation`, `protocol`.
-Common optional fields: `molecule`, `db`, `filter`, `quant`, `delta_readlen`, `adapter`, `adapter2`, `extra_adapters`, `library_layout`, and the demultiplexing settings `bcl2fastq` and `bclconvert`.
+Common optional fields: `molecule`, `db`, `filter`, `quant`, `delta_readlen`, `adapter`, `adapter2`, `extra_adapters`, `library_layout`, `blockers` (NEXTflex Small RNA v4; see the [smallrna guide](../smallrna/README.md#library-prep-kits)), and the demultiplexing settings `bcl2fastq` and `bclconvert`.
 Any other key in an entry is merged into the configuration like these.
 
 ### `docker.config`
