@@ -21,6 +21,7 @@ rule multiqc_config:
         machine = config['machine'],
         read_geometry = ','.join([str(x) for x in _original_read_geometry]),
         libprep = config['libprepkit'],
+        blockers = '--blockers "{}" '.format(', '.join(config['blockers']) or 'none') if isinstance(config.get('blockers'), list) else '',
         repo_dir = src_gcf(os.path.dirname('main.config')),
         pep = workflow.configfiles[0] if config.get('skip_peppy', False) else workflow.pepfile
     container:
@@ -30,6 +31,7 @@ rule multiqc_config:
         '-p {params.project_id} '
         '-S {input.sample_info} '
         '--libkit "{params.libprep}" '
+        '{params.blockers}'
         '--machine "{params.machine}" '
         '--read-geometry {params.read_geometry} '
         '--repo-dir {params.repo_dir} '
