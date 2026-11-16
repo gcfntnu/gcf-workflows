@@ -1,6 +1,7 @@
 #-*- mode:snakemake -*-
 """Small-RNA filtering with cutadapt only (filter.trim.quantifier: cutadapt, #350): the 3' adapter, the kit's random
-ends, reads containing the 5' adapter discarded, minimum length and N limit; see scripts/cutadapt_config.py.
+ends, reads containing the 5' adapter discarded, minimum length and N limit, then reads still containing 3' adapter or
+Illumina primer sequence discarded (#353); see scripts/cutadapt_config.py.
 """
 
 include:
@@ -17,6 +18,15 @@ if config['filter']['trim']['quantifier'] == 'cutadapt':
             adapter5 = CUTADAPT_SETTINGS['adapter5']
         shell:
             'python {params.script:q} five-prime-fasta {params.adapter5} > {output:q}'
+
+    rule smallrna_three_prime_artefacts:
+        output:
+            join(FILTER_INTERIM, 'cutadapt', 'three_prime_artefacts.fa')
+        params:
+            script = src_gcf('scripts/cutadapt_config.py'),
+            adapter3 = CUTADAPT_SETTINGS['adapter3']
+        shell:
+            'python {params.script:q} three-prime-artefact-fasta {params.adapter3} > {output:q}'
 
     rule smallrna_cutadapt_adapter:
         input:
@@ -42,7 +52,7 @@ if config['filter']['trim']['quantifier'] == 'cutadapt':
             R1 = rules.smallrna_cutadapt_adapter.output.R1,
             five_prime = rules.smallrna_five_prime_adapters.output
         output:
-            R1 = temp(join(FILTER_INTERIM, 'cutadapt', '{sample}_R1.fastq')),
+            R1 = temp(join(FILTER_INTERIM, 'cutadapt_filtered', '{sample}_R1.fastq')),
             json = join(FILTER_INTERIM, 'cutadapt_stages', '{sample}.filter.json')
         params:
             args = filter_args(CUTADAPT_SETTINGS)
@@ -58,10 +68,32 @@ if config['filter']['trim']['quantifier'] == 'cutadapt':
             'cutadapt -j {threads} -g file:{input.five_prime:q} {params.args} '
             '--json {output.json:q} -o {output.R1:q} {input.R1:q} > {log:q}'
 
+    rule smallrna_cutadapt_artefacts:
+        input:
+            R1 = rules.smallrna_cutadapt_filter.output.R1,
+            artefacts = rules.smallrna_three_prime_artefacts.output
+        output:
+            R1 = temp(join(FILTER_INTERIM, 'cutadapt', '{sample}_R1.fastq')),
+            json = join(FILTER_INTERIM, 'cutadapt_stages', '{sample}.artefacts.json')
+        params:
+            args = artefact_args()
+        threads:
+            4
+        log:
+            join(FILTER_INTERIM, 'cutadapt_stages', '{sample}.artefacts.log')
+        wildcard_constraints:
+            sample = r'[^/]+'
+        container:
+            'docker://' + config['docker']['smallrna_cutadapt']
+        shell:
+            'cutadapt -j {threads} -g file:{input.artefacts:q} {params.args} '
+            '--json {output.json:q} -o {output.R1:q} {input.R1:q} > {log:q}'
+
     rule smallrna_cutadapt_summary:
         input:
             adapter = rules.smallrna_cutadapt_adapter.output.json,
-            filter = rules.smallrna_cutadapt_filter.output.json
+            filter = rules.smallrna_cutadapt_filter.output.json,
+            artefacts = rules.smallrna_cutadapt_artefacts.output.json
         output:
             join(FILTER_INTERIM, 'cutadapt', '{sample}.json')
         params:
@@ -69,4 +101,5 @@ if config['filter']['trim']['quantifier'] == 'cutadapt':
         wildcard_constraints:
             sample = r'[^/]+'
         shell:
-            'python {params.script:q} --sample {wildcards.sample:q} {input.adapter:q} {input.filter:q} > {output:q}'
+            'python {params.script:q} --sample {wildcards.sample:q} {input.adapter:q} {input.filter:q} {input.artefacts:q} '
+            '> {output:q}'

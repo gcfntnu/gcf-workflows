@@ -1,11 +1,26 @@
 """Small-RNA filtering with cutadapt only (filter.trim.quantifier: cutadapt, #350).
 
-Two cutadapt passes per sample:
+Three cutadapt passes per sample:
 
 1. the 3' adapter (`adapter`) with a minimum overlap of THREE_PRIME_MIN_OVERLAP (cutadapt aligns with indels);
 2. for kits with random ends (`random_ends`, e.g. 4 for NEXTflex v3) that many bases cut from both ends, after the
    adapter search (cutadapt applies -u before adapter search, and cutting first truncates adapter dimers whose adapter
-   starts within the first bases); reads containing the 5' adapter discarded; the kit's minimum length and N limit.
+   starts within the first bases); reads containing the 5' adapter discarded; the kit's minimum length and N limit;
+3. reads still containing 3' adapter or Illumina primer sequence discarded (#353): mostly inserts whose 3' adapter has
+   too many sequencing errors for pass 1 (in public plasma data often the RNY4 Y RNA fragment), adapter dimers with an
+   indel or duplication in the adapter, and reads of primer sequence only. With that much adapter left, no quantifier
+   annotates them (UNITAS: "no annotation"), so discarding them changes no count; it names them in the report.
+
+Pass 3 is a separate pass so that its `discard_trimmed` counts exactly these reads: cutadapt matches adapters before it
+applies the length and N filters, so per-record match counts of a combined pass include reads those filters removed.
+Its records (three_prime_artefact_fasta) are every piece of at least THREE_PRIME_ARTEFACT_PIECE nt of the kit's 3'
+adapter followed by the start of Illumina's index-read primer (ILLUMINA_INDEX_PRIMER_START, as in the read:
+`...TGGAATTCTCGGGTGCCAAGG` `AACTCCAGTCAC` `<index>` `ATCTCGTATGCCGTCTTCTGCTTG`), and of Illumina's P7 sequence
+(ILLUMINA_P7); the index between them differs per sample and is not used. The Illumina sequences are the same for every
+kit, so they are constants rather than kit settings. A read with both a 5' artefact and 3' artefact sequence counts as
+a 5' artefact (pass 2 removes it first). The 16-nt minimum is essential: with 14-nt pieces (10% errors), pieces at the
+adapter's end matched human 18S rRNA (around position 400), hsa-miR-2116-3p and a misc_RNA; from 16 nt no human mature
+miRNA (miRBase 23.1) or Ensembl/GtRNAdb/SILVA tRNA, rRNA, snRNA, snoRNA, scaRNA, vault or misc_RNA sequence matches.
 
 5' adapter artefacts are fragments of the 5' adapter (`adapter5`) that start anywhere in it, usually end before its
 end, and sometimes follow a few other bases. cutadapt accepts a partial 5' adapter only when it runs to the adapter's 3'
@@ -26,8 +41,9 @@ miR-625-5p; with 12 at the read start and 14 anywhere, the rule matches only miR
 miRNAs of miRBase 23.1. The match only flags the read (--action=none), so the report counts discarded artefacts as such
 rather than as too short.
 
-Included by smallrna/rules/filter/cutadapt.smk; also a command-line script for the 5' adapter FASTA:
+Included by smallrna/rules/filter/cutadapt.smk; also a command-line script for the adapter FASTAs:
     cutadapt_config.py five-prime-fasta ADAPTER5 > five_prime_adapters.fa
+    cutadapt_config.py three-prime-artefact-fasta ADAPTER3 > three_prime_artefacts.fa
 """
 import argparse
 import re
@@ -36,6 +52,9 @@ THREE_PRIME_MIN_OVERLAP = 5
 FIVE_PRIME_MIN_OVERLAP = 12
 FIVE_PRIME_PIECE = 14
 FIVE_PRIME_MAX_ERROR_RATE = 0.1
+THREE_PRIME_ARTEFACT_PIECE = 16
+ILLUMINA_INDEX_PRIMER_START = 'AACTCCAGTCAC'
+ILLUMINA_P7 = 'ATCTCGTATGCCGTCTTCTGCTTG'
 DNA = re.compile(r'^[ACGT]+$')
 
 
@@ -104,12 +123,37 @@ def five_prime_fasta(adapter5):
                 adapter5.index(p), len(p), p, FIVE_PRIME_PIECE, rate) for p in pieces))
 
 
+def artefact_args():
+    """Options of the third pass, except the 3' artefact FASTA (-g file:...): only flag and discard."""
+    return '--action=none --discard-trimmed'
+
+
+def three_prime_artefact_fasta(adapter3):
+    """cutadapt adapter FASTA of the third pass: every piece of at least THREE_PRIME_ARTEFACT_PIECE nt of adapter3 plus
+    ILLUMINA_INDEX_PRIMER_START, and of ILLUMINA_P7, matched when complete anywhere in the read, with
+    FIVE_PRIME_MAX_ERROR_RATE."""
+    records = []
+    for tag, sequence in (('adapter', adapter3 + ILLUMINA_INDEX_PRIMER_START), ('p7', ILLUMINA_P7)):
+        pieces = sorted({sequence[i:i + n] for n in range(THREE_PRIME_ARTEFACT_PIECE, len(sequence) + 1)
+                         for i in range(len(sequence) - n + 1)}, key=lambda p: (-len(p), sequence.index(p)))
+        records += ['>three_prime_artefact_{}_{}_{}\n{};min_overlap={};max_error_rate={}\n'.format(
+            tag, sequence.index(p), len(p), p, THREE_PRIME_ARTEFACT_PIECE, FIVE_PRIME_MAX_ERROR_RATE) for p in pieces]
+    return ''.join(records)
+
+
 def main():
-    parser = argparse.ArgumentParser(description='Write the 5\' adapter FASTA for cutadapt.')
+    parser = argparse.ArgumentParser(description='Write the adapter FASTAs for cutadapt.')
     sub = parser.add_subparsers(dest='command', required=True)
     fasta = sub.add_parser('five-prime-fasta')
     fasta.add_argument('adapter5')
+    artefacts = sub.add_parser('three-prime-artefact-fasta')
+    artefacts.add_argument('adapter3')
     args = parser.parse_args()
+    if args.command == 'three-prime-artefact-fasta':
+        if not DNA.match(args.adapter3):
+            parser.error('adapter3 must be an A/C/G/T sequence')
+        print(three_prime_artefact_fasta(args.adapter3), end='')
+        return
     if not DNA.match(args.adapter5) or len(args.adapter5) < FIVE_PRIME_MIN_OVERLAP:
         parser.error('adapter5 must be an A/C/G/T sequence of at least {} nt'.format(FIVE_PRIME_MIN_OVERLAP))
     print(five_prime_fasta(args.adapter5), end='')
