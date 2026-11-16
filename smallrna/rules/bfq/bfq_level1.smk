@@ -4,11 +4,11 @@
 # outside MultiQC's logs/ scan, to avoid duplicate samples.
 if config['filter']['trim']['quantifier'] == 'cutadapt':
     FILTER_REPORTS = {join(FILTER_INTERIM, 'cutadapt', '{sample}.json'): '{sample}.cutadapt.json'}
-    FILTER_STAGES = ('cutadapt', 'cutadapt_stages', ['json', 'log'])
+    FILTER_STAGES = ('cutadapt', 'cutadapt_stages', ['json', 'log'], ['adapter', 'filter', 'artefacts'])
 else:
     FILTER_REPORTS = {join(FILTER_INTERIM, 'fastp', '{sample}.json'): '{sample}.fastp.json',
                       join(FILTER_INTERIM, 'fastp', '{sample}.html'): '{sample}.fastp.html'}
-    FILTER_STAGES = ('fastp', 'fastp_stages', ['json', 'html'])
+    FILTER_STAGES = ('fastp', 'fastp_stages', ['json', 'html'], ['adapter', 'filter'])
 
 rule bfq_level1_all:
     input:
@@ -28,10 +28,10 @@ BFQ_ALL.extend(rules.bfq_level1_all.output)
 rule bfq_filter_stages:
     input:
         expand(join(FILTER_INTERIM, FILTER_STAGES[1], '{sample}.{stage}.{suffix}'),
-               sample=SAMPLES, stage=['adapter', 'filter'], suffix=FILTER_STAGES[2])
+               sample=SAMPLES, stage=FILTER_STAGES[3], suffix=FILTER_STAGES[2])
     output:
         expand(join(BFQ_INTERIM, 'provenance', FILTER_STAGES[0], '{sample}.{stage}.{suffix}'),
-               sample=SAMPLES, stage=['adapter', 'filter'], suffix=FILTER_STAGES[2])
+               sample=SAMPLES, stage=FILTER_STAGES[3], suffix=FILTER_STAGES[2])
     run:
         for src, dst in zip(input, output):
             shell('ln -srf {src:q} {dst:q}')
