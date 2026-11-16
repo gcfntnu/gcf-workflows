@@ -47,7 +47,8 @@ Clear the GCF environment variables first, so a personal environment cannot chan
 unset GCF_EXT GCF_INTERIM GCF_FASTQ GCF_SECRET GCF_REFDIR
 ```
 
-**Parallel pytest.** Add `-n auto` (`pytest-xdist`) to any `pytest` command below to run its tests in parallel.
+**Parallel pytest.** Add `-n auto` (`pytest-xdist`) to any `.dev/ci/bin/python -m pytest` command below to run its tests in parallel.
+Only `.dev/ci` installs `pytest-xdist`; in other environments (`.dev/anndata`, the scanpy figure tests) `-n` is an unrecognized argument unless `pytest-xdist` is installed there too.
 Each test works in its own pytest temporary directory, so the results are the same as a serial run; most of the time goes into the Snakemake dry runs the tests start, so the dry-run-heavy selections take about a quarter of the time (`smallrna/.tests`: about 4 minutes serially, 1 minute in parallel).
 The `unittest discover` commands are unaffected, and CI runs the tests serially.
 
