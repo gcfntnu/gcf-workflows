@@ -12,20 +12,20 @@ import scanpy as sc
 
 from scipy.sparse import issparse
 
-def higly_expressed_yaml(adata, n_top=10, biotype=None):
-    """plot the top 10 highest expressed genes
+def highly_expressed_yaml(adata, n_top=10, biotype=None):
+    """The n_top miRNAs with the highest mean counts per million miRNA reads (CPM), as CPM and as read counts.
     """
     adata = adata.copy()
-    norm_dict = sc.pp.normalize_total(adata, target_sum=100, inplace=False)
+    norm_dict = sc.pp.normalize_total(adata, target_sum=1e6, inplace=False)
     adata.layers['CPM'] = norm_dict['X']
     adata.obs['norm_factor'] =  norm_dict['norm_factor']
     
     if issparse(norm_dict['X']):
-        mean_percent = norm_dict['X'].mean(axis=0).A1
-        top_idx = np.argsort(mean_percent)[::-1][:n_top]
+        mean_cpm = norm_dict['X'].mean(axis=0).A1
+        top_idx = np.argsort(mean_cpm)[::-1][:n_top]
     else:
-        mean_percent = norm_dict['X'].mean(axis=0)
-        top_idx = np.argsort(mean_percent)[::-1][:n_top]
+        mean_cpm = norm_dict['X'].mean(axis=0)
+        top_idx = np.argsort(mean_cpm)[::-1][:n_top]
     top_genes = adata.var_names[top_idx]
     top_adata = adata[:,top_genes]
     
@@ -43,14 +43,15 @@ def higly_expressed_yaml(adata, n_top=10, biotype=None):
     pconfig = {
         'id': 'gene_high',
         'cpswitch': False,
-        'title': 'Higly Expressed miRNA',
+        'title': 'Highly expressed miRNAs',
         'data_labels': data_labels
     }
     
     section = {}
     section['id'] = 'gene_high'
-    section['section_name'] = 'Higly Expressed miRNA'
-    section['description'] = 'Summary of the 10 most highly expressed miRNA.'
+    section['section_name'] = 'Highly expressed miRNAs'
+    section['description'] = ('The {} miRNAs with the highest mean share of miRNA reads across samples, as counts per million '
+                              'miRNA reads in each sample (CPM) or as read counts.'.format(n_top))
     section['plot_type'] = 'bargraph'
     section['pconfig'] = pconfig
     section['categories'] = keys
@@ -60,7 +61,7 @@ def higly_expressed_yaml(adata, n_top=10, biotype=None):
 
 
 def argparser():
-    parser = argparse.ArgumentParser(description="Higly expressed genes figure for QC report")
+    parser = argparse.ArgumentParser(description="Highly expressed miRNAs figure for QC report")
     parser.add_argument("adata", help="scanpy formatted file (.h5ad0) ")
     parser.add_argument("-o ", "--output", default="top10_mqc.pyaml", help="Output filename. Will default to top10_mqc.yaml")
 
@@ -70,6 +71,6 @@ def argparser():
 if __name__ == "__main__":
     args = argparser()
     adata = sc.read(args.adata)
-    section =  higly_expressed_yaml(adata)
+    section =  highly_expressed_yaml(adata)
     with open(args.output, 'w') as fh:
         yaml.dump(section, fh, default_flow_style=False, sort_keys=False)

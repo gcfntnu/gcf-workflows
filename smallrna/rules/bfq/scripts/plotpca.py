@@ -31,8 +31,8 @@ def argparser():
                         help='Input filename. Anndata file (.h5ad)')
     parser.add_argument('-o', '--output', default='umap_mqc.png',
                         help='Output filename. Will default to umap_mqc.png, Optional')
-    parser.add_argument('--recipe', default='mirna', choices = ['smallrna', 'rna', 'microbiome', 'deicode', 'vsd'],
-                        help='Preprocess recipe. ')
+    parser.add_argument('--recipe', default='smallrna', choices = ['smallrna', 'rna', 'deicode', 'vsd'],
+                        help='Preprocess recipe. smallrna: log2(CPM + 1) of the miRNAs detected in at least min(3, samples) samples.')
     parser.add_argument('--method', default='auto', choices = ['auto', 'umap', 'pca'],
                         help='Dimension reduction method.')    
     args = parser.parse_args()
@@ -56,7 +56,7 @@ def multiqc_png(adata, args):
             tab_pc.to_csv(args.output, sep='\t')
     
 
-def multiqc_section(args):
+def multiqc_section(args, min_samples=None):
     section =  {}
     section['parent_id'] = 'exploratory'
     section['parent_name'] = 'Exploratory analysis'
@@ -66,11 +66,23 @@ def multiqc_section(args):
         section['id'] = 'pca'
         section['section_name'] = 'PCA'
         section['description'] = 'Principal Component Analysis of tabulated counts.'
+        if args.recipe == 'smallrna':
+            section['description'] = ('Principal Component Analysis of log2(CPM + 1) of the miRNAs detected in at least {} '
+                                      'samples (CPM: counts per million miRNA reads); the axes give the share of variance '
+                                      'explained.'.format(min_samples))
     elif args.method == 'umap':
         section['id'] = 'umap'
         section['section_name'] = 'UMAP'
         section['description'] = 'Uniform Manifold Approximation of tabulated counts.'  
     section['plot_type'] = 'scatter'
+    return section
+
+def multiqc_note(args, reason):
+    """A text section in place of the plot when no two-component PCA can be made."""
+    section = multiqc_section(args)
+    section['description'] = 'Principal Component Analysis of tabulated counts.'
+    section['plot_type'] = 'html'
+    section['data'] = '<p>PCA not shown: {}.</p>'.format(reason)
     return section
 
 def multiqc_pconfig(args):
@@ -85,8 +97,11 @@ def multiqc_pconfig(args):
 def multiqc_yaml(adata, args):
     if 'X_umap' in adata.obsm:
         x = adata.obsm['X_umap'].copy()
+        axes = ['PC1', 'PC2', 'PC3', 'PC4']
     else:
         x = adata.obsm['X_pca'].copy()
+        ratio = adata.uns['pca']['variance_ratio']
+        axes = ['PC{} ({:.1f}%)'.format(i + 1, 100 * r) for i, r in enumerate(ratio[:4])]
     max_comp = x.shape[1]
     T = pd.DataFrame(x[:,:2], index=adata.obs_names, columns=['x', 'y'])  
     T.index.name = 'Sample_ID'
@@ -97,8 +112,9 @@ def multiqc_yaml(adata, args):
         T2.index.name = 'Sample_ID'
         df2 = pd.concat([T2, S], axis="columns")
     
-    section =  multiqc_section(args)
+    section =  multiqc_section(args, adata.uns.get('min_samples'))
     pconfig = multiqc_pconfig(args)
+    pconfig['xlab'], pconfig['ylab'] = axes[0], axes[1]
     
 
     #pconfig['xmax'] = float(T['x'].max() + 0.1*T['x'].max())
@@ -106,10 +122,10 @@ def multiqc_yaml(adata, args):
     #pconfig['ymax'] = float(T['y'].max() + 0.1*T['y'].max())
     #pconfig['ymin'] = float(T['y'].min() + 0.1*T['y'].min())
 
-    data_labels = [{'name': 'PC1 vs PC2', 'xlab': 'PC1', 'ylab': 'PC2'}]
+    data_labels = [{'name': 'PC1 vs PC2', 'xlab': axes[0], 'ylab': axes[1]}]
     
     if max_comp > 3:
-        data_labels.append({'name': 'PC3 vs PC4', 'xlab': 'PC3', 'ylab': 'PC4'})
+        data_labels.append({'name': 'PC3 vs PC4', 'xlab': axes[2], 'ylab': axes[3]})
     pconfig['data_labels'] = data_labels
 
     data = []
@@ -181,20 +197,21 @@ if __name__ == "__main__":
     adata.raw = adata
     n_comps = min(20, min(adata.shape)-1)
     
-    if args.recipe == 'mirna':
-        min_samples = max(3, np.floor(n_samples * 0.1))
-        sc.pp.filter_genes(adata, min_cells=min_samples)
+    if args.recipe == 'smallrna':
+        # log2(CPM + 1); CPM over all miRNA reads, then the miRNAs detected in at least min(3, samples) samples
+        min_samples = min(3, n_samples)
         sc.pp.normalize_total(adata, target_sum=1e6)
-        sc.pp.log1p(adata)
-        sc.pp.highly_variable_genes(adata, min_mean=0.1, max_mean=20, min_disp=0.2)
-        adata = adata[:, adata.var.highly_variable]
-        
+        sc.pp.log1p(adata, base=2)
+        sc.pp.filter_genes(adata, min_cells=min_samples)
+        adata.uns['min_samples'] = min_samples
+
     elif args.recipe == 'deicode':
         min_samples = max(3, np.floor(n_samples * 0.1))
         sc.pp.filter_genes(adata, min_cells=min_samples) 
         adata = rpca(adata)
         
-    elif args.recipe == 'mrna':
+    elif args.recipe == 'rna':
+        min_samples = max(3, np.floor(n_samples * 0.1))
         sc.pp.filter_genes(adata, min_cells=min_samples)
         sc.pp.normalize_total(adata, target_sum=1e6)
         sc.pp.log1p(adata)
@@ -203,7 +220,22 @@ if __name__ == "__main__":
 
     elif args.recipe == 'vsd':
         pass
-        
+
+    # Components from the matrix after filtering; two are needed for the plot.
+    n_comps = min(20, min(adata.shape) - 1)
+    if n_comps < 2:
+        if n_samples < 3:
+            reason = 'the project has fewer than three samples'
+        elif args.recipe == 'smallrna':
+            reason = 'fewer than three miRNAs are detected in at least three samples'
+        else:
+            reason = 'fewer than three features are left after filtering'
+        if not args.output.endswith('_mqc.yaml'):
+            raise ValueError('No PCA: {}'.format(reason))
+        with open(args.output, 'w') as fh:
+            yaml.dump(multiqc_note(args, reason), fh, default_flow_style=False, sort_keys=False)
+        sys.exit(0)
+
     sc.tl.pca(adata, svd_solver='arpack', n_comps=n_comps)
 
     if args.method == 'umap':
@@ -228,7 +260,7 @@ if __name__ == "__main__":
     else:
         if args.output.endswith('_mqc.png'):
             fig = sc.pl.pca(adata, color=color, return_fig=True, show=False)
-            fig.savefig(args,output, dpi=300, transparent=True)
+            fig.savefig(args.output, dpi=300, transparent=True)
         elif args.output.endswith('_mqc.yaml'):
             section = multiqc_yaml(adata, args)
             with open(args.output, 'w') as fh:

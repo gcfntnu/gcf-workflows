@@ -94,6 +94,7 @@ rule bfq_level2_logs:
         for src, dst in zip(input, output):
             shell('ln -srf {src} {dst}')
 
+# The PCA section is always rewritten; with too few samples or miRNAs for two components it is a short note.
 BFQ_LEVEL2_ALL = [join(BFQ_INTERIM, 'figs', 'pca_mqc.yaml'),
                   join(BFQ_INTERIM, 'figs', 'gene_high_mqc.yaml'),
                   rules.bfq_level2_logs.output,
