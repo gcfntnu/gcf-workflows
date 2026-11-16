@@ -179,7 +179,7 @@ Reference-database (`gcfdb`) configuration and common defaults shared across wor
 - `libprep.config` entries intentionally carry `db:` blocks that override shared reference defaults per kit.
 - The QIAseq preset intentionally retains dormant QIIME2/DADA2 and classifier settings for an explicit switch back to microbiome; metagenome uses Langmead plusPF ([metagenome guide](../metagenome/README.md)).
 
-RNA-seq now owns assembly defaults, `qc.bam_subset` and its genome aligner; smallRNA owns its genome aligner and the mirtrace/spike-in/ribosomal/contaminant defaults.
+RNA-seq now owns assembly defaults, `qc.bam_subset` and its genome aligner; smallRNA owns its genome aligner and the spike-in/ribosomal/contaminant defaults.
 The unused `sample_group_id`, `batch_id`, `block_id`, `quant.batch.method`, `assembly.base_ref_dir`, `assembly.base_reference_db`, `align.transcriptome.aligner` and RNA-seq `align.method` defaults were removed.
 Existing projects may retain unused keys; loading does not strip project configuration. In particular, the synthetic fixtures retain their explicit `quant.batch.method` values.
 The unused smallRNA Kraken default was already removed by #247.
