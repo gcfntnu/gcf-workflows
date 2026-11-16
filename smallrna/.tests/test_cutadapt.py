@@ -111,6 +111,8 @@ def test_merged_report_sums_the_passes():
     assert counts['filtered']['too_short'] == 300 and counts['filtered']['discard_trimmed'] == 100
     assert merged['input']['path1'] == 'S1.fastq' and merged['adapters_read1'] == [{'name': 'adapter'}]
     assert merged['tag'].startswith('Cutadapt report, merged') and [p['file'] for p in merged['gcf_passes']] == ['a.json', 'f.json']
+    # gcf-bfq's analysis QC also reads these: single-end, and bases out from the filter pass
+    assert merged['input']['paired'] is False and merged['basepair_counts']['output'] == 600 * 20
     with pytest.raises(ValueError, match='not the same sample run'):
         merger.merge(adapter, report(['filter'], 999, 600), 'S1', {'adapter': 'a.json', 'filter': 'f.json'})
 
