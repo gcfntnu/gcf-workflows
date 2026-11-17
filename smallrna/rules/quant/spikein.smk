@@ -1,9 +1,10 @@
 #-*- mode:snakemake -*-
 """Spike-in sets of `filter.spikein.ref`, shared by the bowtie, UNITAS and miRge3 routes.
 
-Spike-ins are a library prep choice. `filter.spikein.ref` lists sets, comma-separated: gcfdb sets by name (sequences
-in `EXT_DIR/spikein/fasta/<set>.fa`), or a project's own FASTA by its path (ending in .fa or .fasta, relative to the
-working directory), e.g. synthetic non-human sequences added to the libraries.
+Spike-ins are set per project, in its own config, not per library prep kit.
+`filter.spikein.ref` lists sets, comma-separated: gcfdb sets by name (sequences in `EXT_DIR/spikein/fasta/<set>.fa`),
+or a project's own FASTA by its path (ending in .fa or .fasta, relative to the working directory), e.g. synthetic
+non-human sequences added to the libraries.
 
 `filter.spikein.quantifier` says who estimates them, from the same sequences:
 - `bowtie`: a prefilter (rules/filter/spikein_bowtie.smk) counts each spike-in in the filtered reads and removes those

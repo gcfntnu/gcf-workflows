@@ -2,7 +2,7 @@
 """Make this project's miRge3 library: links to the shared library plus a spike-in index of the project's sets.
 
 miRge3 0.1.4 counts spike-ins (`--spikeIn`) only from `<libraries-path>/<org>/index.Libs/<org>_spike-in`, and takes
-no sequences on the command line. Spike-ins are a library prep choice, so each project gets its own library
+no sequences on the command line. Spike-ins are set per project, so each project gets its own library
 directory: every entry of the shared library is linked (in `index.Libs/`, every file except `<org>_spike-in.*`),
 and the spike-in index is built there from the gcfdb FASTA of the sets in `filter.spikein.ref`. With no FASTA
 given, the project library has no spike-in index and miRge3 runs without `--spikeIn`. The shared library is only
