@@ -76,7 +76,7 @@ def write_project(project, spec, ext_dir, samples, read_length, methods, mirflow
               'quant': {'method': ','.join(methods), 'batch': {'method': 'skip'}},
               'samples': {s: {'R1': '{}/{}_R1.fastq.gz'.format(spec['name'], s), 'R2': '', 'paired_end': 0, 'Sample_ID': s}
                           for s in samples}}
-    if 'mirflowz' in methods and mirflowz_reference:
+    if {'mirflowz', 'tesmall'} & set(methods) and mirflowz_reference:  # TEsmall's database is built on the mirflowz reference
         ref = mirflowz_reference
         config['db'] = {'mirflowz': {'custom': {'name': spec['reference']['name'], 'genome': str(ref / 'genome.fa.gz'),
                                                 'gtf': str(ref / 'genes.gtf.gz'), 'mirna_gff': str(ref / 'mirna.gff3')}}}

@@ -1,0 +1,146 @@
+#-*- mode:snakemake -*-
+"""TEsmall database (smallrna quant.method: tesmall, #374).
+
+TEsmall's own prebuilt databases are replaced by one built from release-pinned public sources, on the genome of the
+mirflowz reference (gcfdb/mirflowz.db: the Ensembl release fixed per organism on the assembly of the miRBase GFF, or
+the manual `db.mirflowz.custom` reference), so TEsmall, mirflowz and the benchmark use the same genome, annotation and
+miRBase release. The sources:
+
+- genome and GTF, miRBase GFF and chromosome map: those of the mirflowz reference;
+- GtRNAdb tRNA genes (`TESMALL_GTRNADB`, on the organism's assembly; their sequences are checked against the genome);
+- UCSC RepeatMasker (`TESMALL_RMSK`);
+- the NCBI rDNA unit (`TESMALL_RDNA`), with the Ensembl rRNA genes;
+- piRNA clusters from the configured UNITAS reference dump (`piRclDB`, piRNAclusterDB), placed on the genome by
+  anchor matches (scripts/tesmall_db.py).
+
+Layout, as TEsmall reads it with `--dbfolder TESMALL_DB -g TESMALL_NAME`: `TESMALL_DB/genomes/TESMALL_NAME/`
+(`sequence/`, `sequence/bowtie_index/`, `annotation/`), and `tesmall_reference.tsv` beside it recording sources,
+checksums and counts. TESMALL_NAME is not one of TEsmall's built-in genome names, so a database that fails TEsmall's
+own checks stops the run instead of starting a download.
+"""
+import shlex
+
+TESMALL_ORGANISMS = ('homo_sapiens', 'mus_musculus', 'rattus_norvegicus')
+TESMALL_GTRNADB = {'homo_sapiens': ('Hsapi38', 'hg38'), 'mus_musculus': ('Mmusc39', 'mm39'), 'rattus_norvegicus': ('Rnorv6', 'rn6')}
+TESMALL_RMSK = {'homo_sapiens': 'hg38', 'mus_musculus': 'mm39', 'rattus_norvegicus': 'rn6'}
+TESMALL_ASSEMBLY = {'homo_sapiens': 'GRCh38', 'mus_musculus': 'GRCm39', 'rattus_norvegicus': 'Rnor_6.0'}
+# NCBI nucleotide records of the rDNA unit (45S); the 5S and mitochondrial rRNAs come from the Ensembl GTF.
+TESMALL_RDNA = {'homo_sapiens': 'U13369.1', 'mus_musculus': 'BK000964.3', 'rattus_norvegicus': 'NR_046239.1'}
+TESMALL_BUILTIN = ('hg19', 'hg38', 'mm10', 'mm39', 'dm6', 'GRCz11', 'T2Tv2')
+TESMALL_NAME = 'gcf'
+TESMALL_INDEX = ('1.ebwt', '2.ebwt', '3.ebwt', '4.ebwt', 'rev.1.ebwt', 'rev.2.ebwt')
+
+
+def tesmall_fail(message):
+    if TESMALL_SELECTED:
+        raise ValueError(message)
+
+
+TESMALL_REF = join(EXT_DIR, 'tesmall', os.path.relpath(MIRFLOWZ_REF, join(EXT_DIR, 'mirflowz')))
+TESMALL_DB = join(TESMALL_REF, 'db')
+TESMALL_GENOME_DIR = join(TESMALL_DB, 'genomes', TESMALL_NAME)
+if ORG not in TESMALL_ORGANISMS:
+    tesmall_fail('TEsmall databases support organism {}, got {!r}'.format(', '.join(TESMALL_ORGANISMS), ORG))
+elif not MIRFLOWZ_CUSTOM and MIRFLOWZ_ASSEMBLY != TESMALL_ASSEMBLY[ORG]:
+    tesmall_fail('TEsmall: the GtRNAdb and RepeatMasker sources are on {}, but the reference genome is on {}'.format(
+        TESMALL_ASSEMBLY[ORG], MIRFLOWZ_ASSEMBLY))
+# TEsmall removes the string "genomes" from its --dbfolder path, so such a path would point elsewhere.
+if 'genomes' in os.path.abspath(TESMALL_DB):
+    tesmall_fail('TEsmall: the database path {} contains "genomes", which TEsmall strips from it; '
+                 'choose an EXT_DIR without it'.format(os.path.abspath(TESMALL_DB)))
+assert TESMALL_NAME not in TESMALL_BUILTIN
+
+if ORG in TESMALL_ORGANISMS:
+    rule tesmall_gtrnadb:
+        output:
+            join(TESMALL_REF, 'sources', '{}-tRNAs.tar.gz'.format(TESMALL_GTRNADB[ORG][1]))
+        params:
+            proxy = config.get('proxy', {}).get('wget', ''),
+            url = 'https://gtrnadb.ucsc.edu/GtRNAdb2/genomes/eukaryota/{0}/{1}-tRNAs.tar.gz'.format(*TESMALL_GTRNADB[ORG]),
+            version = TESMALL_GTRNADB[ORG][0]
+        log:
+            join(TESMALL_REF, 'logs', 'gtrnadb.log')
+        shell:
+            'wget {params.proxy} -q -O {output}.part {params.url} && mv {output}.part {output} && '
+            'echo "GtRNAdb,{params.version},{params.url},`date -I`" > {log}'
+
+    rule tesmall_rmsk:
+        output:
+            join(TESMALL_REF, 'sources', 'rmsk.txt.gz')
+        params:
+            proxy = config.get('proxy', {}).get('wget', ''),
+            url = 'https://hgdownload.soe.ucsc.edu/goldenPath/{}/database/rmsk.txt.gz'.format(TESMALL_RMSK[ORG]),
+            version = TESMALL_RMSK[ORG]
+        log:
+            join(TESMALL_REF, 'logs', 'rmsk.log')
+        shell:
+            'wget {params.proxy} -q -O {output}.part {params.url} && mv {output}.part {output} && '
+            'echo "UCSC RepeatMasker,{params.version},{params.url},`date -I`" > {log}'
+
+    rule tesmall_rdna:
+        output:
+            join(TESMALL_REF, 'sources', 'rDNA_ncbi.fa')
+        params:
+            proxy = config.get('proxy', {}).get('wget', ''),
+            url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id={}&rettype=fasta&retmode=text'.format(TESMALL_RDNA[ORG]),
+            accession = TESMALL_RDNA[ORG]
+        log:
+            join(TESMALL_REF, 'logs', 'rdna.log')
+        shell:
+            'wget {params.proxy} -q -O {output}.part "{params.url}" && grep -q "^>{params.accession}" {output}.part && '
+            'mv {output}.part {output} && echo "NCBI nucleotide,{params.accession},{params.url},`date -I`" > {log}'
+
+
+rule tesmall_genome:
+    input:
+        unpack(lambda wildcards: mirflowz_sources())
+    output:
+        fasta = join(TESMALL_GENOME_DIR, 'sequence', 'genome.fa'),
+        fai = join(TESMALL_GENOME_DIR, 'sequence', 'genome.fa.fai'),
+        index = expand(join(TESMALL_GENOME_DIR, 'sequence', 'bowtie_index', 'genome.{suffix}'), suffix=TESMALL_INDEX)
+    params:
+        prefix = join(TESMALL_GENOME_DIR, 'sequence', 'bowtie_index', 'genome')
+    threads:
+        16
+    container:
+        'docker://' + config['docker']['tesmall']
+    shell:
+        # Sequence names are cut at the first space, as Bowtie and samtools name them.
+        '(gzip -cdf {input.genome} | sed -E "s/^(>[^[:space:]]+).*/\\1/" > {output.fasta}) && samtools faidx {output.fasta} && '
+        'bowtie-build -q --threads {threads} {output.fasta} {params.prefix}'
+
+
+rule tesmall_db:
+    input:
+        unpack(lambda wildcards: mirflowz_sources()),
+        fasta = rules.tesmall_genome.output.fasta,
+        index = rules.tesmall_genome.output.index,
+        chr_map = rules.mirflowz_chr_map.output,
+        trna = join(TESMALL_REF, 'sources', '{}-tRNAs.tar.gz'.format(TESMALL_GTRNADB.get(ORG, ('', ORG))[1])),
+        rmsk = join(TESMALL_REF, 'sources', 'rmsk.txt.gz'),
+        rdna = join(TESMALL_REF, 'sources', 'rDNA_ncbi.fa'),
+        unitas = rules.unitas_db.output.db
+    output:
+        annotation = expand(join(TESMALL_GENOME_DIR, 'annotation', '{cls}.bed'),
+                            cls=('structural_RNA', 'miRNA', 'hairpin', 'exon', 'TE', 'intron', 'piRNA_cluster')),
+        sequences = expand(join(TESMALL_GENOME_DIR, 'sequence', '{name}.fa{ext}'), name=('rDNA', 'tDNA'), ext=('', '.fai')),
+        index = expand(join(TESMALL_GENOME_DIR, 'sequence', 'bowtie_index', '{name}.{suffix}'), name=('rDNA', 'tDNA'), suffix=TESMALL_INDEX),
+        record = join(TESMALL_REF, 'tesmall_reference.tsv')
+    params:
+        script = src_gcf('scripts/tesmall_db.py'),
+        seq = join(TESMALL_GENOME_DIR, 'sequence'),
+        annotation = join(TESMALL_GENOME_DIR, 'annotation'),
+        prefix = join(TESMALL_GENOME_DIR, 'sequence', 'bowtie_index', 'genome'),
+        sources = ' '.join('--source {}'.format(shlex.quote(s)) for s in (
+            'name={}'.format(TESMALL_NAME), 'organism={}'.format(ORG), 'mirbase={}'.format(MIRFLOWZ_MIRBASE),
+            'ensembl={}'.format(MIRFLOWZ_RELEASE), 'assembly={}'.format(MIRFLOWZ_ASSEMBLY or 'NA'),
+            'gtrnadb={}'.format(TESMALL_GTRNADB.get(ORG, ('NA',))[0]), 'rmsk={}'.format(TESMALL_RMSK.get(ORG, 'NA')),
+            'rdna={}'.format(TESMALL_RDNA.get(ORG, 'NA')), 'unitas_dump={}'.format(UNITAS_RELEASE)))
+    container:
+        'docker://' + config['docker']['tesmall']
+    shell:
+        'python {params.script} --genome {input.fasta} --genome-index {params.prefix} --gtf {input.gtf} '
+        '--mirna-gff {input.mirna_gff} --chr-map {input.chr_map} --trna-archive {input.trna} --rmsk {input.rmsk} '
+        '--rdna {input.rdna} --pirna-clusters {input.unitas}/piRclDB '
+        '--annotation {params.annotation} --sequence {params.seq} --record {output.record} {params.sources} && '
+        'for n in rDNA tDNA; do samtools faidx {params.seq}/$n.fa && bowtie-build -q {params.seq}/$n.fa {params.seq}/bowtie_index/$n; done'
