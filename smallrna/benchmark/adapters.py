@@ -37,6 +37,7 @@ def unitas(quant_dir, name_to_id, prefix, **_):
 
 
 def mirge3(quant_dir, name_to_id, **_):
+    """The workflow's miR.Counts.csv (built from miRge3's mapped.csv, #349), not miRge3's own miR.Counts.mirge3.csv."""
     rows = []
     for feature, counts in read_matrix(Path(quant_dir) / 'mirge3' / 'miR.Counts.csv', ',').items():
         if feature.lower() in ('mirna', 'mirna_name'):

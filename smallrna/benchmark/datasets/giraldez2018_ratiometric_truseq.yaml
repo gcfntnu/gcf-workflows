@@ -1,0 +1,26 @@
+# Giraldez et al. 2018 (Nat Biotechnol 36:746, doi:10.1038/nbt.4183), ratiometric synthetic RNA pools A and B (334 RNAs at designed ratios), GEO GSE94585 (SRA SRP098949).
+# Composition: rspengle/CrossU01_exRNA_Manuscript2017 (MIT) at a fixed commit. Fill with `benchmark.py fill`.
+name: giraldez2018_ratiometric_truseq
+kind: pool
+pool: ratiometric
+organism: homo_sapiens
+libprepkit: TruSeq Small RNA Library Prep Kit
+methods: [unitas, mirge3, mirflowz]
+data: benchmark/smallrna/giraldez2018   # relative to EXT_DIR
+composition:
+  file: FINAL_Ratiometric_SynthA_and_SynthB-1.csv
+  url: https://raw.githubusercontent.com/rspengle/CrossU01_exRNA_Manuscript2017/e055602f59d3ff76ee051d59d7ebfd9b90028686/data/FINAL_Ratiometric_SynthA_and_SynthB-1.csv
+  sha256: 811c94e0a9e7286aa7ceea3c628ca289cc3bad10d9830c088d4efd3c1ede61b3
+mirbase:                    # mature miRNAs of the release the methods use: names, accessions and truth groups
+  release: '23.1'
+  url: https://www.mirbase.org/download_version_files/23.1/mature.fa
+  sha256: 52d69eeb3c23c5ed0f66c8c9f24e1ad2cd94cc34e72e4fc376c0dd438d2779ff
+runs:
+  - {run: SRR5234383, group: A, lab: Lab1, instrument: HiSeq 4000, reads: 9685027, md5: 240737240df907c6710870ea8dea00f6, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR523/003/SRR5234383/SRR5234383.fastq.gz}
+  - {run: SRR5234384, group: A, lab: Lab1, instrument: HiSeq 4000, reads: 9553315, md5: 0c492d9a96b6c44e156bae4b36491cb5, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR523/004/SRR5234384/SRR5234384.fastq.gz}
+  - {run: SRR5234463, group: B, lab: Lab1, instrument: HiSeq 4000, reads: 6070682, md5: 3fbecc4959750fe5a75eb29ef6345a49, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR523/003/SRR5234463/SRR5234463.fastq.gz}
+  - {run: SRR5234464, group: B, lab: Lab1, instrument: HiSeq 4000, reads: 8735786, md5: 6ef6028d8813516ee39f8152af0d5e6c, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR523/004/SRR5234464/SRR5234464.fastq.gz}
+  - {run: SRR5234399, group: A, lab: Lab5, instrument: HiSeq 2500, reads: 9266127, md5: cb28a728fb4cb4bd5b68ed8d3509277a, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR523/009/SRR5234399/SRR5234399.fastq.gz}
+  - {run: SRR5234400, group: A, lab: Lab5, instrument: HiSeq 2500, reads: 9084304, md5: 1244c32afa2ce575f49a77ecb703d021, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR523/000/SRR5234400/SRR5234400.fastq.gz}
+  - {run: SRR5234479, group: B, lab: Lab5, instrument: HiSeq 2500, reads: 12197980, md5: c560efdf9935e671a37d579660d8bcc4, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR523/009/SRR5234479/SRR5234479.fastq.gz}
+  - {run: SRR5234480, group: B, lab: Lab5, instrument: HiSeq 2500, reads: 11322992, md5: 18345ee8ceace7735a147068fc8d0b09, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR523/000/SRR5234480/SRR5234480.fastq.gz}
