@@ -18,6 +18,7 @@ Former settings stop the workflow: `skip` (no spike-ins is now an empty `filter.
 and `filter.spikein.filter` (now implied by `bowtie`).
 A project's own FASTA is used as a copy in DNA letters (U to T), so RNA-letter files work for every route.
 """
+import os
 import re
 
 SPIKEIN_SETS = ('ERCC92', 'smallrna_calibrators')
@@ -87,6 +88,15 @@ if 'filter' in config['filter']['spikein']:
 # Spike-ins are on exactly when sets are listed; native additionally hands them to the quantifiers that estimate them.
 SPIKEIN_ACTIVE = bool(SPIKEIN_REF_SETS)
 SPIKEIN_NATIVE = SPIKEIN_ACTIVE and SPIKEIN_QUANTIFIER == 'native'
+
+# Switching spike-ins off in a project that had them: the report reads all of bfq/figs and delivery takes bfq/exprs, so
+# outputs of an earlier run would still be reported and delivered. Stop rather than delete delivery files silently.
+SPIKEIN_BFQ_OUTPUTS = (join(BFQ_INTERIM, 'figs', 'spikein_mqc.yaml'), join(BFQ_INTERIM, 'exprs', 'spikein_counts.tsv'))
+if not SPIKEIN_ACTIVE:
+    SPIKEIN_STALE = [path for path in SPIKEIN_BFQ_OUTPUTS if os.path.lexists(path)]
+    if SPIKEIN_STALE:
+        raise ValueError('filter.spikein.ref lists no spike-in sets, but spike-in outputs from an earlier run remain and '
+                         'would be reported and delivered: {}; delete them, or list the sets again'.format(', '.join(SPIKEIN_STALE)))
 
 
 # A project's own FASTA files, by their name in the filter interim directory: rule spikein_project_fasta

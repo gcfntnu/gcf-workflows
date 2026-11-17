@@ -157,6 +157,27 @@ def test_spikein_mqc_table_for_each_route(tmp_path):
     assert 'spikein_mqc' not in output and 'spikein_bowtie' not in output
 
 
+
+def test_disabling_spikeins_with_earlier_outputs_stops_at_load(tmp_path):
+    """A rerun with spike-ins switched off stops while the earlier run's spike-in outputs would still be reported
+    (the report reads all of bfq/figs) and delivered."""
+    outputs = [tmp_path / 'data/tmp/smallrna/bfq/figs/spikein_mqc.yaml', tmp_path / 'data/tmp/smallrna/bfq/exprs/spikein_counts.tsv']
+    returncode, output = dry_run(tmp_path, 'unitas', spikein_settings(ref='ERCC92'), target='multiqc_report')
+    assert returncode == 0, output
+    for path in outputs:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('earlier run\n')
+    returncode, output = dry_run(tmp_path, 'unitas', spikein_settings(ref='ERCC92'), target='multiqc_report')
+    assert returncode == 0, output  # allowed while spike-ins are on
+    returncode, output = dry_run(tmp_path, 'unitas', spikein_settings(ref=None), target='multiqc_report')
+    assert returncode != 0 and 'spike-in outputs from an earlier run remain' in output, output[-2000:]
+    assert all(str(path.relative_to(tmp_path)) in output for path in outputs), output[-2000:]
+    for path in outputs:
+        path.unlink()
+    returncode, output = dry_run(tmp_path, 'unitas', spikein_settings(ref=None), target='multiqc_report')
+    assert returncode == 0, output
+    assert 'spikein_bowtie' not in output and 'spikein_mqc' not in output
+
 @pytest.mark.parametrize('spikein_config, message', [
     ({'quantifier': 'unitas', 'ref': 'ERCC92'}, 'filter.spikein.quantifier: unitas is now called native'),
     ({'quantifier': 'bowtie', 'ref': 'ERCC92', 'filter': True}, 'filter.spikein.filter is no longer used'),
