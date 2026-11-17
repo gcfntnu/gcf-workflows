@@ -561,3 +561,134 @@ def test_prepare_and_evaluate_a_pool(tmp_path):
     result = subprocess.run(cmd + ['evaluate', '--project', str(project)], capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
     assert 'SRRA\thsa-miR-1-3p\texact\t\t\t8\t8\t8' in (project / 'benchmark/per_sequence.tsv').read_text().splitlines()
+
+
+# Biological datasets: no truth; methods compared with each other, lane replicates, filtering and first bases.
+
+import biological  # noqa: E402
+import random  # noqa: E402
+
+BLOOD = ('>hsa-miR-16-5p MIMAT0000069 Homo sapiens miR-16-5p\nUAGCAGCACGUAAAUAUUGGCG\n'
+         '>hsa-miR-21-5p MIMAT0000076 Homo sapiens miR-21-5p\nUAGCUUAUCAGACUGAUGUUGA\n'
+         '>hsa-miR-451a MIMAT0001631 Homo sapiens miR-451a\nAAACCGUUACCAUUACUGAGUU\n'
+         '>hsa-let-7a-5p MIMAT0000062 Homo sapiens let-7a-5p\nUGAGGUAGUAGGUUGUAUAGUU\n')
+
+
+def common_rows(method, sample, counts):
+    return [(method, sample, mid, mid, c) for mid, c in counts.items()]
+
+
+def test_method_summary_and_agreement():
+    a = {'M1': 900, 'M2': 90, 'M3': 9, 'M4': 1}
+    b = {'M1': 800, 'M2': 150, 'M3': 0, 'M5': 50}
+    common = common_rows('x', 'S1', a) + common_rows('y', 'S1', b)
+    summary = biological.method_summary(common, ['x', 'y'], ['S1'])
+    assert summary['x']['detected'] == 2 and summary['y']['detected'] == 3       # at least 10 reads
+    assert summary['x']['mirna_reads'] == 1000 and summary['x']['top10_share'] == 1.0
+    pair = biological.agreement(common, ['x', 'y'], ['S1'])[('x', 'y')]
+    assert pair['only_a'] == 0 and pair['only_b'] == 1                            # M5 only detected by y
+    assert pair['spearman_either'] > 0 and pair['top100_overlap'] == 0.75                # top sets {M1..M4} and {M1, M2, M5}
+    blocked = biological.blocked(common, ['x', 'y'], ['S1'], {'miR-M2': 'M2'})
+    assert blocked == {'x': {'miR-M2': 90000.0}, 'y': {'miR-M2': 150000.0}}
+
+
+def test_first_base_counts_substitutions_with_their_quality(tmp_path):
+    reads = [('TAGCAGCACGTAAATATTGGCG', 'I'), ('AAGCAGCACGTAAATATTGGCG', '/'), ('TAGCAGCACGTAAATATTGGCGA', 'I'),
+             ('CCCCCCCCCCCCCCCCCCCCCC', 'I')]
+    fq = write(tmp_path / 'r.fastq', ''.join('@r{}\n{}\n+\n{}{}\n'.format(i, s, q, 'I' * (len(s) - 1)) for i, (s, q) in enumerate(reads)))
+    counts, quality = biological.first_base(fq, {'hsa-miR-16-5p': 'TAGCAGCACGTAAATATTGGCG'})
+    assert counts['hsa-miR-16-5p'] == {'T': 2, 'A': 1}
+    assert quality == {'canonical': 40, 'substituted': 14}
+
+
+def test_lane_replicates_separate_poisson_from_overdispersion():
+    rng = random.Random(5)
+    def poisson(lam):  # Knuth for small lambdas, normal approximation above
+        if lam > 30:
+            return max(0, round(rng.gauss(lam, lam ** 0.5)))
+        k, p, limit = 0, 1.0, pow(2.718281828, -lam)
+        while True:
+            p *= rng.random()
+            if p <= limit:
+                return k
+            k += 1
+    mirnas = {'M{}'.format(i): 20 + 30 * i for i in range(40)}
+    common = []
+    for lane in range(1, 5):
+        common += common_rows('poisson', 'S1_L{}'.format(lane), {m: poisson(mu) for m, mu in mirnas.items()})
+        common += common_rows('noisy', 'S1_L{}'.format(lane), {m: poisson(mu * rng.choice((0.5, 1.5))) for m, mu in mirnas.items()})
+    rep = biological.lane_replicates(common, ['poisson', 'noisy'], {'S1': ['S1_L1', 'S1_L2', 'S1_L3', 'S1_L4']})
+    assert 0.6 < rep['poisson']['dispersion_mean'] < 1.6 and rep['noisy']['dispersion_mean'] > 5
+    assert rep['poisson']['expected_median'] == 0.794            # chi2(3)/3 for 4 lanes
+    assert rep['poisson']['overdispersed'] < rep['noisy']['overdispersed']
+
+
+def test_fill_targets_for_a_biological_declaration(tmp_path):
+    spec = {'name': 'b', 'kind': 'biological', 'data': 'benchmark/smallrna/b',
+            'mirbase': {'release': '23.1', 'url': 'u', 'sha256': 's'},
+            'samples': [{'sample': 'S1', 'runs': [{'run': 'R1', 'url': 'r1', 'md5': 'm1'}, {'run': 'R2', 'url': 'r2', 'md5': 'm2'}]}]}
+    paths = [str(t[3].relative_to(tmp_path)) for t in fill.targets(spec, tmp_path)]
+    assert paths == ['benchmark/smallrna/b/mirbase/23.1/mature.fa', 'benchmark/smallrna/b/fastq/R1.fastq.gz',
+                     'benchmark/smallrna/b/fastq/R2.fastq.gz']
+
+
+def biological_dataset(tmp_path, lanes=(1, 2)):
+    ext = tmp_path / 'ext'
+    data = ext / 'benchmark/smallrna/bio'
+    write(data / 'mirbase/23.1/mature.fa', BLOOD)
+    reads = ['TAGCAGCACGTAAATATTGGCG'] * 6 + ['AAGCAGCACGTAAATATTGGCG'] + ['TAGCTTATCAGACTGATGTTGA'] * 3
+    runs = []
+    for lane in lanes:
+        run = 'SRR{}'.format(lane)
+        (data / 'fastq').mkdir(parents=True, exist_ok=True)
+        with gzip.open(data / 'fastq/{}.fastq.gz'.format(run), 'wt') as fh:
+            fh.write(''.join('@{}.{} NB1:1:FC:{}:11101:1:{}/1\n{}TGGAATTCTC\n+\n{}\n'.format(run, i, lane, i, s, 'I' * (len(s) + 10))
+                             for i, s in enumerate(reads)))
+        runs.append({'run': run, 'lane': lane, 'reads': len(reads), 'md5': 'unused', 'url': 'unused'})
+    dataset = write(tmp_path / 'bio.yaml', yaml.safe_dump({
+        'name': 'bio', 'kind': 'biological', 'organism': 'homo_sapiens', 'libprepkit': 'Bioo Scientific NEXTflex Small RNA-Seq Kit v4',
+        'methods': ['unitas', 'mirge3'], 'data': 'benchmark/smallrna/bio', 'config': {'blockers': ['blood miRNA']},
+        'mirbase': {'release': '23.1', 'url': 'unused', 'sha256': 'unused'},
+        'samples': [{'sample': 'GSM1', 'group': 'control', 'runs': runs}]}))
+    return ext, dataset, reads
+
+
+def test_prepare_merges_runs_or_keeps_lanes_and_checks_lanes(tmp_path):
+    ext, dataset, _ = biological_dataset(tmp_path)
+    cmd = [sys.executable, str(BENCH / 'benchmark.py'), 'prepare', '--dataset', str(dataset), '--ext-dir', str(ext)]
+    result = subprocess.run(cmd + ['--project', str(tmp_path / 'merged'), '--reads', '4'], capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    config = yaml.safe_load((tmp_path / 'merged/config.yaml').read_text())
+    assert config['samples']['GSM1']['R1'] == 'bio/SRR1_R1.fastq.gz,bio/SRR2_R1.fastq.gz' and config['blockers'] == ['blood miRNA']
+    assert 'GSM1,"bio/SRR1_R1.fastq.gz,bio/SRR2_R1.fastq.gz",0' in (tmp_path / 'merged/pep/sample_table.csv').read_text()
+    assert (tmp_path / 'merged/benchmark/samples.tsv').read_text().splitlines()[1] == 'GSM1\tGSM1\tcontrol\tmerged\tSRR1,SRR2\t8'
+    result = subprocess.run(cmd + ['--project', str(tmp_path / 'lanes'), '--lanes'], capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    assert sorted(yaml.safe_load((tmp_path / 'lanes/config.yaml').read_text())['samples']) == ['GSM1_L1', 'GSM1_L2']
+    spec = yaml.safe_load(dataset.read_text())
+    spec['samples'][0]['runs'][1]['lane'] = 3
+    write(dataset, yaml.safe_dump(spec))
+    result = subprocess.run(cmd + ['--project', str(tmp_path / 'wrong')], capture_output=True, text=True, timeout=60)
+    assert result.returncode != 0 and 'SRR2: declared lane 3, but its reads are from lane 2' in result.stderr
+
+
+def test_evaluate_a_biological_dataset_in_lanes(tmp_path):
+    ext, dataset, reads = biological_dataset(tmp_path)
+    project = tmp_path / 'project'
+    cmd = [sys.executable, str(BENCH / 'benchmark.py')]
+    result = subprocess.run(cmd + ['prepare', '--dataset', str(dataset), '--project', str(project), '--ext-dir', str(ext), '--lanes'],
+                            capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    quant = project / 'data/tmp/smallrna/quant'
+    write(quant / 'unitas/mir_counts.tsv', '\tGSM1_L1\tGSM1_L2\nmiR-16-5p\t700\t690\nmiR-21-5p\t300\t310\nmiR-451a\t1\t0\n')
+    write(quant / 'mirge3/miR.Counts.csv', 'miRNA,GSM1_L1,GSM1_L2\nhsa-miR-16-5p,650,660\nhsa-miR-21-5p,320,300\n')
+    for lane in ('GSM1_L1', 'GSM1_L2'):
+        write(project / 'data/tmp/smallrna/filter/cutadapt/{}_R1.fastq'.format(lane),
+              ''.join('@r{}\n{}\n+\n{}\n'.format(i, s, ('/' if s[0] == 'A' else 'I') + 'I' * (len(s) - 1)) for i, s in enumerate(reads)))
+    result = subprocess.run(cmd + ['evaluate', '--project', str(project)], capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    report = (project / 'benchmark/report.md').read_text()
+    assert '2 lane samples' in report and '| unitas / mirge3 |' in report
+    assert '| miR-451a | 499.5 | 0.0 |' in report     # median CPM of the blocked miRNA: 1 of 1001 reads in L1, none in L2
+    assert '| GSM1_L1 | 10 | 10.00% | 40.0 | 14.0 |' in report                       # 1 of 10 top-miRNA reads has another first base
+    assert '## Lane replicates' in report
