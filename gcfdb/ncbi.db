@@ -123,7 +123,6 @@ rule ncbi_cervus_elaphus_hippelaphus:
 rule ncbi_geo_submission_form_template:
     params:
         url = 'https://www.ncbi.nlm.nih.gov/geo/info/examples/seq_template.xlsx',
-        date = datetime.now().strftime("%d-%m-%Y")
     output:
         join(EXT_DIR, 'ncbi', 'GEO', 'seq_template.xlsx')
     log:
@@ -131,7 +130,7 @@ rule ncbi_geo_submission_form_template:
     shell:
         """
         wget -O {output} {params.url}
-        echo "ncbi GEO submission form template,{params.url}|{params.url},{params.date}" > {log}
+        echo "ncbi GEO submission form template,{params.url}|{params.url},$(date +%d-%m-%Y)" > {log}
         """    
 
 rule ncbi_db_all:

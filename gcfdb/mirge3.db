@@ -33,7 +33,6 @@ if MIRGE3_RELEASE == 'sourceforge':
         params:
             url = 'https://sourceforge.net/projects/mirge3/files/miRge3_Lib/{}.tar.gz/download'.format(MIRGE_ORG),
             proxy = config.get('proxy', {}).get('wget', ''),
-            date = datetime.now().strftime("%d-%m-%Y"),
         output:
             join(MIRGE3_EXT, 'index.Libs', '{}_snorna.3.ebwt'.format(MIRGE_ORG))
         log:
@@ -41,7 +40,7 @@ if MIRGE3_RELEASE == 'sourceforge':
         shell:
             """
             wget {params.proxy} -qO- {params.url} | tar xvz --strip-components 1 -C {MIRGE3_EXT}
-            echo "mirge3,NA,{params.url},{params.date}" > {log}
+            echo "mirge3,NA,{params.url},$(date +%d-%m-%Y)" > {log}
             """
     MIRGE3_LIBRARY = rules.mirge3_prebuild.output[0]
     MIRGE3_VERIFICATION = []

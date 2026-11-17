@@ -14,6 +14,16 @@ private fixtures, provenance and storage locations belong in the operator's
 private configuration/runbook. Changing a test override does not change the
 suite's scientific defaults.
 
+### Download dates in logs
+
+Reference rules write their source and download date to the rule's log (e.g.
+`Mirbase mature,<release>,<url>,<dd-mm-yyyy>`). The date is taken when the job
+runs, in the shell command (`$(date +%d-%m-%Y)`), never in `params`: Snakemake
+reruns a finished job when its params change, so a date param made completed
+references and everything downstream rerun when a workflow was resumed on a later
+day ([#330](https://github.com/gcfntnu/gcf-workflows/issues/330)).
+`.tests/test_rule_param_dates.py` checks that no rule's `params` reads the clock.
+
 ### Langmead prebuilt Kraken databases
 
 The shared default is full **`k2_pluspf`, release `'20260626'`**. The
