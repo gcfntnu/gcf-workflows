@@ -3,9 +3,9 @@
 
 TEsmall aligns reads to the genome with Bowtie 1 (exact by default, up to `maxaln` alignments, after removing reads
 that match the rDNA) and assigns each read to the first RNA class it overlaps by at least 90% of the read, in the
-order structural RNA, miRNA, hairpin, exon, TE, intron, piRNA cluster; reads hitting several features within a class
-are split equally between them. Its 3' tRF step first takes reads ending in CCA. Delivery (bfq_all, multiqc_report)
-does not use it.
+order of quant.tesmall.order (default miRNA, hairpin, structural RNA, exon, TE, intron, piRNA cluster; TEsmall's own
+default puts structural RNA first); reads hitting several features within a class are split equally between them.
+Its 3' tRF step first takes reads ending in CCA. Delivery (bfq_all, multiqc_report) does not use it.
 
 It runs in gcfntnu/tesmall (TEsmall with a --no-trim patch, gcfntnu/gcf-docker#47) on the shared filtered reads, with
 --no-trim: TEsmall otherwise trims every input again, including a hard-coded TruSeq 5' adapter whose partial matches
@@ -24,11 +24,16 @@ include:
 
 TESMALL_OUT = join(QUANT_INTERIM, 'tesmall')
 TESMALL_MIN_LENGTH = filtered_min_length() or 16
+TESMALL_CLASSES = ('structural_RNA', 'miRNA', 'hairpin', 'exon', 'TE', 'intron', 'piRNA_cluster')
+TESMALL_ORDER = [c.strip() for c in str(TESMALL_CONF['order']).split(',') if c.strip()]
 
 if TESMALL_SELECTED:
     dotted = [s for s in SAMPLES if '.' in s]
     if dotted:
         raise ValueError('TEsmall cuts sample labels at dots; rename sample(s) {}'.format(', '.join(dotted)))
+    if sorted(TESMALL_ORDER) != sorted(TESMALL_CLASSES):
+        raise ValueError('quant.tesmall.order must list each TEsmall class once ({}), got {!r}'.format(
+            ', '.join(TESMALL_CLASSES), TESMALL_CONF['order']))
     if int(TESMALL_CONF['max_length']) < TESMALL_MIN_LENGTH:
         raise ValueError('quant.tesmall.max_length {} is below the minimum read length {}'.format(TESMALL_CONF['max_length'], TESMALL_MIN_LENGTH))
 
@@ -44,8 +49,8 @@ rule tesmall_quant:
         work = join(TESMALL_OUT, '{sample}'),
         db = TESMALL_DB,
         name = TESMALL_NAME,
-        args = '-m {} -M {} --mismatch {} --maxaln {}'.format(TESMALL_MIN_LENGTH, TESMALL_CONF['max_length'],
-                                                             TESMALL_CONF['mismatch'], TESMALL_CONF['maxaln'])
+        args = '-m {} -M {} --mismatch {} --maxaln {} -o {}'.format(TESMALL_MIN_LENGTH, TESMALL_CONF['max_length'],
+                                                                   TESMALL_CONF['mismatch'], TESMALL_CONF['maxaln'], ' '.join(TESMALL_ORDER))
     threads:
         1
     log:

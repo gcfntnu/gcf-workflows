@@ -28,6 +28,7 @@ def test_route_plans_database_and_runs_and_delivery_stays_on_unitas(tmp_path):
     run = rule_block(output, 'tesmall_quant')
     assert 'TEsmall --no-trim -f "$fastq" -l SR0' in run and f'-g gcf --dbfolder "$db"' in run
     assert '-m 15 -M 36 --mismatch 0 --maxaln 100' in run  # the kit's filtered minimum (NEXTflex v4 fixture)
+    assert '-o miRNA hairpin structural_RNA exon TE intron piRNA_cluster' in run  # miRNA first by default
     assert 'input: data/tmp/smallrna/filter/cutadapt/SR0' in run
     returncode, output = dry_run(tmp_path, 'unitas,tesmall', target='bfq_all')
     assert returncode == 0, output
@@ -46,6 +47,15 @@ def test_guards_stop_at_load(tmp_path):
     assert returncode != 0 and 'organism' in output
     returncode, output = dry_run(tmp_path / 'b', 'tesmall', lambda s: s['quant'].setdefault('tesmall', {}).update(max_length=10))
     assert returncode != 0 and 'quant.tesmall.max_length 10 is below the minimum read length' in output
+    returncode, output = dry_run(tmp_path / 'c', 'tesmall', lambda s: s['quant'].setdefault('tesmall', {}).update(order='miRNA,hairpin'))
+    assert returncode != 0 and 'quant.tesmall.order must list each TEsmall class once' in output
+
+
+def test_tesmall_own_order_can_be_set(tmp_path):
+    order = 'structural_RNA,miRNA,hairpin,exon,TE,intron,piRNA_cluster'
+    returncode, output = dry_run(tmp_path, 'tesmall', lambda s: s['quant'].setdefault('tesmall', {}).update(order=order), printshell=True)
+    assert returncode == 0, output
+    assert '-o structural_RNA miRNA hairpin exon TE intron piRNA_cluster' in rule_block(output, 'tesmall_quant')
 
 
 def test_dotted_sample_names_stop_at_load(tmp_path):
