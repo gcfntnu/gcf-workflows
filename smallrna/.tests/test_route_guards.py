@@ -225,3 +225,12 @@ def test_report_template_orders_sections_and_tables_for_smallrna():
     assert 'three passes' in template['section_comments']['cutadapt'] and 'Illumina primer' in template['section_comments']['cutadapt']
     assert template['table_columns_visible']['Custom content: gcf'] == {'paired_end': False}
     assert template['table_columns_name'] == {'unitas': {'miRNA_Detected': '# miRNAs'}}
+
+
+def test_unitas_does_not_require_the_conditional_pirna_file(tmp_path):
+    """#371: UNITAS writes unitas.piRcandidates-tails_<species>.txt only when some reads have no annotation (and the dump
+    has piRNA clusters), so it is not a declared output; every declared output is one UNITAS always writes."""
+    returncode, output = dry_run(tmp_path, lambda settings: None)
+    assert returncode == 0, output
+    unitas = output.split('rule unitas:')[1].split('\nrule ')[0]
+    assert 'unitas.annotation_summary.txt' in unitas and 'piRcandidates' not in unitas

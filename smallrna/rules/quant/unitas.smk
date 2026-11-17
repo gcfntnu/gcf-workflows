@@ -44,6 +44,8 @@ def unitas_args(wildcards, input):
     return '-refseq {}'.format(abspath(input.refseq)) if input.refseq else ''
 
 
+# Outputs are the files UNITAS always writes. unitas.piRcandidates-tails_<species>.txt is written only when the dump has a
+# piRNA cluster database and some reads have no annotation; it is delivered with the sample directory when present.
 rule unitas:
     input:
         fastq = get_unitas_seq,
@@ -59,7 +61,6 @@ rule unitas:
         modifications = join(QUANT_INTERIM, 'unitas', 'unitas', '{sample}', 'unitas.miR-modifications_{}.txt'.format(UNITAS_ORG)),
         trftable_ext = join(QUANT_INTERIM, 'unitas', 'unitas', '{sample}', 'unitas.tRF-table.txt'),
         mirtable = join(QUANT_INTERIM, 'unitas', 'unitas', '{sample}', 'miR-table_{}.simplified.txt'.format(UNITAS_ORG)),
-        pirna = join(QUANT_INTERIM, 'unitas', 'unitas', '{sample}', 'unitas.piRcandidates-tails_{}.txt'.format(UNITAS_ORG)),
         mirtable_ext= join(QUANT_INTERIM, 'unitas', 'unitas', '{sample}', 'unitas.miR-table_{}.txt'.format(UNITAS_ORG))
     params:
         script = src_gcf('scripts/run_unitas.sh'),
