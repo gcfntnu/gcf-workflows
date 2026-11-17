@@ -20,7 +20,7 @@ if config['filter']['ribosomal']['quantifier'] != 'skip':
 def get_unitas_refseq_fasta():
     """Spike-in and contaminant FASTA files that UNITAS adds to its ncRNA reference, if they are configured."""
     fasta = []
-    if config['filter']['spikein']['quantifier'] == 'native':
+    if SPIKEIN_NATIVE:
         fasta.extend(rules.spikein_unitas.output)
     if config['filter']['contaminants']['quantifier'] == 'unitas':
         fasta.extend(rules.contaminants_unitas.output)

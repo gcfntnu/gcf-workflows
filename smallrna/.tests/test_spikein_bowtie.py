@@ -72,7 +72,8 @@ def spikein_settings(**spikein_config):
 
 
 def test_route_counts_every_spikein(tmp_path):
-    returncode, output = dry_run(tmp_path, 'unitas', spikein_settings(quantifier='bowtie', ref='ERCC92,smallrna_calibrators'),
+    """filter.spikein.ref alone turns spike-ins on, with the bowtie route as the default quantifier."""
+    returncode, output = dry_run(tmp_path, 'unitas', spikein_settings(ref='ERCC92,smallrna_calibrators'),
                                  printshell=True, target='multiqc_report')
     assert returncode == 0, output
     fasta = rule_block(output, 'spikein_bowtie_fasta')
@@ -151,18 +152,19 @@ def test_spikein_mqc_table_for_each_route(tmp_path):
     assert returncode == 0, output
     assert re.search(r'spikein_mqc.py unitas data/tmp/smallrna/quant/unitas/unitas/SR01/unitas.annotation_summary.txt',
                      rule_block(output, 'bfq_level2_spikein_mqc'))
-    returncode, output = dry_run(tmp_path, 'unitas', spikein_settings(quantifier='skip', ref=None), target='multiqc_report')
+    returncode, output = dry_run(tmp_path / 'none', 'unitas', spikein_settings(ref=None), target='multiqc_report')  # fresh config
     assert returncode == 0, output
-    assert 'spikein_mqc' not in output
+    assert 'spikein_mqc' not in output and 'spikein_bowtie' not in output
 
 
 @pytest.mark.parametrize('spikein_config, message', [
     ({'quantifier': 'unitas', 'ref': 'ERCC92'}, 'filter.spikein.quantifier: unitas is now called native'),
     ({'quantifier': 'bowtie', 'ref': 'ERCC92', 'filter': True}, 'filter.spikein.filter is no longer used'),
     ({'quantifier': 'native', 'ref': 'ERCC92', 'filter': False}, 'filter.spikein.filter is no longer used'),
-    ({'quantifier': 'skip', 'ref': 'ERCC92'}, 'lists spike-in sets but filter.spikein.quantifier is skip'),
-    ({'quantifier': 'bowtie', 'ref': None}, 'filter.spikein.quantifier is bowtie but filter.spikein.ref lists no spike-in sets'),
-    ({'quantifier': 'bowtie2', 'ref': 'ERCC92'}, 'filter.spikein.quantifier: smallrna supports skip, bowtie, native'),
+    ({'quantifier': 'skip', 'ref': 'ERCC92'}, 'filter.spikein.quantifier: skip is no longer used'),
+    ({'quantifier': 'skip', 'ref': None}, 'filter.spikein.quantifier: skip is no longer used'),
+    ({'quantifier': 'native', 'ref': None}, 'filter.spikein.quantifier is native but filter.spikein.ref lists no spike-in sets'),
+    ({'quantifier': 'bowtie2', 'ref': 'ERCC92'}, 'filter.spikein.quantifier: smallrna supports bowtie, native'),
     ({'quantifier': 'bowtie', 'ref': 'ERCC92,ERCC92'}, 'listed twice'),
     ({'quantifier': 'bowtie', 'ref': 'missing.fa'}, "'missing.fa' is neither a gcfdb spike-in set"),
     ({'quantifier': 'bowtie', 'ref': 'bad.fa'}, "record 'Syn1' has bases other than A/C/G/T/U"),

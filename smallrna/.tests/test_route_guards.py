@@ -89,6 +89,7 @@ def test_default_has_no_spikeins(tmp_path):
     returncode, output = dry_run(tmp_path, lambda settings: None)
     assert returncode == 0, output
     assert 'rule spikein_unitas:' not in output and 'spikein/fasta' not in output
+    assert 'spikein_bowtie' not in output and 'filter/spikein' not in output and 'spikein_mqc' not in output
 
 
 def shell_lines(output, needle):

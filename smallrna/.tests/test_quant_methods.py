@@ -142,7 +142,7 @@ def rule_block(output, rule):
 def test_mirge3_spikein_index_follows_the_configured_sets(tmp_path, ref, fasta):
     """With filter.spikein.quantifier: native, the spike-in index is built from the gcfdb sets of filter.spikein.ref
     before miRge3 runs; without sets there is none."""
-    update = lambda s: s.setdefault('filter', {}).setdefault('spikein', {}).update(ref=ref, quantifier='native' if ref else 'skip')
+    update = lambda s: s.setdefault('filter', {}).setdefault('spikein', {}).update(ref=ref, **({'quantifier': 'native'} if ref else {}))
     returncode, output = dry_run(tmp_path, 'mirge3', update, printshell=True)
     assert returncode == 0, output
     project = rule_block(output, 'mirge3_project_library')

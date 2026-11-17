@@ -21,7 +21,7 @@ def get_args(wildcards):
     args = ''
     if config['organism'] == 'homo_sapiens':
         args += ' --tRNA-frag '
-    if SPIKEIN_QUANTIFIER == 'native':
+    if SPIKEIN_NATIVE:
         args += ' --spikeIn '
     return args
 
@@ -56,7 +56,7 @@ rule mirge3_project_library:
     params:
         script = src_gcf('scripts/mirge3_project_library.py'),
         shared = MIRGE3_EXT,
-        sets = ','.join(SPIKEIN_REF_SETS) if SPIKEIN_QUANTIFIER == 'native' else 'none'
+        sets = ','.join(SPIKEIN_REF_SETS) if SPIKEIN_NATIVE else 'none'
     container:
         'docker://' + config['docker']['mirge3']
     shell:

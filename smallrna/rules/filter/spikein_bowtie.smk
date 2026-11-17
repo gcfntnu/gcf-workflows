@@ -1,5 +1,5 @@
 #-*- mode:snakemake -*-
-"""Spike-in counts per spike-in with bowtie (filter.spikein.quantifier: bowtie, #336).
+"""Spike-in counts per spike-in with bowtie (#336).
 
 The configured spike-in sets (`filter.spikein.ref`, quant/spikein.smk) are combined into one bowtie reference per
 project. Each sample's filtered reads are matched exactly over their whole length, forward strand only
@@ -8,9 +8,9 @@ spike-in counts as `__ambiguous`. bowtie reports every alignment (`-a`): `-k` ca
 spike-ins, so a read matching one spike-in twice and another once would be counted for the first. Every sample gets a
 table with every spike-in, zeros included, and the project a matrix of them, delivered as `exprs/spikein_counts.tsv`.
 
-It runs whenever a spike-in route is set (filter.spikein.quantifier: bowtie or native) and is then the prefilter for
-every step that does not estimate spike-ins (mirflowz, miRTrace, STAR, FastQC, ...): they read the reads that matched
-no spike-in (bowtie's `--un`). With bowtie, UNITAS and miRge3 read those reads too and estimate no spike-ins; with
+It runs whenever spike-in sets are listed (filter.spikein.ref), with either filter.spikein.quantifier, as the
+prefilter for every step that does not estimate spike-ins (mirflowz, miRTrace, STAR, FastQC, ...): they read the reads
+that matched no spike-in (bowtie's `--un`). With bowtie, UNITAS and miRge3 read those reads too and estimate no spike-ins; with
 native, they read the reads with the spike-ins and estimate them themselves (quant/spikein.smk, filter/cliptrim.smk).
 """
 
@@ -28,7 +28,7 @@ rule spikein_project_fasta:
         'python {params.script:q} dna {input:q} > {output:q}'
 
 
-if config['filter']['spikein']['quantifier'] in ('bowtie', 'native'):
+if SPIKEIN_ACTIVE:
     SPIKEIN_BOWTIE = join(FILTER_INTERIM, 'spikein')
     SPIKEIN_INDEX_SUFFIXES = ('1.ebwt', '2.ebwt', '3.ebwt', '4.ebwt', 'rev.1.ebwt', 'rev.2.ebwt')
 

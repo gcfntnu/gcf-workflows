@@ -1,27 +1,27 @@
 #-*- mode:snakemake -*-
 """Spike-in sets of `filter.spikein.ref`, shared by the bowtie, UNITAS and miRge3 routes.
 
-Spike-ins are set per project, in its own config, not per library prep kit.
-`filter.spikein.ref` lists sets, comma-separated: gcfdb sets by name (sequences in `EXT_DIR/spikein/fasta/<set>.fa`),
-or a project's own FASTA by its path (ending in .fa or .fasta, relative to the working directory), e.g. synthetic
-non-human sequences added to the libraries.
+Spike-ins are set per project, in its own config, not per library prep kit, and `filter.spikein.ref` alone turns them
+on: with no sets listed (the default, null) no spike-in step runs. It lists sets, comma-separated: gcfdb sets by name
+(sequences in `EXT_DIR/spikein/fasta/<set>.fa`), or a project's own FASTA by its path (ending in .fa or .fasta,
+relative to the working directory), e.g. synthetic non-human sequences added to the libraries.
 
-`filter.spikein.quantifier` says who estimates them, from the same sequences:
-- `bowtie`: a prefilter (rules/filter/spikein_bowtie.smk) counts each spike-in in the filtered reads and removes those
-  reads, so every later step reads reads without spike-ins and none estimates them: UNITAS gets no spike-in reference
-  and miRge3 no spike-in index;
+`filter.spikein.quantifier`, optional, says who estimates them, from the same sequences:
+- `bowtie` (default): a prefilter (rules/filter/spikein_bowtie.smk) counts each spike-in in the filtered reads and
+  removes those reads, so every later step reads reads without spike-ins and none estimates them: UNITAS gets no
+  spike-in reference and miRge3 no spike-in index;
 - `native`: every quantifier that supports spike-ins estimates them itself from the reads with the spike-ins: UNITAS
   adds them to its reference with `-refseq`, miRge3 gets a spike-in index built from them. The bowtie prefilter still
   runs for the steps without spike-in support (mirflowz, miRTrace, STAR, FastQC), and its counts per spike-in are
-  delivered as well;
-- `skip`: no spike-in estimation; then no sets may be listed.
-`unitas`, the former name of `native`, and `filter.spikein.filter`, now implied by `bowtie`, stop the workflow.
+  delivered as well. Setting it without sets stops the workflow.
+Former settings stop the workflow: `skip` (no spike-ins is now an empty `filter.spikein.ref`), `unitas` (now `native`)
+and `filter.spikein.filter` (now implied by `bowtie`).
 A project's own FASTA is used as a copy in DNA letters (U to T), so RNA-letter files work for every route.
 """
 import re
 
 SPIKEIN_SETS = ('ERCC92', 'smallrna_calibrators')
-SPIKEIN_QUANTIFIERS = ('skip', 'bowtie', 'native')
+SPIKEIN_QUANTIFIERS = ('bowtie', 'native')
 CUSTOM_SPIKEIN = re.compile(r'\.(fa|fasta)$')
 
 
@@ -73,16 +73,20 @@ SPIKEIN_QUANTIFIER = config['filter']['spikein'].get('quantifier')
 if SPIKEIN_QUANTIFIER == 'unitas':
     raise ValueError('filter.spikein.quantifier: unitas is now called native (every quantifier that supports spike-ins '
                      'estimates them: UNITAS with -refseq, miRge3 with a spike-in index); set filter.spikein.quantifier: native')
+if SPIKEIN_QUANTIFIER == 'skip':
+    raise ValueError('filter.spikein.quantifier: skip is no longer used: spike-ins are off when filter.spikein.ref lists '
+                     'no sets; remove filter.spikein.quantifier')
 if SPIKEIN_QUANTIFIER not in SPIKEIN_QUANTIFIERS:
     raise ValueError('filter.spikein.quantifier: smallrna supports {}, got {!r}'.format(', '.join(SPIKEIN_QUANTIFIERS), SPIKEIN_QUANTIFIER))
-if SPIKEIN_QUANTIFIER != 'skip' and not SPIKEIN_REF_SETS:
-    raise ValueError('filter.spikein.quantifier is {} but filter.spikein.ref lists no spike-in sets'.format(SPIKEIN_QUANTIFIER))
-if SPIKEIN_QUANTIFIER == 'skip' and SPIKEIN_REF_SETS:
-    raise ValueError('filter.spikein.ref lists spike-in sets but filter.spikein.quantifier is skip; set bowtie (count and '
-                     'remove them before quantification) or native (the quantifiers estimate them), or remove the sets')
+if SPIKEIN_QUANTIFIER == 'native' and not SPIKEIN_REF_SETS:
+    raise ValueError('filter.spikein.quantifier is native but filter.spikein.ref lists no spike-in sets')
 if 'filter' in config['filter']['spikein']:
     raise ValueError('filter.spikein.filter is no longer used: filter.spikein.quantifier: bowtie counts and removes spike-in '
                      'reads before quantification, native leaves them to the quantifiers; remove filter.spikein.filter')
+
+# Spike-ins are on exactly when sets are listed; native additionally hands them to the quantifiers that estimate them.
+SPIKEIN_ACTIVE = bool(SPIKEIN_REF_SETS)
+SPIKEIN_NATIVE = SPIKEIN_ACTIVE and SPIKEIN_QUANTIFIER == 'native'
 
 
 # A project's own FASTA files, by their name in the filter interim directory: rule spikein_project_fasta
@@ -93,7 +97,7 @@ SPIKEIN_CUSTOM = {'custom{}'.format(i): path for i, path in enumerate([n for n i
 def native_spikein_fasta():
     """The spike-in FASTA files for quantifiers with their own spike-in support (UNITAS, miRge3): those of
     spikein_fasta() with filter.spikein.quantifier: native, none otherwise."""
-    return spikein_fasta() if SPIKEIN_QUANTIFIER == 'native' else []
+    return spikein_fasta() if SPIKEIN_NATIVE else []
 
 
 def spikein_fasta():

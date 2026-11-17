@@ -96,10 +96,10 @@ def trimmed_fastq_pattern():
 
 def filtered_fastq_pattern():
     """The filtered reads every downstream step reads (quantifiers, miRTrace, STAR, FastQC, ...), with a {sample}
-    wildcard: the trimmed reads, without the reads matching a spike-in whenever a spike-in route is set (bowtie or
-    native; spikein_bowtie.smk). A method sees spike-in reads only when it estimates them itself:
+    wildcard: the trimmed reads, without the reads matching a spike-in whenever spike-in sets are listed
+    (filter.spikein.ref; spikein_bowtie.smk). A method sees spike-in reads only when it estimates them itself:
     native_spikein_fastq_pattern()."""
-    if config['filter']['spikein']['quantifier'] in ('bowtie', 'native'):
+    if SPIKEIN_ACTIVE:
         return join(FILTER_INTERIM, 'spikein', 'bowtie', '{sample}_R1.fastq')
     return trimmed_fastq_pattern()
 
@@ -107,7 +107,7 @@ def filtered_fastq_pattern():
 def native_spikein_fastq_pattern():
     """The reads of the quantifiers with spike-in support (UNITAS, miRge3): with filter.spikein.quantifier: native the
     trimmed reads, spike-ins included, which they estimate themselves; otherwise the filtered reads."""
-    if config['filter']['spikein']['quantifier'] == 'native':
+    if SPIKEIN_NATIVE:
         return trimmed_fastq_pattern()
     return filtered_fastq_pattern()
 
