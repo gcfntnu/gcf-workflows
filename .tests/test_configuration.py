@@ -140,6 +140,7 @@ class ConfigurationTests(unittest.TestCase):
         config, _ = self.load_fixture('smallrna')
         self.assertEqual(config['align']['genome']['aligner'], 'star')
         self.assertIsNone(config['filter']['spikein']['ref'])
+        self.assertEqual(config['filter']['spikein']['quantifier'], 'bowtie')
         self.assertEqual(config['filter']['ribosomal']['ref'], 'ncbi')
         self.assertEqual(config['filter']['contaminants']['ref'], 'univec_core')
         kit = LibprepConfig.load(ROOT / 'libprep.config').select(config['libprepkit'], [75]).parameters

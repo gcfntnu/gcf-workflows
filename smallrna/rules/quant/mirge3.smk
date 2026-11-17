@@ -21,7 +21,7 @@ def get_args(wildcards):
     args = ''
     if config['organism'] == 'homo_sapiens':
         args += ' --tRNA-frag '
-    if SPIKEIN_REF_SETS:
+    if SPIKEIN_NATIVE:
         args += ' --spikeIn '
     return args
 
@@ -29,7 +29,7 @@ def mirge3_links(wildcards, input):
     """Links named <sample>.fastq, so miRge3 names its columns by sample; made inside the job because the filtered
     reads are temporary files that must stay inputs of mirge3_quant itself. Targets are absolute at run time ("$PWD",
     the project directory, which has the same path inside the container): the miRge3 image's BusyBox ln has no -r."""
-    reads = get_filtered_fastq(None)['R1']
+    reads = native_spikein_fastq_pattern()
     return ' && '.join('ln -sf "$PWD"/{} {}'.format(shlex.quote(reads.format(sample=sample)),
                                                    shlex.quote(join(MIRGE3_FASTQ_DIR, sample + '.fastq')))
                        for sample in SAMPLES)
@@ -40,14 +40,15 @@ MIRGE3_FASTQ_DIR = join(QUANT_INTERIM, 'mirge3', 'fastq')
 MIRGE3_PROJECT_LIB = join(QUANT_INTERIM, 'mirge3', 'lib')
 
 rule mirge3_project_library:
-    """This project's miRge3 library: links to the shared library and a spike-in index of its filter.spikein.ref sets.
+    """This project's miRge3 library: links to the shared library and, with filter.spikein.quantifier: native, a spike-in
+    index of its filter.spikein.ref sets.
 
     miRge3 counts spike-ins only from <libraries-path>/<org>/index.Libs/<org>_spike-in. Building that index in the
     project's own library leaves the shared library unchanged, so projects cannot use each other's spike-ins, and
     Snakemake tracks the index as part of this rule's output.
     """
     input:
-        fasta = spikein_fasta(),
+        fasta = native_spikein_fasta(),
         library = MIRGE3_LIBRARY
     output:
         library = directory(join(MIRGE3_PROJECT_LIB, MIRGE_ORG)),
@@ -55,11 +56,11 @@ rule mirge3_project_library:
     params:
         script = src_gcf('scripts/mirge3_project_library.py'),
         shared = MIRGE3_EXT,
-        sets = ','.join(SPIKEIN_REF_SETS) or 'none'
+        sets = ','.join(SPIKEIN_REF_SETS) if SPIKEIN_NATIVE else 'none'
     container:
         'docker://' + config['docker']['mirge3']
     shell:
-        'python {params.script} --library {params.shared} --output {output.library} --record {output.record} {input.fasta}'
+        'python {params.script:q} --library {params.shared:q} --output {output.library:q} --record {output.record:q} {input.fasta:q}'
 
 rule mirge3_reference:
     input:
@@ -79,7 +80,7 @@ rule mirge3_reference:
 
 rule mirge3_quant:
     input:
-        fastq = expand(get_filtered_fastq(None)['R1'], sample=SAMPLES),
+        fastq = expand(native_spikein_fastq_pattern(), sample=SAMPLES),
         # Project library with this project's spike-in index; miRNA database present and its release recorded.
         library = rules.mirge3_project_library.output.library,
         reference = rules.mirge3_reference.output

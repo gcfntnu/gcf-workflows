@@ -8,7 +8,7 @@ directory, miRge3's `--organism-name`.
 The archive's SHA-256 must equal the published one before anything is unpacked. The unpacked library must hold
 every file miRge3 0.1.4 opens for the options gcf-workflows uses (both miRNA databases; tRNA annotation for human)
 and the provenance files `gcf_mirna_db.tsv`, `gcf_manifest.tsv` and `gcf_sources.tsv`, which stay in the library.
-The library's own spike-in index (`index.Libs/<org>_spike-in.*`) is removed: spike-ins are a library prep choice,
+The library's own spike-in index (`index.Libs/<org>_spike-in.*`) is removed: spike-ins are set per project,
 and smallrna builds that index from `filter.spikein.ref` in each project's own library (links to this one).
 Every Bowtie index must be complete: all six files (`.1.ebwt` to `.4.ebwt`, `.rev.1.ebwt`, `.rev.2.ebwt`).
 
