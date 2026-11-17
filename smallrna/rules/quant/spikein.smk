@@ -14,11 +14,8 @@ working directory), e.g. synthetic non-human sequences added to the libraries.
   runs for the steps without spike-in support (mirflowz, miRTrace, STAR, FastQC), and its counts per spike-in are
   delivered as well;
 - `skip`: no spike-in estimation; then no sets may be listed.
-`unitas`, the former name of `native`, and `filter.spikein.filter`, now implied by `bowtie`, stop the workflow. A project's own FASTA is used as a copy in DNA letters
-(U to T), so RNA-letter files work for every route.
-
-`filter.spikein.quantifier`: `skip`, `bowtie` or `unitas`. `filter.spikein.filter: true` removes the reads matching a
-spike-in before quantification; bowtie route only.
+`unitas`, the former name of `native`, and `filter.spikein.filter`, now implied by `bowtie`, stop the workflow.
+A project's own FASTA is used as a copy in DNA letters (U to T), so RNA-letter files work for every route.
 """
 import re
 
