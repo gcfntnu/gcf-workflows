@@ -32,6 +32,38 @@ def counts_by(common):
     return out
 
 
+def collapse(common, id_to_seq):
+    """Common-table rows with each accession replaced by the first (sorted) accession of the same mature sequence, and
+    the groups of more than one. Methods credit the reads of identical sequences to different members (miRge3 to its
+    merge group's first name, UNITAS and mirflowz to one or the other or both: hsa-miR-199a-3p and hsa-miR-199b-3p), so
+    comparing methods needs one accession per sequence."""
+    by_seq = collections.defaultdict(list)
+    for accession, seq in id_to_seq.items():
+        by_seq[seq].append(accession)
+    alias, groups = {}, []
+    for accessions in by_seq.values():
+        accessions.sort()
+        if len(accessions) > 1:
+            groups.append(accessions)
+        alias.update((a, accessions[0]) for a in accessions)
+    return [(m, s, n, alias.get(i, i), c) for m, s, n, i, c in common], sorted(groups)
+
+
+def unplaced(common, methods, samples, top=10):
+    """Per method: the median share of its miRNA reads on names without a miRBase accession, which every other metric
+    leaves out, and the `top` such names by reads over all samples."""
+    total, missing = collections.defaultdict(float), collections.defaultdict(float)
+    names = {m: collections.Counter() for m in methods}
+    for method, sample, name, mature_id, count in common:
+        total[(method, sample)] += float(count)
+        if not mature_id and method in names:
+            missing[(method, sample)] += float(count)
+            names[method][name] += float(count)
+    share = {m: [missing[(m, s)] / total[(m, s)] for s in samples if total[(m, s)]] for m in methods}
+    return {m: {'share': round(statistics.median(share[m]), 4) if share[m] else '',
+                'names': sorted(names[m].items(), key=lambda kv: (-kv[1], kv[0]))[:top]} for m in methods}
+
+
 def cpm(counts):
     total = sum(counts.values())
     return {k: 1e6 * v / total for k, v in counts.items()} if total else {}
@@ -68,14 +100,15 @@ def agreement(common, methods, samples):
                 da = {k for k, v in ca.items() if v >= MIN_READS}
                 db = {k for k, v in cb.items() if v >= MIN_READS}
                 either, both = sorted(da | db), sorted(da & db)
-                if len(either) > 2:
-                    rho.append(spearman([math.log2(pa.get(k, 0) + 1) for k in either], [math.log2(pb.get(k, 0) + 1) for k in either]))
-                if len(both) > 2:
-                    rho_both.append(spearman([math.log2(pa[k] + 1) for k in both], [math.log2(pb[k] + 1) for k in both]))
+                # NaN (a method without reads in the sample, so constant) would make the median depend on sample order
+                r = spearman([math.log2(pa.get(k, 0) + 1) for k in either], [math.log2(pb.get(k, 0) + 1) for k in either])
+                rho += [] if math.isnan(r) else [r]
+                r = spearman([math.log2(pa[k] + 1) for k in both], [math.log2(pb[k] + 1) for k in both])
+                rho_both += [] if math.isnan(r) else [r]
                 if both:
                     ratio.append(statistics.median(abs(math.log2(pa[k] / pb[k])) for k in both))
-                ta = set(sorted(ca, key=ca.get, reverse=True)[:TOP])
-                tb = set(sorted(cb, key=cb.get, reverse=True)[:TOP])
+                ta = set(sorted((k for k in ca if ca[k] > 0), key=lambda k: (-ca[k], k))[:TOP])
+                tb = set(sorted((k for k in cb if cb[k] > 0), key=lambda k: (-cb[k], k))[:TOP])
                 if ta and tb:
                     overlap.append(len(ta & tb) / min(len(ta), len(tb)))
                 only_a.append(len(da - db))
@@ -93,9 +126,17 @@ def blocked(common, methods, samples, accessions):
                 for name, acc in accessions.items()} for m in methods}
 
 
+CUTADAPT_PASSES = ('adapter', 'filter', 'artefacts')
+
+
 def filtering(stage_jsons):
-    """Read counts through the cutadapt route's three passes, from their JSON reports ({pass: path})."""
+    """Read counts through the cutadapt route's three passes, from their JSON reports ({pass: path}); each pass must
+    have read what the one before it wrote, as in rules/filter/scripts/merge_cutadapt.py."""
     read = {k: json.loads(Path(p).read_text())['read_counts'] for k, p in stage_jsons.items()}
+    for before, after in zip(CUTADAPT_PASSES, CUTADAPT_PASSES[1:]):
+        if read[before]['output'] != read[after]['input']:
+            raise ValueError('the {} pass read {} reads, the {} pass wrote {}: not one run ({})'.format(
+                after, read[after]['input'], before, read[before]['output'], stage_jsons[after]))
     f = read['filter']['filtered']
     return {'reads_in': read['adapter']['input'], 'with_3p_adapter': read['adapter']['read1_with_adapter'],
             'discarded_5p_adapter': f['discard_trimmed'] or 0, 'too_short': f['too_short'] or 0,
@@ -105,10 +146,12 @@ def filtering(stage_jsons):
 
 def first_base(fastq, matures):
     """Reads of the given mature miRNAs ({name: sequence}) that match it from the second base on, by first base:
-    {name: {base: count}}, and the median quality of canonical and substituted first bases."""
-    cores = collections.defaultdict(dict)
+    {name: {base: count}}, and the median quality of canonical and substituted first bases. Some miRNAs differ only
+    at the first base (hsa-miR-17-5p and hsa-miR-106a-5p): a read with either first base is that miRNA's, one with
+    another first base is left out, as it cannot be placed."""
+    cores = collections.defaultdict(lambda: collections.defaultdict(dict))  # length -> sequence from base 2 -> {first base: name}
     for name, seq in matures.items():
-        cores[len(seq) - 1][seq[1:]] = (name, seq[0])
+        cores[len(seq) - 1][seq[1:]][seq[0]] = name
     counts = {name: collections.Counter() for name in matures}
     quality = {'canonical': [], 'substituted': []}
     with open(fastq) as fh:
@@ -119,21 +162,35 @@ def first_base(fastq, matures):
                 for length, table in cores.items():
                     hit = table.get(read[1:1 + length])
                     if hit:
-                        name, canonical = hit
+                        if read[0] not in hit and len(hit) > 1:
+                            break
+                        name = hit.get(read[0]) or next(iter(hit.values()))
                         counts[name][read[0]] += 1
-                        q = quality['canonical' if read[0] == canonical else 'substituted']
+                        q = quality['canonical' if read[0] in hit else 'substituted']
                         if len(q) < 200000:
                             q.append(ord(line[0]) - 33)
                         break
     return counts, {k: round(float(statistics.median(v)), 1) if v else '' for k, v in quality.items()}
 
 
-def chi2_expectations(df, threshold=OVERDISPERSED):
-    """Median of chi2(df)/df (Wilson-Hilferty) and P(chi2(df)/df > threshold): what pure sampling gives for the
-    dispersion index of L = df + 1 lanes. With 4 lanes the median is 0.79, not 1 (the mean is 1)."""
-    median = (1 - 2 / (9 * df)) ** 3
-    z = ((threshold) ** (1 / 3) - (1 - 2 / (9 * df))) / math.sqrt(2 / (9 * df))
-    return median, 0.5 * math.erfc(z / math.sqrt(2))
+def chi2_cdf(x, df):
+    """P(chi2(df)/df <= x), Wilson-Hilferty approximation."""
+    z = (x ** (1 / 3) - (1 - 2 / (9 * df))) / math.sqrt(2 / (9 * df))
+    return 0.5 * math.erfc(-z / math.sqrt(2))
+
+
+def chi2_expectations(dfs, threshold=OVERDISPERSED):
+    """What pure sampling gives for dispersion indices with the given degrees of freedom (lanes - 1, one per
+    miRNA-sample pair): their median, and how many are expected above threshold. With 4 lanes the median is 0.79, not
+    1 (the mean is 1)."""
+    lo, hi = 0.0, 50.0
+    for _ in range(60):
+        mid = (lo + hi) / 2
+        lo, hi = (mid, hi) if sum(chi2_cdf(mid, df) for df in dfs) < len(dfs) / 2 else (lo, mid)
+    return lo, sum(1 - chi2_cdf(threshold, df) for df in dfs)
+
+
+ABUNDANCE_BINS = (20, 100, 1000, 10000)    # mean reads per lane: overdispersion share per bin
 
 
 def lane_replicates(common, methods, lanes):
@@ -143,17 +200,20 @@ def lane_replicates(common, methods, lanes):
     sum((c_i - T_i p)^2 / (T_i p (1 - p))) / (L - 1), with c_i the lane counts, T_i the method's miRNA reads in lane i
     and p = sum(c) / sum(T): about 1 when lanes differ only by sampling (multinomial within the method's miRNA reads,
     which for a rare miRNA is Poisson; an abundant one varies less). Also the CV of CPM across lanes, binned by mean
-    count (powers of two), to find the count from which lanes agree within 10%."""
+    count (powers of two), to find the count from which lanes agree within 10% (median sample CV). All methods count
+    the same reads, so a lane effect (e.g. a sequencing error rate that differs by lane) raises the index for every
+    method, and more for abundant miRNAs, whose sampling noise is small; the share above OVERDISPERSED per bin of mean
+    reads (ABUNDANCE_BINS) shows it."""
     by = counts_by(common)
     out = {}
     for m in methods:
-        dispersion, cv_bins, high, dfs = [], collections.defaultdict(list), collections.Counter(), []
+        dispersion, cv_bins, high, dfs, bins = [], collections.defaultdict(list), collections.Counter(), [], collections.defaultdict(list)
         for sample, members in lanes.items():
             per = [by.get((m, lane), {}) for lane in members]
             totals = [sum(c.values()) for c in per]
             if len(per) < 2 or not all(totals):
                 continue
-            for mid in set().union(*per):
+            for mid in sorted(set().union(*per)):
                 c = [p.get(mid, 0) for p in per]
                 mean = sum(c) / len(c)
                 if mean < 1:
@@ -161,21 +221,23 @@ def lane_replicates(common, methods, lanes):
                 rates = [ci / ti * 1e6 for ci, ti in zip(c, totals)]
                 mu = statistics.mean(rates)
                 if mu:
-                    cv_bins[int(math.log2(mean))].append(statistics.pstdev(rates) / mu)
+                    cv_bins[int(math.log2(mean))].append(statistics.stdev(rates) / mu)
                 if mean >= LANE_MIN_MEAN:
                     p = sum(c) / sum(totals)
                     d = sum((ci - ti * p) ** 2 / (ti * p * (1 - p)) for ci, ti in zip(c, totals)) / (len(c) - 1)
                     dispersion.append(d)
                     dfs.append(len(c) - 1)
+                    bins[max(b for b in ABUNDANCE_BINS if b <= mean)].append(d > OVERDISPERSED)
                     if d > OVERDISPERSED:
                         high[mid] += 1
-        threshold = next((2 ** b for b in sorted(cv_bins) if statistics.median(cv_bins[b]) < 0.1), '')
-        df = statistics.mode(dfs) if dfs else 0
-        exp_median, exp_tail = chi2_expectations(df) if df else ('', 0)
+        b = next((b for b in sorted(cv_bins) if statistics.median(cv_bins[b]) < 0.1), None)
+        exp_median, exp_tail = chi2_expectations(dfs) if dfs else ('', '')
         out[m] = {'dispersion_mean': round(statistics.mean(dispersion), 3) if dispersion else '',
                   'dispersion_median': round(statistics.median(dispersion), 3) if dispersion else '',
-                  'expected_median': round(exp_median, 3) if df else '',
+                  'expected_median': round(exp_median, 3) if dfs else '',
                   'mirna_sample_pairs': len(dispersion), 'overdispersed': sum(1 for d in dispersion if d > OVERDISPERSED),
-                  'expected_overdispersed': round(exp_tail * len(dispersion)) if df else '',
-                  'reads_for_cv_below_10pct': threshold, 'overdispersed_mirnas': [k for k, _ in high.most_common(5)]}
+                  'expected_overdispersed': round(exp_tail) if dfs else '',
+                  'reads_for_cv_below_10pct': '{}-{}'.format(2 ** b, 2 ** (b + 1) - 1) if b is not None else '',
+                  'overdispersed_by_mean': {k: (sum(v), len(v)) for k, v in sorted(bins.items())},
+                  'overdispersed_mirnas': [k for k, _ in sorted(high.items(), key=lambda kv: (-kv[1], kv[0]))[:5]]}
     return out

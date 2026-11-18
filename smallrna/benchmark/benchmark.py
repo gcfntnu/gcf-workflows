@@ -11,7 +11,8 @@ The benchmark runs the workflow's own `quant_all` routes; it never calls the too
    none for biological samples), kept in `<project>/benchmark/`. A biological sample's runs (e.g. the lanes of one
    library) are merged by the workflow; with `--lanes` each run is its own sample, for the lane-replicate metric.
 2. Run `snakemake quant_all` in the project as for any project on that machine (containers, cores, resources); for a
-   pool, with `--notemp`, since the oracle count reads the workflow's filtered reads.
+   pool or biological dataset, with `--notemp`, since the oracle count and the first-base check read the workflow's
+   filtered reads (and the filtering table its cutadapt reports).
 3. `evaluate` turns each method's output into one common table (adapters.py), computes the same metrics for every
    method (metrics.py, pool.py; biological.py compares methods with each other) and writes
    `<project>/benchmark/report.md` with the tables behind it.
@@ -72,6 +73,13 @@ def load_dataset(path):
         names = [s['sample'] for s in spec['samples']]
         if len(set(names)) != len(names) or any(not s.get('runs') for s in spec['samples']):
             fail('{}: samples need unique names and at least one run each'.format(path))
+        runs = [run['run'] for s in spec['samples'] for run in s['runs']]
+        repeated = sorted({r for r in runs if runs.count(r) > 1})
+        if repeated:
+            fail('{}: runs listed more than once: {}'.format(path, ', '.join(repeated)))
+        lanes = [run['lane'] for s in spec['samples'] for run in s['runs'] if 'lane' in run]
+        if any(type(lane) is not int for lane in lanes):
+            fail('{}: a run\'s lane must be a whole number, e.g. `lane: 1`'.format(path))
     return spec
 
 
@@ -187,12 +195,20 @@ def biological_paths(spec, ext_dir):
             {run['run']: data / 'fastq' / '{}.fastq.gz'.format(run['run']) for s in spec['samples'] for run in s['runs']})
 
 
-def fastq_lane(path):
-    """The lane in the first read name of a gzipped FASTQ (Illumina `instrument:run:flowcell:lane:...`), or None."""
+def fastq_lanes(path, reads=1000):
+    """The lanes in the first read names of a gzipped FASTQ, from the Illumina read name
+    (`instrument:run:flowcell:lane:tile:x:y`, first or second field, as SRA writes it), or None when a read name has none."""
+    lanes = set()
     with gzip.open(path, 'rt') as fh:
-        fields = fh.readline().split()
-    parts = (fields[1] if len(fields) > 1 else fields[0].lstrip('@')).split(':')
-    return int(parts[3]) if len(parts) > 4 and parts[3].isdigit() else None
+        for i, line in enumerate(fh):
+            if i >= 4 * reads:
+                break
+            if i % 4 == 0:
+                parts = next((f.split(':') for f in line[1:].split() if f.count(':') >= 6), None)
+                if not parts or not parts[3].isdigit():
+                    return None
+                lanes.add(int(parts[3]))
+    return lanes
 
 
 def prepare_biological(spec, project, ext_dir, methods, args):
@@ -204,19 +220,20 @@ def prepare_biological(spec, project, ext_dir, methods, args):
     for s in spec['samples']:
         runs = sorted(s['runs'], key=lambda r: r.get('lane', 0))
         for run in runs:
-            source = fastqs[run['run']]
-            if 'lane' in run and fastq_lane(source) != run['lane']:
-                fail('{}: declared lane {}, but its reads are from lane {}'.format(run['run'], run['lane'], fastq_lane(source)))
-            target = project_fastq(project, spec, run['run'])
-            if args.reads:
-                head_fastq(source, target, args.reads)
-            else:
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.symlink_to(source)
+            if 'lane' not in run:
+                continue
+            found = fastq_lanes(fastqs[run['run']])
+            if found is None:
+                print('{}: no lane in the read names; declared lane {} not checked'.format(run['run'], run['lane']), file=sys.stderr)
+            elif found != {run['lane']}:
+                fail('{}: declared lane {}, but its reads are from lane {}'.format(run['run'], run['lane'], ', '.join(map(str, sorted(found)))))
         files = ['{}/{}_R1.fastq.gz'.format(spec['name'], run['run']) for run in runs]
         if args.lanes:
             for run, f in zip(runs, files):
                 name = '{}_L{}'.format(s['sample'], run.get('lane', run['run']))
+                if name in r1:
+                    fail('{}: two runs of {} in lane {} (e.g. two flow cells); --lanes needs one run per lane'.format(
+                        args.dataset, s['sample'], run['lane']))
                 r1[name] = f
                 rows.append([name, s['sample'], s.get('group', ''), run.get('lane', ''), run['run'], args.reads or run.get('reads', '')])
         else:
@@ -226,6 +243,13 @@ def prepare_biological(spec, project, ext_dir, methods, args):
     with gzip.open(fastqs[spec['samples'][0]['runs'][0]['run']], 'rt') as fh:
         fh.readline()
         read_length = len(fh.readline().strip())
+    for run in fastqs:  # only after every check, so a failure leaves no partial project
+        source, target = fastqs[run], project_fastq(project, spec, run)
+        if args.reads:
+            head_fastq(source, target, args.reads)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.symlink_to(source)
     bench = write_project(project, spec, ext_dir, list(r1), read_length, methods, r1=r1)
     write_tsv(bench / 'samples.tsv', ['sample', 'library', 'group', 'lane', 'runs', 'reads'], rows)
     print('{}: {} {}{}; run `snakemake quant_all --notemp` there (the first-base check reads the filtered reads), then '
@@ -538,24 +562,54 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
     id_to_name = {accession: name for name, (accession, _) in mature.items()}
     id_to_seq = {accession: seq for _, (accession, seq) in mature.items()}
     methods = list(spec['methods'])
-    gff = args.mirflowz_gff or (mirflowz_annotation(ext_dir, spec) if 'mirflowz' in methods else None)
-    common = adapters.common_table(methods, project / 'data/tmp/smallrna/quant', name_to_id, prefix, gff)
-    write_tsv(bench / 'common.tsv', adapters.COMMON_COLUMNS, common)
     table = read_tsv(bench / 'samples.tsv')
     samples = [row['sample'] for row in table]
     lane_mode = any(row['lane'] != 'merged' for row in table)
+    # check the temporary inputs (run with --notemp) before writing anything
+    reads = {s: filtered_fastq(project, s) for s in samples}
+    filt_dir = project / 'data/tmp/smallrna/filter'
+    cutadapt = [s for s in samples if (filt_dir / 'cutadapt' / '{}_R1.fastq'.format(s)).is_file()]
+    if cutadapt and len(cutadapt) != len(samples):
+        fail('cutadapt reads for some samples only ({}); remove those of an earlier run'.format(', '.join(cutadapt)))
+    stage_jsons = {s: {k: filt_dir / 'cutadapt_stages' / '{}.{}.json'.format(s, k) for k in biological.CUTADAPT_PASSES} for s in cutadapt}
+    missing = [str(p) for paths in stage_jsons.values() for p in paths.values() if not p.is_file()]
+    if missing:
+        fail('cutadapt reports missing: {}; run `snakemake quant_all --notemp`'.format(', '.join(missing)))
+    try:
+        filt = {s: biological.filtering(paths) for s, paths in stage_jsons.items()}
+    except ValueError as e:
+        fail(str(e))
+
+    gff = args.mirflowz_gff or (mirflowz_annotation(ext_dir, spec) if 'mirflowz' in methods else None)
+    raw = adapters.common_table(methods, project / 'data/tmp/smallrna/quant', name_to_id, prefix, gff)
+    write_tsv(bench / 'common.tsv', adapters.COMMON_COLUMNS, raw)
+    common, groups = biological.collapse(raw, id_to_seq)
+    unplaced = biological.unplaced(raw, methods, samples)
 
     summary = biological.method_summary(common, methods, samples)
-    keys = ['mirna_reads', 'detected', 'detected_all_samples', 'top10_share']
+    for m in methods:
+        summary[m]['unplaced'] = unplaced[m]['share']
+    keys = ['mirna_reads', 'unplaced', 'detected', 'detected_all_samples', 'top10_share']
     write_tsv(bench / 'metrics.tsv', ['metric'] + methods, [[k] + [summary[m][k] for m in methods] for k in keys])
     pairs = biological.agreement(common, methods, samples)
     pair_keys = list(next(iter(pairs.values()), {}))
     write_tsv(bench / 'agreement.tsv', ['method_a', 'method_b'] + pair_keys,
               [[a, b] + [v.get(k, '') for k in pair_keys] for (a, b), v in pairs.items()])
+    seen = {i for _, _, _, i, _ in raw}
+    shown = [g for g in groups if seen & set(g)]
     lines = ['# {}'.format(spec['name']), '',
              '{} ({}), {} {}. No known composition: methods are compared with each other; agreement is not accuracy.'.format(
                  spec['organism'], spec['libprepkit'], len(samples), 'lane samples' if lane_mode else 'samples'), '',
-             '## Methods', ''] + md_table(['metric'] + methods, [[k] + [summary[m][k] for m in methods] for k in keys])
+             '## Methods', '',
+             '`mirna_reads` are the reads on miRNAs with a miRBase accession; `unplaced` is the median share of a method\'s',
+             'miRNA reads on names without one, which every other metric leaves out. miRNAs with the same mature sequence',
+             'count as one ({} such groups among the reported miRNAs, e.g. {}).'.format(
+                 len(shown), ' = '.join(id_to_name[i] for i in shown[0]) if shown else 'none'), ''] + md_table(
+        ['metric'] + methods, [[k] + [summary[m][k] for m in methods] for k in keys])
+    named = [(m, n, c) for m in methods for n, c in unplaced[m]['names']]
+    if named:
+        lines += ['', 'Most reads without an accession: ' + '; '.join(
+            '{}: {}'.format(m, ', '.join('`{}` ({:.0f})'.format(n, c) for mm, n, c in named if mm == m)) for m in methods if unplaced[m]['names'])]
     lines += ['', '## Agreement between methods (medians over samples)', ''] + md_table(
         ['methods'] + pair_keys, [['{} / {}'.format(a, b)] + [v.get(k, '') for k in pair_keys] for (a, b), v in pairs.items()])
 
@@ -565,9 +619,6 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
         lines += ['', '## miRNAs targeted by blood miRNA blockers (median CPM)', ''] + md_table(
             ['miRNA'] + methods, [[n] + [blocked[m][n] for m in methods] for n in targets])
 
-    stages = project / 'data/tmp/smallrna/filter/cutadapt_stages'
-    filt = {s: biological.filtering({k: stages / '{}.{}.json'.format(s, k) for k in ('adapter', 'filter', 'artefacts')})
-            for s in samples if (stages / '{}.artefacts.json'.format(s)).is_file()}
     if filt:
         fk = list(next(iter(filt.values())))
         lines += ['', '## Filtering (cutadapt route)', ''] + md_table(['sample'] + fk, [[s] + [filt[s][k] for k in fk] for s in filt])
@@ -575,10 +626,10 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
     abundance = collections.Counter()
     for counts in biological.counts_by(common).values():
         abundance.update(biological.cpm(counts))
-    top = {id_to_name[i]: id_to_seq[i] for i, _ in abundance.most_common(20) if i in id_to_seq}
+    top = {id_to_name[i]: id_to_seq[i] for i, _ in sorted(abundance.items(), key=lambda kv: (-kv[1], kv[0]))[:20] if i in id_to_seq}
     shares = []
     for s in samples:
-        counts, quality = biological.first_base(filtered_fastq(project, s), top)
+        counts, quality = biological.first_base(reads[s], top)
         total = sum(sum(c.values()) for c in counts.values())
         canonical = sum(c[top[n][0]] for n, c in counts.items())
         shares.append([s, total, '{:.2%}'.format(1 - canonical / total) if total else '', quality['canonical'], quality['substituted']])
@@ -595,10 +646,19 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
         rk = ['dispersion_mean', 'dispersion_median', 'expected_median', 'mirna_sample_pairs', 'overdispersed', 'expected_overdispersed',
               'reads_for_cv_below_10pct']
         lines += ['', '## Lane replicates (one library in several lanes: sequencing noise only)', '',
-                  'Sampling alone gives a dispersion index with mean 1, the expected median (chi-square) and the expected',
-                  'number above {} by chance; values near these mean the method adds no lane-to-lane variation.'.format(
-                      biological.OVERDISPERSED), ''] + md_table(
-            ['metric'] + methods, [[k] + [rep[m][k] for m in methods] for k in rk])
+                  'Sampling alone gives a dispersion index with mean 1, the expected median (chi-square) and the expected number',
+                  'above {} by chance. All methods count the same reads, so a lane effect (e.g. a sequencing error rate that'.format(
+                      biological.OVERDISPERSED),
+                  'differs by lane) raises every method\'s values, most for abundant miRNAs; compare the methods with each other.',
+                  '`reads_for_cv_below_10pct`: the mean reads per lane (bin) from which the median CV of CPM across lanes is below 10%.',
+                  ''] + md_table(['metric'] + methods, [[k] + [rep[m][k] for m in methods] for k in rk])
+        edges = biological.ABUNDANCE_BINS
+        labels = {lo: '{}-{}'.format(lo, hi - 1) for lo, hi in zip(edges, edges[1:])}
+        labels[edges[-1]] = '>= {}'.format(edges[-1])
+        share = lambda m, lo: '{:.1%} of {}'.format(rep[m]['overdispersed_by_mean'][lo][0] / rep[m]['overdispersed_by_mean'][lo][1],
+                                                    rep[m]['overdispersed_by_mean'][lo][1]) if lo in rep[m]['overdispersed_by_mean'] else ''
+        lines += ['', 'Share of miRNA-sample pairs above {} by mean reads per lane:'.format(biological.OVERDISPERSED), ''] + md_table(
+            ['mean reads per lane'] + methods, [[labels[lo]] + [share(m, lo) for m in methods] for lo in edges])
         listed = ['{}: {}'.format(m, id_to_name.get(i, i)) for m in methods for i in rep[m]['overdispersed_mirnas']]
         if listed:
             lines += ['', 'Most often overdispersed: ' + '; '.join(listed)]

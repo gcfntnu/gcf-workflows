@@ -27,7 +27,10 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    python smallrna/benchmark/benchmark.py prepare --dataset smallrna/benchmark/datasets/synthetic_mmu_chr19.yaml \
        --project <project> --ext-dir "$EXT_DIR"
    ```
-3. **Run** `snakemake quant_all` in the project, as for any project on that machine (containers, cores, resources).
+3. **Run** `snakemake quant_all` in the project, as for any project on that machine (containers, cores, resources);
+   with `--notemp` for pool and biological datasets, whose evaluation reads the workflow's temporary filtered reads
+   (and, for biological datasets, the cutadapt reports; `evaluate` checks those before writing anything). After a
+   complete run without `--notemp`, rerun with `--notemp --forceall`.
 4. **Evaluate.** `benchmark.py evaluate --project <project>` writes `<project>/benchmark/`: `common.tsv` (every
    method's counts in one table), `per_mirna.tsv` (pools: `per_sequence.tsv` and `filter_stages.tsv`), `metrics.tsv`
    and `report.md`.
@@ -74,7 +77,8 @@ read), and the filter-route count reads those after each of the route's passes. 
 each other, and agreement is not accuracy. A declaration lists `samples`, each with its `group` and `runs` (with `lane`
 when known; `prepare` checks it against the read names), and the miRBase release for names and accessions. A sample's
 runs are merged by the workflow (`R1` lists them comma-separated); `prepare --lanes` makes each run its own sample
-(`<sample>_L<lane>`) for the lane-replicate metric.
+(`<sample>_L<lane>`, so one run per lane and sample) for the lane-replicate metric. Run IDs must be unique and lanes
+whole numbers; a lane is checked against the first 1,000 read names when they carry it.
 
 | Declaration | Samples | Runs |
 |---|---|---|
@@ -143,21 +147,32 @@ miRNA), `exact` (share of miRNAs counted exactly), `misassigned` (reads on miRNA
 **Biological samples** (`biological.py`; detected = at least 10 reads in a sample; CPM relative to each method's
 miRNA reads):
 
-- **Per method:** miRNA reads, miRNAs detected per sample and in every sample, and the share of the 10 most abundant.
+- **Accessions.** miRNAs with the same mature sequence count as one (the lowest accession), since the methods credit
+  their reads to different members (miRge3 to its merge group's first name; UNITAS and mirflowz to either, e.g.
+  hsa-miR-199a-3p and hsa-miR-199b-3p). Reads on names without a miRBase accession are left out of every metric and
+  reported as `unplaced`, with the names that have most: UNITAS names some miRNAs after their precursor locus
+  (`miR-16-1-5p`), which the adapter cannot place yet (#382), so its share is large on plasma.
+- **Per method:** miRNA reads, `unplaced`, miRNAs detected per sample and in every sample, and the share of the 10 most abundant.
 - **Between methods**, per pair (medians over samples): Spearman of log2(CPM + 1) over the miRNAs either detects
   and over those both detect, median |log2 CPM ratio| over those both detect, overlap of the 100 most abundant, and miRNAs only one detects
   (`only_a` and `only_b` for the first and second method of the pair).
 - **Blocked miRNAs:** CPM of miR-451a, miR-486-5p and miR-92a-3p, the targets of the NEXTflex blood miRNA blockers.
 - **Filtering:** reads through the cutadapt route's three passes (3' adapter found, 5' adapter discarded, too short,
-  N, expected errors, artefacts discarded, kept), from their JSON reports.
+  N, expected errors, artefacts discarded, kept), from their JSON reports, which must chain (each pass read what the
+  one before wrote); only for the cutadapt route.
 - **First bases:** in the 20 most abundant miRNAs, the share of reads that match from the second base on but have
-  another first base, with the median quality of canonical and substituted first bases. On NEXTflex v4 (no random
-  5' bases, so the insert starts at cycle 1 of a two-colour NextSeq) about 3% have a substituted first base of low
-  quality: a sequencing error, the same in every lane.
-- **Lane replicates** (`--lanes`): per method, the dispersion index of lane counts against sampling alone (about 1
-  when a method adds no variation; multinomial within the method's miRNA reads; miRNAs with at least 20 reads per
-  lane), with the values sampling alone gives (mean 1; with 4 lanes a median of 0.79 and about 3% above 3), how many
-  miRNA–sample pairs exceed 3 (`mirna_sample_pairs` tested), and the read count from which the lanes' CPM agree within 10% (median CV).
+  another first base, with the median quality of canonical and substituted first bases (reads of miRNAs that differ
+  only at the first base, such as hsa-miR-17-5p and hsa-miR-106a-5p, keep their own miRNA; a third first base is not
+  placed). On NEXTflex v4 (no random 5' bases, so the insert starts at cycle 1 of a two-colour NextSeq) about 2-3% have a
+  substituted first base of low quality: a sequencing error, in every lane but at a rate that differs by lane.
+- **Lane replicates** (`--lanes`): per method, the dispersion index of lane counts against sampling alone
+  (multinomial within the method's miRNA reads; miRNAs with at least 20 reads per lane), with the values sampling
+  alone gives (mean 1; with 4 lanes a median of 0.79 and about 3% above 3), how many miRNA–sample pairs exceed 3
+  (`mirna_sample_pairs` tested), that share by mean reads per lane, and the bin of mean reads per lane from which the
+  lanes' CPM agree within 10% (median sample CV). All methods count the same reads, so a lane effect raises every
+  method's values, and most for abundant miRNAs, whose sampling noise is small: a share above 3 that grows with
+  abundance is a multiplicative lane effect (e.g. an error rate that differs by lane), not a method's. Compare the
+  methods with each other rather than with the sampling values.
 
 On the mouse chr19 dataset, UNITAS and miRge3 count every miRNA exactly. mirflowz counts a third of
 `mmu-miR-146b-5p`, whose sequence occurs three times on chr19: it divides a read that maps equally well to several loci
