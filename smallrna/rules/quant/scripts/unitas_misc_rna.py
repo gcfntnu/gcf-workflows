@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 """UNITAS misc_RNA reads by gene family (#379), from the target names in each sample's unitas.hits_per_target.txt.
 
-    unitas_misc_rna.py table --summaries S/unitas.annotation_summary.txt [...] --hits-per-target S/unitas.hits_per_target.txt [...]
-        > misc_rna_families.tsv
-        Sample_ID, family, count: every family for every sample, in the order of FAMILIES, samples sorted.
-    unitas_misc_rna.py mqc misc_rna_families.tsv > unitas_misc_rna_mqc.yaml
-        MultiQC custom content (YAML in JSON notation): a bar per sample with its misc_RNA reads by family, or a short
-        note when no sample has misc_RNA reads.
+    unitas_misc_rna.py --summaries S/unitas.annotation_summary.txt [...] --hits-per-target S/unitas.hits_per_target.txt [...]
+        --table misc_rna_families.tsv --mqc unitas_misc_rna_mqc.yaml
+
+--table: Sample_ID, family, count; every family for every sample, in the order of FAMILIES, samples sorted.
+--mqc: MultiQC custom content (YAML in JSON notation), a bar per sample with its misc_RNA reads by family, or a short
+note when no sample has misc_RNA reads.
 
 UNITAS reports Ensembl's misc_RNA biotype as one class; in blood-derived libraries it is mostly Y RNA fragments.
 A misc_RNA target belongs to the first family with a name prefix that starts its name (the reference's Ensembl gene
@@ -14,8 +14,9 @@ name, e.g. `RNY4-ENSG00000252316.1`), ignoring case, so mouse and rat symbols (`
 `RN7S` follows `RN7SK`, so it takes the 7SL genes (`RN7SL1`, mouse `Rn7s1`) but not 7SK.
 Names that match none are `other`, including transcript-only names without a gene symbol (`ENST...`).
 A read UNITAS splits between targets keeps its fractional counts, so a sample's families must add up to the misc_RNA
-class of its annotation summary; a difference, an unpaired file or a table with another header stops the script.
-An empty or header-only hits table (a sample without reads) has no targets.
+class of its annotation summary, read as unitas_annotations.py reads it (up to the first empty line). A difference,
+an unpaired file, a hits table with another header, a malformed row or a count that is not a number stops the script.
+An empty or header-only hits table (a sample without reads) has no targets; blank lines in it are skipped.
 """
 import argparse
 import csv
@@ -33,11 +34,6 @@ RULES = '; '.join('{} as {}'.format(' and '.join(p + '...' for p in prefixes), l
 DESCRIPTION = ('Reads of the UNITAS misc_RNA class by gene family, from the names of the Ensembl genes they hit, the first '
                'match counting: {}. Reads split between genes keep their fractional counts.').format(RULES)
 HITS_HEADER = ['TRANSCRIPT_CLASS', 'TRANSCRIPT_NAME', 'READ_COUNT']
-TABLE_HEADER = ['Sample_ID', 'family', 'count']
-
-
-def tsv(fh):
-    return csv.reader(fh, delimiter='\t', quoting=csv.QUOTE_NONE)
 
 
 def family(target):
@@ -46,34 +42,43 @@ def family(target):
     return next((name for name, prefixes in PREFIXES if upper.startswith(prefixes)), NAMES[-1])
 
 
+def number(value, path, line):
+    try:
+        return float(value)
+    except ValueError:
+        raise ValueError('{}: line {}: expected a number, got {!r}'.format(path, line, value)) from None
+
+
 def misc_rna_families(path):
     """misc_RNA reads of one hits_per_target table by family, every family present."""
     counts = dict.fromkeys(NAMES, 0.0)
     with open(path, newline='') as fh:
-        rows = tsv(fh)
+        reader = csv.reader(fh, delimiter='\t', quoting=csv.QUOTE_NONE)
+        rows = ((reader.line_num, row) for row in reader if row)
         header = next(rows, None)
         if header is None:
             return counts
-        if header != HITS_HEADER:
-            raise ValueError('{}: not a UNITAS hits_per_target table (expected columns {})'.format(path, ' '.join(HITS_HEADER)))
-        for row in rows:
+        if header[1] != HITS_HEADER:
+            raise ValueError('{}: line {}: not a UNITAS hits_per_target header (expected {})'.format(path, header[0], ' '.join(HITS_HEADER)))
+        for line, row in rows:
             if len(row) != 3:
-                raise ValueError('{}: expected 3 columns, got {!r}'.format(path, row))
+                raise ValueError('{}: line {}: expected 3 columns, got {!r}'.format(path, line, row))
             if row[0] == 'misc_RNA':
-                counts[family(row[1])] += float(row[2])
+                counts[family(row[1])] += number(row[2], path, line)
     return counts
 
 
 def summary_misc_rna(path):
-    """The misc_RNA class count of a UNITAS annotation summary, 0 when it has none."""
-    for line in Path(path).read_text().splitlines():
-        if line.strip() and not line[0].isspace():
-            fields = line.rsplit('\t', 1)
-            if len(fields) != 2:
-                raise ValueError('{}: expected a class and a count, got {!r}'.format(path, line))
-            name, count = fields
-            if name == 'misc_RNA':
-                return float(count)
+    """The misc_RNA class count of a UNITAS annotation summary, 0 when it has none. Read as unitas_annotations.py
+    (file2pandas) reads it: up to the first empty line, a row a name and a count, three spaces per sub-level."""
+    for line, text in enumerate(Path(path).read_text().split('\n'), start=1):
+        if not text:
+            break
+        fields = text.split('\t')
+        if len(fields) != 2:
+            raise ValueError('{}: line {}: expected a class and a count, got {!r}'.format(path, line, text))
+        if fields[0] == 'misc_RNA':
+            return number(fields[1], path, line)
     return 0.0
 
 
@@ -98,51 +103,34 @@ def table(summaries, hits):
 
 
 def format_table(result):
-    lines = ['\t'.join(TABLE_HEADER)]
+    lines = ['Sample_ID\tfamily\tcount']
     lines += ['{}\t{}\t{:.10g}'.format(sample, name, counts[name]) for sample, counts in result.items() for name in NAMES]
     return '\n'.join(lines) + '\n'
 
 
-def read_table(path):
-    """{sample: {family: count}} from a table written by `table`."""
-    data = {}
-    with open(path, newline='') as fh:
-        rows = tsv(fh)
-        if next(rows, None) != TABLE_HEADER:
-            raise ValueError('{}: not a misc_RNA family table (columns {})'.format(path, ', '.join(TABLE_HEADER)))
-        for row in rows:
-            if len(row) != 3 or row[1] not in NAMES:
-                raise ValueError('{}: expected sample, family ({}) and count, got {!r}'.format(path, ', '.join(NAMES), row))
-            data.setdefault(row[0], dict.fromkeys(NAMES, 0.0))[row[1]] = float(row[2])
-    return data
-
-
-def mqc(data):
+def mqc(result):
     section = {'id': 'unitas_misc_rna', 'section_name': 'UNITAS: misc_RNA families', 'description': DESCRIPTION}
-    if not any(any(counts.values()) for counts in data.values()):
+    if not any(any(counts.values()) for counts in result.values()):
         return {**section, 'plot_type': 'html', 'data': '<p>No sample has misc_RNA reads.</p>'}
     return {**section, 'plot_type': 'bargraph',
             'pconfig': {'id': 'unitas_misc_rna_plot', 'title': 'UNITAS: misc_RNA families', 'ylab': '# Reads'},
             'categories': {name: {'name': label} for name, label, _ in FAMILIES},
-            'data': {sample: {name: round(value, 2) for name, value in counts.items()} for sample, counts in sorted(data.items())}}
+            'data': {sample: {name: round(value, 2) for name, value in counts.items()} for sample, counts in result.items()}}
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
-    sub = parser.add_subparsers(dest='command', required=True)
-    families = sub.add_parser('table', help='misc_RNA reads by family per sample')
-    families.add_argument('--summaries', nargs='+', required=True, help='unitas.annotation_summary.txt, one per sample directory')
-    families.add_argument('--hits-per-target', nargs='+', required=True, dest='hits', help='unitas.hits_per_target.txt, one per sample directory')
-    sub.add_parser('mqc', help='MultiQC section from the family table').add_argument('table', help='misc_rna_families.tsv')
+    parser.add_argument('--summaries', nargs='+', required=True, help='unitas.annotation_summary.txt, one per sample directory')
+    parser.add_argument('--hits-per-target', nargs='+', required=True, dest='hits', help='unitas.hits_per_target.txt, one per sample directory')
+    parser.add_argument('--table', required=True, help='output: misc_RNA reads by family per sample (TSV)')
+    parser.add_argument('--mqc', required=True, help='output: MultiQC custom content section (YAML)')
     args = parser.parse_args()
     try:
-        if args.command == 'table':
-            sys.stdout.write(format_table(table(args.summaries, args.hits)))
-        else:
-            json.dump(mqc(read_table(args.table)), sys.stdout, indent=1)
-            sys.stdout.write('\n')
+        result = table(args.summaries, args.hits)
     except (OSError, ValueError) as error:
         sys.exit('unitas_misc_rna.py: {}'.format(error))
+    Path(args.table).write_text(format_table(result))
+    Path(args.mqc).write_text(json.dumps(mqc(result), indent=1) + '\n')
 
 
 if __name__ == '__main__':
