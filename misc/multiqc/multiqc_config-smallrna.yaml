@@ -43,6 +43,9 @@ report_section_order:
     order: 600
   unitas:
     order: 550
+  # Custom content (#379): UNITAS misc_RNA by gene family, after the UNITAS section
+  unitas_misc_rna:
+    order: 540
   gene_high:
     order: 500
   exploratory:
