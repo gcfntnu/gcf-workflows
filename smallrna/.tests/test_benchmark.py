@@ -84,8 +84,19 @@ def write(path, text):
     return path
 
 
+def unitas_dump(ext, organism, species, hairpins):
+    """A UNITAS reference dump with only the organism's miRBase hairpins, where the project's db.unitas (main.config) puts it."""
+    release = yaml.safe_load((BENCH.parents[1] / 'main.config').read_text())['db']['unitas']['release']
+    return write(Path(ext) / 'unitas' / release / 'UNITAS_refdump_{}'.format(organism) / 'miRBase_hairpin_{}.fas'.format(species),
+                 ''.join('>{}_stem-loop\n{}\n'.format(n, s) for n, s in hairpins.items())).parent
+
+
+# mmu-mir-194-2: miR-194-5p on its 5' arm, nothing on its 3' arm
+MMU_HAIRPINS = {'miR-194-2': 'GGTGTGTAACAGCAACTCCATGTGGACTGTGCTCGGATTCCAGTGGGGCTGCTGTTATCTGGGGCAACC'}
+
+
 def native_outputs(quant):
-    write(quant / 'unitas/mir_counts.tsv', '\tS01\tS02\nmiR-192-5p\t45\t45\nmiR-194-5p \t20\t25\n')
+    write(quant / 'unitas/mir_counts.tsv', '\tS01\tS02\nmiR-192-5p\t45\t45\nmiR-194-5p \t20\t25\nmiR-194-2-5p\t5\t0\nmiR-194-2-3p\t1\t0\n')
     write(quant / 'mirge3/miR.Counts.csv', 'miRNA,S01,S02\nmmu-miR-192-5p,45,45\nmmu-miR-194-5p/mmu-miR-204-5p,25,25\nmmu-miR-9999-5p,1,0\n')
     write(quant / 'tesmall/tesmall_counts.tsv', 'ftype\tfid\tS01\tS02\nhairpin\tmmu-mir-192\t3\t3\n'
           'miRNA\tmmu-miR-192-5p\t42\t44\nmiRNA\tmmu-miR-194-5p\t25\t0\nsense_TE\tL1:L1:LINE\t9\t9\n')
@@ -101,6 +112,7 @@ def test_adapters_match_by_accession_whatever_the_method_names(tmp_path):
     rows = adapters.common_table(['unitas', 'mirge3', 'mirflowz', 'tesmall'], tmp_path / 'quant', NAME_TO_ID, 'mmu-', gff)
     got = {(m, s, n): (i, c) for m, s, n, i, c in rows}
     assert got[('unitas', 'S01', 'miR-194-5p')] == ('MIMAT0000224', 20)
+    assert got[('unitas', 'S01', 'miR-194-2-5p')] == ('', 5)       # a hairpin name: placed only with the UNITAS hairpins
     assert got[('mirge3', 'S01', 'mmu-miR-194-5p/mmu-miR-204-5p')] == ('MIMAT0000224', 25)
     assert got[('mirge3', 'S01', 'mmu-miR-9999-5p')] == ('', 1)
     assert got[('mirflowz', 'S01', 'mmu-miR-192-5p')] == ('MIMAT0000517', 45)  # canonical and isomiR rows together
@@ -111,6 +123,30 @@ def test_adapters_match_by_accession_whatever_the_method_names(tmp_path):
     assert ('tesmall', 'S02', 'mmu-miR-194-5p') not in got and not any(n.startswith(('mmu-mir', 'L1')) for m, _, n in got if m == 'tesmall')
     with pytest.raises(ValueError, match='no benchmark adapter'):
         adapters.common_table(['newtool'], tmp_path / 'quant', NAME_TO_ID, 'mmu-')
+
+
+def test_unitas_hairpin_names_get_the_mature_miRNA_on_that_arm(tmp_path):
+    mature = synthetic.read_mature(write(tmp_path / 'mature.fa', (
+        '>hsa-miR-16-5p MIMAT0000069 Homo sapiens miR-16-5p\nUAGCAGCACGUAAAUAUUGGCG\n'
+        '>hsa-miR-16-1-3p MIMAT0004489 Homo sapiens miR-16-1-3p\nCCAGUAUUAACUGUGCUGCUGA\n'
+        '>hsa-miR-325-5p MIMAT0000771 Homo sapiens miR-325-5p\nCCUAGUAGGUGUCCAGUAAGUGU\n'
+        '>hsa-miR-y-5p MIMAT9999999 Homo sapiens miR-y-5p\nCCUAGCAGCACGUAAAUAUUGG\n')), 'hsa-')
+    name_to_id = {n: a for n, (a, _) in mature.items()}
+    hairpins = {'miR-16-1': 'GTCAGCAGTGCCTTAGCAGCACGTAAATATTGGCGTTAAGATTCTAAAATTATCTCCAGTATTAACTGTGCTGCTGAAGTAAGGTTGAC',  # hsa-mir-16-1
+                'miR-325': 'ATACAGTGCTTGGTTCCTAGTAGGTGTCCAGTAAGTGTTTGTGACATAATTTGTTTATTGAGGACCTCCTATCAATCAAGCACTGTGCTAGGCTCTGG',
+                'miR-x': 'TAGCAGCACGTAAATATTGGCGCCTAGCAGCACGTAAATATTGGCA' + 'A' * 50,
+                'miR-y-2': 'TAGCAGCACGTAAATATTGGCGCCTAGCAGCACGTAAATATTGGCA' + 'A' * 50}
+    place = lambda name: adapters.unitas_place(name, name_to_id, 'hsa-', hairpins, mature)
+    assert place('miR-16-5p') == ('MIMAT0000069', 'name')
+    assert place('miR-16-1-5p') == ('MIMAT0000069', 'hairpin')       # hsa-miR-16-5p on the 5' arm
+    assert place('miR-16-1-3p') == ('MIMAT0004489', 'name')          # its own mature miRNA, not the 5' one
+    assert place('miR-325-3p') == ('', '')                           # human miRBase has only miR-325-5p
+    assert place('miR-x-5p') == ('', '')                             # two mature miRNAs of other families on the arm: ambiguous
+    assert place('miR-y-2-5p') == ('MIMAT9999999', 'hairpin')        # the same two, but one is the hairpin family's (miR-y)
+    assert place('miR-9999-1-5p') == ('', '')                        # no such hairpin
+    dump = unitas_dump(tmp_path / 'ext', 'homo_sapiens', 'Human', hairpins)
+    write(dump / 'miRBase_hairpin_non-Human.fas', '>cfa-mir-1_stem-loop\nACGT\n')
+    assert adapters.unitas_hairpins(dump) == hairpins
 
 
 def test_count_metrics():
@@ -141,9 +177,16 @@ def test_prepare_then_evaluate(tmp_path, ref):
     gff = native_outputs(project / 'data/tmp/smallrna/quant')
     result = subprocess.run(cmd + ['evaluate', '--project', str(project), '--mirflowz-gff', str(gff)],
                             capture_output=True, text=True, timeout=60)
+    assert result.returncode != 0 and 'no UNITAS reference dump at' in result.stderr
+    unitas_dump(tmp_path / 'ext', 'mus_musculus', 'Mouse', MMU_HAIRPINS)
+    result = subprocess.run(cmd + ['evaluate', '--project', str(project), '--mirflowz-gff', str(gff)],
+                            capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
+    assert 'UNITAS names: 2 by name (135 reads), 1 by hairpin and arm (5 reads), 1 unplaced (1 reads)' in result.stdout
+    assert (project / 'benchmark/unitas_names.tsv').read_text().splitlines()[1:3] == [
+        'miR-192-5p\tname\tMIMAT0000517\t90', 'miR-194-2-3p\tunplaced\t\t1']
     report = (project / 'benchmark/report.md').read_text()
-    assert '| recovered | 0.9643 | 1.0 | 1.0 |' in report  # unitas misses 5 of miR-194-5p's 25 reads in S01: 135/140
+    assert '| recovered | 1.0 | 1.0 | 1.0 |' in report  # unitas's 5 reads of miR-194-5p in S01 on the hairpin name: 140/140
     assert '| mmu-miR-192-5p | 45 | 45 | 45 | 45 |' in report
     assert 'mirge3: `mmu-miR-9999-5p`' in report
     assert (project / 'benchmark/common.tsv').read_text().startswith('method\tsample\tmature_name\tmature_id\tcount\n')
@@ -500,6 +543,7 @@ def test_prepare_and_evaluate_a_pool(tmp_path):
         'mirbase': {'release': '23.1', 'url': 'unused', 'sha256': 'unused'},
         'runs': [{'run': 'SRRA', 'group': 'A', 'md5': 'unused', 'url': 'unused'}, {'run': 'SRRB', 'group': 'B', 'md5': 'unused', 'url': 'unused'}]}))
     project = tmp_path / 'project'
+    unitas_dump(ext, 'homo_sapiens', 'Human', {})
     cmd = [sys.executable, str(BENCH / 'benchmark.py')]
     result = subprocess.run(cmd + ['prepare', '--dataset', str(dataset), '--project', str(project), '--ext-dir', str(ext),
                                    '--methods', 'unitas,mirge3', '--reads', '6'], capture_output=True, text=True, timeout=60)
@@ -740,7 +784,11 @@ def test_evaluate_a_biological_dataset_in_lanes(tmp_path):
     quant = project / 'data/tmp/smallrna/quant'
     write(quant / 'unitas/mir_counts.tsv', '\tGSM1_L1\tGSM1_L2\nmiR-16-5p\t700\t690\nmiR-21-5p\t300\t310\nmiR-451a\t1\t0\n')
     write(quant / 'mirge3/miR.Counts.csv', 'miRNA,GSM1_L1,GSM1_L2\nhsa-miR-16-5p,650,660\nhsa-miR-21-5p,320,300\n')
-    write(quant / 'unitas/mir_counts.tsv', '\tGSM1_L1\tGSM1_L2\nmiR-16-5p\t700\t690\nmiR-21-5p\t300\t310\nmiR-451a\t1\t0\nmiR-16-1-5p\t30\t40\n')
+    write(quant / 'unitas/mir_counts.tsv', '\tGSM1_L1\tGSM1_L2\nmiR-16-5p\t700\t690\nmiR-21-5p\t300\t310\nmiR-451a\t1\t0\nmiR-16-1-5p\t30\t40\n'
+          'miR-325-3p\t5\t0\n')  # miR-16-1-5p: hsa-miR-16-5p on the hairpin's 5' arm; miR-325-3p: no human mature on that arm
+    unitas_dump(ext, 'homo_sapiens', 'Human', {
+        'miR-16-1': 'GTCAGCAGTGCCTTAGCAGCACGTAAATATTGGCGTTAAGATTCTAAAATTATCTCCAGTATTAACTGTGCTGCTGAAGTAAGGTTGAC',
+        'miR-325': 'ATACAGTGCTTGGTTCCTAGTAGGTGTCCAGTAAGTGTTTGTGACATAATTTGTTTATTGAGGACCTCCTATCAATCAAGCACTGTGCTAGGCTCTGG'})
     filtered = project / 'data/tmp/smallrna/filter'
     for lane in ('GSM1_L1', 'GSM1_L2'):
         write(filtered / 'cutadapt/{}_R1.fastq'.format(lane),
@@ -753,8 +801,8 @@ def test_evaluate_a_biological_dataset_in_lanes(tmp_path):
     assert result.returncode == 0, result.stderr
     report = (project / 'benchmark/report.md').read_text()
     assert '2 lane samples' in report and '| unitas / mirge3 |' in report
-    assert '| unplaced | 0.0338 | 0.0 |' in report and 'unitas: `miR-16-1-5p` (70)' in report      # 30/1031 and 40/1040
-    assert '| miR-451a | 499.5 | 0.0 |' in report     # median CPM of the blocked miRNA: 1 of 1001 reads in L1, none in L2
+    assert '| unplaced | 0.0024 | 0.0 |' in report and 'unitas: `miR-325-3p` (5)' in report      # median of 5/1036 and 0/1040
+    assert '| miR-451a | 485.0 | 0.0 |' in report     # median CPM of the blocked miRNA: 1 of 1031 placed reads in L1, none in L2
     assert '| GSM1_L1 | 100 | 95 | 1 | 7 | 0 | 2 | 3 | 87 |' in report                       # the filtering table
     assert '| GSM1_L1 | 10 | 10.00% | 40.0 | 14.0 |' in report                       # 1 of 10 top-miRNA reads has another first base
     assert '## Lane replicates' in report and '| mirna_sample_pairs | 2 | 2 |' in report and '| 100-999 | 0.0% of 2 | 0.0% of 2 |' in report

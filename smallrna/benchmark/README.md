@@ -33,7 +33,8 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    complete run without `--notemp`, rerun with `--notemp --forceall`.
 4. **Evaluate.** `benchmark.py evaluate --project <project>` writes `<project>/benchmark/`: `common.tsv` (every
    method's counts in one table), `per_mirna.tsv` (pools: `per_sequence.tsv` and `filter_stages.tsv`), `metrics.tsv`
-   and `report.md`.
+   and `report.md`; with UNITAS, `unitas_names.tsv` (how each UNITAS name was placed, below). UNITAS names are placed
+   with the project's UNITAS reference dump (`db.unitas` under `EXT_DIR`, read only; `--unitas-ref` names another).
 
 ## Datasets
 
@@ -92,10 +93,20 @@ made in several labs). `blockers: [blood miRNA]` is inferred, not recorded: miR-
 
 `adapters.py` turns each method's native output into the common table: method, sample, the method's miRNA name, the
 miRBase accession and the count (canonical reads and isomiRs together). Matching is by accession, because the methods
-name miRNAs differently: UNITAS drops the species prefix, miRge3 (the workflow's own `miR.Counts.csv`, built from
+name miRNAs differently: UNITAS drops the species prefix and names reads it placed on a precursor rather than on a
+mature miRNA (reads with a modification, e.g. a substituted first base or a shorter 3' end) after the hairpin and arm
+(`miR-16-1-5p`), miRge3 (the workflow's own `miR.Counts.csv`, built from
 miRge3's `mapped.csv` with the project-level exact-read rule, #349) reports merge groups (`name1/name2`, counted on the
 first member), mirflowz names miRNAs after their locus (`mmu-miR-194-2-5p`) and reports isomiRs as separate rows. A new
 method needs one function in `ADAPTERS`, next to its smallrna route.
+
+A UNITAS name is placed by name when it is a mature miRNA of the organism, else by hairpin and arm: the hairpin of that
+name in the UNITAS dump (`miRBase_hairpin_<Species>.fas`), and the organism's mature miRNA on that arm, the hairpin
+family's (`miR-16-1-5p`: hsa-miR-16-5p) or the only one. Other names stay unplaced: no mature miRNA on that arm
+(human miRBase has only hsa-miR-325-5p, so `miR-325-3p`), several of other families, or no such hairpin. Stripping
+the locus number is not enough: hsa-miR-181a-2-3p is its own mature miRNA. On the Giraldez equimolar pool (TruSeq) this
+places 4% of UNITAS's miRNA reads that had no accession and leaves 0.2% unplaced; the reads placed are those the other
+methods count on the same miRNAs (often a pool sequence one or two bases shorter).
 
 ## Metrics
 
@@ -150,8 +161,7 @@ miRNA reads):
 - **Accessions.** miRNAs with the same mature sequence count as one (the lowest accession), since the methods credit
   their reads to different members (miRge3 to its merge group's first name; UNITAS and mirflowz to either, e.g.
   hsa-miR-199a-3p and hsa-miR-199b-3p). Reads on names without a miRBase accession are left out of every metric and
-  reported as `unplaced`, with the names that have most: UNITAS names some miRNAs after their precursor locus
-  (`miR-16-1-5p`), which the adapter cannot place yet (#382), so its share is large on plasma.
+  reported as `unplaced`, with the names that have most.
 - **Per method:** miRNA reads, `unplaced`, miRNAs detected per sample and in every sample, and the share of the 10 most abundant.
 - **Between methods**, per pair (medians over samples): Spearman of log2(CPM + 1) over the miRNAs either detects
   and over those both detect, median |log2 CPM ratio| over those both detect, overlap of the 100 most abundant, and miRNAs only one detects
