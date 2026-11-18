@@ -26,7 +26,7 @@ HITS = [('misc_RNA', 'RNY4-ENSG00000000001.1', 2.0), ('misc_RNA', 'Y_RNA-ENSG000
 FAMILIES = {'Y_RNA': 3.0, '7SK': 0.5, '7SL': 1.25, 'other': 0.75}
 SUMMARY = 'miRNA\t20\n   miRNA:homo_sapiens\t18\n   miRNA:other\t2\nlncRNA\t3\nmisc_RNA\t5.5\nsnRNA\t4\nno annotation\t7\n'
 HITS_HEADER = 'TRANSCRIPT_CLASS\tTRANSCRIPT_NAME\tREAD_COUNT\n'
-ZEROS = ['Y_RNA\t0', '7SK\t0', '7SL\t0', 'other\t0']
+ZEROS = ['Y_RNA\t0.0', '7SK\t0.0', '7SL\t0.0', 'other\t0.0']
 
 
 def write_sample(base, sample, summary=SUMMARY, hits=HITS, hits_text=None):
@@ -83,8 +83,16 @@ def test_table_keeps_fractional_counts_and_lists_every_family(tmp_path):
     write_sample(tmp_path, 'S1', summary='miRNA\t20\nmisc_RNA\t1\n', hits=[('misc_RNA', 'RNY4-ENSG00000000001.1', 1.0)])
     result = family_table(tmp_path, ['S2', 'S1'])
     assert result.returncode == 0, result.stderr
-    assert result.table == ('Sample_ID\tfamily\tcount\nS1\tY_RNA\t1\nS1\t7SK\t0\nS1\t7SL\t0\nS1\tother\t0\n'
-                            'S2\tY_RNA\t3\nS2\t7SK\t0.5\nS2\t7SL\t1.25\nS2\tother\t0.75\n')
+    assert result.table == ('Sample_ID\tfamily\tcount\nS1\tY_RNA\t1.0\nS1\t7SK\t0.0\nS1\t7SL\t0.0\nS1\tother\t0.0\n'
+                            'S2\tY_RNA\t3.0\nS2\t7SK\t0.5\nS2\t7SL\t1.25\nS2\tother\t0.75\n')
+
+
+def test_counts_are_written_without_losing_precision(tmp_path):
+    write_sample(tmp_path, 'S1', summary='misc_RNA\t1234567.123456789\n',
+                 hits=[('misc_RNA', 'RNY4-ENSG00000000001.1', '1234567.0'), ('misc_RNA', 'RNY1-ENSG00000000012.1', '0.123456789')])
+    result = family_table(tmp_path, ['S1'])
+    assert result.returncode == 0, result.stderr
+    assert result.table.splitlines()[1] == 'S1\tY_RNA\t1234567.123456789'
 
 
 @pytest.mark.parametrize('hits_text', ['', HITS_HEADER, '\n' + HITS_HEADER + '  \n'])
@@ -109,7 +117,7 @@ def test_quote_in_a_target_name_does_not_merge_fields(tmp_path):
                                                                  ('misc_RNA', 'RN7SL1-ENSG00000000005.1"', 2.0)])
     result = family_table(tmp_path, ['S1'])
     assert result.returncode == 0, result.stderr
-    assert result.table.splitlines()[1:] == ['S1\tY_RNA\t0', 'S1\t7SK\t0', 'S1\t7SL\t2', 'S1\tother\t1']
+    assert result.table.splitlines()[1:] == ['S1\tY_RNA\t0.0', 'S1\t7SK\t0.0', 'S1\t7SL\t2.0', 'S1\tother\t1.0']
 
 
 @pytest.mark.parametrize('summary, hits_text, message', [
@@ -119,14 +127,18 @@ def test_quote_in_a_target_name_does_not_merge_fields(tmp_path):
     (SUMMARY, HITS_HEADER + '\nmisc_RNA\tRNY4\n', "unitas.hits_per_target.txt: line 3: expected a class, a target name and a count"),
     (SUMMARY, HITS_HEADER + '\t\t\n', "unitas.hits_per_target.txt: line 2: expected a class, a target name and a count, got ['', '', '']"),
     (SUMMARY, HITS_HEADER + 'misc_RNA\t \t1\n', 'unitas.hits_per_target.txt: line 2: expected a class, a target name and a count'),
-    (SUMMARY, HITS_HEADER + 'misc_RNA\tRNY4\tx\n', "unitas.hits_per_target.txt: line 2: expected a finite number, got 'x'"),
-    (SUMMARY, HITS_HEADER + 'misc_RNA\tRNY4\tnan\n', "unitas.hits_per_target.txt: line 2: expected a finite number, got 'nan'"),
-    (SUMMARY, HITS_HEADER + 'lncRNA\tRNY4-AS1\tinf\n', "unitas.hits_per_target.txt: line 2: expected a finite number, got 'inf'"),
-    ('miRNA\t20\nmisc_RNA\tnan\n', None, "annotations.tsv: line 3: expected a finite number, got 'nan'")])
+    (SUMMARY, HITS_HEADER + 'misc_RNA\tRNY4\tx\n', "unitas.hits_per_target.txt: line 2: expected a non-negative decimal number, got 'x'"),
+    (SUMMARY, HITS_HEADER + 'misc_RNA\tRNY4\tnan\n', "unitas.hits_per_target.txt: line 2: expected a non-negative decimal number, got 'nan'"),
+    (SUMMARY, HITS_HEADER + 'lncRNA\tRNY4-AS1\tinf\n', "unitas.hits_per_target.txt: line 2: expected a non-negative decimal number, got 'inf'"),
+    (SUMMARY, HITS_HEADER + 'misc_RNA\tRNY4\t-1\n', "unitas.hits_per_target.txt: line 2: expected a non-negative decimal number, got '-1'"),
+    (SUMMARY, HITS_HEADER + 'misc_RNA\tRNY4\t1_000\n', "unitas.hits_per_target.txt: line 2: expected a non-negative decimal number, got '1_000'"),
+    (SUMMARY, HITS_HEADER + 'misc_RNA\tRNY4\t1e999\n', "unitas.hits_per_target.txt: line 2: expected a non-negative decimal number, got '1e999'"),
+    (SUMMARY, HITS_HEADER + 'misc_RNA\t' + 'R' * 200000 + '\t1\n', 'unitas.hits_per_target.txt: line 2: field larger than field limit'),
+    ('miRNA\t20\nmisc_RNA\tnan\n', None, "annotations.tsv: line 3: expected a non-negative decimal number, got 'nan'")])
 def test_table_stops_on_inconsistent_input(tmp_path, summary, hits_text, message):
     write_sample(tmp_path, 'S1', summary=summary, hits_text=hits_text)
     result = family_table(tmp_path, ['S1'])
-    assert result.returncode != 0 and message in result.stderr
+    assert result.returncode != 0 and message in result.stderr and 'Traceback' not in result.stderr
 
 
 def test_total_check_fails_on_nan():
@@ -137,13 +149,33 @@ def test_total_check_fails_on_nan():
         unitas_misc_rna.check_total(FAMILIES, math.nan, 'x')
 
 
+def test_sample_without_annotation_rows_and_without_misc_rna_hits_is_zero(tmp_path):
+    """An empty summary (a sample without reads) gives no rows in annotations.tsv; with no misc_RNA hits, its families are 0."""
+    write_sample(tmp_path, 'S1')
+    write_sample(tmp_path, 'S2', summary='', hits_text='')
+    write_sample(tmp_path, 'S3', summary='', hits=[('lncRNA', 'RNY4-AS1-ENSG00000000008.1', 3.0)])
+    table = annotations(tmp_path, ['S1', 'S2', 'S3'])
+    assert {line.split('\t')[-1] for line in table.read_text().splitlines()[1:]} == {'S1'}
+    result = family_table(tmp_path, ['S1', 'S2', 'S3'], annotations_path=table)
+    assert result.returncode == 0, result.stderr
+    assert result.table.splitlines()[5:] == ['S2\t' + z for z in ZEROS] + ['S3\t' + z for z in ZEROS]
+
+
 def test_samples_must_match_annotations_and_hits_tables(tmp_path):
     for sample in ('S1', 'S2'):
         write_sample(tmp_path, sample)
     result = family_table(tmp_path, ['S1', 'S2'], annotations_path=annotations(tmp_path, ['S1']))
-    assert result.returncode != 0 and "samples ['S2'] have hits tables but are not in it; samples [] are in it" in result.stderr
+    assert result.returncode != 0 and 'annotations.tsv: sample S2 is not in it, but' in result.stderr and 'has 5.5 misc_RNA reads' in result.stderr
     result = family_table(tmp_path, ['S1'], annotations_path=annotations(tmp_path, ['S1', 'S2']))
-    assert result.returncode != 0 and "samples [] have hits tables but are not in it; samples ['S2'] are in it" in result.stderr
+    assert result.returncode != 0 and "annotations.tsv: samples ['S2'] are in it without hits tables" in result.stderr
+
+
+def test_annotations_table_with_two_misc_rna_rows_for_a_sample_fails(tmp_path):
+    write_sample(tmp_path, 'S1')
+    table = annotations(tmp_path, ['S1'])
+    table.write_text(table.read_text() + 'misc_RNA\t\t\t5.5\tS1\n')
+    result = family_table(tmp_path, ['S1'], annotations_path=table)
+    assert result.returncode != 0 and 'annotations.tsv: line 9: a second misc_RNA row for sample S1' in result.stderr
 
 
 def test_annotations_table_must_have_its_columns(tmp_path):

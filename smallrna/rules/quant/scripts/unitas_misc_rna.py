@@ -14,9 +14,11 @@ name, e.g. `RNY4-ENSG00000252316.1`), ignoring case, so mouse and rat symbols (`
 `RN7S` follows `RN7SK`, so it takes the 7SL genes (`RN7SL1`, mouse `Rn7s1`) but not 7SK.
 Names that match none are `other`, including transcript-only names without a gene symbol (`ENST...`).
 A read UNITAS splits between targets keeps its fractional counts, so a sample's families must add up to its misc_RNA
-class in annotations.tsv (unitas_annotations.py; Level1 misc_RNA without Level2, 0 when the sample has none).
-A difference, a sample missing from either input, a hits table with another header, a data row without class or
-target name, or a count that is not a finite number stops the script, naming the file and line.
+class in annotations.tsv (unitas_annotations.py; Level1 misc_RNA without Level2, 0 when the sample has none, and
+for a sample without rows there, as from an empty summary, when its hits table has no misc_RNA reads either).
+A difference, a second misc_RNA row for a sample, a sample in annotations.tsv without hits table, a hits table with
+another header, a data row without class or target name, or a count that is not a non-negative decimal number stops
+the script, naming the file and line. Counts are written as Python's shortest exact form (`3.0`, `0.5`).
 An empty or header-only hits table (a sample without reads) has no targets; blank lines in it are skipped.
 """
 import argparse
@@ -24,6 +26,7 @@ import csv
 import json
 import math
 from pathlib import Path
+import re
 import sys
 
 # (family, label, name prefixes); the last family takes every other name.
@@ -36,6 +39,7 @@ RULES = '; '.join('{} as {}'.format(' and '.join(p + '...' for p in prefixes), l
 DESCRIPTION = ('Reads of the UNITAS misc_RNA class by gene family, from the names of the Ensembl genes they hit, the first '
                'match counting: {}. Reads split between genes keep their fractional counts.').format(RULES)
 HITS_HEADER = ['TRANSCRIPT_CLASS', 'TRANSCRIPT_NAME', 'READ_COUNT']
+COUNT = re.compile(r'\d+(\.\d+)?([eE][+-]?\d+)?')
 ANNOTATIONS_HEADER = ['Level1', 'Level2', 'Level3', 'Count', 'Sample_ID']
 
 
@@ -46,13 +50,10 @@ def family(target):
 
 
 def number(value, path, line):
-    """A finite count, or an error naming the file and line."""
-    try:
-        count = float(value)
-    except ValueError:
-        count = math.nan
+    """A count: a non-negative, finite decimal number, or an error naming the file and line."""
+    count = float(value) if COUNT.fullmatch(value) else math.nan
     if not math.isfinite(count):
-        raise ValueError('{}: line {}: expected a finite number, got {!r}'.format(path, line, value))
+        raise ValueError('{}: line {}: expected a non-negative decimal number, got {!r}'.format(path, line, value))
     return count
 
 
@@ -61,7 +62,13 @@ def rows(path):
     has fields and is a row)."""
     with open(path, newline='') as fh:
         reader = csv.reader(fh, delimiter='\t', quoting=csv.QUOTE_NONE)
-        for row in reader:
+        while True:
+            try:
+                row = next(reader)
+            except StopIteration:
+                return
+            except csv.Error as error:
+                raise ValueError('{}: line {}: {}'.format(path, reader.line_num, error)) from None
             if len(row) > 1 or (row and row[0].strip()):
                 yield reader.line_num, row
 
@@ -85,7 +92,7 @@ def misc_rna_families(path):
 
 
 def annotation_misc_rna(path):
-    """{sample: misc_RNA class count} from annotations.tsv, every sample in it (0 without a misc_RNA row)."""
+    """{sample: misc_RNA class count} from annotations.tsv, every sample in it (0 without a misc_RNA row, an error with two)."""
     lines = rows(path)
     header = next(lines, (1, None))
     if header[1] != ANNOTATIONS_HEADER:
@@ -95,10 +102,12 @@ def annotation_misc_rna(path):
         if len(row) != 5:
             raise ValueError('{}: line {}: expected 5 columns, got {!r}'.format(path, line, row))
         level1, level2, level3, count, sample = row
-        totals.setdefault(sample, 0.0)
+        totals.setdefault(sample, None)
         if level1 == 'misc_RNA' and not level2 and not level3:
+            if totals[sample] is not None:
+                raise ValueError('{}: line {}: a second misc_RNA row for sample {}'.format(path, line, sample))
             totals[sample] = number(count, path, line)
-    return totals
+    return {sample: 0.0 if total is None else total for sample, total in totals.items()}
 
 
 def check_total(counts, misc_rna, path):
@@ -113,20 +122,24 @@ def table(annotations, hits):
     if len(target_hits) != len(hits):
         raise ValueError('need one hits table per sample directory, got {}'.format(hits))
     totals = annotation_misc_rna(annotations)
-    missing, extra = sorted(set(target_hits) - set(totals)), sorted(set(totals) - set(target_hits))
-    if missing or extra:
-        raise ValueError('{}: samples {} have hits tables but are not in it; samples {} are in it without hits tables'.format(annotations, missing, extra))
+    extra = sorted(set(totals) - set(target_hits))
+    if extra:
+        raise ValueError('{}: samples {} are in it without hits tables'.format(annotations, extra))
     result = {}
     for sample in sorted(target_hits):
         counts = misc_rna_families(target_hits[sample])
-        check_total(counts, totals[sample], target_hits[sample])
+        # A sample without reads may have an empty summary, so no rows in annotations.tsv; it must have no misc_RNA either.
+        if sample not in totals and sum(counts.values()) > 0:
+            raise ValueError('{}: sample {} is not in it, but {} has {:.6g} misc_RNA reads'.format(
+                annotations, sample, target_hits[sample], sum(counts.values())))
+        check_total(counts, totals.get(sample, 0.0), target_hits[sample])
         result[sample] = counts
     return result
 
 
 def format_table(result):
     lines = ['Sample_ID\tfamily\tcount']
-    lines += ['{}\t{}\t{:.10g}'.format(sample, name, counts[name]) for sample, counts in result.items() for name in NAMES]
+    lines += ['{}\t{}\t{!r}'.format(sample, name, counts[name]) for sample, counts in result.items() for name in NAMES]
     return '\n'.join(lines) + '\n'
 
 
