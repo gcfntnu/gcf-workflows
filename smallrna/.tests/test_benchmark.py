@@ -148,6 +148,32 @@ def test_prepare_then_evaluate(tmp_path, ref):
     assert (project / 'benchmark/common.tsv').read_text().startswith('method\tsample\tmature_name\tmature_id\tcount\n')
 
 
+def test_tesmall_only_project_keeps_the_reduced_reference(tmp_path, ref):
+    """TEsmall builds its database on the mirflowz reference, so a project with TEsmall alone still gets the reduced
+    reference, and its dry run builds the TEsmall genome from it."""
+    for name in ('genome.fa.gz', 'genes.gtf.gz'):
+        (ref / name).touch()  # the reduced reference's genome and annotation (reduce_reference.py)
+    dataset = write(tmp_path / 'ds.yaml', yaml.safe_dump({
+        'name': 'syn', 'kind': 'synthetic', 'organism': 'mus_musculus', 'libprepkit': 'Bioo Scientific NEXTflex Small RNA-Seq Kit v4',
+        'adapter': 'TGGAATTCTCGGGTGCCAAGG', 'methods': ['tesmall'],
+        'reference': {'name': 'mmu-test', 'dir': 'benchmark/references/mmu-test'},
+        'synthetic': {'seed': 1, 'samples': 1, 'mirnas': {'mmu-miR-192-5p': 4}}}))
+    project = tmp_path / 'project'
+    result = subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'prepare', '--dataset', str(dataset), '--project', str(project),
+                             '--ext-dir', str(tmp_path / 'ext')], capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    config = yaml.safe_load((project / 'config.yaml').read_text())
+    assert config['quant']['method'] == 'tesmall' and config['db']['mirflowz']['custom']['genome'] == str(ref / 'genome.fa.gz')
+    env = {k: v for k, v in os.environ.items() if not k.startswith('GCF_')}
+    env.update(TMPDIR=str(tmp_path), XDG_CACHE_HOME=str(tmp_path / '.cache'))
+    result = subprocess.run([str(Path(sys.executable).with_name('snakemake')), '-n', '--cores', '1', 'quant_all'], cwd=project, env=env,
+                            capture_output=True, text=True, timeout=120)
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    genome = output.split('rule tesmall_genome:', 1)[1].split('\nrule ', 1)[0]
+    assert 'input: {}'.format(ref / 'genome.fa.gz') in genome and 'tesmall/custom-mmu-test/mus_musculus/genome/genome.fa' in genome
+
+
 def test_prepare_refuses_an_existing_project_and_a_missing_reference(tmp_path, ref):
     dataset = write(tmp_path / 'ds.yaml', yaml.safe_dump({'name': 'syn', 'kind': 'synthetic', 'organism': 'mus_musculus',
                                                          'libprepkit': 'x', 'adapter': 'TGG', 'methods': ['unitas'],

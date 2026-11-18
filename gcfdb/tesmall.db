@@ -13,10 +13,16 @@ miRBase release. The sources:
 - piRNA clusters from the configured UNITAS reference dump (`piRclDB`, piRNAclusterDB), placed on the genome by
   anchor matches (scripts/tesmall_db.py).
 
-Layout, as TEsmall reads it with `--dbfolder TESMALL_DB -g TESMALL_NAME`: `TESMALL_DB/genomes/TESMALL_NAME/`
-(`sequence/`, `sequence/bowtie_index/`, `annotation/`), and `tesmall_reference.tsv` beside it recording sources,
-checksums and counts. TESMALL_NAME is not one of TEsmall's built-in genome names, so a database that fails TEsmall's
-own checks stops the run instead of starting a download.
+Layout under `EXT_DIR/tesmall/<mirflowz reference>/` (TESMALL_REF):
+
+- `sources/` and `genome/` (the genome FASTA and its Bowtie 1 index), shared by every database on this reference;
+- `unitas-<db.unitas release>/` (TESMALL_DUMP_REF), one per UNITAS reference dump, as the piRNA clusters come from
+  it: the database TEsmall reads with `--dbfolder TESMALL_DB -g TESMALL_NAME`, `db/genomes/TESMALL_NAME/`
+  (`annotation/`, `sequence/` with relative links to the shared genome files, `sequence/bowtie_index/`), and
+  `tesmall_reference.tsv` recording sources, checksums and counts.
+
+TESMALL_NAME is not one of TEsmall's built-in genome names, so a database that fails TEsmall's own checks stops the
+run instead of starting a download.
 """
 import shlex
 
@@ -37,17 +43,20 @@ def tesmall_fail(message):
 
 
 TESMALL_REF = join(EXT_DIR, 'tesmall', os.path.relpath(MIRFLOWZ_REF, join(EXT_DIR, 'mirflowz')))
-TESMALL_DB = join(TESMALL_REF, 'db')
+TESMALL_GENOME = join(TESMALL_REF, 'genome')
+TESMALL_DUMP_REF = join(TESMALL_REF, 'unitas-{}'.format(UNITAS_RELEASE))
+TESMALL_DB = join(TESMALL_DUMP_REF, 'db')
 TESMALL_GENOME_DIR = join(TESMALL_DB, 'genomes', TESMALL_NAME)
 if ORG not in TESMALL_ORGANISMS:
     tesmall_fail('TEsmall databases support organism {}, got {!r}'.format(', '.join(TESMALL_ORGANISMS), ORG))
 elif not MIRFLOWZ_CUSTOM and MIRFLOWZ_ASSEMBLY != TESMALL_ASSEMBLY[ORG]:
     tesmall_fail('TEsmall: the GtRNAdb and RepeatMasker sources are on {}, but the reference genome is on {}'.format(
         TESMALL_ASSEMBLY[ORG], MIRFLOWZ_ASSEMBLY))
-# TEsmall removes the string "genomes" from its --dbfolder path, so such a path would point elsewhere.
-if 'genomes' in os.path.abspath(TESMALL_DB):
+# TEsmall removes the string "genomes" from its --dbfolder path, so such a path would point elsewhere. tesmall_quant
+# passes the resolved path (symbolic links followed), so that is the one checked.
+if 'genomes' in os.path.realpath(TESMALL_DB):
     tesmall_fail('TEsmall: the database path {} contains "genomes", which TEsmall strips from it; '
-                 'choose an EXT_DIR without it'.format(os.path.abspath(TESMALL_DB)))
+                 'choose an EXT_DIR without it'.format(os.path.realpath(TESMALL_DB)))
 assert TESMALL_NAME not in TESMALL_BUILTIN
 
 if ORG in TESMALL_ORGANISMS:
@@ -95,11 +104,11 @@ rule tesmall_genome:
     input:
         unpack(lambda wildcards: mirflowz_sources())
     output:
-        fasta = join(TESMALL_GENOME_DIR, 'sequence', 'genome.fa'),
-        fai = join(TESMALL_GENOME_DIR, 'sequence', 'genome.fa.fai'),
-        index = expand(join(TESMALL_GENOME_DIR, 'sequence', 'bowtie_index', 'genome.{suffix}'), suffix=TESMALL_INDEX)
+        fasta = join(TESMALL_GENOME, 'genome.fa'),
+        fai = join(TESMALL_GENOME, 'genome.fa.fai'),
+        index = expand(join(TESMALL_GENOME, 'bowtie_index', 'genome.{suffix}'), suffix=TESMALL_INDEX)
     params:
-        prefix = join(TESMALL_GENOME_DIR, 'sequence', 'bowtie_index', 'genome')
+        prefix = join(TESMALL_GENOME, 'bowtie_index', 'genome')
     threads:
         16
     container:
@@ -110,11 +119,30 @@ rule tesmall_genome:
         'bowtie-build -q --threads {threads} {output.fasta} {params.prefix}'
 
 
+rule tesmall_genome_links:
+    """Relative links from a database's genome folder to the shared genome files, where TEsmall looks for them."""
+    input:
+        rules.tesmall_genome.output
+    output:
+        fasta = join(TESMALL_GENOME_DIR, 'sequence', 'genome.fa'),
+        fai = join(TESMALL_GENOME_DIR, 'sequence', 'genome.fa.fai'),
+        index = expand(join(TESMALL_GENOME_DIR, 'sequence', 'bowtie_index', 'genome.{suffix}'), suffix=TESMALL_INDEX)
+    params:
+        shared = TESMALL_GENOME,
+        links = join(TESMALL_GENOME_DIR, 'sequence')
+    container:
+        'docker://' + config['docker']['default']
+    shell:
+        'for target in {input}; do link={params.links}/${{target#{params.shared}/}}; '
+        'mkdir -p $(dirname $link) && ln -sfr $target $link; done'
+
+
 rule tesmall_db:
     input:
         unpack(lambda wildcards: mirflowz_sources()),
         fasta = rules.tesmall_genome.output.fasta,
         index = rules.tesmall_genome.output.index,
+        links = rules.tesmall_genome_links.output,
         chr_map = rules.mirflowz_chr_map.output,
         trna = join(TESMALL_REF, 'sources', '{}-tRNAs.tar.gz'.format(TESMALL_GTRNADB.get(ORG, ('', ORG))[1])),
         rmsk = join(TESMALL_REF, 'sources', 'rmsk.txt.gz'),
@@ -125,12 +153,12 @@ rule tesmall_db:
                             cls=('structural_RNA', 'miRNA', 'hairpin', 'exon', 'TE', 'intron', 'piRNA_cluster')),
         sequences = expand(join(TESMALL_GENOME_DIR, 'sequence', '{name}.fa{ext}'), name=('rDNA', 'tDNA'), ext=('', '.fai')),
         index = expand(join(TESMALL_GENOME_DIR, 'sequence', 'bowtie_index', '{name}.{suffix}'), name=('rDNA', 'tDNA'), suffix=TESMALL_INDEX),
-        record = join(TESMALL_REF, 'tesmall_reference.tsv')
+        record = join(TESMALL_DUMP_REF, 'tesmall_reference.tsv')
     params:
         script = src_gcf('scripts/tesmall_db.py'),
         seq = join(TESMALL_GENOME_DIR, 'sequence'),
         annotation = join(TESMALL_GENOME_DIR, 'annotation'),
-        prefix = join(TESMALL_GENOME_DIR, 'sequence', 'bowtie_index', 'genome'),
+        prefix = join(TESMALL_GENOME, 'bowtie_index', 'genome'),
         sources = ' '.join('--source {}'.format(shlex.quote(s)) for s in (
             'name={}'.format(TESMALL_NAME), 'organism={}'.format(ORG), 'mirbase={}'.format(MIRFLOWZ_MIRBASE),
             'ensembl={}'.format(MIRFLOWZ_RELEASE), 'assembly={}'.format(MIRFLOWZ_ASSEMBLY or 'NA'),

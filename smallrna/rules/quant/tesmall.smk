@@ -10,7 +10,7 @@ Its 3' tRF step first takes reads ending in CCA. Delivery (bfq_all, multiqc_repo
 It runs in gcfntnu/tesmall (TEsmall with a --no-trim patch, gcfntnu/gcf-docker#47) on the shared filtered reads, with
 --no-trim: TEsmall otherwise trims every input again, including a hard-coded TruSeq 5' adapter whose partial matches
 it would cut from the start of already-trimmed reads. Only its length filter (-m, -M) remains. The database is built
-once by gcfdb/tesmall.db on the mirflowz reference genome.
+once per UNITAS reference dump by gcfdb/tesmall.db on the mirflowz reference genome.
 
 TEsmall writes into its working directory and always names its table count_summary.txt, so each sample runs in its own
 work directory; it runs single-threaded (its -p option is unused). Per-feature counts are rounded by TEsmall, so
@@ -23,7 +23,7 @@ include:
     join(GCFDB_DIR, 'tesmall.db')
 
 TESMALL_OUT = join(QUANT_INTERIM, 'tesmall')
-TESMALL_MIN_LENGTH = filtered_min_length() or 16
+TESMALL_MIN_LENGTH = filtered_min_length() or 1  # no shared minimum: none of TEsmall's own either
 TESMALL_CLASSES = ('structural_RNA', 'miRNA', 'hairpin', 'exon', 'TE', 'intron', 'piRNA_cluster')
 TESMALL_ORDER = [c.strip() for c in str(TESMALL_CONF['order']).split(',') if c.strip()]
 
@@ -41,8 +41,9 @@ if TESMALL_SELECTED:
 rule tesmall_quant:
     input:
         fastq = lambda wildcards: get_filtered_fastq(wildcards)['R1'],
-        genome = rules.tesmall_genome.output.index,
-        db = rules.tesmall_db.output.record
+        # every file TEsmall checks at startup, so that a partial database is completed before it runs
+        genome = rules.tesmall_genome_links.output,
+        db = rules.tesmall_db.output
     output:
         counts = join(TESMALL_OUT, '{sample}', 'count_summary.txt')
     params:
