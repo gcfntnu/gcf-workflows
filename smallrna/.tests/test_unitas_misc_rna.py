@@ -100,6 +100,15 @@ def test_counts_are_written_without_losing_precision(tmp_path):
     assert result.table.splitlines()[1] == 'S1\tY_RNA\t1234567.123456789'
 
 
+def test_families_are_summed_without_float_noise(tmp_path):
+    """0.3 + 0.3 + 0.3 + 0.4 added in turn is 1.2999999999999998; math.fsum gives 1.3."""
+    hits = [('misc_RNA', f'RNY{i}-ENSG0000000000{i}.1', v) for i, v in enumerate([0.3, 0.3, 0.3, 0.4], start=1)]
+    write_sample(tmp_path, 'S1', summary='misc_RNA\t1.3\n', hits=hits)
+    result = family_table(tmp_path, ['S1'])
+    assert result.returncode == 0, result.stderr
+    assert result.table.splitlines()[1] == 'S1\tY_RNA\t1.3'
+
+
 @pytest.mark.parametrize('value, text', [(5e-05, '0.00005'), (1.5e-07, '0.00000015'), (3.0, '3.0'), (0.0, '0.0'),
                                          (1e16, '10000000000000000.0'), (3598991.109777921, '3598991.109777921')])
 def test_counts_are_plain_decimals(value, text):
@@ -179,11 +188,21 @@ def test_sample_without_annotation_rows_and_without_misc_rna_hits_is_zero(tmp_pa
     assert result.table.splitlines()[5:] == ['S2\t' + z for z in ZEROS] + ['S3\t' + z for z in ZEROS]
 
 
+@pytest.mark.parametrize('summary', ['', 'miRNA\t20\n'])
+def test_sample_with_misc_rna_below_the_tolerance_passes_with_or_without_annotation_rows(tmp_path, summary):
+    """An absent sample (empty summary) and a sample without a misc_RNA row are both checked against 0 with the tolerance."""
+    write_sample(tmp_path, 'S1', summary=summary, hits=[('misc_RNA', 'RNY4-ENSG00000000001.1', 0.005)])
+    result = family_table(tmp_path, ['S1'])
+    assert result.returncode == 0, result.stderr
+    assert result.table.splitlines()[1] == 'S1\tY_RNA\t0.005'
+
+
 def test_samples_must_match_annotations_and_hits_tables(tmp_path):
     for sample in ('S1', 'S2'):
         write_sample(tmp_path, sample)
     result = family_table(tmp_path, ['S1', 'S2'], annotations_path=annotations(tmp_path, ['S1']))
-    assert result.returncode != 0 and 'annotations.tsv: sample S2 is not in it, but' in result.stderr and 'has 5.5 misc_RNA reads' in result.stderr
+    assert result.returncode != 0
+    assert 'misc_RNA targets add up to 5.5 reads, annotations.tsv has no rows for the sample, so 0' in result.stderr
     result = family_table(tmp_path, ['S1'], annotations_path=annotations(tmp_path, ['S1', 'S2']))
     assert result.returncode != 0 and "annotations.tsv: samples ['S2'] are in it without hits tables" in result.stderr
 
@@ -220,7 +239,8 @@ def test_multiqc_section_is_a_note_without_misc_rna_to_plot(tmp_path, summary, h
     write_sample(tmp_path, 'S1', summary=summary, hits=hits)
     result = family_table(tmp_path, ['S1'])
     assert result.returncode == 0, result.stderr
-    assert result.section['plot_type'] == 'html' and result.section['data'] == '<p>No sample has misc_RNA reads.</p>'
+    assert result.section['plot_type'] == 'html'
+    assert result.section['data'] == '<p>No sample has misc_RNA reads to plot (all below 0.005).</p>'
 
 
 def test_quant_all_builds_the_family_table(tmp_path):

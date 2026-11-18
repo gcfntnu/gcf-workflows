@@ -18,7 +18,8 @@ class in annotations.tsv (unitas_annotations.py; Level1 misc_RNA without Level2,
 for a sample without rows there, as from an empty summary, when its hits table has no misc_RNA reads either).
 A difference, a second misc_RNA row for a sample, a sample in annotations.tsv without hits table, a hits table with
 another header, a data row without class or target name, or a count that is not a non-negative decimal number stops
-the script, naming the file and line. Counts are written in their shortest exact form as plain decimals (`3.0`, `0.5`,
+the script, naming the file and line; a sample without rows in annotations.tsv is checked against 0 like a sample
+without a misc_RNA row. Counts are written in their shortest exact form as plain decimals (`3.0`, `0.5`,
 `0.00005`), never in scientific notation. The MultiQC section is a note when every plotted value (2 decimals) is 0.
 An empty or header-only hits table (a sample without reads) has no targets; blank lines in it are skipped.
 """
@@ -76,12 +77,12 @@ def rows(path):
 
 
 def misc_rna_families(path):
-    """misc_RNA reads of one hits_per_target table by family, every family present."""
-    counts = dict.fromkeys(NAMES, 0.0)
+    """misc_RNA reads of one hits_per_target table by family, every family present; summed with math.fsum."""
+    hits = {name: [] for name in NAMES}
     lines = rows(path)
     header = next(lines, None)
     if header is None:
-        return counts
+        return dict.fromkeys(NAMES, 0.0)
     if header[1] != HITS_HEADER:
         raise ValueError('{}: line {}: not a UNITAS hits_per_target header (expected {})'.format(path, header[0], ' '.join(HITS_HEADER)))
     for line, row in lines:
@@ -89,8 +90,8 @@ def misc_rna_families(path):
             raise ValueError('{}: line {}: expected a class, a target name and a count, got {!r}'.format(path, line, row))
         count = number(row[2], path, line)
         if row[0] == 'misc_RNA':
-            counts[family(row[1])] += count
-    return counts
+            hits[family(row[1])].append(count)
+    return {name: math.fsum(counts) for name, counts in hits.items()}
 
 
 def annotation_misc_rna(path):
@@ -112,10 +113,10 @@ def annotation_misc_rna(path):
     return {sample: 0.0 if total is None else total for sample, total in totals.items()}
 
 
-def check_total(counts, misc_rna, path):
-    total = sum(counts.values())
+def check_total(counts, misc_rna, path, source='annotations.tsv has'):
+    total = math.fsum(counts.values())
     if not abs(total - misc_rna) <= 0.01 + 1e-6 * misc_rna:
-        raise ValueError('{}: misc_RNA targets add up to {:.6g} reads, annotations.tsv has {:.6g}'.format(path, total, misc_rna))
+        raise ValueError('{}: misc_RNA targets add up to {:.6g} reads, {} {:.6g}'.format(path, total, source, misc_rna))
 
 
 def table(annotations, hits):
@@ -130,11 +131,10 @@ def table(annotations, hits):
     result = {}
     for sample in sorted(target_hits):
         counts = misc_rna_families(target_hits[sample])
-        # A sample without reads may have an empty summary, so no rows in annotations.tsv; it must have no misc_RNA either.
-        if sample not in totals and sum(counts.values()) > 0:
-            raise ValueError('{}: sample {} is not in it, but {} has {:.6g} misc_RNA reads'.format(
-                annotations, sample, target_hits[sample], sum(counts.values())))
-        check_total(counts, totals.get(sample, 0.0), target_hits[sample])
+        # A sample without reads may have an empty summary, so no rows in annotations.tsv: its misc_RNA total is 0, as for
+        # a sample there without a misc_RNA row, with the same tolerance.
+        source = 'annotations.tsv has' if sample in totals else 'annotations.tsv has no rows for the sample, so'
+        check_total(counts, totals.get(sample, 0.0), target_hits[sample], source)
         result[sample] = counts
     return result
 
@@ -155,7 +155,7 @@ def mqc(result):
     section = {'id': 'unitas_misc_rna', 'section_name': 'UNITAS: misc_RNA families', 'description': DESCRIPTION}
     data = {sample: {name: round(value, 2) for name, value in counts.items()} for sample, counts in result.items()}
     if not any(any(counts.values()) for counts in data.values()):
-        return {**section, 'plot_type': 'html', 'data': '<p>No sample has misc_RNA reads.</p>'}
+        return {**section, 'plot_type': 'html', 'data': '<p>No sample has misc_RNA reads to plot (all below 0.005).</p>'}
     return {**section, 'plot_type': 'bargraph',
             'pconfig': {'id': 'unitas_misc_rna_plot', 'title': 'UNITAS: misc_RNA families', 'ylab': '# Reads'},
             'categories': {name: {'name': label} for name, label, _ in FAMILIES}, 'data': data}
