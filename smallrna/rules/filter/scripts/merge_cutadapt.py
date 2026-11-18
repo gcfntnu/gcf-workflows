@@ -4,8 +4,9 @@ cutadapt's schema.
 
 Read counts: `input` from the adapter pass, `output` from the artefact pass, filtered categories summed over the
 adapter and filter passes, and the artefact pass's discarded reads (`discard_trimmed` there: reads still containing 3'
-adapter or Illumina primer sequence, #353) as `gcf_three_prime_artefacts`, so `discard_trimmed` stays the 5' adapter
-artefacts; `read1_with_adapter` (3' adapter found) from the adapter pass; base pair counts likewise; `adapters_read1`
+adapter or Illumina primer sequence, #353, or a reagent oligo of the kit, #380) as `gcf_three_prime_artefacts`, so
+`discard_trimmed` stays the 5' adapter artefacts; `read1_with_adapter` (3' adapter found) from the adapter pass; base
+pair counts likewise; `adapters_read1`
 (trimmed length statistics) from the adapter pass only, as the later passes only flag reads for discarding.
 `input.path1` is `<sample>.fastq`, so report tools name the sample after it. The report records that it is a merge
 (`tag`: "Cutadapt report, merged from the passes in gcf_passes"; `gcf_passes`: each pass's command line and file),

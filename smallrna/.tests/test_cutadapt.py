@@ -26,6 +26,7 @@ TRUSEQ = 'TruSeq Small RNA Library Prep Kit'
 ADAPTER3 = 'TGGAATTCTCGGGTGCCAAGG'
 ADAPTER5 = 'GTTCAGAGTTCTACAGTCCGACGATC'
 ADAPTER5_V4 = 'TCTTTCCCTACACGACGCTCTTCCGATCT'  # NEXTflex 5' Adapter v4 (manual, Appendix A), Illumina Read 1 sequence
+STP = 'GAATTCCACCACGTTCCCGTGG'  # TruSeq Small RNA Stop Oligo (UniVec NGB00791.1)
 
 
 def load(name):
@@ -57,6 +58,8 @@ def test_kit_presets():
     assert policy.adapter_args(v3) == policy.adapter_args(v4) == "-a 'TGGAATTCTCGGGTGCCAAGG;min_overlap=5'"
     assert v3['adapter5'] == truseq['adapter5'] == ADAPTER5 and v4['adapter5'] == ADAPTER5_V4
     assert all(KITS[kit + ' SE']['filter']['trim']['quantifier'] == 'cutadapt' for kit in (V3, V4, TRUSEQ))
+    assert truseq['reagent_oligos'] == [STP] and v3['reagent_oligos'] == v4['reagent_oligos'] == []
+    assert policy.cutadapt_settings(kit_config(TRUSEQ, reagent_oligos=None))['reagent_oligos'] == []    # optional
 
 
 def test_settings_are_required():
@@ -68,7 +71,8 @@ def test_settings_are_required():
     ({'adapter5': None}, 'adapter5'), ({'adapter5': 'GTTCAGAGTTC'}, 'at least 12'), ({'adapter5': 'GTTCAGAGTTCUACAG'}, 'adapter5'),
     ({'random_ends': -1}, 'random_ends'), ({'minimum_length': None}, 'minimum_length'), ({'minimum_length': 0}, 'minimum_length'),
     ({'max_n': 'five'}, 'max_n'), ({'max_ee': 0}, 'max_ee'), ({'five_prime_piece': None}, 'five_prime_piece'),
-    ({'five_prime_piece': 13}, 'five_prime_piece'), ({'five_prime_piece': 27}, 'five_prime_piece'), ({'trim_args': '-q 20'}, 'unknown setting')])
+    ({'five_prime_piece': 13}, 'five_prime_piece'), ({'five_prime_piece': 27}, 'five_prime_piece'), ({'trim_args': '-q 20'}, 'unknown setting'),
+    ({'reagent_oligos': STP}, 'reagent_oligos'), ({'reagent_oligos': ['GAATTCCACCACG']}, 'at least 14'), ({'reagent_oligos': ['GAAUUCCACCACGUUCC']}, 'reagent_oligos')])
 def test_invalid_settings_fail(change, message):
     with pytest.raises(ValueError, match=message):
         policy.cutadapt_settings(kit_config(TRUSEQ, **change))
@@ -109,9 +113,18 @@ def test_three_prime_artefact_fasta_lists_adapter_primer_and_p7_pieces():
     assert sequences[0] == ADAPTER3 + 'AACTCCAGTCAC' and names[0] == '>three_prime_artefact_adapter_0_33'
     assert 'ATCTCGTATGCCGTCTTCTGCTTG' in sequences and 'CCAAGGAACTCCAGTCAC' in sequences  # P7; adapter end + primer start
     assert all(len(s) >= 16 for s in sequences) and len(sequences) == len(set(sequences)) == 18 * 19 // 2 + 9 * 10 // 2
-    result = subprocess.run(['python', str(SCRIPTS / 'cutadapt_config.py'), 'three-prime-artefact-fasta', ADAPTER3],
+    result = subprocess.run(['python', str(SCRIPTS / 'cutadapt_config.py'), 'artefact-fasta', ADAPTER3],
                             capture_output=True, text=True, timeout=30)
     assert result.returncode == 0 and result.stdout == policy.three_prime_artefact_fasta(ADAPTER3)
+
+
+def test_artefact_fasta_adds_the_reagent_oligos_as_five_prime_adapters():
+    fasta = policy.artefact_fasta(ADAPTER3, [STP])
+    assert fasta == policy.three_prime_artefact_fasta(ADAPTER3) + '>reagent_oligo_1_22\n' + STP + ';min_overlap=14;max_error_rate=0.1\n'
+    result = subprocess.run(['python', str(SCRIPTS / 'cutadapt_config.py'), 'artefact-fasta', ADAPTER3, STP], capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0 and result.stdout == fasta
+    result = subprocess.run(['python', str(SCRIPTS / 'cutadapt_config.py'), 'artefact-fasta', ADAPTER3, 'GAATTCC'], capture_output=True, text=True, timeout=30)
+    assert result.returncode != 0 and 'at least 14 nt' in result.stderr
 
 
 # The merged report
@@ -171,8 +184,8 @@ def test_route_filters_with_cutadapt_only(tmp_path):
     assert 'five-prime-fasta GTTCAGAGTTCTACAGTCCGACGATC 14 ' in rule_block(output, 'smallrna_five_prime_adapters')
     artefacts = rule_block(output, 'smallrna_cutadapt_artefacts')
     assert 'input: data/tmp/smallrna/filter/cutadapt_filtered/SR0' in artefacts
-    assert '-g file:data/tmp/smallrna/filter/cutadapt/three_prime_artefacts.fa --action=none --discard-trimmed' in artefacts
-    assert 'three-prime-artefact-fasta TGGAATTCTCGGGTGCCAAGG' in rule_block(output, 'smallrna_three_prime_artefacts')
+    assert '-g file:data/tmp/smallrna/filter/cutadapt/artefacts.fa --action=none --discard-trimmed' in artefacts
+    assert 'artefact-fasta TGGAATTCTCGGGTGCCAAGG  > ' in rule_block(output, 'smallrna_artefact_adapters')    # no reagent oligos (NEXTflex v3)
     assert 'bfq/provenance/cutadapt/SR01.artefacts.json' in output
     assert 'input: data/tmp/smallrna/filter/cutadapt/SR0' in rule_block(output, 'unitas').split('output:', 1)[0]  # any sample's job
     assert 'bfq/logs/SR01/SR01.cutadapt.json' in output and 'bfq/provenance/cutadapt/SR01.filter.json' in output
@@ -186,6 +199,7 @@ def test_route_sets_the_minimum_length_of_the_quantifiers(tmp_path):
     assert returncode == 0, output
     assert '--minimum-length 15 ' in rule_block(output, 'mirge3_quant')
     assert '-u 4' not in rule_block(output, 'smallrna_cutadapt_filter')
+    assert 'artefact-fasta TGGAATTCTCGGGTGCCAAGG ' + STP + ' > ' in rule_block(output, 'smallrna_artefact_adapters')  # the Stop Oligo
 
 
 @pytest.mark.parametrize('kit', [V3, V4, TRUSEQ])
@@ -247,7 +261,7 @@ def run_kit(tmp_path, kit, inserts):
             read = (ends + insert + ends[::-1] + ADAPTER3 + 'ATCTCGTATG')[:75]
             fh.write('@r{}\n{}\n+\n{}\n'.format(i, read, 'I' * len(read)))
     (tmp_path / 'five.fa').write_text(policy.five_prime_fasta(settings['adapter5'], settings['five_prime_piece']))
-    (tmp_path / 'three.fa').write_text(policy.three_prime_artefact_fasta(settings['adapter3']))
+    (tmp_path / 'three.fa').write_text(policy.artefact_fasta(settings['adapter3'], settings['reagent_oligos']))
     first = [cutadapt, *shlex.split(policy.adapter_args(settings)), '--json', str(tmp_path / 'a.json'), '-o', str(tmp_path / 'a.fastq'), str(raw)]
     second = [cutadapt, '-g', 'file:' + str(tmp_path / 'five.fa'), *shlex.split(policy.filter_args(settings)),
               '--json', str(tmp_path / 'f.json'), '-o', str(tmp_path / 'f.fastq'), str(tmp_path / 'a.fastq')]
@@ -321,6 +335,21 @@ def test_three_prime_artefacts_are_discarded(tmp_path):
     assert result.returncode == 0, result.stderr
     assert result.stdout.splitlines()[1::4] == THREE_PRIME_KEPT
     assert json.loads((tmp_path / 'x.json').read_text())['read_counts']['filtered']['discard_trimmed'] == len(THREE_PRIME_DISCARDED)
+
+
+# TruSeq Stop Oligo reads (#380), as in public TruSeq plasma data after the 3' adapter pass: the oligo and its 5'-truncated
+# copies, with one mismatch or an extra 3' base, and an oligo-miRNA chimera; miRNAs and 13 nt of the oligo's end stay
+STP_DISCARDED = [STP, STP[4:], STP[6:], STP[:10] + 'A' + STP[11:], STP[5:] + 'A', STP + MIR21_5P]
+STP_KEPT = [MIR21_5P, MIR22_5P, MIR139_5P, 'TTTTTTTTT' + STP[-13:]]
+
+
+def test_truseq_stop_oligo_reads_are_discarded(tmp_path):
+    inserts = STP_KEPT + STP_DISCARDED
+    kept, merged = run_kit(tmp_path, TRUSEQ, inserts)
+    assert sorted(kept) == sorted(STP_KEPT)
+    assert merged['read_counts']['filtered']['gcf_three_prime_artefacts'] == len(STP_DISCARDED)   # counted with the artefacts
+    kept, _ = run_kit(tmp_path, V3, [STP[4:]])                                                  # no reagent oligo for NEXTflex
+    assert kept == [STP[4:]]
 
 
 # Where and with how many errors the 5' adapter set matches (review of #351): 12-13 nt only at the read start, 14 nt
