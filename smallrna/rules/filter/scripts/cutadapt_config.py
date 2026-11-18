@@ -9,8 +9,9 @@ Three cutadapt passes per sample:
 3. reads still containing 3' adapter or Illumina primer sequence discarded (#353): mostly inserts whose 3' adapter has
    too many sequencing errors for pass 1 (in public plasma data often the RNY4 Y RNA fragment), adapter dimers with an
    indel or duplication in the adapter, and reads of primer sequence only. With that much adapter left, no quantifier
-   annotates them (UNITAS: "no annotation"), so discarding them changes no count; it names them in the report. Reads
-   of the kit's reagent oligos (`reagent_oligos`, #380) are discarded in the same pass.
+   annotates them (UNITAS: "no annotation"), so discarding them changes no count; it names them in the report.
+   Reads of the kit's reagent oligos (`reagent_oligos`, #380) are discarded in the same pass and counted apart: these
+   do change counts (UNITAS counted the TruSeq Stop Oligo as protein-coding reads).
 
 Pass 3 is a separate pass so that its `discard_trimmed` counts exactly these reads: cutadapt matches adapters before it
 applies the length and N filters, so per-record match counts of a combined pass include reads those filters removed.
@@ -18,11 +19,13 @@ Its records (three_prime_artefact_fasta) are every piece of at least THREE_PRIME
 adapter followed by the start of Illumina's index-read primer (ILLUMINA_INDEX_PRIMER_START, as in the read:
 `...TGGAATTCTCGGGTGCCAAGG` `AACTCCAGTCAC` `<index>` `ATCTCGTATGCCGTCTTCTGCTTG`), and of Illumina's P7 sequence
 (ILLUMINA_P7); the index between them differs per sample and is not used. The Illumina sequences are the same for every
-kit, so they are constants rather than kit settings. The kit's reagent oligos follow (artefact_fasta), each as a 5'
-adapter with a minimum overlap of REAGENT_OLIGO_MIN_OVERLAP nt and FIVE_PRIME_MAX_ERROR_RATE: the oligo complete
-anywhere in the read, or its 3' end of at least that length at the read start, as in the 5'-truncated copies of the
-TruSeq Small RNA Stop Oligo (STP), which pass the other filters and which UNITAS counts as protein-coding reads (COL5A3).
-Chimeras of an oligo and an insert are discarded too (7 of 5.8 million reads in public TruSeq plasma data at 14 nt). A read with both a 5' artefact and 3' artefact sequence counts as
+kit, so they are constants rather than kit settings.
+The kit's reagent oligos follow (artefact_fasta), each as a 5' adapter with a minimum overlap of
+REAGENT_OLIGO_MIN_OVERLAP nt and FIVE_PRIME_MAX_ERROR_RATE: the oligo complete anywhere in the read, or its 3' end of
+at least that length at the read start, as in the 5'-truncated copies of the TruSeq Small RNA Stop Oligo (STP), which
+pass the other filters and which UNITAS counts as protein-coding reads (COL5A3). Chimeras of an oligo and an insert
+are discarded too (7 of 5.8 million reads in public TruSeq plasma data at 14 nt).
+A read with both a 5' artefact and 3' artefact sequence counts as
 a 5' artefact (pass 2 removes it first). The 16-nt minimum is essential: with 14-nt pieces (10% errors), pieces at the
 adapter's end matched human 18S rRNA (around position 400), hsa-miR-2116-3p and a misc_RNA; from 16 nt no human mature
 miRNA (miRBase 23.1) or Ensembl/GtRNAdb/SILVA tRNA, rRNA, snRNA, snoRNA, scaRNA, vault or misc_RNA sequence matches.
@@ -68,6 +71,11 @@ ILLUMINA_P7 = 'ATCTCGTATGCCGTCTTCTGCTTG'
 DNA = re.compile(r'^[ACGT]+$')
 
 
+def valid_oligo(oligo):
+    """A reagent oligo: an A/C/G/T sequence of at least REAGENT_OLIGO_MIN_OVERLAP nt."""
+    return isinstance(oligo, str) and bool(DNA.match(oligo)) and len(oligo) >= REAGENT_OLIGO_MIN_OVERLAP
+
+
 def cutadapt_settings(config):
     """Validated settings from config['adapter'] and config['filter']['trim']['cutadapt']; fails on anything missing."""
     settings = (config.get('filter', {}).get('trim', {}) or {}).get('cutadapt') or {}
@@ -102,8 +110,9 @@ def cutadapt_settings(config):
         raise ValueError('filter.trim.cutadapt.max_n: a number of N bases >= 0, or null, got {!r}'.format(max_n))
     if max_ee is not None and (isinstance(max_ee, bool) or not isinstance(max_ee, (int, float)) or max_ee <= 0):
         raise ValueError('filter.trim.cutadapt.max_ee: expected errors > 0, or null, got {!r}'.format(max_ee))
-    oligos = settings.get('reagent_oligos') or []
-    if not isinstance(oligos, list) or not all(isinstance(o, str) and DNA.match(o) and len(o) >= REAGENT_OLIGO_MIN_OVERLAP for o in oligos):
+    oligos = settings.get('reagent_oligos')
+    oligos = [] if oligos is None else oligos
+    if not isinstance(oligos, list) or not all(valid_oligo(o) for o in oligos):
         raise ValueError('filter.trim.cutadapt.reagent_oligos: a list of A/C/G/T sequences of at least {} nt, got {!r}'.format(
             REAGENT_OLIGO_MIN_OVERLAP, oligos))
     return {'adapter3': adapter3, 'adapter5': adapter5, 'five_prime_piece': piece, 'random_ends': random_ends, 'minimum_length': minimum_length,
@@ -184,7 +193,7 @@ def main():
     if args.command == 'artefact-fasta':
         if not DNA.match(args.adapter3):
             parser.error('adapter3 must be an A/C/G/T sequence')
-        if not all(DNA.match(o) and len(o) >= REAGENT_OLIGO_MIN_OVERLAP for o in args.oligos):
+        if not all(valid_oligo(o) for o in args.oligos):
             parser.error('reagent oligos must be A/C/G/T sequences of at least {} nt'.format(REAGENT_OLIGO_MIN_OVERLAP))
         print(artefact_fasta(args.adapter3, args.oligos), end='')
         return

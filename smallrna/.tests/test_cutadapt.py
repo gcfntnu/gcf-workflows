@@ -72,7 +72,9 @@ def test_settings_are_required():
     ({'random_ends': -1}, 'random_ends'), ({'minimum_length': None}, 'minimum_length'), ({'minimum_length': 0}, 'minimum_length'),
     ({'max_n': 'five'}, 'max_n'), ({'max_ee': 0}, 'max_ee'), ({'five_prime_piece': None}, 'five_prime_piece'),
     ({'five_prime_piece': 13}, 'five_prime_piece'), ({'five_prime_piece': 27}, 'five_prime_piece'), ({'trim_args': '-q 20'}, 'unknown setting'),
-    ({'reagent_oligos': STP}, 'reagent_oligos'), ({'reagent_oligos': ['GAATTCCACCACG']}, 'at least 14'), ({'reagent_oligos': ['GAAUUCCACCACGUUCC']}, 'reagent_oligos')])
+    ({'reagent_oligos': STP}, 'reagent_oligos'), ({'reagent_oligos': ['GAATTCCACCACG']}, 'at least 14'),
+    ({'reagent_oligos': ['GAAUUCCACCACGUUCC']}, 'reagent_oligos'), ({'reagent_oligos': ''}, 'reagent_oligos'),
+    ({'reagent_oligos': False}, 'reagent_oligos'), ({'reagent_oligos': {}}, 'reagent_oligos')])
 def test_invalid_settings_fail(change, message):
     with pytest.raises(ValueError, match=message):
         policy.cutadapt_settings(kit_config(TRUSEQ, **change))
@@ -129,7 +131,7 @@ def test_artefact_fasta_adds_the_reagent_oligos_as_five_prime_adapters():
 
 # The merged report
 
-def report(command, input_reads, output, too_short=0, discard_trimmed=None, with_adapter=0):
+def report(command, input_reads, output, too_short=0, discard_trimmed=None, with_adapter=0, records=None):
     return {'tag': 'Cutadapt report', 'schema_version': [0, 3], 'cutadapt_version': '5.2', 'command_line_arguments': command,
             'input': {'path1': 'in.fastq', 'path2': None, 'paired': False},
             'read_counts': {'input': input_reads, 'filtered': {'too_short': too_short, 'too_long': None, 'too_many_n': 0,
@@ -137,7 +139,7 @@ def report(command, input_reads, output, too_short=0, discard_trimmed=None, with
                                                                'discard_trimmed': discard_trimmed, 'discard_untrimmed': None},
                             'output': output, 'reverse_complemented': None, 'read1_with_adapter': with_adapter, 'read2_with_adapter': None},
             'basepair_counts': {'input': input_reads * 50, 'input_read1': input_reads * 50, 'quality_trimmed': None, 'output': output * 20},
-            'adapters_read1': [{'name': command[0]}]}
+            'adapters_read1': records if records is not None else [{'name': command[0]}]}
 
 
 PATHS = {'adapter': 'a.json', 'filter': 'f.json', 'artefacts': 'x.json'}
@@ -145,12 +147,14 @@ PATHS = {'adapter': 'a.json', 'filter': 'f.json', 'artefacts': 'x.json'}
 
 def test_merged_report_sums_the_passes():
     adapter, filtered = report(['adapter'], 1000, 1000, with_adapter=990), report(['filter'], 1000, 600, too_short=300, discard_trimmed=100, with_adapter=150)
-    artefacts = report(['artefacts'], 600, 590, discard_trimmed=10, with_adapter=10)
+    records = [{'name': 'three_prime_artefact_adapter_0_33', 'total_matches': 6}, {'name': 'three_prime_artefact_p7_0_24', 'total_matches': 1},
+               {'name': 'reagent_oligo_1_22', 'total_matches': 3}]
+    artefacts = report(['artefacts'], 600, 590, discard_trimmed=10, with_adapter=10, records=records)
     merged = merger.merge(adapter, filtered, artefacts, 'S1', PATHS)
     counts = merged['read_counts']
     assert counts['input'] == 1000 and counts['output'] == 590 and counts['read1_with_adapter'] == 990
     assert counts['filtered']['too_short'] == 300 and counts['filtered']['discard_trimmed'] == 100  # 5' adapter artefacts
-    assert counts['filtered']['gcf_three_prime_artefacts'] == 10
+    assert counts['filtered']['gcf_three_prime_artefacts'] == 7 and counts['filtered']['gcf_reagent_oligos'] == 3  # by record
     assert counts['output'] + sum(v or 0 for v in counts['filtered'].values()) == counts['input']
     assert merged['input']['path1'] == 'S1.fastq' and merged['adapters_read1'] == [{'name': 'adapter'}]
     assert merged['tag'].startswith('Cutadapt report, merged') and [p['file'] for p in merged['gcf_passes']] == ['a.json', 'f.json', 'x.json']
@@ -162,6 +166,9 @@ def test_merged_report_sums_the_passes():
         merger.merge(adapter, report(['filter'], 1000, 599), artefacts, 'S1', PATHS)
     with pytest.raises(ValueError, match='other than by discard_trimmed'):
         merger.merge(adapter, filtered, report(['artefacts'], 600, 590, too_short=10), 'S1', PATHS)
+    with pytest.raises(ValueError, match='discarded 10 reads, but its records matched 9'):
+        merger.merge(adapter, filtered, report(['artefacts'], 600, 590, discard_trimmed=10, records=records[1:] + [dict(records[0], total_matches=5)]),
+                     'S1', PATHS)
 
 
 # The workflow route
@@ -185,7 +192,7 @@ def test_route_filters_with_cutadapt_only(tmp_path):
     artefacts = rule_block(output, 'smallrna_cutadapt_artefacts')
     assert 'input: data/tmp/smallrna/filter/cutadapt_filtered/SR0' in artefacts
     assert '-g file:data/tmp/smallrna/filter/cutadapt/artefacts.fa --action=none --discard-trimmed' in artefacts
-    assert 'artefact-fasta TGGAATTCTCGGGTGCCAAGG  > ' in rule_block(output, 'smallrna_artefact_adapters')    # no reagent oligos (NEXTflex v3)
+    assert 'artefact-fasta TGGAATTCTCGGGTGCCAAGG  > ' in rule_block(output, 'smallrna_artefact_fasta')    # no reagent oligos (NEXTflex v3)
     assert 'bfq/provenance/cutadapt/SR01.artefacts.json' in output
     assert 'input: data/tmp/smallrna/filter/cutadapt/SR0' in rule_block(output, 'unitas').split('output:', 1)[0]  # any sample's job
     assert 'bfq/logs/SR01/SR01.cutadapt.json' in output and 'bfq/provenance/cutadapt/SR01.filter.json' in output
@@ -199,7 +206,7 @@ def test_route_sets_the_minimum_length_of_the_quantifiers(tmp_path):
     assert returncode == 0, output
     assert '--minimum-length 15 ' in rule_block(output, 'mirge3_quant')
     assert '-u 4' not in rule_block(output, 'smallrna_cutadapt_filter')
-    assert 'artefact-fasta TGGAATTCTCGGGTGCCAAGG ' + STP + ' > ' in rule_block(output, 'smallrna_artefact_adapters')  # the Stop Oligo
+    assert 'artefact-fasta TGGAATTCTCGGGTGCCAAGG ' + STP + ' > ' in rule_block(output, 'smallrna_artefact_fasta')  # the Stop Oligo
 
 
 @pytest.mark.parametrize('kit', [V3, V4, TRUSEQ])
@@ -340,14 +347,15 @@ def test_three_prime_artefacts_are_discarded(tmp_path):
 # TruSeq Stop Oligo reads (#380), as in public TruSeq plasma data after the 3' adapter pass: the oligo and its 5'-truncated
 # copies, with one mismatch or an extra 3' base, and an oligo-miRNA chimera; miRNAs and 13 nt of the oligo's end stay
 STP_DISCARDED = [STP, STP[4:], STP[6:], STP[:10] + 'A' + STP[11:], STP[5:] + 'A', STP + MIR21_5P]
-STP_KEPT = [MIR21_5P, MIR22_5P, MIR139_5P, 'TTTTTTTTT' + STP[-13:]]
+STP_KEPT = [MIR21_5P, MIR22_5P, MIR139_5P, 'TTTTTTTTT' + STP[-13:], 'TTTTTTTTT' + STP[-16:]]  # truncated copies count only at the read start
 
 
 def test_truseq_stop_oligo_reads_are_discarded(tmp_path):
     inserts = STP_KEPT + STP_DISCARDED
     kept, merged = run_kit(tmp_path, TRUSEQ, inserts)
     assert sorted(kept) == sorted(STP_KEPT)
-    assert merged['read_counts']['filtered']['gcf_three_prime_artefacts'] == len(STP_DISCARDED)   # counted with the artefacts
+    filtered = merged['read_counts']['filtered']
+    assert filtered['gcf_reagent_oligos'] == len(STP_DISCARDED) and filtered['gcf_three_prime_artefacts'] == 0   # counted apart
     kept, _ = run_kit(tmp_path, V3, [STP[4:]])                                                  # no reagent oligo for NEXTflex
     assert kept == [STP[4:]]
 

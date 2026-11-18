@@ -20,7 +20,7 @@ if config['filter']['trim']['quantifier'] == 'cutadapt':
         shell:
             'python {params.script:q} five-prime-fasta {params.adapter5} {params.piece} > {output:q}'
 
-    rule smallrna_artefact_adapters:
+    rule smallrna_artefact_fasta:
         output:
             join(FILTER_INTERIM, 'cutadapt', 'artefacts.fa')
         params:
@@ -73,7 +73,7 @@ if config['filter']['trim']['quantifier'] == 'cutadapt':
     rule smallrna_cutadapt_artefacts:
         input:
             R1 = rules.smallrna_cutadapt_filter.output.R1,
-            artefacts = rules.smallrna_artefact_adapters.output
+            artefacts = rules.smallrna_artefact_fasta.output
         output:
             R1 = temp(join(FILTER_INTERIM, 'cutadapt', '{sample}_R1.fastq')),
             json = join(FILTER_INTERIM, 'cutadapt_stages', '{sample}.artefacts.json')
