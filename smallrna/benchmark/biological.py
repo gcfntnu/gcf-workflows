@@ -8,6 +8,7 @@ All functions work on the common table of adapters.py: (method, sample, mature_n
 per mature miRNA accession. Counts per million (CPM) are relative to each method's miRNA reads in the sample.
 """
 import collections
+import functools
 import importlib.util
 import json
 import math
@@ -21,6 +22,7 @@ from pool import spearman  # noqa: E402
 MERGE_CUTADAPT = Path(__file__).resolve().parents[1] / 'rules/filter/scripts/merge_cutadapt.py'
 
 
+@functools.lru_cache(maxsize=None)
 def merge_cutadapt():
     """The workflow's merge of the cutadapt pass reports, loaded by path when needed (rules/filter/scripts stays off
     sys.path, and the rest of this module doesn't depend on it)."""
@@ -152,8 +154,8 @@ def filtering(stage_jsons):
     reports = {k: json.loads(Path(p).read_text()) for k, p in paths.items()}
     try:
         merged = merger.merge(reports['adapter'], reports['filter'], reports['artefacts'], 'sample', paths)['read_counts']
-    except KeyError as error:
-        raise ValueError('cutadapt reports without {}: {}'.format(error, ', '.join(paths.values())))
+    except (KeyError, TypeError, AttributeError) as error:
+        raise ValueError('malformed cutadapt reports ({}: {}): {}'.format(type(error).__name__, error, ', '.join(paths.values())))
     f = merged['filtered']
     return {'reads_in': merged['input'], 'with_3p_adapter': merged['read1_with_adapter'],
             'discarded_5p_adapter': f['discard_trimmed'] or 0, 'too_short': f['too_short'] or 0,
