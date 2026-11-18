@@ -86,6 +86,8 @@ def write(path, text):
 def native_outputs(quant):
     write(quant / 'unitas/mir_counts.tsv', '\tS01\tS02\nmiR-192-5p\t45\t45\nmiR-194-5p \t20\t25\n')
     write(quant / 'mirge3/miR.Counts.csv', 'miRNA,S01,S02\nmmu-miR-192-5p,45,45\nmmu-miR-194-5p/mmu-miR-204-5p,25,25\nmmu-miR-9999-5p,1,0\n')
+    write(quant / 'tesmall/tesmall_counts.tsv', 'ftype\tfid\tS01\tS02\nhairpin\tmmu-mir-192\t3\t3\n'
+          'miRNA\tmmu-miR-192-5p\t42\t44\nmiRNA\tmmu-miR-194-5p\t25\t0\nsense_TE\tL1:L1:LINE\t9\t9\n')
     write(quant / 'mirflowz/all_mirna_counts.tab',
           'ID\tS01\tS02\nmmu-miR-192-5p\t40\t40\nmmu-miR-192-5p|0|1|23M|23|CTGACCTATGAATTGACAGCCAA\t5\t5\nmmu-miR-194-2-5p\t25\t25\n'
           'mmu-miR-204-5p|0|0|22M|22|TTCCCTTTGTCATCCTATGCCT\tNA\t3\n')  # NA: no reads in that sample
@@ -95,7 +97,7 @@ def native_outputs(quant):
 
 def test_adapters_match_by_accession_whatever_the_method_names(tmp_path):
     gff = native_outputs(tmp_path / 'quant')
-    rows = adapters.common_table(['unitas', 'mirge3', 'mirflowz'], tmp_path / 'quant', NAME_TO_ID, 'mmu-', gff)
+    rows = adapters.common_table(['unitas', 'mirge3', 'mirflowz', 'tesmall'], tmp_path / 'quant', NAME_TO_ID, 'mmu-', gff)
     got = {(m, s, n): (i, c) for m, s, n, i, c in rows}
     assert got[('unitas', 'S01', 'miR-194-5p')] == ('MIMAT0000224', 20)
     assert got[('mirge3', 'S01', 'mmu-miR-194-5p/mmu-miR-204-5p')] == ('MIMAT0000224', 25)
@@ -104,6 +106,8 @@ def test_adapters_match_by_accession_whatever_the_method_names(tmp_path):
     assert got[('mirflowz', 'S01', 'mmu-miR-194-2-5p')] == ('MIMAT0000224', 25)
     assert got[('mirflowz', 'S02', 'mmu-miR-204-5p')] == ('MIMAT0000237', 3) and ('mirflowz', 'S01', 'mmu-miR-204-5p') not in got
     assert ('mirge3', 'S02', 'mmu-miR-9999-5p') not in got  # zero counts are dropped
+    assert got[('tesmall', 'S01', 'mmu-miR-192-5p')] == ('MIMAT0000517', 42)  # mature miRNAs only, not hairpin or TE
+    assert ('tesmall', 'S02', 'mmu-miR-194-5p') not in got and not any(n.startswith(('mmu-mir', 'L1')) for m, _, n in got if m == 'tesmall')
     with pytest.raises(ValueError, match='no benchmark adapter'):
         adapters.common_table(['newtool'], tmp_path / 'quant', NAME_TO_ID, 'mmu-')
 
@@ -142,6 +146,32 @@ def test_prepare_then_evaluate(tmp_path, ref):
     assert '| mmu-miR-192-5p | 45 | 45 | 45 | 45 |' in report
     assert 'mirge3: `mmu-miR-9999-5p`' in report
     assert (project / 'benchmark/common.tsv').read_text().startswith('method\tsample\tmature_name\tmature_id\tcount\n')
+
+
+def test_tesmall_only_project_keeps_the_reduced_reference(tmp_path, ref):
+    """TEsmall builds its database on the mirflowz reference, so a project with TEsmall alone still gets the reduced
+    reference, and its dry run builds the TEsmall genome from it."""
+    for name in ('genome.fa.gz', 'genes.gtf.gz'):
+        (ref / name).touch()  # the reduced reference's genome and annotation (reduce_reference.py)
+    dataset = write(tmp_path / 'ds.yaml', yaml.safe_dump({
+        'name': 'syn', 'kind': 'synthetic', 'organism': 'mus_musculus', 'libprepkit': 'Bioo Scientific NEXTflex Small RNA-Seq Kit v4',
+        'adapter': 'TGGAATTCTCGGGTGCCAAGG', 'methods': ['tesmall'],
+        'reference': {'name': 'mmu-test', 'dir': 'benchmark/references/mmu-test'},
+        'synthetic': {'seed': 1, 'samples': 1, 'mirnas': {'mmu-miR-192-5p': 4}}}))
+    project = tmp_path / 'project'
+    result = subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'prepare', '--dataset', str(dataset), '--project', str(project),
+                             '--ext-dir', str(tmp_path / 'ext')], capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    config = yaml.safe_load((project / 'config.yaml').read_text())
+    assert config['quant']['method'] == 'tesmall' and config['db']['mirflowz']['custom']['genome'] == str(ref / 'genome.fa.gz')
+    env = {k: v for k, v in os.environ.items() if not k.startswith('GCF_')}
+    env.update(TMPDIR=str(tmp_path), XDG_CACHE_HOME=str(tmp_path / '.cache'))
+    result = subprocess.run([str(Path(sys.executable).with_name('snakemake')), '-n', '--cores', '1', 'quant_all'], cwd=project, env=env,
+                            capture_output=True, text=True, timeout=120)
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    genome = output.split('rule tesmall_genome:', 1)[1].split('\nrule ', 1)[0]
+    assert 'input: {}'.format(ref / 'genome.fa.gz') in genome and 'tesmall/custom-mmu-test/mus_musculus/genome/genome.fa' in genome
 
 
 def test_prepare_refuses_an_existing_project_and_a_missing_reference(tmp_path, ref):
