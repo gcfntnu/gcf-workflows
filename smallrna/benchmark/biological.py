@@ -8,6 +8,7 @@ All functions work on the common table of adapters.py: (method, sample, mature_n
 per mature miRNA accession. Counts per million (CPM) are relative to each method's miRNA reads in the sample.
 """
 import collections
+import importlib.util
 import json
 import math
 import statistics
@@ -15,9 +16,12 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-sys.path.insert(1, str(Path(__file__).resolve().parents[1] / 'rules' / 'filter' / 'scripts'))
 from pool import spearman  # noqa: E402
-import merge_cutadapt  # noqa: E402
+
+# the workflow's merge of the cutadapt pass reports, loaded by path (rules/filter/scripts stays off sys.path)
+_spec = importlib.util.spec_from_file_location('merge_cutadapt', Path(__file__).resolve().parents[1] / 'rules/filter/scripts/merge_cutadapt.py')
+merge_cutadapt = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(merge_cutadapt)
 
 MIN_READS = 10          # a miRNA counts as detected in a sample with at least this many reads
 TOP = 100               # top-N overlap between methods
@@ -128,7 +132,7 @@ def blocked(common, methods, samples, accessions):
                 for name, acc in accessions.items()} for m in methods}
 
 
-CUTADAPT_PASSES = ('adapter', 'filter', 'artefacts')
+CUTADAPT_PASSES = merge_cutadapt.PASSES
 
 
 def filtering(stage_jsons):
@@ -137,7 +141,10 @@ def filtering(stage_jsons):
     wrote): the artefact pass split into 3' artefacts and reagent oligo reads."""
     paths = {k: str(p) for k, p in stage_jsons.items()}
     reports = {k: json.loads(Path(p).read_text()) for k, p in paths.items()}
-    merged = merge_cutadapt.merge(reports['adapter'], reports['filter'], reports['artefacts'], 'sample', paths)['read_counts']
+    try:
+        merged = merge_cutadapt.merge(reports['adapter'], reports['filter'], reports['artefacts'], 'sample', paths)['read_counts']
+    except KeyError as error:
+        raise ValueError('cutadapt reports without {}: {}'.format(error, ', '.join(paths.values())))
     f = merged['filtered']
     return {'reads_in': merged['input'], 'with_3p_adapter': merged['read1_with_adapter'],
             'discarded_5p_adapter': f['discard_trimmed'] or 0, 'too_short': f['too_short'] or 0,

@@ -128,13 +128,14 @@ def test_three_prime_artefact_fasta_lists_adapter_primer_and_p7_pieces():
 def test_artefact_records_are_named_as_the_merge_counts_them():
     names = [line[1:] for line in policy.artefact_fasta(ADAPTER3, [STP]).splitlines()[0::2]]
     assert (policy.THREE_PRIME_ARTEFACT_RECORD, policy.REAGENT_OLIGO_RECORD) == (merger.THREE_PRIME_ARTEFACT_RECORD, merger.REAGENT_OLIGO_RECORD)
-    assert sum(n.startswith(merger.REAGENT_OLIGO_RECORD) for n in names) == 1
+    assert sum(n.startswith(merger.REAGENT_OLIGO_RECORD) for n in names) == 2          # the oligo and its end
     assert all(n.startswith((merger.THREE_PRIME_ARTEFACT_RECORD, merger.REAGENT_OLIGO_RECORD)) for n in names)
 
 
 def test_artefact_fasta_adds_the_reagent_oligos_as_five_prime_adapters():
     fasta = policy.artefact_fasta(ADAPTER3, [STP])
-    assert fasta == policy.three_prime_artefact_fasta(ADAPTER3) + '>reagent_oligo_1_22\n' + STP + ';min_overlap=14;max_error_rate=0.1\n'
+    assert fasta == (policy.three_prime_artefact_fasta(ADAPTER3) + '>reagent_oligo_1_22\n' + STP + ';min_overlap=14;max_error_rate=0.1\n'
+                     '>reagent_oligo_1_end_14\n' + STP[-14:] + ';min_overlap=14;max_error_rate=0.1\n')
     result = subprocess.run(['python', str(SCRIPTS / 'cutadapt_config.py'), 'artefact-fasta', ADAPTER3, STP], capture_output=True, text=True, timeout=30)
     assert result.returncode == 0 and result.stdout == fasta
     result = subprocess.run(['python', str(SCRIPTS / 'cutadapt_config.py'), 'artefact-fasta', ADAPTER3, 'GAATTCC'], capture_output=True, text=True, timeout=30)
@@ -364,9 +365,11 @@ def test_three_prime_artefacts_are_discarded(tmp_path):
 
 # TruSeq Stop Oligo reads (#380), as in public TruSeq plasma data after the 3' adapter pass: the oligo and its 5'-truncated
 # copies (down to 14 nt), with one mismatch (STP[10] is A) or an extra 3' base, and an oligo-miRNA chimera
-# copies of the oligo's end at the read start count from 14 nt; inside the read, only the complete oligo does
-STP_DISCARDED = [STP, STP[4:], STP[6:], STP[-14:] + 'GCATGCA', STP[:10] + 'T' + STP[11:], STP[5:] + 'A', STP + MIR21_5P]
-STP_KEPT = [MIR21_5P, MIR22_5P, MIR139_5P, STP[-13:] + 'GCATGCAT', 'TTTTTTTTT' + STP[-13:], 'TTTTTTTTT' + STP[-16:]]
+# the oligo's end counts from 14 nt, at the read start or after other bases (seen in plasma: AA + STP[6:], a copy with
+# TTC deleted; one error allowed, so 13 nt after another base too); 13 nt at the read start or 12 nt after others do not
+STP_DISCARDED = [STP, STP[4:], STP[6:], STP[-14:] + 'GCATGCA', STP[:10] + 'T' + STP[11:], STP[5:] + 'A', STP + MIR21_5P,
+                 'AA' + STP[6:], 'TTTTTTTTT' + STP[-16:], 'TTTTTTTTT' + STP[-13:]]
+STP_KEPT = [MIR21_5P, MIR22_5P, MIR139_5P, STP[-13:] + 'GCATGCAT', 'TTTTTTTTTT' + STP[-12:]]
 
 
 def test_truseq_stop_oligo_reads_are_discarded(tmp_path):

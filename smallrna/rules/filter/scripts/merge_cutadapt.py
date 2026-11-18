@@ -18,11 +18,21 @@ Usage: merge_cutadapt.py --sample NAME ADAPTER_JSON FILTER_JSON ARTEFACTS_JSON >
 """
 import argparse
 import json
+import importlib.util
 from pathlib import Path
 import sys
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from cutadapt_config import REAGENT_OLIGO_RECORD, THREE_PRIME_ARTEFACT_RECORD  # noqa: E402  the record names it writes
+
+def _cutadapt_config():
+    """cutadapt_config.py next to this script, loaded by path so importing this module leaves sys.path alone."""
+    spec = importlib.util.spec_from_file_location('cutadapt_config', Path(__file__).resolve().with_name('cutadapt_config.py'))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_CONFIG = _cutadapt_config()
+THREE_PRIME_ARTEFACT_RECORD, REAGENT_OLIGO_RECORD = _CONFIG.THREE_PRIME_ARTEFACT_RECORD, _CONFIG.REAGENT_OLIGO_RECORD  # the record names it writes
 
 COUNTS = ('too_short', 'too_long', 'too_many_n', 'too_many_expected_errors', 'casava_filtered', 'discard_trimmed',
           'discard_untrimmed')
@@ -41,8 +51,8 @@ def merge(adapter, filtered, artefacts, sample, paths):
     for before, after in zip(PASSES, PASSES[1:]):
         written, read = reports[before]['read_counts']['output'], reports[after]['read_counts']['input']
         if written != read:
-            raise ValueError('the {} pass read {} reads, the {} pass wrote {}: not the same sample run'.format(
-                after, read, before, written))
+            raise ValueError('the {} pass read {} reads, the {} pass wrote {}: not the same sample run ({})'.format(
+                after, read, before, written, paths[after]))
     extra = {k: v for k, v in artefacts['read_counts']['filtered'].items() if v and k != 'discard_trimmed'}
     if extra:
         raise ValueError('the artefact pass filtered reads other than by discard_trimmed: {}'.format(extra))
