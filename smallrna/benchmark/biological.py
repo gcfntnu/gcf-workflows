@@ -8,6 +8,8 @@ All functions work on the common table of adapters.py: (method, sample, mature_n
 per mature miRNA accession. Counts per million (CPM) are relative to each method's miRNA reads in the sample.
 """
 import collections
+import functools
+import importlib.util
 import json
 import math
 import statistics
@@ -16,6 +18,18 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pool import spearman  # noqa: E402
+
+MERGE_CUTADAPT = Path(__file__).resolve().parents[1] / 'rules/filter/scripts/merge_cutadapt.py'
+
+
+@functools.lru_cache(maxsize=None)
+def merge_cutadapt():
+    """The workflow's merge of the cutadapt pass reports, loaded by path when needed (rules/filter/scripts stays off
+    sys.path, and the rest of this module doesn't depend on it)."""
+    spec = importlib.util.spec_from_file_location('merge_cutadapt', MERGE_CUTADAPT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 MIN_READS = 10          # a miRNA counts as detected in a sample with at least this many reads
 TOP = 100               # top-N overlap between methods
@@ -126,22 +140,28 @@ def blocked(common, methods, samples, accessions):
                 for name, acc in accessions.items()} for m in methods}
 
 
-CUTADAPT_PASSES = ('adapter', 'filter', 'artefacts')
+CUTADAPT_PASSES = ('adapter', 'filter', 'artefacts')  # merge_cutadapt.PASSES; filtering() fails if they differ
 
 
 def filtering(stage_jsons):
-    """Read counts through the cutadapt route's three passes, from their JSON reports ({pass: path}); each pass must
-    have read what the one before it wrote, as in rules/filter/scripts/merge_cutadapt.py."""
-    read = {k: json.loads(Path(p).read_text())['read_counts'] for k, p in stage_jsons.items()}
-    for before, after in zip(CUTADAPT_PASSES, CUTADAPT_PASSES[1:]):
-        if read[before]['output'] != read[after]['input']:
-            raise ValueError('the {} pass read {} reads, the {} pass wrote {}: not one run ({})'.format(
-                after, read[after]['input'], before, read[before]['output'], stage_jsons[after]))
-    f = read['filter']['filtered']
-    return {'reads_in': read['adapter']['input'], 'with_3p_adapter': read['adapter']['read1_with_adapter'],
+    """Read counts through the cutadapt route's three passes ({pass: JSON report path}), as the workflow's merged
+    report gives them (rules/filter/scripts/merge_cutadapt.py, which fails unless each pass read what the one before
+    wrote): the artefact pass split into 3' artefacts and reagent oligo reads."""
+    merger = merge_cutadapt()
+    if tuple(stage_jsons) != tuple(merger.PASSES):
+        raise ValueError('cutadapt passes {} differ from the workflow\'s {}'.format(tuple(stage_jsons), merger.PASSES))
+    paths = {k: str(p) for k, p in stage_jsons.items()}
+    reports = {k: json.loads(Path(p).read_text()) for k, p in paths.items()}
+    try:
+        merged = merger.merge(reports['adapter'], reports['filter'], reports['artefacts'], 'sample', paths)['read_counts']
+    except (KeyError, TypeError, AttributeError) as error:
+        raise ValueError('malformed cutadapt reports ({}: {}): {}'.format(type(error).__name__, error, ', '.join(paths.values())))
+    f = merged['filtered']
+    return {'reads_in': merged['input'], 'with_3p_adapter': merged['read1_with_adapter'],
             'discarded_5p_adapter': f['discard_trimmed'] or 0, 'too_short': f['too_short'] or 0,
             'too_many_n': f['too_many_n'] or 0, 'too_many_expected_errors': f['too_many_expected_errors'] or 0,
-            'discarded_artefacts': read['artefacts']['filtered']['discard_trimmed'] or 0, 'kept': read['artefacts']['output']}
+            'discarded_3p_artefacts': f['gcf_three_prime_artefacts'], 'discarded_reagent_oligos': f['gcf_reagent_oligos'],
+            'kept': merged['output']}
 
 
 def first_base(fastq, matures):
