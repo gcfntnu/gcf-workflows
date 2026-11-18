@@ -22,7 +22,7 @@ mirflowz is made with reduce_reference.py and named in the declaration.
 
 Usage: benchmark.py fill --dataset YAML --ext-dir DIR
        benchmark.py prepare --dataset YAML --project DIR --ext-dir DIR [--methods LIST] [--reads N] [--lanes]
-       benchmark.py evaluate --project DIR [--mirflowz-gff GFF3]
+       benchmark.py evaluate --project DIR [--mirflowz-gff GFF3] [--unitas-ref DIR]
 """
 import argparse
 import collections
@@ -283,8 +283,7 @@ def evaluate(args):
     if gff is None and 'mirflowz' in spec['methods']:
         gff = ext_dir / 'mirflowz' / 'custom-{}'.format(spec['reference']['name']) / spec['organism'] / 'prepared' / \
             'extended_mirna_annotation_{}_nt.gff3'.format(EXTENSION)
-    common = adapters.common_table(spec['methods'], project / 'data/tmp/smallrna/quant', name_to_id, prefix, gff)
-    write_tsv(bench / 'common.tsv', adapters.COMMON_COLUMNS, common)
+    common = common_table(args, project, bench, spec, ext_dir, spec['methods'], mature, gff)
 
     truth = {}
     for row in read_tsv(bench / 'truth.tsv'):
@@ -320,6 +319,46 @@ def evaluate(args):
         lines += ['', '## Names without a miRBase accession', ''] + ['- {}: `{}`'.format(m, n) for m, n in unplaced]
     (bench / 'report.md').write_text('\n'.join(lines) + '\n')
     print(bench / 'report.md')
+
+
+MAIN_CONFIG = Path(__file__).resolve().parents[2] / 'main.config'
+
+
+def unitas_refdump(project, ext_dir, organism):
+    """The UNITAS reference dump the project's UNITAS run read: db.unitas from the project, else main.config."""
+    unitas = dict(yaml.safe_load(MAIN_CONFIG.read_text())['db']['unitas'])
+    unitas.update(((yaml.safe_load((project / 'config.yaml').read_text()) or {}).get('db') or {}).get('unitas') or {})
+    if unitas.get('mirna_db', 'mirbase') != 'mirbase':
+        fail('db.unitas.mirna_db is {}: the benchmark matches miRBase names'.format(unitas['mirna_db']))
+    refdump = Path(ext_dir) / 'unitas' / str(unitas['release']) / 'UNITAS_refdump_{}'.format(organism)
+    if not refdump.is_dir():
+        fail('no UNITAS reference dump at {}; name one with --unitas-ref'.format(refdump))
+    return refdump
+
+
+def common_table(args, project, bench, spec, ext_dir, methods, mature, gff):
+    """Every method's counts in one table (adapters.py), written to common.tsv; with UNITAS, also how each UNITAS name
+    was placed (unitas_names.tsv: by name, by hairpin and arm, or not)."""
+    prefix = PREFIX[spec['organism']]
+    name_to_id = {name: accession for name, (accession, _) in mature.items()}
+    hairpins = adapters.unitas_hairpins(args.unitas_ref or unitas_refdump(project, ext_dir, spec['organism'])) if 'unitas' in methods else None
+    common = adapters.common_table(methods, project / 'data/tmp/smallrna/quant', name_to_id, prefix, gff, hairpins, mature)
+    write_tsv(bench / 'common.tsv', adapters.COMMON_COLUMNS, common)
+    if hairpins is not None:
+        reads = collections.Counter()
+        for method, _, name, _, count in common:
+            if method == 'unitas':
+                reads[name] += float(count)
+        placed = {name: adapters.unitas_place(name, name_to_id, prefix, hairpins, mature) for name in reads}
+        write_tsv(bench / 'unitas_names.tsv', ['name', 'step', 'mature_id', 'reads'],
+                  [[n, placed[n][1] or 'unplaced', placed[n][0], '{:g}'.format(reads[n])] for n in sorted(reads)])
+        steps = collections.defaultdict(lambda: [0, 0.0])
+        for n, (_, step) in placed.items():
+            steps[step or 'unplaced'][0] += 1
+            steps[step or 'unplaced'][1] += reads[n]
+        labels = {'name': 'by name', 'hairpin': 'by hairpin and arm', 'unplaced': 'unplaced'}
+        print('UNITAS names: ' + ', '.join('{} {} ({:.0f} reads)'.format(steps[k][0], v, steps[k][1]) for k, v in labels.items() if k in steps))
+    return common
 
 
 def mirflowz_annotation(ext_dir, spec):
@@ -429,8 +468,7 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
     name_to_id = {name: accession for name, (accession, _) in mature.items()}
     methods = list(spec['methods'])
     gff = args.mirflowz_gff or (mirflowz_annotation(ext_dir, spec) if 'mirflowz' in methods else None)
-    common = adapters.common_table(methods, project / 'data/tmp/smallrna/quant', name_to_id, prefix, gff)
-    write_tsv(bench / 'common.tsv', adapters.COMMON_COLUMNS, common)
+    common = common_table(args, project, bench, spec, ext_dir, methods, mature, gff)
     entries = pool.read_pool(bench / 'pool.tsv')
     kinds = pool.shift_kinds(entries, dict(mature.values()))
     sample_groups = {row['sample']: row['group'] for row in read_tsv(bench / 'samples.tsv')}
@@ -581,8 +619,7 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
         fail(str(e))
 
     gff = args.mirflowz_gff or (mirflowz_annotation(ext_dir, spec) if 'mirflowz' in methods else None)
-    raw = adapters.common_table(methods, project / 'data/tmp/smallrna/quant', name_to_id, prefix, gff)
-    write_tsv(bench / 'common.tsv', adapters.COMMON_COLUMNS, raw)
+    raw = common_table(args, project, bench, spec, ext_dir, methods, mature, gff)
     common, groups = biological.collapse(raw, id_to_seq)
     unplaced = biological.unplaced(raw, methods, samples)
 
@@ -690,6 +727,8 @@ def main():
     e = sub.add_parser('evaluate')
     e.add_argument('--project', required=True)
     e.add_argument('--mirflowz-gff', type=Path, help="mirflowz's extended miRNA annotation; default from the declaration")
+    e.add_argument('--unitas-ref', type=Path, help="UNITAS reference dump (its miRBase hairpins place locus names); default from "
+                   "the project's db.unitas under EXT_DIR")
     args = parser.parse_args()
     {'prepare': prepare, 'fill': fill, 'evaluate': evaluate}[args.command](args)
 
