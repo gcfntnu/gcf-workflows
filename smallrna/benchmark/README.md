@@ -113,8 +113,8 @@ methods count on the same miRNAs (often a pool sequence one or two bases shorter
 ## Metrics
 
 **Synthetic data.** For truth as reads per miRNA, per method: `recovered` (share of the true reads counted on the right
-miRNA), `exact` (share of miRNAs counted exactly, to within 1e-6 for the fractional counts of divided multimappers), `misassigned` (reads on miRNAs not in the truth) and `unplaced`
-(reads on names without a miRBase accession).
+miRNA), `exact` (share of miRNAs counted exactly, to within 1e-6 for the fractional counts of divided multimappers),
+`misassigned` (reads on miRNAs not in the truth) and `unplaced` (reads on names without a miRBase accession).
 
 **Pools** (`pool.py`):
 
