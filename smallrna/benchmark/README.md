@@ -35,6 +35,18 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    method's counts in one table), `per_mirna.tsv` (pools: `per_sequence.tsv` and `filter_stages.tsv`), `metrics.tsv`
    and `report.md`; with UNITAS, `unitas_names.tsv` (how each UNITAS name was placed, below). UNITAS names are placed
    with the project's UNITAS reference dump (`db.unitas` under `EXT_DIR`, read only; `--unitas-ref` names another).
+5. **Summary.** `benchmark.py summary` reads several evaluated projects and writes one overview, a Markdown file or a
+   single self-contained HTML file (no external resources), by the output's extension:
+
+   ```bash
+   python smallrna/benchmark/benchmark.py summary --projects <project> [<project> ...] --output summary.html
+   ```
+
+   It has a section per dataset kind (synthetic, equimolar pool, ratiometric pool, biological) with a row per project:
+   its dataset, kit, samples, input reads (from `samples.tsv`, or `truth.tsv` for synthetic data), methods, a link to its
+   `report.md`, and the kind's key metrics from its `metrics.tsv` per method (and the oracle, where it has values).
+   A method not run on a dataset, or a metric missing from its table, is an empty cell. It writes nothing into the
+   projects; an output inside one stops it.
 
 ## Datasets
 

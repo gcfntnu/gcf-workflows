@@ -16,6 +16,8 @@ The benchmark runs the workflow's own `quant_all` routes; it never calls the too
 3. `evaluate` turns each method's output into one common table (adapters.py), computes the same metrics for every
    method (metrics.py, pool.py; biological.py compares methods with each other) and writes
    `<project>/benchmark/report.md` with the tables behind it.
+4. `summary` reads several evaluated projects and writes one overview, a section per dataset kind with each project's
+   key metrics per method (summary.py), as Markdown or a self-contained HTML file; it writes nothing into the projects.
 
 References and public datasets live under `EXT_DIR` (`ext_dir` in the project configuration); a reduced reference for
 mirflowz is made with reduce_reference.py and named in the declaration.
@@ -23,6 +25,7 @@ mirflowz is made with reduce_reference.py and named in the declaration.
 Usage: benchmark.py fill --dataset YAML --ext-dir DIR
        benchmark.py prepare --dataset YAML --project DIR --ext-dir DIR [--methods LIST] [--reads N] [--lanes]
        benchmark.py evaluate --project DIR [--mirflowz-gff GFF3] [--unitas-ref DIR]
+       benchmark.py summary --projects DIR [DIR ...] --output FILE.md|FILE.html
 """
 import argparse
 import collections
@@ -43,6 +46,7 @@ import biological  # noqa: E402
 import fill as filler  # noqa: E402
 import metrics  # noqa: E402
 import pool  # noqa: E402
+import summary as summarizer  # noqa: E402
 import synthetic  # noqa: E402
 
 PREFIX = {'homo_sapiens': 'hsa-', 'mus_musculus': 'mmu-', 'rattus_norvegicus': 'rno-'}
@@ -711,6 +715,14 @@ def fill(args):
         fail(str(error))
 
 
+def summary(args):
+    try:
+        summarizer.write(args.projects, args.output)
+    except (OSError, ValueError) as error:
+        fail(str(error))
+    print(args.output)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     sub = parser.add_subparsers(dest='command', required=True)
@@ -729,8 +741,11 @@ def main():
     e.add_argument('--mirflowz-gff', type=Path, help="mirflowz's extended miRNA annotation; default from the declaration")
     e.add_argument('--unitas-ref', type=Path, help="UNITAS reference dump (its miRBase hairpins place locus names); default from "
                    "the project's db.unitas under EXT_DIR")
+    s = sub.add_parser('summary', help='one overview of several evaluated projects (Markdown or HTML by the extension)')
+    s.add_argument('--projects', nargs='+', required=True)
+    s.add_argument('--output', required=True, help='.md or .html; written outside the projects')
     args = parser.parse_args()
-    {'prepare': prepare, 'fill': fill, 'evaluate': evaluate}[args.command](args)
+    {'prepare': prepare, 'fill': fill, 'evaluate': evaluate, 'summary': summary}[args.command](args)
 
 
 if __name__ == '__main__':

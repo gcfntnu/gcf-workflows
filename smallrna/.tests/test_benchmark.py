@@ -1,4 +1,4 @@
-"""Small-RNA benchmark: synthetic truth, method adapters, metrics, pools (truth groups, oracle, fill) and the prepare/evaluate steps
+"""Small-RNA benchmark: synthetic truth, method adapters, metrics, pools (truth groups, oracle, fill) and the prepare/evaluate/summary steps
 on synthetic tables."""
 import gzip
 import json
@@ -806,3 +806,94 @@ def test_evaluate_a_biological_dataset_in_lanes(tmp_path):
     assert '| GSM1_L1 | 100 | 95 | 1 | 7 | 0 | 2 | 3 | 87 |' in report                       # the filtering table
     assert '| GSM1_L1 | 10 | 10.00% | 40.0 | 14.0 |' in report                       # 1 of 10 top-miRNA reads has another first base
     assert '## Lane replicates' in report and '| mirna_sample_pairs | 2 | 2 |' in report and '| 100-999 | 0.0% of 2 | 0.0% of 2 |' in report
+
+
+def summary_project(root, name, spec, metrics, samples=None, truth=None):
+    """An evaluated project as the summary reads it: config.yaml, benchmark/dataset.yaml, metrics.tsv, samples.tsv
+    (truth.tsv for synthetic data) and report.md."""
+    project = root / name
+    names = [row[0] for row in samples[1:]] if samples else ['S01', 'S02']
+    write(project / 'config.yaml', yaml.safe_dump({'workflow': 'smallrna', 'samples': {s: {'R1': s} for s in names}}))
+    write(project / 'benchmark/dataset.yaml', yaml.safe_dump(dict(spec, organism='homo_sapiens')))
+    write(project / 'benchmark/metrics.tsv', ''.join('\t'.join(row) + '\n' for row in metrics))
+    write(project / 'benchmark/report.md', '# {}\n'.format(spec['name']))
+    if truth:
+        write(project / 'benchmark/truth.tsv', 'sample\tclass\tmature_name\tmature_id\tsequence\tcount\n' + ''.join(
+            '{}\tcanonical\tm\tMIMAT1\tACGT\t{}\n'.format(s, n) for s, n in truth))
+    else:
+        write(project / 'benchmark/samples.tsv', ''.join('\t'.join(row) + '\n' for row in samples))
+    return project
+
+
+POOL_SAMPLES = ['sample', 'group', 'lab', 'reads']
+
+
+def summary_projects(root):
+    kit = {'libprepkit': 'Kit A'}
+    return [
+        summary_project(root, 'syn', dict(kit, name='synthetic_set', kind='synthetic', methods=['unitas', 'tesmall']),
+                        [['metric', 'unitas', 'tesmall'], ['recovered', '1.0', '0.9'], ['exact', '1.0', ''], ['misassigned', '0', '3']],
+                        truth=[('S01', 60), ('S02', 40)]),
+        summary_project(root, 'eq3', dict(kit, name='eq_pool', kind='pool', pool='equimolar', methods=['unitas', 'mirge3', 'mirflowz']),
+                        [['metric', 'oracle', 'unitas', 'mirge3', 'mirflowz'], ['detected', '0.9', '0.97', '0.95', '0.96'],
+                         ['within_2fold', '', '0.77', '0.76', '0.74'], ['shifted_within_2fold', '', '0.79', '0.75', '0.79']],
+                        samples=[POOL_SAMPLES, ['R1', 'EQ', 'Lab1', '500000'], ['R2', 'EQ', 'Lab2', '1500000']]),
+        summary_project(root, 'eq2', dict(libprepkit='Kit B', name='eq_pool_b', kind='pool', pool='equimolar', methods=['mirge3', 'unitas']),
+                        [['metric', 'oracle', 'mirge3', 'unitas'], ['detected', '0.89', '0.89', '0.94'], ['within_2fold', '', '0.85', '0.86']],
+                        samples=[POOL_SAMPLES, ['R1', 'EQ', 'Lab1', '1000'], ['R2', 'EQ', 'Lab1', '']]),
+        summary_project(root, 'ratio', dict(kit, name='ratio_pool', kind='pool', pool='ratiometric', methods=['unitas']),
+                        [['metric', 'oracle', 'unitas'], ['called', '0.88', '0.89'], ['false_calls', '0.05', '0.06']],
+                        samples=[POOL_SAMPLES, ['A1', 'A', 'Lab1', '10'], ['B1', 'B', 'Lab1', '10']]),
+        summary_project(root, 'bio_lanes', dict(kit, name='plasma', kind='biological', methods=['unitas', 'mirge3']),
+                        [['metric', 'unitas', 'mirge3'], ['mirna_reads', '742128', '714978'], ['detected', '349.0', '373.5']],
+                        samples=[['sample', 'library', 'group', 'lane', 'runs', 'reads'], ['G1_L1', 'G1', 'g', '1', 'SRR1', '100'],
+                                 ['G1_L2', 'G1', 'g', '2', 'SRR2', '100'], ['G2_L1', 'G2', 'g', '1', 'SRR3', '100']]),
+        summary_project(root, 'bio_merged', dict(kit, name='plasma', kind='biological', methods=['unitas', 'mirge3', 'mirflowz']),
+                        [['metric', 'unitas', 'mirge3', 'mirflowz'], ['mirna_reads', '2966861', '2858766', '2861471'], ['detected', '581.5', '640.5', '435.5']],
+                        samples=[['sample', 'library', 'group', 'lane', 'runs', 'reads'], ['G1', 'G1', 'g', 'merged', 'SRR1,SRR2', '200'],
+                                 ['G2', 'G2', 'g', 'merged', 'SRR3', '100']]),
+    ]
+
+
+def test_summary_across_kinds_and_method_sets(tmp_path):
+    projects = summary_projects(tmp_path / 'projects')
+    before = sorted((p, p.stat().st_mtime_ns) for project in projects for p in project.rglob('*'))
+    output = tmp_path / 'out/summary.md'
+    output.parent.mkdir()
+    result = subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'summary', '--projects'] + [str(p) for p in projects] +
+                            ['--output', str(output)], capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    assert sorted((p, p.stat().st_mtime_ns) for project in projects for p in project.rglob('*')) == before   # nothing written into the projects
+    text = output.read_text()
+    assert [line for line in text.splitlines() if line.startswith('## ')] == [
+        '## Synthetic data', '## Equimolar pools', '## Ratiometric pools', '## Biological samples']
+    fixed = '| project | dataset | kit | samples | reads | methods |'
+    # synthetic: a metric no project has (unplaced) is left out, one a method lacks is an empty cell
+    assert fixed + ' recovered: unitas | recovered: tesmall | exact: unitas | misassigned: unitas | misassigned: tesmall |' in text
+    assert '| [syn](../projects/syn/benchmark/report.md) | synthetic_set | Kit A | 2 | 100 | unitas, tesmall | 1.0 | 0.9 | 1.0 | 0 | 3 |' in text
+    # equimolar: methods in order of appearance, the oracle only where it has values, missing methods and reads empty
+    assert (fixed + ' detected: oracle | detected: unitas | detected: mirge3 | detected: mirflowz | within_2fold: unitas | within_2fold: mirge3 | '
+            'within_2fold: mirflowz | shifted_within_2fold: unitas | shifted_within_2fold: mirge3 | shifted_within_2fold: mirflowz |') in text
+    assert '| eq_pool | Kit A | 2 | 2,000,000 | unitas, mirge3, mirflowz | 0.9 | 0.97 | 0.95 | 0.96 | 0.77 | 0.76 | 0.74 | 0.79 | 0.75 | 0.79 |' in text
+    assert '| eq_pool_b | Kit B | 2 |  | mirge3, unitas | 0.89 | 0.94 | 0.89 |  | 0.86 | 0.85 |  |  |  |  |' in text
+    assert '| ratio_pool | Kit A | 2 | 20 | unitas | 0.88 | 0.89 | 0.05 | 0.06 |' in text
+    assert '| plasma | Kit A | 3 lanes of 2 samples | 300 | unitas, mirge3 | 742128 | 714978 |  | 349.0 | 373.5 |  |' in text
+    assert '| plasma | Kit A | 2 | 300 | unitas, mirge3, mirflowz | 2966861 | 2858766 | 2861471 | 581.5 | 640.5 | 435.5 |' in text
+
+
+def test_summary_html_is_self_contained_and_bad_inputs_fail(tmp_path):
+    import summary
+    projects = summary_projects(tmp_path)
+    output = tmp_path / 'summary.html'
+    summary.write(projects, output)
+    page = output.read_text()
+    assert page.startswith('<!doctype html>') and '<th colspan="4">detected</th>' in page and '<a href="eq3/benchmark/report.md">eq3</a>' in page
+    assert not any(token in page for token in ('http', 'src=', '<link', '@import'))
+    assert '<td class="num">0.97</td><td class="num">0.95</td><td class="num">0.96</td>' in page
+    (projects[1] / 'benchmark/metrics.tsv').unlink()
+    for args, message in (((projects, tmp_path / 'summary.txt'), 'must be .md or .html'),
+                          ((projects, projects[0] / 'summary.md'), 'inside the project'),
+                          ((projects[:1] + projects[:1], output), 'projects named alike: syn'),
+                          ((projects[1:2], output), 'run `benchmark.py evaluate')):
+        with pytest.raises(ValueError, match=message):
+            summary.write(*args)
