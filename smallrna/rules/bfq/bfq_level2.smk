@@ -47,6 +47,16 @@ rule bfq_level2_exprs:
         for src, dst in zip(input, output):
             shell('ln -srf {src} {dst}')
         
+rule bfq_level2_unitas_misc_rna:
+    input:
+        rules.unitas_annotations.output
+    output:
+        join(BFQ_INTERIM, 'figs', 'unitas_misc_rna_mqc.yaml')
+    params:
+        script = src_gcf('scripts/unitas_misc_rna_mqc.py')
+    shell:
+        'python {params.script:q} {input:q} > {output:q}'
+
 rule bfq_level2_unitas:
     input:
         expand(rules.unitas.output.html, sample=SAMPLES)
@@ -98,6 +108,7 @@ rule bfq_level2_logs:
 # The PCA section is always rewritten; with too few samples or miRNAs for two components it is a short note.
 BFQ_LEVEL2_ALL = [join(BFQ_INTERIM, 'figs', 'pca_mqc.yaml'),
                   join(BFQ_INTERIM, 'figs', 'gene_high_mqc.yaml'),
+                  rules.bfq_level2_unitas_misc_rna.output,
                   rules.bfq_level2_logs.output,
                   rules.bfq_level2_exprs.output,
                   rules.bfq_level2_unitas.output,

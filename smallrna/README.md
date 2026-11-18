@@ -121,6 +121,7 @@ align/<sample>.sorted.bam
 exprs/mir_counts.tsv, isomir_counts.tsv, isomir_counts_anno.tsv, trf_counts.tsv, isotrf_counts.tsv, annotations.tsv
 exprs/spikein_counts.tsv  (with spike-in sets in filter.spikein.ref)
 figs/gene_high_mqc.yaml, pca_mqc.yaml (a note instead of the PCA when two components are impossible)
+figs/unitas_misc_rna_mqc.yaml  (UNITAS misc_RNA reads by gene family)
 figs/spikein_mqc.yaml  (with spike-in sets in filter.spikein.ref: spike-in reads in General Statistics)
 logs/unitas/<sample>  (relative links to quant/unitas/unitas/<sample>)
 provenance/cutadapt/<sample>.{adapter,filter,artefacts}.{json,log}  (fastp route: provenance/fastp/<sample>.{adapter,filter}.{json,html})
@@ -165,6 +166,17 @@ Spike-in sets in `filter.spikein.ref`, with `filter.spikein.quantifier: bowtie`,
 - miRge3 0.1.4 writes `miRBase22` or `MirGeneDB2.0` into its GFF output whatever the library; `reference.tsv` records the actual release.
 
 **Delivered UNITAS tables.** `mir_counts.tsv`, `trf_counts.tsv` and `isomir_counts.tsv` have features as rows and samples as columns; `isomir_counts.tsv` rows are `sequence|miR-name`, annotated in `isomir_counts_anno.tsv`. `isotrf_counts.tsv` (tab-separated) and `annotations.tsv` are long tables with a `Sample_ID` column. Every `annotations.tsv` row names its parent levels (`Level1`, `Level2`, `Level3`). All tables are sorted, so repeated runs give identical files.
+
+**misc_RNA families.** UNITAS reports Ensembl's `misc_RNA` biotype as one class, and in blood-derived libraries it is mostly Y RNA fragments. The workflow splits it by gene family from the targets each sample's reads hit (`unitas.hits_per_target.txt`, [#379](https://github.com/gcfntnu/gcf-workflows/issues/379), [`unitas_misc_rna.py`](rules/quant/scripts/unitas_misc_rna.py)). A target belongs to the first family whose rule matches the start of its name, the reference's Ensembl gene name, ignoring case:
+
+| Family | Gene names |
+| --- | --- |
+| `Y_RNA` | `RNY…` (RNY genes and pseudogenes), `Y_RNA` (Ensembl's name for unnamed Y RNA genes) |
+| `7SK` | `RN7SK…`, `7SK` |
+| `7SL` | `RN7SL…`, `Metazoa_SRP` (Ensembl's name for unnamed 7SL/SRP RNA genes) |
+| `other` | every other name, e.g. `Vault`, `VTRNA…` |
+
+Reads UNITAS splits between targets keep their fractional counts, so the families add up to the sample's `misc_RNA` count; when they do not, the rule stops. `annotations.tsv` keeps its `misc_RNA` row unchanged and gets one `Level2` row per family under it, as for the classes UNITAS splits itself (e.g. `miRNA:homo_sapiens`), so the top-level rows still add up to every read. `figs/unitas_misc_rna_mqc.yaml` shows the families per sample in the MultiQC report, after the UNITAS section, whose annotation plot keeps `misc_RNA` as one class; the per-sample `annotation_summary.json` nests the families under `misc_RNA`. The mouse dump names most `misc_RNA` genes `Gm<number>`, and its 7SL genes `Rn7s1`, `Rn7s2` and `Rn7s6`; these match no rule, so in mouse most `misc_RNA` reads stay `other` (mouse `Rny1`, `Rny3` and `Rn7sk`, and the rat genes, are placed).
 
 ## mirflowz
 

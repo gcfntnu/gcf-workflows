@@ -38,6 +38,7 @@ def write_unitas(base, reverse):
         blocks = [[r for r in ANNOTATION[:3]], [r for r in ANNOTATION[3:]]]
         lines = [f"{'   ' * level}{name}\t{count * scale}\n" for block in order(blocks) for name, level, count in block]
         (out / 'unitas.annotation_summary.txt').write_text(''.join(lines))
+        (out / 'unitas.hits_per_target.txt').write_text('TRANSCRIPT_CLASS\tTRANSCRIPT_NAME\tREAD_COUNT\n')
 
 
 def build(tmp_path, reverse):
@@ -53,7 +54,8 @@ def build(tmp_path, reverse):
     run('unitas_trftable.py', files('unitas.tRF-table.simplified.txt'), tables / 'trf_counts.tsv')
     run('unitas_isomirtable.py', [*files('unitas.miR-table_Mouse.txt'), '--output', str(tables / 'isomir_counts.tsv')])
     run('unitas_isotrftable.py', files('unitas.tRF-table.txt'), tables / 'isotrf_counts.tsv')
-    run('unitas_annotations.py', files('unitas.annotation_summary.txt'), tables / 'annotations.tsv')
+    run('unitas_annotations.py', [*files('unitas.annotation_summary.txt'), '--hits-per-target', *files('unitas.hits_per_target.txt')],
+        tables / 'annotations.tsv')
     return tables
 
 

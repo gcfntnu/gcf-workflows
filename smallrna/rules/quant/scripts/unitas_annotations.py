@@ -9,6 +9,8 @@ warnings.filterwarnings("ignore", message="numpy.dtype size changed")
 
 import pandas as pd
 
+from unitas_misc_rna import NAMES, check_total, misc_rna_families
+
 def samplesheet_ids(fn, sep='\t'):
     sample_ids = []
     with open(fn) as fh:
@@ -60,10 +62,24 @@ def file2pandas(fn):
     #df = df.apply(fill_row, axis=1)
     return df
 
+def add_misc_rna_families(df, hits):
+    """misc_RNA rows by gene family (#379) as Level2 rows under the unchanged misc_RNA row; see unitas_misc_rna.py."""
+    misc = df[df.Level1 == 'misc_RNA']
+    if (misc.Level2 != '').any():
+        raise ValueError('{}: the annotation summary already has misc_RNA subclasses'.format(hits))
+    counts = misc_rna_families(hits)
+    check_total(counts, misc.Count.sum(), hits)
+    if misc.empty:
+        return df
+    rows = pd.DataFrame({'Level1': 'misc_RNA', 'Level2': list(NAMES), 'Level3': '', 'Count': [counts[n] for n in NAMES]})
+    return pd.concat([df, rows], ignore_index=True)
+
 def argparser():
     parser = argparse.ArgumentParser(description='Aggregate unitas tables')
     parser.add_argument('--sample-sheet', help='Optional sample sheet. Will subset aggregated table if needed', dest='samples')
     parser.add_argument('-o ', '--output', help='Output prefix')
+    parser.add_argument('--hits-per-target', nargs='+', required=True, dest='hits',
+                        help='unitas.hits_per_target.txt of each sample, in the same sample directories as the summaries')
     parser.add_argument('filenames', nargs='+')
     args = parser.parse_args()
     return args
@@ -77,9 +93,16 @@ if __name__ == '__main__':
     
 
     
+    sample_dir = lambda fn: os.path.dirname(fn).split(os.path.sep)[-1]
+    hits = {sample_dir(fn): fn for fn in args.hits}
+    if sorted(hits) != sorted(map(sample_dir, args.filenames)) or len(hits) != len(args.hits):
+        sys.exit('unitas_annotations.py: --hits-per-target must name one file per summary, from the same sample directories')
     for fn in args.filenames:
-        sample_id = os.path.dirname(fn).split(os.path.sep)[-1]
-        df = file2pandas(fn)
+        sample_id = sample_dir(fn)
+        try:
+            df = add_misc_rna_families(file2pandas(fn), hits[sample_id])
+        except (OSError, ValueError) as error:
+            sys.exit('unitas_annotations.py: {}'.format(error))
         df['Sample_ID'] = [sample_id] * df.shape[0]
         df_list.append(df)
     DF = pd.concat(df_list, axis=0, join='outer', sort=False)

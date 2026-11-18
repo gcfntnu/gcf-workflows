@@ -78,13 +78,14 @@ rule unitas:
 
 rule unitas_annotation2yaml:
     input:
-        rules.unitas.output.annotation
+        annotation = rules.unitas.output.annotation,
+        target_hits = rules.unitas.output.target_hits
     params:
         script = src_gcf('scripts/unitas_annotation2json.py')
     output:
         join(QUANT_INTERIM, 'unitas', '{sample}', 'annotation_summary.json')
     shell:
-        'python {params.script} {input} > {output}'
+        'python {params.script} {input.annotation} --hits-per-target {input.target_hits} > {output}'
 
 rule unitas_mirtable:
     input:
@@ -152,15 +153,17 @@ rule unitas_modifications:
     shell:
         'python {params.script} -o {params.outdir} {input}'
         
+# misc_RNA is split by gene family (Y RNA, 7SK, 7SL, other) from the targets each sample's reads hit (#379).
 rule unitas_annotations:
     input:
-        expand(rules.unitas.output.annotation, sample=SAMPLES)
+        annotation = expand(rules.unitas.output.annotation, sample=SAMPLES),
+        target_hits = expand(rules.unitas.output.target_hits, sample=SAMPLES)
     params:
         script = src_gcf('scripts/unitas_annotations.py')
     output:
         join(QUANT_INTERIM, 'unitas', 'annotations.tsv')
     shell:
-        'python {params.script} {input} > {output}'
+        'python {params.script} {input.annotation} --hits-per-target {input.target_hits} > {output}'
 
 rule unitas_allfeatures:
     input:

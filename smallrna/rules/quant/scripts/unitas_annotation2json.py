@@ -1,10 +1,18 @@
 """
 Convert the annotation summary to json format (unitas.annotation_summary.txt)
+
+    unitas_annotation2json.py SAMPLE/unitas.annotation_summary.txt --hits-per-target SAMPLE/unitas.hits_per_target.txt
+
+misc_RNA is split by gene family (#379, unitas_misc_rna.py): {"misc_RNA": {"Y_RNA": ..., "7SK": ..., "7SL": ..., "other": ...}},
+like the other classes with subclasses.
 """
 
+import argparse
 import sys
 import warnings
 warnings.filterwarnings("ignore", message="numpy.dtype size changed")
+
+from unitas_misc_rna import check_total, misc_rna_families
 
 def file2dict(fn):
     tree = {}
@@ -34,8 +42,25 @@ def file2dict(fn):
                         tree[d][name] = float(count)
     return tree
 
+def add_misc_rna_families(tree, hits):
+    misc_rna = tree.get('misc_RNA', 0.0)
+    if isinstance(misc_rna, dict):
+        raise ValueError('{}: the annotation summary already has misc_RNA subclasses'.format(hits))
+    counts = misc_rna_families(hits)
+    check_total(counts, misc_rna, hits)
+    if 'misc_RNA' in tree:
+        tree['misc_RNA'] = counts
+    return tree
+
 if __name__ == '__main__':
     import json
 
-    tree = file2dict(sys.argv[1])
+    parser = argparse.ArgumentParser(description='Convert a UNITAS annotation summary to JSON')
+    parser.add_argument('summary')
+    parser.add_argument('--hits-per-target', required=True, dest='hits', help="the sample's unitas.hits_per_target.txt")
+    args = parser.parse_args()
+    try:
+        tree = add_misc_rna_families(file2dict(args.summary), args.hits)
+    except (OSError, ValueError) as error:
+        sys.exit('unitas_annotation2json.py: {}'.format(error))
     json.dump(tree, sys.stdout)
