@@ -18,10 +18,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pool import spearman  # noqa: E402
 
-# the workflow's merge of the cutadapt pass reports, loaded by path (rules/filter/scripts stays off sys.path)
-_spec = importlib.util.spec_from_file_location('merge_cutadapt', Path(__file__).resolve().parents[1] / 'rules/filter/scripts/merge_cutadapt.py')
-merge_cutadapt = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(merge_cutadapt)
+MERGE_CUTADAPT = Path(__file__).resolve().parents[1] / 'rules/filter/scripts/merge_cutadapt.py'
+
+
+def merge_cutadapt():
+    """The workflow's merge of the cutadapt pass reports, loaded by path when needed (rules/filter/scripts stays off
+    sys.path, and the rest of this module doesn't depend on it)."""
+    spec = importlib.util.spec_from_file_location('merge_cutadapt', MERGE_CUTADAPT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 MIN_READS = 10          # a miRNA counts as detected in a sample with at least this many reads
 TOP = 100               # top-N overlap between methods
@@ -132,17 +138,20 @@ def blocked(common, methods, samples, accessions):
                 for name, acc in accessions.items()} for m in methods}
 
 
-CUTADAPT_PASSES = merge_cutadapt.PASSES
+CUTADAPT_PASSES = ('adapter', 'filter', 'artefacts')  # merge_cutadapt.PASSES; filtering() fails if they differ
 
 
 def filtering(stage_jsons):
     """Read counts through the cutadapt route's three passes ({pass: JSON report path}), as the workflow's merged
     report gives them (rules/filter/scripts/merge_cutadapt.py, which fails unless each pass read what the one before
     wrote): the artefact pass split into 3' artefacts and reagent oligo reads."""
+    merger = merge_cutadapt()
+    if tuple(stage_jsons) != tuple(merger.PASSES):
+        raise ValueError('cutadapt passes {} differ from the workflow\'s {}'.format(tuple(stage_jsons), merger.PASSES))
     paths = {k: str(p) for k, p in stage_jsons.items()}
     reports = {k: json.loads(Path(p).read_text()) for k, p in paths.items()}
     try:
-        merged = merge_cutadapt.merge(reports['adapter'], reports['filter'], reports['artefacts'], 'sample', paths)['read_counts']
+        merged = merger.merge(reports['adapter'], reports['filter'], reports['artefacts'], 'sample', paths)['read_counts']
     except KeyError as error:
         raise ValueError('cutadapt reports without {}: {}'.format(error, ', '.join(paths.values())))
     f = merged['filtered']

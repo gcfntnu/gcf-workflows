@@ -79,7 +79,8 @@ def test_settings_are_required():
     ({'reagent_oligos': STP}, 'reagent_oligos'), ({'reagent_oligos': ['GAATTCCACCACG']}, 'at least 14'),
     ({'reagent_oligos': ['GAAUUCCACCACGUUCC']}, 'reagent_oligos'), ({'reagent_oligos': ''}, 'reagent_oligos'),
     ({'reagent_oligos': False}, 'reagent_oligos'), ({'reagent_oligos': {}}, 'reagent_oligos'),
-    ({'reagent_oligos': [STP, STP]}, 'differ in their last 14'), ({'reagent_oligos': [STP, 'TTTT' + STP[-14:]]}, 'differ in their last 14')])
+    ({'reagent_oligos': [STP, STP]}, 'differ in their last 14'), ({'reagent_oligos': [STP + '\n']}, 'reagent_oligos'),
+    ({'adapter5': ADAPTER5 + '\n'}, 'adapter5'), ({'reagent_oligos': [STP, 'TTTT' + STP[-14:]]}, 'differ in their last 14')])
 def test_invalid_settings_fail(change, message):
     with pytest.raises(ValueError, match=message):
         policy.cutadapt_settings(kit_config(TRUSEQ, **change))
@@ -127,7 +128,6 @@ def test_three_prime_artefact_fasta_lists_adapter_primer_and_p7_pieces():
 
 def test_artefact_records_are_named_as_the_merge_counts_them():
     names = [line[1:] for line in policy.artefact_fasta(ADAPTER3, [STP]).splitlines()[0::2]]
-    assert (policy.THREE_PRIME_ARTEFACT_RECORD, policy.REAGENT_OLIGO_RECORD) == (merger.THREE_PRIME_ARTEFACT_RECORD, merger.REAGENT_OLIGO_RECORD)
     assert sum(n.startswith(merger.REAGENT_OLIGO_RECORD) for n in names) == 2          # the oligo and its end
     assert all(n.startswith((merger.THREE_PRIME_ARTEFACT_RECORD, merger.REAGENT_OLIGO_RECORD)) for n in names)
 

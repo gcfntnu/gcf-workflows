@@ -28,7 +28,8 @@ The kit's reagent oligos follow (reagent_oligo_fasta), two records each:
 - the oligo as a 5' adapter with a minimum overlap of REAGENT_OLIGO_MIN_OVERLAP nt and FIVE_PRIME_MAX_ERROR_RATE: the
   oligo complete anywhere in the read, or its 3' end of at least that length at the read start, as in the 5'-truncated
   copies of the TruSeq Small RNA Stop Oligo (STP), which pass the other filters and which UNITAS counts as
-  protein-coding reads (COL5A3);
+  protein-coding reads (COL5A3). Its one allowed error keeps copies with a sequencing error; the cost is that a
+  fragment of one of those 78 transcripts that starts exactly where it matches the oligo's end is discarded too;
 - its last REAGENT_OLIGO_MIN_OVERLAP nt, exactly, anywhere in the read: copies after a few other bases, with a deletion
   near their start or repeated end to end (0.27% of the reads the first record kept in a public TruSeq plasma
   library, e.g. AA + CACCACGTTCCCGTGG). Exactly, because with one error the STP's end matches 78 human transcripts
@@ -76,7 +77,7 @@ THREE_PRIME_ARTEFACT_RECORD, REAGENT_OLIGO_RECORD = 'three_prime_artefact_', 're
 REAGENT_OLIGO_MIN_OVERLAP = 14  # in TruSeq plasma: 7 STP-miRNA chimeras of 5.8 M reads discarded at 14 nt, 43 at 10 (#380)
 ILLUMINA_INDEX_PRIMER_START = 'AACTCCAGTCAC'
 ILLUMINA_P7 = 'ATCTCGTATGCCGTCTTCTGCTTG'
-DNA = re.compile(r'^[ACGT]+$')
+DNA = re.compile(r'^[ACGT]+\Z')  # \Z, not $: '$' also matches before a trailing newline
 
 
 def check_oligos(oligos):
@@ -165,7 +166,8 @@ def five_prime_fasta(adapter5, piece):
 
 
 def artefact_args():
-    """Options of the third pass, except the artefact FASTA (-g file:...): only flag and discard."""
+    """Options of the third pass, except the artefact FASTA (-g file:...): only flag and discard. cutadapt's default of
+    one match per read (-n 1) lets merge_cutadapt.py split the discarded reads by record; keep it."""
     return '--action=none --discard-trimmed'
 
 
