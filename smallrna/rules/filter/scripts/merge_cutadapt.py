@@ -56,6 +56,8 @@ def merge(adapter, filtered, artefacts, sample, paths):
                           for key in COUNTS}
     discarded = artefacts['read_counts']['filtered'].get('discard_trimmed') or 0
     records = artefacts.get('adapters_read1') or []
+    if any(not isinstance(r.get('name'), str) or not isinstance(r.get('total_matches'), int) for r in records):
+        raise ValueError('the artefact pass report has records without a name or total_matches: {}'.format(paths['artefacts']))
     unknown = [r['name'] for r in records if not r['name'].startswith((THREE_PRIME_ARTEFACT_RECORD, REAGENT_OLIGO_RECORD))]
     if unknown:
         raise ValueError('the artefact pass has records of unknown kind: {}: {}'.format(', '.join(unknown), paths['artefacts']))

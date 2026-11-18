@@ -655,7 +655,8 @@ def test_identical_sequences_count_as_one_and_unplaced_reads_are_reported():
 def test_filtering_through_the_cutadapt_passes_and_their_chain(tmp_path):
     paths = write_cutadapt_reports(tmp_path, 'S1', 100)
     assert biological.filtering(paths) == {'reads_in': 100, 'with_3p_adapter': 95, 'discarded_5p_adapter': 1, 'too_short': 7,
-                                           'too_many_n': 0, 'too_many_expected_errors': 2, 'discarded_artefacts': 3, 'kept': 87}
+                                           'too_many_n': 0, 'too_many_expected_errors': 2, 'discarded_3p_artefacts': 2,
+                                           'discarded_reagent_oligos': 1, 'kept': 87}
     report = json.loads(paths['artefacts'].read_text())
     report['read_counts']['input'] = 80
     paths['artefacts'].write_text(json.dumps(report))
@@ -718,7 +719,9 @@ def write_cutadapt_reports(folder, sample, reads):
               'artefacts': {'input': reads - 10, 'output': reads - 13, 'filtered': {'discard_trimmed': 3}}}
     paths = {}
     for name, c in counts.items():
-        paths[name] = write(Path(folder) / '{}.{}.json'.format(sample, name), json.dumps({'tag': 'Cutadapt report', 'read_counts': c}))
+        records = [{'name': 'three_prime_artefact_adapter_0_33', 'total_matches': 2}, {'name': 'reagent_oligo_1_22', 'total_matches': 1}]
+        paths[name] = write(Path(folder) / '{}.{}.json'.format(sample, name),
+                            json.dumps({'tag': 'Cutadapt report', 'read_counts': c, 'adapters_read1': records if name == 'artefacts' else []}))
     return paths
 
 
@@ -803,6 +806,6 @@ def test_evaluate_a_biological_dataset_in_lanes(tmp_path):
     assert '2 lane samples' in report and '| unitas / mirge3 |' in report
     assert '| unplaced | 0.0024 | 0.0 |' in report and 'unitas: `miR-325-3p` (5)' in report      # median of 5/1036 and 0/1040
     assert '| miR-451a | 485.0 | 0.0 |' in report     # median CPM of the blocked miRNA: 1 of 1031 placed reads in L1, none in L2
-    assert '| GSM1_L1 | 100 | 95 | 1 | 7 | 0 | 2 | 3 | 87 |' in report                       # the filtering table
+    assert '| GSM1_L1 | 100 | 95 | 1 | 7 | 0 | 2 | 2 | 1 | 87 |' in report                   # the filtering table
     assert '| GSM1_L1 | 10 | 10.00% | 40.0 | 14.0 |' in report                       # 1 of 10 top-miRNA reads has another first base
     assert '## Lane replicates' in report and '| mirna_sample_pairs | 2 | 2 |' in report and '| 100-999 | 0.0% of 2 | 0.0% of 2 |' in report

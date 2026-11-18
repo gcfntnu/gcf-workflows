@@ -70,7 +70,7 @@ remove_sections:
  - mirtrace_rna_categories
  - mirtrace_length
 section_comments:
-  cutadapt: "Reads are filtered with cutadapt in three passes: the 3′ adapter is trimmed; then reads that contain the 5′ adapter (5′ adapter artefacts, fragments of the 5′ adapter that would otherwise be counted as miRNAs), reads that are too short and reads with too many N are discarded; last, reads that still contain 3′ adapter or Illumina primer sequence (an adapter too damaged or badly sequenced to trim, or primer only) are discarded. Reads is the number before filtering; % Adapter is the share in which the 3′ adapter was found."
+  cutadapt: "Reads are filtered with cutadapt in three passes: the 3′ adapter is trimmed; then reads that contain the 5′ adapter (5′ adapter artefacts, fragments of the 5′ adapter that would otherwise be counted as miRNAs), reads that are too short and reads with too many N are discarded; last, reads that still contain 3′ adapter or Illumina primer sequence (an adapter too damaged or badly sequenced to trim, or primer only) are discarded, and so are reads of the kit's reagent oligos (for TruSeq Small RNA the Stop Oligo, which no quantifier should count). Reads is the number before filtering; % Adapter is the share in which the 3′ adapter was found."
   mirtrace: "Here miRTrace runs on the filtered reads used for quantification, without adapter trimming, as a check for miRNAs of other clades (contamination) and for miRNA complexity. Reads shorter than 18 nt or of low complexity or low quality are left out of these two plots only, not out of the counts."
 table_columns_visible:
   fastp:

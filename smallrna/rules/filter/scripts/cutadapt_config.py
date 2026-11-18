@@ -29,8 +29,8 @@ REAGENT_OLIGO_MIN_OVERLAP nt and FIVE_PRIME_MAX_ERROR_RATE: the oligo complete a
 at least that length at the read start, as in the 5'-truncated copies of the TruSeq Small RNA Stop Oligo (STP), which
 pass the other filters and which UNITAS counts as protein-coding reads (COL5A3). Chimeras of an oligo and an insert
 are discarded too (7 of 5.8 million reads in public TruSeq plasma data at 14 nt).
-The setting is required (`[]` for none), so a project's own cutadapt table cannot drop the kit's oligos unnoticed. A
-read that matches both kinds of record counts for the record cutadapt finds best (on a tie, the earlier one, a 3'
+The setting is required (`[]` for none), like the kit's adapters: every kit states its oligos, also a kit without a
+libprep.config entry whose project gives its own cutadapt table. A read that matches both kinds of record counts for the record cutadapt finds best (on a tie, the earlier one, a 3'
 artefact record); merge_cutadapt.py counts the two kinds apart by record name.
 
 5' adapter artefacts are fragments of the 5' adapter (`adapter5`) that start anywhere in it, usually end before its
@@ -118,6 +118,8 @@ def cutadapt_settings(config):
     if not isinstance(oligos, list) or not all(valid_oligo(o) for o in oligos):
         raise ValueError('filter.trim.cutadapt.reagent_oligos: a list of A/C/G/T sequences of at least {} nt, [] for none, got {!r}'.format(
             REAGENT_OLIGO_MIN_OVERLAP, oligos))
+    if len(set(oligos)) != len(oligos):
+        raise ValueError('filter.trim.cutadapt.reagent_oligos: an oligo is listed more than once: {!r}'.format(oligos))
     return {'adapter3': adapter3, 'adapter5': adapter5, 'five_prime_piece': piece, 'random_ends': random_ends, 'minimum_length': minimum_length,
             'max_n': max_n, 'max_ee': max_ee, 'reagent_oligos': oligos}
 

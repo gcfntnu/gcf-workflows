@@ -4,6 +4,7 @@ synthetic reads.
 
 The read-outcome tests run cutadapt from PATH and skip when it is not version 5.2 (CI installs it).
 """
+import copy
 import gzip
 import importlib.util
 import json
@@ -41,8 +42,8 @@ merger = load('merge_cutadapt')
 
 
 def kit_config(kit, **cutadapt):
-    entry = KITS[kit + ' SE']
-    config = {'libprepkit': kit, 'adapter': entry['adapter'], 'filter': {'trim': dict(entry['filter']['trim'])}}
+    entry = copy.deepcopy(KITS[kit + ' SE'])  # tests change the config; KITS is shared
+    config = {'libprepkit': kit, 'adapter': entry['adapter'], 'filter': {'trim': entry['filter']['trim']}}
     if cutadapt:
         config['filter']['trim']['cutadapt'] = dict(config['filter']['trim'].get('cutadapt') or {}, **cutadapt)
     return config
@@ -77,7 +78,8 @@ def test_settings_are_required():
     ({'five_prime_piece': 13}, 'five_prime_piece'), ({'five_prime_piece': 27}, 'five_prime_piece'), ({'trim_args': '-q 20'}, 'unknown setting'),
     ({'reagent_oligos': STP}, 'reagent_oligos'), ({'reagent_oligos': ['GAATTCCACCACG']}, 'at least 14'),
     ({'reagent_oligos': ['GAAUUCCACCACGUUCC']}, 'reagent_oligos'), ({'reagent_oligos': ''}, 'reagent_oligos'),
-    ({'reagent_oligos': False}, 'reagent_oligos'), ({'reagent_oligos': {}}, 'reagent_oligos'), ({'reagent_oligos': None}, 'reagent_oligos')])
+    ({'reagent_oligos': False}, 'reagent_oligos'), ({'reagent_oligos': {}}, 'reagent_oligos'), ({'reagent_oligos': None}, 'reagent_oligos'),
+    ({'reagent_oligos': [STP, STP]}, 'more than once')])
 def test_invalid_settings_fail(change, message):
     with pytest.raises(ValueError, match=message):
         policy.cutadapt_settings(kit_config(TRUSEQ, **change))
@@ -205,7 +207,8 @@ def test_route_filters_with_cutadapt_only(tmp_path):
     artefacts = rule_block(output, 'smallrna_cutadapt_artefacts')
     assert 'input: data/tmp/smallrna/filter/cutadapt_filtered/SR0' in artefacts
     assert '-g file:data/tmp/smallrna/filter/cutadapt/artefacts.fa --action=none --discard-trimmed' in artefacts
-    assert 'artefact-fasta TGGAATTCTCGGGTGCCAAGG  > ' in rule_block(output, 'smallrna_artefact_fasta')    # no reagent oligos (NEXTflex v3)
+    command = rule_block(output, 'smallrna_artefact_fasta').split('artefact-fasta', 1)[1].split('>', 1)[0].split()
+    assert command == ['TGGAATTCTCGGGTGCCAAGG']                                                        # no reagent oligos (NEXTflex v3)
     assert 'bfq/provenance/cutadapt/SR01.artefacts.json' in output
     assert 'input: data/tmp/smallrna/filter/cutadapt/SR0' in rule_block(output, 'unitas').split('output:', 1)[0]  # any sample's job
     assert 'bfq/logs/SR01/SR01.cutadapt.json' in output and 'bfq/provenance/cutadapt/SR01.filter.json' in output
