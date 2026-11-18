@@ -119,6 +119,7 @@ They are outside MultiQC's `logs/` scan so the report sees one combined sample, 
 multiqc_<project>.html, .multiqc_config.yaml
 align/<sample>.sorted.bam
 exprs/mir_counts.tsv, isomir_counts.tsv, isomir_counts_anno.tsv, trf_counts.tsv, isotrf_counts.tsv, annotations.tsv
+exprs/misc_rna_families.tsv  (UNITAS misc_RNA reads by gene family)
 exprs/spikein_counts.tsv  (with spike-in sets in filter.spikein.ref)
 figs/gene_high_mqc.yaml, pca_mqc.yaml (a note instead of the PCA when two components are impossible)
 figs/unitas_misc_rna_mqc.yaml  (UNITAS misc_RNA reads by gene family)
@@ -174,9 +175,9 @@ Spike-in sets in `filter.spikein.ref`, with `filter.spikein.quantifier: bowtie`,
 | `Y_RNA` | `RNY…` (RNY genes and pseudogenes), `Y_RNA` (Ensembl's name for unnamed Y RNA genes) |
 | `7SK` | `RN7SK…`, `7SK` |
 | `7SL` | `RN7SL…`, `Metazoa_SRP` (Ensembl's name for unnamed 7SL/SRP RNA genes) |
-| `other` | every other name, e.g. `Vault`, `VTRNA…` |
+| `other` | every other name, e.g. `Vault`, `VTRNA…`, and transcript-only names without a gene symbol (`ENST…`, a few hundred human records) |
 
-Reads UNITAS splits between targets keep their fractional counts, so the families add up to the sample's `misc_RNA` count; when they do not, the rule stops. `annotations.tsv` keeps its `misc_RNA` row unchanged and gets one `Level2` row per family under it, as for the classes UNITAS splits itself (e.g. `miRNA:homo_sapiens`), so the top-level rows still add up to every read. `figs/unitas_misc_rna_mqc.yaml` shows the families per sample in the MultiQC report, after the UNITAS section, whose annotation plot keeps `misc_RNA` as one class; the per-sample `annotation_summary.json` nests the families under `misc_RNA`. The mouse dump names most `misc_RNA` genes `Gm<number>`, and its 7SL genes `Rn7s1`, `Rn7s2` and `Rn7s6`; these match no rule, so in mouse most `misc_RNA` reads stay `other` (mouse `Rny1`, `Rny3` and `Rn7sk`, and the rat genes, are placed).
+Reads UNITAS splits between targets keep their fractional counts. The rule `unitas_misc_rna` writes `quant/unitas/misc_rna_families.tsv` (`Sample_ID`, `family`, `count`; every family for every sample), delivered as `exprs/misc_rna_families.tsv`; `figs/unitas_misc_rna_mqc.yaml` shows it in the MultiQC report after the UNITAS section, whose annotation plot keeps `misc_RNA` as one class (a short note instead when no sample has `misc_RNA` reads). A sample's families must add up to its `misc_RNA` count, and the hits table must have UNITAS's header; otherwise the rule stops. An empty or header-only hits table (a sample without reads) has no targets. `annotations.tsv` and the other UNITAS tables do not use the split, and their rules do not depend on these checks (a failure still stops `bfq_all` and `multiqc_report`, which include the family table and section). The mouse dump names most `misc_RNA` genes `Gm<number>`, and its 7SL genes `Rn7s1`, `Rn7s2` and `Rn7s6`; these match no rule, so in mouse most `misc_RNA` reads stay `other` (mouse `Rny1`, `Rny3` and `Rn7sk`, and the rat genes, are placed).
 
 ## mirflowz
 

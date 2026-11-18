@@ -78,14 +78,13 @@ rule unitas:
 
 rule unitas_annotation2yaml:
     input:
-        annotation = rules.unitas.output.annotation,
-        target_hits = rules.unitas.output.target_hits
+        rules.unitas.output.annotation
     params:
         script = src_gcf('scripts/unitas_annotation2json.py')
     output:
         join(QUANT_INTERIM, 'unitas', '{sample}', 'annotation_summary.json')
     shell:
-        'python {params.script} {input.annotation} --hits-per-target {input.target_hits} > {output}'
+        'python {params.script} {input} > {output}'
 
 rule unitas_mirtable:
     input:
@@ -153,17 +152,28 @@ rule unitas_modifications:
     shell:
         'python {params.script} -o {params.outdir} {input}'
         
-# misc_RNA is split by gene family (Y RNA, 7SK, 7SL, other) from the targets each sample's reads hit (#379).
 rule unitas_annotations:
     input:
-        annotation = expand(rules.unitas.output.annotation, sample=SAMPLES),
-        target_hits = expand(rules.unitas.output.target_hits, sample=SAMPLES)
+        expand(rules.unitas.output.annotation, sample=SAMPLES)
     params:
         script = src_gcf('scripts/unitas_annotations.py')
     output:
         join(QUANT_INTERIM, 'unitas', 'annotations.tsv')
     shell:
-        'python {params.script} {input.annotation} --hits-per-target {input.target_hits} > {output}'
+        'python {params.script} {input} > {output}'
+
+# misc_RNA reads by gene family (Y RNA, 7SK, 7SL, other) from the targets each sample's reads hit (#379). Its checks
+# stop only this rule and what reads its table (the MultiQC section and its delivery link), not annotations.tsv.
+rule unitas_misc_rna:
+    input:
+        annotation = expand(rules.unitas.output.annotation, sample=SAMPLES),
+        target_hits = expand(rules.unitas.output.target_hits, sample=SAMPLES)
+    output:
+        join(QUANT_INTERIM, 'unitas', 'misc_rna_families.tsv')
+    params:
+        script = src_gcf('scripts/unitas_misc_rna.py')
+    shell:
+        'python {params.script:q} --summaries {input.annotation:q} --hits-per-target {input.target_hits:q} > {output:q}'
 
 rule unitas_allfeatures:
     input:

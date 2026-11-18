@@ -49,13 +49,21 @@ rule bfq_level2_exprs:
         
 rule bfq_level2_unitas_misc_rna:
     input:
-        rules.unitas_annotations.output
+        rules.unitas_misc_rna.output
     output:
         join(BFQ_INTERIM, 'figs', 'unitas_misc_rna_mqc.yaml')
     params:
         script = src_gcf('scripts/unitas_misc_rna_mqc.py')
     shell:
         'python {params.script:q} {input:q} > {output:q}'
+
+rule bfq_level2_misc_rna_families:
+    input:
+        rules.unitas_misc_rna.output
+    output:
+        join(BFQ_INTERIM, 'exprs', 'misc_rna_families.tsv')
+    shell:
+        'ln -srf {input:q} {output:q}'
 
 rule bfq_level2_unitas:
     input:
@@ -109,6 +117,7 @@ rule bfq_level2_logs:
 BFQ_LEVEL2_ALL = [join(BFQ_INTERIM, 'figs', 'pca_mqc.yaml'),
                   join(BFQ_INTERIM, 'figs', 'gene_high_mqc.yaml'),
                   rules.bfq_level2_unitas_misc_rna.output,
+                  rules.bfq_level2_misc_rna_families.output,
                   rules.bfq_level2_logs.output,
                   rules.bfq_level2_exprs.output,
                   rules.bfq_level2_unitas.output,
