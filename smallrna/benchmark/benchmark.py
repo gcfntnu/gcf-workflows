@@ -24,8 +24,10 @@ Usage: benchmark.py fill --dataset YAML --ext-dir DIR
 import argparse
 import csv
 import gzip
+import json
 import math
 from pathlib import Path
+import shlex
 import statistics
 import sys
 
@@ -260,44 +262,120 @@ def bowtie_spikeins(project):
     return any(name.strip() for name in str(spikein.get('ref') or '').split(',')) and spikein.get('quantifier', default) == 'bowtie'
 
 
-def filtered_fastq(project, sample):
-    """The reads of a sample the oracle counts (temporary in the workflow: run quant_all with --notemp): the spike-in
-    prefilter's with Bowtie spike-ins, otherwise those of the one trimming route that left reads; reads of two trimming
-    routes mean an earlier run with other settings, so it fails."""
+def trim_route(project, sample):
+    """The one trimming route that left reads for a sample; reads of two routes mean an earlier run with other
+    settings, so it fails."""
     filtered = project / 'data/tmp/smallrna/filter'
     name = '{}_R1.fastq'.format(sample)
-    stages = [SPIKEIN_STAGE] if bowtie_spikeins(project) else TRIM_STAGES
-    found = [path for path in (filtered / stage / name for stage in stages) if path.is_file()]
+    found = [stage for stage in TRIM_STAGES if (filtered / stage / name).is_file()]
     if not found:
-        fail('no filtered reads for {} under {}; run `snakemake quant_all --notemp`'.format(sample, filtered / '|'.join(stages)))
+        fail('no filtered reads for {} under {}; run `snakemake quant_all --notemp`'.format(sample, filtered / '|'.join(TRIM_STAGES)))
     if len(found) > 1:
         fail('filtered reads for {} from more than one trimming route: {}; remove those of the earlier run'.format(
-            sample, ', '.join(str(path) for path in found)))
+            sample, ', '.join(str(filtered / stage / name) for stage in found)))
     return found[0]
+
+
+def filtered_fastq(project, sample):
+    """The reads of a sample the oracle counts (temporary in the workflow: run quant_all with --notemp): the spike-in
+    prefilter's with Bowtie spike-ins, otherwise those of the trimming route (trim_route)."""
+    filtered = project / 'data/tmp/smallrna/filter'
+    name = '{}_R1.fastq'.format(sample)
+    if bowtie_spikeins(project):
+        if not (filtered / SPIKEIN_STAGE / name).is_file():
+            fail('no filtered reads for {} under {}; run `snakemake quant_all --notemp`'.format(sample, filtered / SPIKEIN_STAGE))
+        return filtered / SPIKEIN_STAGE / name
+    return filtered / trim_route(project, sample) / name
+
+
+# The passes of each trimming route (rules/filter/cutadapt.smk, cliptrim.smk), by the folder of the reads after them.
+# The reads after the adapter pass still carry the kit's random ends, which the next pass cuts (cutadapt -u, fastp
+# -f/-t, as its JSON report records); with filter.trim.quantifier: skip the workflow trims nothing (`input`).
+ROUTE_PASSES = {'cutadapt': [('adapter', 'cutadapt_trimmed'), ('filter', 'cutadapt_filtered'), ('artefacts', 'cutadapt')],
+                'fastp': [('adapter', 'fastp_trimmed'), ('filter', 'fastp')], 'fastq': [('input', 'fastq')]}
+END_OPTIONS = {'cutadapt': {'-u': 'cut', '--cut': 'cut'},
+               'fastp': {'-f': 'front', '--trim_front1': 'front', '-t': 'tail', '--trim_tail1': 'tail'}}
+
+
+def end_cuts(project, route, sample):
+    """(front, tail): the bases the pass after the adapter pass cuts from each end of a read, from its JSON report."""
+    report = project / 'data/tmp/smallrna/filter' / '{}_stages'.format(route) / '{}.filter.json'.format(sample)
+    if not report.is_file():
+        fail('no {} filter report for {}: {}; run `snakemake quant_all --notemp`'.format(route, sample, report))
+    data = json.loads(report.read_text())
+    args = data['command_line_arguments'] if route == 'cutadapt' else shlex.split(data['command'])
+    options, cuts = END_OPTIONS[route], {'front': 0, 'tail': 0}
+    for i, arg in enumerate(args):
+        name, _, value = arg.partition('=')
+        if name in options:
+            value = int(value or args[i + 1])
+            kind = options[name] if options[name] != 'cut' else 'front' if value >= 0 else 'tail'
+            cuts[kind] += abs(value)
+    return cuts['front'], cuts['tail']
+
+
+def filter_stages(project, sample):
+    """[(stage, reads, (front, tail))]: a sample's reads after each pass of the filter route, the last being
+    filtered_fastq, with the bases to cut from each end before matching (the adapter pass's reads only). All are
+    temporary in the workflow (--notemp)."""
+    filtered = project / 'data/tmp/smallrna/filter'
+    name = '{}_R1.fastq'.format(sample)
+    route = trim_route(project, sample)
+    passes = ROUTE_PASSES[route]
+    stages = [(stage, filtered / folder / name) for stage, folder in passes]
+    final = filtered_fastq(project, sample)
+    if not stages or stages[-1][1] != final:
+        stages.append(('spikein' if SPIKEIN_STAGE in str(final) else 'filtered', final))
+    missing = [str(path) for _, path in stages if not path.is_file()]
+    if missing:
+        fail('reads of the filter passes missing: {}; run `snakemake quant_all --notemp`'.format(', '.join(missing)))
+    return [(stage, path, end_cuts(project, route, sample) if route in END_OPTIONS and i == 0 else (0, 0)) for i, (stage, path) in enumerate(stages)]
 
 
 def evaluate_pool(args, project, bench, spec, ext_dir):
     _, mature_fa, _ = pool_paths(spec, ext_dir)
     prefix = PREFIX[spec['organism']]
-    name_to_id = {name: accession for name, (accession, _) in synthetic.read_mature(mature_fa, prefix).items()}
+    mature = synthetic.read_mature(mature_fa, prefix)
+    name_to_id = {name: accession for name, (accession, _) in mature.items()}
     methods = list(spec['methods'])
     gff = args.mirflowz_gff or (mirflowz_annotation(ext_dir, spec) if 'mirflowz' in methods else None)
     common = adapters.common_table(methods, project / 'data/tmp/smallrna/quant', name_to_id, prefix, gff)
     write_tsv(bench / 'common.tsv', adapters.COMMON_COLUMNS, common)
     entries = pool.read_pool(bench / 'pool.tsv')
+    kinds = pool.shift_kinds(entries, dict(mature.values()))
     sample_groups = {row['sample']: row['group'] for row in read_tsv(bench / 'samples.tsv')}
     sequences = [e['sequence'] for e in entries if e['group'] != 'excluded']
-    oracle = {sample: pool.oracle(filtered_fastq(project, sample), sequences) for sample in sample_groups}
+    stages = {sample: filter_stages(project, sample) for sample in sample_groups}
+    stage_counts = {sample: {stage: pool.oracle(path, sequences, *cuts) for stage, path, cuts in stages[sample]} for sample in sample_groups}
+    stage_names = [stage for stage, _, _ in next(iter(stages.values()))]
+    oracle = {sample: stage_counts[sample][stage_names[-1]] for sample in sample_groups}
+    write_tsv(bench / 'filter_stages.tsv', ['sample', 'pool_id', 'group'] + stage_names,
+              [[sample, e['pool_id'], e['group']] + [stage_counts[sample][st].get(e['sequence'], 0) for st in stage_names]
+               for sample in sample_groups for e in entries if e['group'] != 'excluded'])
     counts, reads = pool.method_counts(common, entries)
-    write_tsv(bench / 'per_sequence.tsv', pool.PER_SEQUENCE + methods, pool.per_sequence(counts, oracle, entries, methods, sample_groups))
+    write_tsv(bench / 'per_sequence.tsv', pool.PER_SEQUENCE + methods, pool.per_sequence(counts, oracle, entries, methods, sample_groups, kinds))
     rows = ['oracle'] + methods
+    shifted = pool.scored(entries, 'shifted')
+    by_kind = {kind: [e for e in shifted if kinds[e['pool_id']] == kind] for kind in pool.SHIFT_KINDS}
+    by_kind = {kind: group for kind, group in by_kind.items() if group}
     if spec['pool'] == 'equimolar':
         summary = pool.equimolar_metrics(counts, reads, oracle, entries, methods, list(sample_groups))
         keys = ['detected', 'cv', 'qcd', 'median_log2_vs_oracle', 'within_2fold', 'beyond_10fold', 'spearman_vs_oracle', 'outside', 'unplaced']
+        kind_keys = ['detected', 'median_log2_vs_oracle', 'within_2fold']
+        if shifted:
+            for row, values in pool.agreement(counts, oracle, shifted, methods, list(sample_groups)).items():
+                summary[row].update({'shifted_' + k: v for k, v in values.items()})
+            keys += ['shifted_' + k for k in ['detected', 'median_log2_vs_oracle', 'within_2fold', 'beyond_10fold', 'spearman_vs_oracle']]
+        per_kind = {kind: pool.agreement(counts, oracle, group, methods, list(sample_groups)) for kind, group in by_kind.items()}
         observed = {}
     else:
         summary, observed = pool.ratiometric_metrics(counts, oracle, entries, methods, sample_groups)
         keys = ['median_abs_error', 'spearman_vs_design', 'called', 'false_calls']
+        keys += ['shifted_' + k for k in keys] if shifted else []
+        kind_keys = ['median_abs_error', 'called']
+        per_kind = {kind: {r: pool.ratio_scores([(observed[r][e['pool_id']], math.log2(e['amount_a'] / e['amount_b']))
+                                                 for e in group if not math.isnan(observed[r][e['pool_id']])])
+                           for r in observed} for kind, group in by_kind.items()}
     write_tsv(bench / 'metrics.tsv', ['metric'] + rows, [[k] + [summary.get(r, {}).get(k, '') for r in rows] for k in keys])
 
     groups = {g: sum(1 for e in entries if e['group'] == g) for g in pool.GROUPS}
@@ -306,8 +384,9 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
              '{} pool, {} ({}), {} runs. Pool sequences against miRBase {}: {}.'.format(
                  spec['pool'], spec['organism'], spec['libprepkit'], len(sample_groups), spec['mirbase']['release'],
                  ', '.join('{} {}'.format(n, g) for g, n in groups.items())),
-             'Metrics over {} `exact` sequences ({} sharing their miRNA with a `shifted` one are left out); `oracle` is the '
-             'filtered reads counted by exact match to the pool sequences.'.format(len(exact), groups['exact'] - len(exact)), '',
+             'Metrics over {} `exact` sequences ({} sharing their miRNA with a `shifted` one are left out), and with a `shifted_` '
+             'prefix over {} `shifted` sequences ({} left out); `oracle` is the filtered reads counted by exact match to the pool '
+             'sequences.'.format(len(exact), groups['exact'] - len(exact), len(shifted), groups['shifted'] - len(shifted)), '',
              '| metric | ' + ' | '.join(rows) + ' |', '|---' * (len(rows) + 1) + '|']
     lines += ['| {} | '.format(k) + ' | '.join(str(summary.get(r, {}).get(k, '')) for r in rows) + ' |' for k in keys]
     if observed:
@@ -318,8 +397,61 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
             ids = [e['pool_id'] for e in exact if (e['amount_a'], e['amount_b']) == (a, b)]
             lines.append('| {:g}:{:g} | {:.2f} | {} | '.format(a, b, math.log2(a / b), len(ids)) + ' | '.join(
                 '{:.2f}'.format(statistics.median(observed[r][i] for i in ids)) for r in rows if r in observed) + ' |')
+    lines += shifted_section(per_kind, {kind: len(group) for kind, group in by_kind.items()}, kind_keys,
+                             [r for r in rows if any(r in v for v in per_kind.values())])
+    lines += filter_section(*pool.filter_losses(stage_counts, entries, stage_names), stage_names, trim_route(project, next(iter(sample_groups))),
+                            next(iter(stages.values()))[0][2])
     (bench / 'report.md').write_text('\n'.join(lines) + '\n')
     print(bench / 'report.md')
+
+
+SHIFT_TEXT = {'3p_shorter': "3' end shorter", '3p_longer': "3' end longer", '5p_moved': "5' end moved", 'mixed': 'mixed'}
+
+
+def shifted_section(per_kind, sizes, keys, rows):
+    """Report lines: the shifted group's metrics per kind of shift (pool.SHIFT_KINDS), with the number of sequences."""
+    if not per_kind:
+        return []
+    lines = ['', '## Shifted sequences by kind of shift', '',
+             'A method should count an isomiR on its miRNA; its count is set against the oracle (equimolar) or the design '
+             '(ratiometric). The 3\' end shorter or longer keeps the seed; a moved 5\' end changes it.', '',
+             '| kind | n | metric | ' + ' | '.join(rows) + ' |', '|---' * (len(rows) + 3) + '|']
+    for kind, values in per_kind.items():
+        for i, k in enumerate(keys):
+            lines.append('| {} | {} | {} | '.format(SHIFT_TEXT[kind] if i == 0 else '', sizes[kind] if i == 0 else '', k) +
+                         ' | '.join(str(values.get(r, {}).get(k, '')) for r in rows) + ' |')
+    return lines
+
+
+def filter_section(groups, lossy, stages, route, cuts):
+    """Report lines: what each pass of the filter route removes from the pool sequences (pool.filter_losses)."""
+    if len(stages) < 2:
+        return ['', '## Filter route', '', 'The `{}` route has no passes to compare.'.format(route)]
+    passes = stages[1:]
+    cut = ' after cutting {} and {} bases, the kit\'s random ends'.format(*cuts) if any(cuts) else ''
+    lines = ['', '## Filter route', '',
+             'Pool reads after the `{}` route\'s `{}` step (summed over runs; matched exactly{}), and the share of them each later '
+             'pass removes.'.format(route, stages[0], cut), '',
+             '| group | sequences | after {} | '.format(stages[0]) + ' | '.join('removed: {}'.format(p) for p in passes) + ' | kept |',
+             '|---' * (len(passes) + 4) + '|']
+    share = lambda part, whole: '{:.2%}'.format(part / whole) if whole else ''
+    for group, g in groups.items():
+        lines.append('| {} | {} | {} | '.format(group, g['sequences'], g[stages[0]]) + ' | '.join(
+            share(g[stages[i]] - g[stages[i + 1]], g[stages[0]]) for i in range(len(passes))) + ' | {} |'.format(share(g[stages[-1]], g[stages[0]])))
+    lines += ['', '{} sequences with at least {} reads after the `{}` step lose more than {:.0%} of them{}'.format(
+        len(lossy), pool.FILTER_MIN_READS, stages[0], pool.FILTER_LOSS, ':' if lossy else '.')]
+    if lossy:
+        lines += ['', '| pool_id | group | length | GC | after {} | kept | removed most by |'.format(stages[0]), '|---' * 7 + '|']
+        for e, t, worst in lossy[:LOSSY_SHOWN]:
+            seq = e['sequence']
+            lines.append('| {} | {} | {} | {:.0%} | {} | {} | {} |'.format(e['pool_id'], e['group'], len(seq), (seq.count('G') + seq.count('C')) / len(seq),
+                                                                       t[stages[0]], share(t[stages[-1]], t[stages[0]]), worst))
+        if len(lossy) > LOSSY_SHOWN:
+            lines.append('\nThe {} most affected are shown; all are in `filter_stages.tsv`.'.format(LOSSY_SHOWN))
+    return lines
+
+
+LOSSY_SHOWN = 20
 
 
 def fill(args):
