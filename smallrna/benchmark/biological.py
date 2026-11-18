@@ -15,7 +15,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(1, str(Path(__file__).resolve().parents[1] / 'rules' / 'filter' / 'scripts'))
 from pool import spearman  # noqa: E402
+import merge_cutadapt  # noqa: E402
 
 MIN_READS = 10          # a miRNA counts as detected in a sample with at least this many reads
 TOP = 100               # top-N overlap between methods
@@ -130,25 +132,18 @@ CUTADAPT_PASSES = ('adapter', 'filter', 'artefacts')
 
 
 def filtering(stage_jsons):
-    """Read counts through the cutadapt route's three passes, from their JSON reports ({pass: path}); each pass must
-    have read what the one before it wrote, as in rules/filter/scripts/merge_cutadapt.py."""
-    reports = {k: json.loads(Path(p).read_text()) for k, p in stage_jsons.items()}
-    read = {k: r['read_counts'] for k, r in reports.items()}
-    for before, after in zip(CUTADAPT_PASSES, CUTADAPT_PASSES[1:]):
-        if read[before]['output'] != read[after]['input']:
-            raise ValueError('the {} pass read {} reads, the {} pass wrote {}: not one run ({})'.format(
-                after, read[after]['input'], before, read[before]['output'], stage_jsons[after]))
-    f = read['filter']['filtered']
-    discarded = read['artefacts']['filtered']['discard_trimmed'] or 0
-    records = reports['artefacts'].get('adapters_read1') or []
-    if sum(r['total_matches'] for r in records) != discarded:
-        raise ValueError('the artefact pass discarded {} reads, but its records matched {} ({})'.format(
-            discarded, sum(r['total_matches'] for r in records), stage_jsons['artefacts']))
-    oligos = sum(r['total_matches'] for r in records if r['name'].startswith('reagent_oligo_'))  # as merge_cutadapt.py
-    return {'reads_in': read['adapter']['input'], 'with_3p_adapter': read['adapter']['read1_with_adapter'],
+    """Read counts through the cutadapt route's three passes ({pass: JSON report path}), as the workflow's merged
+    report gives them (rules/filter/scripts/merge_cutadapt.py, which fails unless each pass read what the one before
+    wrote): the artefact pass split into 3' artefacts and reagent oligo reads."""
+    paths = {k: str(p) for k, p in stage_jsons.items()}
+    reports = {k: json.loads(Path(p).read_text()) for k, p in paths.items()}
+    merged = merge_cutadapt.merge(reports['adapter'], reports['filter'], reports['artefacts'], 'sample', paths)['read_counts']
+    f = merged['filtered']
+    return {'reads_in': merged['input'], 'with_3p_adapter': merged['read1_with_adapter'],
             'discarded_5p_adapter': f['discard_trimmed'] or 0, 'too_short': f['too_short'] or 0,
             'too_many_n': f['too_many_n'] or 0, 'too_many_expected_errors': f['too_many_expected_errors'] or 0,
-            'discarded_3p_artefacts': discarded - oligos, 'discarded_reagent_oligos': oligos, 'kept': read['artefacts']['output']}
+            'discarded_3p_artefacts': f['gcf_three_prime_artefacts'], 'discarded_reagent_oligos': f['gcf_reagent_oligos'],
+            'kept': merged['output']}
 
 
 def first_base(fastq, matures):

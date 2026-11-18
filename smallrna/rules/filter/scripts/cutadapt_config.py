@@ -28,10 +28,9 @@ The kit's reagent oligos follow (artefact_fasta), each as a 5' adapter with a mi
 REAGENT_OLIGO_MIN_OVERLAP nt and FIVE_PRIME_MAX_ERROR_RATE: the oligo complete anywhere in the read, or its 3' end of
 at least that length at the read start, as in the 5'-truncated copies of the TruSeq Small RNA Stop Oligo (STP), which
 pass the other filters and which UNITAS counts as protein-coding reads (COL5A3). Chimeras of an oligo and an insert
-are discarded too (7 of 5.8 million reads in public TruSeq plasma data at 14 nt).
-The setting is required (`[]` for none), like the kit's adapters: every kit states its oligos, also a kit without a
-libprep.config entry whose project gives its own cutadapt table. A read that matches both kinds of record counts for the record cutadapt finds best (on a tie, the earlier one, a 3'
-artefact record); merge_cutadapt.py counts the two kinds apart by record name.
+are discarded too (7 of 5.8 million reads in public TruSeq plasma data at 14 nt). Without the setting (or with null) a
+kit has none, as with random_ends. A read that matches both kinds of record counts for the record cutadapt finds best;
+merge_cutadapt.py counts the two kinds apart by record name.
 
 5' adapter artefacts are fragments of the 5' adapter (`adapter5`) that start anywhere in it, usually end before its
 end, and sometimes follow a few other bases. cutadapt accepts a partial 5' adapter only when it runs to the adapter's 3'
@@ -115,8 +114,9 @@ def cutadapt_settings(config):
     if max_ee is not None and (isinstance(max_ee, bool) or not isinstance(max_ee, (int, float)) or max_ee <= 0):
         raise ValueError('filter.trim.cutadapt.max_ee: expected errors > 0, or null, got {!r}'.format(max_ee))
     oligos = settings.get('reagent_oligos')
+    oligos = [] if oligos is None else oligos
     if not isinstance(oligos, list) or not all(valid_oligo(o) for o in oligos):
-        raise ValueError('filter.trim.cutadapt.reagent_oligos: a list of A/C/G/T sequences of at least {} nt, [] for none, got {!r}'.format(
+        raise ValueError('filter.trim.cutadapt.reagent_oligos: a list of A/C/G/T sequences of at least {} nt, got {!r}'.format(
             REAGENT_OLIGO_MIN_OVERLAP, oligos))
     if len(set(oligos)) != len(oligos):
         raise ValueError('filter.trim.cutadapt.reagent_oligos: an oligo is listed more than once: {!r}'.format(oligos))
@@ -200,6 +200,8 @@ def main():
             parser.error('adapter3 must be an A/C/G/T sequence')
         if not all(valid_oligo(o) for o in args.oligos):
             parser.error('reagent oligos must be A/C/G/T sequences of at least {} nt'.format(REAGENT_OLIGO_MIN_OVERLAP))
+        if len(set(args.oligos)) != len(args.oligos):
+            parser.error('a reagent oligo is listed more than once')
         print(artefact_fasta(args.adapter3, args.oligos), end='')
         return
     if not DNA.match(args.adapter5) or len(args.adapter5) < FIVE_PRIME_MIN_OVERLAP:

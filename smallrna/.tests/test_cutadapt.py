@@ -60,10 +60,10 @@ def test_kit_presets():
     assert v3['adapter5'] == truseq['adapter5'] == ADAPTER5 and v4['adapter5'] == ADAPTER5_V4
     assert all(KITS[kit + ' SE']['filter']['trim']['quantifier'] == 'cutadapt' for kit in (V3, V4, TRUSEQ))
     assert truseq['reagent_oligos'] == [STP] and v3['reagent_oligos'] == v4['reagent_oligos'] == []
-    config = kit_config(TRUSEQ)
+    config = kit_config(TRUSEQ, reagent_oligos=None)
+    assert policy.cutadapt_settings(config)['reagent_oligos'] == []                                     # null: none
     del config['filter']['trim']['cutadapt']['reagent_oligos']
-    with pytest.raises(ValueError, match=r'\[\] for none'):                                                # required
-        policy.cutadapt_settings(config)
+    assert policy.cutadapt_settings(config)['reagent_oligos'] == []                                     # unset: none (a custom kit)
 
 
 def test_settings_are_required():
@@ -78,7 +78,7 @@ def test_settings_are_required():
     ({'five_prime_piece': 13}, 'five_prime_piece'), ({'five_prime_piece': 27}, 'five_prime_piece'), ({'trim_args': '-q 20'}, 'unknown setting'),
     ({'reagent_oligos': STP}, 'reagent_oligos'), ({'reagent_oligos': ['GAATTCCACCACG']}, 'at least 14'),
     ({'reagent_oligos': ['GAAUUCCACCACGUUCC']}, 'reagent_oligos'), ({'reagent_oligos': ''}, 'reagent_oligos'),
-    ({'reagent_oligos': False}, 'reagent_oligos'), ({'reagent_oligos': {}}, 'reagent_oligos'), ({'reagent_oligos': None}, 'reagent_oligos'),
+    ({'reagent_oligos': False}, 'reagent_oligos'), ({'reagent_oligos': {}}, 'reagent_oligos'),
     ({'reagent_oligos': [STP, STP]}, 'more than once')])
 def test_invalid_settings_fail(change, message):
     with pytest.raises(ValueError, match=message):
@@ -139,6 +139,8 @@ def test_artefact_fasta_adds_the_reagent_oligos_as_five_prime_adapters():
     assert result.returncode == 0 and result.stdout == fasta
     result = subprocess.run(['python', str(SCRIPTS / 'cutadapt_config.py'), 'artefact-fasta', ADAPTER3, 'GAATTCC'], capture_output=True, text=True, timeout=30)
     assert result.returncode != 0 and 'at least 14 nt' in result.stderr
+    result = subprocess.run(['python', str(SCRIPTS / 'cutadapt_config.py'), 'artefact-fasta', ADAPTER3, STP, STP], capture_output=True, text=True, timeout=30)
+    assert result.returncode != 0 and 'more than once' in result.stderr
 
 
 # The merged report

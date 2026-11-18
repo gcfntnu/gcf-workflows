@@ -18,13 +18,15 @@ Usage: merge_cutadapt.py --sample NAME ADAPTER_JSON FILTER_JSON ARTEFACTS_JSON >
 """
 import argparse
 import json
+from pathlib import Path
 import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from cutadapt_config import REAGENT_OLIGO_RECORD, THREE_PRIME_ARTEFACT_RECORD  # noqa: E402  the record names it writes
 
 COUNTS = ('too_short', 'too_long', 'too_many_n', 'too_many_expected_errors', 'casava_filtered', 'discard_trimmed',
           'discard_untrimmed')
 PASSES = ('adapter', 'filter', 'artefacts')
-# record name prefixes of the artefact pass (cutadapt_config.THREE_PRIME_ARTEFACT_RECORD, REAGENT_OLIGO_RECORD)
-THREE_PRIME_ARTEFACT_RECORD, REAGENT_OLIGO_RECORD = 'three_prime_artefact_', 'reagent_oligo_'
 
 
 def add(*values):

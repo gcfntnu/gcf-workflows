@@ -720,8 +720,10 @@ def write_cutadapt_reports(folder, sample, reads):
     paths = {}
     for name, c in counts.items():
         records = [{'name': 'three_prime_artefact_adapter_0_33', 'total_matches': 2}, {'name': 'reagent_oligo_1_22', 'total_matches': 1}]
-        paths[name] = write(Path(folder) / '{}.{}.json'.format(sample, name),
-                            json.dumps({'tag': 'Cutadapt report', 'read_counts': c, 'adapters_read1': records if name == 'artefacts' else []}))
+        report = {'tag': 'Cutadapt report', 'command_line_arguments': [name], 'input': {'path1': 'in.fastq', 'path2': None, 'paired': False},
+                  'read_counts': c, 'basepair_counts': {'input': c['input'] * 50, 'output': c['output'] * 20},
+                  'adapters_read1': records if name == 'artefacts' else []}
+        paths[name] = write(Path(folder) / '{}.{}.json'.format(sample, name), json.dumps(report))
     return paths
 
 

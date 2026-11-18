@@ -615,7 +615,7 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
         fail('cutadapt reports missing: {}; run `snakemake quant_all --notemp`'.format(', '.join(missing)))
     try:
         filt = {s: biological.filtering(paths) for s, paths in stage_jsons.items()}
-    except ValueError as e:
+    except (ValueError, KeyError) as e:
         fail(str(e))
 
     gff = args.mirflowz_gff or (mirflowz_annotation(ext_dir, spec) if 'mirflowz' in methods else None)
