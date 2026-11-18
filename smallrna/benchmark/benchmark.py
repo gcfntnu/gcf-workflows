@@ -241,20 +241,32 @@ def mirflowz_annotation(ext_dir, spec):
 
 
 # Where smallrna leaves the filtered reads every method reads (rules/filter/cliptrim.smk, filtered_fastq_pattern): the
-# spike-in prefilter's reads when spike-ins are set, otherwise the trimming route's (cutadapt, the kit default; fastp;
-# fastq with filter.trim.quantifier: skip).
-FILTER_STAGES = ('spikein/bowtie', 'cutadapt', 'fastp', 'fastq')
+# spike-in prefilter's reads when the project lists spike-in sets (filter.spikein.ref, a project setting the workflow
+# defaults to none), otherwise the trimming route's (cutadapt, the kit default; fastp; fastq with
+# filter.trim.quantifier: skip). The prefilter reads the trimming route's reads, so with --notemp both remain.
+SPIKEIN_STAGE = 'spikein/bowtie'
+TRIM_STAGES = ('cutadapt', 'fastp', 'fastq')
+
+
+def spikeins_on(project):
+    """Whether the project's config.yaml lists spike-in sets in filter.spikein.ref (as rules/quant/spikein.smk reads it)."""
+    config = yaml.safe_load((project / 'config.yaml').read_text()) or {}
+    ref = ((config.get('filter') or {}).get('spikein') or {}).get('ref')
+    return any(name.strip() for name in str(ref or '').split(','))
 
 
 def filtered_fastq(project, sample):
-    """The workflow's filtered reads of a sample (temporary in the workflow: run quant_all with --notemp). Exactly one
-    route may have left them; reads of two routes mean an earlier run with other settings, so it fails."""
+    """The workflow's filtered reads of a sample (temporary in the workflow: run quant_all with --notemp): the spike-in
+    prefilter's when the project has spike-ins, otherwise those of the one trimming route that left reads; reads of two
+    trimming routes mean an earlier run with other settings, so it fails."""
     filtered = project / 'data/tmp/smallrna/filter'
-    found = [path for path in (filtered / stage / '{}_R1.fastq'.format(sample) for stage in FILTER_STAGES) if path.is_file()]
+    name = '{}_R1.fastq'.format(sample)
+    stages = [SPIKEIN_STAGE] if spikeins_on(project) else TRIM_STAGES
+    found = [path for path in (filtered / stage / name for stage in stages) if path.is_file()]
     if not found:
-        fail('no filtered reads for {} under {}; run `snakemake quant_all --notemp`'.format(sample, filtered))
+        fail('no filtered reads for {} under {}; run `snakemake quant_all --notemp`'.format(sample, filtered / '|'.join(stages)))
     if len(found) > 1:
-        fail('filtered reads for {} from more than one filter route: {}; remove those of the earlier run'.format(
+        fail('filtered reads for {} from more than one trimming route: {}; remove those of the earlier run'.format(
             sample, ', '.join(str(path) for path in found)))
     return found[0]
 
@@ -271,14 +283,14 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
     sample_groups = {row['sample']: row['group'] for row in read_tsv(bench / 'samples.tsv')}
     sequences = [e['sequence'] for e in entries if e['group'] != 'excluded']
     oracle = {sample: pool.oracle(filtered_fastq(project, sample), sequences) for sample in sample_groups}
-    counts, outside = pool.method_counts(common, entries)
+    counts, outside, total = pool.method_counts(common, entries)
     write_tsv(bench / 'per_sequence.tsv', ['sample', 'pool_id', 'group', 'oracle'] + methods,
               [[sample, e['pool_id'], e['group'], oracle[sample].get(e['sequence'], 0)] +
                ['{:g}'.format(counts.get((m, sample, e['pool_id']), 0)) for m in methods]
                for sample in sample_groups for e in entries if e['group'] in ('exact', 'shifted')])
     rows = ['oracle'] + methods
     if spec['pool'] == 'equimolar':
-        summary = pool.equimolar_metrics(counts, outside, oracle, entries, methods, list(sample_groups))
+        summary = pool.equimolar_metrics(counts, outside, total, oracle, entries, methods, list(sample_groups))
         keys = ['detected', 'cv', 'qcd', 'median_log2_vs_oracle', 'within_2fold', 'beyond_10fold', 'spearman_vs_oracle', 'outside']
         observed = {}
     else:
@@ -287,15 +299,16 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
     write_tsv(bench / 'metrics.tsv', ['metric'] + rows, [[k] + [summary.get(r, {}).get(k, '') for r in rows] for k in keys])
 
     groups = {g: sum(1 for e in entries if e['group'] == g) for g in pool.GROUPS}
+    exact = pool.scored(entries)
     lines = ['# {}'.format(spec['name']), '',
              '{} pool, {} ({}), {} runs. Pool sequences against miRBase {}: {}.'.format(
                  spec['pool'], spec['organism'], spec['libprepkit'], len(sample_groups), spec['mirbase']['release'],
                  ', '.join('{} {}'.format(n, g) for g, n in groups.items())),
-             'Metrics over the `exact` group; `oracle` is the filtered reads counted by exact match to the pool sequences.', '',
+             'Metrics over {} `exact` sequences ({} sharing their miRNA with a `shifted` one are left out); `oracle` is the '
+             'filtered reads counted by exact match to the pool sequences.'.format(len(exact), groups['exact'] - len(exact)), '',
              '| metric | ' + ' | '.join(rows) + ' |', '|---' * (len(rows) + 1) + '|']
     lines += ['| {} | '.format(k) + ' | '.join(str(summary.get(r, {}).get(k, '')) for r in rows) + ' |' for k in keys]
     if observed:
-        exact = [e for e in entries if e['group'] == 'exact']
         designs = sorted({(e['amount_a'], e['amount_b']) for e in exact}, key=lambda ab: ab[0] / ab[1])
         lines += ['', '## Median observed log2(A/B) per designed ratio', '',
                   '| A:B | designed | n | ' + ' | '.join(r for r in rows if r in observed) + ' |', '|---' * (3 + len(observed)) + '|']

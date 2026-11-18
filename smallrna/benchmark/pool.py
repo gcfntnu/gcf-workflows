@@ -19,6 +19,7 @@ sequence is unique in the pool, are analysed. They are grouped against the organ
 library preparation's bias. Methods are scored against the oracle on the `exact` group, so a kit's per-sequence bias
 does not hide the differences between methods.
 """
+import collections
 import csv
 import gzip
 import math
@@ -120,24 +121,36 @@ def oracle(fastq, sequences):
     return counts
 
 
+def scored(pool):
+    """The exact entries scored one by one: those whose miRNAs (accessions) no other exact or shifted entry has.
+
+    A method counts a miRNA once, whichever pool sequences its reads came from, while the oracle counts one sequence;
+    an exact sequence sharing its miRNA with a shifted one (in the equimolar pool 7, e.g. a miRNA and its variant one
+    base shorter) would be scored with the other's reads too, so these are left out."""
+    owners = collections.Counter(a for e in pool if e['group'] in ('exact', 'shifted') for a in set(e['mature_ids']))
+    return [e for e in pool if e['group'] == 'exact' and all(owners[a] == 1 for a in e['mature_ids'])]
+
+
 def method_counts(common, pool):
-    """{(method, sample, pool_id): count} for exact and shifted entries (sum over their accessions), and
-    {(method, sample): reads on accessions of no exact or shifted entry} (assigned to miRNAs not in the pool)."""
+    """{(method, sample, pool_id): count} for exact and shifted entries (sum over their accessions),
+    {(method, sample): reads on accessions of no exact or shifted entry} (assigned to miRNAs not in the pool) and
+    {(method, sample): all miRNA reads}."""
     entry_of = {}
     for entry in pool:
         if entry['group'] in ('exact', 'shifted'):
             for accession in entry['mature_ids']:
                 entry_of.setdefault(accession, []).append(entry['pool_id'])
-    counts, outside = {}, {}
+    counts, outside, total = {}, {}, {}
     for method, sample, _, mature_id, count in common:
         if not mature_id:
             continue
+        total[(method, sample)] = total.get((method, sample), 0) + count
         if mature_id in entry_of:
             for pool_id in entry_of[mature_id]:
                 counts[(method, sample, pool_id)] = counts.get((method, sample, pool_id), 0) + count
         else:
             outside[(method, sample)] = outside.get((method, sample), 0) + count
-    return counts, outside
+    return counts, outside, total
 
 
 def spearman(x, y):
@@ -170,15 +183,16 @@ def qcd(values):
     return (q3 - q1) / (q3 + q1) if q3 + q1 else float('nan')
 
 
-def equimolar_metrics(counts, outside, oracle_counts, pool, methods, samples):
-    """{row: {metric: value}} for 'oracle' and each method, over the exact group, averaged over samples.
+def equimolar_metrics(counts, outside, total, oracle_counts, pool, methods, samples):
+    """{row: {metric: value}} for 'oracle' and each method, over the scored exact entries, averaged over samples.
 
     Against the oracle (methods only): median log2(method + 1) / (oracle + 1), share within 2-fold and beyond 10-fold,
     Spearman correlation. For every row: share detected, CV and QCD of counts across the group (spread of an
     equimolar pool, so kit bias for the oracle), and `outside`: share of a method's miRNA reads on miRNAs not in the
-    pool (exact or shifted), i.e. reads from foreign pool sequences assigned to the organism's miRNAs.
+    pool (exact or shifted) among all its miRNA reads, i.e. reads from foreign pool sequences assigned to the
+    organism's miRNAs.
     """
-    exact = [e for e in pool if e['group'] == 'exact']
+    exact = scored(pool)
     result = {}
     for row in ['oracle'] + list(methods):
         per_sample = []
@@ -195,15 +209,15 @@ def equimolar_metrics(counts, outside, oracle_counts, pool, methods, samples):
                 m['within_2fold'] = sum(1 for r in ratios if abs(r) <= 1) / len(ratios) if ratios else float('nan')
                 m['beyond_10fold'] = sum(1 for r in ratios if abs(r) > math.log2(10)) / len(ratios) if ratios else float('nan')
                 m['spearman_vs_oracle'] = spearman([v for v, _ in pairs], [t for _, t in pairs])
-                total = sum(values) + outside.get((row, sample), 0)
-                m['outside'] = outside.get((row, sample), 0) / total if total else float('nan')
+                reads = total.get((row, sample), 0)
+                m['outside'] = outside.get((row, sample), 0) / reads if reads else float('nan')
             per_sample.append(m)
         result[row] = {k: round(statistics.mean(m[k] for m in per_sample), 4) for k in per_sample[0]} if per_sample else {}
     return result
 
 
 def ratiometric_metrics(counts, oracle_counts, pool, methods, sample_groups, pseudo=1.0):
-    """{row: {metric: value}} for 'oracle' and each method, over the exact group.
+    """{row: {metric: value}} for 'oracle' and each method, over the scored exact entries.
 
     Counts are scaled to counts per million of the group in each sample and averaged per pool (A, B). The observed
     log2(A / B) is centred on the sequences designed 1:1 (their median set to 0; the pools' totals differ by design)
@@ -212,7 +226,7 @@ def ratiometric_metrics(counts, oracle_counts, pool, methods, sample_groups, pse
     direction) and `false_calls` (share of sequences designed less than 2-fold apart observed at least 2-fold apart).
     Also returns {row: {pool_id: observed log2(A / B)}}.
     """
-    exact = [e for e in pool if e['group'] == 'exact']
+    exact = scored(pool)
     result, observed_all = {}, {}
     for row in ['oracle'] + list(methods):
         means = {}

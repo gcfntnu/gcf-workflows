@@ -53,8 +53,8 @@ one declaration per pool and kit, as a project has one kit:
 Each names the runs (ENA FASTQ with MD5), the composition table from the study's code
 ([rspengle/CrossU01_exRNA_Manuscript2017](https://github.com/rspengle/CrossU01_exRNA_Manuscript2017), MIT, at a fixed
 commit) and the miRBase mature sequences, with SHA-256. `benchmark.py fill` downloads them once into
-`EXT_DIR/<data>/` (written under a temporary name, renamed after the checksum matches); it is the only step that
-writes to `EXT_DIR`:
+`EXT_DIR/<data>/` (each download to its own temporary file, renamed after the checksum matches, so fills of
+declarations sharing a folder can run at the same time); it is the only step that writes to `EXT_DIR`:
 
 ```bash
 python smallrna/benchmark/benchmark.py fill --dataset smallrna/benchmark/datasets/giraldez2018_equimolar_truseq.yaml \
@@ -64,7 +64,8 @@ python smallrna/benchmark/benchmark.py fill --dataset smallrna/benchmark/dataset
 `prepare` links the runs into the project, or copies the first `--reads N` reads of each for a quick run; `--methods`
 picks a subset of the declared methods (mirflowz on human needs the full human reference). Run `quant_all` with
 `--notemp`: the oracle count reads the workflow's filtered reads, those of the project's filter route (`filter/cutadapt/`
-with the kit default; the spike-in prefilter's with spike-ins). Reads left by two routes stop `evaluate`.
+with the kit default; the spike-in prefilter's when the project's `filter.spikein.ref` lists sets, although the
+trimmed reads it starts from remain). Reads left by two trimming routes stop `evaluate`.
 
 ## Methods
 
@@ -90,11 +91,13 @@ miRNA), `exact` (share of miRNAs counted exactly), `misassigned` (reads on miRNA
   has 407 `exact` sequences, the ratiometric pools 211.
 - **Oracle.** The workflow's filtered reads counted by exact match to each pool sequence: what a sample contains after
   the kit's bias. Methods are scored against it on the `exact` group, so a kit's per-sequence bias (up to 100-fold) does
-  not hide the differences between methods.
+  not hide the differences between methods. An `exact` sequence whose miRNA is also that of a `shifted` one is left
+  out (7 in the equimolar pool, none in the ratiometric pools): a method's count of the miRNA holds the reads of both
+  sequences, the oracle those of one.
 - **Equimolar pool**, per method and for the oracle: `detected`, `cv` and `qcd` (quartile coefficient of dispersion)
   across the group; per method against the oracle: `median_log2_vs_oracle` (of (method + 1) / (oracle + 1)),
-  `within_2fold`, `beyond_10fold`, `spearman_vs_oracle`, and `outside` (share of the method's miRNA reads on miRNAs
-  not in the pool, i.e. assigned from foreign sequences).
+  `within_2fold`, `beyond_10fold`, `spearman_vs_oracle`, and `outside` (share of all the method's miRNA reads that
+  are on miRNAs of no `exact` or `shifted` sequence, i.e. assigned from foreign sequences).
 - **Ratiometric pools**: counts per million of the group, averaged per pool, give an observed log2(A/B) per sequence,
   centred on the sequences designed 1:1. Against the design: `median_abs_error`, `spearman_vs_design`, `called`
   (designed at least 2-fold apart and observed so, in the right direction) and `false_calls` (designed less than 2-fold

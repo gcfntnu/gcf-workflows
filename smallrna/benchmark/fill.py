@@ -3,18 +3,21 @@
 A pool declaration names a data folder relative to EXT_DIR (`data`), the composition table (`composition`: file, url,
 sha256) and the runs (`runs`: run, url, md5, ...). Files go to `<EXT_DIR>/<data>/`: runs as `fastq/<run>.fastq.gz`,
 the table as `composition/<file>`, the miRBase mature sequences (`mirbase`: release, url, sha256) as
-`mirbase/<release>/mature.fa`. Each file is written under a temporary name in the same folder and renamed only after
-its checksum matches, so a file in place is always complete; files already in place are skipped. Several
-declarations may share a data folder. This is the only step of the benchmark that writes to EXT_DIR, and it is run
+`mirbase/<release>/mature.fa`. Each download is written to its own temporary file in the same folder and renamed only
+after its checksum matches, so a file in place is always complete, also when fills of declarations sharing a data
+folder run at the same time; files already in place are skipped. This is the only step of the benchmark that writes to EXT_DIR, and it is run
 deliberately when a dataset is added; `prepare` and `evaluate` only read.
 """
 import hashlib
 import os
 from pathlib import Path
 import shutil
+import tempfile
 import urllib.request
 
 CHUNK = 1 << 20
+UMASK = os.umask(0)
+os.umask(UMASK)
 
 
 def targets(spec, ext_dir):
@@ -29,17 +32,20 @@ def targets(spec, ext_dir):
 
 
 def download(url, algorithm, digest, path, log=print):
-    """Download url to path through a temporary file; fail (and remove it) when the checksum differs."""
+    """Download url to path through a temporary file of this call only; fail (and remove that file) when the checksum
+    differs. A concurrent download of the same file writes its own temporary file, so neither can change the other's."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    partial = path.with_name('.partial-' + path.name)
+    fd, name = tempfile.mkstemp(prefix='.partial-{}.'.format(path.name), dir=path.parent)
+    partial = Path(name)
     checksum = hashlib.new(algorithm)
     try:
-        with urllib.request.urlopen(url, timeout=600) as response, open(partial, 'wb') as out:
+        with os.fdopen(fd, 'wb') as out, urllib.request.urlopen(url, timeout=600) as response:
             for block in iter(lambda: response.read(CHUNK), b''):
                 checksum.update(block)
                 out.write(block)
         if checksum.hexdigest() != digest:
             raise ValueError('{}: {} {} does not match the declared {}'.format(url, algorithm, checksum.hexdigest(), digest))
+        os.chmod(partial, 0o666 & ~UMASK)  # mkstemp creates it readable by the owner only
         os.replace(partial, path)
     finally:
         if partial.exists():

@@ -213,13 +213,25 @@ def test_equimolar_metrics_against_the_oracle(tmp_path):
               ('good', 'S1', 'miR-199b-3p', 'MIMAT0004563', 4),  # paralog accessions of one pool sequence add up
               ('off', 'S1', 'miR-1-3p', 'MIMAT0000416', 2000), ('off', 'S1', 'miR-21-5p', 'MIMAT0000076', 50),
               ('off', 'S1', 'miR-155-5p', 'MIMAT0000646', 10)]  # not in the pool: from a foreign sequence
-    counts, outside = pool.method_counts(common, entries)
+    counts, outside, total = pool.method_counts(common, entries)
     assert counts[('good', 'S1', 'MIR-199A-3P')] == 10 and counts[('off', 'S1', 'MIR-21')] == 50
-    m = pool.equimolar_metrics(counts, outside, oracle, entries, ['good', 'off'], ['S1'])
+    m = pool.equimolar_metrics(counts, outside, total, oracle, entries, ['good', 'off'], ['S1'])
     assert m['good']['median_log2_vs_oracle'] == 0 and m['good']['within_2fold'] == 1 and m['good']['outside'] == 0
     assert m['off']['beyond_10fold'] == 1 and m['off']['detected'] == 0.5
-    assert m['off']['outside'] == round(10 / 2010, 4)
+    assert m['off']['outside'] == round(10 / 2060, 4)  # among all miRNA reads, the shifted entry's (miR-21) included
     assert m['oracle']['detected'] == 1 and 'within_2fold' not in m['oracle']
+
+
+def test_exact_entry_sharing_its_mirna_with_a_shifted_one_is_not_scored(tmp_path):
+    """miR-1-3p one base shorter is a shifted entry with the exact entry's accession: a method's miR-1-3p count holds
+    the reads of both sequences, the oracle of the exact entry one, so the exact entry is left out."""
+    entries = pool_entries(tmp_path, EQ + "MIR-1-2\tmiRNA\t5'-phosphorylation\tTGGAATGTAAAGAAGTATGTA\n")
+    assert {e['pool_id']: e['group'] for e in entries}['MIR-1-2'] == 'shifted'
+    assert [e['pool_id'] for e in pool.scored(entries)] == ['MIR-199A-3P']
+    oracle = {'S1': {'TGGAATGTAAAGAAGTATGTAT': 100, 'TGGAATGTAAAGAAGTATGTA': 100, 'ACAGTAGTCTGCACATTGGTTA': 10}}
+    common = [('m', 'S1', 'miR-1-3p', 'MIMAT0000416', 200), ('m', 'S1', 'miR-199a-3p', 'MIMAT0000232', 10)]
+    m = pool.equimolar_metrics(*pool.method_counts(common, entries), oracle, entries, ['m'], ['S1'])
+    assert m['m']['median_log2_vs_oracle'] == 0 and m['m']['within_2fold'] == 1  # not 200 against 100 for MIR-1
 
 
 def test_ratiometric_metrics_against_the_design(tmp_path):
@@ -258,19 +270,56 @@ def test_fill_checks_and_places_files(tmp_path):
     assert sorted(p.name for p in (out / 'fastq').iterdir()) == ['SRR1.fastq.gz']  # no partial or failed file left
 
 
-def test_filtered_fastq_follows_the_one_filter_route(tmp_path):
-    """The oracle reads the route's filtered reads: cutadapt by default, the spike-in prefilter's with spike-ins."""
+def test_concurrent_downloads_of_one_file_keep_their_own_temporary_files(tmp_path, monkeypatch):
+    """A second download of the same file starts while the first is still writing (fills of two declarations sharing a
+    data folder): one fails its checksum, one succeeds; the first then completes. Only verified bytes end up in place."""
+    import hashlib
+    import io
+    import urllib.request
+    good = b'reads' * 1000
+    path = tmp_path / 'fastq/SRR1.fastq.gz'
+    opened = urllib.request.urlopen
+    log = lambda _: None
+
+    class Interleaved(io.BytesIO):
+        first = True
+
+        def read(self, size=-1):
+            if Interleaved.first:
+                Interleaved.first = False
+                with pytest.raises(ValueError, match='does not match'):
+                    fill.download('good', 'md5', '0' * 32, path, log)
+                fill.download('good', 'md5', hashlib.md5(good).hexdigest(), path, log)
+            return super().read(size)
+
+    def urlopen(url, timeout):
+        return Interleaved(good) if url == 'first' else io.BytesIO(good) if url == 'good' else opened(url, timeout=timeout)
+    monkeypatch.setattr(fill.urllib.request, 'urlopen', urlopen)
+    fill.download('first', 'md5', hashlib.md5(good).hexdigest(), path, log)
+    assert path.read_bytes() == good and [p.name for p in path.parent.iterdir()] == ['SRR1.fastq.gz']
+
+
+def test_filtered_fastq_follows_the_project_filter_route(tmp_path):
+    """The oracle reads the route's filtered reads: the trimming route's (cutadapt by default), or the spike-in
+    prefilter's when the project lists spike-in sets, also when the trimming route's remain (quant_all --notemp)."""
     import benchmark
     filtered = tmp_path / 'data/tmp/smallrna/filter'
+    config = write(tmp_path / 'config.yaml', yaml.safe_dump({'filter': {'spikein': {'ref': None}}}))
     with pytest.raises(SystemExit, match='quant_all --notemp'):
         benchmark.filtered_fastq(tmp_path, 'S1')
     write(filtered / 'cutadapt/S1_R1.fastq', '')
     assert benchmark.filtered_fastq(tmp_path, 'S1') == filtered / 'cutadapt/S1_R1.fastq'
-    write(filtered / 'spikein/bowtie/S1_R1.fastq', '')
-    with pytest.raises(SystemExit, match='more than one filter route'):
+    write(filtered / 'fastp/S1_R1.fastq', '')
+    with pytest.raises(SystemExit, match='more than one trimming route'):
         benchmark.filtered_fastq(tmp_path, 'S1')
-    (filtered / 'cutadapt/S1_R1.fastq').unlink()
+    (filtered / 'fastp/S1_R1.fastq').unlink()
+    write(filtered / 'spikein/bowtie/S1_R1.fastq', '')  # left by an earlier run with spike-ins
+    assert benchmark.filtered_fastq(tmp_path, 'S1') == filtered / 'cutadapt/S1_R1.fastq'
+    config.write_text(yaml.safe_dump({'filter': {'spikein': {'ref': 'ercc'}}}))
     assert benchmark.filtered_fastq(tmp_path, 'S1') == filtered / 'spikein/bowtie/S1_R1.fastq'
+    (filtered / 'spikein/bowtie/S1_R1.fastq').unlink()
+    with pytest.raises(SystemExit, match='quant_all --notemp'):
+        benchmark.filtered_fastq(tmp_path, 'S1')
 
 
 def test_prepare_and_evaluate_a_pool(tmp_path):
@@ -316,3 +365,13 @@ def test_prepare_and_evaluate_a_pool(tmp_path):
     assert '| 1:8 | -3.00 | 1 |' in report
     per_sequence = (project / 'benchmark/per_sequence.tsv').read_text().splitlines()
     assert per_sequence[0] == 'sample\tpool_id\tgroup\toracle\tunitas\tmirge3' and 'SRRA\thsa-miR-1-3p\texact\t8\t8\t8' in per_sequence
+
+    # With spike-ins the oracle reads the prefilter's reads (here one read fewer), while the trimmed reads remain.
+    config['filter'] = {'spikein': {'ref': 'ercc'}}
+    (project / 'config.yaml').write_text(yaml.safe_dump(config))
+    for run, seqs in reads.items():
+        write(project / 'data/tmp/smallrna/filter/spikein/bowtie/{}_R1.fastq'.format(run),
+              ''.join('@r{}\n{}\n+\n{}\n'.format(i, s, 'I' * len(s)) for i, s in enumerate(seqs[1:])))
+    result = subprocess.run(cmd + ['evaluate', '--project', str(project)], capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    assert 'SRRA\thsa-miR-1-3p\texact\t7\t8\t8' in (project / 'benchmark/per_sequence.tsv').read_text().splitlines()
