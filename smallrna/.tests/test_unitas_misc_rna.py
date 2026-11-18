@@ -1,5 +1,5 @@
-"""UNITAS misc_RNA by gene family (#379): the family rules and table, its checks, the MultiQC section, the rules in the
-delivery dry run, and annotations.tsv left as it was. Synthetic UNITAS-style files only."""
+"""UNITAS misc_RNA by gene family (#379): the family rules and table, its checks, the MultiQC section and the rules in
+the delivery dry run. Synthetic UNITAS-style files only."""
 from pathlib import Path
 import subprocess
 import sys
@@ -11,7 +11,7 @@ from test_quant_methods import dry_run, rule_block
 
 ROOT = Path(__file__).resolve().parents[2]
 QUANT = ROOT / 'smallrna/rules/quant/scripts'
-BFQ = ROOT / 'smallrna/rules/bfq/scripts'
+SCRIPT = QUANT / 'unitas_misc_rna.py'
 sys.path.insert(0, str(QUANT))
 import unitas_misc_rna  # noqa: E402
 
@@ -41,7 +41,7 @@ def run(script, *args):
 
 
 def family_table(base, samples):
-    return run(QUANT / 'unitas_misc_rna.py', '--summaries', *[base / s / 'unitas.annotation_summary.txt' for s in samples],
+    return run(SCRIPT, 'table', '--summaries', *[base / s / 'unitas.annotation_summary.txt' for s in samples],
                '--hits-per-target', *[base / s / 'unitas.hits_per_target.txt' for s in samples])
 
 
@@ -50,6 +50,7 @@ def family_table(base, samples):
     ('Rny1-ENSMUSG00000065701.3', 'Y_RNA'), ('RN7SK-ENSG00000283293.1', '7SK'), ('RN7SKP279-ENSG00000000001.1', '7SK'),
     ('7SK-ENSG00000202198.1', '7SK'), ('Rn7sk-ENSMUSG00000000001.1', '7SK'), ('RN7SL1-ENSG00000276168.1', '7SL'),
     ('RN7SL5P-ENSG00000000002.1', '7SL'), ('Metazoa_SRP-ENSG00000000003.1', '7SL'), ('Rn7sl1-ENSRNOG00000085881.1', '7SL'),
+    ('Rn7s1-ENSMUSG00000118866.1', '7SL'), ('Rn7s6-ENSMUSG00000092746.5', '7SL'), ('RN7SKP80-ENSG00000000011.1', '7SK'),
     ('Vault-ENSG00000000004.1', 'other'), ('VTRNA1-1-ENSG00000000005.1', 'other'), ('Gm22199-ENSMUSG00000084609.4', 'other'),
     ('>ENST00000621902.1', 'other'), ('XRNY-ENSG00000000006.1', 'other')])
 def test_family_rules(name, family):
@@ -87,25 +88,24 @@ def test_table_stops_on_inconsistent_input(tmp_path, summary, hits_text, message
 def test_table_needs_one_hits_table_per_summary(tmp_path):
     for sample in ('S1', 'S2'):
         write_sample(tmp_path, sample)
-    result = run(QUANT / 'unitas_misc_rna.py', '--summaries', tmp_path / 'S1/unitas.annotation_summary.txt',
+    result = run(SCRIPT, 'table', '--summaries', tmp_path / 'S1/unitas.annotation_summary.txt',
                  tmp_path / 'S2/unitas.annotation_summary.txt', '--hits-per-target', tmp_path / 'S1/unitas.hits_per_target.txt')
     assert result.returncode != 0 and 'one summary and one hits table per sample directory' in result.stderr
 
 
-def test_annotations_table_is_unchanged(tmp_path):
-    """annotations.tsv is what the script wrote before #379 (bfq-dev 3387faa) for the same summary: no family rows."""
-    out = write_sample(tmp_path, 'S1')
-    result = run(QUANT / 'unitas_annotations.py', out / 'unitas.annotation_summary.txt')
+def test_quote_in_a_target_name_does_not_merge_fields(tmp_path):
+    """A `"` in a name is part of the name; with CSV quoting, it would join the following rows into one field."""
+    write_sample(tmp_path, 'S1', summary='misc_RNA\t3\n', hits=[('misc_RNA', '"RNY4-ENSG00000000001.1', 1.0),
+                                                                 ('misc_RNA', 'RN7SL1-ENSG00000000005.1"', 2.0)])
+    result = family_table(tmp_path, ['S1'])
     assert result.returncode == 0, result.stderr
-    assert result.stdout == ('Level1\tLevel2\tLevel3\tCount\tSample_ID\nlncRNA\t\t\t3.0\tS1\nmiRNA\t\t\t20.0\tS1\n'
-                             'miRNA\tmiRNA:homo_sapiens\t\t18.0\tS1\nmiRNA\tmiRNA:other\t\t2.0\tS1\nmisc_RNA\t\t\t5.5\tS1\n'
-                             'no annotation\t\t\t7.0\tS1\nsnRNA\t\t\t4.0\tS1\n')
+    assert result.stdout.splitlines()[1:] == ['S1\tY_RNA\t0', 'S1\t7SK\t0', 'S1\t7SL\t2', 'S1\tother\t1']
 
 
 def mqc_section(tmp_path, samples):
     table = tmp_path / 'misc_rna_families.tsv'
     table.write_text(family_table(tmp_path, samples).stdout)
-    result = run(BFQ / 'unitas_misc_rna_mqc.py', table)
+    result = run(SCRIPT, 'mqc', table)
     assert result.returncode == 0, result.stderr
     return yaml.safe_load(result.stdout)
 
@@ -130,13 +130,13 @@ def test_delivery_plans_the_family_split(tmp_path):
     returncode, output = dry_run(tmp_path, 'unitas', printshell=True, target='multiqc_report')
     assert returncode == 0, output
     families = rule_block(output, 'unitas_misc_rna')
-    command = next(line for line in families.splitlines() if 'unitas_misc_rna.py' in line)
+    command = next(line for line in families.splitlines() if 'unitas_misc_rna.py table' in line)
     summaries, hits = command.split('--hits-per-target')
     assert summaries.count('unitas.annotation_summary.txt') == hits.count('unitas.hits_per_target.txt') > 0
     assert 'data/tmp/smallrna/quant/unitas/misc_rna_families.tsv' in families
     assert 'hits_per_target' not in rule_block(output, 'unitas_annotations')
     section = rule_block(output, 'bfq_level2_unitas_misc_rna')
-    assert 'unitas_misc_rna_mqc.py data/tmp/smallrna/quant/unitas/misc_rna_families.tsv' in section
+    assert 'unitas_misc_rna.py mqc data/tmp/smallrna/quant/unitas/misc_rna_families.tsv' in section
     assert 'data/tmp/smallrna/bfq/exprs/misc_rna_families.tsv' in rule_block(output, 'bfq_level2_misc_rna_families')
     multiqc = rule_block(output, 'multiqc_report')
     assert 'figs/unitas_misc_rna_mqc.yaml' in multiqc and 'exprs/misc_rna_families.tsv' in multiqc

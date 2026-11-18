@@ -53,9 +53,11 @@ rule bfq_level2_unitas_misc_rna:
     output:
         join(BFQ_INTERIM, 'figs', 'unitas_misc_rna_mqc.yaml')
     params:
-        script = src_gcf('scripts/unitas_misc_rna_mqc.py')
+        script = src_gcf('../quant/scripts/unitas_misc_rna.py')
+    container:
+        'docker://' + config['docker']['default']
     shell:
-        'python {params.script:q} {input:q} > {output:q}'
+        'python {params.script:q} mqc {input:q} > {output:q}'
 
 rule bfq_level2_misc_rna_families:
     input:
