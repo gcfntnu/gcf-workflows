@@ -240,28 +240,33 @@ def mirflowz_annotation(ext_dir, spec):
     return found[0]
 
 
-# Where smallrna leaves the filtered reads every method reads (rules/filter/cliptrim.smk, filtered_fastq_pattern): the
-# spike-in prefilter's reads when the project lists spike-in sets (filter.spikein.ref, a project setting the workflow
-# defaults to none), otherwise the trimming route's (cutadapt, the kit default; fastp; fastq with
-# filter.trim.quantifier: skip). The prefilter reads the trimming route's reads, so with --notemp both remain.
+# The reads the oracle counts (rules/filter/cliptrim.smk): with Bowtie spike-ins (filter.spikein.ref lists sets, a
+# project setting the workflow defaults to none, and filter.spikein.quantifier is bowtie) the prefilter's reads,
+# which every method reads; otherwise the trimming route's (cutadapt, the kit default; fastp; fastq with
+# filter.trim.quantifier: skip). With native spike-ins UNITAS and miRge3 read the trimmed reads, and the prefilter
+# runs only for the other methods, so the trimmed reads are the ones every selection leaves. The prefilter reads the
+# trimming route's reads, so with --notemp both remain.
 SPIKEIN_STAGE = 'spikein/bowtie'
 TRIM_STAGES = ('cutadapt', 'fastp', 'fastq')
+WORKFLOW_CONFIG = Path(__file__).resolve().parents[1] / 'smallrna.config'
 
 
-def spikeins_on(project):
-    """Whether the project's config.yaml lists spike-in sets in filter.spikein.ref (as rules/quant/spikein.smk reads it)."""
+def bowtie_spikeins(project):
+    """Whether the project removes spike-ins with the Bowtie prefilter: filter.spikein.ref lists sets (as
+    rules/quant/spikein.smk reads it) and filter.spikein.quantifier, from the project or the workflow default, is bowtie."""
     config = yaml.safe_load((project / 'config.yaml').read_text()) or {}
-    ref = ((config.get('filter') or {}).get('spikein') or {}).get('ref')
-    return any(name.strip() for name in str(ref or '').split(','))
+    spikein = (config.get('filter') or {}).get('spikein') or {}
+    default = yaml.safe_load(WORKFLOW_CONFIG.read_text())['filter']['spikein']['quantifier']
+    return any(name.strip() for name in str(spikein.get('ref') or '').split(',')) and spikein.get('quantifier', default) == 'bowtie'
 
 
 def filtered_fastq(project, sample):
-    """The workflow's filtered reads of a sample (temporary in the workflow: run quant_all with --notemp): the spike-in
-    prefilter's when the project has spike-ins, otherwise those of the one trimming route that left reads; reads of two
-    trimming routes mean an earlier run with other settings, so it fails."""
+    """The reads of a sample the oracle counts (temporary in the workflow: run quant_all with --notemp): the spike-in
+    prefilter's with Bowtie spike-ins, otherwise those of the one trimming route that left reads; reads of two trimming
+    routes mean an earlier run with other settings, so it fails."""
     filtered = project / 'data/tmp/smallrna/filter'
     name = '{}_R1.fastq'.format(sample)
-    stages = [SPIKEIN_STAGE] if spikeins_on(project) else TRIM_STAGES
+    stages = [SPIKEIN_STAGE] if bowtie_spikeins(project) else TRIM_STAGES
     found = [path for path in (filtered / stage / name for stage in stages) if path.is_file()]
     if not found:
         fail('no filtered reads for {} under {}; run `snakemake quant_all --notemp`'.format(sample, filtered / '|'.join(stages)))
@@ -283,15 +288,12 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
     sample_groups = {row['sample']: row['group'] for row in read_tsv(bench / 'samples.tsv')}
     sequences = [e['sequence'] for e in entries if e['group'] != 'excluded']
     oracle = {sample: pool.oracle(filtered_fastq(project, sample), sequences) for sample in sample_groups}
-    counts, outside, total = pool.method_counts(common, entries)
-    write_tsv(bench / 'per_sequence.tsv', ['sample', 'pool_id', 'group', 'oracle'] + methods,
-              [[sample, e['pool_id'], e['group'], oracle[sample].get(e['sequence'], 0)] +
-               ['{:g}'.format(counts.get((m, sample, e['pool_id']), 0)) for m in methods]
-               for sample in sample_groups for e in entries if e['group'] in ('exact', 'shifted')])
+    counts, reads = pool.method_counts(common, entries)
+    write_tsv(bench / 'per_sequence.tsv', pool.PER_SEQUENCE + methods, pool.per_sequence(counts, oracle, entries, methods, sample_groups))
     rows = ['oracle'] + methods
     if spec['pool'] == 'equimolar':
-        summary = pool.equimolar_metrics(counts, outside, total, oracle, entries, methods, list(sample_groups))
-        keys = ['detected', 'cv', 'qcd', 'median_log2_vs_oracle', 'within_2fold', 'beyond_10fold', 'spearman_vs_oracle', 'outside']
+        summary = pool.equimolar_metrics(counts, reads, oracle, entries, methods, list(sample_groups))
+        keys = ['detected', 'cv', 'qcd', 'median_log2_vs_oracle', 'within_2fold', 'beyond_10fold', 'spearman_vs_oracle', 'outside', 'unplaced']
         observed = {}
     else:
         summary, observed = pool.ratiometric_metrics(counts, oracle, entries, methods, sample_groups)

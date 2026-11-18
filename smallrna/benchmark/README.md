@@ -64,8 +64,9 @@ python smallrna/benchmark/benchmark.py fill --dataset smallrna/benchmark/dataset
 `prepare` links the runs into the project, or copies the first `--reads N` reads of each for a quick run; `--methods`
 picks a subset of the declared methods (mirflowz on human needs the full human reference). Run `quant_all` with
 `--notemp`: the oracle count reads the workflow's filtered reads, those of the project's filter route (`filter/cutadapt/`
-with the kit default; the spike-in prefilter's when the project's `filter.spikein.ref` lists sets, although the
-trimmed reads it starts from remain). Reads left by two trimming routes stop `evaluate`.
+with the kit default; the spike-in prefilter's when the project's `filter.spikein.ref` lists sets removed by Bowtie,
+although the trimmed reads it starts from remain; the trimmed reads with native spike-ins, which UNITAS and miRge3
+read). Reads left by two trimming routes stop `evaluate`.
 
 ## Methods
 
@@ -93,11 +94,13 @@ miRNA), `exact` (share of miRNAs counted exactly), `misassigned` (reads on miRNA
   the kit's bias. Methods are scored against it on the `exact` group, so a kit's per-sequence bias (up to 100-fold) does
   not hide the differences between methods. An `exact` sequence whose miRNA is also that of a `shifted` one is left
   out (7 in the equimolar pool, none in the ratiometric pools): a method's count of the miRNA holds the reads of both
-  sequences, the oracle those of one.
+  sequences, the oracle those of one. In `per_sequence.tsv` (oracle and method counts per `exact` and `shifted`
+  sequence) such entries keep their oracle count, their method counts are `NA`, and `shared_with` names the others.
 - **Equimolar pool**, per method and for the oracle: `detected`, `cv` and `qcd` (quartile coefficient of dispersion)
   across the group; per method against the oracle: `median_log2_vs_oracle` (of (method + 1) / (oracle + 1)),
-  `within_2fold`, `beyond_10fold`, `spearman_vs_oracle`, and `outside` (share of all the method's miRNA reads that
-  are on miRNAs of no `exact` or `shifted` sequence, i.e. assigned from foreign sequences).
+  `within_2fold`, `beyond_10fold`, `spearman_vs_oracle`, and of all the reads the method reported as miRNAs, `outside`
+  (the share on miRNAs of no `exact` or `shifted` sequence, i.e. assigned from foreign sequences) and `unplaced` (the
+  share on names without a miRBase accession).
 - **Ratiometric pools**: counts per million of the group, averaged per pool, give an observed log2(A/B) per sequence,
   centred on the sequences designed 1:1. Against the design: `median_abs_error`, `spearman_vs_design`, `called`
   (designed at least 2-fold apart and observed so, in the right direction) and `false_calls` (designed less than 2-fold

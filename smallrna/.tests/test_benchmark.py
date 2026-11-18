@@ -1,6 +1,7 @@
 """Small-RNA benchmark: synthetic truth, method adapters, metrics, pools (truth groups, oracle, fill) and the prepare/evaluate steps
 on synthetic tables."""
 import gzip
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -212,13 +213,16 @@ def test_equimolar_metrics_against_the_oracle(tmp_path):
     common = [('good', 'S1', 'miR-1-3p', 'MIMAT0000416', 100), ('good', 'S1', 'miR-199a-3p', 'MIMAT0000232', 6),
               ('good', 'S1', 'miR-199b-3p', 'MIMAT0004563', 4),  # paralog accessions of one pool sequence add up
               ('off', 'S1', 'miR-1-3p', 'MIMAT0000416', 2000), ('off', 'S1', 'miR-21-5p', 'MIMAT0000076', 50),
-              ('off', 'S1', 'miR-155-5p', 'MIMAT0000646', 10)]  # not in the pool: from a foreign sequence
-    counts, outside, total = pool.method_counts(common, entries)
+              ('off', 'S1', 'miR-155-5p', 'MIMAT0000646', 10),  # not in the pool: from a foreign sequence
+              ('off', 'S1', 'miR-9999', '', 40)]  # a name without a miRBase accession: unplaced
+    counts, reads = pool.method_counts(common, entries)
     assert counts[('good', 'S1', 'MIR-199A-3P')] == 10 and counts[('off', 'S1', 'MIR-21')] == 50
-    m = pool.equimolar_metrics(counts, outside, total, oracle, entries, ['good', 'off'], ['S1'])
+    assert reads[('off', 'S1')] == {'all': 2100, 'outside': 10, 'unplaced': 40}
+    m = pool.equimolar_metrics(counts, reads, oracle, entries, ['good', 'off'], ['S1'])
     assert m['good']['median_log2_vs_oracle'] == 0 and m['good']['within_2fold'] == 1 and m['good']['outside'] == 0
     assert m['off']['beyond_10fold'] == 1 and m['off']['detected'] == 0.5
-    assert m['off']['outside'] == round(10 / 2060, 4)  # among all miRNA reads, the shifted entry's (miR-21) included
+    assert m['off']['outside'] == round(10 / 2100, 4)  # among all reported reads: the shifted entry's and unplaced ones too
+    assert m['off']['unplaced'] == round(40 / 2100, 4) and m['good']['unplaced'] == 0
     assert m['oracle']['detected'] == 1 and 'within_2fold' not in m['oracle']
 
 
@@ -227,11 +231,16 @@ def test_exact_entry_sharing_its_mirna_with_a_shifted_one_is_not_scored(tmp_path
     the reads of both sequences, the oracle of the exact entry one, so the exact entry is left out."""
     entries = pool_entries(tmp_path, EQ + "MIR-1-2\tmiRNA\t5'-phosphorylation\tTGGAATGTAAAGAAGTATGTA\n")
     assert {e['pool_id']: e['group'] for e in entries}['MIR-1-2'] == 'shifted'
+    assert pool.shared(entries) == {'MIR-1': ['MIR-1-2'], 'MIR-1-2': ['MIR-1']}
     assert [e['pool_id'] for e in pool.scored(entries)] == ['MIR-199A-3P']
     oracle = {'S1': {'TGGAATGTAAAGAAGTATGTAT': 100, 'TGGAATGTAAAGAAGTATGTA': 100, 'ACAGTAGTCTGCACATTGGTTA': 10}}
     common = [('m', 'S1', 'miR-1-3p', 'MIMAT0000416', 200), ('m', 'S1', 'miR-199a-3p', 'MIMAT0000232', 10)]
     m = pool.equimolar_metrics(*pool.method_counts(common, entries), oracle, entries, ['m'], ['S1'])
     assert m['m']['median_log2_vs_oracle'] == 0 and m['m']['within_2fold'] == 1  # not 200 against 100 for MIR-1
+    counts, _ = pool.method_counts(common, entries)
+    rows = {r[1]: r for r in pool.per_sequence(counts, oracle, entries, ['m'], ['S1'])}  # per_sequence.tsv
+    assert rows['MIR-1'] == ['S1', 'MIR-1', 'exact', 'MIR-1-2', 100, 'NA'] and rows['MIR-1-2'] == ['S1', 'MIR-1-2', 'shifted', 'MIR-1', 100, 'NA']
+    assert rows['MIR-199A-3P'] == ['S1', 'MIR-199A-3P', 'exact', '', 10, '10']
 
 
 def test_ratiometric_metrics_against_the_design(tmp_path):
@@ -317,7 +326,11 @@ def test_filtered_fastq_follows_the_project_filter_route(tmp_path):
     assert benchmark.filtered_fastq(tmp_path, 'S1') == filtered / 'cutadapt/S1_R1.fastq'
     config.write_text(yaml.safe_dump({'filter': {'spikein': {'ref': 'ercc'}}}))
     assert benchmark.filtered_fastq(tmp_path, 'S1') == filtered / 'spikein/bowtie/S1_R1.fastq'
-    (filtered / 'spikein/bowtie/S1_R1.fastq').unlink()
+    config.write_text(yaml.safe_dump({'filter': {'spikein': {'ref': 'ercc', 'quantifier': 'native'}}}))
+    assert benchmark.filtered_fastq(tmp_path, 'S1') == filtered / 'cutadapt/S1_R1.fastq'  # UNITAS and miRge3 read these
+    (filtered / 'spikein/bowtie/S1_R1.fastq').unlink()  # native with UNITAS and miRge3 only: no prefilter runs
+    assert benchmark.filtered_fastq(tmp_path, 'S1') == filtered / 'cutadapt/S1_R1.fastq'
+    config.write_text(yaml.safe_dump({'filter': {'spikein': {'ref': 'ercc'}}}))  # bowtie, the workflow default
     with pytest.raises(SystemExit, match='quant_all --notemp'):
         benchmark.filtered_fastq(tmp_path, 'S1')
 
@@ -364,7 +377,7 @@ def test_prepare_and_evaluate_a_pool(tmp_path):
     assert '| metric | oracle | unitas | mirge3 |' in report and '| called | 1.0 | 1.0 | 1.0 |' in report
     assert '| 1:8 | -3.00 | 1 |' in report
     per_sequence = (project / 'benchmark/per_sequence.tsv').read_text().splitlines()
-    assert per_sequence[0] == 'sample\tpool_id\tgroup\toracle\tunitas\tmirge3' and 'SRRA\thsa-miR-1-3p\texact\t8\t8\t8' in per_sequence
+    assert per_sequence[0] == 'sample\tpool_id\tgroup\tshared_with\toracle\tunitas\tmirge3' and 'SRRA\thsa-miR-1-3p\texact\t\t8\t8\t8' in per_sequence
 
     # With spike-ins the oracle reads the prefilter's reads (here one read fewer), while the trimmed reads remain.
     config['filter'] = {'spikein': {'ref': 'ercc'}}
@@ -374,4 +387,28 @@ def test_prepare_and_evaluate_a_pool(tmp_path):
               ''.join('@r{}\n{}\n+\n{}\n'.format(i, s, 'I' * len(s)) for i, s in enumerate(seqs[1:])))
     result = subprocess.run(cmd + ['evaluate', '--project', str(project)], capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
-    assert 'SRRA\thsa-miR-1-3p\texact\t7\t8\t8' in (project / 'benchmark/per_sequence.tsv').read_text().splitlines()
+    assert 'SRRA\thsa-miR-1-3p\texact\t\t7\t8\t8' in (project / 'benchmark/per_sequence.tsv').read_text().splitlines()
+
+    # Native spike-ins with UNITAS and miRge3 only: the workflow runs no prefilter, and the oracle reads the trimmed reads.
+    config['filter'] = {'spikein': {'ref': 'ERCC92', 'quantifier': 'native'}}
+    (project / 'config.yaml').write_text(yaml.safe_dump(config))
+    env = {k: v for k, v in os.environ.items() if not k.startswith('GCF_')}
+    env.update(TMPDIR=str(tmp_path), XDG_CACHE_HOME=str(tmp_path / '.cache'))
+    def dry_run():
+        result = subprocess.run([str(Path(sys.executable).with_name('snakemake')), '-n', '--cores', '1', '--notemp', '--forceall', 'quant_all'],
+                                cwd=project, env=env, capture_output=True, text=True, timeout=120)
+        assert result.returncode == 0, result.stdout + result.stderr
+        return result
+    dry = dry_run()
+    assert 'rule mirge3_quant:' in dry.stdout and 'rule smallrna_cutadapt_artefacts:' in dry.stdout  # a real plan
+    assert 'rule spikein_bowtie:' not in dry.stdout and 'data/tmp/smallrna/filter/cutadapt/SRRA_R1.fastq' in dry.stdout
+    config['filter']['spikein'].pop('quantifier')  # bowtie, the default: the prefilter runs
+    (project / 'config.yaml').write_text(yaml.safe_dump(config))
+    assert 'rule spikein_bowtie:' in dry_run().stdout
+    config['filter']['spikein']['quantifier'] = 'native'
+    (project / 'config.yaml').write_text(yaml.safe_dump(config))
+    for run in reads:
+        (project / 'data/tmp/smallrna/filter/spikein/bowtie/{}_R1.fastq'.format(run)).unlink()
+    result = subprocess.run(cmd + ['evaluate', '--project', str(project)], capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    assert 'SRRA\thsa-miR-1-3p\texact\t\t8\t8\t8' in (project / 'benchmark/per_sequence.tsv').read_text().splitlines()

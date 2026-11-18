@@ -121,36 +121,64 @@ def oracle(fastq, sequences):
     return counts
 
 
-def scored(pool):
-    """The exact entries scored one by one: those whose miRNAs (accessions) no other exact or shifted entry has.
+def shared(pool):
+    """{pool_id: [other pool_ids]} for exact and shifted entries that share a miRNA (accession) with another one.
 
-    A method counts a miRNA once, whichever pool sequences its reads came from, while the oracle counts one sequence;
-    an exact sequence sharing its miRNA with a shifted one (in the equimolar pool 7, e.g. a miRNA and its variant one
-    base shorter) would be scored with the other's reads too, so these are left out."""
-    owners = collections.Counter(a for e in pool if e['group'] in ('exact', 'shifted') for a in set(e['mature_ids']))
-    return [e for e in pool if e['group'] == 'exact' and all(owners[a] == 1 for a in e['mature_ids'])]
+    A method counts a miRNA once, whichever pool sequences its reads came from, so its count cannot be split between
+    such entries, while the oracle counts each sequence (in the equimolar pool 9 accessions, 7 of them an exact
+    sequence and a shifted variant, e.g. one base shorter)."""
+    owners = collections.defaultdict(set)
+    for e in pool:
+        if e['group'] in ('exact', 'shifted'):
+            for a in e['mature_ids']:
+                owners[a].add(e['pool_id'])
+    out = collections.defaultdict(set)
+    for ids in owners.values():
+        if len(ids) > 1:
+            for i in ids:
+                out[i] |= ids - {i}
+    return {i: sorted(others) for i, others in out.items()}
+
+
+def scored(pool):
+    """The exact entries scored one by one: those sharing no miRNA with another exact or shifted entry (shared)."""
+    ambiguous = shared(pool)
+    return [e for e in pool if e['group'] == 'exact' and e['pool_id'] not in ambiguous]
 
 
 def method_counts(common, pool):
-    """{(method, sample, pool_id): count} for exact and shifted entries (sum over their accessions),
-    {(method, sample): reads on accessions of no exact or shifted entry} (assigned to miRNAs not in the pool) and
-    {(method, sample): all miRNA reads}."""
+    """{(method, sample, pool_id): count} for exact and shifted entries (sum over their accessions), and per
+    (method, sample) the reads the method reported as miRNAs: {'all': every one, 'outside': on accessions of no exact
+    or shifted entry (assigned to miRNAs not in the pool), 'unplaced': on names without a miRBase accession}."""
     entry_of = {}
     for entry in pool:
         if entry['group'] in ('exact', 'shifted'):
             for accession in entry['mature_ids']:
                 entry_of.setdefault(accession, []).append(entry['pool_id'])
-    counts, outside, total = {}, {}, {}
+    counts, reads = {}, collections.defaultdict(lambda: {'all': 0, 'outside': 0, 'unplaced': 0})
     for method, sample, _, mature_id, count in common:
+        reads[(method, sample)]['all'] += count
         if not mature_id:
+            reads[(method, sample)]['unplaced'] += count
             continue
-        total[(method, sample)] = total.get((method, sample), 0) + count
         if mature_id in entry_of:
             for pool_id in entry_of[mature_id]:
                 counts[(method, sample, pool_id)] = counts.get((method, sample, pool_id), 0) + count
         else:
-            outside[(method, sample)] = outside.get((method, sample), 0) + count
-    return counts, outside, total
+            reads[(method, sample)]['outside'] += count
+    return counts, dict(reads)
+
+
+PER_SEQUENCE = ['sample', 'pool_id', 'group', 'shared_with', 'oracle']
+
+
+def per_sequence(counts, oracle_counts, pool, methods, samples):
+    """Rows of per_sequence.tsv (PER_SEQUENCE + methods) for exact and shifted entries: the oracle count, and each
+    method's count, NA where the entry shares its miRNA with others (shared_with), as it cannot be split between them."""
+    ambiguous = shared(pool)
+    return [[sample, e['pool_id'], e['group'], ','.join(ambiguous.get(e['pool_id'], [])), oracle_counts[sample].get(e['sequence'], 0)] +
+            ['NA' if e['pool_id'] in ambiguous else '{:g}'.format(counts.get((m, sample, e['pool_id']), 0)) for m in methods]
+            for sample in samples for e in pool if e['group'] in ('exact', 'shifted')]
 
 
 def spearman(x, y):
@@ -183,14 +211,14 @@ def qcd(values):
     return (q3 - q1) / (q3 + q1) if q3 + q1 else float('nan')
 
 
-def equimolar_metrics(counts, outside, total, oracle_counts, pool, methods, samples):
+def equimolar_metrics(counts, reads, oracle_counts, pool, methods, samples):
     """{row: {metric: value}} for 'oracle' and each method, over the scored exact entries, averaged over samples.
 
     Against the oracle (methods only): median log2(method + 1) / (oracle + 1), share within 2-fold and beyond 10-fold,
     Spearman correlation. For every row: share detected, CV and QCD of counts across the group (spread of an
-    equimolar pool, so kit bias for the oracle), and `outside`: share of a method's miRNA reads on miRNAs not in the
-    pool (exact or shifted) among all its miRNA reads, i.e. reads from foreign pool sequences assigned to the
-    organism's miRNAs.
+    equimolar pool, so kit bias for the oracle), and of all the reads a method reported as miRNAs, `outside`: the share
+    on miRNAs of no exact or shifted entry (reads from foreign pool sequences assigned to the organism's miRNAs) and
+    `unplaced`: the share on names without a miRBase accession.
     """
     exact = scored(pool)
     result = {}
@@ -209,8 +237,9 @@ def equimolar_metrics(counts, outside, total, oracle_counts, pool, methods, samp
                 m['within_2fold'] = sum(1 for r in ratios if abs(r) <= 1) / len(ratios) if ratios else float('nan')
                 m['beyond_10fold'] = sum(1 for r in ratios if abs(r) > math.log2(10)) / len(ratios) if ratios else float('nan')
                 m['spearman_vs_oracle'] = spearman([v for v, _ in pairs], [t for _, t in pairs])
-                reads = total.get((row, sample), 0)
-                m['outside'] = outside.get((row, sample), 0) / reads if reads else float('nan')
+                r = reads.get((row, sample), {'all': 0})
+                m['outside'] = r['outside'] / r['all'] if r['all'] else float('nan')
+                m['unplaced'] = r['unplaced'] / r['all'] if r['all'] else float('nan')
             per_sample.append(m)
         result[row] = {k: round(statistics.mean(m[k] for m in per_sample), 4) for k in per_sample[0]} if per_sample else {}
     return result
