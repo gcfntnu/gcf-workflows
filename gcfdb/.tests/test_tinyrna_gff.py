@@ -1,4 +1,5 @@
 """tinyrna_gff.py (#373): the miRBase GFF3 renamed to the genome's sequence names for tiny-count."""
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -43,6 +44,22 @@ class TinyrnaGffTest(unittest.TestCase):
         self.assertIn('# rows miRNA 2', lines)
         self.assertIn('# dropped (chromosome removed by the map) 1', lines)
         self.assertTrue(any(line.startswith('# source chr_map.tsv sha256 ') for line in lines))
+        self.assertEqual(sorted(p.name for p in self.dir.iterdir()), ['chr_map.tsv', 'mirna.gff3', 'out.gff3'])  # no .part left
+        umask = os.umask(0)
+        os.umask(umask)
+        self.assertEqual((self.dir / 'out.gff3').stat().st_mode & 0o777, 0o666 & ~umask)  # not mkstemp's 0600
+
+    def test_concurrent_builds_of_the_same_reference_do_not_collide(self):
+        (self.dir / 'mirna.gff3').write_text(GFF)
+        (self.dir / 'chr_map.tsv').write_text(CHR_MAP)
+        cmd = [sys.executable, str(SCRIPT), '--mirna-gff', str(self.dir / 'mirna.gff3'), '--chr-map', str(self.dir / 'chr_map.tsv'),
+               '--output', str(self.dir / 'out.gff3')]
+        runs = [subprocess.Popen(cmd, stderr=subprocess.PIPE, text=True) for _ in range(8)]
+        for run in runs:
+            self.assertEqual(run.wait(), 0, run.stderr.read())
+            run.stderr.close()
+        self.assertIn('# rows miRNA 2', (self.dir / 'out.gff3').read_text().splitlines())
+        self.assertFalse(list(self.dir.glob('*.part')))
 
     def test_a_chromosome_missing_from_the_map_stops(self):
         result = self.run_script(chr_map='chr1\t1\n901866519\n')

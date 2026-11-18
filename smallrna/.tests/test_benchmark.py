@@ -163,6 +163,16 @@ def test_count_metrics():
     assert result == {'recovered': round(13 / 15, 4), 'exact': 0.5, 'misassigned': 2, 'unplaced': 4}
 
 
+def test_exact_allows_floating_point_noise_from_divided_reads(tmp_path):
+    """One read divided over ten loci sums to 0.9999999999999999 with plain addition; still exact."""
+    assert sum([0.1] * 10) != 1
+    common = [('m', 'S01', 'a', 'A', sum([0.1] * 10)), ('m', 'S01', 'b', 'B', 2.5)]
+    assert metrics.count_metrics(common, {('S01', 'A'): 1, ('S01', 'B'): 3})['m']['exact'] == 0.5
+    rows = ['MIMAT0000001{}\tmiRNA\tmmu-miR-1a-3p\t0.1'.format('_{}'.format(i) if i else '') for i in range(10)]
+    write(tmp_path / 'tinyrna/tinyrna_counts.tsv', 'Feature ID\tClassifier\tFeature Name\tS01\n' + '\n'.join(rows) + '\n')
+    assert adapters.tinyrna(tmp_path, {}) == [('tinyrna', 'S01', 'mmu-miR-1a-3p', 'MIMAT0000001', 1.0)]  # fsum
+
+
 def test_prepare_then_evaluate(tmp_path, ref):
     dataset = write(tmp_path / 'ds.yaml', yaml.safe_dump({
         'name': 'syn', 'kind': 'synthetic', 'organism': 'mus_musculus', 'libprepkit': 'Bioo Scientific NEXTflex Small RNA-Seq Kit v4',

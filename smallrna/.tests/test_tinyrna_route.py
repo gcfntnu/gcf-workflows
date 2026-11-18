@@ -41,6 +41,8 @@ def test_route_plans_reference_and_counting_and_delivery_stays_on_unitas(tmp_pat
     assert '--gff data/ext/tinyrna/mirbase-23.1_ensembl-116/mus_musculus/mirna.gff3 --features {}/features.csv'.format(OUT) in count
     assert '--normalize-by-genomic-hits T --normalize-by-feature-hits T' in count
     assert '--samples SR01 SR02 SR03 SR04' in rule_block(output, 'tinyrna_counts')
+    for name in ('assigned_nt_len_dist.csv', 'mapped_nt_len_dist.csv', 'config'):  # declared, so a rerun restores them
+        assert '{}/SR01/{}'.format(OUT, name) in count
     returncode, output = dry_run(tmp_path, 'unitas,tinyrna', target='bfq_all')
     assert returncode == 0, output
     assert 'tinyrna' not in output and 'tiny-count' not in output
@@ -136,6 +138,14 @@ def test_count_keeps_tiny_count_tables_under_fixed_names(tmp_path):
         assert key in record  # every Paths File key, as tiny-count requires
     assert '{},S1,1,,'.format(tmp_path / 'S1.bam') in record and '-pf paths.yml -o tinyrna -ng T -nf T' in record
     assert (out / 'config/features.csv').exists() and not (out / 'work').exists()
+
+
+def test_count_fails_without_tiny_count_config_folder(tmp_path):
+    tables = ' '.join('tinyrna_2026-01-01_00-00-00_{}.csv'.format(n) for n in tinyrna.RUN_TABLES)
+    tables += ' ' + ' '.join('tinyrna_2026-01-01_00-00-00_S1_rep_1_{}.csv'.format(n) for n in tinyrna.LIBRARY_TABLES)
+    env = fake_tiny_count(tmp_path / 'bin', 'd=tiny-count_2026-01-01_00-00-00; mkdir -p $d && cd $d && touch {}\n'.format(tables))
+    result = run_count(tmp_path, env)
+    assert result.returncode != 0 and 'tiny-count wrote no config folder' in result.stderr
 
 
 def test_count_fails_when_tiny_count_reports_an_error_but_exits_0(tmp_path):

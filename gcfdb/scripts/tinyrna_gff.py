@@ -14,8 +14,10 @@ Usage: tinyrna_gff.py --mirna-gff GFF3[.gz] --chr-map TSV --output GFF3
 import argparse
 import gzip
 import hashlib
+import os
 from pathlib import Path
 import sys
+import tempfile
 
 TYPES = ('miRNA_primary_transcript', 'miRNA')
 
@@ -85,9 +87,24 @@ def main():
     header += ['# source {} sha256 {}\n'.format(p.name, sha256(p)) for p in (args.mirna_gff, args.chr_map)]
     header += ['# rows {} {}\n'.format(t, counts[t]) for t in TYPES]
     header += ['# dropped (chromosome removed by the map) {}\n'.format(dropped)]
-    tmp = args.output.with_name(args.output.name + '.part')
-    tmp.write_text(''.join(header + rows))
-    tmp.replace(args.output)
+    write_atomic(args.output, ''.join(header + rows))
+
+
+def write_atomic(path, text):
+    """Write text to path through a temporary file of this run's own in the same folder, so two runs building the
+    same reference never share a partial file and the GFF appears whole or not at all."""
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + '.', suffix='.part')
+    try:
+        with os.fdopen(fd, 'w') as fh:
+            fh.write(text)
+        umask = os.umask(0)
+        os.umask(umask)
+        os.chmod(tmp, 0o666 & ~umask)  # mkstemp makes the file 0600; a reference should be readable as usual
+        os.replace(tmp, path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise
 
 
 if __name__ == '__main__':

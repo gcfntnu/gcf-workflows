@@ -20,6 +20,7 @@ by name, because the methods name miRNAs differently:
 Adding a method means adding one function to ADAPTERS that reads its output directory.
 """
 import csv
+import math
 from pathlib import Path
 import re
 
@@ -132,7 +133,7 @@ def tesmall(quant_dir, name_to_id, **_):
 
 def tinyrna(quant_dir, name_to_id, **_):
     """The workflow's tinyrna_counts.tsv (tiny-count feature counts joined over samples); loci summed per accession."""
-    totals, names = {}, {}
+    shares, names = {}, {}
     with open(Path(quant_dir) / 'tinyrna' / 'tinyrna_counts.tsv', newline='') as fh:
         reader = csv.reader(fh, delimiter='\t')
         samples = next(reader)[3:]
@@ -142,8 +143,8 @@ def tinyrna(quant_dir, name_to_id, **_):
             accession = re.sub(r'_\d+$', '', row[0])
             names.setdefault(accession, row[2].split(', ')[0])
             for sample, value in zip(samples, row[3:]):
-                totals[(accession, sample)] = totals.get((accession, sample), 0) + float(value or 0)
-    return [('tinyrna', s, names[a], a, c) for (a, s), c in totals.items()]
+                shares.setdefault((accession, sample), []).append(float(value or 0))
+    return [('tinyrna', s, names[a], a, math.fsum(c)) for (a, s), c in shares.items()]
 
 
 ADAPTERS = {'unitas': unitas, 'mirge3': mirge3, 'mirflowz': mirflowz, 'tesmall': tesmall, 'tinyrna': tinyrna}

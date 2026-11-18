@@ -78,8 +78,8 @@ def library_name(sample):
 
 
 def collect(run_dir, sample, output):
-    """Move tiny-count's tables from run_dir (tiny-count_<timestamp>/) to output under fixed names; the config copies
-    tiny-count made go to output/config. Returns the moved table names."""
+    """Move tiny-count's tables from run_dir (tiny-count_<timestamp>/) to output under fixed names, and the config
+    copies tiny-count made to output/config (all are rule outputs). Returns the moved table names."""
     found = {}
     for path in run_dir.glob('{}_*.csv'.format(PREFIX)):
         for name in RUN_TABLES + LIBRARY_TABLES:
@@ -90,12 +90,13 @@ def collect(run_dir, sample, output):
     missing = [n for n in RUN_TABLES + LIBRARY_TABLES if n not in found]
     if missing:
         fail('tiny-count wrote no {} table(s) in {}'.format(', '.join(missing), run_dir))
+    if not (run_dir / 'config').is_dir():
+        fail('tiny-count wrote no config folder in {}'.format(run_dir))
     for name, path in found.items():
         shutil.move(str(path), str(output / '{}.csv'.format(name)))
-    if (run_dir / 'config').is_dir():
-        if (output / 'config').exists():
-            shutil.rmtree(output / 'config')
-        shutil.move(str(run_dir / 'config'), str(output / 'config'))
+    if (output / 'config').exists():
+        shutil.rmtree(output / 'config')
+    shutil.move(str(run_dir / 'config'), str(output / 'config'))
     return sorted(found)
 
 

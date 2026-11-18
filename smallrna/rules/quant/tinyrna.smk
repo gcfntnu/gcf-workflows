@@ -102,7 +102,10 @@ rule tinyrna_count:
         counts = join(TINYRNA_OUT, '{sample}', 'feature_counts.csv'),
         by_rule = join(TINYRNA_OUT, '{sample}', 'counts_by_rule.csv'),
         summary = join(TINYRNA_OUT, '{sample}', 'summary_stats.csv'),
-        alignment = join(TINYRNA_OUT, '{sample}', 'alignment_stats.csv')
+        alignment = join(TINYRNA_OUT, '{sample}', 'alignment_stats.csv'),
+        assigned_lengths = join(TINYRNA_OUT, '{sample}', 'assigned_nt_len_dist.csv'),
+        mapped_lengths = join(TINYRNA_OUT, '{sample}', 'mapped_nt_len_dist.csv'),
+        config = directory(join(TINYRNA_OUT, '{sample}', 'config'))
     params:
         script = src_gcf('scripts/tinyrna.py'),
         out = join(TINYRNA_OUT, '{sample}'),
@@ -132,4 +135,5 @@ rule tinyrna_counts:
 
 rule tinyrna_all:
     input:
-        rules.tinyrna_counts.output
+        rules.tinyrna_counts.output,
+        expand(rules.tinyrna_count.output, sample=SAMPLES)
