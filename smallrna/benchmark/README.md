@@ -29,7 +29,8 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    ```
 3. **Run** `snakemake quant_all` in the project, as for any project on that machine (containers, cores, resources).
 4. **Evaluate.** `benchmark.py evaluate --project <project>` writes `<project>/benchmark/`: `common.tsv` (every
-   method's counts in one table), `per_mirna.tsv`, `metrics.tsv` and `report.md`.
+   method's counts in one table), `per_mirna.tsv` (pools: `per_sequence.tsv` and `filter_stages.tsv`), `metrics.tsv`
+   and `report.md`.
 
 ## Datasets
 
@@ -66,7 +67,8 @@ picks a subset of the declared methods (mirflowz on human needs the full human r
 `--notemp`: the oracle count reads the workflow's filtered reads, those of the project's filter route (`filter/cutadapt/`
 with the kit default; the spike-in prefilter's when the project's `filter.spikein.ref` lists sets removed by Bowtie,
 although the trimmed reads it starts from remain; the trimmed reads with native spike-ins, which UNITAS and miRge3
-read). Reads left by two trimming routes stop `evaluate`.
+read), and the filter-route count reads those after each of the route's passes. Reads left by two trimming routes stop
+`evaluate`.
 
 ## Methods
 
@@ -92,20 +94,37 @@ miRNA), `exact` (share of miRNAs counted exactly), `misassigned` (reads on miRNA
   has 407 `exact` sequences, the ratiometric pools 211.
 - **Oracle.** The workflow's filtered reads counted by exact match to each pool sequence: what a sample contains after
   the kit's bias. Methods are scored against it on the `exact` group, so a kit's per-sequence bias (up to 100-fold) does
-  not hide the differences between methods. An `exact` sequence whose miRNA is also that of a `shifted` one is left
-  out (7 in the equimolar pool, none in the ratiometric pools): a method's count of the miRNA holds the reads of both
-  sequences, the oracle those of one. In `per_sequence.tsv` (oracle and method counts per `exact` and `shifted`
-  sequence) such entries keep their oracle count, their method counts are `NA`, and `shared_with` names the others.
+  not hide the differences between methods, and on the `shifted` group: isomiRs of known amount, which a method should
+  count on their miRNA. An `exact` or `shifted` sequence whose miRNA is also that of another one is left out (in the
+  equimolar pool 7 `exact` and 11 `shifted`, none in the ratiometric pools): a method's count of the miRNA holds the
+  reads of both sequences, the oracle those of one. In `per_sequence.tsv` (oracle and method counts per `exact` and
+  `shifted` sequence) such entries keep their oracle count, their method counts are `NA`, and `shared_with` names the
+  others; `shift` gives the kind of shift.
+- **Kinds of shift** against the miRNA's mature sequence: `3p_shorter` and `3p_longer` (the 5' end and so the seed in
+  place), `5p_moved` (another seed, whatever the 3' end does) and `mixed` (a sequence shifted from several miRNAs in
+  different ways). The report gives the `shifted` group's metrics per kind.
 - **Equimolar pool**, per method and for the oracle: `detected`, `cv` and `qcd` (quartile coefficient of dispersion)
   across the group; per method against the oracle: `median_log2_vs_oracle` (of (method + 1) / (oracle + 1)),
   `within_2fold`, `beyond_10fold`, `spearman_vs_oracle`, and of all the reads the method reported as miRNAs, `outside`
   (the share on miRNAs of no `exact` or `shifted` sequence, i.e. assigned from foreign sequences) and `unplaced` (the
-  share on names without a miRBase accession).
+  share on names without a miRBase accession). Over the `shifted` group, with a `shifted_` prefix: `detected` and the
+  metrics against the oracle.
 - **Ratiometric pools**: counts per million of the group, averaged per pool, give an observed log2(A/B) per sequence,
   centred on the sequences designed 1:1. Against the design: `median_abs_error`, `spearman_vs_design`, `called`
   (designed at least 2-fold apart and observed so, in the right direction) and `false_calls` (designed less than 2-fold
   apart, observed at least 2-fold apart). A fold change cancels the per-sequence kit bias, so what differs between
-  methods is quantification. The report also lists the median observed log2(A/B) per designed ratio.
+  methods is quantification. The report also lists the median observed log2(A/B) per designed ratio. Over the
+  `shifted` group, with a `shifted_` prefix, the same four, its sequences scaled by the `exact` group's counts and
+  centred on its 1:1 sequences, so the `exact` results do not depend on them.
+- **Filter route.** The same exact-match count of the pool sequences after each pass of the project's filter route
+  (`filter_stages.tsv`): for cutadapt after the 3' adapter, the filter (random ends, 5' adapter, length, N, expected
+  errors) and the artefact pass, for fastp after the adapter and the filter pass, then the spike-in prefilter with
+  Bowtie spike-ins. The reads after the adapter pass still carry the kit's random ends; they are cut before matching, by
+  as many bases as the next pass cuts (cutadapt `-u`, fastp `-f`/`-t`, read from its JSON report). The report gives the
+  share of the pool reads each later pass removes, per truth group, and the sequences with at least 20 reads after the
+  adapter pass that lose more than 10% of them, with their length and GC content. A read that is not an exact pool
+  sequence after the adapter pass (a sequencing error, an untrimmed adapter) is counted in no pass; the reads before the
+  adapter pass are not compared.
 
 On the mouse chr19 dataset, UNITAS and miRge3 count every miRNA exactly. mirflowz counts a third of
 `mmu-miR-146b-5p`, whose sequence occurs three times on chr19: it divides a read that maps equally well to several loci

@@ -1,6 +1,7 @@
 """Small-RNA benchmark: synthetic truth, method adapters, metrics, pools (truth groups, oracle, fill) and the prepare/evaluate steps
 on synthetic tables."""
 import gzip
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -162,6 +163,8 @@ HSA = ('>hsa-miR-1-3p MIMAT0000416 Homo sapiens miR-1-3p\nUGGAAUGUAAAGAAGUAUGUAU
        '>hsa-miR-199a-3p MIMAT0000232 Homo sapiens miR-199a-3p\nACAGUAGUCUGCACAUUGGUUA\n'
        '>hsa-miR-199b-3p MIMAT0004563 Homo sapiens miR-199b-3p\nACAGUAGUCUGCACAUUGGUUA\n'
        '>hsa-miR-21-5p MIMAT0000076 Homo sapiens miR-21-5p\nUAGCUUAUCAGACUGAUGUUGA\n'
+       '>hsa-miR-16-5p MIMAT0000069 Homo sapiens miR-16-5p\nUAGCAGCACGUAAAUAUUGGCG\n'
+       '>hsa-miR-145-5p MIMAT0000437 Homo sapiens miR-145-5p\nGUCCAGUUUUCCCAGGAAUCCCU\n'
        '>mmu-miR-1a-3p MIMAT0000123 Mus musculus miR-1a-3p\nUGGAAUGUAAAGAAGUAUGUAU\n')
 EQ = ('Sequence.ID\tSequence.type\tModification\tsequence\n'
       "MIR-1\tmiRNA\t5'-phosphorylation\tTGGAATGTAAAGAAGTATGTAT\n"            # exact
@@ -238,9 +241,37 @@ def test_exact_entry_sharing_its_mirna_with_a_shifted_one_is_not_scored(tmp_path
     m = pool.equimolar_metrics(*pool.method_counts(common, entries), oracle, entries, ['m'], ['S1'])
     assert m['m']['median_log2_vs_oracle'] == 0 and m['m']['within_2fold'] == 1  # not 200 against 100 for MIR-1
     counts, _ = pool.method_counts(common, entries)
-    rows = {r[1]: r for r in pool.per_sequence(counts, oracle, entries, ['m'], ['S1'])}  # per_sequence.tsv
-    assert rows['MIR-1'] == ['S1', 'MIR-1', 'exact', 'MIR-1-2', 100, 'NA'] and rows['MIR-1-2'] == ['S1', 'MIR-1-2', 'shifted', 'MIR-1', 100, 'NA']
-    assert rows['MIR-199A-3P'] == ['S1', 'MIR-199A-3P', 'exact', '', 10, '10']
+    kinds = pool.shift_kinds(entries, dict(hsa_mature(tmp_path).values()))
+    rows = {r[1]: r for r in pool.per_sequence(counts, oracle, entries, ['m'], ['S1'], kinds)}  # per_sequence.tsv
+    assert rows['MIR-1'] == ['S1', 'MIR-1', 'exact', '', 'MIR-1-2', 100, 'NA']
+    assert rows['MIR-1-2'] == ['S1', 'MIR-1-2', 'shifted', '3p_shorter', 'MIR-1', 100, 'NA']
+    assert rows['MIR-199A-3P'] == ['S1', 'MIR-199A-3P', 'exact', '', '', 10, '10']
+    assert [e['pool_id'] for e in pool.scored(entries, 'shifted')] == ['MIR-21']  # MIR-1-2 shares miR-1-3p
+
+
+SHIFTS = ("MIR-16-MOVED\tmiRNA\t5'-phosphorylation\tAGCAGCACGTAAATATTGGCG\n"     # miR-16-5p without its first base
+          "MIR-145-SHORT\tmiRNA\t5'-phosphorylation\tGTCCAGTTTTCCCAGGAATCC\n")  # miR-145-5p 2 nt shorter at the 3' end
+
+
+def test_shifted_entries_are_scored_by_kind_of_shift(tmp_path):
+    """isomiRs of known amount: a method should count them on their miRNA; the kind of shift says whether the seed
+    (5' end) is kept."""
+    assert pool.shift('AGCAGCACGTAAATATTGGCG', 'TAGCAGCACGTAAATATTGGCG') == (1, 0)
+    assert pool.shift('TAGCTTATCAGACTGATGTTGAC', 'TAGCTTATCAGACTGATGTTGA') == (0, 1)
+    entries = pool_entries(tmp_path, EQ + SHIFTS)
+    kinds = pool.shift_kinds(entries, dict(hsa_mature(tmp_path).values()))
+    assert kinds == {'MIR-21': '3p_longer', 'MIR-16-MOVED': '5p_moved', 'MIR-145-SHORT': '3p_shorter'}
+    two = [{'pool_id': 'X', 'group': 'shifted', 'sequence': 'ACGTACGTACGTACGTAC', 'mature_ids': ['A', 'B']}]
+    assert pool.shift_kinds(two, {'A': 'ACGTACGTACGTACGTACT', 'B': 'GACGTACGTACGTACGTAC'}) == {'X': 'mixed'}
+    oracle = {'S1': {'TAGCTTATCAGACTGATGTTGAC': 100, 'AGCAGCACGTAAATATTGGCG': 100, 'GTCCAGTTTTCCCAGGAATCC': 100}}
+    common = [('m', 'S1', 'miR-21-5p', 'MIMAT0000076', 100), ('m', 'S1', 'miR-145-5p', 'MIMAT0000437', 40),
+              ('m', 'S1', 'miR-16-2-5p', '', 100)]  # the moved 5' end counted on a name without an accession
+    counts, _ = pool.method_counts(common, entries)
+    shifted = pool.scored(entries, 'shifted')
+    m = pool.agreement(counts, oracle, shifted, ['m'], ['S1'])
+    assert m['oracle'] == {'detected': 1} and m['m']['detected'] == round(2 / 3, 4) and m['m']['within_2fold'] == round(1 / 3, 4)
+    moved = pool.agreement(counts, oracle, [e for e in shifted if kinds[e['pool_id']] == '5p_moved'], ['m'], ['S1'])
+    assert moved['m']['detected'] == 0 and moved['m']['beyond_10fold'] == 1
 
 
 def test_ratiometric_metrics_against_the_design(tmp_path):
@@ -255,7 +286,18 @@ def test_ratiometric_metrics_against_the_design(tmp_path):
     m, observed = pool.ratiometric_metrics(counts, oracle, entries, ['exact', 'flat'], groups, pseudo=0)
     assert m['oracle'] == m['exact'] and m['exact']['median_abs_error'] == 0 and m['exact']['called'] == 1
     assert m['exact']['false_calls'] == 0 and m['flat']['called'] == 0
-    assert observed['exact']['hsa-miR-21-5p'] < -2
+    assert observed['exact']['hsa-miR-21-5p'] < -2 and 'shifted_called' not in m['exact']  # no shifted entries
+
+    # A shifted entry (miR-16-5p without its first base, 1:4) is scaled and centred as the exact ones: the exact
+    # group's results do not change.
+    shifted = pool_entries(tmp_path, RATIO + "MIR-16-MOVED\t21\tHuman miRNA\tAGCAGCACGTAAATATTGGCG\t5'-phosphorylation\t1x\t4x\n")
+    for s, g in groups.items():
+        oracle[s]['AGCAGCACGTAAATATTGGCG'] = counts[('exact', s, 'MIR-16-MOVED')] = {'A': 250, 'B': 1000}[g]
+        counts[('flat', s, 'MIR-16-MOVED')] = 100
+    with_shifted, observed = pool.ratiometric_metrics(counts, oracle, shifted, ['exact', 'flat'], groups, pseudo=0)
+    assert {k: str(v) for k, v in with_shifted['flat'].items() if not k.startswith('shifted_')} == {k: str(v) for k, v in m['flat'].items()}
+    assert with_shifted['exact']['shifted_median_abs_error'] == 0 and with_shifted['exact']['shifted_called'] == 1
+    assert with_shifted['flat']['shifted_called'] == 0 and observed['exact']['MIR-16-MOVED'] == -2
 
 
 def test_fill_checks_and_places_files(tmp_path):
@@ -335,6 +377,81 @@ def test_filtered_fastq_follows_the_project_filter_route(tmp_path):
         benchmark.filtered_fastq(tmp_path, 'S1')
 
 
+def fastq(seqs):
+    return ''.join('@r{}\n{}\n+\n{}\n'.format(i, s, 'I' * len(s)) for i, s in enumerate(seqs))
+
+
+def write_stages(project, sample, adapter, filtered, final, cuts=(0, 0)):
+    """The cutadapt route's reads after each pass and the filter pass's report (quant_all --notemp)."""
+    stages = project / 'data/tmp/smallrna/filter'
+    write(stages / 'cutadapt_trimmed/{}_R1.fastq'.format(sample), fastq(adapter))
+    write(stages / 'cutadapt_filtered/{}_R1.fastq'.format(sample), fastq(filtered))
+    write(stages / 'cutadapt/{}_R1.fastq'.format(sample), fastq(final))
+    args = ['-j', '4'] + (['-u', str(cuts[0]), '-u', str(-cuts[1])] if any(cuts) else []) + ['--action=none', '-m', '15']
+    write(stages / 'cutadapt_stages/{}.filter.json'.format(sample), json.dumps({'command_line_arguments': args}))
+
+
+def test_end_cuts_from_the_filter_pass_report(tmp_path):
+    """The reads after the adapter pass still carry the kit's random ends; the next pass's report says how many bases
+    it cuts (cutadapt -u, fastp -f/-t)."""
+    import benchmark
+    stages = tmp_path / 'data/tmp/smallrna/filter'
+    write(stages / 'cutadapt_stages/S1.filter.json', json.dumps({'command_line_arguments': ['-j', '4', '-u', '4', '-u', '-4', '-m', '15']}))
+    assert benchmark.end_cuts(tmp_path, 'cutadapt', 'S1') == (4, 4)
+    write(stages / 'cutadapt_stages/S1.filter.json', json.dumps({'command_line_arguments': ['--cut=3', '-m', '15']}))
+    assert benchmark.end_cuts(tmp_path, 'cutadapt', 'S1') == (3, 0)
+    write(stages / 'fastp_stages/S1.filter.json', json.dumps({'command': 'fastp -i a -o b -f 4 -t 4 -l 16 -u 40 -A'}))
+    assert benchmark.end_cuts(tmp_path, 'fastp', 'S1') == (4, 4)
+    write(stages / 'fastp_stages/S1.filter.json', json.dumps({'command': 'fastp -i a -o b --trim_front1=2 -l 16 -A'}))
+    assert benchmark.end_cuts(tmp_path, 'fastp', 'S1') == (2, 0)
+    with pytest.raises(SystemExit, match='quant_all --notemp'):
+        benchmark.end_cuts(tmp_path, 'cutadapt', 'S2')
+
+
+def test_filter_stages_and_what_each_pass_removes(tmp_path):
+    """Pool sequences counted after each pass of the route: the adapter pass's reads with the random ends cut, and
+    the reads after each later pass, the last being the oracle's."""
+    import benchmark
+    write(tmp_path / 'config.yaml', yaml.safe_dump({'filter': {'spikein': {'ref': None}}}))
+    entries = pool_entries(tmp_path, EQ)
+    mir1, mir21, ebv = 'TGGAATGTAAAGAAGTATGTAT', 'TAGCTTATCAGACTGATGTTGAC', 'TAACCTGATCAGCCCCGGAGTT'
+    ends = lambda s: 'ACGT' + s + 'TTGA'  # NEXTflex-like random ends, cut by the filter pass
+    adapter = [ends(mir1)] * 40 + [ends(mir21)] * 30 + [ends(ebv)] * 10 + ['ACGTTT']
+    write_stages(tmp_path, 'S1', adapter, [mir1] * 40 + [mir21] * 20 + [ebv] * 10, [mir1] * 40 + [mir21] * 20 + [ebv] * 5, cuts=(4, 4))
+    stages = benchmark.filter_stages(tmp_path, 'S1')
+    assert [(st, path.parent.name, cuts) for st, path, cuts in stages] == [
+        ('adapter', 'cutadapt_trimmed', (4, 4)), ('filter', 'cutadapt_filtered', (0, 0)), ('artefacts', 'cutadapt', (0, 0))]
+    sequences = [e['sequence'] for e in entries if e['group'] != 'excluded']
+    counts = {'S1': {st: pool.oracle(path, sequences, *cuts) for st, path, cuts in stages}}
+    assert counts['S1']['adapter'][mir1] == 40 and counts['S1']['adapter'][mir21] == 30
+    groups, lossy = pool.filter_losses(counts, entries, ['adapter', 'filter', 'artefacts'])
+    assert groups['exact'] == {'sequences': 2, 'adapter': 40, 'filter': 40, 'artefacts': 40}
+    assert groups['shifted'] == {'sequences': 1, 'adapter': 30, 'filter': 20, 'artefacts': 20}
+    assert groups['foreign'] == {'sequences': 1, 'adapter': 10, 'filter': 10, 'artefacts': 5}
+    assert [(e['pool_id'], worst) for e, _, worst in lossy] == [('MIR-21', 'filter')]  # EBV-1: fewer than 20 reads
+
+    # With Bowtie spike-ins the prefilter's reads come last; the fastp route has two passes; skip filters nothing.
+    write(tmp_path / 'config.yaml', yaml.safe_dump({'filter': {'spikein': {'ref': 'ercc'}}}))
+    write(tmp_path / 'data/tmp/smallrna/filter/spikein/bowtie/S1_R1.fastq', fastq([mir1]))
+    assert [st for st, _, _ in benchmark.filter_stages(tmp_path, 'S1')] == ['adapter', 'filter', 'artefacts', 'spikein']
+    write(tmp_path / 'config.yaml', yaml.safe_dump({'filter': {'spikein': {'ref': None}}}))
+    filtered = tmp_path / 'data/tmp/smallrna/filter'
+    for folder in ('cutadapt_trimmed', 'cutadapt_filtered', 'cutadapt'):
+        (filtered / folder / 'S1_R1.fastq').unlink()
+    write(filtered / 'fastp/S1_R1.fastq', '')
+    with pytest.raises(SystemExit, match='reads of the filter passes missing.*fastp_trimmed'):
+        benchmark.filter_stages(tmp_path, 'S1')
+    write(filtered / 'fastp_trimmed/S1_R1.fastq', '')
+    write(filtered / 'fastp_stages/S1.filter.json', json.dumps({'command': 'fastp -f 4 -t 4 -A'}))
+    assert [(st, cuts) for st, _, cuts in benchmark.filter_stages(tmp_path, 'S1')] == [('adapter', (4, 4)), ('filter', (0, 0))]
+    for folder in ('fastp', 'fastp_trimmed'):
+        (filtered / folder / 'S1_R1.fastq').unlink()
+    write(filtered / 'fastq/S1_R1.fastq', '')
+    assert [st for st, _, _ in benchmark.filter_stages(tmp_path, 'S1')] == ['input']  # skip: no pass to compare
+    write(tmp_path / 'config.yaml', yaml.safe_dump({'filter': {'spikein': {'ref': 'ercc'}}}))
+    assert [(st, cuts) for st, _, cuts in benchmark.filter_stages(tmp_path, 'S1')] == [('input', (0, 0)), ('spikein', (0, 0))]
+
+
 def test_prepare_and_evaluate_a_pool(tmp_path):
     ext = tmp_path / 'ext'
     data = ext / 'benchmark/smallrna/p'
@@ -368,16 +485,18 @@ def test_prepare_and_evaluate_a_pool(tmp_path):
     write(quant / 'mirge3/miR.Counts.csv', 'miRNA,SRRA,SRRB\nhsa-miR-1-3p,8,2\nhsa-miR-21-5p,2,8\n')
     result = subprocess.run(cmd + ['evaluate', '--project', str(project)], capture_output=True, text=True, timeout=60)
     assert result.returncode != 0 and 'quant_all --notemp' in result.stderr  # the oracle needs the filtered reads
-    for run, seqs in reads.items():
-        write(project / 'data/tmp/smallrna/filter/cutadapt/{}_R1.fastq'.format(run),
-              ''.join('@r{}\n{}\n+\n{}\n'.format(i, s, 'I' * len(s)) for i, s in enumerate(seqs)))
+    for run, seqs in reads.items():  # the adapter pass's reads hold one more read of each sequence, too short ones a filter removes
+        write_stages(project, run, seqs + ['TGGAATGTAAAGAAGTATGTAT', 'TAGCTTATCAGACTGATGTTGA', 'ACGT'], seqs, seqs)
     result = subprocess.run(cmd + ['evaluate', '--project', str(project)], capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
+    stages = (project / 'benchmark/filter_stages.tsv').read_text().splitlines()
+    assert stages[0] == 'sample\tpool_id\tgroup\tadapter\tfilter\tartefacts' and 'SRRA\thsa-miR-1-3p\texact\t9\t8\t8' in stages
     report = (project / 'benchmark/report.md').read_text()
     assert '| metric | oracle | unitas | mirge3 |' in report and '| called | 1.0 | 1.0 | 1.0 |' in report
     assert '| 1:8 | -3.00 | 1 |' in report
     per_sequence = (project / 'benchmark/per_sequence.tsv').read_text().splitlines()
-    assert per_sequence[0] == 'sample\tpool_id\tgroup\tshared_with\toracle\tunitas\tmirge3' and 'SRRA\thsa-miR-1-3p\texact\t\t8\t8\t8' in per_sequence
+    assert per_sequence[0] == 'sample\tpool_id\tgroup\tshift\tshared_with\toracle\tunitas\tmirge3' and 'SRRA\thsa-miR-1-3p\texact\t\t\t8\t8\t8' in per_sequence
+    assert '## Filter route' in report and '| exact | 3 | 24 | 16.67% | 0.00% | 83.33% |' in report
 
     # With spike-ins the oracle reads the prefilter's reads (here one read fewer), while the trimmed reads remain.
     config['filter'] = {'spikein': {'ref': 'ercc'}}
@@ -387,7 +506,7 @@ def test_prepare_and_evaluate_a_pool(tmp_path):
               ''.join('@r{}\n{}\n+\n{}\n'.format(i, s, 'I' * len(s)) for i, s in enumerate(seqs[1:])))
     result = subprocess.run(cmd + ['evaluate', '--project', str(project)], capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
-    assert 'SRRA\thsa-miR-1-3p\texact\t\t7\t8\t8' in (project / 'benchmark/per_sequence.tsv').read_text().splitlines()
+    assert 'SRRA\thsa-miR-1-3p\texact\t\t\t7\t8\t8' in (project / 'benchmark/per_sequence.tsv').read_text().splitlines()
 
     # Native spike-ins with UNITAS and miRge3 only: the workflow runs no prefilter, and the oracle reads the trimmed reads.
     config['filter'] = {'spikein': {'ref': 'ERCC92', 'quantifier': 'native'}}
@@ -411,4 +530,4 @@ def test_prepare_and_evaluate_a_pool(tmp_path):
         (project / 'data/tmp/smallrna/filter/spikein/bowtie/{}_R1.fastq'.format(run)).unlink()
     result = subprocess.run(cmd + ['evaluate', '--project', str(project)], capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
-    assert 'SRRA\thsa-miR-1-3p\texact\t\t8\t8\t8' in (project / 'benchmark/per_sequence.tsv').read_text().splitlines()
+    assert 'SRRA\thsa-miR-1-3p\texact\t\t\t8\t8\t8' in (project / 'benchmark/per_sequence.tsv').read_text().splitlines()
