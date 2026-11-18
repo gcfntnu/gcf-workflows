@@ -19,16 +19,19 @@ Its records (three_prime_artefact_fasta) are every piece of at least THREE_PRIME
 adapter followed by the start of Illumina's index-read primer (ILLUMINA_INDEX_PRIMER_START, as in the read:
 `...TGGAATTCTCGGGTGCCAAGG` `AACTCCAGTCAC` `<index>` `ATCTCGTATGCCGTCTTCTGCTTG`), and of Illumina's P7 sequence
 (ILLUMINA_P7); the index between them differs per sample and is not used. The Illumina sequences are the same for every
-kit, so they are constants rather than kit settings.
+kit, so they are constants rather than kit settings. A read with both a 5' artefact and 3' artefact sequence counts as
+a 5' artefact (pass 2 removes it first). The 16-nt minimum is essential: with 14-nt pieces (10% errors), pieces at the
+adapter's end matched human 18S rRNA (around position 400), hsa-miR-2116-3p and a misc_RNA; from 16 nt no human mature
+miRNA (miRBase 23.1) or Ensembl/GtRNAdb/SILVA tRNA, rRNA, snRNA, snoRNA, scaRNA, vault or misc_RNA sequence matches.
+
 The kit's reagent oligos follow (artefact_fasta), each as a 5' adapter with a minimum overlap of
 REAGENT_OLIGO_MIN_OVERLAP nt and FIVE_PRIME_MAX_ERROR_RATE: the oligo complete anywhere in the read, or its 3' end of
 at least that length at the read start, as in the 5'-truncated copies of the TruSeq Small RNA Stop Oligo (STP), which
 pass the other filters and which UNITAS counts as protein-coding reads (COL5A3). Chimeras of an oligo and an insert
 are discarded too (7 of 5.8 million reads in public TruSeq plasma data at 14 nt).
-A read with both a 5' artefact and 3' artefact sequence counts as
-a 5' artefact (pass 2 removes it first). The 16-nt minimum is essential: with 14-nt pieces (10% errors), pieces at the
-adapter's end matched human 18S rRNA (around position 400), hsa-miR-2116-3p and a misc_RNA; from 16 nt no human mature
-miRNA (miRBase 23.1) or Ensembl/GtRNAdb/SILVA tRNA, rRNA, snRNA, snoRNA, scaRNA, vault or misc_RNA sequence matches.
+The setting is required (`[]` for none), so a project's own cutadapt table cannot drop the kit's oligos unnoticed. A
+read that matches both kinds of record counts for the record cutadapt finds best (on a tie, the earlier one, a 3'
+artefact record); merge_cutadapt.py counts the two kinds apart by record name.
 
 5' adapter artefacts are fragments of the 5' adapter (`adapter5`) that start anywhere in it, usually end before its
 end, and sometimes follow a few other bases. cutadapt accepts a partial 5' adapter only when it runs to the adapter's 3'
@@ -65,6 +68,7 @@ FIVE_PRIME_MIN_OVERLAP = 12
 MIN_FIVE_PRIME_PIECE = 14  # 12-13-nt pieces anywhere match miR-625-5p
 FIVE_PRIME_MAX_ERROR_RATE = 0.1
 THREE_PRIME_ARTEFACT_PIECE = 16
+THREE_PRIME_ARTEFACT_RECORD, REAGENT_OLIGO_RECORD = 'three_prime_artefact_', 'reagent_oligo_'  # record name prefixes, read by merge_cutadapt.py
 REAGENT_OLIGO_MIN_OVERLAP = 14  # in TruSeq plasma: 7 STP-miRNA chimeras of 5.8 M reads discarded at 14 nt, 43 at 10 (#380)
 ILLUMINA_INDEX_PRIMER_START = 'AACTCCAGTCAC'
 ILLUMINA_P7 = 'ATCTCGTATGCCGTCTTCTGCTTG'
@@ -111,9 +115,8 @@ def cutadapt_settings(config):
     if max_ee is not None and (isinstance(max_ee, bool) or not isinstance(max_ee, (int, float)) or max_ee <= 0):
         raise ValueError('filter.trim.cutadapt.max_ee: expected errors > 0, or null, got {!r}'.format(max_ee))
     oligos = settings.get('reagent_oligos')
-    oligos = [] if oligos is None else oligos
     if not isinstance(oligos, list) or not all(valid_oligo(o) for o in oligos):
-        raise ValueError('filter.trim.cutadapt.reagent_oligos: a list of A/C/G/T sequences of at least {} nt, got {!r}'.format(
+        raise ValueError('filter.trim.cutadapt.reagent_oligos: a list of A/C/G/T sequences of at least {} nt, [] for none, got {!r}'.format(
             REAGENT_OLIGO_MIN_OVERLAP, oligos))
     return {'adapter3': adapter3, 'adapter5': adapter5, 'five_prime_piece': piece, 'random_ends': random_ends, 'minimum_length': minimum_length,
             'max_n': max_n, 'max_ee': max_ee, 'reagent_oligos': oligos}
@@ -163,16 +166,16 @@ def three_prime_artefact_fasta(adapter3):
     for tag, sequence in (('adapter', adapter3 + ILLUMINA_INDEX_PRIMER_START), ('p7', ILLUMINA_P7)):
         pieces = sorted({sequence[i:i + n] for n in range(THREE_PRIME_ARTEFACT_PIECE, len(sequence) + 1)
                          for i in range(len(sequence) - n + 1)}, key=lambda p: (-len(p), sequence.index(p)))
-        records += ['>three_prime_artefact_{}_{}_{}\n{};min_overlap={};max_error_rate={}\n'.format(
-            tag, sequence.index(p), len(p), p, THREE_PRIME_ARTEFACT_PIECE, FIVE_PRIME_MAX_ERROR_RATE) for p in pieces]
+        records += ['>{}{}_{}_{}\n{};min_overlap={};max_error_rate={}\n'.format(
+            THREE_PRIME_ARTEFACT_RECORD, tag, sequence.index(p), len(p), p, THREE_PRIME_ARTEFACT_PIECE, FIVE_PRIME_MAX_ERROR_RATE) for p in pieces]
     return ''.join(records)
 
 
 def reagent_oligo_fasta(oligos):
     """cutadapt adapter FASTA records of the kit's reagent oligos: 5' adapters with REAGENT_OLIGO_MIN_OVERLAP and
     FIVE_PRIME_MAX_ERROR_RATE."""
-    return ''.join('>reagent_oligo_{}_{}\n{};min_overlap={};max_error_rate={}\n'.format(
-        i + 1, len(o), o, REAGENT_OLIGO_MIN_OVERLAP, FIVE_PRIME_MAX_ERROR_RATE) for i, o in enumerate(oligos))
+    return ''.join('>{}{}_{}\n{};min_overlap={};max_error_rate={}\n'.format(
+        REAGENT_OLIGO_RECORD, i + 1, len(o), o, REAGENT_OLIGO_MIN_OVERLAP, FIVE_PRIME_MAX_ERROR_RATE) for i, o in enumerate(oligos))
 
 
 def artefact_fasta(adapter3, oligos):

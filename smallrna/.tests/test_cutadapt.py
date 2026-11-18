@@ -59,7 +59,10 @@ def test_kit_presets():
     assert v3['adapter5'] == truseq['adapter5'] == ADAPTER5 and v4['adapter5'] == ADAPTER5_V4
     assert all(KITS[kit + ' SE']['filter']['trim']['quantifier'] == 'cutadapt' for kit in (V3, V4, TRUSEQ))
     assert truseq['reagent_oligos'] == [STP] and v3['reagent_oligos'] == v4['reagent_oligos'] == []
-    assert policy.cutadapt_settings(kit_config(TRUSEQ, reagent_oligos=None))['reagent_oligos'] == []    # optional
+    config = kit_config(TRUSEQ)
+    del config['filter']['trim']['cutadapt']['reagent_oligos']
+    with pytest.raises(ValueError, match=r'\[\] for none'):                                                # required
+        policy.cutadapt_settings(config)
 
 
 def test_settings_are_required():
@@ -74,7 +77,7 @@ def test_settings_are_required():
     ({'five_prime_piece': 13}, 'five_prime_piece'), ({'five_prime_piece': 27}, 'five_prime_piece'), ({'trim_args': '-q 20'}, 'unknown setting'),
     ({'reagent_oligos': STP}, 'reagent_oligos'), ({'reagent_oligos': ['GAATTCCACCACG']}, 'at least 14'),
     ({'reagent_oligos': ['GAAUUCCACCACGUUCC']}, 'reagent_oligos'), ({'reagent_oligos': ''}, 'reagent_oligos'),
-    ({'reagent_oligos': False}, 'reagent_oligos'), ({'reagent_oligos': {}}, 'reagent_oligos')])
+    ({'reagent_oligos': False}, 'reagent_oligos'), ({'reagent_oligos': {}}, 'reagent_oligos'), ({'reagent_oligos': None}, 'reagent_oligos')])
 def test_invalid_settings_fail(change, message):
     with pytest.raises(ValueError, match=message):
         policy.cutadapt_settings(kit_config(TRUSEQ, **change))
@@ -118,6 +121,13 @@ def test_three_prime_artefact_fasta_lists_adapter_primer_and_p7_pieces():
     result = subprocess.run(['python', str(SCRIPTS / 'cutadapt_config.py'), 'artefact-fasta', ADAPTER3],
                             capture_output=True, text=True, timeout=30)
     assert result.returncode == 0 and result.stdout == policy.three_prime_artefact_fasta(ADAPTER3)
+
+
+def test_artefact_records_are_named_as_the_merge_counts_them():
+    names = [line[1:] for line in policy.artefact_fasta(ADAPTER3, [STP]).splitlines()[0::2]]
+    assert (policy.THREE_PRIME_ARTEFACT_RECORD, policy.REAGENT_OLIGO_RECORD) == (merger.THREE_PRIME_ARTEFACT_RECORD, merger.REAGENT_OLIGO_RECORD)
+    assert sum(n.startswith(merger.REAGENT_OLIGO_RECORD) for n in names) == 1
+    assert all(n.startswith((merger.THREE_PRIME_ARTEFACT_RECORD, merger.REAGENT_OLIGO_RECORD)) for n in names)
 
 
 def test_artefact_fasta_adds_the_reagent_oligos_as_five_prime_adapters():
@@ -166,6 +176,9 @@ def test_merged_report_sums_the_passes():
         merger.merge(adapter, report(['filter'], 1000, 599), artefacts, 'S1', PATHS)
     with pytest.raises(ValueError, match='other than by discard_trimmed'):
         merger.merge(adapter, filtered, report(['artefacts'], 600, 590, too_short=10), 'S1', PATHS)
+    with pytest.raises(ValueError, match='records of unknown kind: other_1'):
+        merger.merge(adapter, filtered, report(['artefacts'], 600, 590, discard_trimmed=10, records=records + [{'name': 'other_1', 'total_matches': 0}]),
+                     'S1', PATHS)
     with pytest.raises(ValueError, match='discarded 10 reads, but its records matched 9'):
         merger.merge(adapter, filtered, report(['artefacts'], 600, 590, discard_trimmed=10, records=records[1:] + [dict(records[0], total_matches=5)]),
                      'S1', PATHS)
@@ -345,9 +358,10 @@ def test_three_prime_artefacts_are_discarded(tmp_path):
 
 
 # TruSeq Stop Oligo reads (#380), as in public TruSeq plasma data after the 3' adapter pass: the oligo and its 5'-truncated
-# copies, with one mismatch or an extra 3' base, and an oligo-miRNA chimera; miRNAs and 13 nt of the oligo's end stay
-STP_DISCARDED = [STP, STP[4:], STP[6:], STP[:10] + 'A' + STP[11:], STP[5:] + 'A', STP + MIR21_5P]
-STP_KEPT = [MIR21_5P, MIR22_5P, MIR139_5P, 'TTTTTTTTT' + STP[-13:], 'TTTTTTTTT' + STP[-16:]]  # truncated copies count only at the read start
+# copies (down to 14 nt), with one mismatch (STP[10] is A) or an extra 3' base, and an oligo-miRNA chimera
+# copies of the oligo's end at the read start count from 14 nt; inside the read, only the complete oligo does
+STP_DISCARDED = [STP, STP[4:], STP[6:], STP[-14:] + 'GCATGCA', STP[:10] + 'T' + STP[11:], STP[5:] + 'A', STP + MIR21_5P]
+STP_KEPT = [MIR21_5P, MIR22_5P, MIR139_5P, STP[-13:] + 'GCATGCAT', 'TTTTTTTTT' + STP[-13:], 'TTTTTTTTT' + STP[-16:]]
 
 
 def test_truseq_stop_oligo_reads_are_discarded(tmp_path):

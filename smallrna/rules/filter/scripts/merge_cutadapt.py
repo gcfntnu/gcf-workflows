@@ -6,9 +6,10 @@ Read counts: `input` from the adapter pass, `output` from the artefact pass, fil
 adapter and filter passes, and the artefact pass's discarded reads (`discard_trimmed` there) split by the record that
 matched (`adapters_read1`, exact, as that pass only flags reads): reads still containing 3' adapter or Illumina primer
 sequence (#353) as `gcf_three_prime_artefacts`, reads of a reagent oligo of the kit (records `reagent_oligo_*`, #380) as
-`gcf_reagent_oligos`, so `discard_trimmed` stays the 5' adapter artefacts; `read1_with_adapter` (3' adapter found) from
-the adapter pass; base pair counts likewise; `adapters_read1` (trimmed length statistics) from the adapter pass only,
-as the later passes only flag reads for discarding.
+`gcf_reagent_oligos` (a read matching both counts for the record cutadapt found best); any other record fails. So
+`discard_trimmed` stays the 5' adapter artefacts. `read1_with_adapter` (3' adapter found) comes from the adapter pass,
+and base pair counts likewise; `adapters_read1` (trimmed length statistics) from the adapter pass only, as the later
+passes only flag reads for discarding.
 `input.path1` is `<sample>.fastq`, so report tools name the sample after it. The report records that it is a merge
 (`tag`: "Cutadapt report, merged from the passes in gcf_passes"; `gcf_passes`: each pass's command line and file),
 and the reports of the passes are kept unchanged next to it.
@@ -22,7 +23,8 @@ import sys
 COUNTS = ('too_short', 'too_long', 'too_many_n', 'too_many_expected_errors', 'casava_filtered', 'discard_trimmed',
           'discard_untrimmed')
 PASSES = ('adapter', 'filter', 'artefacts')
-REAGENT_OLIGO_RECORD = 'reagent_oligo_'  # record names of cutadapt_config.reagent_oligo_fasta
+# record name prefixes of the artefact pass (cutadapt_config.THREE_PRIME_ARTEFACT_RECORD, REAGENT_OLIGO_RECORD)
+THREE_PRIME_ARTEFACT_RECORD, REAGENT_OLIGO_RECORD = 'three_prime_artefact_', 'reagent_oligo_'
 
 
 def add(*values):
@@ -54,9 +56,12 @@ def merge(adapter, filtered, artefacts, sample, paths):
                           for key in COUNTS}
     discarded = artefacts['read_counts']['filtered'].get('discard_trimmed') or 0
     records = artefacts.get('adapters_read1') or []
-    if sum(r['total_matches'] for r in records) != discarded:
-        raise ValueError('the artefact pass discarded {} reads, but its records matched {}: {}'.format(
-            discarded, sum(r['total_matches'] for r in records), paths['artefacts']))
+    unknown = [r['name'] for r in records if not r['name'].startswith((THREE_PRIME_ARTEFACT_RECORD, REAGENT_OLIGO_RECORD))]
+    if unknown:
+        raise ValueError('the artefact pass has records of unknown kind: {}: {}'.format(', '.join(unknown), paths['artefacts']))
+    matched = sum(r['total_matches'] for r in records)
+    if matched != discarded:
+        raise ValueError('the artefact pass discarded {} reads, but its records matched {}: {}'.format(discarded, matched, paths['artefacts']))
     oligos = sum(r['total_matches'] for r in records if r['name'].startswith(REAGENT_OLIGO_RECORD))
     counts['filtered']['gcf_three_prime_artefacts'] = discarded - oligos
     counts['filtered']['gcf_reagent_oligos'] = oligos
