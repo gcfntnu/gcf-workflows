@@ -21,11 +21,12 @@ COMMON_COLUMNS = ('method', 'sample', 'mature_name', 'mature_id', 'count')
 
 
 def read_matrix(path, sep):
-    """Feature-by-sample count table -> {feature: {sample: count}}."""
+    """Feature-by-sample count table -> {feature: {sample: count}}; empty cells and NA (mirflowz writes NA for a
+    feature without reads in a sample) are 0."""
     with open(path, newline='') as fh:
         rows = list(csv.reader(fh, delimiter=sep))
     samples = rows[0][1:]
-    return {row[0].strip(): {s: float(v or 0) for s, v in zip(samples, row[1:])} for row in rows[1:] if row}
+    return {row[0].strip(): {s: 0.0 if v in ('', 'NA') else float(v) for s, v in zip(samples, row[1:])} for row in rows[1:] if row}
 
 
 def unitas(quant_dir, name_to_id, prefix, **_):
@@ -37,6 +38,7 @@ def unitas(quant_dir, name_to_id, prefix, **_):
 
 
 def mirge3(quant_dir, name_to_id, **_):
+    """The workflow's miR.Counts.csv (built from miRge3's mapped.csv, #349), not miRge3's own miR.Counts.mirge3.csv."""
     rows = []
     for feature, counts in read_matrix(Path(quant_dir) / 'mirge3' / 'miR.Counts.csv', ',').items():
         if feature.lower() in ('mirna', 'mirna_name'):

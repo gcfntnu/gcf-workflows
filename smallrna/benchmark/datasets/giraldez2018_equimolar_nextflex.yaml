@@ -1,0 +1,22 @@
+# Giraldez et al. 2018 (Nat Biotechnol 36:746, doi:10.1038/nbt.4183), equimolar synthetic RNA pool (1,152 RNAs at equal amounts), GEO GSE94584 (SRA SRP098948).
+# Composition: rspengle/CrossU01_exRNA_Manuscript2017 (MIT) at a fixed commit. Fill with `benchmark.py fill`.
+name: giraldez2018_equimolar_nextflex
+kind: pool
+pool: equimolar
+organism: homo_sapiens
+libprepkit: Bioo Scientific NEXTflex Small RNA-Seq Kit v3
+methods: [unitas, mirge3, mirflowz]
+data: benchmark/smallrna/giraldez2018   # relative to EXT_DIR
+composition:
+  file: FINAL_Equimolar_pool_SynthRNA_1152-1.csv
+  url: https://raw.githubusercontent.com/rspengle/CrossU01_exRNA_Manuscript2017/e055602f59d3ff76ee051d59d7ebfd9b90028686/data/FINAL_Equimolar_pool_SynthRNA_1152-1.csv
+  sha256: 127496d9c2d2c0082ff39a9f16521915b54b46003d28e8f0e201f8fc25677a35
+mirbase:                    # mature miRNAs of the release the methods use: names, accessions and truth groups
+  release: '23.1'
+  url: https://www.mirbase.org/download_version_files/23.1/mature.fa
+  sha256: 52d69eeb3c23c5ed0f66c8c9f24e1ad2cd94cc34e72e4fc376c0dd438d2779ff
+runs:
+  - {run: SRR5234279, group: EQ, lab: Lab8, instrument: HiSeq 2500, reads: 2879034, md5: 9178c66873d3c1d84749b8d05f81f46f, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR523/009/SRR5234279/SRR5234279.fastq.gz}
+  - {run: SRR5234280, group: EQ, lab: Lab8, instrument: HiSeq 2500, reads: 5215333, md5: 0ecffae37c7dc12a025bf18f880dc31d, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR523/000/SRR5234280/SRR5234280.fastq.gz}
+  - {run: SRR5234281, group: EQ, lab: Lab8, instrument: HiSeq 2500, reads: 4811407, md5: 0db845887a097a7256b767960ab6ee9c, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR523/001/SRR5234281/SRR5234281.fastq.gz}
+  - {run: SRR5234282, group: EQ, lab: Lab8, instrument: HiSeq 2500, reads: 8313603, md5: 27de2171f881ee13a5d9463d0ad15d7c, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR523/002/SRR5234282/SRR5234282.fastq.gz}

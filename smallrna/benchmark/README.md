@@ -7,7 +7,7 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
 
 ## Steps
 
-1. **Reference.** A reduced reference (a few chromosomes) lets mirflowz run on a workstation. It goes to
+1. **Reference** (synthetic datasets). A reduced reference (a few chromosomes) lets mirflowz run on a workstation. It goes to
    `EXT_DIR/benchmark/references/<name>/`, the place the dataset declaration names:
 
    ```bash
@@ -33,27 +33,79 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
 
 ## Datasets
 
-Declarations live in `datasets/`. A synthetic declaration lists miRNAs with reads per sample (`mirnas`), miRNAs drawn
-from those annotated on the reference (`random_mirnas`), isomiRs (`isomirs`: `3p_trim_1`, `3p_add_A`, `5p_trim_1`) and
-random reads; reads are generated from a fixed seed with the kit's adapter (and `umi` random nucleotides at each end
-for kits that use them), so the workflow's own filtering runs as usual. Public datasets with a known composition will
-be added with a fill step that downloads them into `EXT_DIR/benchmark/smallrna/<dataset>/` once, checked against
-recorded checksums; benchmark runs only read them.
+Declarations live in `datasets/`.
+
+**Synthetic** (`kind: synthetic`): miRNAs with reads per sample (`mirnas`), miRNAs drawn from those annotated on the
+reference (`random_mirnas`), isomiRs (`isomirs`: `3p_trim_1`, `3p_add_A`, `5p_trim_1`) and random reads; reads are
+generated from a fixed seed with the kit's adapter (and `umi` random nucleotides at each end for kits that use them),
+so the workflow's own filtering runs as usual. Not stored.
+
+**Synthetic RNA pools** (`kind: pool`), from Giraldez et al. 2018 (*Nat Biotechnol* 36:746, doi:10.1038/nbt.4183),
+one declaration per pool and kit, as a project has one kit:
+
+| Declaration | Pool | Runs |
+|---|---|---|
+| `giraldez2018_equimolar_truseq` | 1,152 RNAs at equal amounts (GEO GSE94584) | 3 TruSeq runs, three labs |
+| `giraldez2018_equimolar_nextflex` | same | 4 NEXTflex (4N) runs, one lab |
+| `giraldez2018_ratiometric_truseq` | pools A and B, 334 RNAs at designed ratios from 1:10 to 10:1 (GEO GSE94585) | 2 A + 2 B per lab, two labs |
+| `giraldez2018_ratiometric_nextflex` | same | 2 A + 2 B, one lab |
+
+Each names the runs (ENA FASTQ with MD5), the composition table from the study's code
+([rspengle/CrossU01_exRNA_Manuscript2017](https://github.com/rspengle/CrossU01_exRNA_Manuscript2017), MIT, at a fixed
+commit) and the miRBase mature sequences, with SHA-256. `benchmark.py fill` downloads them once into
+`EXT_DIR/<data>/` (each download to its own temporary file, renamed after the checksum matches, so fills of
+declarations sharing a folder can run at the same time); it is the only step that writes to `EXT_DIR`:
+
+```bash
+python smallrna/benchmark/benchmark.py fill --dataset smallrna/benchmark/datasets/giraldez2018_equimolar_truseq.yaml \
+    --ext-dir "$EXT_DIR"
+```
+
+`prepare` links the runs into the project, or copies the first `--reads N` reads of each for a quick run; `--methods`
+picks a subset of the declared methods (mirflowz on human needs the full human reference). Run `quant_all` with
+`--notemp`: the oracle count reads the workflow's filtered reads, those of the project's filter route (`filter/cutadapt/`
+with the kit default; the spike-in prefilter's when the project's `filter.spikein.ref` lists sets removed by Bowtie,
+although the trimmed reads it starts from remain; the trimmed reads with native spike-ins, which UNITAS and miRge3
+read). Reads left by two trimming routes stop `evaluate`.
 
 ## Methods
 
 `adapters.py` turns each method's native output into the common table: method, sample, the method's miRNA name, the
 miRBase accession and the count (canonical reads and isomiRs together). Matching is by accession, because the methods
-name miRNAs differently: UNITAS drops the species prefix, miRge3 reports merge groups (`name1/name2`, counted on the
+name miRNAs differently: UNITAS drops the species prefix, miRge3 (the workflow's own `miR.Counts.csv`, built from
+miRge3's `mapped.csv` with the project-level exact-read rule, #349) reports merge groups (`name1/name2`, counted on the
 first member), mirflowz names miRNAs after their locus (`mmu-miR-194-2-5p`) and reports isomiRs as separate rows. A new
 method needs one function in `ADAPTERS`, next to its smallrna route.
 
 ## Metrics
 
-For truth as reads per miRNA (synthetic data), per method: `recovered` (share of the true reads counted on the right
+**Synthetic data.** For truth as reads per miRNA, per method: `recovered` (share of the true reads counted on the right
 miRNA), `exact` (share of miRNAs counted exactly), `misassigned` (reads on miRNAs not in the truth) and `unplaced`
-(reads on names without a miRBase accession). For an equimolar pool: share of pool miRNAs detected, coefficient of
-variation, and share within two-fold of the median.
+(reads on names without a miRBase accession).
+
+**Pools** (`pool.py`):
+
+- **Truth groups.** As in the study, sequences of 16-25 nt with only a 5' phosphate and unique in the pool are
+  analysed, grouped against the organism's miRBase mature sequences: `exact` (the sequence of one or more mature
+  miRNAs), `shifted` (a mature miRNA with up to 3 nt more or less at either end: expected as an isomiR), `foreign`
+  (other species, viral, revised or non-miRNA sequences) and `excluded`. Against human miRBase 23.1 the equimolar pool
+  has 407 `exact` sequences, the ratiometric pools 211.
+- **Oracle.** The workflow's filtered reads counted by exact match to each pool sequence: what a sample contains after
+  the kit's bias. Methods are scored against it on the `exact` group, so a kit's per-sequence bias (up to 100-fold) does
+  not hide the differences between methods. An `exact` sequence whose miRNA is also that of a `shifted` one is left
+  out (7 in the equimolar pool, none in the ratiometric pools): a method's count of the miRNA holds the reads of both
+  sequences, the oracle those of one. In `per_sequence.tsv` (oracle and method counts per `exact` and `shifted`
+  sequence) such entries keep their oracle count, their method counts are `NA`, and `shared_with` names the others.
+- **Equimolar pool**, per method and for the oracle: `detected`, `cv` and `qcd` (quartile coefficient of dispersion)
+  across the group; per method against the oracle: `median_log2_vs_oracle` (of (method + 1) / (oracle + 1)),
+  `within_2fold`, `beyond_10fold`, `spearman_vs_oracle`, and of all the reads the method reported as miRNAs, `outside`
+  (the share on miRNAs of no `exact` or `shifted` sequence, i.e. assigned from foreign sequences) and `unplaced` (the
+  share on names without a miRBase accession).
+- **Ratiometric pools**: counts per million of the group, averaged per pool, give an observed log2(A/B) per sequence,
+  centred on the sequences designed 1:1. Against the design: `median_abs_error`, `spearman_vs_design`, `called`
+  (designed at least 2-fold apart and observed so, in the right direction) and `false_calls` (designed less than 2-fold
+  apart, observed at least 2-fold apart). A fold change cancels the per-sequence kit bias, so what differs between
+  methods is quantification. The report also lists the median observed log2(A/B) per designed ratio.
 
 On the mouse chr19 dataset, UNITAS and miRge3 count every miRNA exactly. mirflowz counts a third of
 `mmu-miR-146b-5p`, whose sequence occurs three times on chr19: it divides a read that maps equally well to several loci

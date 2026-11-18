@@ -1,0 +1,22 @@
+# Giraldez et al. 2018 (Nat Biotechnol 36:746, doi:10.1038/nbt.4183), ratiometric synthetic RNA pools A and B (334 RNAs at designed ratios), GEO GSE94585 (SRA SRP098949).
+# Composition: rspengle/CrossU01_exRNA_Manuscript2017 (MIT) at a fixed commit. Fill with `benchmark.py fill`.
+name: giraldez2018_ratiometric_nextflex
+kind: pool
+pool: ratiometric
+organism: homo_sapiens
+libprepkit: Bioo Scientific NEXTflex Small RNA-Seq Kit v3
+methods: [unitas, mirge3, mirflowz]
+data: benchmark/smallrna/giraldez2018   # relative to EXT_DIR
+composition:
+  file: FINAL_Ratiometric_SynthA_and_SynthB-1.csv
+  url: https://raw.githubusercontent.com/rspengle/CrossU01_exRNA_Manuscript2017/e055602f59d3ff76ee051d59d7ebfd9b90028686/data/FINAL_Ratiometric_SynthA_and_SynthB-1.csv
+  sha256: 811c94e0a9e7286aa7ceea3c628ca289cc3bad10d9830c088d4efd3c1ede61b3
+mirbase:                    # mature miRNAs of the release the methods use: names, accessions and truth groups
+  release: '23.1'
+  url: https://www.mirbase.org/download_version_files/23.1/mature.fa
+  sha256: 52d69eeb3c23c5ed0f66c8c9f24e1ad2cd94cc34e72e4fc376c0dd438d2779ff
+runs:
+  - {run: SRR5234359, group: A, lab: Lab8, instrument: HiSeq 2500, reads: 9786107, md5: fa6a8d4d86f405fabc147af23403f1d8, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR523/009/SRR5234359/SRR5234359.fastq.gz}
+  - {run: SRR5234361, group: A, lab: Lab8, instrument: HiSeq 2500, reads: 9469917, md5: 1cfcfa4376577ac2fa3ffad1c940064a, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR523/001/SRR5234361/SRR5234361.fastq.gz}
+  - {run: SRR5234440, group: B, lab: Lab8, instrument: HiSeq 2500, reads: 9267261, md5: ee267e4ffe82d6bff080b85257fd5c9f, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR523/000/SRR5234440/SRR5234440.fastq.gz}
+  - {run: SRR5234441, group: B, lab: Lab8, instrument: HiSeq 2500, reads: 9703211, md5: ab78dfa6b56e264650616923573e58ee, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR523/001/SRR5234441/SRR5234441.fastq.gz}
