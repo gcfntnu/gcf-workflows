@@ -1,5 +1,6 @@
-"""UNITAS misc_RNA by gene family (#379): the family rules and table, its checks, the MultiQC section and the rules in
-the delivery dry run. Synthetic UNITAS-style files only."""
+"""UNITAS misc_RNA by gene family (#379): the family rules and table, its checks against annotations.tsv, the MultiQC
+section and the rules in the quant_all and delivery dry runs. Synthetic UNITAS-style files only."""
+import math
 from pathlib import Path
 import subprocess
 import sys
@@ -25,6 +26,7 @@ HITS = [('misc_RNA', 'RNY4-ENSG00000000001.1', 2.0), ('misc_RNA', 'Y_RNA-ENSG000
 FAMILIES = {'Y_RNA': 3.0, '7SK': 0.5, '7SL': 1.25, 'other': 0.75}
 SUMMARY = 'miRNA\t20\n   miRNA:homo_sapiens\t18\n   miRNA:other\t2\nlncRNA\t3\nmisc_RNA\t5.5\nsnRNA\t4\nno annotation\t7\n'
 HITS_HEADER = 'TRANSCRIPT_CLASS\tTRANSCRIPT_NAME\tREAD_COUNT\n'
+ZEROS = ['Y_RNA\t0', '7SK\t0', '7SL\t0', 'other\t0']
 
 
 def write_sample(base, sample, summary=SUMMARY, hits=HITS, hits_text=None):
@@ -40,16 +42,27 @@ def run(script, *args):
     return subprocess.run([sys.executable, str(script), *map(str, args)], capture_output=True, text=True)
 
 
-def family_table(base, samples):
+def annotations(base, samples):
+    """annotations.tsv as the workflow makes it (unitas_annotations.py) from the samples' summaries."""
+    result = run(QUANT / 'unitas_annotations.py', *[base / s / 'unitas.annotation_summary.txt' for s in samples])
+    assert result.returncode == 0, result.stderr
+    path = base / 'annotations.tsv'
+    path.write_text(result.stdout)
+    return path
+
+
+def family_table(base, samples, annotations_path=None):
     """Run the script; the table and the MultiQC section are attached to the result when it succeeds."""
     out = base / 'out'
     out.mkdir(exist_ok=True)
-    result = run(SCRIPT, '--summaries', *[base / s / 'unitas.annotation_summary.txt' for s in samples],
+    result = run(SCRIPT, '--annotations', annotations_path or annotations(base, samples),
                  '--hits-per-target', *[base / s / 'unitas.hits_per_target.txt' for s in samples],
                  '--table', out / 'misc_rna_families.tsv', '--mqc', out / 'unitas_misc_rna_mqc.yaml')
     if result.returncode == 0:
         result.table = (out / 'misc_rna_families.tsv').read_text()
         result.section = yaml.safe_load((out / 'unitas_misc_rna_mqc.yaml').read_text())
+    else:
+        assert not (out / 'misc_rna_families.tsv').exists() and not (out / 'unitas_misc_rna_mqc.yaml').exists()
     return result
 
 
@@ -74,55 +87,20 @@ def test_table_keeps_fractional_counts_and_lists_every_family(tmp_path):
                             'S2\tY_RNA\t3\nS2\t7SK\t0.5\nS2\t7SL\t1.25\nS2\tother\t0.75\n')
 
 
-@pytest.mark.parametrize('hits_text', ['', HITS_HEADER, '\n' + HITS_HEADER + '\n'])
+@pytest.mark.parametrize('hits_text', ['', HITS_HEADER, '\n' + HITS_HEADER + '  \n'])
 def test_sample_without_reads_has_no_targets(tmp_path, hits_text):
-    write_sample(tmp_path, 'S1', summary='', hits_text=hits_text)
+    write_sample(tmp_path, 'S1', summary='miRNA\t0\n', hits_text=hits_text)
     result = family_table(tmp_path, ['S1'])
     assert result.returncode == 0, result.stderr
-    assert result.table.splitlines()[1:] == ['S1\tY_RNA\t0', 'S1\t7SK\t0', 'S1\t7SL\t0', 'S1\tother\t0']
+    assert result.table.splitlines()[1:] == ['S1\t' + z for z in ZEROS]
 
 
-def test_blank_lines_in_the_hits_table_are_skipped(tmp_path):
+def test_blank_and_space_only_lines_in_the_hits_table_are_skipped(tmp_path):
     rows = [f'{c}\t{n}\t{v}\n' for c, n, v in HITS]
-    write_sample(tmp_path, 'S1', hits_text=HITS_HEADER + ''.join(rows[:3]) + '\n' + ''.join(rows[3:]) + '\n\n')
+    write_sample(tmp_path, 'S1', hits_text=HITS_HEADER + ''.join(rows[:3]) + '\n   \n' + ''.join(rows[3:]) + '\n \n')
     result = family_table(tmp_path, ['S1'])
     assert result.returncode == 0, result.stderr
     assert result.section['data'] == {'S1': FAMILIES}
-
-
-def test_summary_is_read_up_to_the_first_empty_line_as_in_annotations_tsv(tmp_path):
-    """unitas_annotations.py stops at the first empty line; a misc_RNA row after it counts in neither table."""
-    out = write_sample(tmp_path, 'S1', summary='miRNA\t20\n\nmisc_RNA\t5.5\n')
-    annotations = run(QUANT / 'unitas_annotations.py', out / 'unitas.annotation_summary.txt')
-    assert annotations.returncode == 0 and 'misc_RNA' not in annotations.stdout
-    result = family_table(tmp_path, ['S1'])
-    assert result.returncode != 0 and 'misc_RNA targets add up to 5.5 reads, the annotation summary has 0' in result.stderr
-    write_sample(tmp_path, 'S2', summary='', hits=[])
-    (tmp_path / 'S2/unitas.annotation_summary.txt').write_text('miRNA\t20\n\nmisc_RNA\t5.5\n')
-    assert family_table(tmp_path, ['S2']).returncode == 0
-
-
-@pytest.mark.parametrize('summary, hits_text, message', [
-    (SUMMARY.replace('misc_RNA\t5.5', 'misc_RNA\t9'), None, 'misc_RNA targets add up to 5.5 reads, the annotation summary has 9'),
-    ('miRNA\t20\n', None, 'misc_RNA targets add up to 5.5 reads, the annotation summary has 0'),
-    (SUMMARY, 'class\tname\tcount\nmisc_RNA\tRNY4\t1\n', 'unitas.hits_per_target.txt: line 1: not a UNITAS hits_per_target header'),
-    (SUMMARY, HITS_HEADER + '\nmisc_RNA\tRNY4\n', "unitas.hits_per_target.txt: line 3: expected 3 columns, got ['misc_RNA', 'RNY4']"),
-    (SUMMARY, HITS_HEADER + 'misc_RNA\tRNY4\tx\n', "unitas.hits_per_target.txt: line 2: expected a number, got 'x'"),
-    ('miRNA\t20\nmisc_RNA\t5,5\n', None, "unitas.annotation_summary.txt: line 2: expected a number, got '5,5'"),
-    ('miRNA\t20\nmisc_RNA 5.5\n', None, "unitas.annotation_summary.txt: line 2: expected a class and a count, got 'misc_RNA 5.5'")])
-def test_table_stops_on_inconsistent_input(tmp_path, summary, hits_text, message):
-    write_sample(tmp_path, 'S1', summary=summary, hits_text=hits_text)
-    result = family_table(tmp_path, ['S1'])
-    assert result.returncode != 0 and message in result.stderr
-    assert not (tmp_path / 'out/misc_rna_families.tsv').exists()
-
-
-def test_table_needs_one_hits_table_per_summary(tmp_path):
-    for sample in ('S1', 'S2'):
-        write_sample(tmp_path, sample)
-    result = run(SCRIPT, '--summaries', tmp_path / 'S1/unitas.annotation_summary.txt', tmp_path / 'S2/unitas.annotation_summary.txt',
-                 '--hits-per-target', tmp_path / 'S1/unitas.hits_per_target.txt', '--table', tmp_path / 't.tsv', '--mqc', tmp_path / 'm.yaml')
-    assert result.returncode != 0 and 'one summary and one hits table per sample directory' in result.stderr
 
 
 def test_quote_in_a_target_name_does_not_merge_fields(tmp_path):
@@ -132,6 +110,48 @@ def test_quote_in_a_target_name_does_not_merge_fields(tmp_path):
     result = family_table(tmp_path, ['S1'])
     assert result.returncode == 0, result.stderr
     assert result.table.splitlines()[1:] == ['S1\tY_RNA\t0', 'S1\t7SK\t0', 'S1\t7SL\t2', 'S1\tother\t1']
+
+
+@pytest.mark.parametrize('summary, hits_text, message', [
+    (SUMMARY.replace('misc_RNA\t5.5', 'misc_RNA\t9'), None, 'misc_RNA targets add up to 5.5 reads, annotations.tsv has 9'),
+    ('miRNA\t20\n', None, 'misc_RNA targets add up to 5.5 reads, annotations.tsv has 0'),
+    (SUMMARY, 'class\tname\tcount\nmisc_RNA\tRNY4\t1\n', 'unitas.hits_per_target.txt: line 1: not a UNITAS hits_per_target header'),
+    (SUMMARY, HITS_HEADER + '\nmisc_RNA\tRNY4\n', "unitas.hits_per_target.txt: line 3: expected a class, a target name and a count"),
+    (SUMMARY, HITS_HEADER + '\t\t\n', "unitas.hits_per_target.txt: line 2: expected a class, a target name and a count, got ['', '', '']"),
+    (SUMMARY, HITS_HEADER + 'misc_RNA\t \t1\n', 'unitas.hits_per_target.txt: line 2: expected a class, a target name and a count'),
+    (SUMMARY, HITS_HEADER + 'misc_RNA\tRNY4\tx\n', "unitas.hits_per_target.txt: line 2: expected a finite number, got 'x'"),
+    (SUMMARY, HITS_HEADER + 'misc_RNA\tRNY4\tnan\n', "unitas.hits_per_target.txt: line 2: expected a finite number, got 'nan'"),
+    (SUMMARY, HITS_HEADER + 'lncRNA\tRNY4-AS1\tinf\n', "unitas.hits_per_target.txt: line 2: expected a finite number, got 'inf'"),
+    ('miRNA\t20\nmisc_RNA\tnan\n', None, "annotations.tsv: line 3: expected a finite number, got 'nan'")])
+def test_table_stops_on_inconsistent_input(tmp_path, summary, hits_text, message):
+    write_sample(tmp_path, 'S1', summary=summary, hits_text=hits_text)
+    result = family_table(tmp_path, ['S1'])
+    assert result.returncode != 0 and message in result.stderr
+
+
+def test_total_check_fails_on_nan():
+    counts = dict(FAMILIES, Y_RNA=math.nan)
+    with pytest.raises(ValueError, match='add up to nan reads'):
+        unitas_misc_rna.check_total(counts, 5.5, 'x')
+    with pytest.raises(ValueError, match='annotations.tsv has nan'):
+        unitas_misc_rna.check_total(FAMILIES, math.nan, 'x')
+
+
+def test_samples_must_match_annotations_and_hits_tables(tmp_path):
+    for sample in ('S1', 'S2'):
+        write_sample(tmp_path, sample)
+    result = family_table(tmp_path, ['S1', 'S2'], annotations_path=annotations(tmp_path, ['S1']))
+    assert result.returncode != 0 and "samples ['S2'] have hits tables but are not in it; samples [] are in it" in result.stderr
+    result = family_table(tmp_path, ['S1'], annotations_path=annotations(tmp_path, ['S1', 'S2']))
+    assert result.returncode != 0 and "samples [] have hits tables but are not in it; samples ['S2'] are in it" in result.stderr
+
+
+def test_annotations_table_must_have_its_columns(tmp_path):
+    write_sample(tmp_path, 'S1')
+    bad = tmp_path / 'bad.tsv'
+    bad.write_text('Sample_ID\tclass\tcount\nS1\tmisc_RNA\t5.5\n')
+    result = family_table(tmp_path, ['S1'], annotations_path=bad)
+    assert result.returncode != 0 and 'bad.tsv: line 1: not a UNITAS annotations table' in result.stderr
 
 
 def test_multiqc_section_with_the_table(tmp_path):
@@ -150,19 +170,24 @@ def test_multiqc_section_is_a_note_without_misc_rna(tmp_path):
     assert section['plot_type'] == 'html' and section['data'] == '<p>No sample has misc_RNA reads.</p>'
 
 
+def test_quant_all_builds_the_family_table(tmp_path):
+    returncode, output = dry_run(tmp_path, 'unitas')
+    assert returncode == 0, output
+    assert 'data/tmp/smallrna/quant/unitas/misc_rna_families.tsv' in rule_block(output, 'unitas_misc_rna')
+
+
 def test_delivery_plans_the_family_split(tmp_path):
     returncode, output = dry_run(tmp_path, 'unitas', printshell=True, target='multiqc_report')
     assert returncode == 0, output
     families = rule_block(output, 'unitas_misc_rna')
     command = next(line for line in families.splitlines() if 'unitas_misc_rna.py' in line)
-    summaries, rest = command.split('--hits-per-target')
-    assert summaries.count('unitas.annotation_summary.txt') == rest.count('unitas.hits_per_target.txt') > 0
+    assert '--annotations data/tmp/smallrna/quant/unitas/annotations.tsv --hits-per-target ' in command
+    assert command.count('unitas.hits_per_target.txt') > 0 and 'annotation_summary' not in command
     assert ('--table data/tmp/smallrna/quant/unitas/misc_rna_families.tsv '
             '--mqc data/tmp/smallrna/quant/unitas/unitas_misc_rna_mqc.yaml') in command
     assert 'hits_per_target' not in rule_block(output, 'unitas_annotations')
-    links = {'bfq_level2_unitas_misc_rna': ('quant/unitas/unitas_misc_rna_mqc.yaml', 'bfq/figs/unitas_misc_rna_mqc.yaml'),
-             'bfq_level2_misc_rna_families': ('quant/unitas/misc_rna_families.tsv', 'bfq/exprs/misc_rna_families.tsv')}
-    for rule, (source, target) in links.items():
-        assert f'ln -srf data/tmp/smallrna/{source} data/tmp/smallrna/{target}' in rule_block(output, rule)
+    links = rule_block(output, 'bfq_level2_unitas_misc_rna')
+    assert ('ln -srf data/tmp/smallrna/quant/unitas/misc_rna_families.tsv data/tmp/smallrna/bfq/exprs/misc_rna_families.tsv && '
+            'ln -srf data/tmp/smallrna/quant/unitas/unitas_misc_rna_mqc.yaml data/tmp/smallrna/bfq/figs/unitas_misc_rna_mqc.yaml') in links
     multiqc = rule_block(output, 'multiqc_report')
     assert 'figs/unitas_misc_rna_mqc.yaml' in multiqc and 'exprs/misc_rna_families.tsv' in multiqc
