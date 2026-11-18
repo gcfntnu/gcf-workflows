@@ -24,15 +24,18 @@ a 5' artefact (pass 2 removes it first). The 16-nt minimum is essential: with 14
 adapter's end matched human 18S rRNA (around position 400), hsa-miR-2116-3p and a misc_RNA; from 16 nt no human mature
 miRNA (miRBase 23.1) or Ensembl/GtRNAdb/SILVA tRNA, rRNA, snRNA, snoRNA, scaRNA, vault or misc_RNA sequence matches.
 
-The kit's reagent oligos follow (artefact_fasta), each as a 5' adapter with a minimum overlap of
-REAGENT_OLIGO_MIN_OVERLAP nt and FIVE_PRIME_MAX_ERROR_RATE: the oligo complete anywhere in the read, or its 3' end of
-at least that length at the read start, as in the 5'-truncated copies of the TruSeq Small RNA Stop Oligo (STP), which
-pass the other filters and which UNITAS counts as protein-coding reads (COL5A3); and its last REAGENT_OLIGO_MIN_OVERLAP
-nt anywhere in the read (one error allowed, so also its last 13 nt after any other base), for copies after a few other bases or with a deletion near their start (0.27% of the reads
-kept in a public TruSeq plasma library without this record, e.g. AA + CACCACGTTCCCGTGG). Chimeras of an oligo and an
-insert are discarded too (7 of 5.8 million reads in public TruSeq plasma data at 14 nt). Without the setting (or with null) a
-kit has none, as with random_ends. A read that matches both kinds of record counts for the record cutadapt finds best;
-merge_cutadapt.py counts the two kinds apart by record name.
+The kit's reagent oligos follow (reagent_oligo_fasta), two records each:
+- the oligo as a 5' adapter with a minimum overlap of REAGENT_OLIGO_MIN_OVERLAP nt and FIVE_PRIME_MAX_ERROR_RATE: the
+  oligo complete anywhere in the read, or its 3' end of at least that length at the read start, as in the 5'-truncated
+  copies of the TruSeq Small RNA Stop Oligo (STP), which pass the other filters and which UNITAS counts as
+  protein-coding reads (COL5A3);
+- its last REAGENT_OLIGO_MIN_OVERLAP nt, exactly, anywhere in the read: copies after a few other bases, with a deletion
+  near their start or repeated end to end (0.27% of the reads the first record kept in a public TruSeq plasma
+  library, e.g. AA + CACCACGTTCCCGTGG). Exactly, because with one error the STP's end matches 78 human transcripts
+  (Ensembl 116 cDNA, COL5A3 among them); exactly, it matches one, and no human mature miRNA either way.
+Chimeras of an oligo and an insert are discarded too (7 of 5.8 million reads in public TruSeq plasma data at 14 nt).
+Without the setting (or with null) a kit has none, as with random_ends. A read that matches both a 3' artefact and an
+oligo record counts for the record cutadapt finds best; merge_cutadapt.py counts the two kinds apart by record name.
 
 5' adapter artefacts are fragments of the 5' adapter (`adapter5`) that start anywhere in it, usually end before its
 end, and sometimes follow a few other bases. cutadapt accepts a partial 5' adapter only when it runs to the adapter's 3'
@@ -80,12 +83,14 @@ def check_oligos(oligos):
     """Fail unless oligos is a list of distinct A/C/G/T sequences of at least REAGENT_OLIGO_MIN_OVERLAP nt."""
     if not isinstance(oligos, list) or not all(isinstance(o, str) and DNA.match(o) and len(o) >= REAGENT_OLIGO_MIN_OVERLAP for o in oligos):
         raise ValueError('a list of A/C/G/T sequences of at least {} nt, got {!r}'.format(REAGENT_OLIGO_MIN_OVERLAP, oligos))
-    if len(set(oligos)) != len(oligos):
-        raise ValueError('an oligo is listed more than once: {!r}'.format(oligos))
+    ends = [o[-REAGENT_OLIGO_MIN_OVERLAP:] for o in oligos]
+    if len(set(ends)) != len(ends):
+        raise ValueError('oligos must differ in their last {} nt (an oligo listed twice?): {!r}'.format(REAGENT_OLIGO_MIN_OVERLAP, oligos))
 
 
 def cutadapt_settings(config):
-    """Validated settings from config['adapter'] and config['filter']['trim']['cutadapt']; fails on anything missing."""
+    """Validated settings from config['adapter'] and config['filter']['trim']['cutadapt']; fails on anything missing
+    except the optional random_ends (0) and reagent_oligos (none)."""
     settings = (config.get('filter', {}).get('trim', {}) or {}).get('cutadapt') or {}
     kit = config.get('libprepkit', 'this kit')
     if not settings:
@@ -178,12 +183,15 @@ def three_prime_artefact_fasta(adapter3):
 
 
 def reagent_oligo_fasta(oligos):
-    """cutadapt adapter FASTA records of the kit's reagent oligos, two per oligo, with FIVE_PRIME_MAX_ERROR_RATE: the oligo
-    as a 5' adapter with REAGENT_OLIGO_MIN_OVERLAP (complete anywhere, or its 3' end at the read start), and its last
-    REAGENT_OLIGO_MIN_OVERLAP nt, matched when complete anywhere."""
-    n, rate = REAGENT_OLIGO_MIN_OVERLAP, FIVE_PRIME_MAX_ERROR_RATE
-    return ''.join('>{0}{1}_{2}\n{3};min_overlap={4};max_error_rate={5}\n>{0}{1}_end_{4}\n{6};min_overlap={4};max_error_rate={5}\n'.format(
-        REAGENT_OLIGO_RECORD, i + 1, len(o), o, n, rate, o[-n:]) for i, o in enumerate(oligos))
+    """cutadapt adapter FASTA records of the kit's reagent oligos: the oligo as a 5' adapter with
+    REAGENT_OLIGO_MIN_OVERLAP and FIVE_PRIME_MAX_ERROR_RATE (complete anywhere, or its 3' end at the read start), and
+    its last REAGENT_OLIGO_MIN_OVERLAP nt without errors, anywhere (left out for an oligo of just that length)."""
+    n, records = REAGENT_OLIGO_MIN_OVERLAP, []
+    for i, o in enumerate(oligos, 1):
+        records.append('>{}{}_{}\n{};min_overlap={};max_error_rate={}\n'.format(REAGENT_OLIGO_RECORD, i, len(o), o, n, FIVE_PRIME_MAX_ERROR_RATE))
+        if len(o) > n:
+            records.append('>{}{}_end_{}\n{};min_overlap={};max_error_rate=0\n'.format(REAGENT_OLIGO_RECORD, i, n, o[-n:], n))
+    return ''.join(records)
 
 
 def artefact_fasta(adapter3, oligos):

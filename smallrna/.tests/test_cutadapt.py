@@ -79,7 +79,7 @@ def test_settings_are_required():
     ({'reagent_oligos': STP}, 'reagent_oligos'), ({'reagent_oligos': ['GAATTCCACCACG']}, 'at least 14'),
     ({'reagent_oligos': ['GAAUUCCACCACGUUCC']}, 'reagent_oligos'), ({'reagent_oligos': ''}, 'reagent_oligos'),
     ({'reagent_oligos': False}, 'reagent_oligos'), ({'reagent_oligos': {}}, 'reagent_oligos'),
-    ({'reagent_oligos': [STP, STP]}, 'more than once')])
+    ({'reagent_oligos': [STP, STP]}, 'differ in their last 14'), ({'reagent_oligos': [STP, 'TTTT' + STP[-14:]]}, 'differ in their last 14')])
 def test_invalid_settings_fail(change, message):
     with pytest.raises(ValueError, match=message):
         policy.cutadapt_settings(kit_config(TRUSEQ, **change))
@@ -135,13 +135,14 @@ def test_artefact_records_are_named_as_the_merge_counts_them():
 def test_artefact_fasta_adds_the_reagent_oligos_as_five_prime_adapters():
     fasta = policy.artefact_fasta(ADAPTER3, [STP])
     assert fasta == (policy.three_prime_artefact_fasta(ADAPTER3) + '>reagent_oligo_1_22\n' + STP + ';min_overlap=14;max_error_rate=0.1\n'
-                     '>reagent_oligo_1_end_14\n' + STP[-14:] + ';min_overlap=14;max_error_rate=0.1\n')
+                     '>reagent_oligo_1_end_14\n' + STP[-14:] + ';min_overlap=14;max_error_rate=0\n')
+    assert policy.reagent_oligo_fasta([STP[-14:]]).count('>') == 1                      # a 14-nt oligo: no separate end record
     result = subprocess.run(['python', str(SCRIPTS / 'cutadapt_config.py'), 'artefact-fasta', ADAPTER3, STP], capture_output=True, text=True, timeout=30)
     assert result.returncode == 0 and result.stdout == fasta
     result = subprocess.run(['python', str(SCRIPTS / 'cutadapt_config.py'), 'artefact-fasta', ADAPTER3, 'GAATTCC'], capture_output=True, text=True, timeout=30)
     assert result.returncode != 0 and 'at least 14 nt' in result.stderr
     result = subprocess.run(['python', str(SCRIPTS / 'cutadapt_config.py'), 'artefact-fasta', ADAPTER3, STP, STP], capture_output=True, text=True, timeout=30)
-    assert result.returncode != 0 and 'more than once' in result.stderr
+    assert result.returncode != 0 and 'differ in their last 14' in result.stderr
 
 
 # The merged report
@@ -287,11 +288,11 @@ def run_kit(tmp_path, kit, inserts):
             read = (ends + insert + ends[::-1] + ADAPTER3 + 'ATCTCGTATG')[:75]
             fh.write('@r{}\n{}\n+\n{}\n'.format(i, read, 'I' * len(read)))
     (tmp_path / 'five.fa').write_text(policy.five_prime_fasta(settings['adapter5'], settings['five_prime_piece']))
-    (tmp_path / 'three.fa').write_text(policy.artefact_fasta(settings['adapter3'], settings['reagent_oligos']))
+    (tmp_path / 'artefacts.fa').write_text(policy.artefact_fasta(settings['adapter3'], settings['reagent_oligos']))
     first = [cutadapt, *shlex.split(policy.adapter_args(settings)), '--json', str(tmp_path / 'a.json'), '-o', str(tmp_path / 'a.fastq'), str(raw)]
     second = [cutadapt, '-g', 'file:' + str(tmp_path / 'five.fa'), *shlex.split(policy.filter_args(settings)),
               '--json', str(tmp_path / 'f.json'), '-o', str(tmp_path / 'f.fastq'), str(tmp_path / 'a.fastq')]
-    third = [cutadapt, '-g', 'file:' + str(tmp_path / 'three.fa'), *shlex.split(policy.artefact_args()),
+    third = [cutadapt, '-g', 'file:' + str(tmp_path / 'artefacts.fa'), *shlex.split(policy.artefact_args()),
              '--json', str(tmp_path / 'x.json'), '-o', str(tmp_path / 'x.fastq'), str(tmp_path / 'f.fastq')]
     for command in (first, second, third):
         result = subprocess.run(command, capture_output=True, text=True, timeout=120)
@@ -354,9 +355,9 @@ def test_three_prime_artefacts_are_discarded(tmp_path):
     if not cutadapt:
         pytest.skip('cutadapt 5.2 not on PATH')
     reads = THREE_PRIME_KEPT + THREE_PRIME_DISCARDED
-    (tmp_path / 'three.fa').write_text(policy.three_prime_artefact_fasta(ADAPTER3))
+    (tmp_path / 'artefacts.fa').write_text(policy.three_prime_artefact_fasta(ADAPTER3))
     (tmp_path / 'r.fastq').write_text(''.join('@r{}\n{}\n+\n{}\n'.format(i, r, 'I' * len(r)) for i, r in enumerate(reads)))
-    result = subprocess.run([cutadapt, '-g', 'file:' + str(tmp_path / 'three.fa'), *shlex.split(policy.artefact_args()),
+    result = subprocess.run([cutadapt, '-g', 'file:' + str(tmp_path / 'artefacts.fa'), *shlex.split(policy.artefact_args()),
                              '--json', str(tmp_path / 'x.json'), str(tmp_path / 'r.fastq')], capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
     assert result.stdout.splitlines()[1::4] == THREE_PRIME_KEPT
@@ -365,11 +366,12 @@ def test_three_prime_artefacts_are_discarded(tmp_path):
 
 # TruSeq Stop Oligo reads (#380), as in public TruSeq plasma data after the 3' adapter pass: the oligo and its 5'-truncated
 # copies (down to 14 nt), with one mismatch (STP[10] is A) or an extra 3' base, and an oligo-miRNA chimera
-# the oligo's end counts from 14 nt, at the read start or after other bases (seen in plasma: AA + STP[6:], a copy with
-# TTC deleted; one error allowed, so 13 nt after another base too); 13 nt at the read start or 12 nt after others do not
+# the oligo's end counts from 14 nt, at the read start (one error allowed) or exactly after other bases (seen in plasma:
+# AA + STP[6:], a copy with TTC deleted); 13 nt do not, nor 14 with an error after other bases
 STP_DISCARDED = [STP, STP[4:], STP[6:], STP[-14:] + 'GCATGCA', STP[:10] + 'T' + STP[11:], STP[5:] + 'A', STP + MIR21_5P,
-                 'AA' + STP[6:], 'TTTTTTTTT' + STP[-16:], 'TTTTTTTTT' + STP[-13:]]
-STP_KEPT = [MIR21_5P, MIR22_5P, MIR139_5P, STP[-13:] + 'GCATGCAT', 'TTTTTTTTTT' + STP[-12:]]
+                 'AA' + STP[6:], 'TTTTTTTTT' + STP[-16:]]
+STP_KEPT = [MIR21_5P, MIR22_5P, MIR139_5P, STP[-13:] + 'GCATGCAT', 'TTTTTTTTT' + STP[-13:],
+            'TTTTTTTTT' + STP[-14:-3] + 'A' + STP[-2:]]  # COL5A3-like: the end with one mismatch, inside the read
 
 
 def test_truseq_stop_oligo_reads_are_discarded(tmp_path):
