@@ -1,5 +1,7 @@
 """UNITAS misc_RNA by gene family (#379): the family rules and table, its checks against annotations.tsv, the MultiQC
 section and the rules in the quant_all and delivery dry runs. Synthetic UNITAS-style files only."""
+import csv
+import importlib.util
 import math
 from pathlib import Path
 import subprocess
@@ -13,8 +15,11 @@ from test_quant_methods import dry_run, rule_block
 ROOT = Path(__file__).resolve().parents[2]
 QUANT = ROOT / 'smallrna/rules/quant/scripts'
 SCRIPT = QUANT / 'unitas_misc_rna.py'
-sys.path.insert(0, str(QUANT))
-import unitas_misc_rna  # noqa: E402
+spec = importlib.util.spec_from_file_location('unitas_misc_rna', SCRIPT)
+unitas_misc_rna = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(unitas_misc_rna)
+with open(ROOT / 'smallrna/.tests/pep/sample_table.csv', newline='') as fh:
+    FIXTURE_SAMPLES = [row['sample_name'] for row in csv.DictReader(fh)]
 
 # One read split between a Y RNA gene and a 7SK pseudogene (0.5 each), one between two Y RNA genes; a transcript-only
 # name; other classes have targets with family-like names that must not count.
@@ -93,6 +98,19 @@ def test_counts_are_written_without_losing_precision(tmp_path):
     result = family_table(tmp_path, ['S1'])
     assert result.returncode == 0, result.stderr
     assert result.table.splitlines()[1] == 'S1\tY_RNA\t1234567.123456789'
+
+
+@pytest.mark.parametrize('value, text', [(5e-05, '0.00005'), (1.5e-07, '0.00000015'), (3.0, '3.0'), (0.0, '0.0'),
+                                         (1e16, '10000000000000000.0'), (3598991.109777921, '3598991.109777921')])
+def test_counts_are_plain_decimals(value, text):
+    assert unitas_misc_rna.decimal_count(value) == text
+
+
+def test_small_counts_are_written_without_scientific_notation(tmp_path):
+    write_sample(tmp_path, 'S1', summary='misc_RNA\t0.00005\n', hits=[('misc_RNA', 'RN7SK-ENSG00000283293.1', '5e-05')])
+    result = family_table(tmp_path, ['S1'])
+    assert result.returncode == 0, result.stderr
+    assert result.table.splitlines()[1:] == ['S1\tY_RNA\t0.0', 'S1\t7SK\t0.00005', 'S1\t7SL\t0.0', 'S1\tother\t0.0']
 
 
 @pytest.mark.parametrize('hits_text', ['', HITS_HEADER, '\n' + HITS_HEADER + '  \n'])
@@ -196,10 +214,13 @@ def test_multiqc_section_with_the_table(tmp_path):
     assert section['data'] == {'S1': FAMILIES, 'S2': dict.fromkeys(FAMILIES, 0.0)}
 
 
-def test_multiqc_section_is_a_note_without_misc_rna(tmp_path):
-    write_sample(tmp_path, 'S1', summary='miRNA\t20\n', hits=[])
-    section = family_table(tmp_path, ['S1']).section
-    assert section['plot_type'] == 'html' and section['data'] == '<p>No sample has misc_RNA reads.</p>'
+@pytest.mark.parametrize('summary, hits', [('miRNA\t20\n', []), ('misc_RNA\t0.004\n', [('misc_RNA', 'RNY4-ENSG00000000001.1', 0.004)])])
+def test_multiqc_section_is_a_note_without_misc_rna_to_plot(tmp_path, summary, hits):
+    """No misc_RNA, or only counts that round to 0 at the 2 decimals plotted: a note, not an empty plot."""
+    write_sample(tmp_path, 'S1', summary=summary, hits=hits)
+    result = family_table(tmp_path, ['S1'])
+    assert result.returncode == 0, result.stderr
+    assert result.section['plot_type'] == 'html' and result.section['data'] == '<p>No sample has misc_RNA reads.</p>'
 
 
 def test_quant_all_builds_the_family_table(tmp_path):
@@ -214,7 +235,9 @@ def test_delivery_plans_the_family_split(tmp_path):
     families = rule_block(output, 'unitas_misc_rna')
     command = next(line for line in families.splitlines() if 'unitas_misc_rna.py' in line)
     assert '--annotations data/tmp/smallrna/quant/unitas/annotations.tsv --hits-per-target ' in command
-    assert command.count('unitas.hits_per_target.txt') > 0 and 'annotation_summary' not in command
+    assert len(FIXTURE_SAMPLES) > 1 and 'annotation_summary' not in command
+    assert command.count('unitas.hits_per_target.txt') == len(FIXTURE_SAMPLES)
+    assert all(f'data/tmp/smallrna/quant/unitas/unitas/{s}/unitas.hits_per_target.txt' in command for s in FIXTURE_SAMPLES)
     assert ('--table data/tmp/smallrna/quant/unitas/misc_rna_families.tsv '
             '--mqc data/tmp/smallrna/quant/unitas/unitas_misc_rna_mqc.yaml') in command
     assert 'hits_per_target' not in rule_block(output, 'unitas_annotations')

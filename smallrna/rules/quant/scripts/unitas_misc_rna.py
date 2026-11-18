@@ -18,11 +18,13 @@ class in annotations.tsv (unitas_annotations.py; Level1 misc_RNA without Level2,
 for a sample without rows there, as from an empty summary, when its hits table has no misc_RNA reads either).
 A difference, a second misc_RNA row for a sample, a sample in annotations.tsv without hits table, a hits table with
 another header, a data row without class or target name, or a count that is not a non-negative decimal number stops
-the script, naming the file and line. Counts are written as Python's shortest exact form (`3.0`, `0.5`).
+the script, naming the file and line. Counts are written in their shortest exact form as plain decimals (`3.0`, `0.5`,
+`0.00005`), never in scientific notation. The MultiQC section is a note when every plotted value (2 decimals) is 0.
 An empty or header-only hits table (a sample without reads) has no targets; blank lines in it are skipped.
 """
 import argparse
 import csv
+import decimal
 import json
 import math
 from pathlib import Path
@@ -137,20 +139,26 @@ def table(annotations, hits):
     return result
 
 
+def decimal_count(value):
+    """The shortest exact form of a count as a plain decimal, never in scientific notation (3.0, 0.5, 0.00005)."""
+    text = format(decimal.Decimal(repr(value)), 'f')
+    return text if '.' in text else text + '.0'  # 1e16 and above: repr has no decimal point
+
+
 def format_table(result):
     lines = ['Sample_ID\tfamily\tcount']
-    lines += ['{}\t{}\t{!r}'.format(sample, name, counts[name]) for sample, counts in result.items() for name in NAMES]
+    lines += ['{}\t{}\t{}'.format(sample, name, decimal_count(counts[name])) for sample, counts in result.items() for name in NAMES]
     return '\n'.join(lines) + '\n'
 
 
 def mqc(result):
     section = {'id': 'unitas_misc_rna', 'section_name': 'UNITAS: misc_RNA families', 'description': DESCRIPTION}
-    if not any(any(counts.values()) for counts in result.values()):
+    data = {sample: {name: round(value, 2) for name, value in counts.items()} for sample, counts in result.items()}
+    if not any(any(counts.values()) for counts in data.values()):
         return {**section, 'plot_type': 'html', 'data': '<p>No sample has misc_RNA reads.</p>'}
     return {**section, 'plot_type': 'bargraph',
             'pconfig': {'id': 'unitas_misc_rna_plot', 'title': 'UNITAS: misc_RNA families', 'ylab': '# Reads'},
-            'categories': {name: {'name': label} for name, label, _ in FAMILIES},
-            'data': {sample: {name: round(value, 2) for name, value in counts.items()} for sample, counts in result.items()}}
+            'categories': {name: {'name': label} for name, label, _ in FAMILIES}, 'data': data}
 
 
 def main():
