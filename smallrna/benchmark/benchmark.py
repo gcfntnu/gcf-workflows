@@ -1,27 +1,31 @@
 #!/usr/bin/env python
-"""Benchmark small-RNA quantification methods on datasets with a known truth.
+"""Benchmark small-RNA quantification methods on datasets with a known truth, and compare them on biological samples.
 
 The benchmark runs the workflow's own `quant_all` routes; it never calls the tools itself. Steps:
 
 0. `fill` (public datasets only) downloads a dataset's runs, composition table and miRBase sequences into
    `EXT_DIR/<data>/`, checked against the declared checksums (fill.py). It is the only step that writes to EXT_DIR.
 1. `prepare` builds a smallrna project from a dataset declaration (`datasets/<name>.yaml`): configuration, sample
-   table, reads (generated for synthetic datasets; linked, or the first `--reads` copied, for pool datasets) and the
-   truth (`truth.tsv` per read for synthetic data; `pool.tsv` with truth groups for pools, pool.py), kept in
-   `<project>/benchmark/`.
+   table, reads (generated for synthetic datasets; linked, or the first `--reads` copied, for pool and biological
+   datasets) and the truth (`truth.tsv` per read for synthetic data; `pool.tsv` with truth groups for pools, pool.py;
+   none for biological samples), kept in `<project>/benchmark/`. A biological sample's runs (e.g. the lanes of one
+   library) are merged by the workflow; with `--lanes` each run is its own sample, for the lane-replicate metric.
 2. Run `snakemake quant_all` in the project as for any project on that machine (containers, cores, resources); for a
-   pool, with `--notemp`, since the oracle count reads the workflow's filtered reads.
+   pool or biological dataset, with `--notemp`, since the oracle count and the first-base check read the workflow's
+   filtered reads (and the filtering table its cutadapt reports).
 3. `evaluate` turns each method's output into one common table (adapters.py), computes the same metrics for every
-   method (metrics.py, pool.py) and writes `<project>/benchmark/report.md` with the tables behind it.
+   method (metrics.py, pool.py; biological.py compares methods with each other) and writes
+   `<project>/benchmark/report.md` with the tables behind it.
 
 References and public datasets live under `EXT_DIR` (`ext_dir` in the project configuration); a reduced reference for
 mirflowz is made with reduce_reference.py and named in the declaration.
 
 Usage: benchmark.py fill --dataset YAML --ext-dir DIR
-       benchmark.py prepare --dataset YAML --project DIR --ext-dir DIR [--methods LIST] [--reads N]
+       benchmark.py prepare --dataset YAML --project DIR --ext-dir DIR [--methods LIST] [--reads N] [--lanes]
        benchmark.py evaluate --project DIR [--mirflowz-gff GFF3]
 """
 import argparse
+import collections
 import csv
 import gzip
 import json
@@ -35,6 +39,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import adapters  # noqa: E402
+import biological  # noqa: E402
 import fill as filler  # noqa: E402
 import metrics  # noqa: E402
 import pool  # noqa: E402
@@ -55,14 +60,26 @@ def load_dataset(path):
             fail('{}: missing {!r}'.format(path, key))
     if spec['organism'] not in PREFIX:
         fail('{}: organism must be one of {}'.format(path, ', '.join(PREFIX)))
-    if spec['kind'] not in ('synthetic', 'pool'):
-        fail('{}: kind must be synthetic or pool, got {!r}'.format(path, spec['kind']))
-    required = {'synthetic': ('adapter', 'synthetic', 'reference'), 'pool': ('pool', 'data', 'composition', 'mirbase', 'runs')}[spec['kind']]
+    if spec['kind'] not in ('synthetic', 'pool', 'biological'):
+        fail('{}: kind must be synthetic, pool or biological, got {!r}'.format(path, spec['kind']))
+    required = {'synthetic': ('adapter', 'synthetic', 'reference'), 'pool': ('pool', 'data', 'composition', 'mirbase', 'runs'),
+                'biological': ('data', 'mirbase', 'samples')}[spec['kind']]
     for key in required:
         if key not in spec:
             fail('{}: a {} dataset needs {!r}'.format(path, spec['kind'], key))
     if spec['kind'] == 'pool' and spec['pool'] not in ('equimolar', 'ratiometric'):
         fail('{}: pool must be equimolar or ratiometric, got {!r}'.format(path, spec['pool']))
+    if spec['kind'] == 'biological':
+        names = [s['sample'] for s in spec['samples']]
+        if len(set(names)) != len(names) or any(not s.get('runs') for s in spec['samples']):
+            fail('{}: samples need unique names and at least one run each'.format(path))
+        runs = [run['run'] for s in spec['samples'] for run in s['runs']]
+        repeated = sorted({r for r in runs if runs.count(r) > 1})
+        if repeated:
+            fail('{}: runs listed more than once: {}'.format(path, ', '.join(repeated)))
+        lanes = [run['lane'] for s in spec['samples'] for run in s['runs'] if 'lane' in run]
+        if any(type(lane) is not int for lane in lanes):
+            fail('{}: a run\'s lane must be a whole number, e.g. `lane: 1`'.format(path))
     return spec
 
 
@@ -70,14 +87,15 @@ def reference_dir(spec, ext_dir):
     return Path(ext_dir) / spec['reference']['dir'] if spec.get('reference') else None
 
 
-def write_project(project, spec, ext_dir, samples, read_length, methods, mirflowz_reference=None):
-    """smallrna project: config.yaml, PEP sample table and a Snakefile including the worktree's workflow."""
+def write_project(project, spec, ext_dir, samples, read_length, methods, mirflowz_reference=None, r1=None):
+    """smallrna project: config.yaml, PEP sample table and a Snakefile including the worktree's workflow. `r1` gives a
+    sample's read files (comma-separated, merged by the workflow); by default `<name>/<sample>_R1.fastq.gz`."""
+    r1 = r1 or {s: '{}/{}_R1.fastq.gz'.format(spec['name'], s) for s in samples}
     config = {'workflow': 'smallrna', 'project_id': ['BENCH-0000-001'], 'organism': spec['organism'],
               'libprepkit': spec['libprepkit'], 'read_geometry': [read_length], 'machine': '', 'ext_dir': str(ext_dir),
               'fastq_dir': 'data/raw/fastq',
               'quant': {'method': ','.join(methods), 'batch': {'method': 'skip'}},
-              'samples': {s: {'R1': '{}/{}_R1.fastq.gz'.format(spec['name'], s), 'R2': '', 'paired_end': 0, 'Sample_ID': s}
-                          for s in samples}}
+              'samples': {s: {'R1': r1[s], 'R2': '', 'paired_end': 0, 'Sample_ID': s} for s in samples}}
     if {'mirflowz', 'tesmall'} & set(methods) and mirflowz_reference:  # TEsmall's database is built on the mirflowz reference
         ref = mirflowz_reference
         config['db'] = {'mirflowz': {'custom': {'name': spec['reference']['name'], 'genome': str(ref / 'genome.fa.gz'),
@@ -87,7 +105,7 @@ def write_project(project, spec, ext_dir, samples, read_length, methods, mirflow
     (project / 'config.yaml').write_text(yaml.safe_dump(config, sort_keys=False))
     (project / 'pep/pep_config.yaml').write_text('pep_version: 2.0.0\nsample_table: sample_table.csv\n')
     (project / 'pep/sample_table.csv').write_text('sample_name,R1,paired_end\n' + ''.join(
-        '{},{},0\n'.format(s, config['samples'][s]['R1']) for s in samples))
+        '{},{},0\n'.format(s, '"{}"'.format(r1[s]) if ',' in r1[s] else r1[s]) for s in samples))
     workflow = Path(__file__).resolve().parents[1] / 'smallrna.smk'
     (project / 'Snakefile').write_text('configfile: "config.yaml"\npepfile: "pep/pep_config.yaml"\ninclude: {!r}\n'.format(str(workflow)))
     bench = project / 'benchmark'
@@ -109,7 +127,9 @@ def prepare(args):
     unknown = [m for m in methods if m not in adapters.ADAPTERS]
     if unknown:
         fail('--methods: unknown {}; choose from {}'.format(', '.join(unknown), ', '.join(adapters.ADAPTERS)))
-    (prepare_pool if spec['kind'] == 'pool' else prepare_synthetic)(spec, project, ext_dir, methods, args)
+    if getattr(args, 'lanes', False) and spec['kind'] != 'biological':
+        fail('--lanes is for biological datasets')
+    {'pool': prepare_pool, 'biological': prepare_biological, 'synthetic': prepare_synthetic}[spec['kind']](spec, project, ext_dir, methods, args)
 
 
 def prepare_synthetic(spec, project, ext_dir, methods, args):
@@ -169,6 +189,74 @@ def prepare_pool(spec, project, ext_dir, methods, args):
                                                              ', '.join('{} {}'.format(n, g) for g, n in groups.items()), project))
 
 
+def biological_paths(spec, ext_dir):
+    data = Path(ext_dir) / spec['data']
+    return (data / 'mirbase' / str(spec['mirbase']['release']) / 'mature.fa',
+            {run['run']: data / 'fastq' / '{}.fastq.gz'.format(run['run']) for s in spec['samples'] for run in s['runs']})
+
+
+def fastq_lanes(path, reads=1000):
+    """The lanes in the first read names of a gzipped FASTQ, from the Illumina read name
+    (`instrument:run:flowcell:lane:tile:x:y`, first or second field, as SRA writes it), or None when a read name has none."""
+    lanes = set()
+    with gzip.open(path, 'rt') as fh:
+        for i, line in enumerate(fh):
+            if i >= 4 * reads:
+                break
+            if i % 4 == 0:
+                parts = next((f.split(':') for f in line[1:].split() if f.count(':') >= 6), None)
+                if not parts or not parts[3].isdigit():
+                    return None
+                lanes.add(int(parts[3]))
+    return lanes
+
+
+def prepare_biological(spec, project, ext_dir, methods, args):
+    mature_fa, fastqs = biological_paths(spec, ext_dir)
+    missing = [str(p) for p in [mature_fa] + list(fastqs.values()) if not p.is_file()]
+    if missing:
+        fail('not filled: {}; run `benchmark.py fill --dataset ...` first'.format(', '.join(missing)))
+    r1, rows = {}, []
+    for s in spec['samples']:
+        runs = sorted(s['runs'], key=lambda r: r.get('lane', 0))
+        for run in runs:
+            if 'lane' not in run:
+                continue
+            found = fastq_lanes(fastqs[run['run']])
+            if found is None:
+                print('{}: no lane in the read names; declared lane {} not checked'.format(run['run'], run['lane']), file=sys.stderr)
+            elif found != {run['lane']}:
+                fail('{}: declared lane {}, but its reads are from lane {}'.format(run['run'], run['lane'], ', '.join(map(str, sorted(found)))))
+        files = ['{}/{}_R1.fastq.gz'.format(spec['name'], run['run']) for run in runs]
+        if args.lanes:
+            for run, f in zip(runs, files):
+                name = '{}_L{}'.format(s['sample'], run.get('lane', run['run']))
+                if name in r1:
+                    fail('{}: two runs of {} in lane {} (e.g. two flow cells); --lanes needs one run per lane'.format(
+                        args.dataset, s['sample'], run['lane']))
+                r1[name] = f
+                rows.append([name, s['sample'], s.get('group', ''), run.get('lane', ''), run['run'], args.reads or run.get('reads', '')])
+        else:
+            r1[s['sample']] = ','.join(files)
+            rows.append([s['sample'], s['sample'], s.get('group', ''), 'merged', ','.join(r['run'] for r in runs),
+                         args.reads * len(runs) if args.reads else sum(int(r.get('reads', 0)) for r in runs)])
+    with gzip.open(fastqs[spec['samples'][0]['runs'][0]['run']], 'rt') as fh:
+        fh.readline()
+        read_length = len(fh.readline().strip())
+    for run in fastqs:  # only after every check, so a failure leaves no partial project
+        source, target = fastqs[run], project_fastq(project, spec, run)
+        if args.reads:
+            head_fastq(source, target, args.reads)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.symlink_to(source)
+    bench = write_project(project, spec, ext_dir, list(r1), read_length, methods, r1=r1)
+    write_tsv(bench / 'samples.tsv', ['sample', 'library', 'group', 'lane', 'runs', 'reads'], rows)
+    print('{}: {} {}{}; run `snakemake quant_all --notemp` there (the first-base check reads the filtered reads), then '
+          '`benchmark.py evaluate --project {}`'.format(project, len(r1), 'lane samples' if args.lanes else 'samples',
+                                                        ', first {} reads of each run'.format(args.reads) if args.reads else '', project))
+
+
 def read_tsv(path):
     with open(path, newline='') as fh:
         return list(csv.DictReader(fh, delimiter='\t'))
@@ -186,6 +274,8 @@ def evaluate(args):
     ext_dir = Path(config['ext_dir'])
     if spec['kind'] == 'pool':
         return evaluate_pool(args, project, bench, spec, ext_dir)
+    if spec['kind'] == 'biological':
+        return evaluate_biological(args, project, bench, spec, ext_dir)
     prefix = PREFIX[spec['organism']]
     mature = synthetic.read_mature(reference_dir(spec, ext_dir) / 'mature.fa', prefix)
     name_to_id = {name: accession for name, (accession, _) in mature.items()}
@@ -454,6 +544,128 @@ def filter_section(groups, lossy, stages, route, cuts):
 LOSSY_SHOWN = 20
 
 
+# Human miRNAs the NEXTflex blood miRNA blockers target (#361), by accession (names change between miRBase releases:
+# miR-451a is hsa-miR-451a-5p in 23.1); reported to show whether blockers were used.
+BLOCKED = {'miR-451a': 'MIMAT0001631', 'miR-486-5p': 'MIMAT0002177', 'miR-92a-3p': 'MIMAT0000092'}
+
+
+def md_table(header, rows):
+    return (['| ' + ' | '.join(map(str, header)) + ' |', '|---' * len(header) + '|'] +
+            ['| ' + ' | '.join(map(str, row)) + ' |' for row in rows])
+
+
+def evaluate_biological(args, project, bench, spec, ext_dir):
+    mature_fa, _ = biological_paths(spec, ext_dir)
+    prefix = PREFIX[spec['organism']]
+    mature = synthetic.read_mature(mature_fa, prefix)
+    name_to_id = {name: accession for name, (accession, _) in mature.items()}
+    id_to_name = {accession: name for name, (accession, _) in mature.items()}
+    id_to_seq = {accession: seq for _, (accession, seq) in mature.items()}
+    methods = list(spec['methods'])
+    table = read_tsv(bench / 'samples.tsv')
+    samples = [row['sample'] for row in table]
+    lane_mode = any(row['lane'] != 'merged' for row in table)
+    # check the temporary inputs (run with --notemp) before writing anything
+    reads = {s: filtered_fastq(project, s) for s in samples}
+    filt_dir = project / 'data/tmp/smallrna/filter'
+    cutadapt = [s for s in samples if (filt_dir / 'cutadapt' / '{}_R1.fastq'.format(s)).is_file()]
+    if cutadapt and len(cutadapt) != len(samples):
+        fail('cutadapt reads for some samples only ({}); remove those of an earlier run'.format(', '.join(cutadapt)))
+    stage_jsons = {s: {k: filt_dir / 'cutadapt_stages' / '{}.{}.json'.format(s, k) for k in biological.CUTADAPT_PASSES} for s in cutadapt}
+    missing = [str(p) for paths in stage_jsons.values() for p in paths.values() if not p.is_file()]
+    if missing:
+        fail('cutadapt reports missing: {}; run `snakemake quant_all --notemp`'.format(', '.join(missing)))
+    try:
+        filt = {s: biological.filtering(paths) for s, paths in stage_jsons.items()}
+    except ValueError as e:
+        fail(str(e))
+
+    gff = args.mirflowz_gff or (mirflowz_annotation(ext_dir, spec) if 'mirflowz' in methods else None)
+    raw = adapters.common_table(methods, project / 'data/tmp/smallrna/quant', name_to_id, prefix, gff)
+    write_tsv(bench / 'common.tsv', adapters.COMMON_COLUMNS, raw)
+    common, groups = biological.collapse(raw, id_to_seq)
+    unplaced = biological.unplaced(raw, methods, samples)
+
+    summary = biological.method_summary(common, methods, samples)
+    for m in methods:
+        summary[m]['unplaced'] = unplaced[m]['share']
+    keys = ['mirna_reads', 'unplaced', 'detected', 'detected_all_samples', 'top10_share']
+    write_tsv(bench / 'metrics.tsv', ['metric'] + methods, [[k] + [summary[m][k] for m in methods] for k in keys])
+    pairs = biological.agreement(common, methods, samples)
+    pair_keys = list(next(iter(pairs.values()), {}))
+    write_tsv(bench / 'agreement.tsv', ['method_a', 'method_b'] + pair_keys,
+              [[a, b] + [v.get(k, '') for k in pair_keys] for (a, b), v in pairs.items()])
+    seen = {i for _, _, _, i, _ in raw}
+    shown = [g for g in groups if seen & set(g)]
+    lines = ['# {}'.format(spec['name']), '',
+             '{} ({}), {} {}. No known composition: methods are compared with each other; agreement is not accuracy.'.format(
+                 spec['organism'], spec['libprepkit'], len(samples), 'lane samples' if lane_mode else 'samples'), '',
+             '## Methods', '',
+             '`mirna_reads` are the reads on miRNAs with a miRBase accession; `unplaced` is the median share of a method\'s',
+             'miRNA reads on names without one, which every other metric leaves out. miRNAs with the same mature sequence',
+             'count as one ({} such groups among the reported miRNAs, e.g. {}).'.format(
+                 len(shown), ' = '.join(id_to_name[i] for i in shown[0]) if shown else 'none'), ''] + md_table(
+        ['metric'] + methods, [[k] + [summary[m][k] for m in methods] for k in keys])
+    named = [(m, n, c) for m in methods for n, c in unplaced[m]['names']]
+    if named:
+        lines += ['', 'Most reads without an accession: ' + '; '.join(
+            '{}: {}'.format(m, ', '.join('`{}` ({:.0f})'.format(n, c) for mm, n, c in named if mm == m)) for m in methods if unplaced[m]['names'])]
+    lines += ['', '## Agreement between methods (medians over samples)', ''] + md_table(
+        ['methods'] + pair_keys, [['{} / {}'.format(a, b)] + [v.get(k, '') for k in pair_keys] for (a, b), v in pairs.items()])
+
+    targets = {n: acc for n, acc in BLOCKED.items() if acc in id_to_name} if spec['organism'] == 'homo_sapiens' else {}
+    if targets:
+        blocked = biological.blocked(common, methods, samples, targets)
+        lines += ['', '## miRNAs targeted by blood miRNA blockers (median CPM)', ''] + md_table(
+            ['miRNA'] + methods, [[n] + [blocked[m][n] for m in methods] for n in targets])
+
+    if filt:
+        fk = list(next(iter(filt.values())))
+        lines += ['', '## Filtering (cutadapt route)', ''] + md_table(['sample'] + fk, [[s] + [filt[s][k] for k in fk] for s in filt])
+
+    abundance = collections.Counter()
+    for counts in biological.counts_by(common).values():
+        abundance.update(biological.cpm(counts))
+    top = {id_to_name[i]: id_to_seq[i] for i, _ in sorted(abundance.items(), key=lambda kv: (-kv[1], kv[0]))[:20] if i in id_to_seq}
+    shares = []
+    for s in samples:
+        counts, quality = biological.first_base(reads[s], top)
+        total = sum(sum(c.values()) for c in counts.values())
+        canonical = sum(c[top[n][0]] for n, c in counts.items())
+        shares.append([s, total, '{:.2%}'.format(1 - canonical / total) if total else '', quality['canonical'], quality['substituted']])
+    lines += ['', '## First-base substitutions in the 20 most abundant miRNAs', '',
+              'Reads that match a mature miRNA from its second base on but have another first base, and the median base',
+              'quality of canonical and substituted first bases (a low quality points to a sequencing error).', ''] + md_table(
+        ['sample', 'reads', 'substituted', 'Q canonical', 'Q substituted'], shares)
+
+    if lane_mode:
+        lanes = collections.defaultdict(list)
+        for row in table:
+            lanes[row['library']].append(row['sample'])
+        rep = biological.lane_replicates(common, methods, lanes)
+        rk = ['dispersion_mean', 'dispersion_median', 'expected_median', 'mirna_sample_pairs', 'overdispersed', 'expected_overdispersed',
+              'reads_for_cv_below_10pct']
+        lines += ['', '## Lane replicates (one library in several lanes: sequencing noise only)', '',
+                  'Sampling alone gives a dispersion index with mean 1, the expected median (chi-square) and the expected number',
+                  'above {} by chance. All methods count the same reads, so a lane effect (e.g. a sequencing error rate that'.format(
+                      biological.OVERDISPERSED),
+                  'differs by lane) raises every method\'s values, most for abundant miRNAs; compare the methods with each other.',
+                  '`reads_for_cv_below_10pct`: the mean reads per lane (bin) from which the median CV of CPM across lanes is below 10%.',
+                  ''] + md_table(['metric'] + methods, [[k] + [rep[m][k] for m in methods] for k in rk])
+        edges = biological.ABUNDANCE_BINS
+        labels = {lo: '{}-{}'.format(lo, hi - 1) for lo, hi in zip(edges, edges[1:])}
+        labels[edges[-1]] = '>= {}'.format(edges[-1])
+        share = lambda m, lo: '{:.1%} of {}'.format(rep[m]['overdispersed_by_mean'][lo][0] / rep[m]['overdispersed_by_mean'][lo][1],
+                                                    rep[m]['overdispersed_by_mean'][lo][1]) if lo in rep[m]['overdispersed_by_mean'] else ''
+        lines += ['', 'Share of miRNA-sample pairs above {} by mean reads per lane:'.format(biological.OVERDISPERSED), ''] + md_table(
+            ['mean reads per lane'] + methods, [[labels[lo]] + [share(m, lo) for m in methods] for lo in edges])
+        listed = ['{}: {}'.format(m, id_to_name.get(i, i)) for m in methods for i in rep[m]['overdispersed_mirnas']]
+        if listed:
+            lines += ['', 'Most often overdispersed: ' + '; '.join(listed)]
+    (bench / 'report.md').write_text('\n'.join(lines) + '\n')
+    print(bench / 'report.md')
+
+
 def fill(args):
     spec = load_dataset(args.dataset)
     try:
@@ -470,7 +682,8 @@ def main():
     p.add_argument('--project', required=True)
     p.add_argument('--ext-dir', required=True, help='EXT_DIR holding the references and data named in the declaration')
     p.add_argument('--methods', help="comma-separated subset of the declaration's methods, e.g. unitas,mirge3")
-    p.add_argument('--reads', type=int, help='pool datasets: copy the first N reads of each run instead of linking the runs')
+    p.add_argument('--reads', type=int, help='pool and biological datasets: copy the first N reads of each run instead of linking the runs')
+    p.add_argument('--lanes', action='store_true', help='biological datasets: each run (lane) its own sample, for the lane-replicate metric')
     f = sub.add_parser('fill', help='download a public dataset into EXT_DIR (the only step that writes there)')
     f.add_argument('--dataset', required=True)
     f.add_argument('--ext-dir', required=True)

@@ -561,3 +561,200 @@ def test_prepare_and_evaluate_a_pool(tmp_path):
     result = subprocess.run(cmd + ['evaluate', '--project', str(project)], capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
     assert 'SRRA\thsa-miR-1-3p\texact\t\t\t8\t8\t8' in (project / 'benchmark/per_sequence.tsv').read_text().splitlines()
+
+
+# Biological datasets: no truth; methods compared with each other, lane replicates, filtering and first bases.
+
+import biological  # noqa: E402
+import json  # noqa: E402
+import random  # noqa: E402
+
+BLOOD = ('>hsa-miR-16-5p MIMAT0000069 Homo sapiens miR-16-5p\nUAGCAGCACGUAAAUAUUGGCG\n'
+         '>hsa-miR-21-5p MIMAT0000076 Homo sapiens miR-21-5p\nUAGCUUAUCAGACUGAUGUUGA\n'
+         '>hsa-miR-451a MIMAT0001631 Homo sapiens miR-451a\nAAACCGUUACCAUUACUGAGUU\n'
+         '>hsa-let-7a-5p MIMAT0000062 Homo sapiens let-7a-5p\nUGAGGUAGUAGGUUGUAUAGUU\n')
+
+
+def common_rows(method, sample, counts):
+    return [(method, sample, mid, mid, c) for mid, c in counts.items()]
+
+
+def test_method_summary_and_agreement():
+    a = {'M1': 900, 'M2': 90, 'M3': 9, 'M4': 1}
+    b = {'M1': 800, 'M2': 150, 'M3': 0, 'M5': 50}
+    common = common_rows('x', 'S1', a) + common_rows('y', 'S1', b)
+    summary = biological.method_summary(common, ['x', 'y'], ['S1'])
+    assert summary['x']['detected'] == 2 and summary['y']['detected'] == 3       # at least 10 reads
+    assert summary['x']['mirna_reads'] == 1000 and summary['x']['top10_share'] == 1.0
+    pair = biological.agreement(common, ['x', 'y'], ['S1'])[('x', 'y')]
+    assert pair['only_a'] == 0 and pair['only_b'] == 1                            # M5 only detected by y
+    assert pair['spearman_either'] > 0 and round(pair['top100_overlap'], 3) == 0.667     # top sets {M1..M4} and {M1, M2, M5}: y's 0 for M3 is not in it
+    blocked = biological.blocked(common, ['x', 'y'], ['S1'], {'miR-M2': 'M2'})
+    assert blocked == {'x': {'miR-M2': 90000.0}, 'y': {'miR-M2': 150000.0}}
+    # a method without reads in one sample: that sample's Spearman is left out, not NaN in the median
+    empty = common + common_rows('x', 'S2', {'M1': 0}) + common_rows('y', 'S2', b)
+    assert biological.agreement(empty, ['x', 'y'], ['S2', 'S1'])[('x', 'y')]['spearman_either'] == pair['spearman_either']
+
+
+def test_identical_sequences_count_as_one_and_unplaced_reads_are_reported():
+    common = [('a', 'S1', 'hsa-miR-199a-3p/hsa-miR-199b-3p', 'MIMAT0000232', 100), ('b', 'S1', 'miR-199b-3p', 'MIMAT0004563', 60),
+              ('b', 'S1', 'miR-199a-2-3p', '', 40), ('b', 'S1', 'miR-16-5p', 'MIMAT0000069', 60)]
+    seqs = {'MIMAT0000232': 'ACAGUAGUCUGCACAUUGGUUA', 'MIMAT0004563': 'ACAGUAGUCUGCACAUUGGUUA', 'MIMAT0000069': 'UAGCAGCACGUAAAUAUUGGCG'}
+    collapsed, groups = biological.collapse(common, seqs)
+    assert groups == [['MIMAT0000232', 'MIMAT0004563']] and {r[3] for r in collapsed} == {'MIMAT0000232', 'MIMAT0000069', ''}
+    pair = biological.agreement(collapsed + [('a', 'S1', 'x', 'MIMAT0000069', 50)], ['a', 'b'], ['S1'])[('a', 'b')]
+    assert pair['only_a'] == 0 and pair['only_b'] == 0
+    assert biological.unplaced(common, ['a', 'b'], ['S1']) == {'a': {'share': 0.0, 'names': []},
+                                                               'b': {'share': 0.25, 'names': [('miR-199a-2-3p', 40.0)]}}
+
+
+def test_filtering_through_the_cutadapt_passes_and_their_chain(tmp_path):
+    paths = write_cutadapt_reports(tmp_path, 'S1', 100)
+    assert biological.filtering(paths) == {'reads_in': 100, 'with_3p_adapter': 95, 'discarded_5p_adapter': 1, 'too_short': 7,
+                                           'too_many_n': 0, 'too_many_expected_errors': 2, 'discarded_artefacts': 3, 'kept': 87}
+    report = json.loads(paths['artefacts'].read_text())
+    report['read_counts']['input'] = 80
+    paths['artefacts'].write_text(json.dumps(report))
+    with pytest.raises(ValueError, match='the artefacts pass read 80 reads, the filter pass wrote 90'):
+        biological.filtering(paths)
+
+
+def test_first_base_counts_substitutions_with_their_quality(tmp_path):
+    reads = [('TAGCAGCACGTAAATATTGGCG', 'I'), ('AAGCAGCACGTAAATATTGGCG', '/'), ('TAGCAGCACGTAAATATTGGCGA', 'I'),
+             ('CCCCCCCCCCCCCCCCCCCCCC', 'I')]
+    fq = write(tmp_path / 'r.fastq', ''.join('@r{}\n{}\n+\n{}{}\n'.format(i, s, q, 'I' * (len(s) - 1)) for i, (s, q) in enumerate(reads)))
+    counts, quality = biological.first_base(fq, {'hsa-miR-16-5p': 'TAGCAGCACGTAAATATTGGCG'})
+    assert counts['hsa-miR-16-5p'] == {'T': 2, 'A': 1}
+    assert quality == {'canonical': 40, 'substituted': 14}
+    # miRNAs that differ only at the first base: each keeps its own reads, a third first base is not placed
+    counts, quality = biological.first_base(fq, {'x': 'TAGCAGCACGTAAATATTGGCG', 'y': 'AAGCAGCACGTAAATATTGGCG', 'z': 'CCCCCCCCCCCCCCCCCCCCCC'})
+    assert counts == {'x': {'T': 2}, 'y': {'A': 1}, 'z': {'C': 1}} and quality['substituted'] == ''
+
+
+def test_lane_replicates_separate_poisson_from_overdispersion():
+    rng = random.Random(5)
+    def poisson(lam):  # Knuth for small lambdas, normal approximation above
+        if lam > 30:
+            return max(0, round(rng.gauss(lam, lam ** 0.5)))
+        k, p, limit = 0, 1.0, pow(2.718281828, -lam)
+        while True:
+            p *= rng.random()
+            if p <= limit:
+                return k
+            k += 1
+    mirnas = {'M{}'.format(i): 20 + 30 * i for i in range(40)}
+    common = []
+    for lane in range(1, 5):
+        common += common_rows('poisson', 'S1_L{}'.format(lane), {m: poisson(mu) for m, mu in mirnas.items()})
+        common += common_rows('noisy', 'S1_L{}'.format(lane), {m: poisson(mu * rng.choice((0.5, 1.5))) for m, mu in mirnas.items()})
+    rep = biological.lane_replicates(common, ['poisson', 'noisy'], {'S1': ['S1_L1', 'S1_L2', 'S1_L3', 'S1_L4']})
+    assert 0.6 < rep['poisson']['dispersion_mean'] < 1.6 and rep['noisy']['dispersion_mean'] > 5
+    assert rep['poisson']['expected_median'] == 0.794            # chi2(3)/3 for 4 lanes
+    assert rep['poisson']['expected_overdispersed'] == round(40 * 0.0296)
+    assert sum(n for _, n in rep['noisy']['overdispersed_by_mean'].values()) == 40
+    median, above = biological.chi2_expectations([1, 3])         # 2 and 4 lanes: between the two medians
+    assert biological.chi2_expectations([1])[0] < median < biological.chi2_expectations([3])[0] and 0.05 < above < 0.15
+    assert rep['poisson']['overdispersed'] < rep['noisy']['overdispersed']
+
+
+def test_fill_targets_for_a_biological_declaration(tmp_path):
+    spec = {'name': 'b', 'kind': 'biological', 'data': 'benchmark/smallrna/b',
+            'mirbase': {'release': '23.1', 'url': 'u', 'sha256': 's'},
+            'samples': [{'sample': 'S1', 'runs': [{'run': 'R1', 'url': 'r1', 'md5': 'm1'}, {'run': 'R2', 'url': 'r2', 'md5': 'm2'}]}]}
+    paths = [str(t[3].relative_to(tmp_path)) for t in fill.targets(spec, tmp_path)]
+    assert paths == ['benchmark/smallrna/b/mirbase/23.1/mature.fa', 'benchmark/smallrna/b/fastq/R1.fastq.gz',
+                     'benchmark/smallrna/b/fastq/R2.fastq.gz']
+
+
+def write_cutadapt_reports(folder, sample, reads):
+    """The cutadapt route's three JSON reports for a sample, chained: each pass reads what the one before wrote."""
+    counts = {'adapter': {'input': reads, 'output': reads, 'read1_with_adapter': reads - 5, 'filtered': {}},
+              'filter': {'input': reads, 'output': reads - 10,
+                         'filtered': {'discard_trimmed': 1, 'too_short': 7, 'too_many_n': None, 'too_many_expected_errors': 2}},
+              'artefacts': {'input': reads - 10, 'output': reads - 13, 'filtered': {'discard_trimmed': 3}}}
+    paths = {}
+    for name, c in counts.items():
+        paths[name] = write(Path(folder) / '{}.{}.json'.format(sample, name), json.dumps({'tag': 'Cutadapt report', 'read_counts': c}))
+    return paths
+
+
+def biological_dataset(tmp_path, lanes=(1, 2)):
+    ext = tmp_path / 'ext'
+    data = ext / 'benchmark/smallrna/bio'
+    write(data / 'mirbase/23.1/mature.fa', BLOOD)
+    reads = ['TAGCAGCACGTAAATATTGGCG'] * 6 + ['AAGCAGCACGTAAATATTGGCG'] + ['TAGCTTATCAGACTGATGTTGA'] * 3
+    runs = []
+    for lane in lanes:
+        run = 'SRR{}'.format(lane)
+        (data / 'fastq').mkdir(parents=True, exist_ok=True)
+        with gzip.open(data / 'fastq/{}.fastq.gz'.format(run), 'wt') as fh:
+            fh.write(''.join('@{}.{} NB1:1:FC:{}:11101:1:{}/1\n{}TGGAATTCTC\n+\n{}\n'.format(run, i, lane, i, s, 'I' * (len(s) + 10))
+                             for i, s in enumerate(reads)))
+        runs.append({'run': run, 'lane': lane, 'reads': len(reads), 'md5': 'unused', 'url': 'unused'})
+    dataset = write(tmp_path / 'bio.yaml', yaml.safe_dump({
+        'name': 'bio', 'kind': 'biological', 'organism': 'homo_sapiens', 'libprepkit': 'Bioo Scientific NEXTflex Small RNA-Seq Kit v4',
+        'methods': ['unitas', 'mirge3'], 'data': 'benchmark/smallrna/bio', 'config': {'blockers': ['blood miRNA']},
+        'mirbase': {'release': '23.1', 'url': 'unused', 'sha256': 'unused'},
+        'samples': [{'sample': 'GSM1', 'group': 'control', 'runs': runs}]}))
+    return ext, dataset, reads
+
+
+def test_prepare_merges_runs_or_keeps_lanes_and_checks_lanes(tmp_path):
+    ext, dataset, _ = biological_dataset(tmp_path)
+    cmd = [sys.executable, str(BENCH / 'benchmark.py'), 'prepare', '--dataset', str(dataset), '--ext-dir', str(ext)]
+    result = subprocess.run(cmd + ['--project', str(tmp_path / 'merged'), '--reads', '4'], capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    config = yaml.safe_load((tmp_path / 'merged/config.yaml').read_text())
+    assert config['samples']['GSM1']['R1'] == 'bio/SRR1_R1.fastq.gz,bio/SRR2_R1.fastq.gz' and config['blockers'] == ['blood miRNA']
+    assert 'GSM1,"bio/SRR1_R1.fastq.gz,bio/SRR2_R1.fastq.gz",0' in (tmp_path / 'merged/pep/sample_table.csv').read_text()
+    assert (tmp_path / 'merged/benchmark/samples.tsv').read_text().splitlines()[1] == 'GSM1\tGSM1\tcontrol\tmerged\tSRR1,SRR2\t8'
+    result = subprocess.run(cmd + ['--project', str(tmp_path / 'lanes'), '--lanes'], capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    assert sorted(yaml.safe_load((tmp_path / 'lanes/config.yaml').read_text())['samples']) == ['GSM1_L1', 'GSM1_L2']
+    spec = yaml.safe_load(dataset.read_text())
+    spec['samples'][0]['runs'][1]['lane'] = 3
+    write(dataset, yaml.safe_dump(spec))
+    result = subprocess.run(cmd + ['--project', str(tmp_path / 'wrong')], capture_output=True, text=True, timeout=60)
+    assert result.returncode != 0 and 'SRR2: declared lane 3, but its reads are from lane 2' in result.stderr
+    assert not (tmp_path / 'wrong').exists()                                          # checked before anything is written
+    spec['samples'][0]['runs'][1]['lane'] = 1                                         # two runs in lane 1 (two flow cells)
+    with gzip.open(ext / 'benchmark/smallrna/bio/fastq/SRR2.fastq.gz', 'wt') as fh:   # native Illumina read names
+        fh.write('@NB1:1:FC2:1:11101:1:1 1:N:0:ACGT\nTAGCAGCACGTAAATATTGGCGTGGAATTCTC\n+\n{}\n'.format('I' * 32))
+    write(dataset, yaml.safe_dump(spec))
+    result = subprocess.run(cmd + ['--project', str(tmp_path / 'twice'), '--lanes'], capture_output=True, text=True, timeout=60)
+    assert result.returncode != 0 and 'two runs of GSM1 in lane 1' in result.stderr and not (tmp_path / 'twice').exists()
+    for runs, message in (([{'run': 'SRR1', 'lane': '1'}], "lane must be a whole number"),
+                          ([{'run': 'SRR1', 'lane': 1}, {'run': 'SRR1', 'lane': 2}], 'runs listed more than once: SRR1')):
+        write(dataset, yaml.safe_dump(dict(spec, samples=[dict(spec['samples'][0], runs=runs)])))
+        result = subprocess.run(cmd + ['--project', str(tmp_path / 'bad')], capture_output=True, text=True, timeout=60)
+        assert result.returncode != 0 and message in result.stderr
+
+
+def test_evaluate_a_biological_dataset_in_lanes(tmp_path):
+    ext, dataset, reads = biological_dataset(tmp_path)
+    project = tmp_path / 'project'
+    cmd = [sys.executable, str(BENCH / 'benchmark.py')]
+    result = subprocess.run(cmd + ['prepare', '--dataset', str(dataset), '--project', str(project), '--ext-dir', str(ext), '--lanes'],
+                            capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    quant = project / 'data/tmp/smallrna/quant'
+    write(quant / 'unitas/mir_counts.tsv', '\tGSM1_L1\tGSM1_L2\nmiR-16-5p\t700\t690\nmiR-21-5p\t300\t310\nmiR-451a\t1\t0\n')
+    write(quant / 'mirge3/miR.Counts.csv', 'miRNA,GSM1_L1,GSM1_L2\nhsa-miR-16-5p,650,660\nhsa-miR-21-5p,320,300\n')
+    write(quant / 'unitas/mir_counts.tsv', '\tGSM1_L1\tGSM1_L2\nmiR-16-5p\t700\t690\nmiR-21-5p\t300\t310\nmiR-451a\t1\t0\nmiR-16-1-5p\t30\t40\n')
+    filtered = project / 'data/tmp/smallrna/filter'
+    for lane in ('GSM1_L1', 'GSM1_L2'):
+        write(filtered / 'cutadapt/{}_R1.fastq'.format(lane),
+              ''.join('@r{}\n{}\n+\n{}\n'.format(i, s, ('/' if s[0] == 'A' else 'I') + 'I' * (len(s) - 1)) for i, s in enumerate(reads)))
+    result = subprocess.run(cmd + ['evaluate', '--project', str(project)], capture_output=True, text=True, timeout=60)
+    assert result.returncode != 0 and 'cutadapt reports missing' in result.stderr and not (project / 'benchmark/report.md').exists()
+    for lane in ('GSM1_L1', 'GSM1_L2'):
+        write_cutadapt_reports(filtered / 'cutadapt_stages', lane, 100)
+    result = subprocess.run(cmd + ['evaluate', '--project', str(project)], capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    report = (project / 'benchmark/report.md').read_text()
+    assert '2 lane samples' in report and '| unitas / mirge3 |' in report
+    assert '| unplaced | 0.0338 | 0.0 |' in report and 'unitas: `miR-16-1-5p` (70)' in report      # 30/1031 and 40/1040
+    assert '| miR-451a | 499.5 | 0.0 |' in report     # median CPM of the blocked miRNA: 1 of 1001 reads in L1, none in L2
+    assert '| GSM1_L1 | 100 | 95 | 1 | 7 | 0 | 2 | 3 | 87 |' in report                       # the filtering table
+    assert '| GSM1_L1 | 10 | 10.00% | 40.0 | 14.0 |' in report                       # 1 of 10 top-miRNA reads has another first base
+    assert '## Lane replicates' in report and '| mirna_sample_pairs | 2 | 2 |' in report and '| 100-999 | 0.0% of 2 | 0.0% of 2 |' in report
