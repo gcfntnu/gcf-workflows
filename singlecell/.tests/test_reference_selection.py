@@ -838,7 +838,8 @@ rule read_frozen_source:
     assert (generation / 'gcf-mkref.json').read_bytes() == manifest
 
 
-def test_splitpipe_imports_frozen_source_without_modifying_the_generation(tmp_path):
+@pytest.fixture
+def splitpipe_import(tmp_path):
     from test_velocity import workflow_fixture
 
     owner, importer = tmp_path / 'owner', tmp_path / 'importer'
@@ -854,14 +855,20 @@ def test_splitpipe_imports_frozen_source_without_modifying_the_generation(tmp_pa
     subprocess.run(shell_command(original, 'cellranger mkref '), cwd=owner, env=env, check=True)
     pin, = arguments(original, 'cellranger count ', '--transcriptome')
     generation = (owner / pin).resolve(strict=True)
-    inventory = set(generation.rglob('*'))
-    manifest = (generation / 'gcf-mkref.json').read_bytes()
     frozen = generation / 'gcf-source'
 
     workflow_fixture(importer, methods='splitpipe', use_velo=False)
     (importer / 'selected').symlink_to(frozen, target_is_directory=True)
     config = importer / 'config.yaml'
     config.write_text(yaml.safe_dump({**yaml.safe_load(config.read_text()), 'ref_dir': 'selected'}))
+    return owner, importer, generation, pin
+
+
+def test_splitpipe_imports_frozen_source_without_modifying_the_generation(splitpipe_import):
+    owner, importer, generation, pin = splitpipe_import
+    frozen = generation / 'gcf-source'
+    inventory = set(generation.rglob('*'))
+    manifest = (generation / 'gcf-mkref.json').read_bytes()
     report = plan_existing(importer, 'multiqc_report')
     assert 'rule multiqc_report:' in report and 'cellranger mkref ' not in report
     genome, = arguments(report, 'split-pipe --mode mkref ', '--fasta')
@@ -874,6 +881,11 @@ def test_splitpipe_imports_frozen_source_without_modifying_the_generation(tmp_pa
     assert arguments(report, 'split-pipe --mode mkref ', '--output_dir') == {str(index)}
     assert arguments(report, 'split-pipe --mode all ', '--genome_dir') == {str(index)}
     assert_gene_metadata(report, source)
+    config = importer / 'config.yaml'
+    config.write_text(yaml.safe_dump({**yaml.safe_load(config.read_text()), 'ref_dir': str(frozen)}))
+    canonical = plan_existing(importer, 'multiqc_report')
+    assert arguments(canonical, 'split-pipe --mode mkref ', '--fasta') == {genome}
+    assert arguments(canonical, 'split-pipe --mode all ', '--genome_dir') == {str(index)}
     for paths in re.findall(r'^    (?:output|log|benchmark): (.+)$', report, re.MULTILINE):
         for path in paths.split(', '):
             assert not (importer / path).resolve().is_relative_to(generation), path
@@ -903,7 +915,7 @@ Path(sys.argv[sys.argv.index('--output_dir') + 1], 'SA').write_text('synthetic i
     for member in ('fasta/genome.fa', 'anno/genes.gtf'):
         assert (importer / source / member).read_bytes() == (frozen / member).read_bytes()
     assert (importer / index / 'SA').read_text() == 'synthetic index'
-    assert (importer / source / 'anno/exons.gtf').read_text() == exon
+    assert (importer / source / 'anno/exons.gtf').read_bytes() == (frozen / 'anno/genes.gtf').read_bytes()
     assert (importer / source / 'anno/genes.tsv').read_text().splitlines()[1].split('\t')[0] == 'GENE'
     blocked = plan_existing(importer, 'selected/anno/exons.gtf', expect_success=False)
     assert 'Cannot write inside a published Cell Ranger generation' in blocked
@@ -912,3 +924,26 @@ Path(sys.argv[sys.argv.index('--output_dir') + 1], 'SA').write_text('synthetic i
     retained = plan_existing(owner, COUNT_TARGET)
     assert arguments(retained, 'cellranger count ', '--transcriptome') == {pin}
     assert 'cellranger mkref ' not in retained
+
+
+@pytest.mark.parametrize('damage', ['missing_manifest', 'invalid_manifest', 'fasta/genome.fa', 'anno/genes.gtf'])
+def test_splitpipe_checks_frozen_sources_against_owner_manifest(splitpipe_import, damage):
+    _, importer, generation, _ = splitpipe_import
+    if damage in {'missing_manifest', 'invalid_manifest'}:
+        damaged = generation / 'gcf-mkref.json'
+        if damage == 'missing_manifest':
+            damaged.unlink()
+        else:
+            damaged.write_text('{')
+    else:
+        damaged = generation / 'gcf-source' / damage
+        original = damaged.read_bytes()
+        replacement = original.replace(b'ACGT', b'AGGT') if damage.endswith('.fa') else original.replace(b'GENE', b'EDIT')
+        assert replacement != original and len(replacement) == len(original)
+        stat = damaged.stat()
+        damaged.write_bytes(replacement)
+        os.utime(damaged, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    blocked = plan_existing(importer, 'multiqc_report', expect_success=False)
+    assert str(damaged) in blocked
+    assert 'Shell command:' not in blocked
+    assert not (importer / 'data/tmp/singlecell/quant/reference/imported').exists()

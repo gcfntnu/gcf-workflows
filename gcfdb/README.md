@@ -44,6 +44,8 @@ Absolute project paths and paths containing `..` are mapped into that private di
 Count passes its workdir’s `index` symlink to `--transcriptome`. The link pins the published generation in `refs/panel-v1/cellranger/builds/<source-digest>/<build-key>`.
 When `ref_dir` is a symlink, the workflow resolves the selected directory before building. Changing the symlink later cannot redirect a planned count.
 A second project may select a published generation’s `gcf-source/` as `ref_dir`, directly or through a symlink.
+Before planning derived jobs, the importer compares the SHA-256 checksum of each frozen source file with the owner’s `gcf-mkref.json`.
+A missing or invalid manifest, or a checksum mismatch, stops the import and identifies the affected path.
 In a single-cell importer, the verified FASTA and GTF are staged under `<QUANT_INTERIM>/reference/imported/<source-path-key>/<source-digest>/`.
 Split-Pipe builds its index under `index/genome/splitpipe/` there and uses it for counting. The report derives its exon files and gene table from the same staged pair.
 Request derived targets such as `anno/exons.gtf` under the importing workdir’s staged reference. Planning rejects writes inside a published generation.
