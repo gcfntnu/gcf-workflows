@@ -5,6 +5,7 @@ as one self-contained HTML file, by the output's extension; nothing is written i
 
 Datasets have different methods, and a metric may be missing from a project's table: both give empty cells.
 """
+from collections import deque
 import csv
 import html
 import os
@@ -25,8 +26,9 @@ SECTIONS = [
      '`misassigned` and `unplaced` count reads on accessions absent from that sample’s truth and on names without a miRBase accession.'),
     ('equimolar', 'Equimolar pools', ['detected', 'cv', 'within_2fold', 'spearman_vs_oracle', 'outside', 'unplaced', 'shifted_within_2fold'],
      'Over the pool\'s `exact` sequences: `detected` and `cv` across the pool, `within_2fold` and `spearman_vs_oracle` against '
-     'the oracle (the filtered reads counted by exact match to the pool sequences); `outside` and `unplaced`: shares of a '
-     'method\'s miRNA reads on miRNAs of no pool sequence and on names without a miRBase accession; '
+     'the oracle (the filtered reads counted by exact match to the pool sequences). `outside` and `unplaced` are '
+     'unweighted means of per-sample shares. Each denominator is all miRNA reads the method reported for that sample. '
+     'The numerators are reads assigned to miRNAs of no pool sequence and to names without a miRBase accession, respectively. '
      '`shifted_within_2fold`: isomiRs of known amount against the oracle.'),
     ('ratiometric', 'Ratiometric pools', ['median_abs_error', 'spearman_vs_design', 'called', 'false_calls', 'shifted_called'],
      'Observed log2(A/B) against the design: `median_abs_error`, `spearman_vs_design`, `called` (designed at least 2-fold '
@@ -83,27 +85,34 @@ def read_project(project, out_dir):
                   'methods': ', '.join(c for c in columns if c != 'oracle'), 'columns': columns, 'values': values}
 
 
-def summarize(projects, output):
-    """[(title, note, [(metric, [method])], [row])]: the sections with projects, a metric's methods being those with a
-    value in any of its rows (the oracle included), in order of appearance."""
-    out_dir = output.parent.resolve()
+def resolve_with_links(path):
+    """Resolve a path and retain the traversed link entries, including links in link targets."""
+    path = path.absolute()
+    current = Path(path.anchor)
+    remaining = deque(path.parts[1:])
+    links = []
+    while remaining:
+        component = remaining.popleft()
+        if component == '..':
+            current = current.parent
+            continue
+        current /= component
+        if current.is_symlink():
+            links.append(current)
+            if len(links) > 40:  # Linux pathname resolution limit
+                raise ValueError(f'too many symbolic links in {path}')
+            target = current.readlink()
+            current = Path(target.anchor) if target.is_absolute() else current.parent
+            remaining.extendleft(reversed(target.parts[1:] if target.is_absolute() else target.parts))
+    return current, links
+
+
+def summarize(projects, out_dir):
+    """Sections with projects, metrics and method columns in order of appearance."""
     names = [p.resolve().name for p in projects]
     repeated = sorted({n for n in names if names.count(n) > 1})
     if repeated:
         raise ValueError('projects named alike: {}; the summary names a project by its directory'.format(', '.join(repeated)))
-    destinations = {Path(os.path.abspath(output)), out_dir / output.name, output.resolve()}
-    # A project can itself be reached through another alias before a symlink
-    # leads out to storage. Retain the entry path of each traversed link.
-    destinations.update(parent.parent.resolve() / parent.name for parent in output.absolute().parents if parent.is_symlink())
-    for project in projects:
-        bench = project / 'benchmark'
-        inputs = {(project / 'config.yaml').resolve()}
-        inputs.update((bench / name).resolve() for name in
-                      ('dataset.yaml', 'metrics.tsv', 'report.md', 'evaluation.json', 'truth.tsv', 'samples.tsv'))
-        project_dirs = {project.resolve(), bench.resolve()}
-        if any(any(path.is_relative_to(directory) for directory in project_dirs) or path in inputs
-               for path in destinations):
-            raise ValueError(f'the output {output} is inside the project {project} or aliases one of its inputs')
     by_kind = {}
     for project in projects:
         kind, row = read_project(project, out_dir)
@@ -187,14 +196,33 @@ def html_page(sections):
             '<style>{}</style>\n</head>\n<body>\n{}\n</body>\n</html>\n'.format(STYLE, '\n'.join(body)))
 
 
+def checked_destination(projects, output):
+    out_dir, directory_links = resolve_with_links(output.parent)
+    entry = out_dir / output.name
+    final, file_links = resolve_with_links(entry)
+    destinations = {entry, final, *directory_links, *file_links}
+    for project in projects:
+        bench = project / 'benchmark'
+        inputs = {(project / 'config.yaml').resolve()}
+        inputs.update((bench / name).resolve() for name in
+                      ('dataset.yaml', 'metrics.tsv', 'report.md', 'evaluation.json', 'truth.tsv', 'samples.tsv'))
+        project_dirs = {project.resolve(), bench.resolve()}
+        if any(any(path.is_relative_to(directory) for directory in project_dirs) or path in inputs
+               for path in destinations):
+            raise ValueError(f'the output {output} is inside the project {project} or aliases one of its inputs')
+    return entry
+
+
 def write(projects, output):
     """Write the summary of `projects` to `output` (.md or .html)."""
     projects, output = [Path(p) for p in projects], Path(output)
     render = {'.md': markdown, '.html': html_page}.get(output.suffix)
     if render is None:
         raise ValueError('--output {}: the extension must be .md or .html'.format(output))
-    sections = summarize(projects, output)
+    output = checked_destination(projects, output)
+    sections = summarize(projects, output.parent)
     with TemporaryDirectory(dir=output.parent) as directory:
         staged = Path(directory) / 'summary'
         staged.write_text(render(sections))
         staged.replace(output)
+    return output

@@ -754,10 +754,10 @@ def fill(args):
 
 def summary(args):
     try:
-        summarizer.write(args.projects, args.output)
+        output = summarizer.write(args.projects, args.output)
     except (OSError, ValueError) as error:
         fail(str(error))
-    print(Path(args.output).resolve())
+    print(output)
 
 
 def main():

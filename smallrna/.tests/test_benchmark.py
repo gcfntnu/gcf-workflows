@@ -1116,3 +1116,68 @@ def test_legacy_synthetic_summary_rejects_partial_truth_and_explains_metrics(tmp
         truth.write_text('\n'.join([header] + rows) + '\n')
         with pytest.raises(ValueError, match='truth.tsv must cover every configured sample'):
             summary.write([project], output)
+
+
+def test_summary_follows_links_inside_link_targets_and_publishes_to_checked_parent(tmp_path, monkeypatch):
+    import summary
+    project = summary_projects(tmp_path / 'projects')[0]
+    storage = tmp_path / 'outside'
+    storage.mkdir()
+    (project / 'data').symlink_to(storage)
+    alias = tmp_path / 'report-alias'
+    alias.symlink_to((project / 'data').relative_to(tmp_path))
+    with pytest.raises(ValueError, match='inside the project'):
+        summary.write([project], alias / 'overview.md')
+    assert list(storage.iterdir()) == []
+
+    alias.unlink()
+    alias.symlink_to(storage)
+    render = summary.markdown
+
+    def render_after_alias_change(sections):
+        alias.unlink()
+        alias.symlink_to(project)
+        return render(sections)
+
+    monkeypatch.setattr(summary, 'markdown', render_after_alias_change)
+    published = summary.write([project], alias / 'overview.md')
+    assert published == storage / 'overview.md' and published.is_file()
+    assert not (project / 'overview.md').exists()
+
+
+def test_first_legacy_reader_retries_if_evaluation_starts_during_snapshot(tmp_path, monkeypatch):
+    import evaluation
+    bench = summary_projects(tmp_path)[0] / 'benchmark'
+    original = Path.read_bytes
+    reads = 0
+
+    def first_writer_after_metrics(path):
+        nonlocal reads
+        data = original(path)
+        if path == bench / 'metrics.tsv':
+            reads += 1
+            if reads == 1:
+                evaluation.publish(bench, ['metric', 'unitas'], [['exact', '0.25']], ['# New report'])
+        return data
+
+    monkeypatch.setattr(Path, 'read_bytes', first_writer_after_metrics)
+    assert evaluation.read_metrics(bench) == [['metric', 'unitas'], ['exact', '0.25']]
+    assert reads == 2
+
+
+def test_legacy_biological_report_uses_its_primary_metrics_table(tmp_path):
+    import evaluation
+    import summary
+    projects = summary_projects(tmp_path)
+    bench = projects[4] / 'benchmark'
+    secondary = [['metric', 'unitas', 'mirge3'], ['lane_agreement', '0.9', '0.88']]
+    report = bench / 'report.md'
+    with report.open('a') as fh:
+        fh.write('\n## Lane replicates\n\n| metric | unitas | mirge3 |\n|---|---|---|\n| lane_agreement | 0.9 | 0.88 |\n')
+    assert evaluation.read_metrics(bench)[1][0] == 'mirna_reads'
+    (bench / 'metrics.tsv').write_text('\n'.join('\t'.join(row) for row in secondary) + '\n')
+    with pytest.raises(ValueError, match='inconsistent'):
+        evaluation.read_metrics(bench)
+    page = tmp_path / 'overview.md'
+    summary.write([projects[1]], page)
+    assert 'unweighted means of per-sample shares' in page.read_text()
