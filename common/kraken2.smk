@@ -4,13 +4,17 @@
 """
 
 
-include:
-    join(GCFDB_DIR, 'langmead.db')
+include: join(GCFDB_DIR, 'kraken_settings.smk')
 
-
-K2_DB = join(EXT_DIR, 'langmead', 'release-{}'.format(LM_RELEASE), "metagenome", LM_ASSEMBLY)
-K2_SHMEM = rules.langmead_shmem.output
-
+# Screening uses the configured Langmead database. When a metagenome project owns
+# that same path, its on-disk index must stay an input, even on a forced rerun.
+screening_db_dirs = (langmead_database_directory(EXT_DIR), langmead_database_directory('/dev/shm'))
+project_db = config.get('ref_dir') if config.get('workflow') == 'metagenome' else None
+if project_db and any(os.path.realpath(project_db) == os.path.realpath(path) for path in screening_db_dirs):
+    K2_SCREEN_INDEX = kraken_index_files(project_db)
+else:
+    include: join(GCFDB_DIR, 'langmead.db')
+    K2_SCREEN_INDEX = rules.langmead_shmem.output
 
 include:
     join(GCFDB_DIR, 'krona.db')
@@ -55,12 +59,12 @@ else:
 rule k2_screen:
     input:
         fastq = FASTQ,
-        shmem = K2_SHMEM,
+        database = K2_SCREEN_INDEX,
     output:
         report = join(QC_INTERIM, 'kraken2', '{sample}.kraken.kreport'),
         output = join(QC_INTERIM, 'kraken2', '{sample}.kraken.out'),
     params:
-        db = os.path.dirname(K2_SHMEM[0]),
+        db = os.path.dirname(K2_SCREEN_INDEX[0]),
         script = src_gcf('scripts/k2_screen.sh'),
     threads:
         6

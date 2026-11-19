@@ -56,6 +56,10 @@ Kraken2 reads `hash.k2d`, `opts.k2d` and `taxo.k2d` directly from that directory
 Reporting also requires Bracken's `database<N>mers.kmer_distrib` there. The workflow selects the provider-supported
 length closest to the first read's length (for example, `database150mers.kmer_distrib` for 151-base reads).
 The configured provider and assembly still determine the read-length options and intermediate output layout.
+The project owns this database even when its directory matches the configured provider's cache.
+Forced reruns also treat the supplied index and Bracken distribution as inputs.
+Independent Kraken screening uses the configured Langmead database. When the project supplies that same
+database directory, screening reads the supplied index directly.
 
 ## Tests
 
