@@ -68,6 +68,7 @@ The archive path includes the configured classifier level and the forward–reve
 ```
 
 The QIIME2 checkpoint tracks each archive so that planning names any missing file and a newer classifier triggers reclassification.
+For a project reference, planning resolves the export directory once. The checkpoint keeps using that directory if a project symlink moves, and a later invocation resolves the new target.
 
 ## Tests
 

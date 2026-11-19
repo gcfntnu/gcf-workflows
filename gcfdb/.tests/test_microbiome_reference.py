@@ -39,11 +39,11 @@ class MicrobiomeReferenceTests(unittest.TestCase):
 
     def prepare_archives(self, regions, level='99'):
         archives = []
-        export = Path(self.config['ref_dir']) / 'qiime2/classifiers/export'
+        export = self.work / self.config['ref_dir'] / 'qiime2/classifiers/export'
         for region in regions:
             path = export / f'{level}_{self.primers[region]}' / 'sklearn_pipeline.tar'
-            (self.work / path).parent.mkdir(parents=True, exist_ok=True)
-            (self.work / path).write_bytes(b'synthetic classifier')
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b'synthetic classifier')
             archives.append(path)
         return archives
 
@@ -60,11 +60,11 @@ class MicrobiomeReferenceTests(unittest.TestCase):
         # The runtime reads primer pairs from the kit file passed to --libprep-config.
         self.configure('unite', level='dynamic', primers={'ITS1': 'IGNORED-OVERRIDE'})
         archives = self.prepare_archives(['ITS1', 'ITS2'], level='dynamic')
-        (self.work / archives[1]).unlink()
+        archives[1].unlink()
         missing = self.dry_run(success=False)
         self.assertIn('Missing project classifier archive: ' + str(archives[1]), missing)
 
-        (self.work / archives[1]).touch()
+        archives[1].touch()
         planned = self.dry_run()
         for path in archives:
             self.assertIn(str(path), planned)
@@ -72,8 +72,39 @@ class MicrobiomeReferenceTests(unittest.TestCase):
         self.assertEqual(len(commands), 1, planned)
         args = shlex.split(commands[0])
         self.assertEqual(args[args.index('--taxonomy-db') + 1], 'unite')
-        self.assertEqual(args[args.index('--classifier-dir') + 1], str(EXPORT))
+        self.assertEqual(args[args.index('--classifier-dir') + 1], str(self.work / EXPORT))
         self.assertEqual(args[args.index('--classifier-level') + 1], 'dynamic')
+
+    def test_planned_classifier_archives_survive_project_symlink_change(self):
+        panels = {}
+        for name in ('first', 'second'):
+            self.config['ref_dir'] = name
+            archives = self.prepare_archives(['ITS1', 'ITS2'], 'dynamic')
+            for path in archives:
+                path.write_text(name)
+            panels[name] = archives
+        current = self.work / 'current'
+        current.symlink_to(self.work / 'first', target_is_directory=True)
+        self.config['ref_dir'] = current.name
+        self.configure('unite', level='dynamic')
+
+        def checkpoint_archives():
+            lines = self.dry_run().splitlines()
+            inputs = lines[lines.index('checkpoint qiime2_run_regions:') + 1].strip().removeprefix('input: ').split(', ')
+            declared = [Path(path) for path in inputs if path.endswith('sklearn_pipeline.tar')]
+            args = shlex.split(next(line for line in lines if 'run_qiime2.py ' in line))
+            root = Path(args[args.index('--classifier-dir') + 1])
+            level = args[args.index('--classifier-level') + 1]
+            opened = [root / f'{level}_{self.primers[region]}' / 'sklearn_pipeline.tar' for region in ('ITS1', 'ITS2')]
+            self.assertCountEqual(declared, opened)
+            return opened
+
+        planned = checkpoint_archives()
+        current.unlink()
+        current.symlink_to(self.work / 'second', target_is_directory=True)
+        self.assertEqual(planned, panels['first'])
+        self.assertEqual([path.read_text() for path in planned], ['first', 'first'])
+        self.assertEqual(checkpoint_archives(), panels['second'])
 
     def test_newer_classifier_replans_completed_taxonomy(self):
         self.configure()
@@ -96,7 +127,7 @@ class MicrobiomeReferenceTests(unittest.TestCase):
         os.utime(self.work / target, (timestamp + 1, timestamp + 1))
         self.assertIn('Nothing to be done', self.dry_run(str(target)))
 
-        changed = self.work / archives[0]
+        changed = archives[0]
         changed.write_bytes(b'updated synthetic classifier')
         os.utime(changed, (timestamp + 2, timestamp + 2))
         planned = self.dry_run(str(target))

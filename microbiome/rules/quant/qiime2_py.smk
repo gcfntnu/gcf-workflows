@@ -7,6 +7,8 @@ include: 'scripts/qiime2_classifiers.py'
 
 QIIME2_INTERIM = join(QUANT_INTERIM, 'qiime2', config['db']['reference_db'])
 CLASSIFIER_DIR = join(REF_DIR, 'qiime2', 'classifiers', 'export')
+if config.get('ref_dir'):
+    CLASSIFIER_DIR = os.path.realpath(CLASSIFIER_DIR)
 CLASSIFIER_LEVEL = config['db'].get('classifier_level', '99')
 
 
