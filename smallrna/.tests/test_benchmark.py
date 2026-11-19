@@ -398,7 +398,7 @@ def test_ratiometric_metrics_against_the_design(tmp_path):
     ids = [e['pool_id'] for e in entries]
     counts = {('flat', s, i): 100 for s in groups for i in ids}
     counts.update({('exact', s, i): v for s, g in groups.items() for i, v in zip(ids, design[g])})
-    m, observed = pool.ratiometric_metrics(counts, oracle, entries, ['exact', 'flat'], groups, pseudo=0)
+    m, observed = pool.ratiometric_metrics(counts, oracle, entries, ['exact', 'flat'], list(groups.items()), pseudo=0)
     assert m['oracle'] == m['exact'] and m['exact']['median_abs_error'] == 0 and m['exact']['called'] == 1
     assert m['exact']['false_calls'] == 0 and m['flat']['called'] == 0
     assert observed['exact']['hsa-miR-21-5p'] < -2 and 'shifted_called' not in m['exact']  # no shifted entries
@@ -409,7 +409,7 @@ def test_ratiometric_metrics_against_the_design(tmp_path):
     for s, g in groups.items():
         oracle[s]['AGCAGCACGTAAATATTGGCG'] = counts[('exact', s, 'MIR-16-MOVED')] = {'A': 250, 'B': 1000}[g]
         counts[('flat', s, 'MIR-16-MOVED')] = 100
-    with_shifted, observed = pool.ratiometric_metrics(counts, oracle, shifted, ['exact', 'flat'], groups, pseudo=0)
+    with_shifted, observed = pool.ratiometric_metrics(counts, oracle, shifted, ['exact', 'flat'], list(groups.items()), pseudo=0)
     assert {k: str(v) for k, v in with_shifted['flat'].items() if not k.startswith('shifted_')} == {k: str(v) for k, v in m['flat'].items()}
     assert with_shifted['exact']['shifted_median_abs_error'] == 0 and with_shifted['exact']['shifted_called'] == 1
     assert with_shifted['flat']['shifted_called'] == 0 and observed['exact']['MIR-16-MOVED'] == -2
@@ -868,6 +868,7 @@ def test_evaluate_a_biological_dataset_in_lanes(tmp_path):
     assert '| GSM1_L1 | 100 | 95 | 1 | 7 | 0 | 2 | 2 | 1 | 87 |' in report                   # the filtering table
     assert '| GSM1_L1 | 10 | 10.00% | 40.0 | 14.0 |' in report                       # 1 of 10 top-miRNA reads has another first base
     assert '## Lane replicates' in report and '| mirna_sample_pairs | 2 | 2 |' in report and '| 100-999 | 0.0% of 2 | 0.0% of 2 |' in report
+    assert 'resamples (seed 1) of the libraries, each with all its lanes' in report   # lanes of a library are not independent
 
 
 def adapter_report(project, sample, count):
@@ -1685,6 +1686,7 @@ def test_biological_bootstrap_summary_matches_method_summary():
         expected[m]['unplaced'] = shares[m]['share']
     stats = biological.sample_stats(common, raw, methods, samples)
     assert biological.summary_of(stats, methods, samples) == expected
+    assert 'detected_all_samples' not in biological.summary_of(stats, methods, samples, all_samples=False)['u']
     assert biological.summary_of(stats, methods, ['S1', 'S1'])['u']['detected_all_samples'] == 1   # a resample repeating S1
 
 
@@ -1695,7 +1697,8 @@ def test_published_intervals_are_checked_and_shown_in_the_summary(tmp_path):
     bench = project / 'benchmark'
     metrics = [['metric', 'oracle', 'unitas', 'mirge3', 'mirflowz'], ['detected', '0.9', '0.97', '0.95', '0.96']]
     ci = 'metric\trow\tvalue\tlow\thigh\ndetected\tunitas\t0.97\t0.93\t0.99\ndetected\tmirge3\t0.95\t\t\n'
-    evaluation.publish(bench, metrics[0], metrics[1:], ['# eq'], None, {'metrics_ci.tsv': ci, 'differences.tsv': 'metric\n'},
+    evaluation.publish(bench, metrics[0], metrics[1:], ['# eq'], None,
+                       {'metrics_ci.tsv': ci, 'differences.tsv': 'metric\trow_a\trow_b\tdifference\tlow\thigh\n'},
                        {'resamples': 10, 'seed': 1, 'skipped': 0})
     row = summary.read_project(project, tmp_path)[1]
     assert row['values'][('detected', 'unitas')] == '0.97 (0.93–0.99)' and row['values'][('detected', 'mirge3')] == '0.95'
@@ -1704,3 +1707,22 @@ def test_published_intervals_are_checked_and_shown_in_the_summary(tmp_path):
         summary.read_project(project, tmp_path)
     with pytest.raises(ValueError, match='not an evaluation file'):
         evaluation.publish(bench, metrics[0], metrics[1:], ['# eq'], None, {'other.tsv': ''})
+    for name, text in (('metrics_ci.tsv', 'metric\trow\n'), ('differences.tsv', 'metric\trow_a\n'),
+                       ('differences.tsv', 'metric\trow_a\trow_b\tdifference\tlow\thigh\nx\ta\tb\t1\t0\n')):
+        good = {'metrics_ci.tsv': ci, 'differences.tsv': 'metric\trow_a\trow_b\tdifference\tlow\thigh\n'}
+        evaluation.publish(bench, metrics[0], metrics[1:], ['# eq'], None, dict(good, **{name: text}))
+        with pytest.raises(ValueError, match='incomplete or inconsistent evaluation'):   # a wrong header, or a short row
+            summary.read_project(project, tmp_path)
+
+
+def test_synthetic_bootstrap_scores_and_options():
+    """truth_scores over all truth pairs equals count_metrics; --bootstrap refuses a negative count."""
+    import argparse
+    common = [('m', 'S01', 'a', 'A', 10), ('m', 'S01', 'b', 'B', 1), ('m', 'S02', 'a', 'A', 10), ('m', 'S02', 'b', 'B', 3)]
+    truth = {('S01', 'A'): 10, ('S01', 'B'): 3, ('S02', 'A'): 10, ('S02', 'B'): 3}
+    table = metrics.per_mirna(common, truth, ['m'])
+    full = metrics.count_metrics(common, truth, ['m'])['m']
+    assert metrics.truth_scores(table, truth, ['m'], list(truth))['m'] == {k: full[k] for k in ('recovered', 'exact')}
+    assert benchmark.nonnegative('0') == 0
+    with pytest.raises(argparse.ArgumentTypeError, match='must be 0 or more'):
+        benchmark.nonnegative('-5')

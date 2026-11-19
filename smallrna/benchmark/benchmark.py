@@ -313,15 +313,21 @@ def prepare_biological(spec, project, ext_dir, methods, args):
 def bootstrap(args, point, compute, draw, rows, keys, units):
     """Bootstrap intervals for an evaluation (#413): (extra files for evaluation.publish, the record of resamples and
     seed, report lines). Nothing when --bootstrap is 0."""
-    n = getattr(args, 'bootstrap', uncertainty.RESAMPLES)
+    n, seed = args.bootstrap, args.seed
     if not n:
         return {}, None, []
-    seed = getattr(args, 'seed', uncertainty.SEED)
     ci, differences, skipped = uncertainty.intervals(point, compute, draw, rows, keys, n, seed)
     extra = {'metrics_ci.tsv': uncertainty.table_text(uncertainty.CI_HEADER, ci),
              'differences.tsv': uncertainty.table_text(uncertainty.DIFFERENCE_HEADER, differences)}
     record = {'resamples': n, 'seed': seed, 'skipped': skipped}
     return extra, record, uncertainty.report_lines(ci, differences, rows, keys, units, n, seed, skipped)
+
+
+def nonnegative(text):
+    value = int(text)
+    if value < 0:
+        raise argparse.ArgumentTypeError('must be 0 or more, got {}'.format(value))
+    return value
 
 
 def run_reads(project):
@@ -446,11 +452,15 @@ def evaluate(args):
     unplaced = sorted({(row[0], row[2]) for row in common if not row[3]})
     if unplaced:
         lines += ['', '## Names without a miRBase accession', ''] + ['- {}: `{}`'.format(m, n) for m, n in unplaced]
-    truth_keys = sorted(k for k, v in truth.items() if v > 0)
+    # Every sample gets the same reads (synthetic.py), so the unit is the miRNA with all its samples' truth pairs.
+    by_mirna = {}
+    for key in sorted(k for k, v in truth.items() if v > 0):
+        by_mirna.setdefault(key[1], []).append(key)
+    mirnas = sorted(by_mirna)
     extra, record, ci_lines = bootstrap(
-        args, summary, lambda keys: metrics.count_metrics(common, truth, methods, keys=keys),
-        lambda rng: (uncertainty.resample(rng, truth_keys),), methods, ['recovered', 'exact'],
-        'the truth miRNAs (`misassigned` and `unplaced` are totals, without an interval)')
+        args, summary, lambda keys: metrics.truth_scores(table, truth, methods, keys),
+        lambda rng: ([key for m in uncertainty.resample(rng, mirnas) for key in by_mirna[m]],), methods, ['recovered', 'exact'],
+        'the truth miRNAs, each with all its samples (`misassigned` and `unplaced` are totals, without an interval)')
     evaluation.publish(bench, ['metric'] + methods, metric_rows, lines + ci_lines, run_reads(project), extra, record)
     print(bench / 'report.md')
 
@@ -631,7 +641,7 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
         per_kind = {kind: pool.agreement(counts, oracle, group, methods, list(sample_groups)) for kind, group in by_kind.items()}
         observed = {}
     else:
-        summary, observed = pool.ratiometric_metrics(counts, oracle, entries, methods, sample_groups)
+        summary, observed = pool.ratiometric_metrics(counts, oracle, entries, methods, list(sample_groups.items()))
         keys = ['median_abs_error', 'spearman_vs_design', 'called', 'false_calls']
         keys += ['shifted_' + k for k in keys] if shifted else []
         kind_keys = ['median_abs_error', 'called']
@@ -850,12 +860,18 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
             lines += ['', 'Most often overdispersed: ' + '; '.join(listed)]
 
     stats = biological.sample_stats(common, raw, methods, samples)
-    # detected_all_samples has no interval: a resample repeating a sample has fewer distinct samples, so it is biased up
-    extra, record, ci_lines = bootstrap(args, summary, lambda drawn: biological.summary_of(stats, methods, drawn),
-                                        lambda rng: (uncertainty.resample(rng, samples),), methods,
+    # The unit is the library: the lanes of one library are technical replicates, so a drawn library brings all its
+    # lanes (a merged sample is its own library). detected_all_samples has no interval: a resample repeating a sample
+    # has fewer distinct samples, so it is biased up.
+    lanes_of = {}
+    for row in table:
+        lanes_of.setdefault(row['library'], []).append(row['sample'])
+    libraries = sorted(lanes_of)
+    extra, record, ci_lines = bootstrap(args, summary, lambda drawn: biological.summary_of(stats, methods, drawn, all_samples=False),
+                                        lambda rng: ([s for lib in uncertainty.resample(rng, libraries) for s in lanes_of[lib]],), methods,
                                         [k for k in keys if k != 'detected_all_samples'],
                                         '{} (`detected_all_samples` without an interval: a resample repeating a sample has fewer '
-                                        'distinct samples)'.format('the lane samples' if lane_mode else 'the samples'))
+                                        'distinct samples)'.format('the libraries, each with all its lanes' if lane_mode else 'the samples'))
     evaluation.publish(bench, ['metric'] + methods, metric_rows, lines + ci_lines, run_reads(project), extra, record)
     print(bench / 'report.md')
 
@@ -891,7 +907,7 @@ def main():
     f.add_argument('--ext-dir', required=True)
     e = sub.add_parser('evaluate')
     e.add_argument('--project', required=True)
-    e.add_argument('--bootstrap', type=int, default=uncertainty.RESAMPLES, metavar='N',
+    e.add_argument('--bootstrap', type=nonnegative, default=uncertainty.RESAMPLES, metavar='N',
                    help='bootstrap resamples for the metrics\' 95%% intervals (#413); 0 for none (default %(default)s)')
     e.add_argument('--seed', type=int, default=uncertainty.SEED, help='seed of the bootstrap (default %(default)s)')
     e.add_argument('--mirflowz-gff', type=Path, help="mirflowz's extended miRNA annotation; default from the declaration")

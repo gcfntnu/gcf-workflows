@@ -119,9 +119,10 @@ def sample_stats(common, raw, methods, samples):
     return stats
 
 
-def summary_of(stats, methods, samples):
+def summary_of(stats, methods, samples, all_samples=True):
     """method_summary with unplaced's share, from sample_stats, for any list of samples (a bootstrap resample may
-    repeat one): the same values as method_summary and unplaced over the same samples."""
+    repeat one): the same values as method_summary and unplaced over the same samples. `all_samples=False` leaves out
+    detected_all_samples (a resample repeating a sample biases it, so the bootstrap does not use it)."""
     out = {}
     for m in methods:
         per = [stats[(m, s)] for s in samples]
@@ -129,7 +130,8 @@ def summary_of(stats, methods, samples):
         share = [p['unplaced'] for p in per if p['unplaced'] is not None]
         out[m] = {'mirna_reads': round(statistics.median(p['reads'] for p in per)),
                   'detected': statistics.median(len(p['detected']) for p in per),
-                  'detected_all_samples': len(frozenset.intersection(*(p['detected'] for p in per))) if per else 0,
+                  **({'detected_all_samples': len(frozenset.intersection(*(p['detected'] for p in per))) if per else 0}
+                     if all_samples else {}),
                   'top10_share': round(statistics.median(top10), 4) if top10 else '',
                   'unplaced': round(statistics.median(share), 4) if share else ''}
     return out

@@ -159,9 +159,15 @@ def read_evaluation(bench):
         if end < len(report_lines) and report_lines[end].startswith('|'):
             raise ValueError(message)
     intervals = []
-    if 'metrics_ci.tsv' in record:
-        rows = list(csv.DictReader(io.StringIO(files['metrics_ci.tsv'].decode()), delimiter='\t'))
-        if rows and set(rows[0]) != {'metric', 'row', 'value', 'low', 'high'}:
-            raise ValueError(message)
-        intervals = rows
+    headers = {'metrics_ci.tsv': ['metric', 'row', 'value', 'low', 'high'],
+               'differences.tsv': ['metric', 'row_a', 'row_b', 'difference', 'low', 'high']}
+    for name, header in headers.items():
+        if name in record:
+            reader = csv.DictReader(io.StringIO(files[name].decode()), delimiter='\t')
+            rows = list(reader)
+            # a long row has its extra fields under None, a short one None values
+            if reader.fieldnames != header or any(None in row or None in row.values() for row in rows):
+                raise ValueError(message)
+            if name == 'metrics_ci.tsv':
+                intervals = rows
     return table, record, intervals

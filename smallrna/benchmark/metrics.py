@@ -31,21 +31,28 @@ def per_mirna(common, truth, methods=None):
     return table
 
 
-def count_metrics(common, truth, methods=None, keys=None):
-    """truth: {(sample, mature_id): reads}. Returns {method: {metric: value}}.
+def truth_scores(table, truth, methods, keys):
+    """`recovered` and `exact` per method over the truth pairs `keys` (per_mirna's table; a bootstrap resample may
+    repeat a pair)."""
+    result = {}
+    for method in methods:
+        true_rows = [table[(method, *key)] for key in keys if truth.get(key, 0) > 0]
+        total = sum(t for t, _ in true_rows)
+        result[method] = {
+            'recovered': round(sum(min(t, o) for t, o in true_rows) / total, 4) if total else float('nan'),
+            'exact': round(sum(1 for t, o in true_rows if abs(t - o) <= EXACT_TOLERANCE) / len(true_rows), 4) if true_rows else float('nan')}
+    return result
 
-    `keys`: the truth pairs that `recovered` and `exact` are computed over instead of all of them (a bootstrap
-    resample, with repeats); `misassigned` and `unplaced` are totals over the whole table either way."""
+
+def count_metrics(common, truth, methods=None):
+    """truth: {(sample, mature_id): reads}. Returns {method: {metric: value}}."""
     if methods is None:
         methods = sorted({row[0] for row in common})
     table = per_mirna(common, truth, methods)
     result = {}
     for method in methods:
         rows = [(t, o) for (m, _, _), (t, o) in table.items() if m == method]
-        if keys is None:
-            true_rows = [(t, o) for t, o in rows if t > 0]
-        else:
-            true_rows = [table[(method, *key)] for key in keys if truth.get(key, 0) > 0]
+        true_rows = [(t, o) for t, o in rows if t > 0]
         total = sum(t for t, _ in true_rows)
         result[method] = {
             'recovered': round(sum(min(t, o) for t, o in true_rows) / total, 4) if total else float('nan'),

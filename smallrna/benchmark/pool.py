@@ -359,12 +359,12 @@ def ratiometric_metrics(counts, oracle_counts, pool, methods, sample_groups, pse
     Shifted entries are scaled and centred as the exact ones, so the exact group's results do not depend on them.
     Also returns {row: {pool_id: observed log2(A / B)}} for both groups.
 
-    `sample_groups`: {sample: pool} or (sample, pool) pairs (a bootstrap resample may repeat a sample); `exact` and
-    `shifted`: the scored entries to use instead of scored(pool) (a resample, with repeats).
+    `sample_groups`: (sample, pool) pairs (a bootstrap resample may repeat a sample); `exact` and `shifted`: the
+    scored entries to use instead of scored(pool) (a resample, with repeats).
     """
     exact = scored(pool) if exact is None else exact
     entries = exact + (scored(pool, 'shifted') if shifted is None else shifted)
-    pairs_of_samples = list(sample_groups.items()) if isinstance(sample_groups, dict) else list(sample_groups)
+    pairs_of_samples = list(sample_groups)
     result, observed_all = {}, {}
     for row in ['oracle'] + list(methods):
         means = {}
