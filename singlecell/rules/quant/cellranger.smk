@@ -20,13 +20,11 @@ def input_fastq_path(wildcards, input):
         pths.add(pth)
     return ','.join(list(pths))
 
-# Filtered annotations belong to the importing workdir when the selected source came from a published index.
-CR_FILTER_DIR = QUANT_SOURCE_DIR if frozen_generation else REF_DIR
 rule cellranger_gtf:
     input:
-        gtf = join(CR_FILTER_DIR, 'anno', 'genes.gtf')
+        gtf = join(REF_DIR, 'anno', 'genes.gtf')
     output:
-        gtf = join(CR_FILTER_DIR, 'anno', 'genes.gtf.filtered')
+        gtf = join(REF_DIR, 'anno', 'genes.gtf.filtered')
     params:
         ' '.join('--attribute=gene_biotype:{}'.format(bt) for bt in CR_CONF['mkgtf']['gene_biotype'])
     container:

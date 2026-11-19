@@ -7,7 +7,6 @@ include:
 
 CR_REF_DIR = REF_DIR
 CR_REFERENCE_INPUTS = [join(REF_DIR, name) for name in ('reference.json', 'fasta/genome.fa', 'anno/genes.gtf')]
-frozen_generation = None
 if build_10x_reference:
     # Cell Ranger 10.0 allows only letters, digits, underscores and dashes in --genome.
     CR_GENOME = re.sub(r'[^A-Za-z0-9_-]', '_', DB_CONF.get('assembly') or ORG)
@@ -15,9 +14,10 @@ if build_10x_reference:
     CR_BUILD_KEY = cellranger_build_key(CR_GENOME, CR_IMAGE)
     # Keep ordinary project-relative mkref arguments, but resolve project directory symlinks before jobs start.
     CR_SOURCE = REF_DIR
-    if config.get('ref_dir') and os.path.realpath(REF_DIR) != os.path.abspath(REF_DIR):
+    if frozen_generation:
+        CR_SOURCE = selected_source
+    elif config.get('ref_dir') and os.path.realpath(REF_DIR) != os.path.abspath(REF_DIR):
         CR_SOURCE = os.path.realpath(REF_DIR)
-    frozen_generation = frozen_cellranger_generation(CR_SOURCE) if config.get('ref_dir') else None
     if frozen_generation and (frozen_generation.parent.name, frozen_generation.name) == (REFERENCE_SOURCE_DIGEST, CR_BUILD_KEY):
         # The publisher verifies the existing owner generation before pinning it for this workdir.
         CR_CACHE = str(frozen_generation.parent.parent)
@@ -61,7 +61,9 @@ if build_10x_reference:
 
     CR_REFERENCE_INPUTS = lambda wildcards: verified_cellranger_receipt()
 
-    if not config.get('ref_dir'):
+    if frozen_generation:
+        metadata_ref = REF_DIR
+    elif not config.get('ref_dir'):
         # The publisher pins both the original source pair and a digest-specific local annotation directory.
         metadata_ref = join(CR_VIEW, 'annotation')
         annotation_source = join(CR_VIEW, 'index', 'gcf-source')
@@ -77,6 +79,7 @@ if build_10x_reference:
         annotation_checksums = [REFERENCE_SOURCE_CHECKSUMS]
     SNAPSHOT_GENE_TABLE = join(metadata_ref, 'anno', 'genes.tsv')
 
+if build_10x_reference and not frozen_generation:
     rule project_annotation_inputs:
         input:
             annotation_inputs
@@ -84,7 +87,7 @@ if build_10x_reference:
             fasta = join(metadata_ref, 'fasta', 'genome.fa'),
             gtf = join(metadata_ref, 'anno', 'genes.gtf')
         params:
-            script = src_gcf('quant/scripts/stage_project_annotation.sh'),
+            script = join(GCFDB_DIR, 'scripts', 'stage_project_annotation.sh'),
             root = metadata_ref,
             fasta = join(annotation_source, 'fasta', 'genome.fa'),
             gtf = join(annotation_source, 'anno', 'genes.gtf'),
@@ -105,31 +108,15 @@ def gene_table_for_quantifier(wildcards):
     return join(QUANT_SOURCE_DIR, 'anno', 'genes.tsv')
 
 
-if config.get('ref_dir') and REFERENCE_SOURCE_DIGEST:
+if build_10x_reference and config.get('ref_dir') and not frozen_generation:
     # An explicitly requested legacy target can still export the current table.
     # Reporting reads the versioned table directly, never a shared mutable copy.
-    export_root = REF_DIR
-    export_paths = {REF_DIR}
-    if frozen_generation:
-        frozen_source = frozen_generation / 'gcf-source'
-        export_root = '{published_source}'
-        export_paths.update((str(frozen_source), os.path.abspath(REF_DIR), os.path.relpath(frozen_source)))
-
-    def gene_table_destination(wildcards, output):
-        if frozen_generation:
-            raise ValueError(f'Cannot write a gene table in a published Cell Ranger generation. Request {SNAPSHOT_GENE_TABLE} instead.')
-        return output[0]
-
     rule export_project_gene_table:
         input:
             SNAPSHOT_GENE_TABLE
         output:
-            join(export_root, 'anno', 'genes.tsv')
-        wildcard_constraints:
-            published_source = '(?:' + '|'.join(re.escape(path) for path in sorted(export_paths)) + ')'
-        params:
-            destination = gene_table_destination
+            join(REF_DIR, 'anno', 'genes.tsv')
         shell:
-            'cp -- {input:q} {params.destination:q}'
+            'cp -- {input:q} {output:q}'
 
     ruleorder: export_project_gene_table > convert_gtf2gene_info

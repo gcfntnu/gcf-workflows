@@ -384,7 +384,7 @@ def test_report_refreshes_gene_table_and_exons_for_changed_pair(tmp_path, change
 
     # Stand in for the previous generation and for timestamp-current legacy metadata.
     # Exercise only the staging/checksum helper on tiny text files.
-    stage = ['bash', WORKFLOW.parent / 'rules/quant/scripts/stage_project_annotation.sh', panel / 'fasta/genome.fa', panel / 'anno/genes.gtf']
+    stage = ['bash', WORKFLOW.parents[1] / 'gcfdb/scripts/stage_project_annotation.sh', panel / 'fasta/genome.fa', panel / 'anno/genes.gtf']
     subprocess.run([*stage, tmp_path / old_root, old_checksums], check=True)
     for root in (tmp_path / old_root, panel):
         for path in ('fasta/genome.fa.fai', 'anno/exons.gtf', 'anno/exons.bed', 'fasta/exons.fa', 'anno/genes.tsv'):
@@ -759,6 +759,13 @@ def test_project_reusing_published_cellranger_source_preserves_both_pins(tmp_pat
     panel = tmp_path / 'panel'
     write_panel(tmp_path, panel)
 
+    def expected_metadata(source):
+        snapshot, _ = annotation_snapshot(source)
+        if source == panel:
+            return snapshot
+        source_key = hashlib.sha256(os.fsencode(source.resolve())).hexdigest()
+        return snapshot.parent / 'imported' / source_key / snapshot.name
+
     def publish(work, source, genome, image):
         plan = dry_run(work, 'homo_sapiens', ref_dir=str(source), db={'10xgenomics': {'assembly': genome}},
                        docker={'cellranger': image})
@@ -767,7 +774,7 @@ def test_project_reusing_published_cellranger_source_preserves_both_pins(tmp_pat
         env['PATH'] = str(MOCK_TOOLS) + os.pathsep + env['PATH']
         subprocess.run([sys.executable, *command[1:]], cwd=work, env=env, check=True)
         transcriptome, = arguments(plan, 'cellranger count ', '--transcriptome')
-        assert_gene_metadata(plan, annotation_snapshot(source)[0])
+        assert_gene_metadata(plan, expected_metadata(source))
         return (work / transcriptome).resolve(strict=True)
 
     generation = publish(owner, panel, 'Panel.v1', 'example/cellranger:1')
@@ -794,10 +801,9 @@ def test_project_reusing_published_cellranger_source_preserves_both_pins(tmp_pat
 
     for root in {selected, frozen}:
         blocked = plan_existing(importer, str(root / 'anno/genes.tsv'), expect_success=False)
-        assert 'Cannot write a gene table in a published Cell Ranger generation' in blocked
+        assert 'published Cell Ranger generation' in blocked
     filtered = plan_existing(importer, 'cellranger_gtf')
-    snapshot, _ = annotation_snapshot(frozen)
-    assert f'{snapshot}/anno/genes.gtf.filtered' in filtered
+    assert f'{expected_metadata(frozen)}/anno/genes.gtf.filtered' in filtered
 
     assert sorted(p.relative_to(frozen).as_posix() for p in frozen.rglob('*') if p.is_file()) == ['anno/genes.gtf', 'fasta/genome.fa']
     assert (generation / 'gcf-mkref.json').read_bytes() == manifest
