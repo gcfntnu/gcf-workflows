@@ -947,3 +947,61 @@ def test_splitpipe_checks_frozen_sources_against_owner_manifest(splitpipe_import
     assert str(damaged) in blocked
     assert 'Shell command:' not in blocked
     assert not (importer / 'data/tmp/singlecell/quant/reference/imported').exists()
+
+
+def test_owner_and_unrelated_workdir_cannot_write_published_outputs(tmp_path):
+    owner = tmp_path / 'owner'
+    owner.mkdir()
+    panel = tmp_path / 'panel'
+    write_panel(tmp_path, panel)
+    cold = dry_run(owner, 'homo_sapiens', COUNT_TARGET, ref_dir=str(panel))
+    build = shell_command(cold, 'cellranger mkref ')
+    env = protected_env(owner)
+    env['PATH'] = str(MOCK_TOOLS) + os.pathsep + env['PATH']
+    subprocess.run([sys.executable, *build[1:]], cwd=owner, env=env, check=True)
+    pin = Path(next(iter(arguments(cold, 'cellranger count ', '--transcriptome'))))
+    generation = (owner / pin).resolve(strict=True)
+    manifest = generation / 'gcf-mkref.json'
+    blocked = 'Cannot write inside a published Cell Ranger generation'
+
+    # The owner still selects its original panel, and its workdir index link leads into the publication.
+    target = pin / 'gcf-source/anno/exons.gtf'
+    assert blocked in plan_existing(owner, str(target), expect_success=False)
+    assert blocked in plan_existing(owner, str(generation / 'gcf-source/anno/genes.tsv'), expect_success=False)
+    assert 'rule cellranger_mkref:' in plan_existing(owner, COUNT_TARGET, extra=('--forceall',))
+
+    # A completely unrelated default workflow also registers the generic exon rules.
+    other = tmp_path / 'unrelated'
+    other.mkdir()
+    (other / 'elsewhere').symlink_to(generation, target_is_directory=True)
+    target = 'elsewhere/gcf-source/anno/exons.gtf'
+    default = WORKFLOW.parents[1] / 'default/default.smk'
+    assert blocked in dry_run(other, 'salmo_salar', target, workflow_file=default, expect_success=False)
+    member = other / 'member'
+    member.symlink_to(generation / 'star/SA')
+    with (other / 'Snakefile').open('a') as rules:
+        rules.write("\nrule replace_member:\n    output: 'member'\n    shell: 'touch {output:q}'\n")
+    actual = subprocess.run([sys.executable, '-m', 'snakemake', '--cores', '1', '--force', 'replace_member'],
+                            cwd=other, env=protected_env(other), capture_output=True, text=True, timeout=120)
+    assert actual.returncode and blocked in actual.stdout + actual.stderr and member.is_symlink()
+    assert not (other / target).exists()
+
+    # A relocated valid marker protects its directory, and the managed layout protects damaged generations.
+    moved = other / 'relocated'
+    moved.mkdir()
+    (moved / 'gcf-mkref.json').write_bytes(manifest.read_bytes())
+    (moved / 'star').mkdir()
+    (moved / 'star/SA').write_bytes((generation / 'star/SA').read_bytes())
+    member.unlink()
+    member.symlink_to(moved / 'future-output')
+    assert blocked in plan_existing(other, 'member', expect_success=False, extra=('--force',))
+    saved = tmp_path / 'saved-manifest'
+    manifest.rename(saved)
+    try:
+        assert blocked in plan_existing(other, target, expect_success=False)
+    finally:
+        saved.rename(manifest)
+    assert 'rule cellranger_mkref:' not in plan_existing(owner, 'multiqc_report')
+    # A project can keep the same JSON as provenance without becoming a generation.
+    (other / 'gcf-mkref.json').write_bytes(manifest.read_bytes())
+    assert 'rule multiqc_report:' in plan_existing(other, 'multiqc_report')

@@ -2,6 +2,8 @@
 """Snakmake rules shared between workflows
 """
 
+include: 'gcfdb/protect_cellranger_outputs.smk'
+
 # FastQ Screen can build its human index even when a project supplies its primary reference.
 if not config.get('ref_dir') or config['db']['ensembl'].get('release'):
     include: 'gcfdb/ensembl.db'

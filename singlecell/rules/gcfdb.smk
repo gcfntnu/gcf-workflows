@@ -51,8 +51,7 @@ if build_10x_reference:
     if use_digest_view:
         CR_VIEW = join(views, REFERENCE_SOURCE_DIGEST, CR_BUILD_KEY)
     CR_RECEIPT = join(CR_VIEW, 'ready')
-    if frozen_generation:
-        workdir_reference_links.add(('cellranger_mkref', Path(CR_VIEW).resolve() / 'ready'))
+    workdir_reference_links.add(('cellranger_mkref', Path(CR_VIEW).resolve() / 'ready'))
     CR_REF_DIR = join(CR_VIEW, 'index')
 
     # Full index verification is shared by the count and annotation jobs that read this pin.

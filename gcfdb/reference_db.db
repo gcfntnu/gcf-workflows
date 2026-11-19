@@ -32,7 +32,8 @@ if not REF_DIR:
         release_dir = f'release-{source_release}' if source_release is not None else ''
         REF_DIR = join(EXT_DIR, ref, release_dir, ORG, str(DB_CONF.get('assembly') or ''))
 
-include: 'scripts/reference_identity.py'
+if 'workdir_reference_links' not in globals():
+    include: 'protect_cellranger_outputs.smk'
 
 frozen_generation = frozen_cellranger_generation(REF_DIR) if config.get('ref_dir') else None
 build_10x_reference = config['workflow'] == 'singlecell' and (config.get('libprepkit') or '').startswith('10X Genomics') and not USE_10X_PREBUILT
@@ -50,6 +51,7 @@ if frozen_generation:
     # including quantifiers that derive indexes or annotation beside their input FASTA.
     source_key = hashlib.sha256(os.fsencode(selected_source)).hexdigest()
     REF_DIR = join(QUANT_INTERIM, 'reference', 'imported', source_key, REFERENCE_SOURCE_DIGEST)
+    workdir_reference_roots[frozen_generation] = Path(REF_DIR)
 
     rule stage_frozen_reference:
         input:
@@ -86,29 +88,3 @@ def get_genome(*args, **kw):
 
 def get_gtf(*args, **kw):
     return join(REF_DIR, 'anno', 'genes.gtf')
-
-if frozen_generation:
-    # Published files are inputs. Every job must own its output directory entries.
-    workdir_reference_links = set()
-
-    def check_reference_outputs(wildcards, rulename):
-        outputs, _ = workflow.get_rule(rulename).expand_output(wildcards)
-        for output in outputs:
-            path = Path(output)
-            entry = path.parent.resolve() / path.name
-            # The publisher atomically replaces its own receipt symlink in the workdir.
-            # Other outputs must also be safe when reached through a leaf symlink.
-            destinations = [entry] if (rulename, entry) in workdir_reference_links else [entry, entry.resolve()]
-            for target in destinations:
-                if target.is_relative_to(frozen_generation):
-                    relative = target.relative_to(frozen_generation)
-                    if relative.parts[:1] == ('gcf-source',):
-                        relative = relative.relative_to('gcf-source')
-                    raise ValueError(f'Cannot write inside a published Cell Ranger generation: {output}. Request {Path(REF_DIR) / relative} instead.')
-        return 0
-
-    # Snakemake evaluates resource functions for selected jobs before preparing outputs,
-    # in both execution and dry runs. Cover rules included before and after this reader.
-    workflow.resource_settings.default_resources.parsed['gcf_reference_writes'] = check_reference_outputs
-    for registered_rule in workflow.rules:
-        registered_rule.resources['gcf_reference_writes'] = check_reference_outputs
