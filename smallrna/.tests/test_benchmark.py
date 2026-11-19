@@ -1089,12 +1089,12 @@ def test_evaluation_locks_are_regular_and_exclusive_descriptor_is_writable(tmp_p
     actual_flock = fcntl.flock
     modes = []
 
-    def check_lock(file, mode):
-        assert stat.S_ISREG(os.fstat(file.fileno()).st_mode)
-        access = fcntl.fcntl(file, fcntl.F_GETFL) & os.O_ACCMODE
+    def check_lock(fd, mode):
+        assert stat.S_ISREG(os.fstat(fd).st_mode)
+        access = fcntl.fcntl(fd, fcntl.F_GETFL) & os.O_ACCMODE
         assert access == (os.O_WRONLY if mode == fcntl.LOCK_EX else os.O_RDONLY)
         modes.append(mode)
-        return actual_flock(file, mode)
+        return actual_flock(fd, mode)
 
     monkeypatch.setattr(fcntl, 'flock', check_lock)
     assert evaluation.read_metrics(bench) and not modes
@@ -1218,3 +1218,84 @@ def test_summary_keeps_publication_bound_to_the_open_directory(tmp_path, monkeyp
     assert report.read_bytes() == original
     assert (moved / report.name).read_text().startswith('# Small-RNA benchmark summary')
     assert sorted(p.name for p in moved.iterdir()) == [report.name]
+
+
+def test_project_input_link_entries_are_preserved(tmp_path):
+    import summary
+    project = summary_projects(tmp_path / 'projects')[0]
+    report = project / 'benchmark/report.md'
+    archive = tmp_path / 'archive'
+    archive.mkdir()
+    entry = tmp_path / 'archive.md'
+    entry.symlink_to(archive, target_is_directory=True)
+    archived = report.rename(archive / 'saved.md')
+    original = archived.read_bytes()
+    report.symlink_to(entry / archived.name)
+    with pytest.raises(ValueError, match='aliases one of its inputs'):
+        summary.write([project], entry)
+    assert entry.is_symlink() and report.read_bytes() == original
+
+
+def test_write_rechecks_current_input_entries_before_publishing(tmp_path, monkeypatch):
+    import summary
+    project = summary_projects(tmp_path / 'projects')[0]
+    report = project / 'benchmark/report.md'
+    outside = tmp_path / 'outside'
+    outside.mkdir()
+    destination = outside / report.name
+    destination.write_bytes(report.read_bytes())
+    original = destination.read_bytes()
+    render = summary.markdown
+
+    def render_after_report_relocation(sections):
+        report.unlink()
+        report.symlink_to(destination)
+        return render(sections)
+
+    monkeypatch.setattr(summary, 'markdown', render_after_report_relocation)
+    with pytest.raises(ValueError, match='aliases one of its inputs'):
+        summary.write([project], destination)
+    assert destination.read_bytes() == original
+    assert sorted(path.name for path in outside.iterdir()) == [report.name]
+
+
+@pytest.mark.parametrize('kind', ['fifo', 'link'])
+def test_evaluation_lock_requires_regular_file_without_following_links(tmp_path, kind):
+    import evaluation
+    bench = summary_projects(tmp_path)[0] / 'benchmark'
+    lock = bench / '.evaluation.lock'
+    if kind == 'fifo':
+        os.mkfifo(lock)
+    else:
+        target = tmp_path / 'other'
+        target.touch()
+        lock.symlink_to(target)
+    for writer in (False, True):
+        with pytest.raises((OSError, ValueError)):
+            with evaluation.evaluation_lock(bench, writer=writer):
+                pytest.fail('accepted a nonregular lock')
+
+
+def test_protected_paths_are_checked_after_the_output_directory_is_open(tmp_path, monkeypatch):
+    import summary
+    project = summary_projects(tmp_path / 'projects')[0]
+    old = tmp_path / 'archive'
+    old.mkdir()
+    output_dir = tmp_path / 'reports'
+    output_dir.mkdir()
+    report = project / 'benchmark/report.md'
+    stored = report.rename(old / report.name)
+    original = stored.read_bytes()
+    report.symlink_to(stored)
+    open_directory = summary.open_directory
+
+    def open_after_relocation(path):
+        output_dir.rmdir()
+        old.rename(output_dir)
+        old.symlink_to(output_dir, target_is_directory=True)
+        return open_directory(path)
+
+    monkeypatch.setattr(summary, 'open_directory', open_after_relocation)
+    with pytest.raises(ValueError, match='aliases one of its inputs'):
+        summary.write([project], output_dir / report.name)
+    assert report.read_bytes() == original

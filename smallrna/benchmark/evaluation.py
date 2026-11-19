@@ -5,6 +5,8 @@ import fcntl
 import hashlib
 import io
 import json
+import os
+import stat
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -16,16 +18,22 @@ REPORT_MARKER = '<!-- benchmark evaluation: see evaluation.json -->'
 def evaluation_lock(bench, *, writer):
     # NFS requires write access on the descriptor for exclusive locks. Keep
     # this inode stable across publications. Legacy readers create no files.
+    path = bench / '.evaluation.lock'
+    mode = os.O_WRONLY | os.O_CREAT if writer else os.O_RDONLY
     try:
-        lock = (bench / '.evaluation.lock').open('ab' if writer else 'rb')
+        fd = os.open(path, mode | os.O_NOFOLLOW | os.O_NONBLOCK, 0o666)
     except FileNotFoundError:
         if writer:
             raise
         yield False
         return
-    with lock:
-        fcntl.flock(lock, fcntl.LOCK_EX if writer else fcntl.LOCK_SH)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise ValueError(f'expected a regular evaluation lock file: {path}')
+        fcntl.flock(fd, fcntl.LOCK_EX if writer else fcntl.LOCK_SH)
         yield True
+    finally:
+        os.close(fd)
 
 
 def publish(bench, header, rows, lines):

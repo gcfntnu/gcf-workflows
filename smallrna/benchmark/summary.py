@@ -197,27 +197,32 @@ def html_page(sections):
             '<style>{}</style>\n</head>\n<body>\n{}\n</body>\n</html>\n'.format(STYLE, '\n'.join(body)))
 
 
-def checked_destination(projects, output):
-    out_dir, directory_links = resolve_with_links(output.parent)
-    entry = out_dir / output.name
+def validate_destination(projects, entry, directory, directory_links):
+    """Check the bound directory entry against the project locations and their link chains."""
+    opened = os.fstat(directory)
+    check_directory_identity(directory, entry.parent)
     final, file_links = resolve_with_links(entry)
     destinations = {entry, final, *directory_links, *file_links}
     for project in projects:
         bench = project / 'benchmark'
-        inputs = {(project / 'config.yaml').resolve()}
-        inputs.update((bench / name).resolve() for name in
-                      ('dataset.yaml', 'metrics.tsv', 'report.md', 'evaluation.json', 'truth.tsv', 'samples.tsv'))
         project_dirs = {project.resolve(), bench.resolve()}
-        if any(any(path.is_relative_to(directory) for directory in project_dirs) or path in inputs
-               for path in destinations):
-            raise ValueError(f'the output {output} is inside the project {project} or aliases one of its inputs')
-    return entry
+        sources = [project / 'config.yaml', *(bench / name for name in
+                   ('dataset.yaml', 'metrics.tsv', 'report.md', '.evaluation.lock', 'evaluation.json', 'truth.tsv', 'samples.tsv'))]
+        inputs = set()
+        for source in sources:
+            target, links = resolve_with_links(source)
+            inputs.update([target, *links])
+        # Compare directory entries, not file inodes. Replacing a separate hard
+        # link outside a project preserves the project file.
+        same_entry = any(path.name == entry.name and os.path.samestat(path.parent.stat(), opened) for path in inputs)
+        if same_entry or destinations & inputs or any(path.is_relative_to(root) for path in destinations for root in project_dirs):
+            raise ValueError(f'the output {entry} is inside the project {project} or aliases one of its inputs')
 
 
 @contextmanager
 def open_directory(path):
     """Pin a resolved Linux directory, refusing links substituted during traversal."""
-    flags = os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW
+    flags = getattr(os, 'O_PATH', os.O_RDONLY) | os.O_DIRECTORY | os.O_NOFOLLOW
     fd = os.open(path.anchor, flags)
     try:
         for part in path.parts[1:]:
@@ -240,8 +245,10 @@ def write(projects, output):
     render = {'.md': markdown, '.html': html_page}.get(output.suffix)
     if render is None:
         raise ValueError('--output {}: the extension must be .md or .html'.format(output))
-    output = checked_destination(projects, output)
-    with open_directory(output.parent) as directory:
+    parent, links = resolve_with_links(output.parent)
+    output = parent / output.name
+    with open_directory(parent) as directory:
+        validate_destination(projects, output, directory, links)
         sections = summarize(projects, output.parent)
         text = render(sections)
         check_directory_identity(directory, output.parent)
@@ -250,6 +257,7 @@ def write(projects, output):
         try:
             with os.fdopen(fd, 'w', encoding='utf-8') as stream:
                 stream.write(text)
+            validate_destination(projects, output, directory, links)
             os.replace(temporary, output.name, src_dir_fd=directory, dst_dir_fd=directory)
         except BaseException:
             os.unlink(temporary, dir_fd=directory)
