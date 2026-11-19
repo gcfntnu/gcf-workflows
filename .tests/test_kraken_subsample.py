@@ -67,6 +67,14 @@ else:
         self.run_helper(expect_success=False)
         self.assertFalse(self.output.exists())
 
+    def test_existing_directory_is_not_an_output_file(self):
+        self.input.write_bytes(gzip.compress(READ))
+        self.output.mkdir()
+        sentinel = self.output / 'sample.fastq.gz'
+        sentinel.write_bytes(b'previous result')
+        self.run_helper(expect_success=False)
+        self.assertEqual(sentinel.read_bytes(), b'previous result')
+
     def test_sampling_and_head_failures_preserve_prior_output(self):
         self.input.write_bytes(gzip.compress(READ))
         self.output.write_bytes(b'previous result')

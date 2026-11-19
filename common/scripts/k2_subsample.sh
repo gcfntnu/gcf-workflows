@@ -17,4 +17,4 @@ esac
 "${reader[@]}" "$input" | seqkit sample --proportion 0.4 --rand-seed 1234 | {
     seqkit head --number 1000000 --out-file "$stage/sample.fastq.gz" && cat >/dev/null
 }
-mv -- "$stage/sample.fastq.gz" "$output"
+mv -T -- "$stage/sample.fastq.gz" "$output"
