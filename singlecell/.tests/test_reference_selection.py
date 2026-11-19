@@ -306,9 +306,11 @@ def test_project_genome_in_fastq_screen(tmp_path, workflow_file, kit, rule):
     log = dry_run(tmp_path, 'synthetic_organism', target, workflow_file=workflow_file, kit=kit, ref_dir=str(ref),
                   db={'reference_db': 'ensembl', 'ensembl': {'release': None}})
     assert f'rule {rule}:' in log
-    index_dir = ref / 'index/genome/bowtie2'
-    build = next(shlex.split(line) for line in log.splitlines() if 'bowtie2-build ' in line and str(ref) in line)
-    assert build[-2:] == [str(ref / 'fasta/genome.fa'), str(index_dir / 'genome')]
+    fasta = ref / 'fasta/genome.fa'
+    digest = hashlib.sha256((tmp_path / fasta).read_bytes()).hexdigest()
+    index_dir = Path(f'data/tmp/{workflow_file.stem}/qc/fastq_screen/indexes/{digest}')
+    build = shell_command(log, 'build_project_screen_index.sh')
+    assert build[2:] == [str(fasta), digest, 'bt2', '1', str(index_dir)]
 
     records = next(shlex.split(line) for line in log.splitlines() if 'DATABASE Synthetic_Organism ' in line)
     project_prefix = next(record.split()[2] for record in records if record.startswith('DATABASE Synthetic_Organism '))

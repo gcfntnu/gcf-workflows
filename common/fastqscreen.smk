@@ -1,6 +1,8 @@
 #-*- mode: snakemake -*-
 """
 """
+from functools import lru_cache
+from hashlib import file_digest
 from shlex import quote
 
 include: 
@@ -20,34 +22,49 @@ rule illumina_fasta:
 
 # FastQ Screen treats whitespace as a field separator in DATABASE records. Each screening
 # job uses its own shadow directory, so its project index can have a fixed relative alias.
-PROJECT_SCREEN_DB = None
+PROJECT_SCREEN_FASTA = None
 if config.get('ref_dir') and ORG not in ('homo_sapiens', 'n/a') and config['db']['reference_db'] in (
         'ensembl', '10xgenomics', 'custom_reference', 'refseq', 'gencode'):
-    PROJECT_SCREEN_DB = join(config['ref_dir'], 'index', 'genome', 'bowtie2')
+    PROJECT_SCREEN_FASTA = join(config['ref_dir'], 'fasta', 'genome.fa')
 PROJECT_SCREEN_ALIAS = 'project_bowtie2_index'
+PROJECT_SCREEN_CACHE = join(QC_INTERIM, 'fastq_screen', 'indexes')
 
 
-def project_screen_index_extension():
-    fasta = join(config['ref_dir'], 'fasta', 'genome.fa')
-    # bowtie2-build 2.3.4.3 switches binaries at this FASTA byte size (bowtie2-build wrapper, small_index_max_size).
-    if os.path.getsize(fasta) > 4 * 1024**3 - 200:
-        return 'bt2l'
-    prefix = join(PROJECT_SCREEN_DB, 'genome')
-    small = bowtie2_index_files(prefix, 'bt2')
-    large = bowtie2_index_files(prefix, 'bt2l')
-    if all(map(os.path.isfile, large)) and not all(map(os.path.isfile, small)):
-        return 'bt2l'
-    return 'bt2'
+@lru_cache(maxsize=1)
+def project_screen_index():
+    # Resolve on demand: workflows that do not request FastQ Screen need no extra FASTA read.
+    with open(PROJECT_SCREEN_FASTA, 'rb') as fasta:
+        digest = file_digest(fasta, 'sha256').hexdigest()
+        # bowtie2-build 2.3.4.3 chooses the binary by FASTA byte size (small_index_max_size).
+        extension = 'bt2l' if os.path.getsize(fasta.fileno()) > 4 * 1024**3 - 200 else 'bt2'
+    return join(PROJECT_SCREEN_CACHE, digest, 'genome'), extension
 
 
 def project_screen_setup(wildcards):
-    if not PROJECT_SCREEN_DB:
+    if not PROJECT_SCREEN_FASTA:
         return ''
-    # An old small and a current large index can coexist in the cache. Make only the selected
-    # suffix visible to Bowtie2, which otherwise tries the small index first.
-    index = quote(abspath(join(PROJECT_SCREEN_DB, 'genome')))
-    extension = project_screen_index_extension()
-    return f'mkdir {PROJECT_SCREEN_ALIAS} && ln -s -- {index}.*.{extension} {PROJECT_SCREEN_ALIAS}/ && '
+    prefix, extension = project_screen_index()
+    return f'mkdir {PROJECT_SCREEN_ALIAS} && ln -s -- {quote(abspath(prefix))}.*.{extension} {PROJECT_SCREEN_ALIAS}/ && '
+
+
+if PROJECT_SCREEN_FASTA:
+    rule project_screen_bowtie2_index:
+        input:
+            PROJECT_SCREEN_FASTA
+        output:
+            bowtie2_index_files(join(PROJECT_SCREEN_CACHE, '{fasta_sha256}', 'genome'), '{index_ext}')
+        params:
+            script = join(GCFDB_DIR, 'scripts', 'build_project_screen_index.sh'),
+            outdir = join(PROJECT_SCREEN_CACHE, '{fasta_sha256}')
+        threads:
+            48
+        wildcard_constraints:
+            fasta_sha256 = '[0-9a-f]{64}',
+            index_ext = 'bt2l?'
+        container:
+            'docker://' + config['docker']['bowtie2']
+        shell:
+            'bash {params.script:q} {input:q} {wildcards.fasta_sha256:q} {wildcards.index_ext:q} {threads} {params.outdir:q}'
 
 
 def fastq_screen_indexes(*args, **kw):
@@ -57,8 +74,8 @@ def fastq_screen_indexes(*args, **kw):
    INDEXES = {'Human': join(HUMAN_ENSEMBL_DIR, 'index', 'genome', 'bowtie2', 'genome.1.bt2')}
    org = config.get('organism')
    if org not in ['homo_sapiens', 'N/A', 'n/a']:
-      if PROJECT_SCREEN_DB:
-         INDEXES[org] = bowtie2_index_files(join(PROJECT_SCREEN_DB, 'genome'), project_screen_index_extension())
+      if PROJECT_SCREEN_FASTA:
+         INDEXES[org] = bowtie2_index_files(*project_screen_index())
       elif config['db'].get('reference_db') in ['ensembl', '10xgenomics']:
          index = join(ENSEMBL_DIR, 'index', 'genome', 'bowtie2', 'genome.1.bt2')
          INDEXES[org] = index
@@ -77,7 +94,7 @@ def fastq_screen_indexes(*args, **kw):
 def fastq_screen_databases(wildcards, input):
     records = []
     for name, index in input.items():
-        if PROJECT_SCREEN_DB and name == ORG:
+        if PROJECT_SCREEN_FASTA and name == ORG:
             prefix = join(PROJECT_SCREEN_ALIAS, 'genome')
         else:
             prefix = abspath(str(index).removesuffix('.1.bt2'))
