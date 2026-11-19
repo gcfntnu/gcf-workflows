@@ -221,8 +221,6 @@ The genome name is `gcf`, not one of TEsmall's built-in names, so a database tha
 
 **Outputs** in `quant/tesmall/`: `<sample>/count_summary.txt` with TEsmall's other per-sample files, and `tesmall_counts.tsv` (`ftype`, `fid`, one column per sample; [`tesmall_counts.py`](rules/quant/scripts/tesmall_counts.py)).
 
-On the benchmark's reduced reference (mouse chromosome 19) the database build took under a minute, and placed all 24 piRNAclusterDB clusters of chromosome 19 (published on GRCm38) on GRCm39. On its synthetic reads TEsmall counted most miRNAs exactly; with TEsmall's own class order it gave the reads of `mmu-miR-3084-3p`, whose two loci lie inside snoRNA genes, to those snoRNAs (hence miRNA first by default), and left a 3′ isomiR with a non-templated A unaligned (exact genome alignment). The full-genome database (a Bowtie index of the whole genome) has not been built yet.
-
 ## Key configuration
 
 | Key | Default | Set in |
