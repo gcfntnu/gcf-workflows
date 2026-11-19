@@ -260,8 +260,8 @@ def open_directory(path):
         os.close(fd)
 
 
-def check_directory_identity(directory, path):
-    if not os.path.samestat(os.fstat(directory), path.stat(follow_symlinks=False)):
+def check_directory_identity(directory, path, *, follow_symlinks=False):
+    if not os.path.samestat(os.fstat(directory), path.stat(follow_symlinks=follow_symlinks)):
         raise ValueError(f'the summary directory moved during publication: {path}')
 
 
@@ -271,9 +271,13 @@ def write(projects, output):
     render = {'.md': markdown, '.html': html_page}.get(output.suffix)
     if render is None:
         raise ValueError('--output {}: the extension must be .md or .html'.format(output))
-    parent, links = resolve_with_links(output.parent)
+    requested_parent = output.parent
+    parent, links = resolve_with_links(requested_parent)
     output = parent / output.name
     with open_directory(parent) as directory:
+        # Kernel lookup of the original spelling must reach this directory.
+        # Lexically removing ".." can otherwise skip a missing or non-directory entry.
+        check_directory_identity(directory, requested_parent, follow_symlinks=True)
         validate_destination(projects, output, directory, links)
         sections = summarize(projects, output.parent)
         text = render(sections)

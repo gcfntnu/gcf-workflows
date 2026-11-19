@@ -1358,3 +1358,16 @@ def test_summary_waits_for_first_evaluation_before_checking_for_metrics(tmp_path
         summary.write([project], output)
         publication.result(timeout=5)
     assert '| 0.75 |' in output.read_text()
+
+
+@pytest.mark.parametrize('prefix', ['missing', 'regular', 'link'])
+def test_summary_requires_a_traversable_output_parent(tmp_path, prefix):
+    import summary
+    project = summary_projects(tmp_path / 'projects')[0]
+    (tmp_path / 'regular').write_text('ordinary file')
+    (tmp_path / 'link').symlink_to('missing/..', target_is_directory=True)
+    output = tmp_path / 'overview.md'
+    output.write_text('previous summary')
+    with pytest.raises((FileNotFoundError, NotADirectoryError)):
+        summary.write([project], tmp_path / prefix / '..' / output.name)
+    assert output.read_text() == 'previous summary'
