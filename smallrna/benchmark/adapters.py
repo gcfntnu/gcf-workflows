@@ -17,7 +17,8 @@ by name, because the methods name miRNAs differently:
 - tiny-count reports miRBase GFF feature IDs, one row per locus: the accession, with `_1`, `_2` for further loci of
   the same mature miRNA (`MIMAT0000416_1`); the loci are summed per accession.
 
-Adding a method means adding one function to ADAPTERS that reads its output directory.
+Adding a method means adding one function to ADAPTERS that reads its output directory, and its count table to TABLES:
+before scoring, benchmark.py checks that table's samples and the miRBase release in the method's reference.tsv (#407).
 """
 import csv
 import math
@@ -148,6 +149,30 @@ def tinyrna(quant_dir, name_to_id, **_):
 
 
 ADAPTERS = {'unitas': unitas, 'mirge3': mirge3, 'mirflowz': mirflowz, 'tesmall': tesmall, 'tinyrna': tinyrna}
+
+# Each method's count table under the project's quant directory: (path, delimiter, columns before the samples).
+TABLES = {'unitas': ('unitas/mir_counts.tsv', '\t', 1), 'mirge3': ('mirge3/miR.Counts.csv', ',', 1),
+          'mirflowz': ('mirflowz/all_mirna_counts.tab', '\t', 1), 'tesmall': ('tesmall/tesmall_counts.tsv', '\t', 2),
+          'tinyrna': ('tinyrna/tinyrna_counts.tsv', '\t', 3)}
+
+
+def table_samples(method, quant_dir):
+    """The sample columns of a method's count table, in their order."""
+    path, sep, skip = TABLES[method]
+    with open(Path(quant_dir) / path, newline='') as fh:
+        header = next(csv.reader(fh, delimiter=sep), [])
+    return [s.strip() for s in header[skip:]]
+
+
+def method_mirbase(method, quant_dir):
+    """(miRNA database, release) a method annotated with, from its quant/<method>/reference.tsv: written by
+    unitas_reference and mirge3_reference, and by quant_reference for the routes on the mirflowz reference."""
+    path = Path(quant_dir) / method / 'reference.tsv'
+    with open(path, newline='') as fh:
+        fields = {row['field']: row['value'] for row in csv.DictReader(fh, delimiter='\t')}
+    if 'mirna_database' not in fields or 'mirna_release' not in fields:
+        raise ValueError('{}: no mirna_database or mirna_release record'.format(path))
+    return fields['mirna_database'], fields['mirna_release']
 
 
 def common_table(methods, quant_dir, name_to_id, prefix, mirflowz_gff=None, unitas_hairpins=None, mature=None):

@@ -1,5 +1,6 @@
 """Dry-run contract for the small-RNA `quant.method` selection of `quant_all`."""
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -276,3 +277,26 @@ def test_mirge3_counts_are_made_from_its_mapped_reads(tmp_path, db, name):
     counts = rule_block(output, 'mirge3_counts')
     assert 'output: data/tmp/smallrna/quant/mirge3/miR.Counts.csv' in counts
     assert f'--merges data/tmp/smallrna/quant/mirge3/lib/mouse/annotation.Libs/mouse_merges_{name}.csv' in counts
+
+
+def test_routes_on_the_mirflowz_reference_record_their_mirbase_release(tmp_path):
+    """quant/<route>/reference.tsv for mirflowz, TEsmall and tiny-count (#407): db.mirbase.release, or NA for a
+    db.mirflowz.custom reference; UNITAS and miRge3 write their own."""
+    returncode, output = dry_run(tmp_path, 'unitas,mirflowz,tesmall,tinyrna', printshell=True)
+    assert returncode == 0, output
+    blocks = output.split('rule quant_reference:')[1:]
+    assert sorted(re.search(r'output: data/tmp/smallrna/quant/(\w+)/reference.tsv', b).group(1) for b in blocks) == ['mirflowz', 'tesmall', 'tinyrna']
+    for block in blocks:
+        assert "mirbase db.mirbase.release 23.1 db.mirbase.release data/ext/mirflowz/mirbase-23.1_ensembl-116/mus_musculus > " in block
+    refs = tmp_path / 'refs'
+    refs.mkdir()
+    files = {key: refs / name for key, name in (('genome', 'genome.fa.gz'), ('gtf', 'genes.gtf.gz'), ('mirna_gff', 'mirna.gff3'))}
+    for path in files.values():
+        path.touch()
+    custom = lambda s: s.setdefault('db', {}).setdefault('mirflowz', {}).update(custom=dict(name='reduced', **{k: str(v) for k, v in files.items()}))
+    returncode, output = dry_run(tmp_path, 'tinyrna', custom, printshell=True)
+    assert returncode == 0, output
+    assert 'NA db.mirflowz.custom NA db.mirflowz.custom data/ext/mirflowz/custom-reduced/mus_musculus > ' in rule_block(output, 'quant_reference')
+    returncode, output = dry_run(tmp_path, 'unitas,mirge3')
+    assert returncode == 0, output
+    assert 'quant_reference' not in output

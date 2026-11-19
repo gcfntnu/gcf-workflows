@@ -18,6 +18,29 @@ include:
 include:
     'quant/tinyrna.smk'
 
+GENOME_ROUTES = ('mirflowz', 'tesmall', 'tinyrna')
+
+
+rule quant_reference:
+    """Which miRBase release a route on the mirflowz reference annotated with (quant/<route>/reference.tsv, the layout of
+    UNITAS's and miRge3's records), read by the benchmark before scoring (#407): db.mirbase.release, or NA for a
+    db.mirflowz.custom reference, whose annotation is the project's own."""
+    output:
+        join(QUANT_INTERIM, '{route}', 'reference.tsv')
+    params:
+        database = 'NA' if MIRFLOWZ_CUSTOM else 'mirbase',
+        release = 'NA' if MIRFLOWZ_CUSTOM else MIRFLOWZ_MIRBASE,
+        source = 'db.mirflowz.custom' if MIRFLOWZ_CUSTOM else 'db.mirbase.release',
+        reference = MIRFLOWZ_REF
+    wildcard_constraints:
+        route = '|'.join(GENOME_ROUTES)
+    container:
+        'docker://' + config['docker']['default']
+    shell:
+        "printf 'field\\tvalue\\tsource\\nmirna_database\\t%s\\t%s\\nmirna_release\\t%s\\t%s\\nreference\\t%s\\tconfiguration\\n' "
+        "{params.database:q} {params.source:q} {params.release:q} {params.source:q} {params.reference:q} > {output:q}"
+
+
 def quant_all(wildcards):
     methods = [m.strip() for m in str(config['quant']['method']).split(',')]
     unknown = [m for m in methods if m not in QUANT_METHODS]
@@ -35,6 +58,7 @@ def quant_all(wildcards):
             out.extend(rules.tesmall_all.input)
         elif m == 'tinyrna':
             out.extend(rules.tinyrna_all.input)
+    out.extend(join(QUANT_INTERIM, m, 'reference.tsv') for m in methods if m in GENOME_ROUTES)
     return out
 
 rule quant_all:
