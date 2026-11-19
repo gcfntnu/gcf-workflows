@@ -1,6 +1,7 @@
 """Exercise Cell Ranger index publication across workdirs using only synthetic mkref output."""
 
 import gzip
+import hashlib
 import json
 import os
 import shlex
@@ -47,7 +48,7 @@ class CellRangerPublicationTests(unittest.TestCase):
         directory = Path(command[command.index("--output-dir") + 1])
         for child in ("fasta", "genes", "star"):
             (directory / child).mkdir(parents=True)
-        (directory / "reference.json").write_text(json.dumps({"genome": command[command.index("--genome") + 1]}))
+        (directory / "reference.json").write_text(json.dumps({"genomes": [command[command.index("--genome") + 1]], "mem_gb": 1}))
         fasta = Path(cwd) / command[command.index("--fasta") + 1]
         gtf = Path(cwd) / command[command.index("--genes") + 1]
         self.assertNotEqual(fasta.resolve(), self.fasta.resolve())
@@ -159,6 +160,34 @@ class CellRangerPublicationTests(unittest.TestCase):
         self.assertFalse((self.root / "incomplete/ready").is_symlink())
         self.assertEqual(list(self.cache.rglob(publisher.MANIFEST)), [])
 
+    def test_publisher_rejects_invalid_required_metadata(self):
+        for invalid in (b'', b'{"genomes": [', b'{}', b'{"genomes": ["other"], "mem_gb": 1}', b'{"genomes": ["panel"]}'):
+            def bad_metadata(command, *, cwd, check):
+                self.stub_mkref(command, cwd=cwd, check=check)
+                path = Path(command[command.index("--output-dir") + 1]) / "reference.json"
+                path.write_bytes(invalid)
+
+            with self.subTest(metadata=invalid), patch.object(publisher.subprocess, "run", side_effect=bad_metadata):
+                with self.assertRaisesRegex(ValueError, "reference.json"):
+                    self.publish("bad")
+                self.assertEqual(list(self.cache.rglob(publisher.MANIFEST)), [])
+
+    def test_forced_publisher_checks_size_and_digest_of_each_member(self):
+        with patch.object(publisher.subprocess, "run", side_effect=self.stub_mkref):
+            manifest = self.publish("existing").resolve(strict=True)
+        members = json.loads(manifest.read_text())["files"]
+        for name, replacement in (("reference.json", b""), ("star/SA", None), ("gcf-source/anno/genes.gtf", b"changed")):
+            path = manifest.parent / name
+            original = path.read_bytes()
+            old = path.stat()
+            self.assertEqual(members[name], {"size": len(original), "sha256": hashlib.sha256(original).hexdigest()})
+            path.write_bytes(replacement if replacement is not None else b"x" * len(original))
+            os.utime(path, ns=(old.st_atime_ns, old.st_mtime_ns))
+            with self.subTest(member=name), patch.object(publisher.subprocess, "run", side_effect=AssertionError("damaged cache reused")):
+                with self.assertRaisesRegex(ValueError, name):
+                    self.publish("existing")
+            path.write_bytes(original)
+
     def test_inventory_tracks_actual_annotation_and_optional_files(self):
         self.gtf.write_text('syn\tfixture\texon\t1\t4\t.\t+\t.\tgene_id "x"; transcript_id "tx";\n')
 
@@ -168,7 +197,7 @@ class CellRangerPublicationTests(unittest.TestCase):
             compressed = output / "genes/genes.gtf.gz"
             compressed.with_suffix("").write_bytes(gzip.decompress(compressed.read_bytes()))
             compressed.unlink()
-            (output / "star/sjdbList.fromGTF.out.tab").write_text("syn\t1\t4\t1\n")
+            (output / "star/sjdbList.fromGTF.out.tab").touch()
 
         with patch.object(publisher.subprocess, "run", side_effect=uncompressed_mkref):
             manifest = self.publish("uncompressed").resolve(strict=True)
@@ -176,7 +205,7 @@ class CellRangerPublicationTests(unittest.TestCase):
         self.assertIn("genes/genes.gtf", record["files"])
         self.assertNotIn("genes/genes.gtf.gz", record["files"])
         optional = "star/sjdbList.fromGTF.out.tab"
-        self.assertIn(optional, record["files"])
+        self.assertEqual(record["files"][optional], {"size": 0, "sha256": hashlib.sha256(b"").hexdigest()})
         (manifest.parent / optional).unlink()
         with patch.object(publisher.subprocess, "run", side_effect=AssertionError("damaged cache rebuilt in place")):
             with self.assertRaisesRegex(ValueError, optional):

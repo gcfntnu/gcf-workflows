@@ -52,11 +52,13 @@ def build_reference(source_dir, cache, receipt, expected_source, image, command)
     genome = command[command.index('--genome') + 1]
     final = cache / digest / cellranger_build_key(genome, image)
     identity = {'format': CELLRANGER_RECIPE_VERSION, 'inputs': checksums, 'genome': genome, 'image': image}
-    if not final.exists():
+    if final.exists():
+        verify(final, identity)
+    else:
         final.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix='.mkref-', dir=final.parent) as stage:
             staged = build_from_snapshot(Path(stage).resolve(), source_dir, checksums, command)
-            record = {**identity, 'files': cellranger_product_inventory(staged)}
+            record = {**identity, 'files': cellranger_product_inventory(staged, genome, checksums)}
             (staged / MANIFEST).write_text(json.dumps(record, indent=2) + '\n')
             try:
                 # POSIX rename on the same filesystem never replaces a nonempty directory.
@@ -64,8 +66,8 @@ def build_reference(source_dir, cache, receipt, expected_source, image, command)
             except OSError as error:
                 if error.errno not in (errno.EEXIST, errno.ENOTEMPTY):
                     raise
-                # Another workdir published the same identity first.
-    verify(final, identity)
+                # Another workdir published the same identity first. Verify that winner before pinning.
+                verify(final, identity)
 
     # A forced or failed Snakemake job may remove its local receipt, never a shared index member.
     receipt.parent.mkdir(parents=True, exist_ok=True)

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Stand in for mkref in publisher/retained-workdir tests. Produces only tiny text fixtures."""
+import json
 from pathlib import Path
 import sys
 
@@ -13,4 +14,7 @@ for name in (
 ):
     path = root / name
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(b"processed mkref output")
+    if name == "reference.json":
+        path.write_text(json.dumps({"genomes": [sys.argv[sys.argv.index("--genome") + 1]], "mem_gb": 1}))
+    else:
+        path.write_bytes(b"processed mkref output")

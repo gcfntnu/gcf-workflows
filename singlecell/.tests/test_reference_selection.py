@@ -478,6 +478,16 @@ def test_retained_receipt_checks_index_before_count(tmp_path):
         assert 'cellranger count ' not in damaged and str(member) in damaged
         member.write_bytes(original)
 
+    for name, truncated in (('reference.json', True), ('star/SA', False)):
+        member = manifest.parent / name
+        original = member.read_bytes()
+        old = member.stat()
+        member.write_bytes(b'' if truncated else b'x' * len(original))
+        os.utime(member, ns=(old.st_atime_ns, old.st_mtime_ns))
+        damaged = plan_existing(tmp_path, COUNT_TARGET, expect_success=False)
+        assert 'cellranger count ' not in damaged and str(member) in damaged
+        member.write_bytes(original)
+
     annotation = receipt.parent / 'annotation'
     target = annotation.readlink()
     annotation.unlink()
