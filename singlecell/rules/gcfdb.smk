@@ -86,11 +86,15 @@ if build_10x_reference:
         shell:
             'bash {params.script:q} {params.fasta:q} {params.gtf:q} {params.root:q} {params.checksums:q}'
 
+# Alignment and annotation use the same verified pair for every explicit 10x project reference.
+QUANT_SOURCE_DIR = metadata_ref if build_10x_reference and config.get('ref_dir') else REF_DIR
+
+
 def gene_table_for_quantifier(wildcards):
     method = getattr(wildcards, 'quantifier', None) or wildcards.method
-    if build_10x_reference and (config.get('ref_dir') or method == 'cellranger'):
+    if build_10x_reference and method == 'cellranger':
         return SNAPSHOT_GENE_TABLE
-    return join(REF_DIR, 'anno', 'genes.tsv')
+    return join(QUANT_SOURCE_DIR, 'anno', 'genes.tsv')
 
 
 if config.get('ref_dir') and REFERENCE_SOURCE_DIGEST:
