@@ -10,32 +10,34 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class CustomReferenceTests(unittest.TestCase):
-    def test_project_then_environment_then_generated_reference(self):
+    def test_project_directory_or_configured_provider(self):
         readers = (
-            ('gcfdb/reference_db.db', 'ensembl', 'data/ext/ensembl/release-116/homo_sapiens/'),
-            ('metagenome/rules/reference_db.smk', 'langmead', 'data/ext/langmead/20260626'),
+            ('gcfdb/reference_db.db', 'ensembl', 'data/ext/ensembl/release-116/homo_sapiens/GRCh38'),
+            ('metagenome/rules/reference_db.smk', 'langmead', 'data/ext/langmead/release-20260626/metagenome/k2_pluspf'),
             ('microbiome/rules/reference_db.smk', 'silva', 'data/ext/silva/132'),
         )
-        cases = ((None, None), ('project-ref', None), (None, 'env-ref'), ('project-ref', 'env-ref'),
-                 ('', 'env-ref'), ('', ''), (None, ''))
         for reader, database, default in readers:
-            for project, environment in cases:
-                with self.subTest(reader=reader, project=project, environment=environment), tempfile.TemporaryDirectory() as directory:
+            for project in ({}, {'ref_dir': None}, {'ref_dir': ''}, {'ref_dir': 'refs/panel-v1'}):
+                with self.subTest(reader=reader, project=project), tempfile.TemporaryDirectory() as directory:
                     work = Path(directory)
-                    settings = {'read_geometry': [75], 'organism': 'homo_sapiens', 'db': {'reference_db': database},
-                                'ref_dir': project}
-                    expected = project or environment or default
+                    settings = {'read_geometry': [75], 'organism': 'homo_sapiens', 'db': {'reference_db': database}, **project}
+                    expected = project.get('ref_dir') or default
+                    if project.get('ref_dir'):
+                        (work / expected).mkdir(parents=True)
+                    # The shared reader follows the Ensembl lookup in the genomic workflows.
+                    ensembl_include = f'include: {str(ROOT / "gcfdb/ensembl.db")!r}\n' if database == 'ensembl' else ''
                     (work / 'Snakefile').write_text(
                         f'config.update({settings!r})\n'
                         f'include: {str(ROOT / "utils.py")!r}\n'
+                        f'{ensembl_include}'
                         f'include: {str(ROOT / reader)!r}\n'
                         f'assert REF_DIR == {expected!r}, REF_DIR\n'
+                        f'assert config["db"]["reference_db"] == {database!r}\n'
+                        'assert DB_CONF == config["db"][config["db"]["reference_db"]]\n'
                         'rule reference_probe:\n    output: "probe.txt"\n    params: reference=REF_DIR\n'
                         '    shell: "printf %s {params.reference:q} > {output:q}"\n'
                     )
                     env = {k: v for k, v in os.environ.items() if not k.startswith('GCF_')}
-                    if environment is not None:
-                        env['GCF_REFDIR'] = environment
                     result = subprocess.run([sys.executable, '-m', 'snakemake', '-n', '-p', '--cores', '1', 'reference_probe'],
                                             cwd=work, env=env, capture_output=True, text=True, timeout=60)
                     output = result.stdout + result.stderr
