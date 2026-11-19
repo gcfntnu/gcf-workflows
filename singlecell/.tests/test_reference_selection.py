@@ -807,3 +807,79 @@ def test_project_reusing_published_cellranger_source_preserves_both_pins(tmp_pat
 
     assert sorted(p.relative_to(frozen).as_posix() for p in frozen.rglob('*') if p.is_file()) == ['anno/genes.gtf', 'fasta/genome.fa']
     assert (generation / 'gcf-mkref.json').read_bytes() == manifest
+
+
+def test_splitpipe_imports_frozen_source_without_modifying_the_generation(tmp_path):
+    from test_velocity import workflow_fixture
+
+    owner, importer = tmp_path / 'owner', tmp_path / 'importer'
+    owner.mkdir()
+    importer.mkdir()
+    panel = tmp_path / 'panel'
+    write_panel(tmp_path, panel)
+    exon = 'synthetic\tfixture\texon\t1\t4\t.\t+\t.\tgene_id "GENE"; transcript_id "TX";\n'
+    (panel / 'anno/genes.gtf').write_text(exon)
+    original = dry_run(owner, 'homo_sapiens', COUNT_TARGET, ref_dir=str(panel))
+    env = protected_env(owner)
+    env['PATH'] = str(MOCK_TOOLS) + os.pathsep + env['PATH']
+    subprocess.run(shell_command(original, 'cellranger mkref '), cwd=owner, env=env, check=True)
+    pin, = arguments(original, 'cellranger count ', '--transcriptome')
+    generation = (owner / pin).resolve(strict=True)
+    inventory = set(generation.rglob('*'))
+    manifest = (generation / 'gcf-mkref.json').read_bytes()
+    frozen = generation / 'gcf-source'
+
+    workflow_fixture(importer, methods='splitpipe', use_velo=False)
+    (importer / 'selected').symlink_to(frozen, target_is_directory=True)
+    config = importer / 'config.yaml'
+    config.write_text(yaml.safe_dump({**yaml.safe_load(config.read_text()), 'ref_dir': 'selected'}))
+    report = plan_existing(importer, 'multiqc_report')
+    assert 'rule multiqc_report:' in report and 'cellranger mkref ' not in report
+    genome, = arguments(report, 'split-pipe --mode mkref ', '--fasta')
+    source = Path(genome).parents[1]
+    assert (importer / source).resolve().is_relative_to(importer / 'data/tmp/singlecell/quant/reference')
+    assert source.name == annotation_snapshot(frozen)[0].name
+    index = source / 'index/genome/splitpipe'
+    assert genome == str(source / 'fasta/genome.fa')
+    assert arguments(report, 'split-pipe --mode mkref ', '--genes') == {str(source / 'anno/genes.gtf')}
+    assert arguments(report, 'split-pipe --mode mkref ', '--output_dir') == {str(index)}
+    assert arguments(report, 'split-pipe --mode all ', '--genome_dir') == {str(index)}
+    assert_gene_metadata(report, source)
+    for paths in re.findall(r'^    (?:output|log|benchmark): (.+)$', report, re.MULTILINE):
+        for path in paths.split(', '):
+            assert not (importer / path).resolve().is_relative_to(generation), path
+
+    # Exercise the staging and exon rules and the real index wrapper, substituting a tiny text file for the Split-Pipe index.
+    tools = importer / 'tools'
+    tools.mkdir()
+    stub = tools / 'split-pipe'
+    stub.write_text("""#!/usr/bin/env python3
+from pathlib import Path
+import sys
+assert sys.argv[sys.argv.index('--mode') + 1] == 'mkref'
+Path(sys.argv[sys.argv.index('--output_dir') + 1], 'SA').write_text('synthetic index')
+""")
+    stub.chmod(0o755)
+    env = protected_env(importer)
+    env['PATH'] = str(tools) + os.pathsep + env['PATH']
+    # Supply the single extracted exon so the normal gene-table converter can also run without bedtools.
+    exon_fasta = importer / source / 'fasta/exons.fa'
+    exon_fasta.parent.mkdir(parents=True, exist_ok=True)
+    exon_fasta.write_text('>synthetic:0-4\nACGT\n')
+    command = [sys.executable, '-m', 'snakemake', '--cores', '1', str(index / 'SA'), str(source / 'anno/exons.gtf'),
+               str(source / 'anno/genes.tsv'), '--allowed-rules', 'stage_frozen_reference', 'splitpipe_index',
+               'splitpipe_mkref_parfile', 'exon_gtf', 'convert_gtf2gene_info']
+    result = subprocess.run(command, cwd=importer, env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    for member in ('fasta/genome.fa', 'anno/genes.gtf'):
+        assert (importer / source / member).read_bytes() == (frozen / member).read_bytes()
+    assert (importer / index / 'SA').read_text() == 'synthetic index'
+    assert (importer / source / 'anno/exons.gtf').read_text() == exon
+    assert (importer / source / 'anno/genes.tsv').read_text().splitlines()[1].split('\t')[0] == 'GENE'
+    blocked = plan_existing(importer, 'selected/anno/exons.gtf', expect_success=False)
+    assert 'Cannot write inside a published Cell Ranger generation' in blocked
+    assert set(generation.rglob('*')) == inventory
+    assert (generation / 'gcf-mkref.json').read_bytes() == manifest
+    retained = plan_existing(owner, COUNT_TARGET)
+    assert arguments(retained, 'cellranger count ', '--transcriptome') == {pin}
+    assert 'cellranger mkref ' not in retained
