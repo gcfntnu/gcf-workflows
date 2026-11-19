@@ -59,13 +59,26 @@ def reads_processed(project):
     return total
 
 
-def publish(bench, header, rows, lines, reads_processed=None):
+# Tables published with some evaluations (bootstrap intervals, #413); listed with their SHA-256 in evaluation.json.
+EXTRA_FILES = ('metrics_ci.tsv', 'differences.tsv')
+
+
+def publish(bench, header, rows, lines, reads_processed=None, extra=None, bootstrap=None):
     """Publish metrics.tsv and report.md with evaluation.json, the completion record: their SHA-256 and the reads the
-    evaluated run processed (`reads_processed`, as read when evaluating; null when unknown)."""
+    evaluated run processed (`reads_processed`, as read when evaluating; null when unknown). `extra`: {name: text} of
+    EXTRA_FILES published with them (an earlier evaluation's EXTRA_FILES not in it are removed), and `bootstrap`
+    ({'resamples': n, 'seed': s}) recorded with them."""
     table = '\n'.join('\t'.join(map(str, row)) for row in [header, *rows]) + '\n'
     files = {'metrics.tsv': table.encode(), 'report.md': ('\n'.join([*lines, '', REPORT_MARKER]) + '\n').encode()}
+    extra = extra or {}
+    unknown = sorted(set(extra) - set(EXTRA_FILES))
+    if unknown:
+        raise ValueError('not an evaluation file: {}'.format(', '.join(unknown)))
+    files.update({name: text.encode() for name, text in extra.items()})
     record = {name: hashlib.sha256(data).hexdigest() for name, data in files.items()}
     record['reads_processed'] = reads_processed
+    if bootstrap is not None:
+        record['bootstrap'] = bootstrap
     files['evaluation.json'] = (json.dumps(record, sort_keys=True) + '\n').encode()
     with TemporaryDirectory(dir=bench) as directory:
         stage = Path(directory)
@@ -77,11 +90,13 @@ def publish(bench, header, rows, lines, reads_processed=None):
             pending.replace(bench / 'evaluation.json')
             for name in files:  # The completion record is installed last.
                 (stage / name).replace(bench / name)
+            for name in set(EXTRA_FILES) - set(files):
+                (bench / name).unlink(missing_ok=True)
 
 
 def evaluation_files(bench):
     snapshot = {}
-    for name in ('metrics.tsv', 'report.md', 'evaluation.json'):
+    for name in ('metrics.tsv', 'report.md', 'evaluation.json', *EXTRA_FILES):
         try:
             snapshot[name] = (bench / name).read_bytes()
         except FileNotFoundError:
@@ -94,8 +109,9 @@ def read_metrics(bench):
 
 
 def read_evaluation(bench):
-    """(metrics table, completion record) from one locked snapshot; the record is {} for an older evaluation without
-    evaluation.json, and lacks `reads_processed` for one published before it was recorded."""
+    """(metrics table, completion record, intervals) from one locked snapshot; the record is {} for an older
+    evaluation without evaluation.json, and lacks `reads_processed` for one published before it was recorded.
+    intervals: the rows of metrics_ci.tsv as dicts when the record lists it (checksum checked), else []."""
     message = f'{bench}: incomplete or inconsistent evaluation; run `benchmark.py evaluate --project {bench.parent}`'
     with evaluation_lock(bench, writer=False) as locked:
         files = evaluation_files(bench)
@@ -119,9 +135,12 @@ def read_evaluation(bench):
         except ValueError:
             raise ValueError(message) from None
         digests = {'metrics.tsv': hashlib.sha256(data).hexdigest(), 'report.md': hashlib.sha256(report).hexdigest()}
-        if not isinstance(record, dict) or set(record) - {'metrics.tsv', 'report.md', 'reads_processed'} or \
+        if not isinstance(record, dict) or set(record) - {'metrics.tsv', 'report.md', 'reads_processed', 'bootstrap', *EXTRA_FILES} or \
                 {k: record.get(k) for k in digests} != digests:
             raise ValueError(message)
+        for name in EXTRA_FILES:
+            if name in record and (name not in files or hashlib.sha256(files[name]).hexdigest() != record[name]):
+                raise ValueError(message)
         count = record.get('reads_processed')
         if count is not None and (type(count) is not int or count < 0):
             raise ValueError(message)
@@ -139,4 +158,16 @@ def read_evaluation(bench):
         end = first + len(lines)
         if end < len(report_lines) and report_lines[end].startswith('|'):
             raise ValueError(message)
-    return table, record
+    intervals = []
+    headers = {'metrics_ci.tsv': ['metric', 'row', 'value', 'low', 'high'],
+               'differences.tsv': ['metric', 'row_a', 'row_b', 'difference', 'low', 'high']}
+    for name, header in headers.items():
+        if name in record:
+            reader = csv.DictReader(io.StringIO(files[name].decode()), delimiter='\t')
+            rows = list(reader)
+            # a long row has its extra fields under None, a short one None values
+            if reader.fieldnames != header or any(None in row or None in row.values() for row in rows):
+                raise ValueError(message)
+            if name == 'metrics_ci.tsv':
+                intervals = rows
+    return table, record, intervals

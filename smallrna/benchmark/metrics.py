@@ -31,6 +31,19 @@ def per_mirna(common, truth, methods=None):
     return table
 
 
+def truth_scores(table, truth, methods, keys):
+    """`recovered` and `exact` per method over the truth pairs `keys` (per_mirna's table; a bootstrap resample may
+    repeat a pair)."""
+    result = {}
+    for method in methods:
+        true_rows = [table[(method, *key)] for key in keys if truth.get(key, 0) > 0]
+        total = sum(t for t, _ in true_rows)
+        result[method] = {
+            'recovered': round(sum(min(t, o) for t, o in true_rows) / total, 4) if total else float('nan'),
+            'exact': round(sum(1 for t, o in true_rows if abs(t - o) <= EXACT_TOLERANCE) / len(true_rows), 4) if true_rows else float('nan')}
+    return result
+
+
 def count_metrics(common, truth, methods=None):
     """truth: {(sample, mature_id): reads}. Returns {method: {metric: value}}."""
     if methods is None:

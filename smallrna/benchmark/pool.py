@@ -304,7 +304,7 @@ def agreement(counts, oracle_counts, entries, methods, samples):
     return result
 
 
-def equimolar_metrics(counts, reads, oracle_counts, pool, methods, samples):
+def equimolar_metrics(counts, reads, oracle_counts, pool, methods, samples, exact=None):
     """{row: {metric: value}} for 'oracle' and each method, over the scored exact entries, averaged over samples.
 
     Against the oracle (methods only): median log2(method + 1) / (oracle + 1), share within 2-fold and beyond 10-fold,
@@ -312,8 +312,10 @@ def equimolar_metrics(counts, reads, oracle_counts, pool, methods, samples):
     equimolar pool, so kit bias for the oracle), and of all the reads a method reported as miRNAs, `outside`: the share
     on miRNAs of no exact or shifted entry (reads from foreign pool sequences assigned to the organism's miRNAs) and
     `unplaced`: the share on names without a miRBase accession.
+
+    `exact`: the scored entries to use instead of scored(pool) (a bootstrap resample, with repeats).
     """
-    exact = scored(pool)
+    exact = scored(pool) if exact is None else exact
     result = {}
     for row in ['oracle'] + list(methods):
         per_sample = []
@@ -345,7 +347,7 @@ def ratio_scores(pairs):
             'false_calls': round(sum(1 for o in close if abs(o) >= 1) / len(close), 4) if close else float('nan')}
 
 
-def ratiometric_metrics(counts, oracle_counts, pool, methods, sample_groups, pseudo=1.0):
+def ratiometric_metrics(counts, oracle_counts, pool, methods, sample_groups, pseudo=1.0, exact=None, shifted=None):
     """{row: {metric: value}} for 'oracle' and each method, over the scored exact entries, and with a `shifted_`
     prefix over the scored shifted entries.
 
@@ -356,15 +358,19 @@ def ratiometric_metrics(counts, oracle_counts, pool, methods, sample_groups, pse
     direction) and `false_calls` (share of sequences designed less than 2-fold apart observed at least 2-fold apart).
     Shifted entries are scaled and centred as the exact ones, so the exact group's results do not depend on them.
     Also returns {row: {pool_id: observed log2(A / B)}} for both groups.
+
+    `sample_groups`: (sample, pool) pairs (a bootstrap resample may repeat a sample); `exact` and `shifted`: the
+    scored entries to use instead of scored(pool) (a resample, with repeats).
     """
-    exact = scored(pool)
-    entries = exact + scored(pool, 'shifted')
+    exact = scored(pool) if exact is None else exact
+    entries = exact + (scored(pool, 'shifted') if shifted is None else shifted)
+    pairs_of_samples = list(sample_groups)
     result, observed_all = {}, {}
     for row in ['oracle'] + list(methods):
         means = {}
         for group in ('A', 'B'):
             scaled = []
-            for sample in [s for s, g in sample_groups.items() if g == group]:
+            for sample in [s for s, g in pairs_of_samples if g == group]:
                 values = [oracle_counts[sample].get(e['sequence'], 0) if row == 'oracle'
                           else counts.get((row, sample, e['pool_id']), 0) for e in entries]
                 total = sum(values[:len(exact)])
