@@ -1,4 +1,4 @@
-"""Small-RNA benchmark: synthetic truth, method adapters, metrics, pools (truth groups, oracle, fill) and the prepare/evaluate steps
+"""Small-RNA benchmark: synthetic truth, method adapters, metrics, pools (truth groups, oracle, fill) and the prepare/evaluate/summary steps
 on synthetic tables."""
 import gzip
 import json
@@ -854,6 +854,645 @@ def test_evaluate_a_biological_dataset_in_lanes(tmp_path):
     assert '| GSM1_L1 | 100 | 95 | 1 | 7 | 0 | 2 | 2 | 1 | 87 |' in report                   # the filtering table
     assert '| GSM1_L1 | 10 | 10.00% | 40.0 | 14.0 |' in report                       # 1 of 10 top-miRNA reads has another first base
     assert '## Lane replicates' in report and '| mirna_sample_pairs | 2 | 2 |' in report and '| 100-999 | 0.0% of 2 | 0.0% of 2 |' in report
+
+
+def adapter_report(project, sample, count):
+    """The first cutadapt pass's JSON report of a sample, as far as the summary reads it."""
+    write(project / 'data/tmp/smallrna/filter/cutadapt_stages' / f'{sample}.adapter.json', json.dumps({'read_counts': {'input': count}}))
+
+
+def summary_project(root, name, spec, metrics, samples=None, truth=None, published=True):
+    """An evaluated project as the summary reads it: config.yaml, benchmark/dataset.yaml, metrics.tsv, samples.tsv
+    (truth.tsv for synthetic data), report.md and each sample's first cutadapt report with its `reads` (the truth
+    total for synthetic data; none when empty), published with evaluation.json as `evaluate` does (an older evaluation
+    without it when not `published`)."""
+    project = root / name
+    names = [row[0] for row in samples[1:]] if samples else ['S01', 'S02']
+    runs = {name: [name] for name in names}
+    if samples and 'runs' in samples[0]:
+        runs = {row[0]: row[samples[0].index('runs')].split(',') for row in samples[1:]}
+    inputs = {s: {'R1': ','.join(f"{spec['name']}/{run}_R1.fastq.gz" for run in ids)} for s, ids in runs.items()}
+    write(project / 'config.yaml', yaml.safe_dump({'workflow': 'smallrna', 'fastq_dir': 'data/raw/fastq', 'samples': inputs}))
+    write(project / 'benchmark/dataset.yaml', yaml.safe_dump(dict(spec, organism='homo_sapiens')))
+    write(project / 'benchmark/metrics.tsv', ''.join('\t'.join(row) + '\n' for row in metrics))
+    report_rows = ['| ' + ' | '.join(row) + ' |' for row in metrics]
+    report_rows.insert(1, '|---' * len(metrics[0]) + '|')
+    write(project / 'benchmark/report.md', '# {}\n\n{}\n'.format(spec['name'], '\n'.join(report_rows)))
+    if published:
+        import evaluation
+    if truth:
+        write(project / 'benchmark/truth.tsv', 'sample\tclass\tmature_name\tmature_id\tsequence\tcount\n' + ''.join(
+            '{}\tcanonical\tm\tMIMAT1\tACGT\t{}\n'.format(s, n) for s, n in truth))
+        for sample, count in truth:
+            adapter_report(project, sample, count)
+    else:
+        write(project / 'benchmark/samples.tsv', ''.join('\t'.join(row) + '\n' for row in samples))
+        for row in samples[1:]:
+            if row[samples[0].index('reads')]:
+                adapter_report(project, row[0], int(row[samples[0].index('reads')]))
+    if published:
+        evaluation.publish(project / 'benchmark', metrics[0], metrics[1:], ['# {}'.format(spec['name'])],
+                           evaluation.reads_processed(project))
+    return project
+
+
+POOL_SAMPLES = ['sample', 'group', 'lab', 'reads']
+
+
+def summary_projects(root, published=True):
+    kit = {'libprepkit': 'Kit A'}
+
+    def project(*args, **kwargs):
+        return summary_project(*args, published=published, **kwargs)
+    return [
+        project(root, 'syn', dict(kit, name='synthetic_set', kind='synthetic', methods=['unitas', 'tesmall']),
+                        [['metric', 'unitas', 'tesmall'], ['recovered', '1.0', '0.9'], ['exact', '1.0', ''], ['misassigned', '0', '3']],
+                        truth=[('S01', 60), ('S02', 40)]),
+        project(root, 'eq3', dict(kit, name='eq_pool', kind='pool', pool='equimolar', methods=['unitas', 'mirge3', 'mirflowz']),
+                        [['metric', 'oracle', 'unitas', 'mirge3', 'mirflowz'], ['detected', '0.9', '0.97', '0.95', '0.96'],
+                         ['within_2fold', '', '0.77', '0.76', '0.74'], ['shifted_within_2fold', '', '0.79', '0.75', '0.79']],
+                        samples=[POOL_SAMPLES, ['R1', 'EQ', 'Lab1', '500000'], ['R2', 'EQ', 'Lab2', '1500000']]),
+        project(root, 'eq2', dict(libprepkit='Kit B', name='eq_pool_b', kind='pool', pool='equimolar', methods=['mirge3', 'unitas']),
+                        [['metric', 'oracle', 'mirge3', 'unitas'], ['detected', '0.89', '0.89', '0.94'], ['within_2fold', '', '0.85', '0.86']],
+                        samples=[POOL_SAMPLES, ['R1', 'EQ', 'Lab1', '1000'], ['R2', 'EQ', 'Lab1', '']]),
+        project(root, 'ratio', dict(kit, name='ratio_pool', kind='pool', pool='ratiometric', methods=['unitas']),
+                        [['metric', 'oracle', 'unitas'], ['called', '0.88', '0.89'], ['false_calls', '0.05', '0.06']],
+                        samples=[POOL_SAMPLES, ['A1', 'A', 'Lab1', '10'], ['B1', 'B', 'Lab1', '10']]),
+        project(root, 'bio_lanes', dict(kit, name='plasma', kind='biological', methods=['unitas', 'mirge3']),
+                        [['metric', 'unitas', 'mirge3'], ['mirna_reads', '742128', '714978'], ['detected', '349.0', '373.5']],
+                        samples=[['sample', 'library', 'group', 'lane', 'runs', 'reads'], ['G1_L1', 'G1', 'g', '1', 'SRR1', '100'],
+                                 ['G1_L2', 'G1', 'g', '2', 'SRR2', '100'], ['G2_L1', 'G2', 'g', '1', 'SRR3', '100']]),
+        project(root, 'bio_merged', dict(kit, name='plasma', kind='biological', methods=['unitas', 'mirge3', 'mirflowz']),
+                        [['metric', 'unitas', 'mirge3', 'mirflowz'], ['mirna_reads', '2966861', '2858766', '2861471'], ['detected', '581.5', '640.5', '435.5']],
+                        samples=[['sample', 'library', 'group', 'lane', 'runs', 'reads'], ['G1', 'G1', 'g', 'merged', 'SRR1,SRR2', '200'],
+                                 ['G2', 'G2', 'g', 'merged', 'SRR3', '100']]),
+    ]
+
+
+def test_summary_across_kinds_and_method_sets(tmp_path):
+    projects = summary_projects(tmp_path / 'projects')
+    before = sorted((p, p.stat().st_mtime_ns) for project in projects for p in project.rglob('*'))
+    output = tmp_path / 'out/summary.md'
+    output.parent.mkdir()
+    result = subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'summary', '--projects'] + [str(p) for p in projects] +
+                            ['--output', str(output)], capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    assert sorted((p, p.stat().st_mtime_ns) for project in projects for p in project.rglob('*')) == before   # nothing written into the projects
+    text = output.read_text()
+    assert [line for line in text.splitlines() if line.startswith('## ')] == [
+        '## Synthetic data', '## Equimolar pools', '## Ratiometric pools', '## Biological samples']
+    fixed = '| project | dataset | kit | samples | reads processed | methods |'
+    # synthetic: a metric no project has (unplaced) is left out, one a method lacks is an empty cell
+    assert fixed + ' recovered: unitas | recovered: tesmall | exact: unitas | misassigned: unitas | misassigned: tesmall |' in text
+    assert '| [syn](../projects/syn/benchmark/report.md) | synthetic_set | Kit A | 2 | 100 | unitas, tesmall | 1.0 | 0.9 | 1.0 | 0 | 3 |' in text
+    # equimolar: methods in order of appearance, the oracle only where it has values, missing methods and reads empty
+    assert (fixed + ' detected: oracle | detected: unitas | detected: mirge3 | detected: mirflowz | within_2fold: unitas | within_2fold: mirge3 | '
+            'within_2fold: mirflowz | shifted_within_2fold: unitas | shifted_within_2fold: mirge3 | shifted_within_2fold: mirflowz |') in text
+    assert '| eq_pool | Kit A | 2 | 2,000,000 | unitas, mirge3, mirflowz | 0.9 | 0.97 | 0.95 | 0.96 | 0.77 | 0.76 | 0.74 | 0.79 | 0.75 | 0.79 |' in text
+    assert '| eq_pool_b | Kit B | 2 |  | mirge3, unitas | 0.89 | 0.94 | 0.89 |  | 0.86 | 0.85 |  |  |  |  |' in text
+    assert '| ratio_pool | Kit A | 2 | 20 | unitas | 0.88 | 0.89 | 0.05 | 0.06 |' in text
+    assert '| plasma | Kit A | 3 lanes of 2 samples | 300 | unitas, mirge3 | 742128 | 714978 |  | 349.0 | 373.5 |  |' in text
+    assert '| plasma | Kit A | 2 | 300 | unitas, mirge3, mirflowz | 2966861 | 2858766 | 2861471 | 581.5 | 640.5 | 435.5 |' in text
+
+
+def test_summary_html_is_self_contained_and_bad_inputs_fail(tmp_path):
+    import summary
+    projects = summary_projects(tmp_path)
+    output = tmp_path / 'summary.html'
+    summary.write(projects, output)
+    page = output.read_text()
+    assert page.startswith('<!doctype html>') and '<th colspan="4">detected</th>' in page and '<a href="eq3/benchmark/report.md">eq3</a>' in page
+    assert not any(token in page for token in ('http', 'src=', '<link', '@import'))
+    assert '<td class="num">0.97</td><td class="num">0.95</td><td class="num">0.96</td>' in page
+    (projects[1] / 'benchmark/metrics.tsv').unlink()
+    for args, message in (((projects, tmp_path / 'summary.txt'), 'must be .md or .html'),
+                          ((projects, projects[0] / 'summary.md'), 'inside the project'),
+                          ((projects[:1] + projects[:1], output), 'projects named alike: syn'),
+                          ((projects[1:2], output), 'run `benchmark.py evaluate')):
+        with pytest.raises(ValueError, match=message):
+            summary.write(*args)
+
+
+def test_summary_requires_matching_report_and_metrics_for_legacy_and_new_evaluations(tmp_path):
+    import evaluation
+    import summary
+    project = summary_projects(tmp_path, published=False)[0]
+    bench = project / 'benchmark'
+    output = tmp_path / 'overview.md'
+    summary.write([project], output)  # Pre-marker report with matching metrics.
+    (bench / 'report.md').write_text('unrelated evaluation')
+    with pytest.raises(ValueError, match='incomplete or inconsistent'):
+        summary.write([project], output)
+    evaluation.publish(bench, ['metric', 'unitas'], [['exact', '1']], ['# Report'])
+    summary.write([project], output)
+    (bench / 'metrics.tsv').write_text('metric\tunitas\nexact\t0\n')
+    with pytest.raises(ValueError, match='incomplete or inconsistent'):
+        summary.write([project], output)
+    (bench / 'report.md').unlink()
+    with pytest.raises(ValueError, match='incomplete or inconsistent'):
+        summary.write([project], output)
+
+
+def test_summary_preserves_project_files_and_resolves_relative_report_link(tmp_path):
+    import summary
+    project = summary_projects(tmp_path / 'projects')[0]
+    renamed = project.rename(project.with_name('A|B]'))
+    report = renamed / 'benchmark/report.md'
+    output = tmp_path / 'summary.md'
+    output.hardlink_to(report)
+    original = report.read_bytes()
+    through = tmp_path / 'link'
+    through.symlink_to(renamed / 'benchmark', target_is_directory=True)
+    summary.write([through / '..'], output)
+    assert report.read_bytes() == original
+    assert '[A&#124;B&#93;](projects/A%7CB%5D/benchmark/report.md)' in output.read_text()
+    assert not os.path.samefile(output, report)
+
+
+def test_prepare_actual_short_run_and_unknown_merged_counts(tmp_path):
+    import benchmark
+    ext, dataset, reads = biological_dataset(tmp_path)
+    spec = yaml.safe_load(dataset.read_text())
+    del spec['samples'][0]['runs'][0]['reads']
+    write(dataset, yaml.safe_dump(spec))
+    cmd = [sys.executable, str(BENCH / 'benchmark.py'), 'prepare', '--dataset', str(dataset), '--ext-dir', str(ext)]
+    for name, args, expected in [('capped', ['--reads', '100'], str(len(reads) * 2)), ('linked', [], '')]:
+        project = tmp_path / name
+        subprocess.run(cmd + ['--project', str(project), *args], check=True, capture_output=True, timeout=60)
+        row, = benchmark.read_tsv(project / 'benchmark/samples.tsv')
+        assert row['reads'] == expected
+
+
+def test_summary_reads_processed_are_those_recorded_by_the_evaluation(tmp_path):
+    """Not samples.tsv, and not the reports as they are now: a rerun without a new evaluation keeps the recorded total;
+    a sample without a report gives no total; a report without a whole read count stops `evaluate`; an evaluation
+    older than the record has no total."""
+    import evaluation
+    import summary
+    project = summary_projects(tmp_path)[1]   # eq3: 500,000 and 1,500,000 reads
+    table = project / 'benchmark/samples.tsv'
+    table.write_text(table.read_text().replace('500000', '7'))
+    assert summary.read_project(project, tmp_path)[1]['reads processed'] == '2,000,000'
+    adapter_report(project, 'R1', 1000)                                   # rerun at another depth, not yet evaluated
+    assert summary.read_project(project, tmp_path)[1]['reads processed'] == '2,000,000'
+    assert evaluation.reads_processed(project) == 1501000
+    (project / 'data/tmp/smallrna/filter/cutadapt_stages/R2.adapter.json').unlink()
+    assert evaluation.reads_processed(project) is None
+    for broken in ('{"read_counts": {}}', '{"read_counts": {"input": 2.5}}', '[]', 'not json'):
+        write(project / 'data/tmp/smallrna/filter/cutadapt_stages/R2.adapter.json', broken)
+        with pytest.raises(ValueError, match='R2.adapter.json'):
+            evaluation.reads_processed(project)
+    legacy = summary_project(tmp_path / 'old', 'eq', dict(libprepkit='Kit A', name='eq_pool', kind='pool', pool='equimolar',
+                                                          methods=['unitas']), [['metric', 'unitas'], ['detected', '0.9']],
+                             samples=[POOL_SAMPLES, ['R1', 'EQ', 'Lab1', '10']], published=False)
+    assert summary.read_project(legacy, tmp_path)[1]['reads processed'] == ''
+    record = json.loads((project / 'benchmark/evaluation.json').read_text())
+    for bad in (-1, 2.5, '10'):
+        (project / 'benchmark/evaluation.json').write_text(json.dumps(dict(record, reads_processed=bad)))
+        with pytest.raises(ValueError, match='incomplete or inconsistent evaluation'):
+            summary.read_project(project, tmp_path)
+
+
+def test_short_and_incomplete_pool_fastqs(tmp_path):
+    import benchmark
+    records = '@read\nACGT\n+\nIIII\n'
+    source = tmp_path / 'reads.fastq.gz'
+    target = tmp_path / 'capped.fastq.gz'
+    source.write_bytes(gzip.compress(records.encode() * 3))
+    assert benchmark.head_fastq(source, target, 100) == 3
+    assert gzip.decompress(target.read_bytes()) == records.encode() * 3
+    source.write_bytes(gzip.compress((records + '@short\nACGT\n+\n').encode()))
+    with pytest.raises(SystemExit, match='incomplete FASTQ record 2'):
+        benchmark.head_fastq(source, target, 100)
+    damaged = bytearray(gzip.compress(records.encode() * 3))
+    damaged[-8] ^= 0xFF                                     # the CRC in the trailer, after exactly the 3 records asked for
+    source.write_bytes(bytes(damaged))
+    with pytest.raises(SystemExit, match='damaged gzip file'):
+        benchmark.head_fastq(source, target, 3)
+
+
+def test_summary_refuses_external_target_of_a_project_input(tmp_path):
+    import summary
+    project = summary_projects(tmp_path / 'projects')[0]
+    report = project / 'benchmark/report.md'
+    external = report.rename(tmp_path / 'external.md')
+    report.symlink_to(external)
+    before = external.read_bytes()
+    with pytest.raises(ValueError, match='aliases one of its inputs'):
+        summary.write([project], external)
+    assert external.read_bytes() == before
+
+
+def test_interrupted_first_publication_needs_a_successful_retry(tmp_path, monkeypatch):
+    import evaluation
+    project = summary_projects(tmp_path, published=False)[0]
+    bench = project / 'benchmark'
+    rows = [('exact', 1)]
+    lines = ['| metric | unitas |', '|---|---|', '| exact | 1 |']
+    replace = Path.replace
+
+    def interrupt(path, destination):
+        if path.name == 'evaluation.json':  # Both data files have reached their destination.
+            raise OSError('interrupted')
+        return replace(path, destination)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, 'replace', interrupt)
+        with pytest.raises(OSError, match='interrupted'):
+            evaluation.publish(bench, ['metric', 'unitas'], rows, lines)
+    with pytest.raises(ValueError, match='inconsistent evaluation'):
+        evaluation.read_metrics(bench)
+    (bench / 'evaluation.json').unlink()
+    with pytest.raises(ValueError, match='inconsistent evaluation'):
+        evaluation.read_metrics(bench)
+    evaluation.publish(bench, ['metric', 'unitas'], rows, lines)
+    assert evaluation.read_metrics(bench)[1] == ['exact', '1']
+
+
+@pytest.mark.parametrize('problem', ['missing', 'duplicate', 'unexpected'])
+def test_summary_requires_sample_table_to_cover_project(tmp_path, problem):
+    """A biological project's samples.tsv (its lanes) must list the configured samples."""
+    import summary
+    project = summary_projects(tmp_path)[5]
+    table = project / 'benchmark/samples.tsv'
+    header, first, second = table.read_text().splitlines()
+    rows = {'missing': [first], 'duplicate': [first, first], 'unexpected': [first, second.replace('G2', 'other')]}
+    table.write_text('\n'.join([header] + rows[problem]) + '\n')
+    with pytest.raises(ValueError, match='exactly one row'):
+        summary.write([project], tmp_path / 'summary.md')
+
+
+@pytest.mark.parametrize('bad', ['@bad\nACGT\n+\nI\n', 'bad\nA\n+\nI\n', '@bad\nA\n-\nI\n'])
+def test_bad_capped_preparation_can_be_retried_at_the_same_path(tmp_path, bad):
+    ext, dataset, _ = biological_dataset(tmp_path)
+    spec = yaml.safe_load(dataset.read_text())
+    for run in spec['samples'][0]['runs']:
+        run.pop('lane')
+    write(dataset, yaml.safe_dump(spec))
+    source = ext / 'benchmark/smallrna/bio/fastq/SRR2.fastq.gz'
+    original = source.read_bytes()
+    source.write_bytes(gzip.compress(bad.encode()))
+    project = tmp_path / 'prepared'
+    cmd = [sys.executable, str(BENCH / 'benchmark.py'), 'prepare', '--project', str(project),
+           '--dataset', str(dataset), '--ext-dir', str(ext), '--reads', '100']
+    failed = subprocess.run(cmd, capture_output=True, text=True)
+    assert failed.returncode and 'malformed FASTQ record' in failed.stderr
+    assert not project.exists()
+    source.write_bytes(original)
+    result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+    assert str(project) in result.stdout and (project / 'benchmark/samples.tsv').is_file()
+
+
+def test_summary_cli_prints_canonical_path_and_preserves_underscore_labels(tmp_path):
+    from html import unescape
+    project = summary_projects(tmp_path / 'projects')[0]
+    renamed = project.rename(project.with_name('_set_'))
+    target = tmp_path / 'depth/extra/output'
+    target.mkdir(parents=True)
+    alias = tmp_path / 'alias'
+    alias.symlink_to(target, target_is_directory=True)
+    cmd = [sys.executable, str(BENCH / 'benchmark.py'), 'summary', '--projects', str(renamed), '--output', str(alias / 'page.md')]
+    result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+    page = Path(result.stdout.strip())
+    assert page == target / 'page.md'
+    label, href = next(line.split('](', 1) for line in page.read_text().splitlines() if line.startswith('| ['))
+    assert label == '| [&#95;set&#95;' and unescape(label) == '| [_set_'
+    assert (page.parent / href.split(')', 1)[0]).resolve() == renamed / 'benchmark/report.md'
+
+
+def test_summary_rejects_output_spelled_inside_project_through_external_directory(tmp_path):
+    import summary
+    project = summary_projects(tmp_path / 'projects')[0]
+    storage = tmp_path / 'external'
+    storage.mkdir()
+    (project / 'external-data').symlink_to(storage, target_is_directory=True)
+    alias = tmp_path / 'project-alias'
+    alias.symlink_to(project, target_is_directory=True)
+    for entry in (project, alias):
+        with pytest.raises(ValueError, match='inside the project'):
+            summary.write([project], entry / 'external-data/overview.md')
+    assert list(storage.iterdir()) == []
+
+
+def test_evaluation_locks_are_regular_and_exclusive_descriptor_is_writable(tmp_path, monkeypatch):
+    import evaluation
+    import fcntl
+    import stat
+    bench = summary_projects(tmp_path, published=False)[0] / 'benchmark'   # an older evaluation, without a lock
+    actual_flock = fcntl.flock
+    modes = []
+
+    def check_lock(fd, mode):
+        assert stat.S_ISREG(os.fstat(fd).st_mode)
+        access = fcntl.fcntl(fd, fcntl.F_GETFL) & os.O_ACCMODE
+        assert access == (os.O_WRONLY if mode == fcntl.LOCK_EX else os.O_RDONLY)
+        modes.append(mode)
+        return actual_flock(fd, mode)
+
+    monkeypatch.setattr(fcntl, 'flock', check_lock)
+    assert evaluation.read_metrics(bench) and not modes
+    assert not (bench / '.evaluation.lock').exists()
+    evaluation.publish(bench, ['metric', 'unitas'], [['exact', '1']], ['# Report'])
+    assert evaluation.read_metrics(bench)[1] == ['exact', '1']
+    assert modes == [fcntl.LOCK_EX, fcntl.LOCK_SH]
+
+
+def test_synthetic_summary_explains_metrics(tmp_path):
+    import summary
+    project = summary_projects(tmp_path)[0]
+    output = tmp_path / 'overview.md'
+    summary.write([project], output)
+    assert 'smaller of observed and true counts' in output.read_text() and 'positive-truth pairs' in output.read_text()
+
+
+def test_summary_follows_links_inside_link_targets_and_publishes_to_checked_parent(tmp_path, monkeypatch):
+    import summary
+    project = summary_projects(tmp_path / 'projects')[0]
+    storage = tmp_path / 'outside'
+    storage.mkdir()
+    (project / 'archive').symlink_to(storage)
+    alias = tmp_path / 'report-alias'
+    alias.symlink_to((project / 'archive').relative_to(tmp_path))
+    with pytest.raises(ValueError, match='inside the project'):
+        summary.write([project], alias / 'overview.md')
+    assert list(storage.iterdir()) == []
+
+    alias.unlink()
+    alias.symlink_to(storage)
+    render = summary.markdown
+
+    def render_after_alias_change(sections):
+        alias.unlink()
+        alias.symlink_to(project)
+        return render(sections)
+
+    monkeypatch.setattr(summary, 'markdown', render_after_alias_change)
+    published = summary.write([project], alias / 'overview.md')
+    assert published == storage / 'overview.md' and published.is_file()
+    assert not (project / 'overview.md').exists()
+
+
+def test_first_legacy_reader_retries_if_evaluation_starts_during_snapshot(tmp_path, monkeypatch):
+    import evaluation
+    bench = summary_projects(tmp_path, published=False)[0] / 'benchmark'
+    original = Path.read_bytes
+    reads = 0
+
+    def first_writer_after_metrics(path):
+        nonlocal reads
+        data = original(path)
+        if path == bench / 'metrics.tsv':
+            reads += 1
+            if reads == 1:
+                evaluation.publish(bench, ['metric', 'unitas'], [['exact', '0.25']], ['# New report'])
+        return data
+
+    monkeypatch.setattr(Path, 'read_bytes', first_writer_after_metrics)
+    assert evaluation.read_metrics(bench) == [['metric', 'unitas'], ['exact', '0.25']]
+    assert reads == 2
+
+
+def test_legacy_biological_report_uses_its_primary_metrics_table(tmp_path):
+    import evaluation
+    import summary
+    projects = summary_projects(tmp_path, published=False)
+    bench = projects[4] / 'benchmark'
+    secondary = [['metric', 'unitas', 'mirge3'], ['lane_agreement', '0.9', '0.88']]
+    report = bench / 'report.md'
+    with report.open('a') as fh:
+        fh.write('\n## Lane replicates\n\n| metric | unitas | mirge3 |\n|---|---|---|\n| lane_agreement | 0.9 | 0.88 |\n')
+    assert evaluation.read_metrics(bench)[1][0] == 'mirna_reads'
+    (bench / 'metrics.tsv').write_text('\n'.join('\t'.join(row) for row in secondary) + '\n')
+    with pytest.raises(ValueError, match='inconsistent'):
+        evaluation.read_metrics(bench)
+    page = tmp_path / 'overview.md'
+    summary.write([projects[1]], page)
+    assert 'unweighted means of per-sample shares' in page.read_text()
+
+
+def test_summary_treats_double_slash_linux_paths_as_the_same_project(tmp_path):
+    import summary
+    project = summary_projects(tmp_path / 'projects')[0]
+    report = project / 'benchmark/report.md'
+    original = report.read_bytes()
+    alias = tmp_path / 'link-to-benchmark'
+    alias.symlink_to('//' + str(report.parent).lstrip('/'))
+    for destination in (Path('//' + str(report).lstrip('/')), alias / report.name):
+        with pytest.raises(ValueError, match='inside the project'):
+            summary.write([project], destination)
+    assert report.read_bytes() == original
+
+
+def test_summary_keeps_publication_bound_to_the_open_directory(tmp_path, monkeypatch):
+    import summary
+    project = summary_projects(tmp_path / 'projects')[0]
+    report = project / 'benchmark/report.md'
+    original = report.read_bytes()
+    out_dir = tmp_path / 'output'
+    out_dir.mkdir()
+    moved = tmp_path / 'moved'
+    actual_replace = os.replace
+
+    def move_parent_before_replace(src, dst, *, src_dir_fd, dst_dir_fd):
+        assert src_dir_fd == dst_dir_fd
+        out_dir.rename(moved)
+        out_dir.symlink_to(report.parent, target_is_directory=True)
+        return actual_replace(src, dst, src_dir_fd=src_dir_fd, dst_dir_fd=dst_dir_fd)
+
+    monkeypatch.setattr(os, 'replace', move_parent_before_replace)
+    with pytest.raises(ValueError, match='directory moved'):
+        summary.write([project], out_dir / report.name)
+    assert report.read_bytes() == original
+    assert (moved / report.name).read_text().startswith('# Small-RNA benchmark summary')
+    assert sorted(p.name for p in moved.iterdir()) == [report.name]
+
+
+def test_project_input_link_entries_are_preserved(tmp_path):
+    import summary
+    project = summary_projects(tmp_path / 'projects')[0]
+    report = project / 'benchmark/report.md'
+    archive = tmp_path / 'archive'
+    archive.mkdir()
+    entry = tmp_path / 'archive.md'
+    entry.symlink_to(archive, target_is_directory=True)
+    archived = report.rename(archive / 'saved.md')
+    original = archived.read_bytes()
+    report.symlink_to(entry / archived.name)
+    with pytest.raises(ValueError, match='aliases one of its inputs'):
+        summary.write([project], entry)
+    assert entry.is_symlink() and report.read_bytes() == original
+
+
+def test_write_rechecks_current_input_entries_before_publishing(tmp_path, monkeypatch):
+    import summary
+    project = summary_projects(tmp_path / 'projects')[0]
+    report = project / 'benchmark/report.md'
+    outside = tmp_path / 'outside'
+    outside.mkdir()
+    destination = outside / report.name
+    destination.write_bytes(report.read_bytes())
+    original = destination.read_bytes()
+    render = summary.markdown
+
+    def render_after_report_relocation(sections):
+        report.unlink()
+        report.symlink_to(destination)
+        return render(sections)
+
+    monkeypatch.setattr(summary, 'markdown', render_after_report_relocation)
+    with pytest.raises(ValueError, match='aliases one of its inputs'):
+        summary.write([project], destination)
+    assert destination.read_bytes() == original
+    assert sorted(path.name for path in outside.iterdir()) == [report.name]
+
+
+@pytest.mark.parametrize('kind', ['fifo', 'link'])
+def test_evaluation_lock_requires_regular_file_without_following_links(tmp_path, kind):
+    import evaluation
+    bench = summary_projects(tmp_path, published=False)[0] / 'benchmark'
+    lock = bench / '.evaluation.lock'
+    if kind == 'fifo':
+        os.mkfifo(lock)
+    else:
+        target = tmp_path / 'other'
+        target.touch()
+        lock.symlink_to(target)
+    for writer in (False, True):
+        with pytest.raises((OSError, ValueError)):
+            with evaluation.evaluation_lock(bench, writer=writer):
+                pytest.fail('accepted a nonregular lock')
+
+
+def test_protected_paths_are_checked_after_the_output_directory_is_open(tmp_path, monkeypatch):
+    import summary
+    project = summary_projects(tmp_path / 'projects')[0]
+    old = tmp_path / 'archive'
+    old.mkdir()
+    output_dir = tmp_path / 'reports'
+    output_dir.mkdir()
+    report = project / 'benchmark/report.md'
+    stored = report.rename(old / report.name)
+    original = stored.read_bytes()
+    report.symlink_to(stored)
+    open_directory = summary.open_directory
+
+    def open_after_relocation(path):
+        output_dir.rmdir()
+        old.rename(output_dir)
+        old.symlink_to(output_dir, target_is_directory=True)
+        return open_directory(path)
+
+    monkeypatch.setattr(summary, 'open_directory', open_after_relocation)
+    with pytest.raises(ValueError, match='aliases one of its inputs'):
+        summary.write([project], output_dir / report.name)
+    assert report.read_bytes() == original
+
+
+@pytest.mark.parametrize('mounted_root', ['project', 'benchmark'])
+def test_summary_refuses_output_below_an_alternate_project_mount(tmp_path, monkeypatch, mounted_root):
+    import summary
+    project = summary_projects(tmp_path / 'projects')[0]
+    root = project if mounted_root == 'project' else project / 'benchmark'
+    alias = tmp_path / 'mount'
+    output_dir = alias / 'results/reports'
+    output_dir.mkdir(parents=True)
+    # A bind mount exposes the same root inode under another name. Model that
+    # identity locally without requiring mount privileges in the test runner.
+    alias_stat = alias.stat()
+    real_stat = Path.stat
+
+    def stat_under_alternate_name(path, **kwargs):
+        if path == root:
+            return alias_stat
+        return real_stat(path, **kwargs)
+
+    monkeypatch.setattr(Path, 'stat', stat_under_alternate_name)
+    with pytest.raises(ValueError, match='inside the project'):
+        summary.write([project], output_dir / 'new-overview.html')
+    assert not list(output_dir.iterdir())
+
+
+def test_summary_waits_for_first_evaluation_before_checking_for_metrics(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from contextlib import contextmanager
+    from threading import Event
+
+    import evaluation
+    import summary
+
+    project = summary_projects(tmp_path)[0]
+    bench = project / 'benchmark'
+    for name in ('metrics.tsv', 'report.md'):
+        (bench / name).unlink()
+    writer_ready, reader_ready = Event(), Event()
+    lock = evaluation.evaluation_lock
+
+    @contextmanager
+    def coordinate_first_publication(directory, *, writer):
+        if not writer:
+            reader_ready.set()
+        with lock(directory, writer=writer) as acquired:
+            if writer:
+                writer_ready.set()
+                assert reader_ready.wait(5)
+            yield acquired
+
+    monkeypatch.setattr(evaluation, 'evaluation_lock', coordinate_first_publication)
+    output = tmp_path / 'summary.md'
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        publication = workers.submit(evaluation.publish, bench, ['metric', 'unitas'], [['exact', '0.75']], ['# Report'])
+        assert writer_ready.wait(5)
+        summary.write([project], output)
+        publication.result(timeout=5)
+    assert '| 0.75 |' in output.read_text()
+
+
+@pytest.mark.parametrize('prefix', ['missing', 'regular', 'link'])
+def test_summary_requires_a_traversable_output_parent(tmp_path, prefix):
+    import summary
+    project = summary_projects(tmp_path / 'projects')[0]
+    (tmp_path / 'regular').write_text('ordinary file')
+    (tmp_path / 'link').symlink_to('missing/..', target_is_directory=True)
+    output = tmp_path / 'overview.md'
+    output.write_text('previous summary')
+    with pytest.raises((FileNotFoundError, NotADirectoryError)):
+        summary.write([project], tmp_path / prefix / '..' / output.name)
+    assert output.read_text() == 'previous summary'
+
+
+@pytest.mark.parametrize('trailing', ['/', '/.'])
+def test_summary_cli_requires_a_filename_as_the_final_component(tmp_path, trailing):
+    project = summary_projects(tmp_path / 'projects')[0]
+    output = tmp_path / 'overview.md'
+    output.write_text('previous summary')
+    cmd = [sys.executable, str(BENCH / 'benchmark.py'), 'summary', '--projects', str(project),
+           '--output', str(output) + trailing]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+    assert result.returncode and 'the extension must be .md or .html' in result.stderr
+    assert output.read_text() == 'previous summary'
+
+
+def test_summary_uses_one_selected_project_when_a_directory_link_is_retargeted(tmp_path, monkeypatch):
+    import evaluation
+    import summary
+
+    first, second = summary_projects(tmp_path / 'projects')[:2]
+    selection = tmp_path / 'selected'
+    selection.symlink_to(first, target_is_directory=True)
+    read_evaluation = evaluation.read_evaluation
+
+    def retarget_after_metrics(bench):
+        result = read_evaluation(bench)
+        selection.unlink()
+        selection.symlink_to(second, target_is_directory=True)
+        return result
+
+    expected = tmp_path / 'expected.md'
+    summary.write([first], expected)
+    monkeypatch.setattr(evaluation, 'read_evaluation', retarget_after_metrics)
+    observed = tmp_path / 'observed.md'
+    summary.write([selection], observed)
+    assert selection.resolve() == second and observed.read_text() == expected.read_text()
 
 
 def test_empty_tinyrna_counts_keep_synthetic_truth_rows(tmp_path):

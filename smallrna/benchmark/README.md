@@ -41,6 +41,28 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    reference's release; `quant_reference` records it for mirflowz, TEsmall and tiny-count (`db.mirbase.release`, or `NA`
    for a `db.mirflowz.custom` reference) and nf-core/smrnaseq (`db.mirbase.release`), with the SHA-256 of the count
    table it was written after, which must match the table.
+5. **Summary.** `benchmark.py summary` reads several evaluated projects and writes one overview, a Markdown file or a
+   single self-contained HTML file (no external resources), by the output's extension:
+
+   ```bash
+   python smallrna/benchmark/benchmark.py summary --projects <project> [<project> ...] --output summary.html
+   ```
+
+   It has a section per dataset kind (synthetic, equimolar pool, ratiometric pool, biological) with a row per project:
+   its dataset, kit, samples, reads processed, methods, a link to its
+   `report.md`, and the kind's key metrics from its `metrics.tsv` per method (and the oracle, where it has values).
+   A method not run on a dataset, or a metric missing from its table, is an empty cell. It writes nothing into the
+   projects; an output inside one stops it. New evaluations publish `evaluation.json` with checksums for the metrics
+   and report. For an older evaluation, the metrics must match the complete metrics table embedded in the report.
+   New evaluations coordinate readers and writers through a regular lock file in the benchmark directory. Legacy
+   summaries can read the existing report and metrics from a read-only project.
+   The command prints the canonical summary path to open, including when its directory is a symlink.
+   Rerun `evaluate` on the existing outputs if the pair is incomplete or inconsistent. `reads processed` is the reads
+   the evaluated run filtered: each sample's input to the first cutadapt pass, from the JSON report the run wrote
+   (`filter/cutadapt_stages/<sample>.adapter.json`, kept with `--notemp`), summed over the samples. `evaluate` reads
+   them and records the total in `evaluation.json`, so a later rerun without a new evaluation does not change it. It is
+   empty when a sample had no report (another filter route, or the reports were removed) and for evaluations published
+   before the total was recorded; `samples.tsv` keeps the reads copied (`--reads`) or declared at preparation.
 
 ## Datasets
 

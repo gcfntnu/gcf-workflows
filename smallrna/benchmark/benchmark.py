@@ -16,6 +16,8 @@ The benchmark runs the workflow's own `quant_all` routes; it never calls the too
 3. `evaluate` turns each method's output into one common table (adapters.py), computes the same metrics for every
    method (metrics.py, pool.py; biological.py compares methods with each other) and writes
    `<project>/benchmark/report.md` with the tables behind it.
+4. `summary` reads several evaluated projects and writes one overview, a section per dataset kind with each project's
+   key metrics per method (summary.py), as Markdown or a self-contained HTML file; it writes nothing into the projects.
 
 References and public datasets live under `EXT_DIR` (`ext_dir` in the project configuration); a reduced reference for
 mirflowz is made with reduce_reference.py and named in the declaration.
@@ -23,10 +25,12 @@ mirflowz is made with reduce_reference.py and named in the declaration.
 Usage: benchmark.py fill --dataset YAML --ext-dir DIR
        benchmark.py prepare --dataset YAML --project DIR --ext-dir DIR [--methods LIST] [--reads N] [--lanes]
        benchmark.py evaluate --project DIR [--mirflowz-gff GFF3] [--unitas-ref DIR]
+       benchmark.py summary --projects DIR [DIR ...] --output FILE.md|FILE.html
 """
 import argparse
 import collections
 import csv
+import errno
 import gzip
 import json
 import math
@@ -34,15 +38,18 @@ from pathlib import Path
 import shlex
 import statistics
 import sys
+from tempfile import TemporaryDirectory
 
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import adapters  # noqa: E402
 import biological  # noqa: E402
+import evaluation  # noqa: E402
 import fill as filler  # noqa: E402
 import metrics  # noqa: E402
 import pool  # noqa: E402
+import summary as summarizer  # noqa: E402
 import synthetic  # noqa: E402
 
 PREFIX = {'homo_sapiens': 'hsa-', 'mus_musculus': 'mmu-', 'rattus_norvegicus': 'rno-'}
@@ -121,15 +128,32 @@ def project_fastq(project, spec, sample):
 def prepare(args):
     spec = load_dataset(args.dataset)
     project, ext_dir = Path(args.project), Path(args.ext_dir).resolve()
-    if project.exists():
+    if project.exists() or project.is_symlink():
         fail('{} exists; choose a new project directory'.format(project))
     methods = args.methods.split(',') if args.methods else list(spec['methods'])
     unknown = [m for m in methods if m not in adapters.ADAPTERS]
     if unknown:
         fail('--methods: unknown {}; choose from {}'.format(', '.join(unknown), ', '.join(adapters.ADAPTERS)))
+    if args.reads is not None and args.reads <= 0:
+        fail('--reads must be a positive integer')
     if getattr(args, 'lanes', False) and spec['kind'] != 'biological':
         fail('--lanes is for biological datasets')
-    {'pool': prepare_pool, 'biological': prepare_biological, 'synthetic': prepare_synthetic}[spec['kind']](spec, project, ext_dir, methods, args)
+    prepare_dataset = {'pool': prepare_pool, 'biological': prepare_biological, 'synthetic': prepare_synthetic}[spec['kind']]
+    project.parent.mkdir(parents=True, exist_ok=True)
+    with TemporaryDirectory(dir=project.parent) as temporary:
+        staged = Path(temporary) / 'project'
+        message = prepare_dataset(spec, staged, ext_dir, methods, args)
+        if project.exists() or project.is_symlink():
+            fail('{} exists; choose a new project directory'.format(project))
+        # A completed project is nonempty. A concurrent prepare can win the
+        # rename, but POSIX rename cannot replace that winner's directory.
+        try:
+            staged.rename(project)
+        except OSError as error:
+            if error.errno in (errno.EEXIST, errno.ENOTEMPTY):
+                fail('{} exists; choose a new project directory'.format(project))
+            raise
+    print(message)
 
 
 def prepare_synthetic(spec, project, ext_dir, methods, args):
@@ -142,8 +166,8 @@ def prepare_synthetic(spec, project, ext_dir, methods, args):
     read_length = max(len(row[4]) for row in truth) + 2 * int(spec.get('umi', 0)) + len(spec['adapter'])
     bench = write_project(project, spec, ext_dir, samples, read_length, methods, ref)
     synthetic.write_truth(bench / 'truth.tsv', truth)
-    print('{}: {} samples, {} reads each; run `snakemake quant_all` there, then `benchmark.py evaluate --project {}`'.format(
-        project, len(samples), sum(row[5] for row in truth if row[0] == samples[0]), project))
+    return '{}: {} samples, {} reads each; run `snakemake quant_all` there, then `benchmark.py evaluate --project {}`'.format(
+        args.project, len(samples), sum(row[5] for row in truth if row[0] == samples[0]), args.project)
 
 
 def pool_paths(spec, ext_dir):
@@ -153,13 +177,49 @@ def pool_paths(spec, ext_dir):
 
 
 def head_fastq(source, target, reads):
-    """Copy the first `reads` reads of a gzipped FASTQ."""
+    """Copy up to the limit and return the number of complete four-line records; a damaged gzip source stops."""
     target.parent.mkdir(parents=True, exist_ok=True)
-    with gzip.open(source, 'rt') as src, gzip.open(target, 'wt', compresslevel=3) as out:
-        for i, line in enumerate(src):
-            if i >= 4 * reads:
-                break
-            out.write(line)
+    copied = 0
+    try:
+        with gzip.open(source, 'rb') as src, gzip.open(target, 'wb', compresslevel=3) as out:
+            while copied < reads:
+                header = src.readline()
+                if not header:
+                    break
+                record = [header, src.readline(), src.readline(), src.readline()]
+                if not all(record):
+                    fail(f'{source}: incomplete FASTQ record {copied + 1}')
+                name, sequence, plus, quality = (line.rstrip(b'\r\n') for line in record)
+                if not (name.startswith(b'@') and len(name) > 1 and plus.startswith(b'+') and sequence and len(sequence) == len(quality)):
+                    fail(f'{source}: malformed FASTQ record {copied + 1}')
+                out.writelines(record)
+                copied += 1
+            if copied == reads:
+                src.readline()  # at the limit, read on so that a source ending here still has its gzip trailer checked
+    except (OSError, EOFError) as error:
+        fail(f'{source}: damaged gzip file ({error})')
+    return copied
+
+
+def declared_reads(run):
+    count = run.get('reads')
+    return int(count) if str(count).isdecimal() else None
+
+
+def prepare_runs(project, spec, fastqs, runs, limit):
+    """Link or copy (first `limit` reads) each run into the project; {run: reads copied, or the declared count of a
+    linked run, None when not declared}. The summary reports the reads a run processed from its own reports instead."""
+    counts = {}
+    for run in runs:
+        name = run['run']
+        source, target = fastqs[name], project_fastq(project, spec, name)
+        if limit is None:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.symlink_to(source)
+            counts[name] = declared_reads(run)
+        else:
+            counts[name] = head_fastq(source, target, limit)
+    return counts
 
 
 def prepare_pool(spec, project, ext_dir, methods, args):
@@ -168,13 +228,7 @@ def prepare_pool(spec, project, ext_dir, methods, args):
     if missing:
         fail('not filled: {}; run `benchmark.py fill --dataset ...` first'.format(', '.join(missing)))
     samples = list(fastqs)
-    for sample, source in fastqs.items():
-        target = project_fastq(project, spec, sample)
-        if args.reads:
-            head_fastq(source, target, args.reads)
-        else:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.symlink_to(source)
+    counts = prepare_runs(project, spec, fastqs, spec['runs'], args.reads)
     with gzip.open(fastqs[samples[0]], 'rt') as fh:
         fh.readline()
         read_length = len(fh.readline().strip())
@@ -182,11 +236,11 @@ def prepare_pool(spec, project, ext_dir, methods, args):
     rows = pool.truth_groups(pool.read_composition(composition), synthetic.read_mature(mature_fa, PREFIX[spec['organism']]))
     pool.write_pool(bench / 'pool.tsv', rows)
     write_tsv(bench / 'samples.tsv', ['sample', 'group', 'lab', 'reads'],
-              [[r['run'], r['group'], r.get('lab', ''), args.reads or r.get('reads', '')] for r in spec['runs']])
+              [[r['run'], r['group'], r.get('lab', ''), '' if counts[r['run']] is None else counts[r['run']]] for r in spec['runs']])
     groups = {g: sum(1 for r in rows if r[2] == g) for g in pool.GROUPS}
-    print('{}: {} runs{}; pool {}; run `snakemake quant_all --notemp` there (the oracle reads the filtered reads), '
-          'then `benchmark.py evaluate --project {}`'.format(project, len(samples), ', {} reads each'.format(args.reads) if args.reads else '',
-                                                             ', '.join('{} {}'.format(n, g) for g, n in groups.items()), project))
+    return ('{}: {} runs{}; pool {}; run `snakemake quant_all --notemp` there (the oracle reads the filtered reads), '
+          'then `benchmark.py evaluate --project {}`'.format(args.project, len(samples), ', up to {} reads each'.format(args.reads) if args.reads else '',
+                                                             ', '.join('{} {}'.format(n, g) for g, n in groups.items()), args.project))
 
 
 def biological_paths(spec, ext_dir):
@@ -235,26 +289,32 @@ def prepare_biological(spec, project, ext_dir, methods, args):
                     fail('{}: two runs of {} in lane {} (e.g. two flow cells); --lanes needs one run per lane'.format(
                         args.dataset, s['sample'], run['lane']))
                 r1[name] = f
-                rows.append([name, s['sample'], s.get('group', ''), run.get('lane', ''), run['run'], args.reads or run.get('reads', '')])
+                rows.append([name, s['sample'], s.get('group', ''), run.get('lane', ''), [run['run']]])
         else:
             r1[s['sample']] = ','.join(files)
-            rows.append([s['sample'], s['sample'], s.get('group', ''), 'merged', ','.join(r['run'] for r in runs),
-                         args.reads * len(runs) if args.reads else sum(int(r.get('reads', 0)) for r in runs)])
+            rows.append([s['sample'], s['sample'], s.get('group', ''), 'merged', [r['run'] for r in runs]])
     with gzip.open(fastqs[spec['samples'][0]['runs'][0]['run']], 'rt') as fh:
         fh.readline()
         read_length = len(fh.readline().strip())
-    for run in fastqs:  # only after every check, so a failure leaves no partial project
-        source, target = fastqs[run], project_fastq(project, spec, run)
-        if args.reads:
-            head_fastq(source, target, args.reads)
-        else:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.symlink_to(source)
+    counts = prepare_runs(project, spec, fastqs, (r for sample in spec['samples'] for r in sample['runs']), args.reads)
+    for row in rows:
+        run_ids = row.pop()
+        values = [counts[name] for name in run_ids]
+        count = sum(values) if None not in values else None
+        row.extend([','.join(run_ids), '' if count is None else count])
     bench = write_project(project, spec, ext_dir, list(r1), read_length, methods, r1=r1)
     write_tsv(bench / 'samples.tsv', ['sample', 'library', 'group', 'lane', 'runs', 'reads'], rows)
-    print('{}: {} {}{}; run `snakemake quant_all --notemp` there (the first-base check reads the filtered reads), then '
-          '`benchmark.py evaluate --project {}`'.format(project, len(r1), 'lane samples' if args.lanes else 'samples',
-                                                        ', first {} reads of each run'.format(args.reads) if args.reads else '', project))
+    return ('{}: {} {}{}; run `snakemake quant_all --notemp` there (the first-base check reads the filtered reads), then '
+          '`benchmark.py evaluate --project {}`'.format(args.project, len(r1), 'lane samples' if args.lanes else 'samples',
+                                                        ', up to {} reads of each run'.format(args.reads) if args.reads else '', args.project))
+
+
+def run_reads(project):
+    """The reads the evaluated run processed, recorded with the evaluation (evaluation.reads_processed)."""
+    try:
+        return evaluation.reads_processed(Path(project))
+    except ValueError as error:
+        fail(str(error))
 
 
 def read_tsv(path):
@@ -358,7 +418,7 @@ def evaluate(args):
         per.append([names.get(mature_id, ''), mature_id, t] + [table.get((m, samples[0], mature_id), (t, 0))[1] for m in methods])
     write_tsv(bench / 'per_mirna.tsv', ['mature_name', 'mature_id', 'truth'] + methods, per)
     keys = ['recovered', 'exact', 'misassigned', 'unplaced']
-    write_tsv(bench / 'metrics.tsv', ['metric'] + methods, [[k] + [summary.get(m, {}).get(k, '') for m in methods] for k in keys])
+    metric_rows = [[k] + [summary.get(m, {}).get(k, '') for m in methods] for k in keys]
 
     lines = ['# {}'.format(spec['name']), '', '{} ({}), {} samples; truth per sample.'.format(
         spec['organism'], spec['libprepkit'], len(samples)), '', '## Metrics', '',
@@ -371,7 +431,7 @@ def evaluate(args):
     unplaced = sorted({(row[0], row[2]) for row in common if not row[3]})
     if unplaced:
         lines += ['', '## Names without a miRBase accession', ''] + ['- {}: `{}`'.format(m, n) for m, n in unplaced]
-    (bench / 'report.md').write_text('\n'.join(lines) + '\n')
+    evaluation.publish(bench, ['metric'] + methods, metric_rows, lines, run_reads(project))
     print(bench / 'report.md')
 
 
@@ -558,7 +618,7 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
         per_kind = {kind: {r: pool.ratio_scores([(observed[r][e['pool_id']], math.log2(e['amount_a'] / e['amount_b']))
                                                  for e in group if not math.isnan(observed[r][e['pool_id']])])
                            for r in observed} for kind, group in by_kind.items()}
-    write_tsv(bench / 'metrics.tsv', ['metric'] + rows, [[k] + [summary.get(r, {}).get(k, '') for r in rows] for k in keys])
+    metric_rows = [[k] + [summary.get(r, {}).get(k, '') for r in rows] for k in keys]
 
     groups = {g: sum(1 for e in entries if e['group'] == g) for g in pool.GROUPS}
     exact = pool.scored(entries)
@@ -583,7 +643,7 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
                              [r for r in rows if any(r in v for v in per_kind.values())])
     lines += filter_section(*pool.filter_losses(stage_counts, entries, stage_names), stage_names, trim_route(project, next(iter(sample_groups))),
                             next(iter(stages.values()))[0][2])
-    (bench / 'report.md').write_text('\n'.join(lines) + '\n')
+    evaluation.publish(bench, ['metric'] + rows, metric_rows, lines, run_reads(project))
     print(bench / 'report.md')
 
 
@@ -681,7 +741,7 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
     for m in methods:
         summary[m]['unplaced'] = unplaced[m]['share']
     keys = ['mirna_reads', 'unplaced', 'detected', 'detected_all_samples', 'top10_share']
-    write_tsv(bench / 'metrics.tsv', ['metric'] + methods, [[k] + [summary[m][k] for m in methods] for k in keys])
+    metric_rows = [[k] + [summary[m][k] for m in methods] for k in keys]
     pairs = biological.agreement(common, methods, samples)
     pair_keys = list(next(iter(pairs.values()), {}))
     write_tsv(bench / 'agreement.tsv', ['method_a', 'method_b'] + pair_keys,
@@ -696,7 +756,7 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
              'miRNA reads on names without one, which every other metric leaves out. miRNAs with the same mature sequence',
              'count as one ({} such groups among the reported miRNAs, e.g. {}).'.format(
                  len(shown), ' = '.join(id_to_name[i] for i in shown[0]) if shown else 'none'), ''] + md_table(
-        ['metric'] + methods, [[k] + [summary[m][k] for m in methods] for k in keys])
+        ['metric'] + methods, metric_rows)
     named = [(m, n, c) for m in methods for n, c in unplaced[m]['names']]
     if named:
         lines += ['', 'Most reads without an accession: ' + '; '.join(
@@ -753,7 +813,7 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
         listed = ['{}: {}'.format(m, id_to_name.get(i, i)) for m in methods for i in rep[m]['overdispersed_mirnas']]
         if listed:
             lines += ['', 'Most often overdispersed: ' + '; '.join(listed)]
-    (bench / 'report.md').write_text('\n'.join(lines) + '\n')
+    evaluation.publish(bench, ['metric'] + methods, metric_rows, lines, run_reads(project))
     print(bench / 'report.md')
 
 
@@ -763,6 +823,14 @@ def fill(args):
         filler.fill(spec, Path(args.ext_dir))
     except (OSError, ValueError) as error:
         fail(str(error))
+
+
+def summary(args):
+    try:
+        output = summarizer.write(args.projects, args.output)
+    except (OSError, ValueError) as error:
+        fail(str(error))
+    print(output)
 
 
 def main():
@@ -783,8 +851,11 @@ def main():
     e.add_argument('--mirflowz-gff', type=Path, help="mirflowz's extended miRNA annotation; default from the declaration")
     e.add_argument('--unitas-ref', type=Path, help="UNITAS reference dump (its miRBase hairpins place locus names); default from "
                    "the project's db.unitas under EXT_DIR")
+    s = sub.add_parser('summary', help='one overview of several evaluated projects (Markdown or HTML by the extension)')
+    s.add_argument('--projects', nargs='+', required=True)
+    s.add_argument('--output', required=True, help='.md or .html; written outside the projects')
     args = parser.parse_args()
-    {'prepare': prepare, 'fill': fill, 'evaluate': evaluate}[args.command](args)
+    {'prepare': prepare, 'fill': fill, 'evaluate': evaluate, 'summary': summary}[args.command](args)
 
 
 if __name__ == '__main__':
