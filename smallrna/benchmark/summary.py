@@ -6,12 +6,13 @@ as one self-contained HTML file, by the output's extension; nothing is written i
 Datasets have different methods, and a metric may be missing from a project's table: both give empty cells.
 """
 from collections import deque
+from contextlib import contextmanager
 import csv
 import html
 import os
 from pathlib import Path
 import re
-from tempfile import TemporaryDirectory
+import secrets
 import urllib.parse
 
 import evaluation
@@ -88,7 +89,7 @@ def read_project(project, out_dir):
 def resolve_with_links(path):
     """Resolve a path and retain the traversed link entries, including links in link targets."""
     path = path.absolute()
-    current = Path(path.anchor)
+    current = Path(path.anchor).resolve()
     remaining = deque(path.parts[1:])
     links = []
     while remaining:
@@ -102,7 +103,7 @@ def resolve_with_links(path):
             if len(links) > 40:  # Linux pathname resolution limit
                 raise ValueError(f'too many symbolic links in {path}')
             target = current.readlink()
-            current = Path(target.anchor) if target.is_absolute() else current.parent
+            current = Path(target.anchor).resolve() if target.is_absolute() else current.parent
             remaining.extendleft(reversed(target.parts[1:] if target.is_absolute() else target.parts))
     return current, links
 
@@ -213,6 +214,26 @@ def checked_destination(projects, output):
     return entry
 
 
+@contextmanager
+def open_directory(path):
+    """Pin a resolved Linux directory, refusing links substituted during traversal."""
+    flags = os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW
+    fd = os.open(path.anchor, flags)
+    try:
+        for part in path.parts[1:]:
+            child = os.open(part, flags, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        yield fd
+    finally:
+        os.close(fd)
+
+
+def check_directory_identity(directory, path):
+    if not os.path.samestat(os.fstat(directory), path.stat(follow_symlinks=False)):
+        raise ValueError(f'the summary directory moved during publication: {path}')
+
+
 def write(projects, output):
     """Write the summary of `projects` to `output` (.md or .html)."""
     projects, output = [Path(p) for p in projects], Path(output)
@@ -220,9 +241,18 @@ def write(projects, output):
     if render is None:
         raise ValueError('--output {}: the extension must be .md or .html'.format(output))
     output = checked_destination(projects, output)
-    sections = summarize(projects, output.parent)
-    with TemporaryDirectory(dir=output.parent) as directory:
-        staged = Path(directory) / 'summary'
-        staged.write_text(render(sections))
-        staged.replace(output)
+    with open_directory(output.parent) as directory:
+        sections = summarize(projects, output.parent)
+        text = render(sections)
+        check_directory_identity(directory, output.parent)
+        temporary = '.summary-' + secrets.token_hex(16)
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666, dir_fd=directory)
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as stream:
+                stream.write(text)
+            os.replace(temporary, output.name, src_dir_fd=directory, dst_dir_fd=directory)
+        except BaseException:
+            os.unlink(temporary, dir_fd=directory)
+            raise
+        check_directory_identity(directory, output.parent)
     return output

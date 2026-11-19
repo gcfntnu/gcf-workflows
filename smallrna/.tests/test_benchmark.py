@@ -1181,3 +1181,40 @@ def test_legacy_biological_report_uses_its_primary_metrics_table(tmp_path):
     page = tmp_path / 'overview.md'
     summary.write([projects[1]], page)
     assert 'unweighted means of per-sample shares' in page.read_text()
+
+
+def test_summary_treats_double_slash_linux_paths_as_the_same_project(tmp_path):
+    import summary
+    project = summary_projects(tmp_path / 'projects')[0]
+    report = project / 'benchmark/report.md'
+    original = report.read_bytes()
+    alias = tmp_path / 'link-to-benchmark'
+    alias.symlink_to('//' + str(report.parent).lstrip('/'))
+    for destination in (Path('//' + str(report).lstrip('/')), alias / report.name):
+        with pytest.raises(ValueError, match='inside the project'):
+            summary.write([project], destination)
+    assert report.read_bytes() == original
+
+
+def test_summary_keeps_publication_bound_to_the_open_directory(tmp_path, monkeypatch):
+    import summary
+    project = summary_projects(tmp_path / 'projects')[0]
+    report = project / 'benchmark/report.md'
+    original = report.read_bytes()
+    out_dir = tmp_path / 'output'
+    out_dir.mkdir()
+    moved = tmp_path / 'moved'
+    actual_replace = os.replace
+
+    def move_parent_before_replace(src, dst, *, src_dir_fd, dst_dir_fd):
+        assert src_dir_fd == dst_dir_fd
+        out_dir.rename(moved)
+        out_dir.symlink_to(report.parent, target_is_directory=True)
+        return actual_replace(src, dst, src_dir_fd=src_dir_fd, dst_dir_fd=dst_dir_fd)
+
+    monkeypatch.setattr(os, 'replace', move_parent_before_replace)
+    with pytest.raises(ValueError, match='directory moved'):
+        summary.write([project], out_dir / report.name)
+    assert report.read_bytes() == original
+    assert (moved / report.name).read_text().startswith('# Small-RNA benchmark summary')
+    assert sorted(p.name for p in moved.iterdir()) == [report.name]
