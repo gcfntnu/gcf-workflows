@@ -53,10 +53,7 @@ if build_10x_reference:
 
     CR_REFERENCE_INPUTS = lambda wildcards: verified_cellranger_receipt()
 
-GENE_TABLE = join(REF_DIR, 'anno', 'genes.tsv')
-managed_metadata = build_10x_reference and not config.get('ref_dir') and 'cellranger' in [m.strip() for m in config['quant']['method'].split(',')]
-if (config.get('ref_dir') and REFERENCE_SOURCE_DIGEST) or managed_metadata:
-    if managed_metadata:
+    if not config.get('ref_dir'):
         # The publisher pins both the original source pair and a digest-specific local annotation directory.
         metadata_ref = join(CR_VIEW, 'annotation')
         annotation_source = join(CR_VIEW, 'index', 'gcf-source')
@@ -70,7 +67,7 @@ if (config.get('ref_dir') and REFERENCE_SOURCE_DIGEST) or managed_metadata:
         annotation_source = CR_SOURCE
         annotation_inputs = [join(CR_SOURCE, 'fasta', 'genome.fa'), join(CR_SOURCE, 'anno', 'genes.gtf')]
         annotation_checksums = [REFERENCE_SOURCE_CHECKSUMS]
-    GENE_TABLE = join(metadata_ref, 'anno', 'genes.tsv')
+    SNAPSHOT_GENE_TABLE = join(metadata_ref, 'anno', 'genes.tsv')
 
     rule project_annotation_inputs:
         input:
@@ -89,12 +86,19 @@ if (config.get('ref_dir') and REFERENCE_SOURCE_DIGEST) or managed_metadata:
         shell:
             'bash {params.script:q} {params.fasta:q} {params.gtf:q} {params.root:q} {params.checksums:q}'
 
+def gene_table_for_quantifier(wildcards):
+    method = getattr(wildcards, 'quantifier', None) or wildcards.method
+    if build_10x_reference and (config.get('ref_dir') or method == 'cellranger'):
+        return SNAPSHOT_GENE_TABLE
+    return join(REF_DIR, 'anno', 'genes.tsv')
+
+
 if config.get('ref_dir') and REFERENCE_SOURCE_DIGEST:
     # An explicitly requested legacy target can still export the current table.
     # Reporting reads the versioned table directly, never a shared mutable copy.
     rule export_project_gene_table:
         input:
-            GENE_TABLE
+            SNAPSHOT_GENE_TABLE
         output:
             join(REF_DIR, 'anno', 'genes.tsv')
         shell:

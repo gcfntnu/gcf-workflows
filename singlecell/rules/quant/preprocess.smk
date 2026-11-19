@@ -405,7 +405,7 @@ rule preprocess_annotation_input:
 rule preprocess_plan:
     input:
         anndata = get_filtered_anndata,
-        gene_metadata = GENE_TABLE
+        gene_metadata = gene_table_for_quantifier
     output:
         cells = PREPROCESS_CELLS,
         genes = PREPROCESS_GENES,

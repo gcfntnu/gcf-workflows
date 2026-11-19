@@ -86,7 +86,7 @@ def _qc_prepare_inputs(wc):
 
     result = {
         'counts': counts,
-        'feature_info': [GENE_TABLE],
+        'feature_info': [gene_table_for_quantifier(wc)],
         'barcode_info': _qc_barcode_info_list(wc),
     }
 

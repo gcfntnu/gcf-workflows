@@ -653,3 +653,43 @@ def verify_cellranger_receipt(*args):
     star = plan_existing(tmp_path, 'multiqc_report')
     assert 'rule starsolo_quant:' in star and 'rule multiqc_report:' in star
     assert 'cellranger count ' not in star and not checks.exists()
+
+
+def test_mixed_methods_select_the_counting_reference_for_annotation(tmp_path):
+    quant = {'method': 'cellranger,10x_starsolo', 'aggregate': {'method': 'scanpy'}, 'use_velo': False}
+    source = Path(f"data/ext/ensembl/release-{DB_DEFAULTS['ensembl']['release']}/salmo_salar/Ssal_v3.1")
+    provider_table = str(source / 'anno/genes.tsv')
+    cold = dry_run(tmp_path, 'salmo_salar', '_tmp/10x_starsolo/raw/libA/anndata.light.h5ad', quant=quant)
+    assert 'rule starsolo_quant:' in cold and 'rule cellranger_mkref:' not in cold
+    assert_gene_metadata(cold, source)
+
+    combined = plan_existing(tmp_path, 'quant_all')
+    build = shell_command(combined, 'cellranger mkref ')
+    receipt = Path(build[build.index('--receipt') + 1])
+    assert arguments(combined, 'cellranger count ', '--transcriptome') == {str(receipt.parent / 'index')}
+    tables = set()
+    for line in combined.splitlines():
+        if line.startswith('Shell command:') and 'convert_scanpy.py ' in line:
+            args = shlex.split(line)
+            tables.add((args[args.index('-f') + 1], args[args.index('--feature-info') + 1]))
+    assert tables == {('cellranger', str(receipt.parent / 'annotation/anno/genes.tsv')), ('10x_starsolo', provider_table)}
+
+    write_panel(tmp_path, source)
+    env = protected_env(tmp_path)
+    env['PATH'] = str(MOCK_TOOLS) + os.pathsep + env['PATH']
+    subprocess.run([sys.executable, *build[1:]], cwd=tmp_path, env=env, check=True)
+    (tmp_path / receipt.parent / 'index/star/SA').unlink()
+    filtered = plan_existing(tmp_path, '_tmp/10x_starsolo/filtered/libA/anndata.light.h5ad')
+    assert 'rule starsolo_quant:' in filtered and 'rule cellranger_mkref:' not in filtered
+    assert_gene_metadata(filtered, source)
+    damaged = plan_existing(tmp_path, '_tmp/cellranger/filtered/libA/anndata.light.h5ad', expect_success=False)
+    assert 'Incomplete Cell Ranger reference' in damaged and '/star/SA' in damaged
+
+
+def test_mixed_methods_share_explicit_reference_metadata(tmp_path):
+    panel = Path('refs/augmented panel')
+    write_panel(tmp_path, panel)
+    quant = {'method': 'cellranger,10x_starsolo', 'aggregate': {'method': 'scanpy'}, 'use_velo': False}
+    plan = dry_run(tmp_path, 'salmo_salar', 'quant_all', ref_dir=str(panel), quant=quant)
+    assert 'rule starsolo_quant:' in plan and 'cellranger count ' in plan
+    assert_gene_metadata(plan, annotation_snapshot(tmp_path / panel)[0])
