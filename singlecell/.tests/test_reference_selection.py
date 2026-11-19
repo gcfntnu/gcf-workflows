@@ -1,4 +1,6 @@
 """Plan the BFQ reporting target and inspect the tools' reference arguments with an empty cache."""
+import os
+from pathlib import Path
 import re
 import shlex
 import subprocess
@@ -134,3 +136,46 @@ def test_configured_custom_assembly(tmp_path, provider):
     assert_build_and_count(log, 'data/ext/custom_reference/rangifer_tarandus/Rtarandus_2.1')
     if provider == 'ensembl':
         assert re.search(r'no hits in ensembl lookup file.*custom_reference', log, re.I)
+
+
+@pytest.mark.parametrize('changed', ['fasta/genome.fa', 'anno/genes.gtf'])
+def test_retained_project_index_requires_current_input_manifest(tmp_path, changed):
+    ref = tmp_path / 'panel'
+    write_panel(tmp_path, ref)
+    index = ref / 'cellranger'
+    # A legacy index is newer than the panel and has all the outputs Snakemake previously tracked.
+    for name in ('reference.json', 'fasta/genome.fa', 'genes/genes.gtf.gz', 'anno/genes.gtf'):
+        path = index / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('stock')
+
+    def count_plan(project):
+        work = tmp_path / project
+        work.mkdir()
+        return dry_run(work, 'homo_sapiens', COUNT_TARGET, ref_dir=str(ref))
+
+    def planned_manifest(plan):
+        command = next(line for line in plan.splitlines() if 'cellranger mkref --fasta' in line)
+        return Path(shlex.split(command)[-1])
+
+    manifest = planned_manifest(count_plan('legacy'))
+    # Exercise only the installer with stand-in output. No Cell Ranger binary or container runs.
+    stage = tmp_path / 'stage/reference'
+    stage.mkdir(parents=True)
+    (stage / 'reference.json').write_text('rebuilt')
+    install = ['bash', WORKFLOW.parent / 'rules/quant/scripts/install_cellranger_reference.sh', stage, index, ref]
+    subprocess.run([*install, manifest], check=True)
+    subprocess.run(['sha256sum', '--check', manifest], cwd=ref, check=True)
+    assert 'cellranger mkref ' not in count_plan('matching')
+
+    source = ref / changed
+    old = source.stat()
+    source.write_bytes(source.read_bytes() + b'\n')
+    os.utime(source, ns=(old.st_atime_ns, old.st_mtime_ns))
+    replacement = planned_manifest(count_plan('changed'))
+    assert replacement != manifest
+    # If inputs change during a build, the installer refuses to publish the planned identity.
+    stale = subprocess.run([*install, manifest], capture_output=True, text=True)
+    assert stale.returncode and 'changed during the build' in stale.stderr
+    subprocess.run([*install, replacement], check=True)
+    assert replacement.is_file() and not manifest.exists()

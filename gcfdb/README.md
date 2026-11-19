@@ -31,6 +31,9 @@ The directory must contain the augmented FASTA and its matching annotation. Rela
 
 A fresh `cellranger mkref` reads `--fasta refs/panel-v1/fasta/genome.fa` and `--genes refs/panel-v1/anno/genes.gtf`.
 Counting uses `--transcriptome refs/panel-v1/cellranger`.
+Planning hashes both source files. A successful build records their SHA-256 checksums in
+`cellranger/.gcf-mkref-<digest>.sha256`. Count depends on the manifest for that pair.
+A legacy index without the manifest, or a change to either input, schedules a fresh build even in a new project workdir.
 The reporting workflow derives gene metadata in `refs/panel-v1/anno/genes.tsv` from the same annotation and genome.
 The directory name is arbitrary. The configured provider and annotation settings still apply.
 

@@ -1,4 +1,5 @@
 #-*- mode:snakemake -*-
+import hashlib
 import six
 from collections import defaultdict
 
@@ -35,11 +36,19 @@ rule cellranger_gtf:
     shell:
         'cellranger mkgtf {input} {output} {params}'
 
+# The name identifies the exact pair, even in a fresh workdir where Snakemake
+# has no build history and retained index files are newer than the project inputs.
+CR_INPUT_MANIFEST = []
 if not USE_10X_PREBUILT:
     if config.get('ref_dir'):
+        record = hashlib.sha256()
         for path in (get_genome(), get_gtf()):
             if not os.path.isfile(path):
                 raise ValueError(f"Project ref_dir is missing required Cell Ranger input: {path}")
+            with open(path, 'rb') as source:
+                digest = hashlib.file_digest(source, 'sha256').hexdigest()
+            record.update(f"{digest}  {os.path.relpath(path, REF_DIR)}\n".encode())
+        CR_INPUT_MANIFEST = [join(CR_REF_DIR, f'.gcf-mkref-{record.hexdigest()}.sha256')]
 
     rule cellranger_mkref:
         input:
@@ -48,11 +57,14 @@ if not USE_10X_PREBUILT:
         output:
             join(CR_REF_DIR, 'reference.json'),
             join(CR_REF_DIR, 'fasta', 'genome.fa'),
-            join(CR_REF_DIR, 'genes', 'genes.gtf.gz')
+            join(CR_REF_DIR, 'genes', 'genes.gtf.gz'),
+            manifest = CR_INPUT_MANIFEST
         params:
             # Cell Ranger 10.0 accepts only letters, digits, underscores and dashes in --genome.
             name = re.sub(r'[^A-Za-z0-9_-]', '_', DB_CONF.get('assembly') or ORG),
-            out_dir = CR_REF_DIR
+            out_dir = CR_REF_DIR,
+            source_dir = REF_DIR,
+            install = src_gcf('scripts/install_cellranger_reference.sh')
         threads:
             48
         container:
@@ -62,7 +74,7 @@ if not USE_10X_PREBUILT:
             "trap 'rm -rf \"$stage\"' EXIT && "
             'cellranger mkref --fasta {input.fasta:q} --genes {input.gtf:q} --nthreads {threads} '
             '--genome {params.name:q} --output-dir "$stage/reference" && '
-            'cp -a "$stage/reference/." {params.out_dir:q}/'
+            'bash {params.install:q} "$stage/reference" {params.out_dir:q} {params.source_dir:q} {output.manifest:q}'
 
     rule cellranger_symlink_gtf:
         input:
@@ -75,6 +87,7 @@ if not USE_10X_PREBUILT:
 rule cellranger_quant_:
     input:
         unpack(get_raw_fastq),
+        manifest = CR_INPUT_MANIFEST,
         reference = join(CR_REF_DIR, 'reference.json'),
         genome = join(CR_REF_DIR, 'fasta', 'genome.fa'),
         gtf = join(CR_REF_DIR, 'anno', 'genes.gtf')
