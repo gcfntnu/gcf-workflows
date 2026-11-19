@@ -42,7 +42,7 @@ rule smrnaseq_hairpin:
     container:
         'docker://' + config['docker']['default']
     shell:
-        'python {params.script} --species {params.species} {input} > {output}'
+        'python {params.script:q} --species {params.species} {input:q} > {output:q}'
 
 
 rule smrnaseq_hairpin_index:
@@ -59,7 +59,7 @@ rule smrnaseq_hairpin_index:
     container:
         'docker://' + config['docker']['smrnaseq_bowtie']
     shell:
-        'bowtie-build --threads {threads} {input} {params.prefix} > {log} 2>&1'
+        'bowtie-build --threads {threads} {input:q} {params.prefix:q} > {log:q} 2>&1'
 
 
 rule smrnaseq_collapse:
@@ -75,8 +75,8 @@ rule smrnaseq_collapse:
         'docker://' + config['docker']['smrnaseq_seqcluster']
     shell:
         # seqcluster names its output after the input file (<name>_trimmed.fastq), so each sample gets its own directory.
-        'rm -rf "{params.work}" && seqcluster collapse -m 1 --min_size 15 -f "{input}" -o "{params.work}" > "{log}" 2>&1 && '
-        'mv "{params.work}"/*_trimmed.fastq "{output}" && rm -r "{params.work}"'
+        'rm -rf {params.work:q} && seqcluster collapse -m 1 --min_size 15 -f {input:q} -o {params.work:q} > {log:q} 2>&1 && '
+        'mv {params.work:q}/*_trimmed.fastq {output:q} && rm -r {params.work:q}'
 
 
 rule smrnaseq_align:
@@ -97,8 +97,8 @@ rule smrnaseq_align:
         'docker://' + config['docker']['smrnaseq_bowtie']
     shell:
         # samtools single-threaded: the threads are Bowtie's (thread counts do not change the alignments)
-        'set -o pipefail; bowtie --threads {threads} --sam -x "{params.index}" -q {params.args} "{input.fastq}" 2> "{log}" '
-        '| samtools view -bS -o "{output}" -'
+        'set -o pipefail; bowtie --threads {threads} --sam -x {params.index:q} -q {params.args} {input.fastq:q} 2> {log:q} '
+        '| samtools view -bS -o {output:q} -'
 
 
 rule smrnaseq_mirtop:
@@ -117,9 +117,9 @@ rule smrnaseq_mirtop:
     container:
         'docker://' + config['docker']['smrnaseq_mirtop']
     shell:
-        'mirtop gff --sps {params.species} --hairpin {input.hairpin} --gtf {input.gff} -o {params.out} {input.bam} > {log} 2>&1 && '
-        'mirtop counts --add-extra --hairpin {input.hairpin} --gtf {input.gff} --sps {params.species} --gff {output.gff} '
-        '-o {params.out}/counts >> {log} 2>&1'
+        'mirtop gff --sps {params.species} --hairpin {input.hairpin:q} --gtf {input.gff:q} -o {params.out:q} {input.bam:q} > {log:q} 2>&1 && '
+        'mirtop counts --add-extra --hairpin {input.hairpin:q} --gtf {input.gff:q} --sps {params.species} --gff {output.gff:q} '
+        '-o {params.out:q}/counts >> {log:q} 2>&1'
 
 
 rule smrnaseq_counts:
@@ -133,7 +133,7 @@ rule smrnaseq_counts:
     container:
         'docker://' + config['docker']['default']
     shell:
-        'python {params.script} --tables {input} --joined {output.joined} --mirna {output.mirna}'
+        'python {params.script:q} --tables {input:q} --joined {output.joined:q} --mirna {output.mirna:q}'
 
 
 rule smrnaseq_all:

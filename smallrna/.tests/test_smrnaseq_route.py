@@ -29,12 +29,11 @@ def test_route_plans_the_pipelines_steps_on_the_filtered_reads_and_delivery_stay
     assert re.search(rf'bowtie-build --threads \d+ {OUT}/reference/hairpin.fa {OUT}/reference/bowtie/hairpin ', output)
     collapse = rule_block(output, 'smrnaseq_collapse')
     assert 'input: data/tmp/smallrna/filter/cutadapt/SR0' in collapse  # the shared filtered reads
-    assert 'rm -rf "data/tmp/smallrna/quant/smrnaseq/collapsed/SR0' in collapse  # quoted paths
-    assert 'seqcluster collapse -m 1 --min_size 15 -f "data/tmp/smallrna/filter/cutadapt/SR0' in collapse
+    assert 'seqcluster collapse -m 1 --min_size 15 -f data/tmp/smallrna/filter/cutadapt/SR0' in collapse
     align = rule_block(output, 'smrnaseq_align')
     assert f'output: {OUT}/bam/SR0' in align  # named by sample: mirtop's sample column
-    assert re.search(rf'bowtie --threads \d+ --sam -x "{OUT}/reference/bowtie/hairpin" -q -t -k 50 --best --strata -e 99999 '
-                     rf'--chunkmbs 2048 "{OUT}/collapsed/SR0\d.fastq" 2> "{OUT}/bam/SR0\d.log" \| samtools view -bS -o "{OUT}/bam/SR0\d.bam" -', align)
+    assert re.search(rf'bowtie --threads \d+ --sam -x {OUT}/reference/bowtie/hairpin -q -t -k 50 --best --strata -e 99999 '
+                     rf'--chunkmbs 2048 {OUT}/collapsed/SR0\d.fastq 2> {OUT}/bam/SR0\d.log \| samtools view -bS -o {OUT}/bam/SR0\d.bam -', align)
     for suffix in INDEX:
         assert f'{OUT}/reference/bowtie/hairpin.{suffix}' in align.split('output:', 1)[0]
     mirtop = rule_block(output, 'smrnaseq_mirtop')
@@ -45,6 +44,16 @@ def test_route_plans_the_pipelines_steps_on_the_filtered_reads_and_delivery_stay
     returncode, output = dry_run(tmp_path, 'unitas,smrnaseq', target='bfq_all')
     assert returncode == 0, output
     assert 'smrnaseq' not in output
+
+
+def test_route_quotes_paths_with_spaces(tmp_path):
+    """A reference root with a space reaches every command of the route as one quoted argument."""
+    ext = tmp_path / 'ref root'
+    returncode, output = dry_run(tmp_path / 'project', 'smrnaseq', lambda s: s.update(ext_dir=str(ext)), printshell=True)
+    assert returncode == 0, output
+    hairpin = f"'{ext}/mirbase/mus_musculus/release-23.1/fasta/hairpin.fa'"
+    assert f'--species mmu {hairpin} > ' in rule_block(output, 'smrnaseq_hairpin')
+    assert f"--gtf '{ext}/mirbase/mus_musculus/release-23.1/anno/genes.gff3' -o " in rule_block(output, 'smrnaseq_mirtop')
 
 
 def run(script, *args, stdin=None):
