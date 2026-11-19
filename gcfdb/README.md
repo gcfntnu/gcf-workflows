@@ -47,6 +47,11 @@ their identity, sources and checks.
   60 GB of memory for a human or mouse genome index.
 - **TEsmall databases** ([`tesmall.db`](tesmall.db)): built on the mirflowz reference's genome, with a Bowtie 1 index
   of it, and once per UNITAS dump, from which the piRNA clusters come.
+- **tiny-count reference** ([`tinyrna.db`](tinyrna.db), [`tinyrna_gff.py`](scripts/tinyrna_gff.py)): TEsmall's Bowtie 1
+  genome index, and the miRBase GFF renamed to the genome's sequence names with the mirflowz chromosome map
+  (`mirna.v<n>.gff3`; `<n>` is raised when the script's output changes, so an older GFF is rebuilt). A mature miRNA
+  listed at one locus under several hairpins is one row with every parent; repeated IDs at other loci get a numeric
+  suffix.
 
 ### Langmead prebuilt Kraken databases
 

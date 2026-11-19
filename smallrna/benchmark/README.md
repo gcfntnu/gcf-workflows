@@ -97,8 +97,9 @@ name miRNAs differently: UNITAS drops the species prefix and names reads it plac
 mature miRNA (reads with a modification, e.g. a substituted first base or a shorter 3' end) after the hairpin and arm
 (`miR-16-1-5p`), miRge3 (the workflow's own `miR.Counts.csv`, built from
 miRge3's `mapped.csv` with the project-level exact-read rule, #349) reports merge groups (`name1/name2`, counted on the
-first member), mirflowz names miRNAs after their locus (`mmu-miR-194-2-5p`) and reports isomiRs as separate rows, and
-TEsmall reports mature miRNAs by miRBase name (a name at several loci counted once). Only TEsmall's `miRNA` rows are
+first member), mirflowz names miRNAs after their locus (`mmu-miR-194-2-5p`) and reports isomiRs as separate rows,
+TEsmall reports mature miRNAs by miRBase name (a name at several loci counted once), and tiny-count reports one row per
+locus by miRBase feature ID (`MIMAT0000416_1`), summed per accession. Only TEsmall's `miRNA` rows are
 scored: reads it assigns to the precursor (`hairpin`: reads lying less than 90% within the mature miRNA, e.g. a moved
 5' end) are not mature counts and are left out. A new method needs one function in `ADAPTERS`, next to its smallrna
 route.
@@ -114,8 +115,8 @@ methods count on the same miRNAs (often a pool sequence one or two bases shorter
 ## Metrics
 
 **Synthetic data.** For truth as reads per miRNA, per method: `recovered` (share of the true reads counted on the right
-miRNA), `exact` (share of miRNAs counted exactly), `misassigned` (reads on miRNAs not in the truth) and `unplaced`
-(reads on names without a miRBase accession).
+miRNA), `exact` (share of miRNAs counted exactly, to within 1e-6 for the fractional counts of divided multimappers),
+`misassigned` (reads on miRNAs not in the truth) and `unplaced` (reads on names without a miRBase accession).
 
 **Pools** (`pool.py`):
 
