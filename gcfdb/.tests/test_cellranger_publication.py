@@ -41,15 +41,19 @@ class CellRangerPublicationTests(unittest.TestCase):
         publisher.build_reference(self.source, self.cache, receipt, None, image, self.command(genome))
         return receipt
 
-    def stub_mkref(self, command, *, check):
+    def stub_mkref(self, command, *, cwd, check):
         self.assertEqual(command[:2], ["cellranger", "mkref"])
         self.assertTrue(check)
         directory = Path(command[command.index("--output-dir") + 1])
         for child in ("fasta", "genes", "star"):
             (directory / child).mkdir(parents=True)
         (directory / "reference.json").write_text(json.dumps({"genome": command[command.index("--genome") + 1]}))
-        (directory / "fasta/genome.fa").write_bytes(self.fasta.read_bytes())
-        (directory / "genes/genes.gtf.gz").write_bytes(gzip.compress(self.gtf.read_bytes()))
+        fasta = Path(cwd) / command[command.index("--fasta") + 1]
+        gtf = Path(cwd) / command[command.index("--genes") + 1]
+        self.assertNotEqual(fasta.resolve(), self.fasta.resolve())
+        self.assertNotEqual(gtf.resolve(), self.gtf.resolve())
+        (directory / "fasta/genome.fa").write_bytes(fasta.read_bytes())
+        (directory / "genes/genes.gtf.gz").write_bytes(gzip.compress(gtf.read_bytes()))
         # Distinguish complete snapshots built concurrently with identical inputs.
         for member in ("Genome", "SA", "SAindex"):
             (directory / "star" / member).write_text(directory.parent.name)
@@ -57,8 +61,8 @@ class CellRangerPublicationTests(unittest.TestCase):
     def test_two_publishers_pin_one_complete_generation_through_forced_reruns(self):
         both_staged = threading.Barrier(2)
 
-        def concurrent_mkref(command, *, check):
-            self.stub_mkref(command, check=check)
+        def concurrent_mkref(command, *, cwd, check):
+            self.stub_mkref(command, cwd=cwd, check=check)
             # Both jobs have already observed a cache miss before either can publish.
             both_staged.wait(timeout=20)
 
@@ -98,8 +102,8 @@ class CellRangerPublicationTests(unittest.TestCase):
         with (index / "star/SA").open() as reader:
             marker = reader.read()
 
-            def incomplete_mkref(command, *, check):
-                self.stub_mkref(command, check=check)
+            def incomplete_mkref(command, *, cwd, check):
+                self.stub_mkref(command, cwd=cwd, check=check)
                 Path(command[command.index("--output-dir") + 1], "star/SA").unlink()
 
             with patch.object(publisher.subprocess, "run", side_effect=incomplete_mkref):
@@ -122,6 +126,24 @@ class CellRangerPublicationTests(unittest.TestCase):
             self.assertEqual((index / "star/SA").read_text(), marker)
             reader.seek(0)
             self.assertEqual(reader.read(), marker)
+
+    def test_live_source_change_and_rollback_cannot_change_mkref_input(self):
+        original_fasta, original_gtf = self.fasta.read_bytes(), self.gtf.read_bytes()
+
+        def replace_while_mkref_reads(command, *, cwd, check):
+            self.fasta.write_bytes(b">temporary\nAAAA\n")
+            self.gtf.write_bytes(b"# temporary\n")
+            try:
+                self.stub_mkref(command, cwd=cwd, check=check)
+            finally:
+                self.fasta.write_bytes(original_fasta)
+                self.gtf.write_bytes(original_gtf)
+
+        with patch.object(publisher.subprocess, "run", side_effect=replace_while_mkref_reads):
+            index = self.publish("reader").resolve(strict=True).parent
+        self.assertEqual((index / "fasta/genome.fa").read_bytes(), original_fasta)
+        self.assertEqual(gzip.decompress((index / "genes/genes.gtf.gz").read_bytes()), original_gtf)
+        self.assertEqual((index / "gcf-source/anno/genes.gtf").read_bytes(), original_gtf)
 
     def test_damaged_cache_is_rejected_before_pinning(self):
         with patch.object(publisher.subprocess, "run", side_effect=self.stub_mkref):

@@ -29,7 +29,9 @@ The directory must contain the augmented FASTA and its matching annotation. Rela
 | `refs/panel-v1/fasta/genome.fa` | Genome sequences including the reporter contig |
 | `refs/panel-v1/anno/genes.gtf` | Gene annotation including the reporter feature with the same contig name and coordinates |
 
-A fresh `cellranger mkref` reads `--fasta refs/panel-v1/fasta/genome.fa` and `--genes refs/panel-v1/anno/genes.gtf`.
+The builder copies the selected FASTA and GTF into a private working directory, verifies their checksums and runs
+`cellranger mkref --fasta refs/panel-v1/fasta/genome.fa --genes refs/panel-v1/anno/genes.gtf` there.
+Absolute project paths and paths containing `..` are mapped into that private directory. The published index retains the verified originals in `gcf-source/`.
 Count uses `--transcriptome refs/panel-v1/cellranger/builds/<source-digest>/<build-key>`.
 The source digest covers the SHA-256 checksums of both files. The build key covers the normalized Cell Ranger genome identifier, configured image and recipe version.
 Each complete index and its input manifest are published together. A forced run or a second project reuses a matching generation.
