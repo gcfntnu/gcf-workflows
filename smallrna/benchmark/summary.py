@@ -22,7 +22,8 @@ import yaml
 
 # (kind, title, key metrics, what they show); a pool's kind is its `pool`
 SECTIONS = [
-    ('synthetic', 'Synthetic data', ['recovered', 'precision', 'exact', 'misassigned', 'unplaced', 'near_spill', 'de_sensitivity', 'de_fdr'],
+    ('synthetic', 'Synthetic data',
+     ['recovered', 'precision', 'exact', 'misassigned', 'unplaced', 'near_spill', 'de_sensitivity', 'de_fdr'],
      'Counts are compared per sample and miRBase accession. `recovered` sums the smaller of observed and true counts '
      'for each pair, divided by the total true count. `exact` is the fraction of positive-truth pairs with matching counts. '
      '`misassigned` and `unplaced` count reads on accessions absent from that sample’s truth and on names without a miRBase accession. '
@@ -76,6 +77,9 @@ def read_project(project, out_dir):
     config = yaml.safe_load((project / 'config.yaml').read_text())
     configured_samples = config['samples']
     samples = len(configured_samples)
+    if kind == 'synthetic' and (spec.get('synthetic') or {}).get('mode') == 'genome':  # #412: mixed and probe samples
+        mixed = sum(1 for row in read_tsv(bench / 'samples.tsv') if row['kind'] == 'mixed')
+        samples = '{} mixed, {} probe'.format(mixed, samples - mixed)
     if kind == 'biological':
         rows = read_tsv(bench / 'samples.tsv')
         if len(rows) != samples or {row['sample'] for row in rows} != set(configured_samples):
@@ -86,7 +90,7 @@ def read_project(project, out_dir):
     report = os.path.relpath((bench / 'report.md').resolve(), out_dir)
     return kind, {'project': project.resolve().name, 'link': urllib.parse.quote(report), 'dataset': spec['name'], 'kit': spec['libprepkit'],
                   'samples': samples, 'reads processed': '' if record.get('reads_processed') is None else '{:,}'.format(record['reads_processed']),
-                  'methods': ', '.join(c for c in columns if c != 'oracle'), 'columns': columns, 'values': values}
+                  'methods': ', '.join(c for c in columns if c not in ('oracle', 'truth')), 'columns': columns, 'values': values}
 
 
 def resolve_with_links(path):
@@ -137,7 +141,8 @@ INTRO = ('Key metrics of each evaluated project, from its `metrics.tsv`; its `re
          'its cutadapt reports as recorded by `evaluate` (empty for another filter route, without the reports, or for an '
          'evaluation older than this record). An empty metric cell: the method '
          'was not run on that dataset, or the metric is not in its table. `oracle` is the pool reads counted by exact '
-         'match, the reference for the methods. A value with a range in parentheses has its 95% bootstrap interval, '
+         'match, the reference for the methods; `truth` (genome-wide synthetic data) is the true counts analysed as a '
+         'method, the best its design allows. A value with a range in parentheses has its 95% bootstrap interval, '
          'from the evaluation (`metrics_ci.tsv`; differences between methods are in each report).')
 
 

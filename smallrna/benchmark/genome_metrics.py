@@ -247,15 +247,14 @@ class Evaluation:
             residual = v - pcs @ fit
             r2.append(float(1 - (residual ** 2).sum() / ((v - v.mean()) ** 2).sum()))
         co = [self.index[i] for i in self.units if self.t[self.index[i]].mean() >= COEXP]
+        coexpression = float('nan')
         if len(co) > 3:
-            truth_corr = np.corrcoef(np.log2(self.t[co] + 1))
             obs = np.log2(matrix[co] + 1)
             keep = obs.std(axis=1) > 0
-            upper = np.triu_indices(int(keep.sum()), 1)
-            obs_corr = np.corrcoef(obs[keep])
-            coexpression = spearman(truth_corr[np.ix_(keep, keep)][upper], obs_corr[upper])
-        else:
-            coexpression = float('nan')
+            if keep.sum() > 2:  # fewer varying miRNAs give too few correlations to compare
+                truth_corr = np.corrcoef(np.log2(self.t[co] + 1))
+                upper = np.triu_indices(int(keep.sum()), 1)
+                coexpression = spearman(truth_corr[np.ix_(keep, keep)][upper], np.corrcoef(obs[keep])[upper])
         return r2[0], r2[1], coexpression
 
     def probes(self, name, members=None):

@@ -6,8 +6,8 @@ per sample (`samples`: sample, group, runs); a genome-wide synthetic declaration
 no runs, only the miRBase files its reads are generated from. Files go to `<EXT_DIR>/<data>/`: runs as
 `fastq/<run>.fastq.gz`, the table as `composition/<file>`, the miRBase mature sequences (`mirbase`: release, url,
 sha256) as `mirbase/<release>/mature.fa`, and a synthetic declaration's hairpins and GFF (`mirbase.hairpin`,
-`mirbase.gff`: url, sha256) as `mirbase/<release>/hairpin.fa` and `genes.gff3`. Each download is written to its own temporary file in the same folder and renamed only
-after its checksum matches, so a file in place is always complete, also when fills of declarations sharing a data
+`mirbase.gff`: url, sha256) as `mirbase/<release>/hairpin.fa` and `genes.gff3`. Each download is written to its own
+temporary file in the same folder and renamed only after its checksum matches, so a file in place is always complete, also when fills of declarations sharing a data
 folder run at the same time; files already in place are skipped. This is the only step of the benchmark that writes to EXT_DIR, and it is run
 deliberately when a dataset is added; `prepare` and `evaluate` only read.
 """

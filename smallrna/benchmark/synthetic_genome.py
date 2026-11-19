@@ -5,8 +5,10 @@ What it draws (all from the declaration's fixed seed):
 
 - **miRNAs.** `mirnas` annotated matures of the organism. Accessions with the same mature sequence count as one miRNA,
   named by their first accession in sorted order, as the evaluation collapses them (biological.collapse). Pairs one
-  substitution apart and matures at several loci are taken first. A pair is kept at a 100:1 ratio either way, or
-  with the partner left out (`near_identical`). The rest are drawn at random.
+  substitution apart are taken first, kept at a 100:1 ratio either way, or with the partner left out
+  (`near_identical`). Each pair is a family of its own: the members' other near-identical relatives are absent and are
+  relatives of no other chosen miRNA, so a read on a relative has one source (in large families such as miR-548 most
+  pairs are left out). Then matures at several loci, then the rest at random, both without near-identical relatives.
 - **Abundances.** Expected reads per million of a mixed sample, by rank: a Zipf curve, then a log-uniform low tail
   (`abundance`); ranks are assigned to the miRNAs at random, a pair's low member taking its partner's abundance / ratio.
 - **Counts.** Mixed samples in two groups (`groups`). log2 mu_ij = log2 base_i + u_i1 v_j1 + u_i2 v_j2:
@@ -17,11 +19,13 @@ What it draws (all from the declaration's fixed seed):
   asymptotic + extra / expected count (`dispersion`).
 - **Reads of a miRNA.** Canonical, 3' trimmed by 1-2 nt, 3' extended by 1-2 hairpin bases, a non-templated A or U, or
   the 5' end moved by one (trimmed, or one hairpin base added). Each miRNA draws its own shares around `isomirs`. A
-  class whose read would equal another mature, or another miRNA's read, or that the hairpin cannot give, is left out
-  for that miRNA. An added A or U the hairpin itself has next is templated, so that class is left out too.
-- **Sequencing errors** (`errors`): substitutions at a per-base rate, raised at the first base; a substitution that
-  would give another mature or another miRNA's read is drawn again. Base qualities (`qualities`) are binned NextSeq
-  values, low on substituted bases.
+  class whose read would equal another mature, or a read of any class that another miRNA's loci could give, or that
+  the hairpin cannot give, is left out for that miRNA. An added A or U that any of the miRNA's hairpins has next (or
+  might have: the mature ends its hairpin) is templated, so that class is left out too.
+- **Sequencing errors** (`errors`): substitutions at a per-base rate, raised at the first sequenced base (the insert's
+  first base; with UMIs a UMI base, whose errors are not modelled); a substitution that would give another mature or a
+  read any miRNA could give is drawn again. Base qualities (`qualities`) are binned NextSeq values, low on substituted
+  bases.
 - **Random reads** (`random_reads`).
 - **Probe samples** (`probes`), each a canonical carrier (miRNAs outside the truth set, without near-identical
   relatives) plus one read class of other miRNAs: each isomiR class, or canonical reads with at least one error. Each
@@ -119,7 +123,8 @@ def clusters(hairpin_loci, distance):
 
 class Universe:
     """The organism's miRNAs as the generator and the evaluation see them: one miRNA per mature sequence (its first
-    accession sorted), its loci, hairpin, cluster and near-identical partners."""
+    accession sorted), its loci, hairpins (the flanks of the mature in each; the first gives the templated reads),
+    cluster and near-identical partners."""
 
     def __init__(self, mature_fa, hairpin_fa, gff, prefix, cluster_distance=10000):
         mature = read_fasta(mature_fa, prefix)
@@ -137,16 +142,18 @@ class Universe:
             accessions = [a for a, _ in members]
             self.alias.update((a, rep) for a in accessions)
             places = [l for a in accessions for l in loci.get(a, [])]
-            parents = [l[4] for l in places if l[4] in hairpin_seq]
+            parents = list(dict.fromkeys(l[4] for l in places if l[4] in hairpin_seq))
             self.mirnas[rep] = {'name': members[0][1], 'accessions': accessions, 'sequence': seq, 'loci': len(places),
-                                'hairpin': parents[0] if parents else '', 'cluster': 0}
+                                'hairpin': parents[0] if parents else '', 'hairpins': parents, 'cluster': 0}
         cluster_of = clusters(hairpin_loci, cluster_distance)
         for rep, m in self.mirnas.items():
             m['cluster'] = cluster_of.get(m['hairpin'], 0)
-            hairpin = hairpin_seq.get(m['hairpin'], '')
-            offset = hairpin.find(m['sequence']) if hairpin else -1
-            m['upstream'] = hairpin[:offset] if offset >= 0 else None
-            m['downstream'] = hairpin[offset + len(m['sequence']):] if offset >= 0 else None
+            m['flanks'] = []  # (upstream, downstream) of the mature in each hairpin, None where it is not found
+            for parent in m['hairpins']:
+                hairpin = hairpin_seq[parent]
+                offset = hairpin.find(m['sequence'])
+                m['flanks'].append((hairpin[:offset], hairpin[offset + len(m['sequence']):]) if offset >= 0 else None)
+            m['upstream'], m['downstream'] = m['flanks'][0] if m['flanks'] and m['flanks'][0] else (None, None)
         rep_of_seq = {m['sequence']: rep for rep, m in self.mirnas.items()}
         self.near = collections.defaultdict(set)
         for a, b in one_apart(rep_of_seq):
@@ -170,13 +177,26 @@ def variant(m, read_class, shift_sign):
         return seq + down[:k] if down is not None and len(down) >= k else None
     if read_class.startswith('3p_add_'):
         base = read_class[-1].replace('U', 'T')
-        # an added base the hairpin has next is templated: not this class
-        return None if down is None or down[:1] == base else seq + base
+        # an added base that any hairpin has next is templated: not this class; nor where a hairpin's next base is unknown
+        nexts = [f[1][:1] if f else '' for f in m['flanks']]
+        return seq + base if nexts and all(b not in ('', base) for b in nexts) else None
     if read_class == '5p_shift':
         if shift_sign > 0:
             return seq[1:]
         return up[-1] + seq if up else None
     raise ValueError('unknown read class {!r}'.format(read_class))
+
+
+def possible_reads(m):
+    """Every read of a miRNA's classes that any of its loci could give: both 5' shifts, either added base (templated or
+    not), and each hairpin's templated bases."""
+    seq = m['sequence']
+    out = {seq, seq[:-1], seq[:-2], seq[1:], seq + 'A', seq + 'T'}
+    for up, down in filter(None, m['flanks']):
+        out.update(seq + down[:k] for k in (1, 2) if len(down) >= k)
+        if up:
+            out.add(up[-1] + seq)
+    return {s for s in out if len(s) >= MIN_LENGTH}
 
 
 def abundances(n, spec, rng):
@@ -191,7 +211,11 @@ def abundances(n, spec, rng):
 
 
 def choose(universe, spec, rng):
-    """(truth miRNAs, their abundances {rep: per million}, near roles {rep: (partner, role)}, absent partners)."""
+    """(truth miRNAs, their abundances {rep: per million}, near roles {rep: (partner, role)}, absent relatives).
+
+    A pair (or a single member with its partner absent) is a family of its own: no member or relative of it is a
+    relative of another chosen miRNA, and the relatives other than the partner are absent, so a read on a relative has
+    one source. The other miRNAs have no near-identical relatives."""
     n = int(spec['mirnas'])
     near_spec = spec.get('near_identical') or {}
     ratio, alone = float(near_spec.get('ratio', 100)), float(near_spec.get('partner_absent', 0.33))
@@ -199,25 +223,29 @@ def choose(universe, spec, rng):
     pairs = sorted({tuple(sorted((a, b))) for a in annotated for b in universe.near[a] if b in annotated})
     chosen, roles, absent = [], {}, set()
     for a, b in rng.permutation(np.array(pairs, dtype=object)).tolist() if pairs else []:
-        if a in roles or b in roles or a in absent or b in absent:
+        if n - len(chosen) < 2:  # a pair is never cut
+            break
+        if ({a, b} | universe.near[a] | universe.near[b]) & (set(chosen) | absent):
             continue
         high, low = (a, b) if rng.random() < 0.5 else (b, a)
         if rng.random() < alone:
             roles[high] = ('', 'alone')
-            absent.add(low)
-            chosen.append(high)
+            members = [high]
         else:
             roles[high], roles[low] = (low, 'high'), (high, 'low')
-            chosen += [high, low]
-    multi = [r for r in sorted(annotated) if universe.mirnas[r]['loci'] > 1 and r not in roles and r not in absent]
-    rest = [r for r in sorted(annotated) if r not in roles and r not in absent and universe.mirnas[r]['loci'] == 1]
+            members = [high, low]
+        chosen += members
+        absent |= {p for r in members for p in universe.near[r] if p not in members}
+    multi = [r for r in sorted(annotated) if universe.mirnas[r]['loci'] > 1 and not universe.near[r]]
+    rest = [r for r in sorted(annotated) if universe.mirnas[r]['loci'] == 1 and not universe.near[r]]
     for r in rng.permutation(np.array(multi, dtype=object)).tolist() + rng.permutation(np.array(rest, dtype=object)).tolist():
         if len(chosen) >= n:
             break
-        if r not in chosen and not (universe.near[r] & (set(chosen) | absent)):
-            chosen.append(r)
-    chosen = chosen[:n]
-    absent |= {p for r in chosen for p in universe.near[r] if p not in chosen}
+        chosen.append(r)
+    family = {r: frozenset({r, roles.get(r, ('', ''))[0]} - {''}) for r in chosen}
+    for r in list(chosen) + sorted(absent):
+        if len({family[c] for c in ({r} | universe.near[r]) if c in family}) > 1:
+            raise RuntimeError('{} is near-identical to miRNAs of two chosen families'.format(universe.mirnas[r]['name']))
     lows = [r for r in chosen if roles.get(r, ('', ''))[1] == 'low']
     units = [r for r in chosen if r not in lows]
     values = abundances(len(units), spec['abundance'], rng)
@@ -230,6 +258,8 @@ def choose(universe, spec, rng):
 def structure(chosen, base, universe, spec, groups, rng):
     """(sample scores [(group, v_group, v_nuisance)], loadings {rep: (log2 fold change, nuisance loading)})."""
     names = list(groups)
+    if len(names) != 2 or min(int(v) for v in groups.values()) < 2:
+        raise ValueError('synthetic.groups must name two groups of at least two samples each, got {}'.format(dict(groups)))
     labels = [g for g in names for _ in range(int(groups[g]))]
     v1 = np.array([-0.5 if g == names[0] else 0.5 for g in labels])
     st = spec['structure']
@@ -288,18 +318,16 @@ def counts(chosen, base, loadings, scores, spec, rng):
 class Reads:
     """Read classes, errors and qualities of the generator; the sequences no generated read may become."""
 
-    def __init__(self, universe, chosen, spec, rng):
-        self.universe, self.rng = universe, rng
-        self.forbidden = set(universe.mature_sequences)
+    def __init__(self, universe, chosen, spec, rng, umi=0):
+        self.universe, self.rng, self.umi = universe, rng, umi
         self.shares, self.reads = {}, {}
         self.sign = {r: (1 if rng.random() < 0.5 else -1) for r in chosen}
         mean = spec['isomirs']
-        produced = collections.defaultdict(set)
-        for r in chosen:
-            for c in READ_CLASSES:
-                s = variant(universe.mirnas[r], c, self.sign[r])
-                if s and len(s) >= MIN_LENGTH:
-                    produced[s].add(r)
+        source = collections.defaultdict(set)  # read -> the miRNAs whose loci could give it in some class
+        for rep, m in universe.mirnas.items():
+            for s in possible_reads(m):
+                source[s].add(rep)
+        self.forbidden = set(universe.mature_sequences) | set(source)
         for r in chosen:
             m = universe.mirnas[r]
             reads = {}
@@ -307,8 +335,9 @@ class Reads:
                 s = variant(m, c, self.sign[r])
                 if s is None or len(s) < MIN_LENGTH:
                     continue
-                # an isomiR equal to another mature, or to another miRNA's read, is left out (the canonical read stays)
-                if c != 'canonical' and (s in universe.mature_sequences or len(produced[s]) > 1):
+                # an isomiR equal to another mature, or to a read another miRNA could give, is left out (the canonical
+                # read stays)
+                if c != 'canonical' and (s in universe.mature_sequences or source[s] - {r}):
                     continue
                 reads[c] = s
             self.reads[r] = reads
@@ -330,7 +359,9 @@ class Reads:
         return {c: int(k) for c, k in zip(READ_CLASSES, drawn) if k}
 
     def error_rates(self, length):
-        return np.array([self.first] + [self.rate] * (length - 1))
+        """Per-base substitution rates of an insert: the first cycle's raised rate falls on its first base, or with UMIs
+        on the UMI."""
+        return np.array([self.rate if self.umi else self.first] + [self.rate] * (length - 1))
 
     def substitute(self, seq, at_least_one=False):
         """(read, positions) with substitutions at the per-base rates, never another mature or miRNA read."""
@@ -345,7 +376,7 @@ class Reads:
             read = ''.join(read)
             if not len(hits) or read not in self.forbidden:
                 return read, hits.tolist()
-        return seq, []
+        raise RuntimeError('no substitution of {} in 100 draws avoids the reads of other miRNAs'.format(seq))
 
     def with_errors(self, seq, n):
         """[(read, count, positions)]: n reads of seq, some with substitutions."""
@@ -404,7 +435,7 @@ def generate(spec, mature_fa, hairpin_fa, gff, prefix, adapter, umi, fastq_path)
     groups = spec['groups']
     scores, loadings = structure(chosen, base, universe, spec, groups, rng)
     table, library, phi = counts(chosen, base, loadings, scores, spec, rng)
-    reads = Reads(universe, chosen, spec, rng)
+    reads = Reads(universe, chosen, spec, rng, umi)
     names = {r: universe.mirnas[r]['name'] for r in universe.mirnas}
     truth, samples = [], []
     width = len(str(len(scores)))

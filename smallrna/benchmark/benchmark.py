@@ -3,8 +3,9 @@
 
 The benchmark runs the workflow's own `quant_all` routes; it never calls the tools itself. Steps:
 
-0. `fill` (public datasets only) downloads a dataset's runs, composition table and miRBase sequences into
-   `EXT_DIR/<data>/`, checked against the declared checksums (fill.py). It is the only step that writes to EXT_DIR.
+0. `fill` (public pool and biological datasets, and the genome-wide synthetic dataset's miRBase files) downloads a
+   dataset's runs, composition table and miRBase files into `EXT_DIR/<data>/`, checked against the declared checksums
+   (fill.py). It is the only step that writes to EXT_DIR.
 1. `prepare` builds a smallrna project from a dataset declaration (`datasets/<name>.yaml`): configuration, sample
    table, reads (generated for synthetic datasets; linked, or the first `--reads` copied, for pool and biological
    datasets) and the truth (`truth.tsv` per read for synthetic data; `pool.tsv` with truth groups for pools, pool.py;
@@ -872,7 +873,8 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
         lines += ['- {}: '.format(name) + ', '.join('{} ({:.1f} → {:.1f} reads, {:+.2f})'.format(label(i), tm, om, est)
                                                     for i, tm, om, est in calls) for name, calls in false if calls]
     extra, record, ci_lines = bootstrap(
-        args, {name: {k: rnd(v) for k, v in point[name].items()} for name in rows}, lambda units, pairs, de_units, dev_units: {name: ev.mixed_metrics(name, units, pairs, de_units, dev_units) for name in rows},
+        args, {name: {k: rnd(v) for k, v in point[name].items()} for name in rows},
+        lambda units, pairs, de_units, dev_units: {name: ev.mixed_metrics(name, units, pairs, de_units, dev_units) for name in rows},
         lambda rng: (uncertainty.resample(rng, ev.units), uncertainty.resample(rng, ev.pairs), uncertainty.resample(rng, ev.de_units),
                      uncertainty.resample(rng, ev.dev_units)),
         rows, GENOME_CI_KEYS, 'the miRNAs (each with all mixed samples), the near-identical pairs, the miRNAs any row tests for DE '
@@ -1030,7 +1032,8 @@ def main():
     p.add_argument('--project', required=True)
     p.add_argument('--ext-dir', required=True, help='EXT_DIR holding the references and data named in the declaration')
     p.add_argument('--methods', help="comma-separated subset of the declaration's methods, e.g. unitas,mirge3")
-    p.add_argument('--reads', type=int, help='pool and biological datasets: copy the first N reads of each run instead of linking the runs')
+    p.add_argument('--reads', type=int, help='pool and biological datasets: copy the first N reads of each run instead of linking the runs; '
+                   'genome-wide synthetic dataset: the mean reads of a mixed sample')
     p.add_argument('--lanes', action='store_true', help='biological datasets: each run (lane) its own sample, for the lane-replicate metric')
     f = sub.add_parser('fill', help='download a public dataset into EXT_DIR (the only step that writes there)')
     f.add_argument('--dataset', required=True)

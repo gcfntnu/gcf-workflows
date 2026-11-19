@@ -112,6 +112,53 @@ def test_isomirs_equal_to_another_mature_are_left_out(mirbase):
     assert reads.reads['MIMAT9000006']['canonical'] == matures[6] and '3p_add_A' not in reads.reads['MIMAT9000010']
     assert reads.shares['MIMAT9000006'][sg.READ_CLASSES.index('3p_trim_1')] == 0
     assert math.isclose(float(reads.shares['MIMAT9000006'].sum()), 1)
+    # a read another miRNA could give is left out too, also when that miRNA is not in the truth
+    assert '3p_trim_2' not in reads.reads['MIMAT9000006']    # T5's 3p_trim_1
+    assert '3p_trim_1' not in sg.Reads(u, ['MIMAT9000005'], SPEC, np.random.default_rng(1)).reads['MIMAT9000005']  # T6's 3p_trim_2
+    assert all(sg.possible_reads(m) <= reads.forbidden for m in u.mirnas.values())   # nor do errors or random reads give one
+
+
+def test_an_added_base_that_any_hairpin_has_next_is_templated():
+    seq = 'ACGTACGTACGTACGTACGTAC'
+    m = {'sequence': seq, 'flanks': [('GGT', 'CTTA'), ('GGC', 'ATTA')], 'upstream': 'GGT', 'downstream': 'CTTA'}
+    assert sg.variant(m, '3p_add_A', 1) is None and sg.variant(m, '3p_add_U', 1) == seq + 'T'
+    assert sg.variant(m, '3p_templated_1', 1) == seq + 'C' and sg.variant(m, '5p_shift', -1) == 'T' + seq   # the first hairpin
+    assert {seq + 'C', seq + 'AT', 'T' + seq, 'C' + seq, seq + 'A', seq[:-2], seq[1:]} <= sg.possible_reads(m)
+    for unknown in (('GGC', ''), None):      # the mature ends the second hairpin, or is not found in it
+        m['flanks'][1] = unknown
+        assert sg.variant(m, '3p_add_A', 1) is None and sg.variant(m, '3p_add_U', 1) is None
+
+
+class FamilyUniverse:
+    """What choose() reads of a Universe: annotated miRNAs (one locus each) and their near-identical relatives."""
+
+    def __init__(self, relatives, singles):
+        self.near = collections.defaultdict(set)
+        for a, b in relatives:
+            self.near[a].add(b)
+            self.near[b].add(a)
+        self.mirnas = {r: {'name': r, 'loci': 1} for r in set(self.near) | set(singles)}
+
+    def annotated(self):
+        return sorted(self.mirnas)
+
+
+def test_each_near_identical_pair_is_a_family_of_its_own():
+    """Families like miR-548: a chain a-b-c-d, a triangle e-f-g and a pair h-i. Whatever is drawn, a chosen miRNA's only
+    chosen relative is its partner, an absent relative belongs to one family, and a pair is never cut."""
+    u = FamilyUniverse([('a', 'b'), ('b', 'c'), ('c', 'd'), ('e', 'f'), ('f', 'g'), ('e', 'g'), ('h', 'i')],
+                       ['s{}'.format(k) for k in range(20)])
+    spec = {'near_identical': {'ratio': 100, 'partner_absent': 0.5}, 'abundance': {'zipf': 1.0}}
+    for seed in range(40):
+        for n in (12, 3):
+            chosen, base, roles, absent = sg.choose(u, dict(spec, mirnas=n), np.random.default_rng(seed))
+            assert len(chosen) == len(set(chosen)) <= n and not absent & set(chosen) and set(base) == set(chosen)
+            partner = {r: roles.get(r, ('', ''))[0] for r in chosen}
+            for r in chosen:
+                assert u.near[r] & set(chosen) <= {partner[r]} and (not partner[r] or partner[r] in chosen)
+                assert bool(u.near[r]) == (r in roles)        # miRNAs with relatives come only as pairs or alone
+            for p in absent:
+                assert len({frozenset({r, partner[r]} - {''}) for r in u.near[p] if r in chosen}) == 1
 
 
 def test_generation_is_deterministic_and_every_read_has_its_truth(tmp_path, mirbase):
@@ -184,6 +231,17 @@ def test_substituted_bases_get_low_qualities(mirbase):
         q = reads.quality(30, [0, 7])
         assert len(q) == 30 and {q[0], q[7]} <= {chr(33 + v) for v in (12, 2, 23)}
         assert set(q) <= {chr(33 + v) for v in (37, 23, 12, 2)}
+    # the first cycle's raised error rate is on the insert's first base, or with UMIs on the UMI
+    plain, umi = (sg.Reads(u, ['MIMAT9000011'], SPEC, np.random.default_rng(5), umi=k).error_rates(20) for k in (0, 4))
+    assert plain[0] == 0.02 and set(plain[1:]) == {0.001} and set(umi) == {0.001}
+
+
+def test_the_design_needs_two_groups(mirbase):
+    files, _ = mirbase
+    u = sg.Universe(*files, 'hsa-')
+    for groups in ({'a': 2, 'b': 2, 'c': 2}, {'a': 4}, {'a': 1, 'b': 4}):
+        with pytest.raises(ValueError):
+            sg.structure(['MIMAT9000011'], {'MIMAT9000011': 1.0}, u, SPEC, groups, np.random.default_rng(1))
 
 
 def test_t_distribution_and_bh():
@@ -225,6 +283,10 @@ def test_metrics_on_perfect_spilling_and_isomir_dropping_methods(tmp_path, mirba
     assert all(v[0] == pytest.approx(1) for v in ev.probes('perfect').values())
     r2_group, r2_nuisance, coexpression = ev.structure('truth')
     assert 0 <= r2_group <= 1 and 0 <= r2_nuisance <= 1
+    # a method with the same count in every sample for all but one abundant miRNA has no co-expression to compare
+    top = max(ev.units, key=lambda i: ev.t[ev.index[i]].sum())
+    flat = [('flat', s, '', i, perfect[(s, i)] if i == top else 100.0) for i in ev.units for s in ev.mixed]
+    assert math.isnan(gm.Evaluation(flat, T, S, M, ['flat']).structure('flat')[2])
 
 
 def test_spill_onto_an_absent_relative_of_a_de_mirna_is_a_false_call(tmp_path, mirbase):
@@ -313,3 +375,8 @@ def test_prepare_and_evaluate_in_genome_mode(tmp_path):
     assert '| recovered | 1.0 | 1.0 |' in report and '| precision | 1.0 | 1.0 |' in report and '| near_spill | 0.0 | 0.0 |' in report
     assert '## Recovery by stratum' in report and '## Probe samples' in report and '| 3p_add_A |' in report
     assert (bench / 'metrics_ci.tsv').is_file() and (bench / 'per_mirna.tsv').read_text().startswith('mature_name\tmature_id\ttruth\ttinyrna\n')
+    out = tmp_path / 'summary.md'
+    result = subprocess.run(cmd + ['summary', '--projects', str(project), '--output', str(out)], capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    row = next(line for line in out.read_text().splitlines() if line.startswith('| [project]'))
+    assert '| 6 mixed, 9 probe |' in row and '| tinyrna |' in row
