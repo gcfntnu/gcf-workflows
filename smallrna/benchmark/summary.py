@@ -22,10 +22,13 @@ import yaml
 
 # (kind, title, key metrics, what they show); a pool's kind is its `pool`
 SECTIONS = [
-    ('synthetic', 'Synthetic data', ['recovered', 'exact', 'misassigned', 'unplaced'],
+    ('synthetic', 'Synthetic data', ['recovered', 'precision', 'exact', 'misassigned', 'unplaced', 'near_spill', 'de_sensitivity', 'de_fdr'],
      'Counts are compared per sample and miRBase accession. `recovered` sums the smaller of observed and true counts '
      'for each pair, divided by the total true count. `exact` is the fraction of positive-truth pairs with matching counts. '
-     '`misassigned` and `unplaced` count reads on accessions absent from that sample’s truth and on names without a miRBase accession.'),
+     '`misassigned` and `unplaced` count reads on accessions absent from that sample’s truth and on names without a miRBase accession. '
+     'The genome-wide dataset (#412) adds `precision` (the smaller counts over the observed ones), `near_spill` (reads above the truth '
+     'on near-identical partners) and `de_sensitivity` and `de_fdr` (differential expression between its two groups); there '
+     '`misassigned` and `unplaced` are shares of the observed reads.'),
     ('equimolar', 'Equimolar pools', ['detected', 'cv', 'within_2fold', 'spearman_vs_oracle', 'outside', 'unplaced', 'shifted_within_2fold'],
      'Scored `exact` entries share no miRNA accession with any other exact or shifted entry. The metrics are averaged across samples: '
      '`detected` and `cv` across these entries, `within_2fold` and `spearman_vs_oracle` against '

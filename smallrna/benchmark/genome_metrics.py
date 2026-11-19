@@ -1,0 +1,276 @@
+"""Metrics of the genome-wide synthetic dataset (#412), on the common table with identical sequences collapsed
+(biological.collapse) and the truth written by synthetic_genome.py.
+
+Mixed samples (`kind` mixed in samples.tsv), per method, over units: every miRNA in the truth or reported by any method.
+- recovered: sum of min(truth, observed) / truth; precision: the same / observed, so reads on absent miRNAs and
+  overcounting lower it; exact: share of truth miRNA-sample pairs counted exactly; misassigned: share of observed reads
+  on miRNAs absent from the sample's truth.
+- near_spill: over the near-identical pairs, reads above the truth on the low partner and any reads on an absent
+  partner, relative to the high member's truth.
+- deviation_correlation: miRNAs with at least DETECT truth reads on average; each miRNA's log2(count + 1) minus its mean
+  over the samples, observed against truth, as one Pearson correlation.
+- DE (`de_*`): counts normalised by median-of-ratios size factors, log2(normalised + 1), a linear model per miRNA with
+  the group (and, `_adjusted`, the nuisance factor's true sample scores), and a moderated t: the residual variance
+  shrunk towards the median with PRIOR_DF prior degrees of freedom. Benjamini-Hochberg over the miRNAs with at least
+  DE_MIN truth reads on average; called at FDR. sensitivity and fdr against the true DE miRNAs; fc_error: median
+  |observed - true log2 fold change| of the true DE miRNAs. The `truth` row is the same analysis of the truth counts:
+  the best this design allows.
+- structure: the top two principal components of the centred log2 normalised counts (miRNAs with at least DETECT
+  reads); r2 of each true factor (group, nuisance) regressed on them. coexpression: Spearman correlation between the
+  method's and the truth's miRNA-miRNA correlations (miRNAs with at least COEXP reads).
+- Strata: recovered among unique miRNAs, near-identical pairs, multi-locus matures, identical-sequence groups, and
+  low-abundance miRNAs (under LOW reads per million).
+Probe samples: per read class, the probe miRNAs' observed reads (minus the control's) / their truth.
+"""
+import collections
+import math
+
+import numpy as np
+
+DETECT = 20
+DE_MIN = 10
+COEXP = 50
+LOW = 10
+FDR = 0.05
+PRIOR_DF = 4
+EXACT_TOLERANCE = 1e-6
+
+
+def betainc(a, b, x):
+    """Regularised incomplete beta I_x(a, b) (continued fraction, Lentz)."""
+    if x <= 0:
+        return 0.0
+    if x >= 1:
+        return 1.0
+    front = math.exp(math.lgamma(a + b) - math.lgamma(a) - math.lgamma(b) + a * math.log(x) + b * math.log(1 - x))
+    if x > (a + 1) / (a + b + 2):
+        return 1 - betainc(b, a, 1 - x)
+    tiny = 1e-300
+    c, d = 1.0, 1 - (a + b) * x / (a + 1)
+    d = 1 / (d if abs(d) > tiny else tiny)
+    f = d
+    for m in range(1, 300):
+        for numerator in (m * (b - m) * x / ((a + 2 * m - 1) * (a + 2 * m)),
+                          -(a + m) * (a + b + m) * x / ((a + 2 * m) * (a + 2 * m + 1))):
+            d = 1 + numerator * d
+            d = 1 / (d if abs(d) > tiny else tiny)
+            c = 1 + numerator / c
+            c = c if abs(c) > tiny else tiny
+            f *= c * d
+        if abs(c * d - 1) < 1e-14:
+            break
+    return front * f / a
+
+
+def t_two_sided(t, df):
+    """Two-sided p-value of Student's t."""
+    return betainc(df / 2, 0.5, df / (df + t * t))
+
+
+def bh(pvalues):
+    """Benjamini-Hochberg adjusted p-values."""
+    p = np.asarray(pvalues, dtype=float)
+    order = np.argsort(p)
+    ranked = p[order] * len(p) / np.arange(1, len(p) + 1)
+    adjusted = np.minimum.accumulate(ranked[::-1])[::-1]
+    out = np.empty_like(adjusted)
+    out[order] = np.minimum(adjusted, 1)
+    return out
+
+
+def size_factors(matrix):
+    """Median-of-ratios size factors of a miRNA x sample count matrix (rows positive in every sample)."""
+    rows = matrix[(matrix > 0).all(axis=1)]
+    if not len(rows):
+        return np.ones(matrix.shape[1])
+    log = np.log(rows)
+    return np.exp(np.median(log - log.mean(axis=1, keepdims=True), axis=0))
+
+
+def moderated_t(y, design, coefficient=1):
+    """(estimate, two-sided p) per row of y (miRNA x sample) for one design column, residual variances shrunk towards
+    their median with PRIOR_DF prior degrees of freedom."""
+    beta, *_ = np.linalg.lstsq(design, y.T, rcond=None)
+    residual = y.T - design @ beta
+    df = design.shape[0] - design.shape[1]
+    s2 = (residual ** 2).sum(axis=0) / df
+    s0 = float(np.median(s2)) if np.median(s2) > 0 else 1e-12
+    post = (PRIOR_DF * s0 + df * s2) / (PRIOR_DF + df)
+    unscaled = np.linalg.inv(design.T @ design)[coefficient, coefficient]
+    t = beta[coefficient] / np.sqrt(post * unscaled)
+    return beta[coefficient], np.array([t_two_sided(float(v), df + PRIOR_DF) for v in t])
+
+
+def spearman(x, y):
+    rx, ry = np.argsort(np.argsort(x)), np.argsort(np.argsort(y))
+    return float(np.corrcoef(rx, ry)[0, 1]) if len(x) > 2 else float('nan')
+
+
+class Evaluation:
+    """Counts of the truth and each method over the mixed and probe samples, and what the metrics aggregate."""
+
+    def __init__(self, common, truth, samples, mirnas, methods):
+        self.methods = list(methods)
+        self.mixed = [s['sample'] for s in samples if s['kind'] == 'mixed']
+        self.samples = {s['sample']: s for s in samples}
+        self.mirnas = {m['mature_id']: m for m in mirnas}
+        self.truth = collections.defaultdict(float)
+        for row in truth:
+            if row['mature_id']:
+                self.truth[(row['sample'], row['mature_id'])] += float(row['count'])
+        self.observed = collections.defaultdict(float)
+        self.unplaced = collections.defaultdict(float)
+        self.total = collections.defaultdict(float)
+        for method, sample, _, mature_id, count in common:
+            self.total[(method, sample)] += float(count)
+            if mature_id:
+                self.observed[(method, sample, mature_id)] += float(count)
+            else:
+                self.unplaced[(method, sample)] += float(count)
+        truth_units = {i for (s, i) in self.truth if s in self.mixed}
+        seen = {i for (m, s, i) in self.observed if s in self.mixed}
+        self.units = sorted(truth_units | seen)
+        self.t = np.array([[self.truth.get((s, i), 0.0) for s in self.mixed] for i in self.units])
+        self.o = {m: np.array([[self.observed.get((m, s, i), 0.0) for s in self.mixed] for i in self.units]) for m in self.methods}
+        self.index = {i: k for k, i in enumerate(self.units)}
+        self.pairs = [(i, m['near_identical'].split(',')) for i, m in self.mirnas.items() if m['near_role'] in ('high', 'alone')]
+        self.de_units = [i for i in self.units if self.t[self.index[i]].mean() >= DE_MIN]
+        self.dev_units = [i for i in self.units if self.t[self.index[i]].mean() >= DETECT]
+        self.de = {name: self.de_tests(name) for name in ['truth'] + self.methods}
+
+    def counts(self, name):
+        return self.t if name == 'truth' else self.o[name]
+
+    def de_tests(self, name):
+        """{unit: (called, called adjusted, estimate, estimate adjusted)} for the DE units."""
+        matrix = self.counts(name)
+        rows = np.array([self.index[i] for i in self.de_units])
+        if not len(rows):
+            return {}
+        sf = size_factors(matrix[rows])
+        y = np.log2(matrix[rows] / sf + 1)
+        group = np.array([float(self.samples[s]['factor_group']) for s in self.mixed])
+        nuisance = np.array([float(self.samples[s]['factor_nuisance']) for s in self.mixed])
+        out = {}
+        plain = moderated_t(y, np.column_stack([np.ones_like(group), group]))
+        adjusted = moderated_t(y, np.column_stack([np.ones_like(group), group, nuisance]))
+        q, qa = bh(plain[1]), bh(adjusted[1])
+        for k, i in enumerate(self.de_units):
+            out[i] = (q[k] <= FDR, qa[k] <= FDR, float(plain[0][k]), float(adjusted[0][k]))
+        return out
+
+    def mixed_metrics(self, name, units, pairs, de_units, dev_units):
+        o = self.counts(name)
+        rows = [self.index[i] for i in units]
+        t, oo = self.t[rows], o[rows]
+        positive = t > 0
+        both = np.minimum(t, oo).sum()
+        out = {'recovered': both / t.sum() if t.sum() else float('nan'),
+               'precision': both / oo.sum() if oo.sum() else float('nan'),
+               'exact': float((np.abs(oo - t)[positive] <= EXACT_TOLERANCE).mean()) if positive.any() else float('nan'),
+               'misassigned': float(oo[~positive].sum() / oo.sum()) if oo.sum() else float('nan')}
+        excess, high = 0.0, 0.0
+        for i, partners in pairs:
+            high += self.t[self.index[i]].sum() if i in self.index else 0.0
+            for p in partners:
+                if p in self.index:
+                    k = self.index[p]
+                    excess += np.maximum(o[k] - self.t[k], 0).sum()
+        out['near_spill'] = excess / high if high else float('nan')
+        dev = [self.index[i] for i in dev_units]
+        if len(dev) > 2:
+            lt, lo = np.log2(self.t[dev] + 1), np.log2(o[dev] + 1)
+            dt, do = lt - lt.mean(axis=1, keepdims=True), lo - lo.mean(axis=1, keepdims=True)
+            out['deviation_correlation'] = float(np.corrcoef(dt.ravel(), do.ravel())[0, 1])
+        tests = self.de[name]
+        truth_de = {i: self.mirnas.get(i, {}).get('de') == '1' for i in de_units}
+        for suffix, called_at, estimate_at in (('', 0, 2), ('_adjusted', 1, 3)):
+            called = [i for i in de_units if tests.get(i, (False,) * 4)[called_at]]
+            de = [i for i in de_units if truth_de[i]]
+            tp = sum(1 for i in called if truth_de[i])
+            out['de_sensitivity' + suffix] = tp / len(de) if de else float('nan')
+            out['de_fdr' + suffix] = (len(called) - tp) / len(called) if called else 0.0
+            errors = [abs(tests[i][estimate_at] - float(self.mirnas[i]['log2fc'])) for i in de if i in tests]
+            out['de_fc_error' + suffix] = float(np.median(errors)) if errors else float('nan')
+        return out
+
+    def strata(self, name):
+        """recovered per stratum."""
+        groups = collections.defaultdict(list)
+        for i in self.units:
+            m = self.mirnas.get(i)
+            if not m or float(m['base_per_million']) <= 0:
+                continue
+            if m['near_role']:
+                groups['near_identical'].append(i)
+            if int(m['loci']) > 1:
+                groups['multi_locus'].append(i)
+            if ',' in m['accessions']:
+                groups['identical_sequences'].append(i)
+            if float(m['base_per_million']) < LOW:
+                groups['low_abundance'].append(i)
+            if not m['near_role'] and int(m['loci']) == 1 and ',' not in m['accessions']:
+                groups['unique'].append(i)
+        o = self.counts(name)
+        out = {}
+        for stratum, units in groups.items():
+            rows = [self.index[i] for i in units]
+            t = self.t[rows].sum()
+            out[stratum] = (float(np.minimum(self.t[rows], o[rows]).sum() / t) if t else float('nan'), len(units))
+        return out
+
+    def structure(self, name):
+        """(r2 of the group factor, r2 of the nuisance factor) on the top two principal components; coexpression."""
+        matrix = self.counts(name)
+        rows = [self.index[i] for i in self.dev_units]
+        if len(rows) < 3 or len(self.mixed) < 4:
+            return float('nan'), float('nan'), float('nan')
+        sf = size_factors(matrix[rows])
+        y = np.log2(matrix[rows] / sf + 1)
+        centred = y - y.mean(axis=1, keepdims=True)
+        _, _, vt = np.linalg.svd(centred, full_matrices=False)
+        pcs = np.column_stack([np.ones(len(self.mixed)), vt[0], vt[1]])
+        r2 = []
+        for key in ('factor_group', 'factor_nuisance'):
+            v = np.array([float(self.samples[s][key]) for s in self.mixed])
+            fit, *_ = np.linalg.lstsq(pcs, v, rcond=None)
+            residual = v - pcs @ fit
+            r2.append(float(1 - (residual ** 2).sum() / ((v - v.mean()) ** 2).sum()))
+        co = [self.index[i] for i in self.units if self.t[self.index[i]].mean() >= COEXP]
+        if len(co) > 3:
+            truth_corr = np.corrcoef(np.log2(self.t[co] + 1))
+            obs = np.log2(matrix[co] + 1)
+            keep = obs.std(axis=1) > 0
+            upper = np.triu_indices(int(keep.sum()), 1)
+            obs_corr = np.corrcoef(obs[keep])
+            coexpression = spearman(truth_corr[np.ix_(keep, keep)][upper], obs_corr[upper])
+        else:
+            coexpression = float('nan')
+        return r2[0], r2[1], coexpression
+
+    def probes(self, name, members=None):
+        """{class: (recovery, misplaced, probe miRNAs)}: observed reads on the class's probe miRNAs in its samples, minus
+        the control's on them, over their truth; and the reads on other miRNAs (not carriers), minus the control's."""
+        control = [s for s, row in self.samples.items() if row['kind'] == 'control']
+        by_class = collections.defaultdict(list)
+        for s, row in self.samples.items():
+            if row['kind'] == 'probe':
+                by_class[row['probe_class']].append(s)
+        carriers = {i for i, m in self.mirnas.items() if 'carrier' in m['probe_classes']}
+        out = {}
+        for c, samples in sorted(by_class.items()):
+            probe_ids = sorted({i for (s, i) in self.truth if s in samples} - carriers)
+            chosen = probe_ids if members is None else members.get(c, probe_ids)
+            obs = lambda s, i: self.observed.get((name, s, i), 0.0) if name != 'truth' else self.truth.get((s, i), 0.0)
+            t = sum(self.truth.get((s, i), 0.0) for s in samples for i in chosen)
+            got = sum(obs(s, i) for s in samples for i in chosen)
+            background = sum(obs(cs, i) for cs in control for i in chosen) * len(samples) / max(len(control), 1)
+            others = {i for (m, s, i) in self.observed if m == name and s in samples} - set(probe_ids) - carriers
+            misplaced = sum(obs(s, i) for s in samples for i in others)
+            misplaced -= sum(obs(cs, i) for cs in control for i in others) * len(samples) / max(len(control), 1)
+            out[c] = ((got - background) / t if t else float('nan'), misplaced / t if t else float('nan'), len(probe_ids))
+        return out
+
+    def unplaced_share(self, name):
+        total = sum(self.total[(name, s)] for s in self.mixed)
+        return sum(self.unplaced[(name, s)] for s in self.mixed) / total if total else float('nan')
