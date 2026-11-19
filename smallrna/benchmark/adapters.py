@@ -15,7 +15,9 @@ by name, because the methods name miRNAs differently:
 - TEsmall reports mature miRNAs by miRBase name (`ftype` miRNA); reads assigned to the precursor (`hairpin`, e.g.
   3' isomiRs that extend past the mature end) are not mature counts and are left out.
 - tiny-count reports miRBase GFF feature IDs, one row per locus: the accession, with `_1`, `_2` for further loci of
-  the same mature miRNA (`MIMAT0000416_1`); the loci are summed per accession.
+  the same mature miRNA (`MIMAT0000416_1`); the loci are summed per accession;
+- nf-core/smrnaseq's mirtop counting (`mirna.tsv`, smallrna/rules/quant/smrnaseq.smk) reports miRNAs by miRBase name,
+  isomiRs summed.
 
 Adding a method means adding one function to ADAPTERS that reads its output directory, and its count table to TABLES:
 before scoring, benchmark.py checks that table's samples and the miRBase release in the method's reference.tsv (#407).
@@ -148,7 +150,27 @@ def tinyrna(quant_dir, name_to_id, **_):
     return [('tinyrna', s, names[a], a, math.fsum(c)) for (a, s), c in shares.items()]
 
 
-ADAPTERS = {'unitas': unitas, 'mirge3': mirge3, 'mirflowz': mirflowz, 'tesmall': tesmall, 'tinyrna': tinyrna}
+def smrnaseq(quant_dir, name_to_id, **_):
+    """nf-core/smrnaseq's mirtop table as the route writes it (miRNA, samples), by miRBase name. A header without unique
+    sample columns, or a row whose field count differs from the header (e.g. a truncated file), stops the evaluation."""
+    path = Path(quant_dir) / 'smrnaseq' / 'mirna.tsv'
+    rows = []
+    with open(path, newline='') as fh:
+        reader = csv.reader(fh, delimiter='\t')
+        header = next(reader, None)
+        samples = header[1:] if header and header[0] == 'miRNA' else []
+        if not samples or len(set(samples)) != len(samples) or not all(samples):
+            raise ValueError('{}: expected a miRNA column and unique sample columns, got {}'.format(path, header))
+        for i, row in enumerate(reader, 2):
+            if not row:
+                continue
+            if len(row) != len(header):
+                raise ValueError('{}:{}: {} fields, expected {}'.format(path, i, len(row), len(header)))
+            rows += [('smrnaseq', s, row[0], name_to_id.get(row[0], ''), float(c)) for s, c in zip(samples, row[1:])]
+    return rows
+
+
+ADAPTERS = {'unitas': unitas, 'mirge3': mirge3, 'mirflowz': mirflowz, 'tesmall': tesmall, 'tinyrna': tinyrna, 'smrnaseq': smrnaseq}
 
 # Each method's count table under the project's quant directory: (path, delimiter, columns before the samples).
 TABLES = {'unitas': ('unitas/mir_counts.tsv', '\t', 1), 'mirge3': ('mirge3/miR.Counts.csv', ',', 1),

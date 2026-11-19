@@ -1,6 +1,6 @@
 # Small-RNA quantification benchmark
 
-Compares the smallrna quantification methods (`quant.method`: UNITAS, miRge3, mirflowz, TEsmall) on datasets with a known
+Compares the smallrna quantification methods (`quant.method`: UNITAS, miRge3, mirflowz, TEsmall, tiny-count, nf-core/smrnaseq) on datasets with a known
 truth, and makes adding a method or a dataset a small change ([#338](https://github.com/gcfntnu/gcf-workflows/issues/338)).
 It runs the workflow's own `quant_all` routes, never the tools directly, so it measures what a project would get.
 It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.py`.
@@ -106,8 +106,8 @@ first member), mirflowz names miRNAs after their locus (`mmu-miR-194-2-5p`) and 
 TEsmall reports mature miRNAs by miRBase name (a name at several loci counted once), and tiny-count reports one row per
 locus by miRBase feature ID (`MIMAT0000416_1`), summed per accession. Only TEsmall's `miRNA` rows are
 scored: reads it assigns to the precursor (`hairpin`: reads lying less than 90% within the mature miRNA, e.g. a moved
-5' end) are not mature counts and are left out. A new method needs one function in `ADAPTERS`, next to its smallrna
-route.
+5' end) are not mature counts and are left out. nf-core/smrnaseq's `mirna.tsv` names miRNAs by miRBase name, isomiRs
+summed. A new method needs one function in `ADAPTERS`, next to its smallrna route.
 
 A UNITAS name is placed by name when it is a mature miRNA of the organism, else by hairpin and arm: the hairpin of that
 name in the UNITAS dump (`miRBase_hairpin_<Species>.fas`), and the organism's mature miRNA on that arm, the hairpin

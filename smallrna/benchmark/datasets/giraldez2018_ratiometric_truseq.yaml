@@ -5,7 +5,7 @@ kind: pool
 pool: ratiometric
 organism: homo_sapiens
 libprepkit: TruSeq Small RNA Library Prep Kit
-methods: [unitas, mirge3, mirflowz, tesmall]
+methods: [unitas, mirge3, mirflowz, tesmall, smrnaseq]
 data: benchmark/smallrna/giraldez2018   # relative to EXT_DIR
 composition:
   file: FINAL_Ratiometric_SynthA_and_SynthB-1.csv

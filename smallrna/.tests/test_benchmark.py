@@ -111,6 +111,7 @@ def native_outputs(quant):
     write(quant / 'tinyrna/tinyrna_counts.tsv', 'Feature ID\tClassifier\tFeature Name\tS01\tS02\n'
           'MIMAT0000517\tmiRNA\tmmu-miR-192-5p\t40.0\t45.0\nMIMAT0000224\tmiRNA\tmmu-miR-194-5p\t12.5\t0.0\n'
           'MIMAT0000224_1\tmiRNA\tmmu-miR-194-5p\t12.5\t0.0\nMIMAT0000237\tmiRNA\tmmu-miR-204-5p\t0.0\t3.0\n')
+    write(quant / 'smrnaseq/mirna.tsv', 'miRNA\tS02\tS01\nmmu-miR-192-5p\t44\t45\nmmu-miR-194-5p\t0\t25\nmmu-miR-9999-5p\t2\t0\n')
     write(quant / 'mirflowz/all_mirna_counts.tab',
           'ID\tS01\tS02\nmmu-miR-192-5p\t40\t40\nmmu-miR-192-5p|0|1|23M|23|CTGACCTATGAATTGACAGCCAA\t5\t5\nmmu-miR-194-2-5p\t25\t25\n'
           'mmu-miR-204-5p|0|0|22M|22|TTCCCTTTGTCATCCTATGCCT\tNA\t3\n')  # NA: no reads in that sample
@@ -120,7 +121,7 @@ def native_outputs(quant):
 
 def test_adapters_match_by_accession_whatever_the_method_names(tmp_path):
     gff = native_outputs(tmp_path / 'quant')
-    rows = adapters.common_table(['unitas', 'mirge3', 'mirflowz', 'tesmall', 'tinyrna'], tmp_path / 'quant', NAME_TO_ID, 'mmu-', gff)
+    rows = adapters.common_table(['unitas', 'mirge3', 'mirflowz', 'tesmall', 'tinyrna', 'smrnaseq'], tmp_path / 'quant', NAME_TO_ID, 'mmu-', gff)
     got = {(m, s, n): (i, c) for m, s, n, i, c in rows}
     assert got[('unitas', 'S01', 'miR-194-5p')] == ('MIMAT0000224', 20)
     assert got[('unitas', 'S01', 'miR-194-2-5p')] == ('', 5)       # a hairpin name: placed only with the UNITAS hairpins
@@ -135,6 +136,14 @@ def test_adapters_match_by_accession_whatever_the_method_names(tmp_path):
     assert got[('tinyrna', 'S01', 'mmu-miR-194-5p')] == ('MIMAT0000224', 25)  # loci summed by accession
     assert got[('tinyrna', 'S02', 'mmu-miR-192-5p')] == ('MIMAT0000517', 45) and got[('tinyrna', 'S02', 'mmu-miR-204-5p')] == ('MIMAT0000237', 3)
     assert ('tinyrna', 'S01', 'mmu-miR-204-5p') not in got
+    assert got[('smrnaseq', 'S01', 'mmu-miR-192-5p')] == ('MIMAT0000517', 45)  # samples by column name, whatever their order
+    assert got[('smrnaseq', 'S02', 'mmu-miR-9999-5p')] == ('', 2) and ('smrnaseq', 'S02', 'mmu-miR-194-5p') not in got
+    write(tmp_path / 'quant/smrnaseq/mirna.tsv', 'miRNA\tS01\tS02\nmmu-miR-192-5p\t45\n')  # a truncated row
+    with pytest.raises(ValueError, match='2 fields, expected 3'):
+        adapters.smrnaseq(tmp_path / 'quant', NAME_TO_ID)
+    write(tmp_path / 'quant/smrnaseq/mirna.tsv', 'miRNA\tS01\tS01\nmmu-miR-192-5p\t45\t44\n')
+    with pytest.raises(ValueError, match='unique sample columns'):
+        adapters.smrnaseq(tmp_path / 'quant', NAME_TO_ID)
     with pytest.raises(ValueError, match='no benchmark adapter'):
         adapters.common_table(['newtool'], tmp_path / 'quant', NAME_TO_ID, 'mmu-')
 
