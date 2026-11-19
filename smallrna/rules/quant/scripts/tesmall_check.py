@@ -5,11 +5,15 @@ TEsmall 2.1.0 does not check its own steps: when `sort` cannot write its tempora
 an index, it goes on and ends with "TEsmall run completed", and the count table silently lacks every annotated class
 (only the 3' tRF counts remain). This check, run in the sample's work directory after TEsmall, stops the job when:
 
-- TEsmall's log reports a failed step: `write failed`, `Disk quota exceeded`, `No space left`, a Python traceback, or an
-  htslib error (`[E::`);
-- one of its Bowtie logs (`<sample>.{rRNA,genome,tRNA}.log`) is missing, reports an error or a missing index, or lacks
-  Bowtie's `# reads processed` summary (a normal log also says how many reads "failed to align", which is not an error);
-- reads aligned (`<sample>.aligned.rinfo` has rows) but the annotation (`<sample>.anno`) has none.
+- TEsmall's log reports anything failing: any `sort:` diagnostic (a `write failed` or `read failed` can leave a
+  partial annotation), an error, a failure, a full disk or quota, a killed process, a Python traceback or an htslib
+  error (`[E::`). A successful TEsmall log contains none of these words; TEsmall does not pass its subprocesses' exit
+  status on, so its log is the only record of a failed step;
+- one of its Bowtie logs (`<sample>.{rRNA,genome,tRNA}.log`) is missing, has a fatal diagnostic (a line starting with
+  `Error`, a missing index, an exception or abort), or lacks Bowtie's `# reads processed` summary (a normal log also
+  says how many reads "failed to align", which is not an error);
+- the genome Bowtie log reports aligned reads, but `<sample>.aligned.rinfo` or the annotation (`<sample>.anno`) is
+  missing or has no rows.
 
 Usage: tesmall_check.py --work DIR --sample NAME --log TESMALL_LOG
 """
@@ -18,15 +22,16 @@ from pathlib import Path
 import re
 import sys
 
-LOG_FAILURES = re.compile(r'write failed|Disk quota exceeded|No space left|Traceback \(most recent call last\)|\[E::')
-BOWTIE_FAILURES = re.compile(r'Could not locate a Bowtie index|Error|error:', re.I)
+LOG_FAILURES = re.compile(r'^sort: |error|fail|quota|no space left|killed|segmentation fault|traceback|\[E::', re.I)
+BOWTIE_FAILURES = re.compile(r'^\s*(Error|Could not locate a Bowtie index|terminate called|Exception|Aborted)')
 BOWTIE_STEPS = ('rRNA', 'genome', 'tRNA')
+GENOME_ALIGNED = re.compile(r'^# reads with at least one (?:reported )?alignment: (\d+)', re.M)
 
 
 def rows(path):
-    """Data rows of a file with a header line (0 for a missing or header-only file)."""
+    """Data rows of a file with a header line (0 for a header-only file, None for a missing one)."""
     if not path.is_file():
-        return 0
+        return None
     with open(path) as fh:
         return max(sum(1 for line in fh if line.strip()) - 1, 0)
 
@@ -45,14 +50,21 @@ def problems(work, sample, log):
             found.append('{}: missing'.format(path.name))
             continue
         content = path.read_text(errors='replace')
-        bad = [line.strip() for line in content.splitlines() if BOWTIE_FAILURES.search(line) and 'failed to align' not in line]
+        bad = [line.strip() for line in content.splitlines() if BOWTIE_FAILURES.search(line)]
         if bad:
             found.append('{}: {}'.format(path.name, bad[0]))
         elif '# reads processed' not in content:
             found.append('{}: no "# reads processed" summary'.format(path.name))
-    aligned, annotated = rows(work / '{}.aligned.rinfo'.format(sample)), rows(work / '{}.anno'.format(sample))
-    if aligned and not annotated:
-        found.append('{} reads aligned but {}.anno has no annotation'.format(aligned, sample))
+        elif step == 'genome':
+            match = GENOME_ALIGNED.search(content)
+            aligned = int(match.group(1)) if match else None
+            if aligned is None:
+                found.append('{}: no aligned-read count'.format(path.name))
+            elif aligned:
+                for name in ('{}.aligned.rinfo'.format(sample), '{}.anno'.format(sample)):
+                    n = rows(work / name)
+                    if not n:
+                        found.append('{} reads aligned to the genome but {} is {}'.format(aligned, name, 'missing' if n is None else 'empty'))
     return found
 
 

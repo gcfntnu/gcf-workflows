@@ -64,7 +64,7 @@ rule tesmall_quant:
     shell:
         # Paths made absolute, as TEsmall runs in the sample's work directory; matplotlib's cache and the temporary files
         # go there too. TEsmall exits 0 even when a step failed, so tesmall_check.py reads its logs and annotation after it.
-        'fastq=$(realpath {input.fastq}); db=$(realpath {params.db}); log=$(realpath -m {log}); script=$(realpath {params.script}); '
+        'fastq=$(realpath {input.fastq:q}); db=$(realpath {params.db:q}); log=$(realpath -m {log:q}); script=$(realpath {params.script:q}); '
         'cd {params.work} && rm -rf tmp && mkdir tmp && '
         'TMPDIR=$PWD/tmp MPLCONFIGDIR=$PWD/.matplotlib TEsmall --no-trim -f "$fastq" -l {wildcards.sample} -g {params.name} '
         '--dbfolder "$db" {params.args} --verbose 2 > "$log" 2>&1 && rm -rf tmp && '
