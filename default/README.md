@@ -27,6 +27,10 @@ A kit reaches this workflow only through such an entry. Unknown kits are rejecte
 
 ### Empty screening samples
 
+Screening samples 40% of the filtered reads with seed 1234 and keeps at most one million.
+It reads the entire input, including after the cap, so a damaged gzip trailer or sampling failure fails the job.
+Only a successful subsample is published.
+
 The shared `k2_screen` rule validates the decompressed, four-line FASTQ records before screening.
 For a valid gzip FASTQ containing no records, it skips Kraken2, emits a warning naming the input,
 and writes an empty `.kraken.out` plus a standard six-column `.kraken.kreport`:

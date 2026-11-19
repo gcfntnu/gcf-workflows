@@ -22,14 +22,13 @@ rule k2_subsample_R1:
     output:
         temp(join(FILTER_INTERIM, "subsampled", "{sample}_R1.fastq.gz"))
     params:
-        sample = "--proportion 0.4 --rand-seed 1234",
-        head = "--number 1000000 ",
+        script = src_gcf('scripts/k2_subsample.sh'),
     threads:
         4
     container:
         "docker://" + config["docker"]["seqkit"]
     shell:
-        "set +o pipefail; zcat {input.R1} | seqkit sample {params.sample} | seqkit head {params.head} --out-file {output} "
+        'bash {params.script:q} {input.R1:q} {output:q}'
 
 
 rule k2_subsample_R2:
@@ -38,14 +37,13 @@ rule k2_subsample_R2:
     output:
         join(FILTER_INTERIM, "subsampled", "{sample}_R2.fastq.gz")
     params:
-        sample = "--proportion 0.4 --rand-seed 1234",
-        head = "--number 1000000",
+        script = src_gcf('scripts/k2_subsample.sh'),
     threads:
         4
     container:
         "docker://" + config["docker"]["seqkit"]
     shell:
-        "set +o pipefail; zcat {input.R2} | seqkit sample {params.sample} | seqkit head {params.head} --out-file {output}"
+        'bash {params.script:q} {input.R2:q} {output:q}'
 
 
 if config['libprepkit'].startswith("10X Genomics"):
