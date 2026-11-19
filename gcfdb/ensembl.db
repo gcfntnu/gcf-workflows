@@ -92,13 +92,13 @@ if not config.get('ref_dir') and not ENS_ASSEMBLY and os.path.exists(ENS_LOOKUP)
 
 ENSEMBL_ARCHIVE_RELEASE = ENS_RELEASE
 ENSEMBL_DIR = join(EXT_DIR, 'ensembl', f'release-{ENS_RELEASE}', ORG, ENS_ASSEMBLY)
-annotation_release = ENS_RELEASE  # Preserve the versioned filenames in existing direct-Ensembl caches.
+annotation_release = ENS_RELEASE
 if ENS_DIVISION == 'vertebrates':
     URL = 'ftp.ensembl.org/pub/release-{}/{{}}/{{}}'.format(ENS_RELEASE)
 else:
     ENSEMBL_ARCHIVE_RELEASE = str(config['db']['ensemblgenomes']['release'])
     URL = 'ftp.ebi.ac.uk/ensemblgenomes/pub/release-{}/{}/{{}}/{{}}'.format(ENSEMBL_ARCHIVE_RELEASE, ENS_DIVISION)
-    if ENS_DIVISION and not config.get('ref_dir') and config['db']['reference_db'] == '10xgenomics':
+    if ENS_DIVISION:
         ENSEMBL_DIR = join(EXT_DIR, 'ensemblgenomes', f'release-{ENSEMBL_ARCHIVE_RELEASE}', ENS_DIVISION, ORG, ENS_ASSEMBLY)
         annotation_release = ENSEMBL_ARCHIVE_RELEASE
 

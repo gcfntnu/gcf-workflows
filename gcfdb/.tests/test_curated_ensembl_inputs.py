@@ -10,22 +10,29 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parents[2]
-RELEASE = yaml.safe_load((ROOT / 'main.config').read_text())['db']['ensembl']['release']
+DB = yaml.safe_load((ROOT / 'main.config').read_text())['db']
+MAIN = DB['ensembl']['release']
+DIVISION = DB['ensemblgenomes']['release']
 
 
 class CuratedEnsemblTests(unittest.TestCase):
     def test_overlapping_source_files_have_no_getter(self):
-        for organism, assembly in [('salmo_salar', 'Ssal_v3.1'), ('homo_sapiens', 'GRCh38')]:
-            with self.subTest(organism=organism), tempfile.TemporaryDirectory() as directory:
+        for organism, assembly, release, cache in [
+            ('salmo_salar', 'Ssal_v3.1', MAIN, f'ensembl/release-{MAIN}'),
+            ('homo_sapiens', 'GRCh38', MAIN, f'ensembl/release-{MAIN}'),
+            ('arabidopsis_thaliana', 'TAIR10', DIVISION, f'ensemblgenomes/release-{DIVISION}/plants'),
+            ('arabidopsis_thaliana', 'TAIR10', MAIN, f'ensembl/release-{MAIN}'),
+        ]:
+            with self.subTest(organism=organism, cache=cache), tempfile.TemporaryDirectory() as directory:
                 work = Path(directory)
-                ref = Path('data/ext/ensembl') / f'release-{RELEASE}' / organism / assembly
+                ref = Path('data/ext') / cache / organism / assembly
                 fasta, gtf = ref / 'fasta/genome.fa', ref / 'anno/genes.gtf'
                 (work / fasta.parent).mkdir(parents=True)
                 (work / gtf.parent).mkdir(parents=True)
                 (work / fasta).write_text('>synthetic\nACGT\n')
                 (work / gtf).write_text('# curated panel\n')
                 os.utime(work / gtf, (100, 100))
-                (work / gtf.parent / f'{organism}.{assembly}.{RELEASE}.gtf').write_text('# newer stock annotation\n')
+                (work / gtf.parent / f'{organism}.{assembly}.{release}.gtf').write_text('# newer stock annotation\n')
                 (work / 'panel').symlink_to(ref, target_is_directory=True)
 
                 settings = {'organism': organism, 'read_geometry': [75], 'ref_dir': 'panel'}

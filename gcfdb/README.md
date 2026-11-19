@@ -51,7 +51,8 @@ With the standard 10x kit and no project reference directory, the workflow selec
   For organisms in an Ensembl Genomes division, the workflow uses `db.ensemblgenomes.release` for the archives and reports the division.
   For example, `arabidopsis_thaliana` uses the release 56 Ensembl Plants FASTA and annotation under
   `<EXT_DIR>/ensemblgenomes/release-56/plants/arabidopsis_thaliana/TAIR10/`.
-  This division-specific cache applies to the 10x fallback. Directly configured Ensembl projects retain their existing cache layout.
+  Projects selecting `db.reference_db: ensembl` and projects using the 10x fallback share this division- and release-specific cache.
+  On first use, the workflow fetches these archives even if the older `ensembl/release-<main-release>/` layout contains a nonvertebrate genome. That path cannot establish the Ensembl Genomes release. An explicit `ref_dir` can still select a prepared directory there.
   These routes and the explicit-directory route work independently of the 10x release.
 
 To select a managed custom assembly, set `db.reference_db: custom_reference` and `db.custom_reference.assembly`.

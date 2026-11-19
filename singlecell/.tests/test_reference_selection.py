@@ -90,30 +90,54 @@ def test_ensembl_fallback_through_reporting(tmp_path, organism, assembly, settin
     assert 'refdata-gex-' not in log
 
 
-def test_ensembl_genomes_fallback_and_workdir_release_change(tmp_path):
+def test_ensembl_genomes_sources_for_direct_and_10x_routes(tmp_path):
     organism, assembly = 'arabidopsis_thaliana', 'TAIR10'
     release = DB_DEFAULTS['ensemblgenomes']['release']
-    log = dry_run(tmp_path, organism)
-    for selected in (release, str(int(release) - 1)):
-        if selected != release:
-            configfile = tmp_path / 'config.yaml'
-            config = yaml.safe_load(configfile.read_text())
-            config['db'] = {'ensemblgenomes': {'release': selected}}
-            configfile.write_text(yaml.safe_dump(config))
-            log = plan_existing(tmp_path, 'multiqc_report')
+    old_release = str(int(release) - 1)
+    main_release = DB_DEFAULTS['ensembl']['release']
+    shared = tmp_path / 'shared'
+    # The legacy directory has both files, but its path does not distinguish Plants releases.
+    legacy = shared / 'ensembl' / f'release-{main_release}' / organism / assembly
+    write_panel(tmp_path, legacy)
+    work = tmp_path / 'retained'
+    work.mkdir()
 
+    def check_cold(log, directory, selected):
         archive = f'https://ftp.ebi.ac.uk/ensemblgenomes/pub/release-{selected}/plants'
         genome_url = f'{archive}/fasta/{organism}/dna/Arabidopsis_thaliana.TAIR10.dna.toplevel.fa.gz'
         gtf_url = f'{archive}/gtf/{organism}/Arabidopsis_thaliana.TAIR10.{selected}.gtf.gz'
         assert f'-O- {genome_url} |' in log and f'-O- {gtf_url} |' in log
         assert f'Ensembl DNA,release-{selected},{genome_url}' in log and f'Ensembl GTF,release-{selected},{gtf_url}' in log
-        assert f'source=ensemblgenomes release={selected} assembly={assembly}' in log and 'division=plants' in log
-        location = f'ensemblgenomes/release-{selected}/plants/{organism}/{assembly}'
-        assert_build_and_count(log, f'data/ext/{location}', tmp_path)
+        location = Path('ensemblgenomes') / f'release-{selected}' / 'plants' / organism / assembly
+        ref = shared / location
+        assert str(ref / 'anno' / f'{organism}.{assembly}.{selected}.gtf') in log
+        assert_build_and_count(log, ref, directory)
         receipt, = arguments(log, 'cellranger mkref ', '--receipt')
         assert f'/{location}/' in receipt
         assert_managed_gene_metadata(log, Path(receipt))
         assert 'rule multiqc_report:' in log and 'refdata-gex-' not in log
+        return ref
+
+    # A cold fallback fetches the selected Plants release. Direct Ensembl can reuse that same pair.
+    fallback = dry_run(work, organism, ext_dir=str(shared))
+    assert f'source=ensemblgenomes release={release} assembly={assembly}' in fallback and 'division=plants' in fallback
+    ref = check_cold(fallback, work, release)
+    write_panel(tmp_path, ref)
+    configfile = work / 'config.yaml'
+    config = yaml.safe_load(configfile.read_text())
+    config['db'] = {'reference_db': 'ensembl'}
+    configfile.write_text(yaml.safe_dump(config))
+    warm = plan_existing(work, 'multiqc_report')
+    assert 'rule ensembl_genome:' not in warm and 'rule ensembl_gtf:' not in warm
+    assert_build_and_count(warm, ref, work)
+
+    # Changing only the division release must retrieve both archives on a retained or a fresh run.
+    config['db']['ensemblgenomes'] = {'release': old_release}
+    configfile.write_text(yaml.safe_dump(config))
+    check_cold(plan_existing(work, 'multiqc_report'), work, old_release)
+    fresh = tmp_path / 'fresh'
+    fresh.mkdir()
+    check_cold(dry_run(fresh, organism, ext_dir=str(shared), db=config['db']), fresh, old_release)
 
 
 def shell_command(log, program):
