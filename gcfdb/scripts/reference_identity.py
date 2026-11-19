@@ -4,6 +4,12 @@ import json
 from pathlib import Path
 
 
+CELLRANGER_RECIPE_VERSION = 2
+CELLRANGER_MANIFEST = 'gcf-mkref.json'
+CELLRANGER_PRODUCTS = ('reference.json', 'fasta/genome.fa', 'genes/genes.gtf.gz', 'star/Genome', 'star/SA', 'star/SAindex',
+                       'gcf-source/fasta/genome.fa', 'gcf-source/anno/genes.gtf')
+
+
 def reference_checksums(source_dir):
     records = []
     for name in ('fasta/genome.fa', 'anno/genes.gtf'):
@@ -24,4 +30,50 @@ def reference_digest(checksums):
 
 def cellranger_build_key(genome, image):
     # Version the recipe independently of the scientific inputs.
-    return hashlib.sha256(json.dumps([1, genome, image]).encode()).hexdigest()
+    return hashlib.sha256(json.dumps([CELLRANGER_RECIPE_VERSION, genome, image]).encode()).hexdigest()
+
+
+def check_cellranger_products(directory):
+    for name in CELLRANGER_PRODUCTS:
+        path = directory / name
+        if not path.is_file():
+            raise ValueError(f'Incomplete Cell Ranger reference: missing {path}')
+
+
+def verify_cellranger_build(directory, identity):
+    """Check the complete published generation and return its manifest."""
+    check_cellranger_products(directory)
+    manifest = directory / CELLRANGER_MANIFEST
+    try:
+        record = json.loads(manifest.read_text())
+    except ValueError as error:
+        raise ValueError(f'Invalid Cell Ranger build manifest: {manifest}') from error
+    # A getter can be planned before the source files exist. In that case the manifest supplies the checksum record.
+    if isinstance(record, dict) and isinstance(record.get('inputs'), str) and record == {'inputs': record['inputs'], **identity}:
+        return record
+    raise ValueError(f'Cell Ranger build manifest does not match the selected inputs: {manifest}')
+
+
+def verify_cellranger_receipt(receipt, cache, checksums, genome, image):
+    """A pending count can reuse a local receipt without invoking the publisher."""
+    receipt = Path(receipt)
+    if not receipt.exists() and not receipt.is_symlink():
+        return
+
+    pin = receipt.parent / 'index'
+    generation = pin.resolve()
+    if not pin.is_symlink() or not receipt.is_symlink() or receipt.resolve() != generation / CELLRANGER_MANIFEST:
+        raise ValueError(f'Invalid Cell Ranger reference pin: {receipt} must point to {pin / CELLRANGER_MANIFEST}')
+    identity = {'format': CELLRANGER_RECIPE_VERSION, 'genome': genome, 'image': image}
+    if checksums is not None:
+        identity['inputs'] = checksums
+    record = verify_cellranger_build(generation, identity)
+    digest = reference_digest(record['inputs'])
+    expected = Path(cache) / digest / cellranger_build_key(genome, image)
+    if generation != expected.resolve():
+        raise ValueError(f'Invalid Cell Ranger reference pin: {pin} points to {generation}, expected {expected}')
+    annotation = receipt.parent / 'annotation'
+    expected_annotation = receipt.parent / 'annotations' / digest
+    if not annotation.is_symlink() or not annotation.is_dir() or annotation.resolve() != expected_annotation.resolve():
+        raise ValueError(f'Invalid Cell Ranger annotation pin: {annotation} must point to {expected_annotation}')
+    return record

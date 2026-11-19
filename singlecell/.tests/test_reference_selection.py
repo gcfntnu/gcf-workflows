@@ -274,3 +274,45 @@ def test_retained_project_index_requires_current_build_identity(tmp_path, change
     replacement = planned_index('changed', **settings)
     assert replacement != original
     assert (replacement.parent == original.parent) == (changed in ('assembly', 'image'))
+
+
+def test_retained_receipt_checks_index_before_count(tmp_path):
+    panel = tmp_path / 'panel'
+    write_panel(tmp_path, panel)
+    cold = dry_run(tmp_path, 'homo_sapiens', COUNT_TARGET, ref_dir=str(panel))
+    build = next(shlex.split(line.removeprefix('Shell command: ')) for line in cold.splitlines()
+                 if line.startswith('Shell command: ') and 'cellranger mkref ' in line)
+    # Issue a real receipt using the publisher and six tiny stand-ins for mkref output.
+    binary = tmp_path / 'bin/cellranger'
+    binary.parent.mkdir()
+    binary.write_text('#!/bin/bash\nset -eu\nout=${!#}\nmkdir -p "$out"/{fasta,genes,star}\n'
+                      'touch "$out"/{reference.json,fasta/genome.fa,genes/genes.gtf.gz,star/Genome,star/SA,star/SAindex}\n')
+    binary.chmod(0o755)
+    env = protected_env(tmp_path)
+    env['PATH'] = str(binary.parent) + os.pathsep + env['PATH']
+    subprocess.run([sys.executable, *build[1:]], cwd=tmp_path, env=env, check=True)
+
+    warm = plan_existing(tmp_path, COUNT_TARGET)
+    assert 'cellranger mkref ' not in warm
+    assert 'cellranger count ' in warm
+    receipt = tmp_path / build[build.index('--receipt') + 1]
+    manifest = receipt.resolve(strict=True)
+    fasta = manifest.parent / 'fasta/genome.fa'
+    fasta.unlink()
+    damaged = plan_existing(tmp_path, COUNT_TARGET, expect_success=False)
+    assert 'cellranger count ' not in damaged and str(fasta) in damaged
+
+    fasta.touch()
+    annotation = receipt.parent / 'annotation'
+    target = annotation.readlink()
+    annotation.unlink()
+    annotation.symlink_to(tmp_path)  # An existing directory for a different annotation generation.
+    damaged = plan_existing(tmp_path, COUNT_TARGET, expect_success=False)
+    assert 'cellranger count ' not in damaged and 'Invalid Cell Ranger annotation pin' in damaged
+
+    annotation.unlink()
+    annotation.symlink_to(target)
+    # The same receipt must also agree with the generation's recorded identity.
+    manifest.write_text('{"genome": "another_panel"}')
+    damaged = plan_existing(tmp_path, COUNT_TARGET, expect_success=False)
+    assert 'cellranger count ' not in damaged and str(manifest) in damaged
