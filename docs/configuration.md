@@ -160,7 +160,9 @@ Relative paths start at the Snakemake working directory. The workflow uses the c
 If `ref_dir` is omitted, an empty string or YAML `null`, the configured provider supplies the reference under `EXT_DIR`.
 Downstream rules use the resolved path as `REF_DIR`. The project FASTA and GTF remain authoritative even when the directory is also an Ensembl cache directory.
 FastQ Screen uses the project FASTA for its nonhuman genomic index and the shared human GRCh38 index for its human screen. With a project directory and an empty Ensembl release, the human screening index uses the configured default Ensembl release.
-If a nonhuman project directory resolves to that human cache location, FastQ Screen builds the GRCh38 control under `EXT_DIR/fastq_screen/ensembl`.
+On first use per release, FastQ Screen retrieves the Ensembl GRCh38 primary assembly and builds its own shared Bowtie2 index under `EXT_DIR/fastq_screen/ensembl/release-<release>/homo_sapiens/GRCh38/`.
+The stock FASTA and index use the upstream basename `Homo_sapiens.GRCh38.dna.primary_assembly`, so generic indexes and augmented project genomes in the ordinary Ensembl cache cannot supply the Human control.
+If the project selects the screening cache itself as `ref_dir`, the control uses the same layout under `QC_INTERIM/fastq_screen/` for that project.
 For an explicit nonhuman genomic reference, FastQ Screen hashes `<ref_dir>/fasta/genome.fa` and builds all six Bowtie2 index files from a private copy verified against that SHA-256 digest.
 It reuses these files under `QC_INTERIM/fastq_screen/indexes/<SHA-256>/` across screening jobs. Changes to FASTA content select a new index even with a preserved modification time. The FASTA size determines the small (`.bt2`) or large (`.bt2l`) format.
 

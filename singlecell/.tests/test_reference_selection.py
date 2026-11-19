@@ -444,8 +444,9 @@ def test_project_genome_in_fastq_screen(tmp_path, workflow_file, kit, rule):
 
     records = next(shlex.split(line) for line in log.splitlines() if 'DATABASE Synthetic_Organism ' in line)
     project_prefix = next(record.split()[2] for record in records if record.startswith('DATABASE Synthetic_Organism '))
-    human_dir = tmp_path / 'data/ext/ensembl' / f"release-{DB_DEFAULTS['ensembl']['release']}" / 'homo_sapiens/GRCh38'
-    assert f'DATABASE Human {human_dir}/index/genome/bowtie2/genome' in records
+    stock_name = 'Homo_sapiens.GRCh38.dna.primary_assembly'
+    human_dir = tmp_path / 'data/ext/fastq_screen/ensembl' / f"release-{DB_DEFAULTS['ensembl']['release']}" / 'homo_sapiens/GRCh38'
+    assert f'DATABASE Human {human_dir}/index/{stock_name}/bowtie2/{stock_name}' in records
     assert 'release-None' not in log
     # The same per-job shell invocation installs the directory alias and starts FastQ Screen.
     screen = next(shlex.split(line) for line in log.splitlines() if '&& fastq_screen ' in line)

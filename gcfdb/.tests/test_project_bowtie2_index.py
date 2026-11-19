@@ -18,6 +18,10 @@ BUILDER = ROOT / 'gcfdb/scripts/build_project_screen_index.sh'
 PARTS = ('1', '2', '3', '4', 'rev.1', 'rev.2')
 SMALL_MAX_BYTES = 4 * 1024**3 - 200
 SCREEN = Path('data/tmp/rnaseq/qc/fastq_screen')
+HUMAN_RELEASE = yaml.safe_load((ROOT / 'main.config').read_text())['db']['ensembl']['release']
+HUMAN_PATH = Path('ensembl') / f'release-{HUMAN_RELEASE}' / 'homo_sapiens/GRCh38'
+STOCK_NAME = 'Homo_sapiens.GRCh38.dna.primary_assembly'
+STOCK = Path('data/ext/fastq_screen') / HUMAN_PATH
 
 
 class ProjectBowtie2Tests(unittest.TestCase):
@@ -28,15 +32,19 @@ class ProjectBowtie2Tests(unittest.TestCase):
         self.ref = Path('refs/panel one')
         self.fasta = self.ref / 'fasta/genome.fa'
 
-    def project(self, size=None, human_cache=None):
+    def project(self, size=None, human_cache=None, alias=True, organism='synthetic_organism'):
         if human_cache:
             (self.work / human_cache).mkdir(parents=True)
-            (self.work / self.ref.parent).mkdir(parents=True)
-            (self.work / self.ref).symlink_to(self.work / human_cache, target_is_directory=True)
+            if alias:
+                (self.work / self.ref.parent).mkdir(parents=True)
+                (self.work / self.ref).symlink_to(self.work / human_cache, target_is_directory=True)
+            else:
+                self.ref = human_cache
+                self.fasta = self.ref / 'fasta/genome.fa'
         (self.work / self.fasta.parent).mkdir(parents=True)
         (self.work / self.fasta).write_text('>synthetic\nACGT\n')
         config = yaml.safe_load((FIXTURE / 'config.yaml').read_text())
-        config.update(ref_dir=str(self.ref), organism='synthetic_organism', skip_peppy=True)
+        config.update(ref_dir=str(self.ref), organism=organism, skip_peppy=True)
         (self.work / 'config.yaml').write_text(yaml.safe_dump(config))
         shutil.copytree(FIXTURE / 'data', self.work / 'data', dirs_exist_ok=True)
         # Change only the FASTA size seen by the planner, using a four-base fixture.
@@ -58,12 +66,16 @@ class ProjectBowtie2Tests(unittest.TestCase):
         for part in parts:
             (self.work / directory / f'genome.{part}.{extension}').touch()
 
-    def check_plan(self, extension, needs_build):
+    def plan(self, *options):
         env = {k: v for k, v in os.environ.items() if not k.startswith('GCF_')}
-        proc = subprocess.run([sys.executable, '-m', 'snakemake', '-n', '-p', '--cores', '1', self.target],
+        proc = subprocess.run([sys.executable, '-m', 'snakemake', '-n', '-p', '--cores', '1', *options, self.target],
                               cwd=self.work, env=env, text=True, capture_output=True, timeout=60)
         log = proc.stdout + proc.stderr
         self.assertEqual(proc.returncode, 0, log)
+        return log
+
+    def check_plan(self, extension, needs_build):
+        log = self.plan()
         jobs = log.splitlines()
         config_job = jobs.index('rule fastq_screen_config:')
         dependencies = jobs[config_job + 1].strip().removeprefix('input: ').split(', ')
@@ -81,20 +93,64 @@ class ProjectBowtie2Tests(unittest.TestCase):
         self.assertIn(f'{self.work / directory}/genome.*.{extension}', screen)
         return log
 
-    def test_human_control_uses_stock_sequence_when_project_occupies_its_cache(self):
-        release = yaml.safe_load((ROOT / 'main.config').read_text())['db']['ensembl']['release']
-        cache_path = Path('ensembl') / f'release-{release}' / 'homo_sapiens/GRCh38'
-        self.project(human_cache=Path('data/ext') / cache_path)
-        log = self.check_plan('bt2', True)
-        control = Path('data/ext/fastq_screen') / cache_path
-        fasta, index = control / 'fasta/genome.fa', control / 'index/genome/bowtie2/genome'
-        url = f'https://ftp.ensembl.org/pub/release-{release}/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz'
-        self.assertIn(f'{url} | gunzip -c > {fasta}', log)
-        build = next(shlex.split(line) for line in log.splitlines() if 'bowtie2-build ' in line and str(fasta) in line)
-        self.assertEqual(build[-2:], [str(fasta), str(index)])
+    def check_stock(self, log, directory, needs_build=True):
+        fasta = directory / 'fasta' / f'{STOCK_NAME}.fa'
+        prefix = directory / 'index' / STOCK_NAME / 'bowtie2' / STOCK_NAME
+        url = f'https://ftp.ensembl.org/pub/release-{HUMAN_RELEASE}/fasta/homo_sapiens/dna/{STOCK_NAME}.fa.gz'
+        self.assertEqual(f'{url} | gunzip -c > {fasta}' in log, needs_build)
+        builds = [shlex.split(line) for line in log.splitlines() if 'bowtie2-build ' in line and str(fasta) in line]
+        self.assertEqual([args[-2:] for args in builds], [[str(fasta), str(prefix)]] if needs_build else [])
         records = next(shlex.split(line) for line in log.splitlines() if 'DATABASE Human ' in line)
-        human = next(record for record in records if record.startswith('DATABASE Human '))
-        self.assertTrue(human.endswith('/' + str(index)), human)
+        self.assertIn(f'DATABASE Human {self.work / prefix}', records)
+        return Path(str(prefix) + '.1.bt2')
+
+    def test_nonhuman_control_uses_stock_sequence_when_project_occupies_grch38(self):
+        self.project(human_cache=Path('data/ext') / HUMAN_PATH)
+        self.check_stock(self.check_plan('bt2', True), STOCK)
+
+    def human_collision(self, reference, alias, screened):
+        self.project(human_cache=reference, alias=alias, organism='homo_sapiens')
+        augmented = (self.work / self.fasta).read_bytes()
+        self.seed_index(self.ref / 'index/genome/bowtie2', 'bt2')
+        for options in ([], ['--forceall']):
+            log = self.plan(*options)
+            index = self.check_stock(log, screened)
+            self.assertNotIn('rule human_ensembl_genome:', log)
+            self.assertNotIn('rule ensembl_genome:', log)
+            self.assertNotIn('project_bowtie2_index', log)
+
+        # Exercise the selected getter and index rule on tiny stand-ins. The stub wget never opens a connection.
+        tools = self.work / 'bin'
+        tools.mkdir()
+        wget, bowtie = tools / 'wget', tools / 'bowtie2-build'
+        wget.write_text('#!/bin/sh\nprintf ">stock\\nAGTC\\n" | gzip -c\n')
+        bowtie.write_text('#!/bin/bash\nset -eu\n'
+                          'for i in 1 2 3 4 rev.1 rev.2; do cp -- "${@: -2:1}" "${@: -1}.$i.bt2"; done\n')
+        for tool in (wget, bowtie):
+            tool.chmod(0o755)
+        env = {k: v for k, v in os.environ.items() if not k.startswith('GCF_')}
+        env['PATH'] = str(tools) + os.pathsep + env['PATH']
+        built = subprocess.run([sys.executable, '-m', 'snakemake', '--cores', '1', index],
+                               cwd=self.work, env=env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
+        self.assertEqual((self.work / index).read_bytes(), b'>stock\nAGTC\n')
+        self.assertEqual((self.work / self.fasta).read_bytes(), augmented)
+        self.assertEqual((self.work / self.ref / 'index/genome/bowtie2/genome.1.bt2').read_bytes(), b'')
+
+        # A subsequent project sharing EXT_DIR sees the stock index or requests the stock archive.
+        config = yaml.safe_load((self.work / 'config.yaml').read_text())
+        del config['ref_dir']
+        (self.work / 'config.yaml').write_text(yaml.safe_dump(config))
+        self.check_stock(self.plan(), STOCK, needs_build=(screened != STOCK))
+
+    def test_augmented_human_in_ordinary_grch38_cache(self):
+        self.human_collision(Path('data/ext') / HUMAN_PATH, alias=False, screened=STOCK)
+
+    def test_augmented_human_alias_to_ordinary_grch38_cache(self):
+        self.human_collision(Path('data/ext') / HUMAN_PATH, alias=True, screened=STOCK)
+
+    def test_augmented_human_alias_to_reserved_screen_cache(self):
+        self.human_collision(STOCK, alias=True, screened=SCREEN / HUMAN_PATH)
 
     def test_partial_small_index_at_size_boundary(self):
         self.project(SMALL_MAX_BYTES)

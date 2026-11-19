@@ -71,7 +71,7 @@ def fastq_screen_indexes(*args, **kw):
    """ Return name and index for screening databases.
    """
    # default human
-   INDEXES = {'Human': join(HUMAN_ENSEMBL_DIR, 'index', 'genome', 'bowtie2', 'genome.1.bt2')}
+   INDEXES = {'Human': join(HUMAN_SCREEN_DIR, 'index', HUMAN_SCREEN_GENOME, 'bowtie2', HUMAN_SCREEN_GENOME + '.1.bt2')}
    org = config.get('organism')
    if org not in ['homo_sapiens', 'N/A', 'n/a']:
       if PROJECT_SCREEN_FASTA:

@@ -124,6 +124,7 @@ class MicrobiomeReferenceTests(unittest.TestCase):
         planned = self.dry_run('multiqc_report')
         release = yaml.safe_load((ROOT / 'main.config').read_text())['db']['ensembl']['release']
         self.assertIn('rule multiqc_report:', planned)
-        self.assertIn(f'data/ext/ensembl/release-{release}/homo_sapiens/GRCh38/index/genome/bowtie2/genome.1.bt2', planned)
+        stock = 'Homo_sapiens.GRCh38.dna.primary_assembly'
+        self.assertIn(f'data/ext/fastq_screen/ensembl/release-{release}/homo_sapiens/GRCh38/index/{stock}/bowtie2/{stock}.1.bt2', planned)
         self.assertIn(f'ftp.ensembl.org/pub/release-{release}/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz', planned)
         self.assertNotIn('release-None', planned)

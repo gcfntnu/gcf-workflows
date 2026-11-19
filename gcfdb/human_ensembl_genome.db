@@ -5,21 +5,32 @@
 HUMAN_ENSEMBL_RELEASE = config['db']['ensembl']['release'] or CONF['db']['ensembl']['release']
 human_cache_path = join('ensembl', f'release-{HUMAN_ENSEMBL_RELEASE}', 'homo_sapiens', 'GRCh38')
 HUMAN_ENSEMBL_DIR = join(EXT_DIR, human_cache_path)
-# A curated nonhuman panel may occupy the usual GRCh38 cache. Keep the stock human control independent.
-if ORG != 'homo_sapiens' and config.get('ref_dir') and os.path.realpath(config['ref_dir']) == os.path.realpath(HUMAN_ENSEMBL_DIR):
-    HUMAN_ENSEMBL_DIR = join(EXT_DIR, 'fastq_screen', human_cache_path)
-if not config.get('ref_dir') or os.path.realpath(config['ref_dir']) != os.path.realpath(HUMAN_ENSEMBL_DIR):
-    rule human_ensembl_genome:
+HUMAN_SCREEN_DIR = join(EXT_DIR, 'fastq_screen', human_cache_path)
+HUMAN_SCREEN_GENOME = 'Homo_sapiens.GRCh38.dna.primary_assembly'
+project_ref = config.get('ref_dir')
+if project_ref and os.path.realpath(project_ref) == os.path.realpath(HUMAN_SCREEN_DIR):
+    HUMAN_SCREEN_DIR = join(QC_INTERIM, 'fastq_screen', human_cache_path)
+
+# Keep the stock control distinct from both an augmented genome.fa and older generic Bowtie2 indexes.
+rule fastq_screen_human_genome:
+    output:
+        genome = join(HUMAN_SCREEN_DIR, 'fasta', HUMAN_SCREEN_GENOME + '.fa')
+    params:
+        proxy = config.get('proxy', {}).get('wget', ''),
+        url = (f'https://ftp.ensembl.org/pub/release-{HUMAN_ENSEMBL_RELEASE}/fasta/homo_sapiens/dna/'
+               f'{HUMAN_SCREEN_GENOME}.fa.gz')
+    threads:
+        24
+    log:
+        join(HUMAN_SCREEN_DIR, 'logs', HUMAN_SCREEN_GENOME + '.log')
+    shell:
+        'wget {params.proxy} -O- {params.url:q} | gunzip -c > {output.genome:q} && '
+        'echo "Ensembl DNA,release-{HUMAN_ENSEMBL_RELEASE},{params.url},$(date -I)" > {log:q}'
+
+# Other callers can request the standard Ensembl FASTA unless it is itself the curated source.
+if not project_ref or os.path.realpath(project_ref) != os.path.realpath(HUMAN_ENSEMBL_DIR):
+    use rule fastq_screen_human_genome as human_ensembl_genome with:
         output:
             genome = join(HUMAN_ENSEMBL_DIR, 'fasta', 'genome.fa')
-        params:
-            proxy = config.get('proxy', {}).get('wget', ''),
-            url = (f'https://ftp.ensembl.org/pub/release-{HUMAN_ENSEMBL_RELEASE}/fasta/homo_sapiens/dna/'
-                   'Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz')
-        threads:
-            24
         log:
             join(HUMAN_ENSEMBL_DIR, 'logs', 'genome.log')
-        shell:
-            'wget {params.proxy} -O- {params.url:q} | gunzip -c > {output.genome:q} && '
-            'echo "Ensembl DNA,release-{HUMAN_ENSEMBL_RELEASE},{params.url},$(date -I)" > {log:q}'
