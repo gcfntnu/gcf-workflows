@@ -405,7 +405,7 @@ rule preprocess_annotation_input:
 rule preprocess_plan:
     input:
         anndata = get_filtered_anndata,
-        gene_metadata = join(REF_DIR, 'anno', 'genes.tsv')
+        gene_metadata = GENE_TABLE
     output:
         cells = PREPROCESS_CELLS,
         genes = PREPROCESS_GENES,

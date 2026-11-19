@@ -29,6 +29,10 @@ def dry_run(work, organism, target='multiqc_report', expect_success=True, workfl
         (fastqs / read).touch()
     (work / 'Snakefile').write_text(f'pepfile: "pep.yaml"\nconfigfile: "config.yaml"\ninclude: {str(workflow_file)!r}\n')
     assert not (work / 'data/ext').exists()
+    return plan_existing(work, target, expect_success)
+
+
+def plan_existing(work, target, expect_success=True):
     result = subprocess.run([sys.executable, '-m', 'snakemake', '-n', '-p', '--cores', '1', target],
                             cwd=work, env=protected_env(work), capture_output=True, text=True, timeout=120)
     log = result.stdout + result.stderr
@@ -62,6 +66,7 @@ def assert_build_and_count(log, ref):
 
 def assert_gene_metadata(log, ref):
     assert arguments(log, 'bedtools getfasta ', '-fi') == {f'{ref}/fasta/genome.fa'}
+    assert arguments(log, 'bedtools getfasta ', '-bed') == {f'{ref}/anno/exons.bed'}
     assert arguments(log, 'gtf2tsv.py ', '--fasta') == {f'{ref}/fasta/exons.fa'}
     assert arguments(log, 'gtf2tsv.py ', '--gtf') == {f'{ref}/anno/genes.gtf'}
     assert arguments(log, 'gtf2tsv.py ', '--output') == {f'{ref}/anno/genes.tsv'}
@@ -123,8 +128,66 @@ def test_project_directory_through_reporting(tmp_path, ref, organism):
     log = dry_run(tmp_path, organism, ref_dir=ref, db=db)
     assert 'rule multiqc_report:' in log
     assert_build_and_count(log, ref)
-    assert_gene_metadata(log, ref)
+    assert_gene_metadata(log, annotation_snapshot(tmp_path / ref)[0])
     assert 'refdata-gex-' not in log
+
+
+def annotation_snapshot(panel):
+    checksums = ''.join(f'{hashlib.sha256((panel / path).read_bytes()).hexdigest()}  {path}\n'
+                        for path in ('fasta/genome.fa', 'anno/genes.gtf'))
+    digest = hashlib.sha256(checksums.encode()).hexdigest()
+    return Path('data/tmp/singlecell/quant/reference') / digest, checksums
+
+
+@pytest.mark.parametrize('changed', ['fasta/genome.fa', 'anno/genes.gtf'])
+def test_report_refreshes_gene_table_and_exons_for_changed_pair(tmp_path, changed):
+    panel = tmp_path / 'panel'
+    write_panel(tmp_path, panel)
+    old_root, old_checksums = annotation_snapshot(panel)
+    old_plan = dry_run(tmp_path, 'homo_sapiens', ref_dir=str(panel))
+    assert_gene_metadata(old_plan, old_root)
+
+    # Stand in for the previous generation and for timestamp-current legacy metadata.
+    # Exercise only the staging/checksum helper on tiny text files.
+    stage = ['bash', WORKFLOW.parent / 'rules/quant/scripts/stage_project_annotation.sh', panel / 'fasta/genome.fa', panel / 'anno/genes.gtf']
+    subprocess.run([*stage, tmp_path / old_root, old_checksums], check=True)
+    for root in (tmp_path / old_root, panel):
+        for path in ('fasta/genome.fa.fai', 'anno/exons.gtf', 'anno/exons.bed', 'fasta/exons.fa', 'anno/genes.tsv'):
+            (root / path).write_text('previous generation')
+    source = panel / changed
+    before = source.stat()
+    source.write_bytes(source.read_bytes() + b'\n')
+    os.utime(source, ns=(before.st_atime_ns, before.st_mtime_ns))
+
+    new_root, new_checksums = annotation_snapshot(panel)
+    assert new_root != old_root
+    plan = plan_existing(tmp_path, 'multiqc_report')
+    for rule in ('cellranger_mkref', 'project_annotation_inputs', 'exon_gtf', 'exon_bed', 'exon_fasta', 'convert_gtf2gene_info', 'multiqc_report'):
+        assert f'rule {rule}:' in plan
+    assert 'rule export_project_gene_table:' not in plan
+    assert all(new_root.name in Path(value).parts for value in arguments(plan, 'cellranger count ', '--transcriptome'))
+    assert_gene_metadata(plan, new_root)
+    assert str(old_root) not in plan
+
+    stale = subprocess.run([*stage, tmp_path / old_root, old_checksums], capture_output=True, text=True)
+    assert stale.returncode and 'FAILED' in stale.stdout
+    assert (tmp_path / old_root / changed).read_bytes() != source.read_bytes()
+    subprocess.run([*stage, tmp_path / new_root, new_checksums], check=True)
+    assert (tmp_path / new_root / changed).read_bytes() == source.read_bytes()
+    assert not (tmp_path / new_root / 'fasta/genome.fa.fai').exists()
+
+
+def test_existing_annotation_snapshot_used_as_project_reference(tmp_path):
+    initial = tmp_path / 'initial'
+    write_panel(tmp_path, initial)
+    snapshot, _ = annotation_snapshot(initial)
+    selected = tmp_path / snapshot
+    selected.parent.mkdir(parents=True)
+    initial.rename(selected)
+    (tmp_path / 'selected-panel').symlink_to(selected, target_is_directory=True)
+    plan = dry_run(tmp_path, 'homo_sapiens', ref_dir='selected-panel')
+    assert_gene_metadata(plan, snapshot / 'derived')
+    assert 'rule export_project_gene_table:' not in plan
 
 
 @pytest.mark.parametrize('workflow_file,kit,rule', [

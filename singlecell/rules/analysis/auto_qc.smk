@@ -86,7 +86,7 @@ def _qc_prepare_inputs(wc):
 
     result = {
         'counts': counts,
-        'feature_info': [join(REF_DIR, 'anno', 'genes.tsv')],
+        'feature_info': [GENE_TABLE],
         'barcode_info': _qc_barcode_info_list(wc),
     }
 
