@@ -267,10 +267,12 @@ def check_directory_identity(directory, path, *, follow_symlinks=False):
 
 def write(projects, output):
     """Write the summary of `projects` to `output` (.md or .html)."""
-    projects, output = [Path(p) for p in projects], Path(output)
-    render = {'.md': markdown, '.html': html_page}.get(output.suffix)
+    # Inspect the supplied filename before Path removes trailing slashes or ".".
+    name = os.path.basename(output)
+    render = {'.md': markdown, '.html': html_page}.get(Path(name).suffix)
     if render is None:
         raise ValueError('--output {}: the extension must be .md or .html'.format(output))
+    projects, output = [Path(p) for p in projects], Path(output)
     requested_parent = output.parent
     parent, links = resolve_with_links(requested_parent)
     output = parent / output.name

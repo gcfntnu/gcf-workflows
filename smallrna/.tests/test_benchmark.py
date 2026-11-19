@@ -1371,3 +1371,15 @@ def test_summary_requires_a_traversable_output_parent(tmp_path, prefix):
     with pytest.raises((FileNotFoundError, NotADirectoryError)):
         summary.write([project], tmp_path / prefix / '..' / output.name)
     assert output.read_text() == 'previous summary'
+
+
+@pytest.mark.parametrize('trailing', ['/', '/.'])
+def test_summary_cli_requires_a_filename_as_the_final_component(tmp_path, trailing):
+    project = summary_projects(tmp_path / 'projects')[0]
+    output = tmp_path / 'overview.md'
+    output.write_text('previous summary')
+    cmd = [sys.executable, str(BENCH / 'benchmark.py'), 'summary', '--projects', str(project),
+           '--output', str(output) + trailing]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+    assert result.returncode and 'the extension must be .md or .html' in result.stderr
+    assert output.read_text() == 'previous summary'
