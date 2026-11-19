@@ -8,8 +8,8 @@ if provider not in ('langmead', 'ncbi_16s'):
 DB_CONF = config['db'][provider]
 BRACKEN_N_MERS = bracken_read_lengths(provider, DB_CONF['assembly'])
 
-if config.get('ref_dir'):
-    REF_DIR = config['ref_dir']
+if PROJECT_KRAKEN_DB:
+    REF_DIR = PROJECT_KRAKEN_DB
     KRAKEN_INDEX = kraken_index_files(REF_DIR)
 elif provider == 'langmead':
     include: join(GCFDB_DIR, 'langmead.db')
@@ -22,6 +22,6 @@ else:
 
 def metagenome_database_input(path):
     # An explicit directory is operator-supplied, even if it happens to match a getter's output path.
-    if config.get('ref_dir') and not os.path.isfile(path):
+    if PROJECT_KRAKEN_DB and not os.path.isfile(path):
         raise ValueError(f"Missing required database file in project ref_dir: {path}")
     return path

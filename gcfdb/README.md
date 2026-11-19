@@ -136,7 +136,7 @@ from the database directory.
 RAM copies now use
 `/dev/shm/langmead/release-<release>/metagenome/<assembly>/`. Shared Kraken screening
 and metagenome classification with a getter-managed database obtain that location from the producer.
-With a project `ref_dir`, metagenome passes that directory directly to Kraken and Bracken.
+With a project `ref_dir`, metagenome resolves the absolute database path during planning and passes it to both Kraken and Bracken.
 For the required index files and read-length distribution, see the [metagenome configuration](../metagenome/README.md#key-configuration).
 
 Old disk and RAM paths

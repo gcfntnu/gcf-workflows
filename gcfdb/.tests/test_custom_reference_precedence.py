@@ -24,6 +24,8 @@ class CustomReferenceTests(unittest.TestCase):
                     expected = project.get('ref_dir') or default
                     if project.get('ref_dir'):
                         (work / expected).mkdir(parents=True)
+                        if database == 'langmead':
+                            expected = str((work / expected).resolve())
                     # The shared reader follows the Ensembl lookup in the genomic workflows.
                     ensembl_include = f'include: {str(ROOT / "gcfdb/ensembl.db")!r}\n' if database == 'ensembl' else ''
                     (work / 'Snakefile').write_text(

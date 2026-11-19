@@ -1,4 +1,8 @@
 # -*- mode:snakemake -*-
+from os.path import realpath
+
+# Bind project database aliases while planning. Kraken2 and Bracken can run at different times.
+PROJECT_KRAKEN_DB = realpath(config['ref_dir']) if config.get('ref_dir') else None
 
 def langmead_database_directory(root):
     settings = config['db']['langmead']

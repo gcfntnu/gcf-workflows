@@ -9,9 +9,8 @@ include: join(GCFDB_DIR, 'kraken_settings.smk')
 # Screening uses the configured Langmead database. When a metagenome project owns
 # that same path, its on-disk index must stay an input, even on a forced rerun.
 screening_db_dirs = (langmead_database_directory(EXT_DIR), langmead_database_directory('/dev/shm'))
-project_db = config.get('ref_dir') if config.get('workflow') == 'metagenome' else None
-if project_db and any(os.path.realpath(project_db) == os.path.realpath(path) for path in screening_db_dirs):
-    K2_SCREEN_INDEX = kraken_index_files(project_db)
+if PROJECT_KRAKEN_DB and config.get('workflow') == 'metagenome' and PROJECT_KRAKEN_DB in map(realpath, screening_db_dirs):
+    K2_SCREEN_INDEX = kraken_index_files(PROJECT_KRAKEN_DB)
 else:
     include: join(GCFDB_DIR, 'langmead.db')
     K2_SCREEN_INDEX = rules.langmead_shmem.output

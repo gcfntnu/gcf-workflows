@@ -52,6 +52,7 @@ logs/<sample>/<sample>.fastp.html, .fastp.json, _R1_fastqc.html, _R1_fastqc.zip,
 [metagenome.config](metagenome.config) is empty. Precedence is described in [docs/configuration.md](../docs/configuration.md#effective-precedence).
 
 A project can select a prepared classification database with, for example, `ref_dir: refs/panel-v1`.
+The workflow resolves the directory once during planning. Kraken2 and Bracken use that same absolute path even if a project symlink is repointed before the jobs run. A new invocation resolves the current target.
 Kraken2 reads `hash.k2d`, `opts.k2d` and `taxo.k2d` directly from that directory.
 Reporting also requires Bracken's `database<N>mers.kmer_distrib` there. The workflow selects the provider-supported
 length closest to the first read's length (for example, `database150mers.kmer_distrib` for 151-base reads).
