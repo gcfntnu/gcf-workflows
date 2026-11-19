@@ -218,12 +218,13 @@ def test_report_template_orders_sections_and_tables_for_smallrna():
     template = yaml.safe_load((ROOT / 'misc/multiqc/multiqc_config-smallrna.yaml').read_text())
     order = {key: value['order'] for key, value in template['report_section_order'].items()}
     assert order['cutadapt'] == order['fastp'] > order['fastqc_rnaseq'] > order['mirtrace'] > order['star']
-    assert order['star'] > order['unitas'] > order['gene_high'] > order['exploratory']
+    assert order['star'] > order['unitas'] > order['unitas_misc_rna'] > order['gene_high'] > order['exploratory']
     assert 'pca' not in order and 'umap' not in order  # the PCA's parent section is `exploratory`
     assert template['table_columns_placement']['cutadapt'] == {k: v for k, v in template['table_columns_placement']['fastp'].items()
                                                                if k in ('before_filtering_total_reads', 'pct_surviving', 'pct_adapter')}
     assert '5′ adapter artefacts' in template['section_comments']['cutadapt']
-    assert 'three passes' in template['section_comments']['cutadapt'] and 'Illumina primer' in template['section_comments']['cutadapt']
+    assert 'three passes' in template['section_comments']['cutadapt'] and 'Illumina primer' in template['section_comments']['cutadapt'] \
+        and 'reagent oligos' in template['section_comments']['cutadapt']
     assert template['table_columns_visible']['Custom content: gcf'] == {'paired_end': False}
     assert template['table_columns_name'] == {'unitas': {'miRNA_Detected': '# miRNAs'}}
 

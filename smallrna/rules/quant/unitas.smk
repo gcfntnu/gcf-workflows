@@ -162,6 +162,23 @@ rule unitas_annotations:
     shell:
         'python {params.script} {input} > {output}'
 
+# misc_RNA reads by gene family (Y RNA, 7SK, 7SL, other) from the targets each sample's reads hit (#379), checked
+# against the misc_RNA class of annotations.tsv. A failed check stops this rule, quant_all (unitas_all), the rule that
+# delivers its outputs (bfq_level2_unitas_misc_rna) and so bfq_all and multiqc_report; annotations.tsv and the other
+# UNITAS tables do not depend on it.
+rule unitas_misc_rna:
+    input:
+        annotations = rules.unitas_annotations.output,
+        target_hits = expand(rules.unitas.output.target_hits, sample=SAMPLES)
+    output:
+        table = join(QUANT_INTERIM, 'unitas', 'misc_rna_families.tsv'),
+        mqc = join(QUANT_INTERIM, 'unitas', 'unitas_misc_rna_mqc.yaml')
+    params:
+        script = src_gcf('scripts/unitas_misc_rna.py')
+    shell:
+        'python {params.script:q} --annotations {input.annotations:q} --hits-per-target {input.target_hits:q} '
+        '--table {output.table:q} --mqc {output.mqc:q}'
+
 rule unitas_allfeatures:
     input:
         expand(rules.unitas.output.full_annotation, sample=SAMPLES)
@@ -249,5 +266,6 @@ rule unitas_all:
         rules.unitas_isomirtable.output,
         rules.unitas_isotrftable.output,
         rules.unitas_modifications.output,
-        rules.unitas_annotations.output
+        rules.unitas_annotations.output,
+        rules.unitas_misc_rna.output
 
