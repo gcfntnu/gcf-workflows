@@ -119,7 +119,7 @@ provenance/cutadapt/<sample>.{adapter,filter,artefacts}.{json,log}  (fastp route
 | `quant.tinyrna.mismatch`, `five_prime_offsets`, `three_prime_extension`, `strand`, `length`, `normalize_by_genomic_hits`, `normalize_by_feature_hits` | 0, `-1,0,1`, 4, `sense`, `16-28`, true, true | `smallrna.config` |
 | `align.genome.aligner`, `align.star.args` | `star` (the only accepted value); STAR options for short reads | `smallrna.config` |
 
-Unsupported values of these keys stop the workflow at load. Precedence between these sources is described in [docs/configuration.md](../docs/configuration.md#effective-precedence).
+Unsupported values of these keys stop the workflow at load, except the tiny-count counting rules (`five_prime_offsets`, `three_prime_extension`, `strand`, `length`), which the `tinyrna_features` job checks when it writes the Features Sheet. Precedence between these sources is described in [docs/configuration.md](../docs/configuration.md#effective-precedence).
 
 ## Tests
 

@@ -28,6 +28,7 @@ class TinyrnaGffTest(unittest.TestCase):
     def run_script(self, gff=GFF, chr_map=CHR_MAP):
         (self.dir / 'mirna.gff3').write_text(gff)
         (self.dir / 'chr_map.tsv').write_text(chr_map)
+        (self.dir / 'out.gff3').unlink(missing_ok=True)  # each run (and subtest) starts without an earlier output
         return subprocess.run([sys.executable, str(SCRIPT), '--mirna-gff', str(self.dir / 'mirna.gff3'), '--chr-map',
                                str(self.dir / 'chr_map.tsv'), '--output', str(self.dir / 'out.gff3')], capture_output=True, text=True)
 
@@ -74,12 +75,34 @@ class TinyrnaGffTest(unittest.TestCase):
         self.assertIn('# rows miRNA 2', lines)
         self.assertIn('# coalesced (a mature miRNA at the same locus and strand under another hairpin) 1', lines)
 
-    def test_a_mature_mirna_at_one_locus_with_different_attributes_stops(self):
-        second = 'chr1\t.\tmiRNA\t30\t51\t.\t+\t.\tID=MIMAT0000001;Alias=MIMAT0000001;Name=rno-miR-1a-5p;Derives_from=MI0000009\n'
+    def test_attribute_order_does_not_matter_when_coalescing(self):
+        second = 'chr1\t.\tmiRNA\t30\t51\t.\t+\t.\tName=rno-miR-1-5p;ID=MIMAT0000001;Derives_from=MI0000009;Alias=MIMAT0000001\n'
         result = self.run_script(GFF.replace('chrUn_JH584304', second + 'chrUn_JH584304', 1))
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn('MIMAT0000001 at 1:30-51 (+) is listed twice with different attributes', result.stderr)
-        self.assertFalse((self.dir / 'out.gff3').exists())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        mature = [line.split('\t')[8] for line in (self.dir / 'out.gff3').read_text().splitlines() if '\tmiRNA\t' in line]
+        self.assertEqual(mature[0], 'ID=MIMAT0000001;Alias=MIMAT0000001;Name=rno-miR-1-5p;Derives_from=MI0000001,MI0000009')
+
+    def test_a_mature_mirna_at_one_locus_with_different_attributes_stops(self):
+        for attrs in ('ID=MIMAT0000001;Alias=MIMAT0000001;Name=rno-miR-1a-5p;Derives_from=MI0000009',  # another Name
+                      'ID=MIMAT0000001;Alias=MIMAT0000009;Name=rno-miR-1-5p;Derives_from=MI0000009',  # another Alias
+                      'ID=MIMAT0000001_1;Alias=MIMAT0000009;Name=rno-miR-1-5p;Derives_from=MI0000009'):  # suffixed ID
+            with self.subTest(attrs=attrs):
+                second = 'chr1\t.\tmiRNA\t30\t51\t.\t+\t.\t{}\n'.format(attrs)
+                result = self.run_script(GFF.replace('chrUn_JH584304', second + 'chrUn_JH584304', 1))
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('MIMAT0000001 at 1:30-51 (+) is listed twice with different attributes', result.stderr)
+                self.assertFalse((self.dir / 'out.gff3').exists())
+
+    def test_a_mature_row_without_id_stops_in_either_order(self):
+        mature = next(line for line in GFF.splitlines(keepends=True) if '\tmiRNA\t' in line)
+        for empty in ('ID=;', ''):
+            broken = mature.replace('ID=MIMAT0000001;', empty)
+            for rows in (mature + broken, broken + mature):
+                with self.subTest(empty=empty, first=rows.splitlines()[0][-30:]):
+                    result = self.run_script(GFF.replace(mature, rows))
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn('mature miRNA without ID', result.stderr)
+                    self.assertFalse((self.dir / 'out.gff3').exists())
 
     def test_concurrent_builds_of_the_same_reference_do_not_collide(self):
         (self.dir / 'mirna.gff3').write_text(GFF)

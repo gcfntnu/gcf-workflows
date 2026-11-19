@@ -6,9 +6,10 @@ by mirflowz's chromosome map (scripts/mirflowz_chr_map.py) to the genome's (`1`)
 and `miRNA` rows are kept; rows on chromosomes the map removes (no target: they belong to no sequence of the assembly)
 are dropped, and a chromosome missing from the map stops. One mature miRNA listed at the same locus and strand under
 several hairpin entries (miRBase 23.1: mouse mmu-mir-669a-1 and -4 both carry miR-669a-5p and -3p) becomes one row
-with every parent in Derives_from, so the locus is counted once; such rows differing in anything but ID and
-Derives_from stop. Distinct mature loci receive unique IDs: repeated IDs gain an unused numeric suffix, and the original
-accession remains available as the alias.
+with every parent in Derives_from, so the locus is counted once. Rows are matched by ID without a numeric suffix;
+such rows differing in any other attribute (in any order), including Alias, stop, as does a mature row without ID.
+Distinct mature loci receive unique IDs: repeated IDs gain an unused numeric suffix, and the original accession
+remains available as the alias.
 
 The header records the source files and their SHA-256 checksums.
 
@@ -61,24 +62,26 @@ def attributes(text):
 
 
 def coalesce(rows):
-    """(rows, merged): mature rows of one accession at the same locus and strand as one row with every parent."""
+    """(rows, merged): mature rows of one miRBase ID (without a numeric suffix) at the same locus and strand as one row
+    with every parent. Every mature row needs a non-empty ID; attribute order does not matter."""
     kept, first, merged = [], {}, 0
     for fields in rows:
-        attrs = dict(attributes(fields[8]))
-        if fields[2] != 'miRNA' or 'ID' not in attrs:
-            kept.append(fields)  # a mature row without ID stops in rename()
+        if fields[2] != 'miRNA':
+            kept.append(fields)
             continue
-        accession = attrs.get('Alias') or re.sub(r'_\d+$', '', attrs['ID'])
-        key = (accession, fields[0], fields[3], fields[4], fields[6])
+        identifier = dict(attributes(fields[8])).get('ID')
+        if not identifier:
+            fail('mature miRNA without ID: {}'.format(fields[8]))
+        key = (re.sub(r'_\d+$', '', identifier), fields[0], fields[3], fields[4], fields[6])
         if key not in first:
             first[key] = fields
             kept.append(fields)
             continue
         other = first[key]
-        rest = [[(k, v) for k, v in attributes(f[8]) if k not in ('ID', 'Derives_from')] for f in (other, fields)]
+        rest = [sorted((k, v or '') for k, v in attributes(f[8]) if k not in ('ID', 'Derives_from')) for f in (other, fields)]
         if rest[0] != rest[1] or [other[i] for i in (1, 5, 7)] != [fields[i] for i in (1, 5, 7)]:
             fail('{} at {}:{}-{} ({}) is listed twice with different attributes: {} and {}'.format(
-                accession, fields[0], fields[3], fields[4], fields[6], other[8], fields[8]))
+                key[0], fields[0], fields[3], fields[4], fields[6], other[8], fields[8]))
         parents = []
         for f in (other, fields):
             parents += [p for p in (dict(attributes(f[8])).get('Derives_from') or '').split(',') if p and p not in parents]
