@@ -227,6 +227,30 @@ def test_metrics_on_perfect_spilling_and_isomir_dropping_methods(tmp_path, mirba
     assert 0 <= r2_group <= 1 and 0 <= r2_nuisance <= 1
 
 
+def test_spill_onto_an_absent_relative_of_a_de_mirna_is_a_false_call(tmp_path, mirbase):
+    # each row tests the miRNAs passing the count filter in its own counts, as an analysis would: a method that puts a
+    # share of a DE miRNA's reads on an absent relative tests that relative, finds the same fold change and calls it
+    files, _ = mirbase
+    truth, samples, mirnas, _ = generate(tmp_path, files)
+    T, S, M = tables(truth, samples, mirnas)
+    perfect = collections.defaultdict(float)
+    for r in T:
+        if r['mature_id']:
+            perfect[(r['sample'], r['mature_id'])] += r['count']
+    common = [('perfect', s, '', i, c) for (s, i), c in perfect.items()]
+    ev0 = gm.Evaluation(common, T, S, M, ['perfect'])
+    source = next(i for i, v in sorted(ev0.de['truth'].items()) if v[0] and i in ev0.true_de)
+    shadow = 'MIMAT0000001'   # a miRNA absent from the truth
+    common += [('shadow', s, '', i, c) for (s, i), c in perfect.items()]
+    common += [('shadow', s, '', shadow, 0.5 * c) for (s, i), c in perfect.items() if i == source]
+    ev = gm.Evaluation(common, T, S, M, ['perfect', 'shadow'])
+    assert shadow in ev.de_units and shadow not in ev.de['truth'] and ev.de['shadow'][shadow][0]
+    p, s = (ev.mixed_metrics(name, ev.units, ev.pairs, ev.de_units, ev.dev_units) for name in ('perfect', 'shadow'))
+    assert s['de_tested'] == p['de_tested'] + 1 and s['de_fdr'] > p['de_fdr'] and s['de_sensitivity'] == p['de_sensitivity']
+    calls = {c[0]: c for c in ev.false_calls('shadow')}
+    assert set(calls) == {c[0] for c in ev.false_calls('perfect')} | {shadow} and calls[shadow][1] == 0 and calls[shadow][2] > 0
+
+
 def test_loader_and_fill_for_genome_mode(tmp_path):
     base = {'name': 'syn_genome', 'kind': 'synthetic', 'organism': 'homo_sapiens', 'libprepkit': 'Bioo Scientific NEXTflex Small RNA-Seq Kit v4',
             'adapter': ADAPTER, 'methods': ['tinyrna'], 'data': 'benchmark/smallrna/syn_genome', 'synthetic': dict(SPEC),

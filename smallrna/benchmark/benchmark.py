@@ -796,7 +796,7 @@ def md_table(header, rows):
             ['| ' + ' | '.join(map(str, row)) + ' |' for row in rows])
 
 
-GENOME_KEYS = ['recovered', 'precision', 'exact', 'misassigned', 'unplaced', 'near_spill', 'deviation_correlation',
+GENOME_KEYS = ['recovered', 'precision', 'exact', 'misassigned', 'unplaced', 'near_spill', 'deviation_correlation', 'de_tested',
                'de_sensitivity', 'de_fdr', 'de_fc_error', 'de_sensitivity_adjusted', 'de_fdr_adjusted', 'de_fc_error_adjusted',
                'structure_group_r2', 'structure_nuisance_r2', 'coexpression']
 GENOME_CI_KEYS = ['recovered', 'precision', 'exact', 'misassigned', 'near_spill', 'deviation_correlation', 'de_sensitivity', 'de_fdr',
@@ -813,12 +813,14 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
         fail('missing: {}'.format(', '.join(missing)))
     mature = synthetic.read_mature(mature_fa, prefix)
     id_to_seq = {accession: seq for accession, seq in mature.values()}
+    id_to_name = {accession: name for name, (accession, _) in mature.items()}
     methods = list(spec['methods'])
     gff = args.mirflowz_gff or (mirflowz_annotation(ext_dir, spec) if 'mirflowz' in methods else None)
     raw = common_table(args, project, bench, spec, ext_dir, methods, mature, gff)
     common, _ = biological.collapse(raw, id_to_seq)
     truth, samples, mirnas = (read_tsv(bench / n) for n in ('truth.tsv', 'samples.tsv', 'mirnas.tsv'))
     ev = genome_metrics.Evaluation(common, truth, samples, mirnas, methods)
+    label = lambda i: id_to_name.get(i) or ev.mirnas.get(i, {}).get('mature_name') or i
     rows = ['truth'] + methods
     point = {name: ev.mixed_metrics(name, ev.units, ev.pairs, ev.de_units, ev.dev_units) for name in rows}
     probes = {name: ev.probes(name) for name in rows}
@@ -834,19 +836,18 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
     per = []
     for i in ev.units:
         k = ev.index[i]
-        m = ev.mirnas.get(i, {})
-        per.append([m.get('mature_name', ''), i, rnd(float(ev.t[k].sum()))] + [rnd(float(ev.o[name][k].sum())) for name in methods])
+        per.append([label(i), i, rnd(float(ev.t[k].sum()))] + [rnd(float(ev.o[name][k].sum())) for name in methods])
     write_tsv(bench / 'per_mirna.tsv', ['mature_name', 'mature_id', 'truth'] + methods, per)
     mixed = len(ev.mixed)
-    de_n = sum(1 for i in ev.de_units if ev.mirnas.get(i, {}).get('de') == '1')
     lines = ['# {}'.format(spec['name']), '',
              '{} ({}), genome-wide synthetic reads (#412): {} mixed samples in two groups, {} probe samples; {} truth miRNAs, '
              'identical sequences counted as one. `truth` is the truth counts analysed as a method: the best the design allows.'.format(
                  spec['organism'], spec['libprepkit'], mixed, len(samples) - mixed,
                  sum(1 for m in mirnas if float(m['base_per_million']) > 0)), '',
-             '## Metrics', '', 'Mixed samples (definitions in genome_metrics.py); DE over {} miRNAs with at least {} truth reads '
-             'on average, {} of them truly DE; `probe_*`: probe samples, recovery per read class.'.format(
-                 len(ev.de_units), genome_metrics.DE_MIN, de_n), ''] + md_table(['metric'] + rows, metric_rows)
+             '## Metrics', '', 'Mixed samples (definitions in genome_metrics.py). DE: each row tests the miRNAs with at least {} '
+             'reads on average in its own counts, as an analysis of them would (`de_tested`); {} miRNAs are truly DE, and a call on '
+             'any other miRNA is false. `probe_*`: probe samples, recovery per read class.'.format(
+                 genome_metrics.DE_MIN, len(ev.true_de)), ''] + md_table(['metric'] + rows, metric_rows)
     strata = {name: ev.strata(name) for name in rows}
     names = sorted({k for v in strata.values() for k in v})
     lines += ['', '## Recovery by stratum', ''] + md_table(
@@ -861,16 +862,21 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
         k = [(float(ev.o[name][ev.index[i]].sum()), i) for i in ev.units if float(ev.t[ev.index[i]].sum()) == 0]
         top = sorted(k, reverse=True)[:5]
         if top and top[0][0] > 0:
-            absent.append('- {}: '.format(name) + ', '.join('{} ({:.0f})'.format(ev.mirnas.get(i, {}).get('mature_name') or i, v)
-                                                               for v, i in top if v > 0))
+            absent.append('- {}: '.format(name) + ', '.join('{} ({:.0f})'.format(label(i), v) for v, i in top if v > 0))
     if absent:
         lines += ['', '## Reads on miRNAs absent from the truth (top 5, mixed samples)', ''] + absent
+    false = [(name, ev.false_calls(name)) for name in rows]
+    if any(calls for _, calls in false):
+        lines += ['', '## False DE calls', '', 'Calls on miRNAs not designed DE: reads per mixed sample in the truth and in the '
+                  'row\'s counts, and the estimated log2 fold change.', '']
+        lines += ['- {}: '.format(name) + ', '.join('{} ({:.1f} → {:.1f} reads, {:+.2f})'.format(label(i), tm, om, est)
+                                                    for i, tm, om, est in calls) for name, calls in false if calls]
     extra, record, ci_lines = bootstrap(
-        args, point, lambda units, pairs, de_units, dev_units: {name: ev.mixed_metrics(name, units, pairs, de_units, dev_units) for name in rows},
+        args, {name: {k: rnd(v) for k, v in point[name].items()} for name in rows}, lambda units, pairs, de_units, dev_units: {name: ev.mixed_metrics(name, units, pairs, de_units, dev_units) for name in rows},
         lambda rng: (uncertainty.resample(rng, ev.units), uncertainty.resample(rng, ev.pairs), uncertainty.resample(rng, ev.de_units),
                      uncertainty.resample(rng, ev.dev_units)),
-        rows, GENOME_CI_KEYS, 'the miRNAs (each with all mixed samples), the near-identical pairs, and the DE and deviation miRNAs '
-        '(DE calls made once on all miRNAs; unplaced, structure, coexpression and probes without an interval)')
+        rows, GENOME_CI_KEYS, 'the miRNAs (each with all mixed samples), the near-identical pairs, the miRNAs any row tests for DE '
+        'and the deviation miRNAs (DE calls made once; unplaced, structure, coexpression and probes without an interval)')
     evaluation.publish(bench, ['metric'] + rows, metric_rows, lines + ci_lines, run_reads(project), extra, record)
     print(bench / 'report.md')
 

@@ -11,10 +11,12 @@ Mixed samples (`kind` mixed in samples.tsv), per method, over units: every miRNA
   over the samples, observed against truth, as one Pearson correlation.
 - DE (`de_*`): counts normalised by median-of-ratios size factors, log2(normalised + 1), a linear model per miRNA with
   the group (and, `_adjusted`, the nuisance factor's true sample scores), and a moderated t: the residual variance
-  shrunk towards the median with PRIOR_DF prior degrees of freedom. Benjamini-Hochberg over the miRNAs with at least
-  DE_MIN truth reads on average; called at FDR. sensitivity and fdr against the true DE miRNAs; fc_error: median
-  |observed - true log2 fold change| of the true DE miRNAs. The `truth` row is the same analysis of the truth counts:
-  the best this design allows.
+  shrunk towards the median with PRIOR_DF prior degrees of freedom. Each row tests the miRNAs with at least DE_MIN
+  reads on average in its own counts, as an analysis of them would (de_tested), so reads spilled onto a relative of a
+  DE miRNA can make a false call; Benjamini-Hochberg over them, called at FDR. The true DE miRNAs are those designed
+  DE with at least DE_MIN truth reads on average: sensitivity is the share of them called, fdr the share of calls on
+  any miRNA not designed DE (absent ones included); fc_error: median |observed - true log2 fold change| of the true
+  DE miRNAs the row tests. The `truth` row is the same analysis of the truth counts: the best this design allows.
 - structure: the top two principal components of the centred log2 normalised counts (miRNAs with at least DETECT
   reads); r2 of each true factor (group, nuisance) regressed on them. coexpression: Spearman correlation between the
   method's and the truth's miRNA-miRNA correlations (miRNAs with at least COEXP reads).
@@ -134,17 +136,19 @@ class Evaluation:
         self.o = {m: np.array([[self.observed.get((m, s, i), 0.0) for s in self.mixed] for i in self.units]) for m in self.methods}
         self.index = {i: k for k, i in enumerate(self.units)}
         self.pairs = [(i, m['near_identical'].split(',')) for i, m in self.mirnas.items() if m['near_role'] in ('high', 'alone')]
-        self.de_units = [i for i in self.units if self.t[self.index[i]].mean() >= DE_MIN]
         self.dev_units = [i for i in self.units if self.t[self.index[i]].mean() >= DETECT]
+        self.true_de = {i for i in self.units if self.mirnas.get(i, {}).get('de') == '1' and self.t[self.index[i]].mean() >= DE_MIN}
         self.de = {name: self.de_tests(name) for name in ['truth'] + self.methods}
+        self.de_units = sorted({i for tests in self.de.values() for i in tests})
 
     def counts(self, name):
         return self.t if name == 'truth' else self.o[name]
 
     def de_tests(self, name):
-        """{unit: (called, called adjusted, estimate, estimate adjusted)} for the DE units."""
+        """{unit: (called, called adjusted, estimate, estimate adjusted)} for the miRNAs this row tests: at least DE_MIN
+        reads on average in its own counts."""
         matrix = self.counts(name)
-        rows = np.array([self.index[i] for i in self.de_units])
+        rows = np.flatnonzero(matrix.mean(axis=1) >= DE_MIN)
         if not len(rows):
             return {}
         sf = size_factors(matrix[rows])
@@ -155,9 +159,15 @@ class Evaluation:
         plain = moderated_t(y, np.column_stack([np.ones_like(group), group]))
         adjusted = moderated_t(y, np.column_stack([np.ones_like(group), group, nuisance]))
         q, qa = bh(plain[1]), bh(adjusted[1])
-        for k, i in enumerate(self.de_units):
-            out[i] = (q[k] <= FDR, qa[k] <= FDR, float(plain[0][k]), float(adjusted[0][k]))
+        for k, r in enumerate(rows):
+            out[self.units[r]] = (bool(q[k] <= FDR), bool(qa[k] <= FDR), float(plain[0][k]), float(adjusted[0][k]))
         return out
+
+    def false_calls(self, name):
+        """[(unit, truth mean, observed mean, estimate)] of the row's DE calls on miRNAs not designed DE."""
+        o = self.counts(name)
+        return [(i, float(self.t[self.index[i]].mean()), float(o[self.index[i]].mean()), v[2])
+                for i, v in sorted(self.de[name].items()) if v[0] and self.mirnas.get(i, {}).get('de') != '1']
 
     def mixed_metrics(self, name, units, pairs, de_units, dev_units):
         o = self.counts(name)
@@ -183,13 +193,13 @@ class Evaluation:
             dt, do = lt - lt.mean(axis=1, keepdims=True), lo - lo.mean(axis=1, keepdims=True)
             out['deviation_correlation'] = float(np.corrcoef(dt.ravel(), do.ravel())[0, 1])
         tests = self.de[name]
-        truth_de = {i: self.mirnas.get(i, {}).get('de') == '1' for i in de_units}
+        de = [i for i in de_units if i in self.true_de]
+        out['de_tested'] = sum(1 for i in de_units if i in tests)
         for suffix, called_at, estimate_at in (('', 0, 2), ('_adjusted', 1, 3)):
             called = [i for i in de_units if tests.get(i, (False,) * 4)[called_at]]
-            de = [i for i in de_units if truth_de[i]]
-            tp = sum(1 for i in called if truth_de[i])
-            out['de_sensitivity' + suffix] = tp / len(de) if de else float('nan')
-            out['de_fdr' + suffix] = (len(called) - tp) / len(called) if called else 0.0
+            false = sum(1 for i in called if self.mirnas.get(i, {}).get('de') != '1')
+            out['de_sensitivity' + suffix] = sum(1 for i in de if tests.get(i, (False,) * 4)[called_at]) / len(de) if de else float('nan')
+            out['de_fdr' + suffix] = false / len(called) if called else 0.0
             errors = [abs(tests[i][estimate_at] - float(self.mirnas[i]['log2fc'])) for i in de if i in tests]
             out['de_fc_error' + suffix] = float(np.median(errors)) if errors else float('nan')
         return out

@@ -185,11 +185,16 @@ the best the design allows) as a column:
   `deviation_correlation` (each miRNA's log counts around its mean, observed against truth).
 - **Differential expression:** median-of-ratios size factors, log2(normalised + 1), a linear model per miRNA with the
   group (and, `_adjusted`, the true nuisance scores), a moderated t (the residual variance shrunk towards the median,
-  4 prior degrees of freedom), Benjamini-Hochberg at 5%. Reported as `de_sensitivity`, `de_fdr` and `de_fc_error`
-  (median |observed - true log2 fold change| of the true DE miRNAs). DESeq2 and edgeR are #414.
+  4 prior degrees of freedom), Benjamini-Hochberg at 5%. Each method tests the miRNAs with at least 10 reads on
+  average in its own counts, as an analysis of them would (`de_tested`), so reads spilled onto a relative of a DE miRNA
+  can make a false call. Reported as `de_sensitivity`, `de_fdr` (calls on any miRNA not designed DE, absent ones
+  included; the report lists them) and `de_fc_error` (median |observed - true log2 fold change| of the true DE
+  miRNAs). DESeq2 and edgeR are #414.
 - **Structure:** `structure_group_r2` and `structure_nuisance_r2` (each true factor regressed on the top two principal
   components) and `coexpression` (agreement of the miRNA-miRNA correlations).
-- **Probe samples:** `probe_<class>`, the recovery of each read class, control subtracted.
+- **Probe samples:** `probe_<class>`, the recovery of each read class, control subtracted. A generated read can also be
+  an isomiR of another mature (a 2-nt 3′ trim of miR-320d-3p is the 5′ 17 nt of the miR-320 family). The truth keeps
+  its origin, which no counting method can know, so all methods lose such reads to a relative.
 
 The report also gives recovery by stratum (unique, near-identical, multi-locus, identical sequences, low abundance),
 each probe class's misplaced reads, and the miRNAs absent from the truth that receive reads.
