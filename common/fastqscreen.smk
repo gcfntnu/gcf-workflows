@@ -1,6 +1,8 @@
 #-*- mode: snakemake -*-
 """
 """
+from shlex import quote
+
 include: 
     join(GCFDB_DIR, 'illumina.db')
 include: 
@@ -16,6 +18,16 @@ rule illumina_fasta:
         'cat {input} > {output}'
 
 
+# FastQ Screen treats whitespace as a field separator in DATABASE records. Each screening
+# job uses its own shadow directory, so its project index can have a fixed relative alias.
+PROJECT_SCREEN_DB = None
+if config.get('ref_dir') and ORG not in ('homo_sapiens', 'n/a') and config['db']['reference_db'] in (
+        'ensembl', '10xgenomics', 'custom_reference', 'refseq', 'gencode'):
+    PROJECT_SCREEN_DB = join(config['ref_dir'], 'index', 'genome', 'bowtie2')
+PROJECT_SCREEN_ALIAS = 'project_bowtie2_index'
+PROJECT_SCREEN_SETUP = f'ln -s -- {quote(abspath(PROJECT_SCREEN_DB))} {PROJECT_SCREEN_ALIAS} && ' if PROJECT_SCREEN_DB else ''
+
+
 def fastq_screen_indexes(*args, **kw):
    """ Return name and index for screening databases.
    """
@@ -23,7 +35,9 @@ def fastq_screen_indexes(*args, **kw):
    INDEXES = {'Human': join(HUMAN_ENSEMBL_DIR, 'index', 'genome', 'bowtie2', 'genome.1.bt2')}
    org = config.get('organism')
    if org not in ['homo_sapiens', 'N/A', 'n/a']:
-      if config['db'].get('reference_db') in ['ensembl', '10xgenomics']:
+      if PROJECT_SCREEN_DB:
+         INDEXES[org] = join(PROJECT_SCREEN_DB, 'genome.1.bt2')
+      elif config['db'].get('reference_db') in ['ensembl', '10xgenomics']:
          release = config['db']['ensembl']['release']
          assembly = config['db']['ensembl']['assembly']
          index = join(EXT_DIR, 'ensembl', 'release-{}'.format(release), org, assembly, 'index', 'genome', 'bowtie2', 'genome.1.bt2')
@@ -40,19 +54,25 @@ def fastq_screen_indexes(*args, **kw):
    INDEXES['Adaptors/Primers'] = join(EXT_DIR, 'illumina', 'adaptors_ext', 'index', 'adaptors_ext', 'bowtie2', 'adaptors_ext.1.bt2')
    return INDEXES
 
+def fastq_screen_databases(wildcards, input):
+    records = []
+    for name, index in input.items():
+        prefix = abspath(str(index).removesuffix('.1.bt2'))
+        if PROJECT_SCREEN_DB and name == ORG:
+            prefix = join(PROJECT_SCREEN_ALIAS, 'genome')
+        records.append(f'DATABASE {name.title()} {prefix}')
+    return records
+
+
 rule fastq_screen_config:
     input:
         unpack(fastq_screen_indexes)
     output:
         fn = temp(os.path.abspath('fastq_screen.config'))
-    run:
-        import os
-        with open(output.fn, 'w') as fh:
-           for db_name, index in input.items():
-              index_dir = os.path.dirname(index)
-              base = os.path.basename(index).split('.')[0]
-              index_base = os.path.join(index_dir, base)
-              fh.write('DATABASE {} {}\n'.format(db_name.title(), index_base))
+    params:
+        databases = fastq_screen_databases
+    shell:
+        "printf '%s\\n' {params.databases:q} > {output.fn:q}"
 
 
 rule fastq_screen:
@@ -62,6 +82,7 @@ rule fastq_screen:
    output:
        join(QC_INTERIM, 'fastq_screen', '{sample}_screen.txt')
    params:
+       project_setup = PROJECT_SCREEN_SETUP,
        args = '-q --force',
        subset = 400000,
        outdir = join(QC_INTERIM, 'fastq_screen')
@@ -72,7 +93,7 @@ rule fastq_screen:
    shadow:
        'minimal'
    shell:
-       'fastq_screen '
+       '{params.project_setup}fastq_screen '
        '--aligner bowtie2 '
        '--threads {threads} '
        '--conf {input.config} '

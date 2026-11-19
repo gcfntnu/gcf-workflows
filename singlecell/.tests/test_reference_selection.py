@@ -15,9 +15,9 @@ DB_DEFAULTS = yaml.safe_load((WORKFLOW.parents[1] / 'main.config').read_text())[
 COUNT_TARGET = '_tmp_libA/outs/web_summary.html'
 
 
-def dry_run(work, organism, target='multiqc_report', expect_success=True, **settings):
-    config = dict(workflow='singlecell', organism=organism, project_id=['SYNTHETIC'], libprepkit=TENX_KIT,
-                  machine='Synthetic sequencer', read_geometry=[28, 90],
+def dry_run(work, organism, target='multiqc_report', expect_success=True, workflow_file=WORKFLOW, kit=TENX_KIT, **settings):
+    config = dict(workflow=workflow_file.stem, organism=organism, project_id=['SYNTHETIC'], libprepkit=kit,
+                  machine='NextSeq 500', read_geometry=[28, 90],
                   samples={'libA': {'R1': 'libA_R1.fastq.gz', 'R2': 'libA_R2.fastq.gz'}}, **settings)
     (work / 'config.yaml').write_text(yaml.safe_dump(config))
     (work / 'pep.yaml').write_text('pep_version: 2.0.0\nsample_table: samples.csv\n')
@@ -26,7 +26,7 @@ def dry_run(work, organism, target='multiqc_report', expect_success=True, **sett
     fastqs.mkdir(parents=True)
     for read in config['samples']['libA'].values():
         (fastqs / read).touch()
-    (work / 'Snakefile').write_text(f'pepfile: "pep.yaml"\nconfigfile: "config.yaml"\ninclude: {str(WORKFLOW)!r}\n')
+    (work / 'Snakefile').write_text(f'pepfile: "pep.yaml"\nconfigfile: "config.yaml"\ninclude: {str(workflow_file)!r}\n')
     assert not (work / 'data/ext').exists()
     result = subprocess.run([sys.executable, '-m', 'snakemake', '-n', '-p', '--cores', '1', target],
                             cwd=work, env=protected_env(work), capture_output=True, text=True, timeout=120)
@@ -118,6 +118,33 @@ def test_project_directory_through_reporting(tmp_path, ref, organism):
     assert_build_and_count(log, ref)
     assert_gene_metadata(log, ref)
     assert 'refdata-gex-' not in log
+
+
+@pytest.mark.parametrize('workflow_file,kit,rule', [
+    (WORKFLOW, TENX_KIT, 'singlecell_fastq_screen'),
+    (WORKFLOW.parents[1] / 'rnaseq/rnaseq.smk', 'Lexogen SENSE Total RNA-Seq Library Prep Kit (w/RiboCop rRNA Depletion Kit V1.2)', 'fastq_screen'),
+])
+def test_project_genome_in_fastq_screen(tmp_path, workflow_file, kit, rule):
+    ref = Path('refs/panel two')
+    write_panel(tmp_path, ref)
+    target = f'data/tmp/{workflow_file.stem}/qc/fastq_screen/libA_screen.txt'
+    log = dry_run(tmp_path, 'synthetic_organism', target, workflow_file=workflow_file, kit=kit, ref_dir=str(ref),
+                  db={'reference_db': 'ensembl', 'ensembl': {'release': None}})
+    assert f'rule {rule}:' in log
+    index_dir = ref / 'index/genome/bowtie2'
+    build = next(shlex.split(line) for line in log.splitlines() if 'bowtie2-build ' in line and str(ref) in line)
+    assert build[-2:] == [str(ref / 'fasta/genome.fa'), str(index_dir / 'genome')]
+
+    records = next(shlex.split(line) for line in log.splitlines() if 'DATABASE Synthetic_Organism ' in line)
+    project_prefix = next(record.split()[2] for record in records if record.startswith('DATABASE Synthetic_Organism '))
+    human_dir = tmp_path / 'data/ext/ensembl' / f"release-{DB_DEFAULTS['ensembl']['release']}" / 'homo_sapiens/GRCh38'
+    assert f'DATABASE Human {human_dir}/index/genome/bowtie2/genome' in records
+    assert 'release-None' not in log
+    # The same per-job shell invocation installs the directory alias and starts FastQ Screen.
+    screen = next(shlex.split(line) for line in log.splitlines() if '&& fastq_screen ' in line)
+    pos = screen.index('ln')
+    assert screen[pos:pos + 7] == ['ln', '-s', '--', str(tmp_path / index_dir), str(Path(project_prefix).parent), '&&', 'fastq_screen']
+    assert Path(project_prefix).name == 'genome'
 
 
 @pytest.mark.parametrize('missing', ['fasta/genome.fa', 'anno/genes.gtf'])

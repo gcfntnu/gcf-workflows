@@ -154,7 +154,7 @@ rule bowtie2_index:
     container:
         'docker://' + config['docker']['bowtie2']
     shell:
-        'bowtie2-build --threads {threads} {input} {params.index}'
+        'bowtie2-build --threads {threads} {input:q} {params.index:q}'
 
 rule bbmap_index:
     input:
