@@ -105,6 +105,25 @@ def test_tables_join_samples_and_count_a_read_on_several_mirnas_once(tmp_path):
         ('iso-22-A', 'hsa-miR-21-5p', ['4', '0']), ('iso-22-A', 'hsa-miR-590-5p', ['4', '0']),  # by UID, then the whole line
         ('iso-22-B', 'hsa-miR-21-5p', ['10', '3']), ('iso-23-C', 'hsa-miR-16-5p', ['7', '0']), ('iso-24-D', 'hsa-miR-16-5p', ['0', '1'])]
     assert mirna.read_text() == 'miRNA\tS1\tS2\nhsa-miR-21-5p\t14\t3\nhsa-miR-16-5p\t7\t1\n'  # miR-590-5p gets none
+    assert sorted(p.name for p in tmp_path.iterdir() if p.is_file()) == ['joined.tsv', 'mirna.tsv']  # no temporary files left
+
+
+def test_tables_reach_their_final_paths_only_when_complete(tmp_path, monkeypatch):
+    """An interrupted write leaves no table at the final path, and an earlier complete table stays as it was."""
+    sys.path.insert(0, str(SCRIPTS))
+    import smrnaseq_counts
+    target = tmp_path / 'mirna.tsv'
+    target.write_text('earlier\n')
+
+    class Interrupted(Exception):
+        pass
+
+    def stop(*args, **kwargs):
+        raise Interrupted
+    monkeypatch.setattr(smrnaseq_counts.os, 'replace', stop)
+    with pytest.raises(Interrupted):
+        smrnaseq_counts.write_table(str(target), [['miRNA', 'S1'], ['hsa-miR-21-5p', 1]])
+    assert target.read_text() == 'earlier\n' and [p.name for p in tmp_path.iterdir()] == ['mirna.tsv']
 
 
 @pytest.mark.parametrize('content, message', [

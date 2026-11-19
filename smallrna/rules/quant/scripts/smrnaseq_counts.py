@@ -12,11 +12,14 @@ bin/collapse_mirtop.r):
   such a read counts in full for the miRNA whose line sorts first; the counts are then summed per miRNA (`--mirna`).
 
 Counts are written as integers. The sample columns follow --tables, whose names come from each table's last column.
+Each table is written to a temporary file beside it and renamed into place when complete, so an interrupted run never
+leaves a partial table at the final path (the benchmark reads mirna.tsv outside Snakemake).
 
 Usage: smrnaseq_counts.py --tables S1/mirtop.tsv S2/mirtop.tsv --joined joined_samples_mirtop.tsv --mirna mirna.tsv
 """
 import argparse
 import csv
+import os
 import sys
 
 ANNOTATION = ('UID', 'Read', 'miRNA', 'Variant', 'iso_5p', 'iso_3p', 'iso_add3p', 'iso_snp',
@@ -79,6 +82,18 @@ def collapse(header, lines):
     return samples, totals
 
 
+def write_table(path, rows):
+    """Rows to path, through a temporary sibling renamed into place once written."""
+    tmp = '{}.tmp{}'.format(path, os.getpid())
+    try:
+        with open(tmp, 'w', newline='') as fh:
+            csv.writer(fh, delimiter='\t', lineterminator='\n').writerows(rows)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     parser.add_argument('--tables', nargs='+', required=True)
@@ -89,16 +104,9 @@ def main(argv=None):
         header, lines = join(read_table(p) for p in args.tables)
     except ValueError as e:
         sys.exit('smrnaseq_counts.py: {}'.format(e))
-    with open(args.joined, 'w', newline='') as fh:
-        w = csv.writer(fh, delimiter='\t', lineterminator='\n')
-        w.writerow(header)
-        w.writerows(lines)
+    write_table(args.joined, [header] + lines)
     samples, totals = collapse(header, lines)
-    with open(args.mirna, 'w', newline='') as fh:
-        w = csv.writer(fh, delimiter='\t', lineterminator='\n')
-        w.writerow(['miRNA'] + samples)
-        for mirna, counts in totals.items():
-            w.writerow([mirna] + counts)
+    write_table(args.mirna, [['miRNA'] + samples] + [[mirna] + counts for mirna, counts in totals.items()])
 
 
 if __name__ == '__main__':
