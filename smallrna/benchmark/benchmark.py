@@ -266,12 +266,66 @@ def write_tsv(path, header, rows):
     Path(path).write_text('\t'.join(header) + '\n' + ''.join('\t'.join(str(v) for v in row) + '\n' for row in rows))
 
 
+def scored_samples(spec, bench):
+    """The samples scoring uses: the truth's (synthetic) or benchmark/samples.tsv's (pools, biological)."""
+    if spec['kind'] == 'synthetic':
+        return {row['sample'] for row in read_tsv(bench / 'truth.tsv')}
+    return {row['sample'] for row in read_tsv(bench / 'samples.tsv')}
+
+
+def check_methods(project, spec, config):
+    """Stop before scoring when the project's configured samples or a method's count table do not have exactly the
+    samples scoring uses (column order free; a sample missing would be scored as zero), or, for datasets declaring a
+    miRBase release (pools, biological), when the method annotated with another miRNA database or release than the one
+    the truth and names come from (#407)."""
+    quant = project / 'data/tmp/smallrna/quant'
+    samples = scored_samples(spec, project / 'benchmark')
+    configured = set(config.get('samples') or {})
+    if configured != samples:
+        fail('the project\'s configured samples differ from the benchmark\'s{}{}; prepare the project again'.format(
+            '; not configured ' + ', '.join(sorted(samples - configured)) if samples - configured else '',
+            '; not in the benchmark ' + ', '.join(sorted(configured - samples)) if configured - samples else ''))
+    problems = []
+    for method in spec['methods']:
+        if method not in adapters.TABLES:
+            fail('no sample and release check for method {}: add its count table to adapters.TABLES'.format(method))
+        try:
+            found = adapters.table_samples(method, quant)
+        except FileNotFoundError as e:
+            fail('{}: count table missing ({}); run `snakemake quant_all` there'.format(method, e.filename))
+        if len(set(found)) != len(found) or set(found) != samples:
+            missing, extra = sorted(samples - set(found)), sorted(set(found) - samples)
+            problems.append('{}: table samples differ from the benchmark\'s{}{}{}'.format(
+                method, '; missing ' + ', '.join(missing) if missing else '', '; extra ' + ', '.join(extra) if extra else '',
+                '; repeated columns' if len(set(found)) != len(found) else ''))
+        if 'mirbase' in spec:
+            try:
+                database, release = adapters.method_mirbase(method, quant)
+            except FileNotFoundError as e:
+                fail('{}: reference record missing ({}); run `snakemake quant_all` there'.format(method, e.filename))
+            except ValueError as e:
+                fail('{}: {}'.format(method, e))
+            expected = str(spec['mirbase']['release'])
+            if method in adapters.TABLE_BOUND_RECORDS:
+                try:
+                    recorded = adapters.method_record(method, quant, ('table_sha256',))['table_sha256']
+                except ValueError as e:
+                    fail('{}: {}; run `snakemake quant_all` there'.format(method, e))
+                if recorded != adapters.table_sha256(method, quant):
+                    problems.append('{}: reference record was written for another count table; run `snakemake quant_all` there'.format(method))
+            if database != 'mirbase' or release != expected:
+                problems.append('{}: annotated with {} {}, but the dataset declares miRBase {}'.format(method, database, release, expected))
+    if problems:
+        fail('; '.join(problems))
+
+
 def evaluate(args):
     project = Path(args.project)
     bench = project / 'benchmark'
     spec = load_dataset(bench / 'dataset.yaml')
     config = yaml.safe_load((project / 'config.yaml').read_text())
     ext_dir = Path(config['ext_dir'])
+    check_methods(project, spec, config)
     if spec['kind'] == 'pool':
         return evaluate_pool(args, project, bench, spec, ext_dir)
     if spec['kind'] == 'biological':

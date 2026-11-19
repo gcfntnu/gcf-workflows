@@ -35,6 +35,12 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    method's counts in one table), `per_mirna.tsv` (pools: `per_sequence.tsv` and `filter_stages.tsv`), `metrics.tsv`
    and `report.md`; with UNITAS, `unitas_names.tsv` (how each UNITAS name was placed, below). UNITAS names are placed
    with the project's UNITAS reference dump (`db.unitas` under `EXT_DIR`, read only; `--unitas-ref` names another).
+   Before scoring, it stops when a method's count table does not have exactly the project's samples (a missing sample
+   would count as zero), or, for pools and biological datasets, when the method's `quant/<method>/reference.tsv` names
+   another miRNA database or release than the dataset's `mirbase.release` (#407). UNITAS and miRge3 record their
+   reference's release; `quant_reference` records it for mirflowz, TEsmall and tiny-count (`db.mirbase.release`, or `NA`
+   for a `db.mirflowz.custom` reference) and nf-core/smrnaseq (`db.mirbase.release`), with the SHA-256 of the count
+   table it was written after, which must match the table.
 
 ## Datasets
 
