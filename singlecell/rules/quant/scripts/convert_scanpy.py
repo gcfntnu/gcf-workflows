@@ -64,6 +64,7 @@ _LIBRARY_INFO_BLACKLIST = [
 ]
 _FEATURE_INFO_BLACKLIST = ["source", "start", "end", "strand", "gene_version", "level", "hgnc_id", "expression_type", "feature_type",
                           "havana_gene", "transcript_type", "havana_transcript", "ccdsid", "ont", "gene_source", "gene_name"]
+_FEATURE_IDENTIFIER_COLUMNS = ("gene_id", "gene_ids", "feature_id", "id", "gene_symbol", "gene_symbols")
 _BARCODE_INFO_BLACKLIST = ["flowcell_id", "r1", "r2", "wells"]
 _GENE_SYMBOL_ALIASES = ["gene_symbols", "gene_symbol", "gene_name", "gene_names", "names", "name", "symbols", "symbol"]
 
@@ -171,6 +172,25 @@ def _sniff_sep(path: pathlib.Path) -> str:
             return "\t"   # safe default in bio data
         return "\t" if "\t" in sample else ","
 
+def _optional_feature_text(value):
+    return value if value else None
+
+
+def _check_feature_ids(ids, path):
+    if ids.isna().any():
+        raise ValueError(f"{path}: gene_id contains missing values")
+    if ids.str.strip().eq("").any():
+        raise ValueError(f"{path}: gene_id contains empty values")
+
+
+def _matrix_feature_table(path):
+    # Only the ID and symbol bypass pandas' numeric and NA inference.
+    frame = pd.read_csv(path, sep="\t", header=None, skip_blank_lines=False,
+                        converters={0: str, 1: _optional_feature_text})
+    _check_feature_ids(frame[0], path)
+    return frame
+
+
 def _feature_info_reader(
     fn,
     *,
@@ -195,7 +215,10 @@ def _feature_info_reader(
 
     fn = pathlib.Path(fn)
     sep = _sniff_sep(fn)
-    df = pd.read_csv(fn, sep=sep)
+    headers = pd.read_csv(fn, sep=sep, nrows=0).columns
+    text_fields = {*_FEATURE_IDENTIFIER_COLUMNS, *_GENE_SYMBOL_ALIASES}
+    converters = {col: _optional_feature_text for col in headers if col.lower() in text_fields}
+    df = pd.read_csv(fn, sep=sep, converters=converters)
 
     # Require gene_id (case-insensitive), normalize to 'gene_id'
     cols_lower = {c.lower(): c for c in df.columns}
@@ -224,11 +247,7 @@ def _feature_info_reader(
         df = df[keep_cols]
 
     # Index: lowercase name, string type, unique
-    if df["gene_id"].isna().any():
-        raise ValueError(f"{fn}: gene_id contains missing values")
-    df["gene_id"] = df["gene_id"].astype(str).str.strip()
-    if df["gene_id"].eq("").any():
-        raise ValueError(f"{fn}: gene_id contains empty values")
+    _check_feature_ids(df["gene_id"], fn)
     df.set_index("gene_id", inplace=True)
     df.index.name = "gene_id"
 
@@ -951,7 +970,7 @@ def load_velocity_source(velocyto_dir, feature_filename, source):
 
     barcodes = pd.Index(pd.read_csv(required["barcodes"], header=None).iloc[:, 0].astype(str), name="barcode")
     features = pd.Index(
-        pd.read_csv(required["features"], sep="\\t", header=None).iloc[:, 0].astype(str), name="gene_id"
+        _matrix_feature_table(required["features"])[0], name="gene_id"
     )
 
     if not barcodes.is_unique:
@@ -1033,7 +1052,7 @@ def attach_matching_count_layer(data, matrix_dir, feature_filename, layer, sourc
         name="barcode",
     )
     features = pd.Index(
-        pd.read_csv(required["features"], sep="\t", header=None).iloc[:, 0].astype(str),
+        _matrix_feature_table(required["features"])[0],
         name="gene_id",
     )
 
@@ -1112,15 +1131,24 @@ def read_cellranger(fn, args, add_sample_id=True, **kw):
     if str(fn).endswith(".h5"):
         dir_name = os.path.dirname(fn)
         data = sc.read_10x_h5(fn)
+        _check_feature_ids(data.var["gene_ids"], fn)
         data.var["gene_symbol"] = list(data.var_names)
         data.var_names = list(data.var["gene_ids"])
         data.var.index.name = "gene_id"
     else:
         mtx_dir = os.path.dirname(fn)
         dir_name = os.path.dirname(mtx_dir)
-        data = sc.read_10x_mtx(mtx_dir, gex_only=not args.no_gex_only, var_names="gene_ids")
-        data.var["gene_ids"] = list(data.var_names)
-        data.var.index.name = "gene_id"
+        # Scanpy reads MEX feature IDs with pandas inference. Restore the literal axis
+        # before selecting Gene Expression rows, keeping Scanpy's matrix and barcode handling.
+        legacy_features = pathlib.Path(mtx_dir) / "genes.tsv"
+        feature_file = legacy_features if legacy_features.is_file() else pathlib.Path(mtx_dir) / "features.tsv.gz"
+        features = _matrix_feature_table(feature_file)
+        data = sc.read_10x_mtx(mtx_dir, gex_only=False, var_names="gene_ids")
+        data.var_names = pd.Index(features[0].values, name="gene_id")
+        data.var["gene_symbols"] = features[1].values
+        data.var["gene_ids"] = features[0].values
+        if "feature_types" in data.var and not args.no_gex_only:
+            data = data[:, data.var["feature_types"] == "Gene Expression"].copy()
 
     sample_id = os.path.basename(os.path.dirname(dir_name)) if add_sample_id else None
 
@@ -1426,10 +1454,10 @@ def read_starsolo(fn, args, **kw):
             validate="one_to_one",
         )
 
-    try:
-        features = pd.read_csv(join(mtx_dir, "features.tsv"), sep="\t", dtype=str, header=None, index_col=0)
-    except:
-        features = pd.read_csv(join(mtx_dir, "genes.tsv"), sep="\t", dtype=str, header=None, index_col=0)
+    feature_path = pathlib.Path(mtx_dir) / "features.tsv"
+    if not feature_path.is_file():
+        feature_path = pathlib.Path(mtx_dir) / "genes.tsv"
+    features = _matrix_feature_table(feature_path).set_index(0)
     if features.shape[1] == 2:
         features.columns = ["gene_symbols", "expression_type"]
     elif features.shape[1] == 1:
@@ -1545,7 +1573,7 @@ def read_star(fn, args, **kw):
             "unspliced": unspliced,
             "ambiguous": ambiguous,
         }
-    genes = pd.read_csv(os.path.join(mtx_dir, "features.tsv"), header=None, sep="\t")
+    genes = _matrix_feature_table(os.path.join(mtx_dir, "features.tsv"))
     barcodes = pd.read_csv(os.path.join(mtx_dir, "barcodes.tsv"), header=None)[0].values
     data.var_names = genes[0].values
     data.var["gene_symbols"] = genes[1].values
@@ -1663,7 +1691,7 @@ def read_cellbender(fn, args, analyzed_barcodes_only=False, **kw):
         gene_id_valid = gene_id is not None and gene_id.notna().all()
         if gene_id_valid:
             gene_id_str = gene_id.astype(str)
-            gene_id_valid = (~gene_id_str.isin({"", "NA", "nan", "None"})).all() and gene_id_str.is_unique
+            gene_id_valid = gene_id_str.str.strip().ne("").all() and gene_id_str.is_unique
 
         if gene_id_valid:
             data.var["gene_name"] = data.var_names.copy()
@@ -2361,6 +2389,17 @@ def anndata_friendly_dtypes(
             continue
 
         # ------------------------------------------------------------
+        # Protected identifiers: never infer numeric/bool/category
+        # ------------------------------------------------------------
+        if col in protect_cols:
+            out[col] = (
+                s.astype("string")
+                if allow_string_dtype
+                else s.astype(object)
+            )
+            continue
+
+        # ------------------------------------------------------------
         # Existing categoricals
         # ------------------------------------------------------------
         if isinstance(s.dtype, pd.CategoricalDtype):
@@ -2396,17 +2435,6 @@ def anndata_friendly_dtypes(
         # ------------------------------------------------------------
         if s.dtype.kind in {"U", "S"}:
             s = s.astype(object)
-
-        # ------------------------------------------------------------
-        # Protected identifiers: never infer numeric/bool/category
-        # ------------------------------------------------------------
-        if col in protect_cols:
-            out[col] = (
-                s.astype("string")
-                if allow_string_dtype
-                else s.astype(object)
-            )
-            continue
 
         # ------------------------------------------------------------
         # Object / string-like metadata
@@ -2878,7 +2906,7 @@ if __name__ == "__main__":
         data.var = drop_ci_identical_same_name(data.var)
         data.var = anndata_friendly_dtypes(
             data.var,
-            protect_cols=("gene_id", "feature_id", "id"),
+            protect_cols=_FEATURE_IDENTIFIER_COLUMNS,
             allow_string_dtype=False  # old anndata in sctk dislikes pd.StringDtype
         )
     order_cols = [col for col in data.obs.columns if col.endswith("_order")]
