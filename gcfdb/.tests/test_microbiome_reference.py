@@ -99,3 +99,13 @@ class MicrobiomeReferenceTests(unittest.TestCase):
         planned = self.dry_run(str(target))
         self.assertIn('checkpoint qiime2_run_regions:', planned)
         self.assertIn('Updated input files: ' + str(archives[0]), planned)
+
+    def test_independent_ensembl_qc_reference_in_reporting(self):
+        self.configure(ensembl={'release': None})
+        self.prepare_archives([r for r in self.primers if r.startswith('V')])
+        planned = self.dry_run('multiqc_report')
+        release = yaml.safe_load((ROOT / 'main.config').read_text())['db']['ensembl']['release']
+        self.assertIn('rule multiqc_report:', planned)
+        self.assertIn(f'data/ext/ensembl/release-{release}/homo_sapiens/GRCh38/index/genome/bowtie2/genome.1.bt2', planned)
+        self.assertIn(f'ftp.ensembl.org/pub/release-{release}/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz', planned)
+        self.assertNotIn('release-None', planned)
