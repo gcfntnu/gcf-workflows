@@ -217,6 +217,68 @@ def test_managed_count_and_gene_metadata_share_verified_snapshot(tmp_path, organ
     assert (local_snapshot / changed).read_bytes() != replacement.read_bytes()
 
 
+def test_managed_refetch_after_partial_cache_loss(tmp_path):
+    work = tmp_path / 'work'
+    work.mkdir()
+    ext = tmp_path / 'ext'
+    cold = dry_run(work, 'salmo_salar', ext_dir=str(ext))
+    publish = shell_command(cold, 'cellranger mkref ')
+    source = Path(publish[publish.index('--source-dir') + 1])
+    write_panel(tmp_path, source)
+    env = protected_env(work)
+    env['PATH'] = str(MOCK_TOOLS) + os.pathsep + env['PATH']
+    subprocess.run([sys.executable, *publish[1:]], cwd=work, env=env, check=True)
+    receipt = Path(publish[publish.index('--receipt') + 1])
+    fasta = source / 'fasta/genome.fa'
+    gtf = source / 'anno/genes.gtf'
+
+    for run in range(2):
+        # The first obsolete generation is gone. The next is intact, and the refetch
+        # returns the same bytes. Each pending download must precede reference selection.
+        generation = (work / receipt.parent / 'index').resolve(strict=True)
+        if run == 0:
+            generation.rename(tmp_path / 'old-index')
+            old = gtf.stat()
+            gtf.write_bytes(gtf.read_bytes() + b'\n')
+            os.utime(gtf, ns=(old.st_atime_ns, old.st_mtime_ns))
+        content = fasta.read_bytes()
+        fasta.unlink()
+        recovery = plan_existing(work, 'multiqc_report')
+        assert 'rule ensembl_genome:' in recovery
+        publish = shell_command(recovery, 'cellranger mkref ')
+        new_receipt = Path(publish[publish.index('--receipt') + 1])
+        assert new_receipt != receipt
+        assert '--expected-source' not in publish
+        assert arguments(recovery, 'cellranger count ', '--transcriptome') == {str(new_receipt.parent / 'index')}
+        assert_managed_gene_metadata(recovery, new_receipt)
+        assert 'rule multiqc_report:' in recovery
+
+        # Stand in for the getter and mkref, retaining the provider's old mtimes.
+        fasta.write_bytes(content)
+        os.utime(fasta, (100, 100))
+        subprocess.run([sys.executable, *publish[1:]], cwd=work, env=env, check=True)
+        warm = plan_existing(work, 'multiqc_report')
+        assert 'rule cellranger_mkref:' not in warm
+        assert arguments(warm, 'cellranger count ', '--transcriptome') == {str(new_receipt.parent / 'index')}
+        assert_managed_gene_metadata(warm, new_receipt)
+        subprocess.run(shell_command(warm, 'stage_project_annotation.sh'), cwd=work, check=True)
+        local = work / new_receipt.parent / 'annotation'
+        assert (local / 'anno/genes.gtf').read_bytes() == gtf.read_bytes()
+        for name in ('fasta/genome.fa.fai', 'anno/exons.gtf', 'anno/exons.bed', 'fasta/exons.fa', 'anno/genes.tsv'):
+            (local / name).write_text('previous result')
+        if run == 0:
+            # Retain completed count outputs and their real Snakemake provenance without running Cell Ranger.
+            outputs = re.search(r'^rule cellranger_quant_:\n    input: .+\n    output: (.+)$', warm, re.MULTILINE).group(1)
+            for name in outputs.split(', '):
+                path = work / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.touch()
+            subprocess.run([sys.executable, '-m', 'snakemake', '--cores', '1', '--touch', '--force', COUNT_TARGET],
+                           cwd=work, env=env, check=True, capture_output=True, text=True)
+            assert 'Nothing to be done' in plan_existing(work, COUNT_TARGET)
+        receipt = new_receipt
+
+
 def test_vendor_default_release_through_reporting(tmp_path):
     log = dry_run(tmp_path, 'homo_sapiens')
     release = DB_DEFAULTS['10xgenomics']['release']

@@ -22,18 +22,26 @@ if build_10x_reference:
     if not config.get('ref_dir'):
         managed_ref = os.path.relpath(REF_DIR, EXT_DIR)
         CR_VIEW = join(views, managed_ref, CR_BUILD_KEY)
-        # A retained link identifies its generation even if the old cache was removed.
-        if CR_EXPECTED_SOURCE:
+        # A missing getter input has no content identity yet. Reserve a fresh local view
+        # so the getter and publisher precede counting and annotation even after an earlier run.
+        refetches = join(CR_VIEW, 'refetch')
+        attempt = 0
+        if os.path.isdir(refetches):
+            attempt = max((int(name) for name in os.listdir(refetches) if name.isdecimal()), default=0)
+        if attempt:
+            CR_VIEW = join(refetches, str(attempt))
+        if CR_EXPECTED_SOURCE is None and os.path.lexists(CR_VIEW):
+            CR_VIEW = join(refetches, str(attempt + 1))
+        elif CR_EXPECTED_SOURCE:
+            # Keep the latest cold/refetch view when it published the currently selected pair.
             cold_pin = join(CR_VIEW, 'index')
             expected_index = join(CR_CACHE, CR_EXPECTED_SOURCE, CR_BUILD_KEY)
             if os.path.islink(cold_pin) and os.path.abspath(join(CR_VIEW, os.readlink(cold_pin))) == expected_index:
                 CR_EXPECTED_SOURCE = None
-        if CR_EXPECTED_SOURCE is None:
-            verify_cellranger_receipt(join(CR_VIEW, 'ready'), CR_CACHE, REFERENCE_SOURCE_CHECKSUMS, CR_GENOME, CR_IMAGE)
     if CR_EXPECTED_SOURCE:
         CR_VIEW = join(views, CR_EXPECTED_SOURCE, CR_BUILD_KEY)
-        verify_cellranger_receipt(join(CR_VIEW, 'ready'), CR_CACHE, REFERENCE_SOURCE_CHECKSUMS, CR_GENOME, CR_IMAGE)
     CR_RECEIPT = join(CR_VIEW, 'ready')
+    verify_cellranger_receipt(CR_RECEIPT, CR_CACHE, REFERENCE_SOURCE_CHECKSUMS, CR_GENOME, CR_IMAGE)
     CR_REF_DIR = join(CR_VIEW, 'index')
     CR_REFERENCE_INPUTS = [CR_RECEIPT]
 
