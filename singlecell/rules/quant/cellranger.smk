@@ -35,13 +35,13 @@ rule cellranger_gtf:
 if not USE_10X_PREBUILT:
     rule cellranger_mkref:
         input:
-            fasta = get_genome(),
-            gtf = get_gtf()
+            fasta = join(CR_SOURCE, 'fasta', 'genome.fa'),
+            gtf = join(CR_SOURCE, 'anno', 'genes.gtf')
         output:
             CR_RECEIPT
         params:
             script = join(GCFDB_DIR, 'scripts', 'build_cellranger_reference.py'),
-            source = REF_DIR,
+            source = CR_SOURCE,
             cache = CR_CACHE,
             expected = ['--expected-source', CR_EXPECTED_SOURCE] if CR_EXPECTED_SOURCE else [],
             name = CR_GENOME,

@@ -52,17 +52,12 @@ def arguments(log, command, flag):
     return values
 
 
-def assert_build_and_count(log, ref):
+def assert_build_and_count(log, ref, work):
     assert arguments(log, 'cellranger mkref ', '--fasta') == {f'{ref}/fasta/genome.fa'}
     assert arguments(log, 'cellranger mkref ', '--genes') == {f'{ref}/anno/genes.gtf'}
-    assert arguments(log, 'cellranger mkref ', '--cache') == {f'{ref}/cellranger/builds'}
+    assert arguments(log, 'cellranger mkref ', '--cache') == {str((work / ref / 'cellranger/builds').resolve())}
     receipt, = arguments(log, 'cellranger mkref ', '--receipt')
-    expected = Path(receipt).parent / 'index'  # A managed build pins the completed generation here.
-    if '--expected-source' in next(line for line in log.splitlines() if 'cellranger mkref ' in line):
-        source, = arguments(log, 'cellranger mkref ', '--expected-source')
-        build_key = Path(receipt).parent.name
-        expected = Path(ref) / 'cellranger/builds' / source / build_key
-    assert arguments(log, 'cellranger count ', '--transcriptome') == {str(expected)}
+    assert arguments(log, 'cellranger count ', '--transcriptome') == {str(Path(receipt).parent / 'index')}
 
 
 def assert_gene_metadata(log, ref):
@@ -86,7 +81,7 @@ def test_ensembl_fallback_through_reporting(tmp_path, organism, assembly, settin
     assert f'source=ensembl release={release} assembly={assembly}' in log
     assert f'{organism.capitalize()}.{assembly}.dna.toplevel.fa.gz' in log
     assert f'{organism.capitalize()}.{assembly}.{release}.gtf.gz' in log
-    assert_build_and_count(log, ref)
+    assert_build_and_count(log, ref, tmp_path)
     # Keep the assembly in the paths and provenance, but pass a valid Cell Ranger genome identifier.
     assert arguments(log, 'cellranger mkref ', '--genome') == {assembly.replace('.', '_')}
     receipt, = arguments(log, 'cellranger mkref ', '--receipt')
@@ -114,7 +109,7 @@ def test_ensembl_genomes_fallback_and_workdir_release_change(tmp_path):
         assert f'Ensembl DNA,release-{selected},{genome_url}' in log and f'Ensembl GTF,release-{selected},{gtf_url}' in log
         assert f'source=ensemblgenomes release={selected} assembly={assembly}' in log and 'division=plants' in log
         location = f'ensemblgenomes/release-{selected}/plants/{organism}/{assembly}'
-        assert_build_and_count(log, f'data/ext/{location}')
+        assert_build_and_count(log, f'data/ext/{location}', tmp_path)
         receipt, = arguments(log, 'cellranger mkref ', '--receipt')
         assert f'/{location}/' in receipt
         assert_managed_gene_metadata(log, Path(receipt))
@@ -232,7 +227,7 @@ def test_project_directory_through_reporting(tmp_path, ref, organism):
         db.update(ensembl={'release': None}, ensemblgenomes={'release': None})
     log = dry_run(tmp_path, organism, ref_dir=ref, db=db)
     assert 'rule multiqc_report:' in log
-    assert_build_and_count(log, ref)
+    assert_build_and_count(log, ref, tmp_path)
     assert_gene_metadata(log, annotation_snapshot(tmp_path / ref)[0])
     assert 'refdata-gex-' not in log
 
@@ -337,7 +332,7 @@ def test_missing_project_reference_input(tmp_path, missing):
 def test_configured_custom_assembly(tmp_path, provider):
     db = {'reference_db': provider, 'custom_reference': {'assembly': 'Rtarandus_2.1'}}
     log = dry_run(tmp_path, 'rangifer_tarandus', COUNT_TARGET, db=db)
-    assert_build_and_count(log, 'data/ext/custom_reference/rangifer_tarandus/Rtarandus_2.1')
+    assert_build_and_count(log, 'data/ext/custom_reference/rangifer_tarandus/Rtarandus_2.1', tmp_path)
     if provider == 'ensembl':
         assert re.search(r'no hits in ensembl lookup file.*custom_reference', log, re.I)
 
@@ -357,9 +352,13 @@ def test_retained_project_index_requires_current_build_identity(tmp_path, change
         work.mkdir()
         log = dry_run(work, 'homo_sapiens', COUNT_TARGET, ref_dir=str(ref),
                       db={'10xgenomics': {'assembly': assembly}}, docker={'cellranger': image})
-        assert_build_and_count(log, str(ref))
-        directory, = arguments(log, 'cellranger count ', '--transcriptome')
-        return Path(directory)
+        assert_build_and_count(log, ref, work)
+        command = shell_command(log, 'cellranger mkref ')
+        env = protected_env(work)
+        env['PATH'] = str(MOCK_TOOLS) + os.pathsep + env['PATH']
+        subprocess.run([sys.executable, *command[1:]], cwd=work, env=env, check=True)
+        transcriptome, = arguments(log, 'cellranger count ', '--transcriptome')
+        return (work / transcriptome).resolve(strict=True)
 
     original = planned_index('legacy')
     record = ''.join(f'{hashlib.sha256((ref / path).read_bytes()).hexdigest()}  {path}\n'
@@ -381,6 +380,27 @@ def test_retained_project_index_requires_current_build_identity(tmp_path, change
     replacement = planned_index('changed', **settings)
     assert replacement != original
     assert (replacement.parent == original.parent) == (changed in ('assembly', 'image'))
+
+
+def test_selected_project_symlink_stays_pinned_after_planning(tmp_path):
+    panel, other, alias = (tmp_path / name for name in ('panel', 'other', 'current'))
+    write_panel(tmp_path, panel)
+    write_panel(tmp_path, other)
+    alias.symlink_to(panel, target_is_directory=True)
+    log = dry_run(tmp_path, 'homo_sapiens', ref_dir=str(alias))
+    assert_build_and_count(log, panel, tmp_path)
+    command = shell_command(log, 'cellranger mkref ')
+    alias.unlink()
+    alias.symlink_to(other, target_is_directory=True)
+    env = protected_env(tmp_path)
+    env['PATH'] = str(MOCK_TOOLS) + os.pathsep + env['PATH']
+    subprocess.run([sys.executable, *command[1:]], cwd=tmp_path, env=env, check=True)
+    transcriptome, = arguments(log, 'cellranger count ', '--transcriptome')
+    generation = (tmp_path / transcriptome).resolve(strict=True)
+    assert generation.is_relative_to(panel / 'cellranger/builds')
+    assert not (other / 'cellranger').exists()
+    metadata = next(line for line in log.splitlines() if line.startswith('Shell command:') and 'stage_project_annotation.sh' in line)
+    assert shlex.join([str(panel / 'fasta/genome.fa'), str(panel / 'anno/genes.gtf')]) in metadata
 
 
 def test_retained_receipt_checks_index_before_count(tmp_path):
@@ -409,7 +429,7 @@ def test_retained_receipt_checks_index_before_count(tmp_path):
     config['ref_dir'] = str(other)
     configfile.write_text(yaml.safe_dump(config))
     switched = plan_existing(tmp_path, COUNT_TARGET)
-    assert_build_and_count(switched, str(other))
+    assert_build_and_count(switched, other, tmp_path)
     other_receipt, = arguments(switched, 'cellranger mkref ', '--receipt')
     assert (tmp_path / other_receipt) != receipt
     assert receipt.resolve(strict=True) == manifest
@@ -421,7 +441,9 @@ def test_retained_receipt_checks_index_before_count(tmp_path):
     same = plan_existing(tmp_path, COUNT_TARGET)
     assert 'cellranger mkref ' not in same
     transcriptome, = arguments(same, 'cellranger count ', '--transcriptome')
-    assert Path(transcriptome).resolve() == manifest.parent
+    alias.unlink()
+    alias.symlink_to(other, target_is_directory=True)
+    assert (tmp_path / transcriptome).resolve(strict=True) == manifest.parent
     configfile.write_text(original_config)
 
     for removed in ('fasta/genome.fa', 'star/genomeParameters.txt', 'star/sjdbInfo.txt'):

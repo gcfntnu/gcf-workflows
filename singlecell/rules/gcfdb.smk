@@ -10,9 +10,13 @@ if build_10x_reference:
     CR_GENOME = re.sub(r'[^A-Za-z0-9_-]', '_', DB_CONF.get('assembly') or ORG)
     CR_IMAGE = config['docker']['cellranger']
     CR_BUILD_KEY = cellranger_build_key(CR_GENOME, CR_IMAGE)
-    CR_CACHE = join(REF_DIR, 'cellranger', 'builds')
+    CR_CACHE = os.path.realpath(join(REF_DIR, 'cellranger', 'builds'))
+    # Keep ordinary project-relative mkref arguments, but resolve project directory symlinks before jobs start.
+    CR_SOURCE = REF_DIR
+    if config.get('ref_dir') and os.path.realpath(REF_DIR) != os.path.abspath(REF_DIR):
+        CR_SOURCE = os.path.realpath(REF_DIR)
     # Equal inputs can live in distinct project caches. A path alias for the same cache shares its pin.
-    cache_key = hashlib.sha256(os.fsencode(os.path.realpath(CR_CACHE))).hexdigest()
+    cache_key = hashlib.sha256(os.fsencode(CR_CACHE)).hexdigest()
     views = join(QUANT_INTERIM, 'reference', 'cellranger', cache_key)
     CR_EXPECTED_SOURCE = REFERENCE_SOURCE_DIGEST
     if not config.get('ref_dir'):
@@ -21,7 +25,7 @@ if build_10x_reference:
         # A retained link identifies its generation even if the old cache was removed.
         if CR_EXPECTED_SOURCE:
             cold_pin = join(CR_VIEW, 'index')
-            expected_index = join(os.path.realpath(CR_CACHE), CR_EXPECTED_SOURCE, CR_BUILD_KEY)
+            expected_index = join(CR_CACHE, CR_EXPECTED_SOURCE, CR_BUILD_KEY)
             if os.path.islink(cold_pin) and os.path.abspath(join(CR_VIEW, os.readlink(cold_pin))) == expected_index:
                 CR_EXPECTED_SOURCE = None
         if CR_EXPECTED_SOURCE is None:
@@ -30,7 +34,7 @@ if build_10x_reference:
         CR_VIEW = join(views, CR_EXPECTED_SOURCE, CR_BUILD_KEY)
         verify_cellranger_receipt(join(CR_VIEW, 'ready'), CR_CACHE, REFERENCE_SOURCE_CHECKSUMS, CR_GENOME, CR_IMAGE)
     CR_RECEIPT = join(CR_VIEW, 'ready')
-    CR_REF_DIR = join(CR_CACHE, CR_EXPECTED_SOURCE, CR_BUILD_KEY) if CR_EXPECTED_SOURCE else join(CR_VIEW, 'index')
+    CR_REF_DIR = join(CR_VIEW, 'index')
     CR_REFERENCE_INPUTS = [CR_RECEIPT]
 
 GENE_TABLE = join(REF_DIR, 'anno', 'genes.tsv')
@@ -47,8 +51,8 @@ if (config.get('ref_dir') and REFERENCE_SOURCE_DIGEST) or managed_metadata:
         # A previous snapshot can itself be selected as the project reference.
         if os.path.realpath(metadata_ref) == os.path.realpath(REF_DIR):
             metadata_ref = join(metadata_ref, 'derived')
-        annotation_source = REF_DIR
-        annotation_inputs = [get_genome(), get_gtf()]
+        annotation_source = CR_SOURCE
+        annotation_inputs = [join(CR_SOURCE, 'fasta', 'genome.fa'), join(CR_SOURCE, 'anno', 'genes.gtf')]
         annotation_checksums = [REFERENCE_SOURCE_CHECKSUMS]
     GENE_TABLE = join(metadata_ref, 'anno', 'genes.tsv')
 

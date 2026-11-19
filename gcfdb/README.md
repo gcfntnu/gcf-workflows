@@ -32,7 +32,8 @@ The directory must contain the augmented FASTA and its matching annotation. Rela
 The builder copies the selected FASTA and GTF into a private working directory, verifies their checksums and runs
 `cellranger mkref --fasta refs/panel-v1/fasta/genome.fa --genes refs/panel-v1/anno/genes.gtf` there.
 Absolute project paths and paths containing `..` are mapped into that private directory. The published index retains the verified originals in `gcf-source/`.
-Count uses `--transcriptome refs/panel-v1/cellranger/builds/<source-digest>/<build-key>`.
+Count passes its workdir’s `index` symlink to `--transcriptome`. The link pins the published generation in `refs/panel-v1/cellranger/builds/<source-digest>/<build-key>`.
+When `ref_dir` is a symlink, the workflow resolves the selected directory before building. Changing the symlink later cannot redirect a planned count.
 The source digest covers the SHA-256 checksums of both files. The build key covers the normalized Cell Ranger genome identifier, configured image and recipe version.
 Workdir receipts distinguish the canonical cache directory, so changing to another prepared directory selects its own index even if the inputs are identical.
 Each complete index and its input manifest are published together. A forced run or a second project reuses a matching generation.
