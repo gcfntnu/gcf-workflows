@@ -29,6 +29,15 @@ The directory must contain the augmented FASTA and its matching annotation. Rela
 | `refs/panel-v1/fasta/genome.fa` | Genome sequences including the reporter contig |
 | `refs/panel-v1/anno/genes.gtf` | Gene annotation including the reporter feature with the same contig name and coordinates |
 
+For a single-exon reporter spanning a 720-base FASTA contig named `reporter`, this tab-delimited GTF record supplies the matching annotation.
+
+```text
+reporter	custom	exon	1	720	.	+	.	gene_id "REPORTER"; transcript_id "REPORTER-T1";
+```
+
+When a gene has only exon records, the report derives one row in `genes.tsv` from its exons and joins it to the AnnData feature with the same `gene_id`.
+Supplied gene records keep their coordinates and attributes.
+
 The builder copies the selected FASTA and GTF into a private working directory, verifies their checksums and runs
 `cellranger mkref --fasta refs/panel-v1/fasta/genome.fa --genes refs/panel-v1/anno/genes.gtf` there.
 Absolute project paths and paths containing `..` are mapped into that private directory. The published index retains the verified originals in `gcf-source/`.
