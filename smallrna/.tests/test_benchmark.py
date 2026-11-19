@@ -777,7 +777,7 @@ def test_prepare_merges_runs_or_keeps_lanes_and_checks_lanes(tmp_path):
     config = yaml.safe_load((tmp_path / 'merged/config.yaml').read_text())
     assert config['samples']['GSM1']['R1'] == 'bio/SRR1_R1.fastq.gz,bio/SRR2_R1.fastq.gz' and config['blockers'] == ['blood miRNA']
     assert 'GSM1,"bio/SRR1_R1.fastq.gz,bio/SRR2_R1.fastq.gz",0' in (tmp_path / 'merged/pep/sample_table.csv').read_text()
-    assert (tmp_path / 'merged/benchmark/samples.tsv').read_text().splitlines()[1] == 'GSM1\tGSM1\tcontrol\tmerged\tSRR1,SRR2\t8\tcopied'
+    assert (tmp_path / 'merged/benchmark/samples.tsv').read_text().splitlines()[1] == 'GSM1\tGSM1\tcontrol\tmerged\tSRR1,SRR2\t8'
     result = subprocess.run(cmd + ['--project', str(tmp_path / 'lanes'), '--lanes'], capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
     assert sorted(yaml.safe_load((tmp_path / 'lanes/config.yaml').read_text())['samples']) == ['GSM1_L1', 'GSM1_L2']
@@ -834,9 +834,15 @@ def test_evaluate_a_biological_dataset_in_lanes(tmp_path):
     assert '## Lane replicates' in report and '| mirna_sample_pairs | 2 | 2 |' in report and '| 100-999 | 0.0% of 2 | 0.0% of 2 |' in report
 
 
+def adapter_report(project, sample, count):
+    """The first cutadapt pass's JSON report of a sample, as far as the summary reads it."""
+    write(project / 'data/tmp/smallrna/filter/cutadapt_stages' / f'{sample}.adapter.json', json.dumps({'read_counts': {'input': count}}))
+
+
 def summary_project(root, name, spec, metrics, samples=None, truth=None):
     """An evaluated project as the summary reads it: config.yaml, benchmark/dataset.yaml, metrics.tsv, samples.tsv
-    (truth.tsv for synthetic data) and report.md."""
+    (truth.tsv for synthetic data), report.md and each sample's first cutadapt report with its `reads` (the truth
+    total for synthetic data; none when empty)."""
     project = root / name
     names = [row[0] for row in samples[1:]] if samples else ['S01', 'S02']
     runs = {name: [name] for name in names}
@@ -852,9 +858,13 @@ def summary_project(root, name, spec, metrics, samples=None, truth=None):
     if truth:
         write(project / 'benchmark/truth.tsv', 'sample\tclass\tmature_name\tmature_id\tsequence\tcount\n' + ''.join(
             '{}\tcanonical\tm\tMIMAT1\tACGT\t{}\n'.format(s, n) for s, n in truth))
+        for sample, count in truth:
+            adapter_report(project, sample, count)
     else:
-        write(project / 'benchmark/samples.tsv', ''.join('\t'.join(row + ['reads_source' if n == 0 else 'copied']) + '\n'
-                                                         for n, row in enumerate(samples)))
+        write(project / 'benchmark/samples.tsv', ''.join('\t'.join(row) + '\n' for row in samples))
+        for row in samples[1:]:
+            if row[samples[0].index('reads')]:
+                adapter_report(project, row[0], int(row[samples[0].index('reads')]))
     return project
 
 
@@ -900,7 +910,7 @@ def test_summary_across_kinds_and_method_sets(tmp_path):
     text = output.read_text()
     assert [line for line in text.splitlines() if line.startswith('## ')] == [
         '## Synthetic data', '## Equimolar pools', '## Ratiometric pools', '## Biological samples']
-    fixed = '| project | dataset | kit | samples | reads | methods |'
+    fixed = '| project | dataset | kit | samples | reads processed | methods |'
     # synthetic: a metric no project has (unplaced) is left out, one a method lacks is an empty cell
     assert fixed + ' recovered: unitas | recovered: tesmall | exact: unitas | misassigned: unitas | misassigned: tesmall |' in text
     assert '| [syn](../projects/syn/benchmark/report.md) | synthetic_set | Kit A | 2 | 100 | unitas, tesmall | 1.0 | 0.9 | 1.0 | 0 | 3 |' in text
@@ -982,13 +992,22 @@ def test_prepare_actual_short_run_and_unknown_merged_counts(tmp_path):
         assert row['reads'] == expected
 
 
-def test_summary_does_not_guess_old_input_counts(tmp_path):
+def test_summary_reads_processed_come_from_the_run_reports(tmp_path):
+    """Not from samples.tsv: a report changed after preparation counts; a sample without a report empties the total;
+    a report without a whole read count stops."""
     import summary
-    project = summary_projects(tmp_path)[1]
+    project = summary_projects(tmp_path)[1]   # eq3: 500,000 and 1,500,000 reads
     table = project / 'benchmark/samples.tsv'
-    table.write_text('\n'.join(line.rsplit('\t', 1)[0] for line in table.read_text().splitlines()) + '\n')
-    _, row = summary.read_project(project, tmp_path)
-    assert row['reads'] == ''
+    table.write_text(table.read_text().replace('500000', '7'))
+    assert summary.read_project(project, tmp_path)[1]['reads processed'] == '2,000,000'
+    adapter_report(project, 'R1', 1000)
+    assert summary.read_project(project, tmp_path)[1]['reads processed'] == '1,501,000'
+    (project / 'data/tmp/smallrna/filter/cutadapt_stages/R2.adapter.json').unlink()
+    assert summary.read_project(project, tmp_path)[1]['reads processed'] == ''
+    for broken in ('{"read_counts": {}}', '{"read_counts": {"input": 2.5}}', '[]', 'not json'):
+        write(project / 'data/tmp/smallrna/filter/cutadapt_stages/R2.adapter.json', broken)
+        with pytest.raises(ValueError, match='R2.adapter.json'):
+            summary.read_project(project, tmp_path)
 
 
 def test_short_and_incomplete_pool_fastqs(tmp_path):
@@ -1044,11 +1063,12 @@ def test_interrupted_first_publication_needs_a_successful_retry(tmp_path, monkey
 
 @pytest.mark.parametrize('problem', ['missing', 'duplicate', 'unexpected'])
 def test_summary_requires_sample_table_to_cover_project(tmp_path, problem):
+    """A biological project's samples.tsv (its lanes) must list the configured samples."""
     import summary
-    project = summary_projects(tmp_path)[1]
+    project = summary_projects(tmp_path)[5]
     table = project / 'benchmark/samples.tsv'
     header, first, second = table.read_text().splitlines()
-    rows = {'missing': [first], 'duplicate': [first, first], 'unexpected': [first, second.replace('R2', 'other')]}
+    rows = {'missing': [first], 'duplicate': [first, first], 'unexpected': [first, second.replace('G2', 'other')]}
     table.write_text('\n'.join([header] + rows[problem]) + '\n')
     with pytest.raises(ValueError, match='exactly one row'):
         summary.write([project], tmp_path / 'summary.md')
@@ -1129,18 +1149,12 @@ def test_evaluation_locks_are_regular_and_exclusive_descriptor_is_writable(tmp_p
     assert modes == [fcntl.LOCK_EX, fcntl.LOCK_SH]
 
 
-def test_legacy_synthetic_summary_rejects_partial_truth_and_explains_metrics(tmp_path):
+def test_synthetic_summary_explains_metrics(tmp_path):
     import summary
     project = summary_projects(tmp_path)[0]
     output = tmp_path / 'overview.md'
     summary.write([project], output)
     assert 'smaller of observed and true counts' in output.read_text() and 'positive-truth pairs' in output.read_text()
-    truth = project / 'benchmark/truth.tsv'
-    header, first, second = truth.read_text().splitlines()
-    for rows in [[first], [first, second.replace('S02', 'other')]]:
-        truth.write_text('\n'.join([header] + rows) + '\n')
-        with pytest.raises(ValueError, match='truth.tsv must cover every configured sample'):
-            summary.write([project], output)
 
 
 def test_summary_follows_links_inside_link_targets_and_publishes_to_checked_parent(tmp_path, monkeypatch):
@@ -1148,9 +1162,9 @@ def test_summary_follows_links_inside_link_targets_and_publishes_to_checked_pare
     project = summary_projects(tmp_path / 'projects')[0]
     storage = tmp_path / 'outside'
     storage.mkdir()
-    (project / 'data').symlink_to(storage)
+    (project / 'archive').symlink_to(storage)
     alias = tmp_path / 'report-alias'
-    alias.symlink_to((project / 'data').relative_to(tmp_path))
+    alias.symlink_to((project / 'archive').relative_to(tmp_path))
     with pytest.raises(ValueError, match='inside the project'):
         summary.write([project], alias / 'overview.md')
     assert list(storage.iterdir()) == []
@@ -1408,73 +1422,6 @@ def test_summary_cli_requires_a_filename_as_the_final_component(tmp_path, traili
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
     assert result.returncode and 'the extension must be .md or .html' in result.stderr
     assert output.read_text() == 'previous summary'
-
-
-@pytest.mark.parametrize('cache', ['match', 'different', 'no_md5'])
-def test_summary_of_linked_runs_requires_verified_declarations(tmp_path, cache):
-    import hashlib
-    import benchmark
-    import evaluation
-    import summary
-
-    ext, dataset, reads = biological_dataset(tmp_path)
-    spec = yaml.safe_load(dataset.read_text())
-    runs = spec['samples'][0]['runs']
-    for run in runs:
-        source = ext / spec['data'] / 'fastq' / (run['run'] + '.fastq.gz')
-        run['md5'] = hashlib.md5(source.read_bytes()).hexdigest()
-    if cache == 'different':
-        runs[0].update(reads=1000, md5=hashlib.md5(b'another FASTQ').hexdigest())
-    if cache == 'no_md5':
-        del runs[0]['md5']
-    write(dataset, yaml.safe_dump(spec))
-    project = tmp_path / 'linked'
-    subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'prepare', '--dataset', str(dataset),
-                    '--ext-dir', str(ext), '--project', str(project)], check=True, capture_output=True, timeout=15)
-    bench = project / 'benchmark'
-    samples = bench / 'samples.tsv'
-    row, = benchmark.read_tsv(samples)
-    evaluation.publish(bench, ['metric', 'unitas'], [['mirna_reads', '7']], ['# Report'])
-    expected = str(len(reads) * len(runs)) if cache == 'match' else ''
-    assert row['reads'] == expected and row['reads_source'] == ('verified_declaration' if expected else '')
-    assert summary.read_project(project, tmp_path)[1]['reads'] == expected
-    if cache == 'match':
-        samples.write_text(samples.read_text().replace('verified_declaration', 'declaration'))
-        assert summary.read_project(project, tmp_path)[1]['reads'] == ''
-
-
-@pytest.mark.parametrize('selection', ['different_inputs', 'same_inputs', 'different_r1', 'environment'])
-def test_declared_fastq_directory_and_r1_must_select_the_counted_runs(tmp_path, selection):
-    import evaluation
-    import summary
-
-    ext, dataset, reads = biological_dataset(tmp_path)
-    spec = yaml.safe_load(dataset.read_text())
-    spec['config']['fastq_dir'] = str(tmp_path / 'override')
-    write(dataset, yaml.safe_dump(spec))
-    project = tmp_path / 'prepared'
-    subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'prepare', '--dataset', str(dataset),
-                    '--ext-dir', str(ext), '--project', str(project), '--reads', '2'], check=True, capture_output=True)
-    config_path = project / 'config.yaml'
-    config = yaml.safe_load(config_path.read_text())
-    override = Path(config['fastq_dir'])
-    for run in spec['samples'][0]['runs']:
-        name = run['run']
-        staged = project / 'data/raw/fastq/bio' / f'{name}_R1.fastq.gz'
-        alternative = override / 'bio' / staged.name
-        alternative.parent.mkdir(parents=True, exist_ok=True)
-        if selection == 'different_inputs':
-            alternative.symlink_to(ext / spec['data'] / 'fastq' / f'{name}.fastq.gz')
-        else:
-            alternative.symlink_to(staged)
-    if selection == 'different_r1':
-        config['samples']['GSM1']['R1'] = 'bio/SRR2_R1.fastq.gz'
-    if selection == 'environment':
-        config['fastq_dir'] = ''
-    config_path.write_text(yaml.safe_dump(config))
-    evaluation.publish(project / 'benchmark', ['metric', 'unitas'], [['mirna_reads', '2']], ['# Report'])
-    row = summary.read_project(project, tmp_path)[1]
-    assert len(reads) > 2 and row['reads'] == ('4' if selection == 'same_inputs' else '')
 
 
 def test_summary_uses_one_selected_project_when_a_directory_link_is_retargeted(tmp_path, monkeypatch):

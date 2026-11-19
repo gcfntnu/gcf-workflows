@@ -43,7 +43,7 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    ```
 
    It has a section per dataset kind (synthetic, equimolar pool, ratiometric pool, biological) with a row per project:
-   its dataset, kit, samples, input reads (from `samples.tsv`, or `truth.tsv` for synthetic data), methods, a link to its
+   its dataset, kit, samples, reads processed, methods, a link to its
    `report.md`, and the kind's key metrics from its `metrics.tsv` per method (and the oracle, where it has values).
    A method not run on a dataset, or a metric missing from its table, is an empty cell. It writes nothing into the
    projects; an output inside one stops it. New evaluations publish `evaluation.json` with checksums for the metrics
@@ -51,12 +51,11 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    New evaluations coordinate readers and writers through a regular lock file in the benchmark directory. Legacy
    summaries can read the existing report and metrics from a read-only project.
    The command prints the canonical summary path to open, including when its directory is a symlink.
-   Rerun `evaluate` on the existing outputs if the pair is incomplete or inconsistent. Preparation records actual
-   copied reads when capped. For an uncapped linked run, preparation reads the compressed FASTQ once to verify its
-   declared MD5 before recording its declared count. The overview uses these counts as of preparation. A missing count,
-   a missing or mismatched checksum, or an older unverified declaration leaves the total empty, including for merged lanes.
-   The total is also empty when the project configuration selects different R1 files or relies on an environment-specific
-   FASTQ location that the overview cannot verify.
+   Rerun `evaluate` on the existing outputs if the pair is incomplete or inconsistent. `reads processed` is the reads
+   the project's run filtered: each sample's input to the first cutadapt pass, from the JSON report the run wrote
+   (`filter/cutadapt_stages/<sample>.adapter.json`, kept with `--notemp`), summed over the samples. It is empty when a
+   sample has no report (another filter route, or the reports were removed), so it never shows a count the evaluated
+   run did not record; `samples.tsv` keeps the reads copied (`--reads`) or declared at preparation.
 
 ## Datasets
 

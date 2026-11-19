@@ -32,7 +32,6 @@ import collections
 import csv
 import errno
 import gzip
-import hashlib
 import json
 import math
 from pathlib import Path
@@ -197,23 +196,14 @@ def head_fastq(source, target, reads):
     return copied
 
 
-def verified_run_reads(run, source):
-    """Use a declared count only when the compressed FASTQ matches its declared MD5."""
-    count, expected = run.get('reads'), run.get('md5')
-    if not str(count).isdecimal() or not expected:
-        return None
-    with source.open('rb') as stream:
-        digest = hashlib.file_digest(stream, 'md5').hexdigest()
-    return int(count) if digest == str(expected).lower() else None
-
-
-def input_read_columns(count, limit):
-    if count is None:
-        return ['', '']
-    return [count, 'copied' if limit is not None else 'verified_declaration']
+def declared_reads(run):
+    count = run.get('reads')
+    return int(count) if str(count).isdecimal() else None
 
 
 def prepare_runs(project, spec, fastqs, runs, limit):
+    """Link or copy (first `limit` reads) each run into the project; {run: reads copied, or the declared count of a
+    linked run, None when not declared}. The summary reports the reads a run processed from its own reports instead."""
     counts = {}
     for run in runs:
         name = run['run']
@@ -221,7 +211,7 @@ def prepare_runs(project, spec, fastqs, runs, limit):
         if limit is None:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.symlink_to(source)
-            counts[name] = verified_run_reads(run, target)
+            counts[name] = declared_reads(run)
         else:
             counts[name] = head_fastq(source, target, limit)
     return counts
@@ -240,8 +230,8 @@ def prepare_pool(spec, project, ext_dir, methods, args):
     bench = write_project(project, spec, ext_dir, samples, read_length, methods)
     rows = pool.truth_groups(pool.read_composition(composition), synthetic.read_mature(mature_fa, PREFIX[spec['organism']]))
     pool.write_pool(bench / 'pool.tsv', rows)
-    write_tsv(bench / 'samples.tsv', ['sample', 'group', 'lab', 'reads', 'reads_source'],
-              [[r['run'], r['group'], r.get('lab', ''), *input_read_columns(counts[r['run']], args.reads)] for r in spec['runs']])
+    write_tsv(bench / 'samples.tsv', ['sample', 'group', 'lab', 'reads'],
+              [[r['run'], r['group'], r.get('lab', ''), '' if counts[r['run']] is None else counts[r['run']]] for r in spec['runs']])
     groups = {g: sum(1 for r in rows if r[2] == g) for g in pool.GROUPS}
     return ('{}: {} runs{}; pool {}; run `snakemake quant_all --notemp` there (the oracle reads the filtered reads), '
           'then `benchmark.py evaluate --project {}`'.format(args.project, len(samples), ', up to {} reads each'.format(args.reads) if args.reads else '',
@@ -306,9 +296,9 @@ def prepare_biological(spec, project, ext_dir, methods, args):
         run_ids = row.pop()
         values = [counts[name] for name in run_ids]
         count = sum(values) if None not in values else None
-        row.extend([','.join(run_ids), *input_read_columns(count, args.reads)])
+        row.extend([','.join(run_ids), '' if count is None else count])
     bench = write_project(project, spec, ext_dir, list(r1), read_length, methods, r1=r1)
-    write_tsv(bench / 'samples.tsv', ['sample', 'library', 'group', 'lane', 'runs', 'reads', 'reads_source'], rows)
+    write_tsv(bench / 'samples.tsv', ['sample', 'library', 'group', 'lane', 'runs', 'reads'], rows)
     return ('{}: {} {}{}; run `snakemake quant_all --notemp` there (the first-base check reads the filtered reads), then '
           '`benchmark.py evaluate --project {}`'.format(args.project, len(r1), 'lane samples' if args.lanes else 'samples',
                                                         ', up to {} reads of each run'.format(args.reads) if args.reads else '', args.project))

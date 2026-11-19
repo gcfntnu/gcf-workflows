@@ -1,7 +1,8 @@
 """Summary across evaluated benchmark projects: one section per dataset kind, a row per project and the kind's key
 metrics per method, read from each project's `benchmark/metrics.tsv` and its configuration (`benchmark/dataset.yaml`,
-`config.yaml`; input reads from `benchmark/samples.tsv`, or `truth.tsv` for synthetic data). Written as Markdown or
-as one self-contained HTML file, by the output's extension; nothing is written into the projects.
+`config.yaml`; lanes from `benchmark/samples.tsv`), with the reads its run processed from the run's cutadapt reports.
+Written as Markdown or as one self-contained HTML file, by the output's extension; nothing is written into the
+projects.
 
 Datasets have different methods, and a metric may be missing from a project's table: both give empty cells.
 """
@@ -9,6 +10,7 @@ from collections import deque
 from contextlib import contextmanager
 import csv
 import html
+import json
 import os
 from pathlib import Path
 import re
@@ -28,10 +30,12 @@ SECTIONS = [
     ('equimolar', 'Equimolar pools', ['detected', 'cv', 'within_2fold', 'spearman_vs_oracle', 'outside', 'unplaced', 'shifted_within_2fold'],
      'Scored `exact` entries share no miRNA accession with any other exact or shifted entry. The metrics are averaged across samples: '
      '`detected` and `cv` across these entries, `within_2fold` and `spearman_vs_oracle` against '
-     'the oracle (the filtered reads counted by exact match to the pool sequences). `outside` and `unplaced` are '
+     'the oracle (the filtered reads counted by exact match to the pool sequences), over the entries the oracle counts in '
+     'that sample only, so a shallow sample with few such entries can reach 1.0; `within_2fold` is the share with '
+     '(method + 1) / (oracle + 1) within 2-fold. `outside` and `unplaced` are '
      'unweighted means of per-sample shares. Each denominator is all miRNA reads the method reported for that sample. '
      'The numerators are reads assigned to accessions with no exact or shifted entry in the analyzed pool and reads on names without a miRBase accession, respectively. '
-     '`shifted_within_2fold`: isomiRs of known amount against the oracle.'),
+     '`shifted_within_2fold`: the same for isomiRs of known amount (shifted entries), also with one added read.'),
     ('ratiometric', 'Ratiometric pools', ['median_abs_error', 'spearman_vs_design', 'called', 'false_calls', 'shifted_called'],
      'Observed log2(A/B) against the design: `median_abs_error`, `spearman_vs_design`, `called` (designed at least 2-fold '
      'apart and observed at least 2-fold in the designed direction), `false_calls` (designed less than 2-fold apart, '
@@ -42,7 +46,7 @@ SECTIONS = [
      'miRNAs detected (at least 10 reads; median over samples) and in every sample, and the share of the 10 most abundant. '
      'Agreement between methods is in each report.'),
 ]
-FIXED = ['project', 'dataset', 'kit', 'samples', 'reads', 'methods']
+FIXED = ['project', 'dataset', 'kit', 'samples', 'reads processed', 'methods']
 
 
 def read_tsv(path):
@@ -50,28 +54,24 @@ def read_tsv(path):
         return list(csv.DictReader(fh, delimiter='\t'))
 
 
-def uses_prepared_inputs(project, config, dataset_name, sample_runs):
-    """Can the recorded counts be attributed to all R1 files selected in this project configuration?"""
-    for sample, runs in sample_runs.items():
-        settings = config['samples'][sample]
-        r1 = settings.get('R1')
-        if not isinstance(r1, str) or not r1 or settings.get('R2'):
-            return False
-        filenames = [Path(name) for name in r1.split(',')]
-        if not config.get('fastq_dir') and any(not name.is_absolute() for name in filenames):
-            return False  # The actual base then depends on the workflow environment.
-        effective = [project / (config.get('fastq_dir') or '') / name for name in filenames]
-        prepared = [project / 'data/raw/fastq' / dataset_name / f'{run}_R1.fastq.gz' for run in runs]
-        if effective == prepared:
-            continue  # Archived projects can have their original reads offline.
-        if len(effective) != len(prepared):
-            return False
+def reads_processed(project, samples):
+    """Reads the project's run filtered, summed over its samples: the input of each sample's first cutadapt pass, from
+    the JSON report the run wrote (`data/tmp/smallrna/filter/cutadapt_stages/<sample>.adapter.json`, kept with
+    `--notemp`). '' when a sample has no report (another filter route, or the reports were removed), so the column never
+    shows a count the evaluated run did not record. A report without a whole read count stops the summary."""
+    total = 0
+    for sample in samples:
+        path = project / 'data/tmp/smallrna/filter/cutadapt_stages' / f'{sample}.adapter.json'
+        if not path.is_file():
+            return ''
         try:
-            if not all(actual.samefile(original) for actual, original in zip(effective, prepared)):
-                return False
-        except OSError:
-            return False
-    return True
+            count = json.loads(path.read_text())['read_counts']['input']
+        except (ValueError, KeyError, TypeError) as error:
+            raise ValueError(f'{path}: no read_counts.input in the cutadapt report ({type(error).__name__}: {error})') from None
+        if type(count) is not int or count < 0:
+            raise ValueError(f'{path}: read_counts.input is {count!r}, not a read count')
+        total += count
+    return '{:,}'.format(total)
 
 
 def read_project(project, out_dir):
@@ -91,26 +91,16 @@ def read_project(project, out_dir):
     config = yaml.safe_load((project / 'config.yaml').read_text())
     configured_samples = config['samples']
     samples = len(configured_samples)
-    if kind == 'synthetic':
-        rows = read_tsv(bench / 'truth.tsv')
-        if {row['sample'] for row in rows} != set(configured_samples):
-            raise ValueError(f'{project}: truth.tsv must cover every configured sample and no others')
-        reads = [row['count'] for row in rows]
-        sample_runs = {sample: [sample] for sample in configured_samples}
-    else:
+    if kind == 'biological':
         rows = read_tsv(bench / 'samples.tsv')
         if len(rows) != samples or {row['sample'] for row in rows} != set(configured_samples):
             raise ValueError(f'{project}: samples.tsv must have exactly one row per configured sample')
-        reads = [row['reads'] if row.get('reads_source') in ('copied', 'verified_declaration') else '' for row in rows]
-        sample_runs = {row['sample']: row['runs'].split(',') if kind == 'biological' else [row['sample']] for row in rows}
-        libraries = {row['library'] for row in rows if row['lane'] != 'merged'} if kind == 'biological' else set()
+        libraries = {row['library'] for row in rows if row['lane'] != 'merged'}
         if libraries:
             samples = '{} lanes of {} samples'.format(samples, len(libraries))
-    if not uses_prepared_inputs(project, config, spec['name'], sample_runs):
-        reads = []
     report = os.path.relpath((bench / 'report.md').resolve(), out_dir)
     return kind, {'project': project.resolve().name, 'link': urllib.parse.quote(report), 'dataset': spec['name'], 'kit': spec['libprepkit'],
-                  'samples': samples, 'reads': '{:,}'.format(sum(int(r) for r in reads)) if reads and all(reads) else '',
+                  'samples': samples, 'reads processed': reads_processed(project, configured_samples),
                   'methods': ', '.join(c for c in columns if c != 'oracle'), 'columns': columns, 'values': values}
 
 
@@ -158,8 +148,10 @@ def summarize(projects, out_dir):
 
 
 INTRO = ('Key metrics of each evaluated project, from its `metrics.tsv`; its `report.md` has them all, and '
-         '`smallrna/benchmark/README.md` defines them. An empty cell: the method was not run on that dataset, or the metric '
-         'is not in its table. `oracle` is the pool reads counted by exact match, the reference for the methods.')
+         '`smallrna/benchmark/README.md` defines them. `reads processed` is the reads the project’s run filtered, from '
+         'its cutadapt reports (empty for another filter route or without the reports). An empty metric cell: the method '
+         'was not run on that dataset, or the metric is not in its table. `oracle` is the pool reads counted by exact '
+         'match, the reference for the methods.')
 
 
 def markdown_cell(value):
@@ -215,7 +207,7 @@ def html_page(sections):
         trs = []
         for row in rows:
             cells = ['<td><a href="{}">{}</a></td>'.format(html.escape(row['link']), html.escape(row['project']))]
-            cells += ['<td{}>{}</td>'.format(' class="num"' if k in ('samples', 'reads') else '', html.escape(str(row[k]))) for k in FIXED[1:]]
+            cells += ['<td{}>{}</td>'.format(' class="num"' if k in ('samples', 'reads processed') else '', html.escape(str(row[k]))) for k in FIXED[1:]]
             cells += ['<td class="num">{}</td>'.format(html.escape(row['values'].get((k, m), ''))) for k, ms in metrics for m in ms]
             trs.append('<tr>{}</tr>'.format(''.join(cells)))
         body += ['<h2>{}</h2>'.format(html.escape(title)), '<p>{}</p>'.format(inline_code(note)),
