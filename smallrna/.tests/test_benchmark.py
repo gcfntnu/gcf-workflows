@@ -977,3 +977,91 @@ def test_short_and_incomplete_pool_fastqs(tmp_path):
     source.write_bytes(gzip.compress((records + '@short\nACGT\n+\n').encode()))
     with pytest.raises(SystemExit, match='incomplete FASTQ record 2'):
         benchmark.head_fastq(source, target, 100)
+
+
+def test_summary_refuses_external_target_of_a_project_input(tmp_path):
+    import summary
+    project = summary_projects(tmp_path / 'projects')[0]
+    report = project / 'benchmark/report.md'
+    external = report.rename(tmp_path / 'external.md')
+    report.symlink_to(external)
+    before = external.read_bytes()
+    with pytest.raises(ValueError, match='aliases one of its inputs'):
+        summary.write([project], external)
+    assert external.read_bytes() == before
+
+
+def test_interrupted_first_publication_needs_a_successful_retry(tmp_path, monkeypatch):
+    import evaluation
+    project = summary_projects(tmp_path)[0]
+    bench = project / 'benchmark'
+    rows = [('exact', 1)]
+    lines = ['| metric | unitas |', '|---|---|', '| exact | 1 |']
+    replace = Path.replace
+
+    def interrupt(path, destination):
+        if path.name == 'evaluation.json':  # Both data files have reached their destination.
+            raise OSError('interrupted')
+        return replace(path, destination)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, 'replace', interrupt)
+        with pytest.raises(OSError, match='interrupted'):
+            evaluation.publish(bench, ['metric', 'unitas'], rows, lines)
+    with pytest.raises(ValueError, match='inconsistent evaluation'):
+        evaluation.read_metrics(bench)
+    (bench / 'evaluation.json').unlink()
+    with pytest.raises(ValueError, match='inconsistent evaluation'):
+        evaluation.read_metrics(bench)
+    evaluation.publish(bench, ['metric', 'unitas'], rows, lines)
+    assert evaluation.read_metrics(bench)[1] == ['exact', '1']
+
+
+@pytest.mark.parametrize('problem', ['missing', 'duplicate', 'unexpected'])
+def test_summary_requires_sample_table_to_cover_project(tmp_path, problem):
+    import summary
+    project = summary_projects(tmp_path)[1]
+    table = project / 'benchmark/samples.tsv'
+    header, first, second = table.read_text().splitlines()
+    rows = {'missing': [first], 'duplicate': [first, first], 'unexpected': [first, second.replace('R2', 'other')]}
+    table.write_text('\n'.join([header] + rows[problem]) + '\n')
+    with pytest.raises(ValueError, match='exactly one row'):
+        summary.write([project], tmp_path / 'summary.md')
+
+
+@pytest.mark.parametrize('bad', ['@bad\nACGT\n+\nI\n', 'bad\nA\n+\nI\n', '@bad\nA\n-\nI\n'])
+def test_bad_capped_preparation_can_be_retried_at_the_same_path(tmp_path, bad):
+    ext, dataset, _ = biological_dataset(tmp_path)
+    spec = yaml.safe_load(dataset.read_text())
+    for run in spec['samples'][0]['runs']:
+        run.pop('lane')
+    write(dataset, yaml.safe_dump(spec))
+    source = ext / 'benchmark/smallrna/bio/fastq/SRR2.fastq.gz'
+    original = source.read_bytes()
+    source.write_bytes(gzip.compress(bad.encode()))
+    project = tmp_path / 'prepared'
+    cmd = [sys.executable, str(BENCH / 'benchmark.py'), 'prepare', '--project', str(project),
+           '--dataset', str(dataset), '--ext-dir', str(ext), '--reads', '100']
+    failed = subprocess.run(cmd, capture_output=True, text=True)
+    assert failed.returncode and 'malformed FASTQ record' in failed.stderr
+    assert not project.exists()
+    source.write_bytes(original)
+    result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+    assert str(project) in result.stdout and (project / 'benchmark/samples.tsv').is_file()
+
+
+def test_summary_cli_prints_canonical_path_and_preserves_underscore_labels(tmp_path):
+    from html import unescape
+    project = summary_projects(tmp_path / 'projects')[0]
+    renamed = project.rename(project.with_name('_set_'))
+    target = tmp_path / 'depth/extra/output'
+    target.mkdir(parents=True)
+    alias = tmp_path / 'alias'
+    alias.symlink_to(target, target_is_directory=True)
+    cmd = [sys.executable, str(BENCH / 'benchmark.py'), 'summary', '--projects', str(renamed), '--output', str(alias / 'page.md')]
+    result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+    page = Path(result.stdout.strip())
+    assert page == target / 'page.md'
+    label, href = next(line.split('](', 1) for line in page.read_text().splitlines() if line.startswith('| ['))
+    assert label == '| [&#95;set&#95;' and unescape(label) == '| [_set_'
+    assert (page.parent / href.split(')', 1)[0]).resolve() == renamed / 'benchmark/report.md'

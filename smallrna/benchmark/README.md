@@ -48,6 +48,7 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    A method not run on a dataset, or a metric missing from its table, is an empty cell. It writes nothing into the
    projects; an output inside one stops it. New evaluations publish `evaluation.json` with checksums for the metrics
    and report. For an older evaluation, the metrics must match the complete metrics table embedded in the report.
+   The command prints the canonical summary path to open, including when its directory is a symlink.
    Rerun `evaluate` on the existing outputs if the pair is incomplete or inconsistent. Preparation records actual
    copied reads when capped and declared counts for linked runs. Missing counts, and totals from older non-synthetic
    preparations without count provenance, appear as empty cells.

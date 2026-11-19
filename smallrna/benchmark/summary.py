@@ -9,6 +9,7 @@ import csv
 import html
 import os
 from pathlib import Path
+import re
 from tempfile import TemporaryDirectory
 import urllib.parse
 
@@ -61,11 +62,14 @@ def read_project(project, out_dir):
     table = evaluation.read_metrics(bench)
     columns = table[0][1:]
     values = {(row[0], c): v for row in table[1:] for c, v in zip(columns, row[1:]) if v != ''}
-    samples = len(yaml.safe_load((project / 'config.yaml').read_text())['samples'])
+    configured_samples = yaml.safe_load((project / 'config.yaml').read_text())['samples']
+    samples = len(configured_samples)
     if kind == 'synthetic':
         reads = [row['count'] for row in read_tsv(bench / 'truth.tsv')]
     else:
         rows = read_tsv(bench / 'samples.tsv')
+        if len(rows) != samples or {row['sample'] for row in rows} != set(configured_samples):
+            raise ValueError(f'{project}: samples.tsv must have exactly one row per configured sample')
         reads = [row['reads'] if row.get('reads_source') in ('copied', 'declaration') else '' for row in rows]
         libraries = {row['library'] for row in rows if row['lane'] != 'merged'} if kind == 'biological' else set()
         if libraries:
@@ -84,9 +88,15 @@ def summarize(projects, output):
     repeated = sorted({n for n in names if names.count(n) > 1})
     if repeated:
         raise ValueError('projects named alike: {}; the summary names a project by its directory'.format(', '.join(repeated)))
-    inside = [str(p) for p in projects if (out_dir / output.name).is_relative_to(p.resolve()) or output.resolve().is_relative_to(p.resolve())]
-    if inside:
-        raise ValueError('the output {} is inside the project {}; the summary writes nothing into the projects'.format(output, inside[0]))
+    destinations = {out_dir / output.name, output.resolve()}
+    for project in projects:
+        bench = project / 'benchmark'
+        inputs = {(project / 'config.yaml').resolve()}
+        inputs.update((bench / name).resolve() for name in
+                      ('dataset.yaml', 'metrics.tsv', 'report.md', 'evaluation.json', 'truth.tsv', 'samples.tsv'))
+        if any(path.is_relative_to(project.resolve()) or path.is_relative_to(bench.resolve()) or path in inputs
+               for path in destinations):
+            raise ValueError(f'the output {output} is inside the project {project} or aliases one of its inputs')
     by_kind = {}
     for project in projects:
         kind, row = read_project(project, out_dir)
@@ -112,7 +122,8 @@ def markdown_cell(value):
     text = html.escape(str(value)).replace('\r', ' ').replace('\n', ' ')
     for character in ('\\', '|', '[', ']', '*', '`', '~'):
         text = text.replace(character, f'&#{ord(character)};')
-    return text
+    # Intraword underscores are literal in GFM. Escape delimiter runs at word boundaries.
+    return re.sub(r'(?<![a-zA-Z0-9])_|_(?![a-zA-Z0-9])', '&#95;', text)
 
 
 def markdown(sections):

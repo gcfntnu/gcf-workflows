@@ -10,6 +10,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 
+REPORT_MARKER = '<!-- benchmark evaluation: see evaluation.json -->'
+
+
 @contextmanager
 def directory_lock(directory, mode):
     fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
@@ -22,14 +25,17 @@ def directory_lock(directory, mode):
 
 def publish(bench, header, rows, lines):
     table = '\n'.join('\t'.join(map(str, row)) for row in [header, *rows]) + '\n'
-    files = {'metrics.tsv': table.encode(), 'report.md': ('\n'.join(lines) + '\n').encode()}
+    files = {'metrics.tsv': table.encode(), 'report.md': ('\n'.join([*lines, '', REPORT_MARKER]) + '\n').encode()}
     digests = {name: hashlib.sha256(data).hexdigest() for name, data in files.items()}
     files['evaluation.json'] = (json.dumps(digests, sort_keys=True) + '\n').encode()
     with TemporaryDirectory(dir=bench) as directory:
         stage = Path(directory)
         for name, data in files.items():
             (stage / name).write_bytes(data)
+        pending = stage / 'pending.json'
+        pending.write_text('{"status":"publishing"}\n')
         with directory_lock(bench, fcntl.LOCK_EX):
+            pending.replace(bench / 'evaluation.json')
             for name in files:  # The completion record is installed last.
                 (stage / name).replace(bench / name)
 
@@ -53,6 +59,8 @@ def read_metrics(bench):
         else:
             # Existing releases embed the entire metrics table in the report. Check
             # that exact table before accepting a pair without a completion record.
+            if REPORT_MARKER.encode() in report:
+                raise ValueError(message)
             lines = ['| ' + ' | '.join(row) + ' |' for row in table]
             lines.insert(1, '|---' * len(table[0]) + '|')
             report_lines = report.decode().splitlines()

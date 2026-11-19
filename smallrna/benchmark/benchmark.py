@@ -30,6 +30,7 @@ Usage: benchmark.py fill --dataset YAML --ext-dir DIR
 import argparse
 import collections
 import csv
+import fcntl
 import gzip
 import json
 import math
@@ -37,6 +38,7 @@ from pathlib import Path
 import shlex
 import statistics
 import sys
+from tempfile import TemporaryDirectory
 
 import yaml
 
@@ -126,7 +128,7 @@ def project_fastq(project, spec, sample):
 def prepare(args):
     spec = load_dataset(args.dataset)
     project, ext_dir = Path(args.project), Path(args.ext_dir).resolve()
-    if project.exists():
+    if project.exists() or project.is_symlink():
         fail('{} exists; choose a new project directory'.format(project))
     methods = args.methods.split(',') if args.methods else list(spec['methods'])
     unknown = [m for m in methods if m not in adapters.ADAPTERS]
@@ -136,7 +138,16 @@ def prepare(args):
         fail('--reads must be a positive integer')
     if getattr(args, 'lanes', False) and spec['kind'] != 'biological':
         fail('--lanes is for biological datasets')
-    {'pool': prepare_pool, 'biological': prepare_biological, 'synthetic': prepare_synthetic}[spec['kind']](spec, project, ext_dir, methods, args)
+    prepare_dataset = {'pool': prepare_pool, 'biological': prepare_biological, 'synthetic': prepare_synthetic}[spec['kind']]
+    project.parent.mkdir(parents=True, exist_ok=True)
+    with TemporaryDirectory(dir=project.parent) as temporary:
+        staged = Path(temporary) / 'project'
+        message = prepare_dataset(spec, staged, ext_dir, methods, args)
+        with evaluation.directory_lock(project.parent, fcntl.LOCK_EX):
+            if project.exists() or project.is_symlink():
+                fail('{} exists; choose a new project directory'.format(project))
+            staged.rename(project)
+    print(message)
 
 
 def prepare_synthetic(spec, project, ext_dir, methods, args):
@@ -149,8 +160,8 @@ def prepare_synthetic(spec, project, ext_dir, methods, args):
     read_length = max(len(row[4]) for row in truth) + 2 * int(spec.get('umi', 0)) + len(spec['adapter'])
     bench = write_project(project, spec, ext_dir, samples, read_length, methods, ref)
     synthetic.write_truth(bench / 'truth.tsv', truth)
-    print('{}: {} samples, {} reads each; run `snakemake quant_all` there, then `benchmark.py evaluate --project {}`'.format(
-        project, len(samples), sum(row[5] for row in truth if row[0] == samples[0]), project))
+    return '{}: {} samples, {} reads each; run `snakemake quant_all` there, then `benchmark.py evaluate --project {}`'.format(
+        args.project, len(samples), sum(row[5] for row in truth if row[0] == samples[0]), args.project)
 
 
 def pool_paths(spec, ext_dir):
@@ -171,6 +182,9 @@ def head_fastq(source, target, reads):
             record = [header, src.readline(), src.readline(), src.readline()]
             if not all(record):
                 fail(f'{source}: incomplete FASTQ record {copied + 1}')
+            name, sequence, plus, quality = (line.rstrip(b'\r\n') for line in record)
+            if not (name.startswith(b'@') and len(name) > 1 and plus.startswith(b'+') and sequence and len(sequence) == len(quality)):
+                fail(f'{source}: malformed FASTQ record {copied + 1}')
             out.writelines(record)
             copied += 1
     return copied
@@ -207,9 +221,9 @@ def prepare_pool(spec, project, ext_dir, methods, args):
               [[r['run'], r['group'], r.get('lab', ''), counts[r['run']] if counts[r['run']] is not None else '',
                 'copied' if args.reads else 'declaration'] for r in spec['runs']])
     groups = {g: sum(1 for r in rows if r[2] == g) for g in pool.GROUPS}
-    print('{}: {} runs{}; pool {}; run `snakemake quant_all --notemp` there (the oracle reads the filtered reads), '
-          'then `benchmark.py evaluate --project {}`'.format(project, len(samples), ', up to {} reads each'.format(args.reads) if args.reads else '',
-                                                             ', '.join('{} {}'.format(n, g) for g, n in groups.items()), project))
+    return ('{}: {} runs{}; pool {}; run `snakemake quant_all --notemp` there (the oracle reads the filtered reads), '
+          'then `benchmark.py evaluate --project {}`'.format(args.project, len(samples), ', up to {} reads each'.format(args.reads) if args.reads else '',
+                                                             ', '.join('{} {}'.format(n, g) for g, n in groups.items()), args.project))
 
 
 def biological_paths(spec, ext_dir):
@@ -273,9 +287,9 @@ def prepare_biological(spec, project, ext_dir, methods, args):
         row.extend([','.join(run_ids), count, 'copied' if args.reads else 'declaration'])
     bench = write_project(project, spec, ext_dir, list(r1), read_length, methods, r1=r1)
     write_tsv(bench / 'samples.tsv', ['sample', 'library', 'group', 'lane', 'runs', 'reads', 'reads_source'], rows)
-    print('{}: {} {}{}; run `snakemake quant_all --notemp` there (the first-base check reads the filtered reads), then '
-          '`benchmark.py evaluate --project {}`'.format(project, len(r1), 'lane samples' if args.lanes else 'samples',
-                                                        ', first {} reads of each run'.format(args.reads) if args.reads else '', project))
+    return ('{}: {} {}{}; run `snakemake quant_all --notemp` there (the first-base check reads the filtered reads), then '
+          '`benchmark.py evaluate --project {}`'.format(args.project, len(r1), 'lane samples' if args.lanes else 'samples',
+                                                        ', up to {} reads of each run'.format(args.reads) if args.reads else '', args.project))
 
 
 def read_tsv(path):
@@ -737,7 +751,7 @@ def summary(args):
         summarizer.write(args.projects, args.output)
     except (OSError, ValueError) as error:
         fail(str(error))
-    print(args.output)
+    print(Path(args.output).resolve())
 
 
 def main():
