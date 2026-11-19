@@ -38,10 +38,12 @@ frozen_generation = frozen_cellranger_generation(REF_DIR) if config.get('ref_dir
 build_10x_reference = config['workflow'] == 'singlecell' and (config.get('libprepkit') or '').startswith('10X Genomics') and not USE_10X_PREBUILT
 selected_source = str(frozen_generation / 'gcf-source') if frozen_generation else REF_DIR
 REFERENCE_SOURCE_DIGEST = REFERENCE_SOURCE_CHECKSUMS = None
-if frozen_generation or build_10x_reference:
-    if config.get('ref_dir') or all(os.path.isfile(join(selected_source, member)) for member in CELLRANGER_SOURCES):
-        REFERENCE_SOURCE_CHECKSUMS = reference_checksums(selected_source)
-        REFERENCE_SOURCE_DIGEST = reference_digest(REFERENCE_SOURCE_CHECKSUMS)
+if frozen_generation:
+    REFERENCE_SOURCE_CHECKSUMS = verify_frozen_reference_inputs(frozen_generation)
+elif build_10x_reference and (config.get('ref_dir') or all(os.path.isfile(join(selected_source, member)) for member in CELLRANGER_SOURCES)):
+    REFERENCE_SOURCE_CHECKSUMS = reference_checksums(selected_source)
+if REFERENCE_SOURCE_CHECKSUMS is not None:
+    REFERENCE_SOURCE_DIGEST = reference_digest(REFERENCE_SOURCE_CHECKSUMS)
 
 if frozen_generation:
     # Published generations are immutable. All genome consumers use a workdir copy,

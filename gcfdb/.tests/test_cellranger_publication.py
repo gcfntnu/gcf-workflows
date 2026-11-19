@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -18,6 +19,7 @@ from unittest.mock import patch
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 import build_cellranger_reference as publisher
+from reference_identity import verify_frozen_reference_inputs
 
 
 class CellRangerPublicationTests(unittest.TestCase):
@@ -224,6 +226,33 @@ class CellRangerPublicationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, optional):
                 self.publish("fresh")
         self.assertFalse((self.root / "fresh/ready").is_symlink())
+
+    def test_frozen_source_manifest_is_bound_to_its_managed_path(self):
+        with patch.object(publisher.subprocess, "run", side_effect=self.stub_mkref):
+            manifest = self.publish("owner").resolve(strict=True)
+        generation = manifest.parent
+        inputs = json.loads(manifest.read_text())["inputs"]
+        self.assertEqual(verify_frozen_reference_inputs(generation), inputs)
+
+        # An exported source pair needs the publisher's manifest but no STAR index files.
+        copied = self.root / "relocated"
+        shutil.copytree(generation / "gcf-source", copied / "gcf-source")
+        shutil.copyfile(manifest, copied / publisher.MANIFEST)
+        self.assertEqual(verify_frozen_reference_inputs(copied), inputs)
+        imported_gtf = copied / "gcf-source/anno/genes.gtf"
+        imported_gtf.unlink()
+        imported_gtf.symlink_to(self.gtf)
+        with self.assertRaisesRegex(ValueError, str(imported_gtf)):
+            verify_frozen_reference_inputs(copied)
+
+        # The same manifest in a managed cache must agree with both directory identities.
+        for digest, build_key in (("0" * 64, generation.name), (generation.parent.name, "1" * 64)):
+            misplaced = self.cache / digest / build_key
+            misplaced.parent.mkdir(parents=True, exist_ok=True)
+            generation.rename(misplaced)
+            with self.assertRaisesRegex(ValueError, str(misplaced / publisher.MANIFEST)):
+                verify_frozen_reference_inputs(misplaced)
+            misplaced.rename(generation)
 
     def test_damaged_cache_is_rejected_before_pinning(self):
         with patch.object(publisher.subprocess, "run", side_effect=self.stub_mkref):

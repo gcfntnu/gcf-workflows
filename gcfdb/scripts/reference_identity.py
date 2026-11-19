@@ -64,6 +64,60 @@ def frozen_cellranger_generation(source_dir):
     return None
 
 
+def read_cellranger_manifest(directory):
+    manifest = directory / CELLRANGER_MANIFEST
+    if not manifest.is_file() or manifest.is_symlink():
+        raise ValueError(f'Missing or invalid Cell Ranger build manifest: {manifest}')
+    try:
+        record = json.loads(manifest.read_text())
+    except ValueError as error:
+        raise ValueError(f'Invalid Cell Ranger build manifest: {manifest}') from error
+    if (not isinstance(record, dict) or record.keys() != {'format', 'inputs', 'genome', 'image', 'files'}
+            or type(record['format']) is not int or record['format'] != CELLRANGER_RECIPE_VERSION
+            or not all(isinstance(record[key], str) and record[key] for key in ('inputs', 'genome', 'image'))):
+        raise ValueError(f'Invalid Cell Ranger build manifest: {manifest}')
+    files = record['files']
+    if not isinstance(files, dict):
+        raise ValueError(f'Invalid Cell Ranger file inventory: {manifest}')
+    missing = set(CELLRANGER_PRODUCTS) - files.keys()
+    if missing:
+        raise ValueError(f'Incomplete Cell Ranger file inventory: missing {min(missing)} in {manifest}')
+    if {'genes/genes.gtf', 'genes/genes.gtf.gz'}.isdisjoint(files):
+        raise ValueError(f'Incomplete Cell Ranger file inventory: missing genes/genes.gtf or its .gz file in {manifest}')
+    for name, entry in files.items():
+        if (not isinstance(entry, dict) or entry.keys() != {'size', 'sha256'}
+                or type(entry['size']) is not int or entry['size'] < 0
+                or not isinstance(entry['sha256'], str) or not re.fullmatch('[0-9a-f]{64}', entry['sha256'])):
+            raise ValueError(f'Invalid Cell Ranger file inventory entry for {name}: {manifest}')
+    return record
+
+
+def verify_frozen_reference_inputs(directory):
+    """Check only the original source pair when importing a published generation."""
+    directory = Path(directory).resolve()
+    manifest = directory / CELLRANGER_MANIFEST
+    record = read_cellranger_manifest(directory)
+    lines = []
+    for name in CELLRANGER_SOURCES:
+        member = 'gcf-source/' + name
+        path = directory / member
+        entry = record['files'][member]
+        if not path.is_file() or path.resolve() != path:
+            raise ValueError(f'Missing or invalid frozen Cell Ranger input: {path}')
+        if not entry['size'] or path.stat().st_size != entry['size']:
+            raise ValueError(f'Cell Ranger frozen input size changed: {path}')
+        if file_sha256(path) != entry['sha256']:
+            raise ValueError(f'Cell Ranger frozen input checksum changed: {path}')
+        lines.append(f"{entry['sha256']}  {name}\n")
+    if ''.join(lines) != record['inputs']:
+        raise ValueError(f'Cell Ranger frozen input checksums disagree with the manifest: {manifest}')
+    if is_managed_cellranger_generation(directory):
+        if (directory.parent.name != reference_digest(record['inputs'])
+                or directory.name != cellranger_build_key(record['genome'], record['image'])):
+            raise ValueError(f'Cell Ranger manifest does not match its published generation path: {manifest}')
+    return record['inputs']
+
+
 def metadata_sha256(path, genome):
     # Cell Ranger's reference.json reader requires genomes and mem_gb. This workflow passes a single --genome.
     content = path.read_bytes()
@@ -104,10 +158,7 @@ def cellranger_product_inventory(directory, genome, inputs, expected=None):
         if unexpected:
             raise ValueError(f'Unexpected Cell Ranger reference file: {directory / min(unexpected)}')
         for name, size in sizes.items():
-            member = expected[name]
-            if not isinstance(member, dict) or member.keys() != {'size', 'sha256'} or type(member['size']) is not int:
-                raise ValueError(f'Invalid Cell Ranger file inventory entry for {directory / name}: {manifest}')
-            if member['size'] != size:
+            if expected[name]['size'] != size:
                 raise ValueError(f'Cell Ranger reference file size changed: {directory / name}')
 
     inventory = {}
@@ -126,15 +177,8 @@ def cellranger_product_inventory(directory, genome, inputs, expected=None):
 def verify_cellranger_build(directory, identity):
     """Check the complete published generation and return its manifest."""
     manifest = directory / CELLRANGER_MANIFEST
-    try:
-        record = json.loads(manifest.read_text())
-    except ValueError as error:
-        raise ValueError(f'Invalid Cell Ranger build manifest: {manifest}') from error
-    if not isinstance(record, dict) or not isinstance(record.get('inputs'), str):
-        raise ValueError(f'Invalid Cell Ranger build manifest: {manifest}')
-    declared = record.get('files')
-    if not isinstance(declared, dict):
-        raise ValueError(f'Invalid Cell Ranger file inventory: {manifest}')
+    record = read_cellranger_manifest(directory)
+    declared = record['files']
     # A getter can be planned before the source files exist. In that case the manifest supplies the checksum record.
     if record != {'inputs': record['inputs'], 'files': declared, **identity}:
         raise ValueError(f'Cell Ranger build manifest does not match the selected inputs: {manifest}')
