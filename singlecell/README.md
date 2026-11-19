@@ -41,6 +41,9 @@ Neither the Drop-Seq and Smart-Seq entries nor `singlecell.config` set `quant.me
 
 Velocity is produced through the Split-Pipe and STARsolo routes ([docs/velocity.md](docs/velocity.md)).
 
+Souporcell reference-based and reference-free demultiplexing use the configured `docker.souporcell` image (default `gcfntnu/souporcell:2.5`). Freemuxlet and the Vireo donor subset use `docker.popscle` and `docker.bcftools`, respectively.
+If a project or site override still sets `docker.souporcell` to `wheaton5/souporcell:latest` or a Singularity Hub or Sylabs Library reference, remove the override to use the default, or set it to a published Docker image such as `gcfntnu/souporcell:2.5`. Specify the image without a URI scheme because both rules prepend `docker://`.
+
 **Inactive source.** Files present in the source tree are not necessarily loaded. Which quant files load depends on the kit and configuration (see the quant row above). The following are never loaded under any configuration: `rules/quant/` `alevin.smk`, `expression_presence.smk`, `souporcell.smk`, `star.smk` and `velocyto.smk`; `rules/qc/bam.smk`; and the `rules/analysis/` files other than `auto_qc.smk` (for example cellxgene, scmatch, clustering, diffexp). Several of them duplicate capabilities that loaded files provide: souporcell demultiplexing is in `multiplex.smk`, expression presence is in `cellbender.smk`, and velocity comes from the Split-Pipe and STARsolo routes. The Alevin quantifier is not available.
 
 ## Outputs in `bfq/`

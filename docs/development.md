@@ -57,7 +57,7 @@ The `unittest discover` commands are unaffected, and CI runs the tests serially.
 | Reporting dry runs of the seven CI workflows | `PATH="$PWD/.dev/ci/bin:$PATH" bash test-all.sh` (agents: [log-file form](#keep-the-output-in-a-log)) | `.dev/ci` |
 | Reporting dry run of one workflow | `(cd <workflow>/.tests && ../../.dev/ci/bin/snakemake -n --cores 1 multiqc_report)` | `.dev/ci` |
 | Configuration loading, kit selection, download-rule and workflow-level containers, `src_gcf` script paths and `test-all.sh` failure handling | `.dev/ci/bin/python -m unittest discover -s .tests -p 'test_*.py' -v` | `.dev/ci` |
-| Shared Kraken2 screening, including empty FASTQs | `.dev/ci/bin/python -m unittest discover -s .tests -p 'test_kraken_screen.py' -v` | `.dev/ci`; Bash/gzip/awk, mocked classifier |
+| Shared Kraken2 screening, including empty FASTQs | `.dev/ci/bin/python -m unittest discover -s .tests -p 'test_kraken*.py' -v` | `.dev/ci`; Bash/gzip/awk, mocked classifier |
 | MultiQC configuration and provenance | `.dev/ci/bin/python -m unittest discover -s misc/multiqc/.tests -p 'test_*.py' -v` | `.dev/ci` |
 | Single-cell regressions (CI selection) | `.dev/ci/bin/python -m pytest -q singlecell/.tests/test_metadata.py singlecell/.tests/test_bfq_delivery.py singlecell/.tests/test_velocity.py singlecell/.tests/test_splitpipe_velo.py singlecell/.tests/test_demultiplexing_profiles.py singlecell/.tests/test_tenx_reference.py singlecell/.tests/test_containers.py singlecell/.tests/test_doublet_seeds.py singlecell/.tests/test_lightweight_encoding.py singlecell/.tests/test_cellbender_presence.py` | `.dev/ci` |
 | Single-cell TCR and assay configuration (not in CI) | `.dev/ci/bin/python -m pytest -q singlecell/.tests/test_tcr_workflow.py singlecell/.tests/test_immune_config.py` | `.dev/ci` |
@@ -95,7 +95,7 @@ chmod +x .dev/bin/fastp
 
 Set `FASTP_0201` as shown in the check table. Without it, read-outcome cases skip explicitly;
 configuration, reporting-unit and dry-run cases still run. CI always supplies the pinned executable.
-See [small-RNA stage policy](../smallrna/README.md#fastp-stages-and-final-insert-policy) for the scientific scope.
+See the [small-RNA fastp route](../smallrna/README.md#fastp-route) for the route and its former kit options.
 
 ### `test-all.sh`
 
