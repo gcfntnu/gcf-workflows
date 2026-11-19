@@ -55,6 +55,8 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    copied reads when capped. For an uncapped linked run, preparation reads the compressed FASTQ once to verify its
    declared MD5 before recording its declared count. The overview uses these counts as of preparation. A missing count,
    a missing or mismatched checksum, or an older unverified declaration leaves the total empty, including for merged lanes.
+   The total is also empty when the project configuration selects different R1 files or relies on an environment-specific
+   FASTQ location that the overview cannot verify.
 
 ## Datasets
 

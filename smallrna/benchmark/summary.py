@@ -26,7 +26,8 @@ SECTIONS = [
      'for each pair, divided by the total true count. `exact` is the fraction of positive-truth pairs with matching counts. '
      '`misassigned` and `unplaced` count reads on accessions absent from that sample’s truth and on names without a miRBase accession.'),
     ('equimolar', 'Equimolar pools', ['detected', 'cv', 'within_2fold', 'spearman_vs_oracle', 'outside', 'unplaced', 'shifted_within_2fold'],
-     'Over the pool\'s `exact` sequences: `detected` and `cv` across the pool, `within_2fold` and `spearman_vs_oracle` against '
+     'Scored `exact` entries share no miRNA accession with any other exact or shifted entry. The metrics are averaged across samples: '
+     '`detected` and `cv` across these entries, `within_2fold` and `spearman_vs_oracle` against '
      'the oracle (the filtered reads counted by exact match to the pool sequences). `outside` and `unplaced` are '
      'unweighted means of per-sample shares. Each denominator is all miRNA reads the method reported for that sample. '
      'The numerators are reads assigned to accessions with no exact or shifted entry in the analyzed pool and reads on names without a miRBase accession, respectively. '
@@ -49,6 +50,30 @@ def read_tsv(path):
         return list(csv.DictReader(fh, delimiter='\t'))
 
 
+def uses_prepared_inputs(project, config, dataset_name, sample_runs):
+    """Can the recorded counts be attributed to all R1 files selected in this project configuration?"""
+    for sample, runs in sample_runs.items():
+        settings = config['samples'][sample]
+        r1 = settings.get('R1')
+        if not isinstance(r1, str) or not r1 or settings.get('R2'):
+            return False
+        filenames = [Path(name) for name in r1.split(',')]
+        if not config.get('fastq_dir') and any(not name.is_absolute() for name in filenames):
+            return False  # The actual base then depends on the workflow environment.
+        effective = [project / (config.get('fastq_dir') or '') / name for name in filenames]
+        prepared = [project / 'data/raw/fastq' / dataset_name / f'{run}_R1.fastq.gz' for run in runs]
+        if effective == prepared:
+            continue  # Archived projects can have their original reads offline.
+        if len(effective) != len(prepared):
+            return False
+        try:
+            if not all(actual.samefile(original) for actual, original in zip(effective, prepared)):
+                return False
+        except OSError:
+            return False
+    return True
+
+
 def read_project(project, out_dir):
     """A project's row: its description (FIXED, with a link to its report relative to `out_dir`) and its metrics
     {(metric, method): value}, the empty ones left out."""
@@ -63,21 +88,26 @@ def read_project(project, out_dir):
     table = evaluation.read_metrics(bench)
     columns = table[0][1:]
     values = {(row[0], c): v for row in table[1:] for c, v in zip(columns, row[1:]) if v != ''}
-    configured_samples = yaml.safe_load((project / 'config.yaml').read_text())['samples']
+    config = yaml.safe_load((project / 'config.yaml').read_text())
+    configured_samples = config['samples']
     samples = len(configured_samples)
     if kind == 'synthetic':
         rows = read_tsv(bench / 'truth.tsv')
         if {row['sample'] for row in rows} != set(configured_samples):
             raise ValueError(f'{project}: truth.tsv must cover every configured sample and no others')
         reads = [row['count'] for row in rows]
+        sample_runs = {sample: [sample] for sample in configured_samples}
     else:
         rows = read_tsv(bench / 'samples.tsv')
         if len(rows) != samples or {row['sample'] for row in rows} != set(configured_samples):
             raise ValueError(f'{project}: samples.tsv must have exactly one row per configured sample')
         reads = [row['reads'] if row.get('reads_source') in ('copied', 'verified_declaration') else '' for row in rows]
+        sample_runs = {row['sample']: row['runs'].split(',') if kind == 'biological' else [row['sample']] for row in rows}
         libraries = {row['library'] for row in rows if row['lane'] != 'merged'} if kind == 'biological' else set()
         if libraries:
             samples = '{} lanes of {} samples'.format(samples, len(libraries))
+    if not uses_prepared_inputs(project, config, spec['name'], sample_runs):
+        reads = []
     report = os.path.relpath((bench / 'report.md').resolve(), out_dir)
     return kind, {'project': project.resolve().name, 'link': urllib.parse.quote(report), 'dataset': spec['name'], 'kit': spec['libprepkit'],
                   'samples': samples, 'reads': '{:,}'.format(sum(int(r) for r in reads)) if reads and all(reads) else '',
@@ -272,7 +302,7 @@ def write(projects, output):
     render = {'.md': markdown, '.html': html_page}.get(Path(name).suffix)
     if render is None:
         raise ValueError('--output {}: the extension must be .md or .html'.format(output))
-    projects, output = [Path(p) for p in projects], Path(output)
+    projects, output = [Path(p).resolve(strict=True) for p in projects], Path(output)
     requested_parent = output.parent
     parent, links = resolve_with_links(requested_parent)
     output = parent / output.name

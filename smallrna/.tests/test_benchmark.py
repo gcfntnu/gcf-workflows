@@ -818,7 +818,11 @@ def summary_project(root, name, spec, metrics, samples=None, truth=None):
     (truth.tsv for synthetic data) and report.md."""
     project = root / name
     names = [row[0] for row in samples[1:]] if samples else ['S01', 'S02']
-    write(project / 'config.yaml', yaml.safe_dump({'workflow': 'smallrna', 'samples': {s: {'R1': s} for s in names}}))
+    runs = {name: [name] for name in names}
+    if samples and 'runs' in samples[0]:
+        runs = {row[0]: row[samples[0].index('runs')].split(',') for row in samples[1:]}
+    inputs = {s: {'R1': ','.join(f"{spec['name']}/{run}_R1.fastq.gz" for run in ids)} for s, ids in runs.items()}
+    write(project / 'config.yaml', yaml.safe_dump({'workflow': 'smallrna', 'fastq_dir': 'data/raw/fastq', 'samples': inputs}))
     write(project / 'benchmark/dataset.yaml', yaml.safe_dump(dict(spec, organism='homo_sapiens')))
     write(project / 'benchmark/metrics.tsv', ''.join('\t'.join(row) + '\n' for row in metrics))
     report_rows = ['| ' + ' | '.join(row) + ' |' for row in metrics]
@@ -1416,3 +1420,60 @@ def test_summary_of_linked_runs_requires_verified_declarations(tmp_path, cache):
     if cache == 'match':
         samples.write_text(samples.read_text().replace('verified_declaration', 'declaration'))
         assert summary.read_project(project, tmp_path)[1]['reads'] == ''
+
+
+@pytest.mark.parametrize('selection', ['different_inputs', 'same_inputs', 'different_r1', 'environment'])
+def test_declared_fastq_directory_and_r1_must_select_the_counted_runs(tmp_path, selection):
+    import evaluation
+    import summary
+
+    ext, dataset, reads = biological_dataset(tmp_path)
+    spec = yaml.safe_load(dataset.read_text())
+    spec['config']['fastq_dir'] = str(tmp_path / 'override')
+    write(dataset, yaml.safe_dump(spec))
+    project = tmp_path / 'prepared'
+    subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'prepare', '--dataset', str(dataset),
+                    '--ext-dir', str(ext), '--project', str(project), '--reads', '2'], check=True, capture_output=True)
+    config_path = project / 'config.yaml'
+    config = yaml.safe_load(config_path.read_text())
+    override = Path(config['fastq_dir'])
+    for run in spec['samples'][0]['runs']:
+        name = run['run']
+        staged = project / 'data/raw/fastq/bio' / f'{name}_R1.fastq.gz'
+        alternative = override / 'bio' / staged.name
+        alternative.parent.mkdir(parents=True, exist_ok=True)
+        if selection == 'different_inputs':
+            alternative.symlink_to(ext / spec['data'] / 'fastq' / f'{name}.fastq.gz')
+        else:
+            alternative.symlink_to(staged)
+    if selection == 'different_r1':
+        config['samples']['GSM1']['R1'] = 'bio/SRR2_R1.fastq.gz'
+    if selection == 'environment':
+        config['fastq_dir'] = ''
+    config_path.write_text(yaml.safe_dump(config))
+    evaluation.publish(project / 'benchmark', ['metric', 'unitas'], [['mirna_reads', '2']], ['# Report'])
+    row = summary.read_project(project, tmp_path)[1]
+    assert len(reads) > 2 and row['reads'] == ('4' if selection == 'same_inputs' else '')
+
+
+def test_summary_uses_one_selected_project_when_a_directory_link_is_retargeted(tmp_path, monkeypatch):
+    import evaluation
+    import summary
+
+    first, second = summary_projects(tmp_path / 'projects')[:2]
+    selection = tmp_path / 'selected'
+    selection.symlink_to(first, target_is_directory=True)
+    read_metrics = evaluation.read_metrics
+
+    def retarget_after_metrics(bench):
+        result = read_metrics(bench)
+        selection.unlink()
+        selection.symlink_to(second, target_is_directory=True)
+        return result
+
+    expected = tmp_path / 'expected.md'
+    summary.write([first], expected)
+    monkeypatch.setattr(evaluation, 'read_metrics', retarget_after_metrics)
+    observed = tmp_path / 'observed.md'
+    summary.write([selection], observed)
+    assert selection.resolve() == second and observed.read_text() == expected.read_text()
