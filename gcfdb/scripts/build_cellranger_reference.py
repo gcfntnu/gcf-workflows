@@ -43,6 +43,15 @@ def build_from_snapshot(stage, source_dir, checksums, command):
     return staged
 
 
+def pin_once(path, target, directory=False):
+    """Create the link atomically. An existing view always identifies its first generation."""
+    try:
+        path.symlink_to(target, target_is_directory=directory)
+    except FileExistsError:
+        if not path.is_symlink() or os.readlink(path) != os.fspath(target):
+            raise ValueError(f'Cell Ranger reference view is already pinned: {path}')
+
+
 def build_reference(source_dir, cache, receipt, expected_source, image, command):
     checksums = reference_checksums(source_dir)
     digest = reference_digest(checksums)
@@ -71,16 +80,11 @@ def build_reference(source_dir, cache, receipt, expected_source, image, command)
 
     # A forced or failed Snakemake job may remove its local receipt, never a shared index member.
     receipt.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(dir=receipt.parent) as stage:
-        annotation = receipt.parent / 'annotations' / digest
-        annotation.mkdir(parents=True, exist_ok=True)
-        for name, target in (('index', final), ('annotation', annotation)):
-            pin = Path(stage) / name
-            pin.symlink_to(target.resolve(), target_is_directory=True)
-            os.replace(pin, receipt.parent / name)
-        ready = Path(stage) / 'ready'
-        ready.symlink_to(Path('index') / MANIFEST)
-        os.replace(ready, receipt)
+    pin_once(receipt.parent / 'index', final.resolve(), directory=True)
+    annotation = receipt.parent / 'annotations' / digest
+    annotation.mkdir(parents=True, exist_ok=True)
+    pin_once(receipt.parent / 'annotation', annotation.resolve(), directory=True)
+    pin_once(receipt, Path('index') / MANIFEST)
 
 
 def main():

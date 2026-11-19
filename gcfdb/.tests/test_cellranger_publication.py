@@ -97,6 +97,19 @@ class CellRangerPublicationTests(unittest.TestCase):
             current = manifest.stat()
             self.assertEqual((current.st_ino, current.st_mtime_ns), (before.st_ino, before.st_mtime_ns))
 
+    def test_existing_view_keeps_its_generation_even_if_a_stale_publisher_has_no_digest(self):
+        with patch.object(publisher.subprocess, "run", side_effect=self.stub_mkref):
+            receipt = self.publish("work")
+            index = (receipt.parent / "index").resolve(strict=True)
+            annotation = (receipt.parent / "annotation").resolve(strict=True)
+            receipt.unlink()  # Snakemake may remove the ready output before starting a forced job.
+            self.fasta.write_text(">replacement\nAACCTT\n")
+            with self.assertRaisesRegex(ValueError, "already pinned"):
+                self.publish("work")
+        self.assertFalse(receipt.exists())
+        self.assertEqual((receipt.parent / "index").resolve(strict=True), index)
+        self.assertEqual((receipt.parent / "annotation").resolve(strict=True), annotation)
+
     def test_failed_and_distinct_builds_preserve_a_readers_view(self):
         with patch.object(publisher.subprocess, "run", side_effect=self.stub_mkref):
             pinned = self.publish("active")

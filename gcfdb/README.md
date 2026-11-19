@@ -37,9 +37,10 @@ When `ref_dir` is a symlink, the workflow resolves the selected directory before
 The source digest covers the SHA-256 checksums of both files. The build key covers the normalized Cell Ranger genome identifier, configured image and recipe version.
 Workdir receipts distinguish the canonical cache directory, so changing to another prepared directory selects its own index even if the inputs are identical.
 Each complete index is published with a manifest recording every file's size and SHA-256 checksum.
-Before reusing a generation, planning in a retained workdir checks its files against that manifest, including on dry runs.
+When a target uses the pinned generation, planning in a retained workdir checks its files against that manifest, including on dry runs.
 This reads the full published index and its frozen FASTA and GTF once per check, which can add substantial I/O for a large STAR index.
-A forced publisher or a second project verifies the generation before pinning it for count.
+A forced publisher or a second project verifies the generation before pinning it for count. A workdir pin can be reused only for its original generation.
+If a managed source is missing, the workflow fetches it and creates a fresh local pin. Once both sources exist, a rebuild must match the input digest from planning.
 Changing either source, the genome identifier or the image selects a separate directory. Existing counts can continue reading their original index.
 Legacy indexes directly under `ref_dir/cellranger` lack this identity and require a fresh build.
 The report derives its gene metadata and exon sequences in the project workdir under `<QUANT_INTERIM>/reference/<source-digest>/` from the same input pair.
