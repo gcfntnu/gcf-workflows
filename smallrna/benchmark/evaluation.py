@@ -10,6 +10,8 @@ import stat
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import yaml
+
 
 REPORT_MARKER = '<!-- benchmark evaluation: see evaluation.json -->'
 
@@ -36,11 +38,35 @@ def evaluation_lock(bench, *, writer):
         os.close(fd)
 
 
-def publish(bench, header, rows, lines):
+def reads_processed(project):
+    """Reads the project's run filtered, summed over its configured samples: the input of each sample's first cutadapt
+    pass, from the JSON report the run wrote (`data/tmp/smallrna/filter/cutadapt_stages/<sample>.adapter.json`, kept
+    with `--notemp`). None when a sample has no report (another filter route, or the reports were removed). A report
+    without a whole read count raises ValueError."""
+    samples = yaml.safe_load((project / 'config.yaml').read_text())['samples']
+    total = 0
+    for sample in samples:
+        path = project / 'data/tmp/smallrna/filter/cutadapt_stages' / f'{sample}.adapter.json'
+        if not path.is_file():
+            return None
+        try:
+            count = json.loads(path.read_text())['read_counts']['input']
+        except (ValueError, KeyError, TypeError) as error:
+            raise ValueError(f'{path}: no read_counts.input in the cutadapt report ({type(error).__name__}: {error})') from None
+        if type(count) is not int or count < 0:
+            raise ValueError(f'{path}: read_counts.input is {count!r}, not a read count')
+        total += count
+    return total
+
+
+def publish(bench, header, rows, lines, reads_processed=None):
+    """Publish metrics.tsv and report.md with evaluation.json, the completion record: their SHA-256 and the reads the
+    evaluated run processed (`reads_processed`, as read when evaluating; null when unknown)."""
     table = '\n'.join('\t'.join(map(str, row)) for row in [header, *rows]) + '\n'
     files = {'metrics.tsv': table.encode(), 'report.md': ('\n'.join([*lines, '', REPORT_MARKER]) + '\n').encode()}
-    digests = {name: hashlib.sha256(data).hexdigest() for name, data in files.items()}
-    files['evaluation.json'] = (json.dumps(digests, sort_keys=True) + '\n').encode()
+    record = {name: hashlib.sha256(data).hexdigest() for name, data in files.items()}
+    record['reads_processed'] = reads_processed
+    files['evaluation.json'] = (json.dumps(record, sort_keys=True) + '\n').encode()
     with TemporaryDirectory(dir=bench) as directory:
         stage = Path(directory)
         for name, data in files.items():
@@ -64,6 +90,12 @@ def evaluation_files(bench):
 
 
 def read_metrics(bench):
+    return read_evaluation(bench)[0]
+
+
+def read_evaluation(bench):
+    """(metrics table, completion record) from one locked snapshot; the record is {} for an older evaluation without
+    evaluation.json, and lacks `reads_processed` for one published before it was recorded."""
     message = f'{bench}: incomplete or inconsistent evaluation; run `benchmark.py evaluate --project {bench.parent}`'
     with evaluation_lock(bench, writer=False) as locked:
         files = evaluation_files(bench)
@@ -80,9 +112,18 @@ def read_metrics(bench):
     table = list(csv.reader(io.StringIO(data.decode()), delimiter='\t'))
     if not table or table[0][:1] != ['metric'] or len(table) < 2 or any(len(row) != len(table[0]) for row in table):
         raise ValueError(message)
+    record = {}
     if 'evaluation.json' in files:
-        if json.loads(files['evaluation.json']) != {'metrics.tsv': hashlib.sha256(data).hexdigest(),
-                                                    'report.md': hashlib.sha256(report).hexdigest()}:
+        try:
+            record = json.loads(files['evaluation.json'])
+        except ValueError:
+            raise ValueError(message) from None
+        digests = {'metrics.tsv': hashlib.sha256(data).hexdigest(), 'report.md': hashlib.sha256(report).hexdigest()}
+        if not isinstance(record, dict) or set(record) - {'metrics.tsv', 'report.md', 'reads_processed'} or \
+                {k: record.get(k) for k in digests} != digests:
+            raise ValueError(message)
+        count = record.get('reads_processed')
+        if count is not None and (type(count) is not int or count < 0):
             raise ValueError(message)
     else:
         # Historical writers put the primary metrics first. A later table can
@@ -98,4 +139,4 @@ def read_metrics(bench):
         end = first + len(lines)
         if end < len(report_lines) and report_lines[end].startswith('|'):
             raise ValueError(message)
-    return table
+    return table, record

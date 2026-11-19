@@ -58,10 +58,11 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    summaries can read the existing report and metrics from a read-only project.
    The command prints the canonical summary path to open, including when its directory is a symlink.
    Rerun `evaluate` on the existing outputs if the pair is incomplete or inconsistent. `reads processed` is the reads
-   the project's run filtered: each sample's input to the first cutadapt pass, from the JSON report the run wrote
-   (`filter/cutadapt_stages/<sample>.adapter.json`, kept with `--notemp`), summed over the samples. It is empty when a
-   sample has no report (another filter route, or the reports were removed), so it never shows a count the evaluated
-   run did not record; `samples.tsv` keeps the reads copied (`--reads`) or declared at preparation.
+   the evaluated run filtered: each sample's input to the first cutadapt pass, from the JSON report the run wrote
+   (`filter/cutadapt_stages/<sample>.adapter.json`, kept with `--notemp`), summed over the samples. `evaluate` reads
+   them and records the total in `evaluation.json`, so a later rerun without a new evaluation does not change it. It is
+   empty when a sample had no report (another filter route, or the reports were removed) and for evaluations published
+   before the total was recorded; `samples.tsv` keeps the reads copied (`--reads`) or declared at preparation.
 
 ## Datasets
 

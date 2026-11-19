@@ -177,22 +177,27 @@ def pool_paths(spec, ext_dir):
 
 
 def head_fastq(source, target, reads):
-    """Copy up to the limit and return the number of complete four-line records."""
+    """Copy up to the limit and return the number of complete four-line records; a damaged gzip source stops."""
     target.parent.mkdir(parents=True, exist_ok=True)
     copied = 0
-    with gzip.open(source, 'rb') as src, gzip.open(target, 'wb', compresslevel=3) as out:
-        while copied < reads:
-            header = src.readline()
-            if not header:
-                break
-            record = [header, src.readline(), src.readline(), src.readline()]
-            if not all(record):
-                fail(f'{source}: incomplete FASTQ record {copied + 1}')
-            name, sequence, plus, quality = (line.rstrip(b'\r\n') for line in record)
-            if not (name.startswith(b'@') and len(name) > 1 and plus.startswith(b'+') and sequence and len(sequence) == len(quality)):
-                fail(f'{source}: malformed FASTQ record {copied + 1}')
-            out.writelines(record)
-            copied += 1
+    try:
+        with gzip.open(source, 'rb') as src, gzip.open(target, 'wb', compresslevel=3) as out:
+            while copied < reads:
+                header = src.readline()
+                if not header:
+                    break
+                record = [header, src.readline(), src.readline(), src.readline()]
+                if not all(record):
+                    fail(f'{source}: incomplete FASTQ record {copied + 1}')
+                name, sequence, plus, quality = (line.rstrip(b'\r\n') for line in record)
+                if not (name.startswith(b'@') and len(name) > 1 and plus.startswith(b'+') and sequence and len(sequence) == len(quality)):
+                    fail(f'{source}: malformed FASTQ record {copied + 1}')
+                out.writelines(record)
+                copied += 1
+            if copied == reads:
+                src.readline()  # at the limit, read on so that a source ending here still has its gzip trailer checked
+    except (OSError, EOFError) as error:
+        fail(f'{source}: damaged gzip file ({error})')
     return copied
 
 
@@ -302,6 +307,14 @@ def prepare_biological(spec, project, ext_dir, methods, args):
     return ('{}: {} {}{}; run `snakemake quant_all --notemp` there (the first-base check reads the filtered reads), then '
           '`benchmark.py evaluate --project {}`'.format(args.project, len(r1), 'lane samples' if args.lanes else 'samples',
                                                         ', up to {} reads of each run'.format(args.reads) if args.reads else '', args.project))
+
+
+def run_reads(project):
+    """The reads the evaluated run processed, recorded with the evaluation (evaluation.reads_processed)."""
+    try:
+        return evaluation.reads_processed(Path(project))
+    except ValueError as error:
+        fail(str(error))
 
 
 def read_tsv(path):
@@ -418,7 +431,7 @@ def evaluate(args):
     unplaced = sorted({(row[0], row[2]) for row in common if not row[3]})
     if unplaced:
         lines += ['', '## Names without a miRBase accession', ''] + ['- {}: `{}`'.format(m, n) for m, n in unplaced]
-    evaluation.publish(bench, ['metric'] + methods, metric_rows, lines)
+    evaluation.publish(bench, ['metric'] + methods, metric_rows, lines, run_reads(project))
     print(bench / 'report.md')
 
 
@@ -630,7 +643,7 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
                              [r for r in rows if any(r in v for v in per_kind.values())])
     lines += filter_section(*pool.filter_losses(stage_counts, entries, stage_names), stage_names, trim_route(project, next(iter(sample_groups))),
                             next(iter(stages.values()))[0][2])
-    evaluation.publish(bench, ['metric'] + rows, metric_rows, lines)
+    evaluation.publish(bench, ['metric'] + rows, metric_rows, lines, run_reads(project))
     print(bench / 'report.md')
 
 
@@ -800,7 +813,7 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
         listed = ['{}: {}'.format(m, id_to_name.get(i, i)) for m in methods for i in rep[m]['overdispersed_mirnas']]
         if listed:
             lines += ['', 'Most often overdispersed: ' + '; '.join(listed)]
-    evaluation.publish(bench, ['metric'] + methods, metric_rows, lines)
+    evaluation.publish(bench, ['metric'] + methods, metric_rows, lines, run_reads(project))
     print(bench / 'report.md')
 
 

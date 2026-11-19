@@ -861,10 +861,11 @@ def adapter_report(project, sample, count):
     write(project / 'data/tmp/smallrna/filter/cutadapt_stages' / f'{sample}.adapter.json', json.dumps({'read_counts': {'input': count}}))
 
 
-def summary_project(root, name, spec, metrics, samples=None, truth=None):
+def summary_project(root, name, spec, metrics, samples=None, truth=None, published=True):
     """An evaluated project as the summary reads it: config.yaml, benchmark/dataset.yaml, metrics.tsv, samples.tsv
     (truth.tsv for synthetic data), report.md and each sample's first cutadapt report with its `reads` (the truth
-    total for synthetic data; none when empty)."""
+    total for synthetic data; none when empty), published with evaluation.json as `evaluate` does (an older evaluation
+    without it when not `published`)."""
     project = root / name
     names = [row[0] for row in samples[1:]] if samples else ['S01', 'S02']
     runs = {name: [name] for name in names}
@@ -877,6 +878,8 @@ def summary_project(root, name, spec, metrics, samples=None, truth=None):
     report_rows = ['| ' + ' | '.join(row) + ' |' for row in metrics]
     report_rows.insert(1, '|---' * len(metrics[0]) + '|')
     write(project / 'benchmark/report.md', '# {}\n\n{}\n'.format(spec['name'], '\n'.join(report_rows)))
+    if published:
+        import evaluation
     if truth:
         write(project / 'benchmark/truth.tsv', 'sample\tclass\tmature_name\tmature_id\tsequence\tcount\n' + ''.join(
             '{}\tcanonical\tm\tMIMAT1\tACGT\t{}\n'.format(s, n) for s, n in truth))
@@ -887,33 +890,39 @@ def summary_project(root, name, spec, metrics, samples=None, truth=None):
         for row in samples[1:]:
             if row[samples[0].index('reads')]:
                 adapter_report(project, row[0], int(row[samples[0].index('reads')]))
+    if published:
+        evaluation.publish(project / 'benchmark', metrics[0], metrics[1:], ['# {}'.format(spec['name'])],
+                           evaluation.reads_processed(project))
     return project
 
 
 POOL_SAMPLES = ['sample', 'group', 'lab', 'reads']
 
 
-def summary_projects(root):
+def summary_projects(root, published=True):
     kit = {'libprepkit': 'Kit A'}
+
+    def project(*args, **kwargs):
+        return summary_project(*args, published=published, **kwargs)
     return [
-        summary_project(root, 'syn', dict(kit, name='synthetic_set', kind='synthetic', methods=['unitas', 'tesmall']),
+        project(root, 'syn', dict(kit, name='synthetic_set', kind='synthetic', methods=['unitas', 'tesmall']),
                         [['metric', 'unitas', 'tesmall'], ['recovered', '1.0', '0.9'], ['exact', '1.0', ''], ['misassigned', '0', '3']],
                         truth=[('S01', 60), ('S02', 40)]),
-        summary_project(root, 'eq3', dict(kit, name='eq_pool', kind='pool', pool='equimolar', methods=['unitas', 'mirge3', 'mirflowz']),
+        project(root, 'eq3', dict(kit, name='eq_pool', kind='pool', pool='equimolar', methods=['unitas', 'mirge3', 'mirflowz']),
                         [['metric', 'oracle', 'unitas', 'mirge3', 'mirflowz'], ['detected', '0.9', '0.97', '0.95', '0.96'],
                          ['within_2fold', '', '0.77', '0.76', '0.74'], ['shifted_within_2fold', '', '0.79', '0.75', '0.79']],
                         samples=[POOL_SAMPLES, ['R1', 'EQ', 'Lab1', '500000'], ['R2', 'EQ', 'Lab2', '1500000']]),
-        summary_project(root, 'eq2', dict(libprepkit='Kit B', name='eq_pool_b', kind='pool', pool='equimolar', methods=['mirge3', 'unitas']),
+        project(root, 'eq2', dict(libprepkit='Kit B', name='eq_pool_b', kind='pool', pool='equimolar', methods=['mirge3', 'unitas']),
                         [['metric', 'oracle', 'mirge3', 'unitas'], ['detected', '0.89', '0.89', '0.94'], ['within_2fold', '', '0.85', '0.86']],
                         samples=[POOL_SAMPLES, ['R1', 'EQ', 'Lab1', '1000'], ['R2', 'EQ', 'Lab1', '']]),
-        summary_project(root, 'ratio', dict(kit, name='ratio_pool', kind='pool', pool='ratiometric', methods=['unitas']),
+        project(root, 'ratio', dict(kit, name='ratio_pool', kind='pool', pool='ratiometric', methods=['unitas']),
                         [['metric', 'oracle', 'unitas'], ['called', '0.88', '0.89'], ['false_calls', '0.05', '0.06']],
                         samples=[POOL_SAMPLES, ['A1', 'A', 'Lab1', '10'], ['B1', 'B', 'Lab1', '10']]),
-        summary_project(root, 'bio_lanes', dict(kit, name='plasma', kind='biological', methods=['unitas', 'mirge3']),
+        project(root, 'bio_lanes', dict(kit, name='plasma', kind='biological', methods=['unitas', 'mirge3']),
                         [['metric', 'unitas', 'mirge3'], ['mirna_reads', '742128', '714978'], ['detected', '349.0', '373.5']],
                         samples=[['sample', 'library', 'group', 'lane', 'runs', 'reads'], ['G1_L1', 'G1', 'g', '1', 'SRR1', '100'],
                                  ['G1_L2', 'G1', 'g', '2', 'SRR2', '100'], ['G2_L1', 'G2', 'g', '1', 'SRR3', '100']]),
-        summary_project(root, 'bio_merged', dict(kit, name='plasma', kind='biological', methods=['unitas', 'mirge3', 'mirflowz']),
+        project(root, 'bio_merged', dict(kit, name='plasma', kind='biological', methods=['unitas', 'mirge3', 'mirflowz']),
                         [['metric', 'unitas', 'mirge3', 'mirflowz'], ['mirna_reads', '2966861', '2858766', '2861471'], ['detected', '581.5', '640.5', '435.5']],
                         samples=[['sample', 'library', 'group', 'lane', 'runs', 'reads'], ['G1', 'G1', 'g', 'merged', 'SRR1,SRR2', '200'],
                                  ['G2', 'G2', 'g', 'merged', 'SRR3', '100']]),
@@ -967,7 +976,7 @@ def test_summary_html_is_self_contained_and_bad_inputs_fail(tmp_path):
 def test_summary_requires_matching_report_and_metrics_for_legacy_and_new_evaluations(tmp_path):
     import evaluation
     import summary
-    project = summary_projects(tmp_path)[0]
+    project = summary_projects(tmp_path, published=False)[0]
     bench = project / 'benchmark'
     output = tmp_path / 'overview.md'
     summary.write([project], output)  # Pre-marker report with matching metrics.
@@ -1014,21 +1023,33 @@ def test_prepare_actual_short_run_and_unknown_merged_counts(tmp_path):
         assert row['reads'] == expected
 
 
-def test_summary_reads_processed_come_from_the_run_reports(tmp_path):
-    """Not from samples.tsv: a report changed after preparation counts; a sample without a report empties the total;
-    a report without a whole read count stops."""
+def test_summary_reads_processed_are_those_recorded_by_the_evaluation(tmp_path):
+    """Not samples.tsv, and not the reports as they are now: a rerun without a new evaluation keeps the recorded total;
+    a sample without a report gives no total; a report without a whole read count stops `evaluate`; an evaluation
+    older than the record has no total."""
+    import evaluation
     import summary
     project = summary_projects(tmp_path)[1]   # eq3: 500,000 and 1,500,000 reads
     table = project / 'benchmark/samples.tsv'
     table.write_text(table.read_text().replace('500000', '7'))
     assert summary.read_project(project, tmp_path)[1]['reads processed'] == '2,000,000'
-    adapter_report(project, 'R1', 1000)
-    assert summary.read_project(project, tmp_path)[1]['reads processed'] == '1,501,000'
+    adapter_report(project, 'R1', 1000)                                   # rerun at another depth, not yet evaluated
+    assert summary.read_project(project, tmp_path)[1]['reads processed'] == '2,000,000'
+    assert evaluation.reads_processed(project) == 1501000
     (project / 'data/tmp/smallrna/filter/cutadapt_stages/R2.adapter.json').unlink()
-    assert summary.read_project(project, tmp_path)[1]['reads processed'] == ''
+    assert evaluation.reads_processed(project) is None
     for broken in ('{"read_counts": {}}', '{"read_counts": {"input": 2.5}}', '[]', 'not json'):
         write(project / 'data/tmp/smallrna/filter/cutadapt_stages/R2.adapter.json', broken)
         with pytest.raises(ValueError, match='R2.adapter.json'):
+            evaluation.reads_processed(project)
+    legacy = summary_project(tmp_path / 'old', 'eq', dict(libprepkit='Kit A', name='eq_pool', kind='pool', pool='equimolar',
+                                                          methods=['unitas']), [['metric', 'unitas'], ['detected', '0.9']],
+                             samples=[POOL_SAMPLES, ['R1', 'EQ', 'Lab1', '10']], published=False)
+    assert summary.read_project(legacy, tmp_path)[1]['reads processed'] == ''
+    record = json.loads((project / 'benchmark/evaluation.json').read_text())
+    for bad in (-1, 2.5, '10'):
+        (project / 'benchmark/evaluation.json').write_text(json.dumps(dict(record, reads_processed=bad)))
+        with pytest.raises(ValueError, match='incomplete or inconsistent evaluation'):
             summary.read_project(project, tmp_path)
 
 
@@ -1043,6 +1064,11 @@ def test_short_and_incomplete_pool_fastqs(tmp_path):
     source.write_bytes(gzip.compress((records + '@short\nACGT\n+\n').encode()))
     with pytest.raises(SystemExit, match='incomplete FASTQ record 2'):
         benchmark.head_fastq(source, target, 100)
+    damaged = bytearray(gzip.compress(records.encode() * 3))
+    damaged[-8] ^= 0xFF                                     # the CRC in the trailer, after exactly the 3 records asked for
+    source.write_bytes(bytes(damaged))
+    with pytest.raises(SystemExit, match='damaged gzip file'):
+        benchmark.head_fastq(source, target, 3)
 
 
 def test_summary_refuses_external_target_of_a_project_input(tmp_path):
@@ -1059,7 +1085,7 @@ def test_summary_refuses_external_target_of_a_project_input(tmp_path):
 
 def test_interrupted_first_publication_needs_a_successful_retry(tmp_path, monkeypatch):
     import evaluation
-    project = summary_projects(tmp_path)[0]
+    project = summary_projects(tmp_path, published=False)[0]
     bench = project / 'benchmark'
     rows = [('exact', 1)]
     lines = ['| metric | unitas |', '|---|---|', '| exact | 1 |']
@@ -1152,7 +1178,7 @@ def test_evaluation_locks_are_regular_and_exclusive_descriptor_is_writable(tmp_p
     import evaluation
     import fcntl
     import stat
-    bench = summary_projects(tmp_path)[0] / 'benchmark'
+    bench = summary_projects(tmp_path, published=False)[0] / 'benchmark'   # an older evaluation, without a lock
     actual_flock = fcntl.flock
     modes = []
 
@@ -1208,7 +1234,7 @@ def test_summary_follows_links_inside_link_targets_and_publishes_to_checked_pare
 
 def test_first_legacy_reader_retries_if_evaluation_starts_during_snapshot(tmp_path, monkeypatch):
     import evaluation
-    bench = summary_projects(tmp_path)[0] / 'benchmark'
+    bench = summary_projects(tmp_path, published=False)[0] / 'benchmark'
     original = Path.read_bytes
     reads = 0
 
@@ -1229,7 +1255,7 @@ def test_first_legacy_reader_retries_if_evaluation_starts_during_snapshot(tmp_pa
 def test_legacy_biological_report_uses_its_primary_metrics_table(tmp_path):
     import evaluation
     import summary
-    projects = summary_projects(tmp_path)
+    projects = summary_projects(tmp_path, published=False)
     bench = projects[4] / 'benchmark'
     secondary = [['metric', 'unitas', 'mirge3'], ['lane_agreement', '0.9', '0.88']]
     report = bench / 'report.md'
@@ -1323,7 +1349,7 @@ def test_write_rechecks_current_input_entries_before_publishing(tmp_path, monkey
 @pytest.mark.parametrize('kind', ['fifo', 'link'])
 def test_evaluation_lock_requires_regular_file_without_following_links(tmp_path, kind):
     import evaluation
-    bench = summary_projects(tmp_path)[0] / 'benchmark'
+    bench = summary_projects(tmp_path, published=False)[0] / 'benchmark'
     lock = bench / '.evaluation.lock'
     if kind == 'fifo':
         os.mkfifo(lock)
@@ -1453,17 +1479,17 @@ def test_summary_uses_one_selected_project_when_a_directory_link_is_retargeted(t
     first, second = summary_projects(tmp_path / 'projects')[:2]
     selection = tmp_path / 'selected'
     selection.symlink_to(first, target_is_directory=True)
-    read_metrics = evaluation.read_metrics
+    read_evaluation = evaluation.read_evaluation
 
     def retarget_after_metrics(bench):
-        result = read_metrics(bench)
+        result = read_evaluation(bench)
         selection.unlink()
         selection.symlink_to(second, target_is_directory=True)
         return result
 
     expected = tmp_path / 'expected.md'
     summary.write([first], expected)
-    monkeypatch.setattr(evaluation, 'read_metrics', retarget_after_metrics)
+    monkeypatch.setattr(evaluation, 'read_evaluation', retarget_after_metrics)
     observed = tmp_path / 'observed.md'
     summary.write([selection], observed)
     assert selection.resolve() == second and observed.read_text() == expected.read_text()

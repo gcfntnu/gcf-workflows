@@ -1,6 +1,6 @@
 """Summary across evaluated benchmark projects: one section per dataset kind, a row per project and the kind's key
 metrics per method, read from each project's `benchmark/metrics.tsv` and its configuration (`benchmark/dataset.yaml`,
-`config.yaml`; lanes from `benchmark/samples.tsv`), with the reads its run processed from the run's cutadapt reports.
+`config.yaml`; lanes from `benchmark/samples.tsv`), with the reads its run processed as recorded by the evaluation.
 Written as Markdown or as one self-contained HTML file, by the output's extension; nothing is written into the
 projects.
 
@@ -10,7 +10,6 @@ from collections import deque
 from contextlib import contextmanager
 import csv
 import html
-import json
 import os
 from pathlib import Path
 import re
@@ -54,26 +53,6 @@ def read_tsv(path):
         return list(csv.DictReader(fh, delimiter='\t'))
 
 
-def reads_processed(project, samples):
-    """Reads the project's run filtered, summed over its samples: the input of each sample's first cutadapt pass, from
-    the JSON report the run wrote (`data/tmp/smallrna/filter/cutadapt_stages/<sample>.adapter.json`, kept with
-    `--notemp`). '' when a sample has no report (another filter route, or the reports were removed), so the column never
-    shows a count the evaluated run did not record. A report without a whole read count stops the summary."""
-    total = 0
-    for sample in samples:
-        path = project / 'data/tmp/smallrna/filter/cutadapt_stages' / f'{sample}.adapter.json'
-        if not path.is_file():
-            return ''
-        try:
-            count = json.loads(path.read_text())['read_counts']['input']
-        except (ValueError, KeyError, TypeError) as error:
-            raise ValueError(f'{path}: no read_counts.input in the cutadapt report ({type(error).__name__}: {error})') from None
-        if type(count) is not int or count < 0:
-            raise ValueError(f'{path}: read_counts.input is {count!r}, not a read count')
-        total += count
-    return '{:,}'.format(total)
-
-
 def read_project(project, out_dir):
     """A project's row: its description (FIXED, with a link to its report relative to `out_dir`) and its metrics
     {(metric, method): value}, the empty ones left out."""
@@ -85,7 +64,7 @@ def read_project(project, out_dir):
     if kind not in [s[0] for s in SECTIONS]:
         raise ValueError('{}: dataset kind {!r} (pool {!r}) is not one of synthetic, pool (equimolar, ratiometric), biological'.format(
             project, spec.get('kind'), spec.get('pool')))
-    table = evaluation.read_metrics(bench)
+    table, record = evaluation.read_evaluation(bench)
     columns = table[0][1:]
     values = {(row[0], c): v for row in table[1:] for c, v in zip(columns, row[1:]) if v != ''}
     config = yaml.safe_load((project / 'config.yaml').read_text())
@@ -100,7 +79,7 @@ def read_project(project, out_dir):
             samples = '{} lanes of {} samples'.format(samples, len(libraries))
     report = os.path.relpath((bench / 'report.md').resolve(), out_dir)
     return kind, {'project': project.resolve().name, 'link': urllib.parse.quote(report), 'dataset': spec['name'], 'kit': spec['libprepkit'],
-                  'samples': samples, 'reads processed': reads_processed(project, configured_samples),
+                  'samples': samples, 'reads processed': '' if record.get('reads_processed') is None else '{:,}'.format(record['reads_processed']),
                   'methods': ', '.join(c for c in columns if c != 'oracle'), 'columns': columns, 'values': values}
 
 
@@ -148,8 +127,9 @@ def summarize(projects, out_dir):
 
 
 INTRO = ('Key metrics of each evaluated project, from its `metrics.tsv`; its `report.md` has them all, and '
-         '`smallrna/benchmark/README.md` defines them. `reads processed` is the reads the project’s run filtered, from '
-         'its cutadapt reports (empty for another filter route or without the reports). An empty metric cell: the method '
+         '`smallrna/benchmark/README.md` defines them. `reads processed` is the reads the evaluated run filtered, from '
+         'its cutadapt reports as recorded by `evaluate` (empty for another filter route, without the reports, or for an '
+         'evaluation older than this record). An empty metric cell: the method '
          'was not run on that dataset, or the metric is not in its table. `oracle` is the pool reads counted by exact '
          'match, the reference for the methods.')
 
