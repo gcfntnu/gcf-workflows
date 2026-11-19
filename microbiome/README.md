@@ -34,7 +34,6 @@ The `QIAseq 16S ITS Region Panels` kit is routed to [metagenome](../metagenome/R
 
 - The `phyloseq_filter` notebook sources `microfiltR` code that is not in the repository ([#231](https://github.com/gcfntnu/gcf-workflows/issues/231)).
 - QIIME2 report support is deprecated for the MultiQC migration ([gcf-multiqc](https://github.com/gcfntnu/gcf-multiqc)).
-- `ref_dir`/`GCF_REFDIR` resolve in a different order here than in most workflows ([#240](https://github.com/gcfntnu/gcf-workflows/issues/240)).
 
 ## Outputs in `bfq/`
 
@@ -58,6 +57,7 @@ region_demultiplexed_fastq/<sample>_R1.fastq.gz, <sample>_R2.fastq.gz
 | `quant.method` | `qiime2` | [microbiome.config](microbiome.config), kit entry |
 | `db.reference_db`, `db.primers`, `db.classifier_level` | Per kit | Kit entry |
 | `db.silva.*`, `db.unite.*`, `db.greengenes.*` | Releases | [main.config](../main.config) |
+| `ref_dir` | Configured provider | Optional project directory containing `qiime2/classifiers/export/` for the selected primers and classifier level |
 
 ## Tests
 

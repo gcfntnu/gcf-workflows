@@ -41,10 +41,9 @@ If Python 3.14 is not available, the small-RNA AnnData test can be left to CI; s
 
 Run from the repository root.
 Clear the GCF environment variables first, so a personal environment cannot change what the checks resolve.
-`GCF_REFDIR` matters too: when set, the reference readers use it and fixture dry runs fail with missing reference files.
 
 ```bash
-unset GCF_EXT GCF_INTERIM GCF_FASTQ GCF_SECRET GCF_REFDIR
+unset GCF_EXT GCF_INTERIM GCF_FASTQ GCF_SECRET
 ```
 
 **Parallel pytest.** Add `-n auto` (`pytest-xdist`) to any `.dev/ci/bin/python -m pytest` command below to run its tests in parallel.

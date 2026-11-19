@@ -153,10 +153,15 @@ For the first three, a **nonempty** project value wins, then the environment var
 An empty project value falls through to the environment variable.
 The directories are created when the workflow loads. Relative paths are relative to the Snakemake working directory.
 
-**Custom reference directory (`ref_dir` / `GCF_REFDIR`).** All reader families use a nonempty project `ref_dir`, then a nonempty `GCF_REFDIR`, then their configured getter-managed database.
-Empty strings and YAML null values do not suppress an environment default.
-This applies to `gcfdb/reference_db.db` (rnaseq, singlecell, smallrna and wgs) and the metagenome/microbiome `rules/reference_db.smk` readers.
-An already resolved `REF_DIR` remains available when reference rules are included by another rule file.
+### Project reference directory
+
+Set the top-level `ref_dir` in the project's `config.yaml` to select a prepared reference directory.
+Relative paths start at the Snakemake working directory. The workflow uses the configured provider and annotation settings regardless of the directory name.
+If `ref_dir` is omitted, an empty string or YAML `null`, the configured provider supplies the reference under `EXT_DIR`.
+Downstream rules use the resolved path as `REF_DIR`.
+
+The directory contents depend on the workflow. See the [augmented-genome example for Cell Ranger](../gcfdb/README.md#project-reference-for-cell-ranger)
+and the [metagenome classification database settings](../metagenome/README.md#key-configuration).
 
 ## Shared configuration files
 

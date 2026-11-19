@@ -14,6 +14,38 @@ private fixtures, provenance and storage locations belong in the operator's
 private configuration/runbook. Changing a test override does not change the
 suite's scientific defaults.
 
+### Project reference for Cell Ranger
+
+For a genome augmented by a reporter sequence, point the project's `config.yaml` at the prepared directory.
+
+```yaml
+ref_dir: refs/panel-v1
+```
+
+The directory must contain the augmented FASTA and its matching annotation. Relative paths start at the project working directory.
+
+| File | Contents |
+| --- | --- |
+| `refs/panel-v1/fasta/genome.fa` | Genome sequences including the reporter contig |
+| `refs/panel-v1/anno/genes.gtf` | Gene annotation including the reporter feature with the same contig name and coordinates |
+
+A fresh `cellranger mkref` reads `--fasta refs/panel-v1/fasta/genome.fa` and `--genes refs/panel-v1/anno/genes.gtf`.
+Counting uses `--transcriptome refs/panel-v1/cellranger`.
+The reporting workflow derives gene metadata in `refs/panel-v1/anno/genes.tsv` from the same annotation and genome.
+The directory name is arbitrary. The configured provider and annotation settings still apply.
+
+With the standard 10x kit and no project reference directory, the workflow selects the reference by organism.
+
+- For human, mouse and the combined human–mouse reference, it uses the supported 10x prebuilt.
+  Omit `db.10xgenomics.release` in the project to inherit the configured default. An empty or null effective release stops planning.
+- For an organism with an Ensembl reference and no supported prebuilt, the workflow selects Ensembl for the build, count and gene metadata.
+  For example, `salmo_salar` at Ensembl release 116 uses assembly `Ssal_v3.1` under `<EXT_DIR>/ensembl/release-116/salmo_salar/Ssal_v3.1/`.
+  This route and the explicit-directory route work independently of the 10x release.
+
+To select a managed custom assembly, set `db.reference_db: custom_reference` and `db.custom_reference.assembly`.
+When Ensembl is selected and its lookup table lacks the organism, the workflow warns before falling back to the configured custom assembly.
+See [Reduced custom references](#reduced-custom-references).
+
 ### Download dates in logs
 
 Reference rules write their source and download date to the rule's log (e.g.

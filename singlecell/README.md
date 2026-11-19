@@ -74,6 +74,7 @@ BFQ also delivers `summaries/all_samples*.html` as a separate web summary ([READ
 | `quant.aggregate`, `quant.cellbender`, `quant.doublet_detection`, `quant.demultiplex` | See file | `singlecell.config`; [rules/quant/multiplex.config](rules/quant/multiplex.config) when demultiplexing |
 | `preprocessing.*`, `celltype_annotation.*`, `qc.*`, `pseudobulk.*` | See file | `singlecell.config` |
 | `db.reference_db` | Per kit | Kit entry, releases in [main.config](../main.config) |
+| `ref_dir` | Configured provider | Top-level project directory with the genome FASTA and matching GTF. See [Cell Ranger reference selection](../gcfdb/README.md#project-reference-for-cell-ranger) |
 | `docker.*` | Pinned images, for example `splitpipe_immune` | [docker.config](../docker.config) |
 
 Precedence between these sources is described in [docs/configuration.md](../docs/configuration.md#effective-precedence).
