@@ -1,6 +1,6 @@
 # Small-RNA quantification benchmark
 
-Compares the smallrna quantification methods (`quant.method`: UNITAS, miRge3, mirflowz) on datasets with a known
+Compares the smallrna quantification methods (`quant.method`: UNITAS, miRge3, mirflowz, TEsmall) on datasets with a known
 truth, and makes adding a method or a dataset a small change ([#338](https://github.com/gcfntnu/gcf-workflows/issues/338)).
 It runs the workflow's own `quant_all` routes, never the tools directly, so it measures what a project would get.
 It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.py`.
@@ -67,7 +67,7 @@ python smallrna/benchmark/benchmark.py fill --dataset smallrna/benchmark/dataset
 ```
 
 `prepare` links the runs into the project, or copies the first `--reads N` reads of each for a quick run; `--methods`
-picks a subset of the declared methods (mirflowz on human needs the full human reference). Run `quant_all` with
+picks a subset of the declared methods (mirflowz and TEsmall on human need the full human reference). Run `quant_all` with
 `--notemp`: the oracle count reads the workflow's filtered reads, those of the project's filter route (`filter/cutadapt/`
 with the kit default; the spike-in prefilter's when the project's `filter.spikein.ref` lists sets removed by Bowtie,
 although the trimmed reads it starts from remain; the trimmed reads with native spike-ins, which UNITAS and miRge3

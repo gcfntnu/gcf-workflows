@@ -5,7 +5,7 @@ kind: pool
 pool: ratiometric
 organism: homo_sapiens
 libprepkit: Bioo Scientific NEXTflex Small RNA-Seq Kit v3
-methods: [unitas, mirge3, mirflowz]
+methods: [unitas, mirge3, mirflowz, tesmall]
 data: benchmark/smallrna/giraldez2018   # relative to EXT_DIR
 composition:
   file: FINAL_Ratiometric_SynthA_and_SynthB-1.csv
