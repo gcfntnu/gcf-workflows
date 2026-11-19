@@ -1,0 +1,55 @@
+# Genome-wide synthetic human small-RNA reads of known origin (#412): about 500 miRNAs with their identical, near-identical
+# and multi-locus relatives, isomiRs, sequencing errors with base qualities, and 6 + 6 samples whose counts follow a rank-2
+# structure (the group contrast and a nuisance correlated with it), plus class-pure probe samples. `prepare` generates
+# the reads from a fixed seed; `benchmark.py fill` downloads the miRBase files once into EXT_DIR/<data>.
+name: synthetic_hsa_genome
+kind: synthetic
+organism: homo_sapiens
+libprepkit: Bioo Scientific NEXTflex Small RNA-Seq Kit v4
+adapter: TGGAATTCTCGGGTGCCAAGG
+umi: 0                      # random nucleotides at each end of the insert (NEXTflex v3: 4)
+methods: [unitas, mirge3, tinyrna, smrnaseq, tesmall]   # mirflowz needs about 60 GB for the human genome
+data: benchmark/smallrna/synthetic_hsa
+mirbase:                    # the release every method uses (#407)
+  release: '23.1'
+  url: https://www.mirbase.org/download_version_files/23.1/mature.fa
+  sha256: 52d69eeb3c23c5ed0f66c8c9f24e1ad2cd94cc34e72e4fc376c0dd438d2779ff
+  hairpin:                  # templated 3' and 5' extensions come from the hairpin
+    url: https://www.mirbase.org/download_version_files/23.1/hairpin.fa
+    sha256: 0b315c6071e84ee3bd8357c9696845f99b55842ec1cf8a83116fa01749467a5b
+  gff:                      # loci: multi-locus matures, genomic clusters (co-regulation), annotated matures only
+    url: https://www.mirbase.org/download_version_genome_files/23.1/hsa.gff3
+    sha256: 45b2aa4f8306dc6b86831f652acb166567efe9e59c599d1b6f009f15d3424d07
+synthetic:
+  mode: genome
+  seed: 1
+  mirnas: 500               # truth miRNAs, every pair one substitution apart and multi-locus matures included first
+  abundance:                # expected reads per million of a mixed sample, by rank: Zipf, then a low tail
+    zipf: 1.2               # top 10 about 60% of the miRNA reads, as in plasma (GSE317995)
+    tail: {mirnas: 100, reads: [1, 50]}   # the last 100 ranks log-uniform between 1 and 50 reads per million
+  near_identical: {ratio: 100, partner_absent: 0.33}   # pairs one substitution apart: 100:1 either way, a third alone
+  reads: {mean: 1000000, cv: 0.3}          # reads per mixed sample (lognormal)
+  groups: {control: 6, case: 6}
+  dispersion: {asymptotic: 0.05, extra: 2}  # negative binomial: phi = 0.05 + 2 / expected count
+  structure:
+    group: {fraction: 0.15, log2: [-2, -1, -0.585, 0.585, 1, 2], include: [near_identical, multi_locus]}
+    nuisance: {sd: 0.5, group_correlation: 0.3}
+  coregulate: {distance: 10000, shared: 0.8}  # miRBase clusters (hairpins within 10 kb, same strand) share the nuisance
+  isomirs:                  # shares of a miRNA's reads (mean over miRNAs; each miRNA draws its own around these)
+    canonical: 0.8
+    3p_trim_1: 0.06
+    3p_trim_2: 0.02
+    3p_templated_1: 0.04    # one more base of the hairpin
+    3p_templated_2: 0.01
+    3p_add_A: 0.03          # non-templated
+    3p_add_U: 0.02
+    5p_shift: 0.02          # +1 (trimmed) or -1 (one hairpin base added)
+  errors: {rate: 0.001, first_base: 0.02}   # substitutions per base; NEXTflex v4 starts the insert at cycle 1
+  qualities:                # binned NextSeq qualities: correct bases, and bases carrying an error
+    correct: {37: 0.9, 23: 0.08, 12: 0.02}
+    error: {12: 0.6, 2: 0.25, 23: 0.15}
+  random_reads: {per_million: 100, length: [18, 26]}
+  probes:                   # class-pure samples: a canonical carrier plus one read class of other miRNAs
+    replicates: 2
+    carrier: {mirnas: 30, reads: 1000}
+    probe: {mirnas: 40, reads: 500}

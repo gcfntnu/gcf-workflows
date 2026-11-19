@@ -3,8 +3,9 @@
 
 The benchmark runs the workflow's own `quant_all` routes; it never calls the tools itself. Steps:
 
-0. `fill` (public datasets only) downloads a dataset's runs, composition table and miRBase sequences into
-   `EXT_DIR/<data>/`, checked against the declared checksums (fill.py). It is the only step that writes to EXT_DIR.
+0. `fill` (public pool and biological datasets, and the genome-wide synthetic dataset's miRBase files) downloads a
+   dataset's runs, composition table and miRBase files into `EXT_DIR/<data>/`, checked against the declared checksums
+   (fill.py). It is the only step that writes to EXT_DIR.
 1. `prepare` builds a smallrna project from a dataset declaration (`datasets/<name>.yaml`): configuration, sample
    table, reads (generated for synthetic datasets; linked, or the first `--reads` copied, for pool and biological
    datasets) and the truth (`truth.tsv` per read for synthetic data; `pool.tsv` with truth groups for pools, pool.py;
@@ -47,11 +48,13 @@ import adapters  # noqa: E402
 import biological  # noqa: E402
 import evaluation  # noqa: E402
 import fill as filler  # noqa: E402
+import genome_metrics  # noqa: E402
 import metrics  # noqa: E402
 import pool  # noqa: E402
 import summary as summarizer  # noqa: E402
 import uncertainty  # noqa: E402
 import synthetic  # noqa: E402
+import synthetic_genome  # noqa: E402
 
 PREFIX = {'homo_sapiens': 'hsa-', 'mus_musculus': 'mmu-', 'rattus_norvegicus': 'rno-'}
 EXTENSION = 6
@@ -70,11 +73,14 @@ def load_dataset(path):
         fail('{}: organism must be one of {}'.format(path, ', '.join(PREFIX)))
     if spec['kind'] not in ('synthetic', 'pool', 'biological'):
         fail('{}: kind must be synthetic, pool or biological, got {!r}'.format(path, spec['kind']))
-    required = {'synthetic': ('adapter', 'synthetic', 'reference'), 'pool': ('pool', 'data', 'composition', 'mirbase', 'runs'),
-                'biological': ('data', 'mirbase', 'samples')}[spec['kind']]
+    genome = spec['kind'] == 'synthetic' and synthetic_mode(spec) == 'genome'
+    required = {'synthetic': ('adapter', 'synthetic') + (('data', 'mirbase') if genome else ('reference',)),
+                'pool': ('pool', 'data', 'composition', 'mirbase', 'runs'), 'biological': ('data', 'mirbase', 'samples')}[spec['kind']]
     for key in required:
         if key not in spec:
             fail('{}: a {} dataset needs {!r}'.format(path, spec['kind'], key))
+    if genome and not all(isinstance(spec['mirbase'].get(k), dict) and {'url', 'sha256'} <= set(spec['mirbase'][k]) for k in ('hairpin', 'gff')):
+        fail('{}: a genome-wide synthetic dataset needs mirbase.hairpin and mirbase.gff, each with url and sha256'.format(path))
     if spec['kind'] == 'pool' and spec['pool'] not in ('equimolar', 'ratiometric'):
         fail('{}: pool must be equimolar or ratiometric, got {!r}'.format(path, spec['pool']))
     if spec['kind'] == 'biological':
@@ -89,6 +95,14 @@ def load_dataset(path):
         if any(type(lane) is not int for lane in lanes):
             fail('{}: a run\'s lane must be a whole number, e.g. `lane: 1`'.format(path))
     return spec
+
+
+def synthetic_mode(spec):
+    """`reduced` (reads on a reduced reference, the quick check) or `genome` (genome-wide, from filled miRBase sources)."""
+    mode = (spec.get('synthetic') or {}).get('mode', 'reduced')
+    if mode not in ('reduced', 'genome'):
+        fail('{}: synthetic.mode must be reduced or genome, got {!r}'.format(spec.get('name'), mode))
+    return mode
 
 
 def reference_dir(spec, ext_dir):
@@ -157,7 +171,37 @@ def prepare(args):
     print(message)
 
 
+def synthetic_files(spec, ext_dir):
+    """The filled miRBase files of a genome-wide synthetic declaration: mature.fa, hairpin.fa, genes.gff3."""
+    folder = Path(ext_dir) / spec['data'] / 'mirbase' / str(spec['mirbase']['release'])
+    return [folder / name for name in ('mature.fa', 'hairpin.fa', 'genes.gff3')]
+
+
+def prepare_synthetic_genome(spec, project, ext_dir, methods, args):
+    files = synthetic_files(spec, ext_dir)
+    missing = [str(p) for p in files if not p.is_file()]
+    if missing:
+        fail('not filled: {}; run `benchmark.py fill --dataset ...` first'.format(', '.join(missing)))
+    syn = dict(spec['synthetic'])
+    if args.reads:  # --reads sets the mean reads of a mixed sample, for a quick run
+        syn['reads'] = dict(syn['reads'], mean=args.reads)
+    umi = int(spec.get('umi', 0))
+    truth, samples, mirnas = synthetic_genome.generate(syn, *files, PREFIX[spec['organism']], spec['adapter'], umi,
+                                                       lambda sample: project_fastq(project, spec, sample))
+    read_length = max(len(row[4]) for row in truth) + 2 * umi + len(spec['adapter'])
+    bench = write_project(project, spec, ext_dir, [s[0] for s in samples], read_length, methods)
+    synthetic_genome.write_table(bench / 'truth.tsv', synthetic_genome.TRUTH_COLUMNS, truth)
+    synthetic_genome.write_table(bench / 'samples.tsv', synthetic_genome.SAMPLE_COLUMNS, samples)
+    synthetic_genome.write_table(bench / 'mirnas.tsv', synthetic_genome.MIRNA_COLUMNS, mirnas)
+    mixed = [s for s in samples if s[1] == 'mixed']
+    return ('{}: {} mixed samples ({:,} reads on average), {} probe samples, {} truth miRNAs; run `snakemake quant_all` '
+            'there, then `benchmark.py evaluate --project {}`'.format(args.project, len(mixed), round(sum(s[5] for s in mixed) / len(mixed)),
+                                                                     len(samples) - len(mixed), sum(1 for m in mirnas if float(m[4]) > 0), args.project))
+
+
 def prepare_synthetic(spec, project, ext_dir, methods, args):
+    if synthetic_mode(spec) == 'genome':
+        return prepare_synthetic_genome(spec, project, ext_dir, methods, args)
     ref = reference_dir(spec, ext_dir)
     if ref is None or not (ref / 'mature.fa').is_file():
         fail('reference {} lacks mature.fa; make it with reduce_reference.py'.format(ref))
@@ -411,6 +455,8 @@ def evaluate(args):
         return evaluate_pool(args, project, bench, spec, ext_dir)
     if spec['kind'] == 'biological':
         return evaluate_biological(args, project, bench, spec, ext_dir)
+    if synthetic_mode(spec) == 'genome':
+        return evaluate_synthetic_genome(args, project, bench, spec, ext_dir)
     prefix = PREFIX[spec['organism']]
     mature = synthetic.read_mature(reference_dir(spec, ext_dir) / 'mature.fa', prefix)
     name_to_id = {name: accession for name, (accession, _) in mature.items()}
@@ -751,6 +797,92 @@ def md_table(header, rows):
             ['| ' + ' | '.join(map(str, row)) + ' |' for row in rows])
 
 
+GENOME_KEYS = ['recovered', 'precision', 'exact', 'misassigned', 'unplaced', 'near_spill', 'deviation_correlation', 'de_tested',
+               'de_sensitivity', 'de_fdr', 'de_fc_error', 'de_sensitivity_adjusted', 'de_fdr_adjusted', 'de_fc_error_adjusted',
+               'structure_group_r2', 'structure_nuisance_r2', 'coexpression']
+GENOME_CI_KEYS = ['recovered', 'precision', 'exact', 'misassigned', 'near_spill', 'deviation_correlation', 'de_sensitivity', 'de_fdr',
+                  'de_fc_error', 'de_sensitivity_adjusted', 'de_fdr_adjusted', 'de_fc_error_adjusted']
+
+
+def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
+    """The genome-wide synthetic dataset (#412): genome_metrics on the collapsed common table against truth.tsv, with
+    the design tables samples.tsv and mirnas.tsv written by prepare."""
+    prefix = PREFIX[spec['organism']]
+    mature_fa = synthetic_files(spec, ext_dir)[0]
+    missing = [str(p) for p in [mature_fa] + [bench / n for n in ('truth.tsv', 'samples.tsv', 'mirnas.tsv')] if not p.is_file()]
+    if missing:
+        fail('missing: {}'.format(', '.join(missing)))
+    mature = synthetic.read_mature(mature_fa, prefix)
+    id_to_seq = {accession: seq for accession, seq in mature.values()}
+    id_to_name = {accession: name for name, (accession, _) in mature.items()}
+    methods = list(spec['methods'])
+    gff = args.mirflowz_gff or (mirflowz_annotation(ext_dir, spec) if 'mirflowz' in methods else None)
+    raw = common_table(args, project, bench, spec, ext_dir, methods, mature, gff)
+    common, _ = biological.collapse(raw, id_to_seq)
+    truth, samples, mirnas = (read_tsv(bench / n) for n in ('truth.tsv', 'samples.tsv', 'mirnas.tsv'))
+    ev = genome_metrics.Evaluation(common, truth, samples, mirnas, methods)
+    label = lambda i: id_to_name.get(i) or ev.mirnas.get(i, {}).get('mature_name') or i
+    rows = ['truth'] + methods
+    point = {name: ev.mixed_metrics(name, ev.units, ev.pairs, ev.de_units, ev.dev_units) for name in rows}
+    probes = {name: ev.probes(name) for name in rows}
+    classes = sorted({c for v in probes.values() for c in v})
+    for name in rows:
+        point[name]['unplaced'] = ev.unplaced_share(name) if name != 'truth' else 0.0
+        point[name]['structure_group_r2'], point[name]['structure_nuisance_r2'], point[name]['coexpression'] = ev.structure(name)
+        for c in classes:
+            point[name]['probe_' + c] = probes[name].get(c, (float('nan'),))[0]
+    keys = GENOME_KEYS + ['probe_' + c for c in classes]
+    rnd = lambda v: round(v, 4) if isinstance(v, float) and not math.isnan(v) else ('' if isinstance(v, float) else v)
+    metric_rows = [[k] + [rnd(point[name].get(k, float('nan'))) for name in rows] for k in keys]
+    per = []
+    for i in ev.units:
+        k = ev.index[i]
+        per.append([label(i), i, rnd(float(ev.t[k].sum()))] + [rnd(float(ev.o[name][k].sum())) for name in methods])
+    write_tsv(bench / 'per_mirna.tsv', ['mature_name', 'mature_id', 'truth'] + methods, per)
+    mixed = len(ev.mixed)
+    lines = ['# {}'.format(spec['name']), '',
+             '{} ({}), genome-wide synthetic reads (#412): {} mixed samples in two groups, {} probe samples; {} truth miRNAs, '
+             'identical sequences counted as one. `truth` is the truth counts analysed as a method: the best the design allows.'.format(
+                 spec['organism'], spec['libprepkit'], mixed, len(samples) - mixed,
+                 sum(1 for m in mirnas if float(m['base_per_million']) > 0)), '',
+             '## Metrics', '', 'Mixed samples (definitions in genome_metrics.py). DE: each row tests the miRNAs with at least {} '
+             'reads on average in its own counts, as an analysis of them would (`de_tested`); {} miRNAs are truly DE, and a call on '
+             'any other miRNA is false. `probe_*`: probe samples, recovery per read class.'.format(
+                 genome_metrics.DE_MIN, len(ev.true_de)), ''] + md_table(['metric'] + rows, metric_rows)
+    strata = {name: ev.strata(name) for name in rows}
+    names = sorted({k for v in strata.values() for k in v})
+    lines += ['', '## Recovery by stratum', ''] + md_table(
+        ['stratum', 'miRNAs'] + rows, [[n, strata['truth'].get(n, ('', ''))[1]] + [rnd(strata[r].get(n, (float('nan'),))[0]) for r in rows]
+                                       for n in names])
+    lines += ['', '## Probe samples', '', 'Per read class: the probe miRNAs\' observed reads (control subtracted) over their truth, '
+              'and reads landing on other miRNAs (`misplaced`, relative to the same truth).', ''] + md_table(
+        ['class', 'miRNAs'] + ['{}: recovery / misplaced'.format(r) for r in methods],
+        [[c, probes['truth'][c][2]] + ['{} / {}'.format(rnd(probes[r][c][0]), rnd(probes[r][c][1])) for r in methods] for c in classes])
+    absent = []
+    for name in methods:
+        k = [(float(ev.o[name][ev.index[i]].sum()), i) for i in ev.units if float(ev.t[ev.index[i]].sum()) == 0]
+        top = sorted(k, reverse=True)[:5]
+        if top and top[0][0] > 0:
+            absent.append('- {}: '.format(name) + ', '.join('{} ({:.0f})'.format(label(i), v) for v, i in top if v > 0))
+    if absent:
+        lines += ['', '## Reads on miRNAs absent from the truth (top 5, mixed samples)', ''] + absent
+    false = [(name, ev.false_calls(name)) for name in rows]
+    if any(calls for _, calls in false):
+        lines += ['', '## False DE calls', '', 'Calls on miRNAs not designed DE: reads per mixed sample in the truth and in the '
+                  'row\'s counts, and the estimated log2 fold change.', '']
+        lines += ['- {}: '.format(name) + ', '.join('{} ({:.1f} → {:.1f} reads, {:+.2f})'.format(label(i), tm, om, est)
+                                                    for i, tm, om, est in calls) for name, calls in false if calls]
+    extra, record, ci_lines = bootstrap(
+        args, {name: {k: rnd(v) for k, v in point[name].items()} for name in rows},
+        lambda units, pairs, de_units, dev_units: {name: ev.mixed_metrics(name, units, pairs, de_units, dev_units) for name in rows},
+        lambda rng: (uncertainty.resample(rng, ev.units), uncertainty.resample(rng, ev.pairs), uncertainty.resample(rng, ev.de_units),
+                     uncertainty.resample(rng, ev.dev_units)),
+        rows, GENOME_CI_KEYS, 'the miRNAs (each with all mixed samples), the near-identical pairs, the miRNAs any row tests for DE '
+        'and the deviation miRNAs (DE calls made once; unplaced, structure, coexpression and probes without an interval)')
+    evaluation.publish(bench, ['metric'] + rows, metric_rows, lines + ci_lines, run_reads(project), extra, record)
+    print(bench / 'report.md')
+
+
 def evaluate_biological(args, project, bench, spec, ext_dir):
     mature_fa, _ = biological_paths(spec, ext_dir)
     prefix = PREFIX[spec['organism']]
@@ -900,7 +1032,8 @@ def main():
     p.add_argument('--project', required=True)
     p.add_argument('--ext-dir', required=True, help='EXT_DIR holding the references and data named in the declaration')
     p.add_argument('--methods', help="comma-separated subset of the declaration's methods, e.g. unitas,mirge3")
-    p.add_argument('--reads', type=int, help='pool and biological datasets: copy the first N reads of each run instead of linking the runs')
+    p.add_argument('--reads', type=int, help='pool and biological datasets: copy the first N reads of each run instead of linking the runs; '
+                   'genome-wide synthetic dataset: the mean reads of a mixed sample')
     p.add_argument('--lanes', action='store_true', help='biological datasets: each run (lane) its own sample, for the lane-replicate metric')
     f = sub.add_parser('fill', help='download a public dataset into EXT_DIR (the only step that writes there)')
     f.add_argument('--dataset', required=True)
