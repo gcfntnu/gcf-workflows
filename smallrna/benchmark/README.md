@@ -38,8 +38,9 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    Before scoring, it stops when a method's count table does not have exactly the project's samples (a missing sample
    would count as zero), or, for pools and biological datasets, when the method's `quant/<method>/reference.tsv` names
    another miRNA database or release than the dataset's `mirbase.release` (#407). UNITAS and miRge3 record their
-   reference's release; mirflowz, TEsmall and tiny-count record `db.mirbase.release`, or `NA` for a
-   `db.mirflowz.custom` reference.
+   reference's release; `quant_reference` records it for mirflowz, TEsmall and tiny-count (`db.mirbase.release`, or `NA`
+   for a `db.mirflowz.custom` reference) and nf-core/smrnaseq (`db.mirbase.release`), with the SHA-256 of the count
+   table it was written after, which must match the table.
 
 ## Datasets
 

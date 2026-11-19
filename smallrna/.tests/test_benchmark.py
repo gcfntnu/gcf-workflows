@@ -97,9 +97,13 @@ MMU_HAIRPINS = {'miR-194-2': 'GGTGTGTAACAGCAACTCCATGTGGACTGTGCTCGGATTCCAGTGGGGCT
 
 
 def write_records(quant, methods, database='mirbase', release='23.1'):
-    """Each method's quant/<method>/reference.tsv, as unitas_reference, mirge3_reference and quant_reference write it."""
+    """Each method's quant/<method>/reference.tsv, as unitas_reference, mirge3_reference and quant_reference write it
+    (quant_reference with the SHA-256 of the count table as it is now)."""
     for method in methods:
-        write(quant / method / 'reference.tsv', 'field\tvalue\tsource\nmirna_database\t{}\tx\nmirna_release\t{}\tx\n'.format(database, release))
+        text = 'field\tvalue\tsource\nmirna_database\t{}\tx\nmirna_release\t{}\tx\n'.format(database, release)
+        if method in adapters.TABLE_BOUND_RECORDS:
+            text += 'table_sha256\t{}\tx\n'.format(adapters.table_sha256(method, quant))
+        write(quant / method / 'reference.tsv', text)
 
 
 def native_outputs(quant):
@@ -885,6 +889,7 @@ def test_evaluate_stops_when_a_method_ran_on_other_samples_or_another_mirbase_re
 
     write(quant / 'mirge3/miR.Counts.csv', 'miRNA,S1\nhsa-miR-1-3p,1\n')  # a table from a run with fewer samples
     write(quant / 'tinyrna/tinyrna_counts.tsv', 'Feature ID\tClassifier\tFeature Name\tS1\tS2\tS3\n')
+    write_records(quant, ['tinyrna'])
     write_records(quant, ['unitas'], release='22')
     with pytest.raises(SystemExit) as stop:
         benchmark.check_methods(project, spec, config)
@@ -910,7 +915,9 @@ def test_evaluate_stops_when_a_method_ran_on_other_samples_or_another_mirbase_re
 @pytest.mark.parametrize('record, message', [
     ('field\tvalue\tsource\nmirna_database\tmirbase\tx\nmirna_release\t22\tx\nmirna_release\t23.1\tx\n', 'one non-empty mirna_release row, found 2'),
     ('field\tvalue\tsource\nmirna_database\tmirbase\tx\nmirna_release\t\tx\n', 'one non-empty mirna_release row, found 1'),
-    ('name\tsetting\nmirna_database\tmirbase\nmirna_release\t23.1\n', 'expected field and value columns'),
+    ('name\tsetting\nmirna_database\tmirbase\nmirna_release\t23.1\n', 'expected unique field and value columns'),
+    ('field\tvalue\tvalue\nmirna_database\tmirbase\tmirbase\nmirna_release\t22\t23.1\n', 'expected unique field and value columns'),
+    ('field\tvalue\nmirna_database\tmirbase\nmirna_release\t22\t23.1\n', '3 fields, expected 2'),
 ])
 def test_evaluate_stops_on_a_malformed_reference_record(tmp_path, record, message):
     project, spec, config = check_project(tmp_path, 'pool', ['S1'], ['mirge3'])
@@ -947,3 +954,28 @@ def test_synthetic_projects_check_samples_only(tmp_path):
         benchmark.check_methods(project, spec, config)
     with pytest.raises(SystemExit, match='add its count table to adapters.TABLES'):
         benchmark.check_methods(project, dict(spec, methods=['newtool']), config)
+
+
+def test_a_table_rebuilt_after_its_record_was_written_stops_the_evaluation(tmp_path):
+    """quant_reference records carry their count table's SHA-256: an older record cannot vouch for a newer table."""
+    project, spec, config = check_project(tmp_path, 'pool', ['S1'], ['tesmall', 'smrnaseq'])
+    quant = project / 'data/tmp/smallrna/quant'
+    write(quant / 'tesmall/tesmall_counts.tsv', 'ftype\tfid\tS1\nmiRNA\thsa-miR-1-3p\t5\n')
+    write(quant / 'smrnaseq/mirna.tsv', 'miRNA\tS1\nhsa-miR-1-3p\t5\n')
+    write_records(quant, ['tesmall', 'smrnaseq'])
+    benchmark.check_methods(project, spec, config)
+    write(quant / 'tesmall/tesmall_counts.tsv', 'ftype\tfid\tS1\nmiRNA\thsa-miR-1-3p\t7\n')  # rebuilt, record not yet rewritten
+    with pytest.raises(SystemExit, match='tesmall: reference record was written for another count table'):
+        benchmark.check_methods(project, spec, config)
+    write(quant / 'smrnaseq/reference.tsv', 'field\tvalue\tsource\nmirna_database\tmirbase\tx\nmirna_release\t23.1\tx\n')
+    with pytest.raises(SystemExit, match='smrnaseq: .*one non-empty table_sha256 row, found 0'):
+        benchmark.check_methods(project, spec, config)
+
+
+def test_every_method_the_shipped_datasets_declare_is_checked_before_scoring():
+    """The declarations' default method lists (e.g. smrnaseq in the synthetic and Giraldez pools) must all be known to
+    the preflight, or evaluation of a fully quantified project stops."""
+    for path in sorted((BENCH / 'datasets').glob('*.yaml')):
+        methods = yaml.safe_load(path.read_text())['methods']
+        assert set(methods) <= set(adapters.TABLES), (path.name, set(methods) - set(adapters.TABLES))
+        assert set(methods) <= set(adapters.ADAPTERS), path.name

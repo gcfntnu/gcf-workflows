@@ -306,6 +306,13 @@ def check_methods(project, spec, config):
             except ValueError as e:
                 fail('{}: {}'.format(method, e))
             expected = str(spec['mirbase']['release'])
+            if method in adapters.TABLE_BOUND_RECORDS:
+                try:
+                    recorded = adapters.method_record(method, quant, ('table_sha256',))['table_sha256']
+                except ValueError as e:
+                    fail('{}: {}; run `snakemake quant_all` there'.format(method, e))
+                if recorded != adapters.table_sha256(method, quant):
+                    problems.append('{}: reference record was written for another count table; run `snakemake quant_all` there'.format(method))
             if database != 'mirbase' or release != expected:
                 problems.append('{}: annotated with {} {}, but the dataset declares miRBase {}'.format(method, database, release, expected))
     if problems:
