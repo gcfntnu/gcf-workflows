@@ -2,6 +2,7 @@
 import hashlib
 import json
 import math
+import os
 import re
 from pathlib import Path
 
@@ -46,17 +47,19 @@ def cellranger_build_key(genome, image):
     return hashlib.sha256(json.dumps([CELLRANGER_RECIPE_VERSION, genome, image]).encode()).hexdigest()
 
 
+def is_managed_cellranger_generation(directory):
+    cache = directory.parent.parent
+    return (cache.parts[-2:] == ('cellranger', 'builds')
+            and all(re.fullmatch('[0-9a-f]{64}', part) for part in directory.parts[-2:]))
+
+
 def frozen_cellranger_generation(source_dir):
     source = Path(source_dir).resolve()
     if source.name != 'gcf-source':
         return None
     generation = source.parent
-    # Also recognize a generation whose manifest has been removed. Creating files there
-    # would make recovering the original index harder.
-    cache = generation.parent.parent
-    if ((generation / CELLRANGER_MANIFEST).is_file()
-            or (cache.parts[-2:] == ('cellranger', 'builds')
-                and all(re.fullmatch('[0-9a-f]{64}', part) for part in generation.parts[-2:]))):
+    if (is_managed_cellranger_generation(generation) or os.path.lexists(generation / CELLRANGER_MANIFEST)
+            or ((generation / 'reference.json').is_file() and (generation / 'star/SA').is_file())):
         return generation
     return None
 
