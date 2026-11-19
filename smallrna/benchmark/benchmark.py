@@ -290,9 +290,9 @@ def evaluate(args):
         if row['mature_id']:
             key = (row['sample'], row['mature_id'])
             truth[key] = truth.get(key, 0) + int(row['count'])
-    summary = metrics.count_metrics(common, truth)
-    table = metrics.per_mirna(common, truth)
     methods = list(spec['methods'])
+    summary = metrics.count_metrics(common, truth, methods)
+    table = metrics.per_mirna(common, truth, methods)
     names = {}
     for _, _, name, mature_id, _ in common:
         names.setdefault(mature_id, name)

@@ -832,3 +832,12 @@ def test_evaluate_a_biological_dataset_in_lanes(tmp_path):
     assert '| GSM1_L1 | 100 | 95 | 1 | 7 | 0 | 2 | 2 | 1 | 87 |' in report                   # the filtering table
     assert '| GSM1_L1 | 10 | 10.00% | 40.0 | 14.0 |' in report                       # 1 of 10 top-miRNA reads has another first base
     assert '## Lane replicates' in report and '| mirna_sample_pairs | 2 | 2 |' in report and '| 100-999 | 0.0% of 2 | 0.0% of 2 |' in report
+
+
+def test_empty_tinyrna_counts_keep_synthetic_truth_rows(tmp_path):
+    write(tmp_path / 'tinyrna/tinyrna_counts.tsv', 'Feature ID\tClassifier\tFeature Name\tS1\nMIMAT1\tmiRNA\tmir-1\t0\n')
+    methods = ['tinyrna']
+    common = adapters.common_table(methods, tmp_path, {}, 'mmu-')
+    truth = {('S1', 'MIMAT1'): 12}
+    assert metrics.per_mirna(common, truth, methods) == {('tinyrna', 'S1', 'MIMAT1'): (12, 0)}
+    assert metrics.count_metrics(common, truth, methods)['tinyrna'] == {'recovered': 0, 'exact': 0, 'misassigned': 0, 'unplaced': 0}

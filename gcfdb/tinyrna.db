@@ -29,4 +29,4 @@ rule tinyrna_gff:
     container:
         'docker://' + config['docker']['default']
     shell:
-        'python {params.script} --mirna-gff {input.mirna_gff} --chr-map {input.chr_map} --output {output.gff}'
+        'python {params.script:q} --mirna-gff {input.mirna_gff:q} --chr-map {input.chr_map:q} --output {output.gff:q}'

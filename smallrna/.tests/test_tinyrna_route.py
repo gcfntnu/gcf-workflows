@@ -9,6 +9,7 @@ import subprocess
 import sys
 
 import pytest
+import yaml
 
 from test_quant_methods import dry_run, rule_block
 
@@ -42,7 +43,7 @@ def test_route_plans_reference_and_counting_and_delivery_stays_on_unitas(tmp_pat
     assert '--normalize-by-genomic-hits T --normalize-by-feature-hits T' in count
     assert '--samples SR01 SR02 SR03 SR04' in rule_block(output, 'tinyrna_counts')
     for name in ('assigned_nt_len_dist.csv', 'mapped_nt_len_dist.csv', 'config'):  # declared, so a rerun restores them
-        assert '{}/SR01/{}'.format(OUT, name) in count
+        assert all(f'{OUT}/{sample}/{name}' in output for sample in ('SR01', 'SR02', 'SR03', 'SR04'))
     returncode, output = dry_run(tmp_path, 'unitas,tinyrna', target='bfq_all')
     assert returncode == 0, output
     assert 'tinyrna' not in output and 'tiny-count' not in output
@@ -126,16 +127,20 @@ def run_count(tmp_path, env):
 def test_count_keeps_tiny_count_tables_under_fixed_names(tmp_path):
     tables = ' '.join('tinyrna_2026-01-01_00-00-00_{}.csv'.format(n) for n in tinyrna.RUN_TABLES)
     tables += ' ' + ' '.join('tinyrna_2026-01-01_00-00-00_S1_rep_1_{}.csv'.format(n) for n in tinyrna.LIBRARY_TABLES)
-    env = fake_tiny_count(tmp_path / 'bin', 'cat paths.yml samples.csv > args.txt; echo "$@" >> args.txt\n'
-                          'd=tiny-count_2026-01-01_00-00-00; mkdir -p $d/config && cp args.txt features.csv $d/config/\n'
+    tmp_path = tmp_path / 'project # one'
+    tmp_path.mkdir()
+    env = fake_tiny_count(tmp_path / 'bin', 'cat samples.csv > args.txt; echo "$@" >> args.txt\n'
+                          'd=tiny-count_2026-01-01_00-00-00; mkdir -p $d/config && cp args.txt paths.yml features.csv $d/config/\n'
                           'cd $d && touch {}\n'.format(tables))
     result = run_count(tmp_path, env)
     assert result.returncode == 0, result.stderr
     out = tmp_path / 'out'
     assert sorted(p.name for p in out.glob('*.csv')) == sorted('{}.csv'.format(n) for n in tinyrna.RUN_TABLES + tinyrna.LIBRARY_TABLES)
     record = (out / 'config/args.txt').read_text()
-    for key in ('samples_csv: samples.csv', 'features_csv: features.csv', 'alias: [Name]', 'ebwt:', 'plot_style_sheet:'):
-        assert key in record  # every Paths File key, as tiny-count requires
+    paths = yaml.safe_load((out / 'config/paths.yml').read_text())
+    assert paths == {'samples_csv': 'samples.csv', 'features_csv': 'features.csv',
+                     'gff_files': [{'path': str(tmp_path / 'mirna.gff3'), 'alias': ['Name']}], 'run_directory': 'run_directory',
+                     'tmp_directory': None, 'ebwt': None, 'reference_genome_files': None, 'adapter_fasta': None, 'plot_style_sheet': None}
     assert '{},S1,1,,'.format(tmp_path / 'S1.bam') in record and '-pf paths.yml -o tinyrna -ng T -nf T' in record
     assert (out / 'config/features.csv').exists() and not (out / 'work').exists()
 
@@ -171,3 +176,21 @@ def test_join_combines_samples_and_checks_the_library_column(tmp_path):
     command[4:6] = ['S2', 'S1']
     result = subprocess.run(command, capture_output=True, text=True)
     assert result.returncode != 0 and 'library column S1_rep_1 is not sample S2' in result.stderr
+
+
+def test_direct_count_target_respects_normalization_and_validates_settings(tmp_path):
+    def settings(config):
+        config['quant'].setdefault('tinyrna', {}).update(normalize_by_genomic_hits=False, normalize_by_feature_hits=False)
+    target = f'{OUT}/SR01/feature_counts.csv'
+    code, output = dry_run(tmp_path, 'unitas', settings, printshell=True, target=target)
+    assert code == 0, output
+    assert '--normalize-by-genomic-hits F --normalize-by-feature-hits F' in rule_block(output, 'tinyrna_count')
+    code, output = dry_run(tmp_path, 'unitas', lambda c: c['quant']['tinyrna'].update(normalize_by_genomic_hits='no'), target=target)
+    assert code != 0 and 'normalize_by_genomic_hits must be true or false' in output
+
+
+def test_join_rejects_duplicate_keys_in_a_native_table(tmp_path):
+    native = tmp_path / 'counts.csv'
+    native.write_text('Feature ID,Classifier,Feature Name,S1_rep_1\nMIMAT1,miRNA,mir-1,2\nMIMAT1,miRNA,mir-1,3\n')
+    with pytest.raises(SystemExit, match='duplicate feature ID and classifier'):
+        tinyrna.read_counts(native, 'S1')

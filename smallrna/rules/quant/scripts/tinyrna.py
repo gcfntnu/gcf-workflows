@@ -21,6 +21,7 @@ Usage: tinyrna.py features --offsets -1,0,1 --extension 4 --length 16-28 --stran
 """
 import argparse
 import csv
+import json
 from pathlib import Path
 import re
 import shutil
@@ -67,9 +68,13 @@ def features_sheet(offsets, extension, length, strand):
 
 def paths_file(samples_csv, features_csv, gff):
     """tiny-count's Paths File; the keys of the full pipeline are present but empty, as tiny-count requires them."""
-    return ('samples_csv: {}\nfeatures_csv: {}\ngff_files:\n- path: {}\n  alias: [Name]\n'
-            'run_directory: run_directory\ntmp_directory:\nebwt:\nreference_genome_files:\nadapter_fasta:\n'
-            'plot_style_sheet:\n').format(samples_csv, features_csv, gff)
+    # JSON is valid YAML 1.2, including quoted paths. Both tool images can use
+    # the standard library, and tiny-count reads this with its own YAML parser.
+    return json.dumps({'samples_csv': str(samples_csv), 'features_csv': str(features_csv),
+                       'gff_files': [{'path': str(gff), 'alias': ['Name']}], 'run_directory': 'run_directory',
+                       'tmp_directory': None, 'ebwt': None, 'reference_genome_files': None,
+                       'adapter_fasta': None, 'plot_style_sheet': None}, indent=2) + '\n'
+
 
 
 def library_name(sample):
@@ -139,7 +144,17 @@ def read_counts(path, sample):
             fail('{}: expected Feature ID, Classifier, Feature Name and one library column, got {}'.format(path, header))
         if header[3] != library_name(sample):
             fail('{}: library column {} is not sample {}'.format(path, header[3], sample))
-        return {(row[0], row[1]): (row[2], row[3]) for row in reader if row}
+        counts = {}
+        for row in reader:
+            if not row:
+                continue
+            if len(row) != len(header):
+                fail(f'{path}:{reader.line_num}: expected {len(header)} fields')
+            key = (row[0], row[1])
+            if key in counts:
+                fail(f'{path}:{reader.line_num}: duplicate feature ID and classifier {key!r}')
+            counts[key] = (row[2], row[3])
+        return counts
 
 
 def join(args):

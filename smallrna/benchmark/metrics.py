@@ -14,13 +14,14 @@ Pools of known composition are scored in pool.py.
 EXACT_TOLERANCE = 1e-6
 
 
-def per_mirna(common, truth):
+def per_mirna(common, truth, methods=None):
     """{(method, sample, mature_id): (truth, observed)} for every truth miRNA and every observed accession."""
+    if methods is None:
+        methods = sorted({row[0] for row in common})
     observed = {}
     for method, sample, _, mature_id, count in common:
         if mature_id:
             observed[(method, sample, mature_id)] = observed.get((method, sample, mature_id), 0) + count
-    methods = sorted({row[0] for row in common})
     table = {}
     for (sample, mature_id), count in truth.items():
         for method in methods:
@@ -30,11 +31,13 @@ def per_mirna(common, truth):
     return table
 
 
-def count_metrics(common, truth):
+def count_metrics(common, truth, methods=None):
     """truth: {(sample, mature_id): reads}. Returns {method: {metric: value}}."""
-    table = per_mirna(common, truth)
+    if methods is None:
+        methods = sorted({row[0] for row in common})
+    table = per_mirna(common, truth, methods)
     result = {}
-    for method in sorted({row[0] for row in common}):
+    for method in methods:
         rows = [(t, o) for (m, _, _), (t, o) in table.items() if m == method]
         true_rows = [(t, o) for t, o in rows if t > 0]
         total = sum(t for t, _ in true_rows)

@@ -49,6 +49,16 @@ class TinyrnaGffTest(unittest.TestCase):
         os.umask(umask)
         self.assertEqual((self.dir / 'out.gff3').stat().st_mode & 0o777, 0o666 & ~umask)  # not mkstemp's 0600
 
+    def test_repeated_mature_loci_keep_alias_and_avoid_native_suffixes(self):
+        mature = next(line for line in GFF.splitlines(keepends=True) if '\tmiRNA\t' in line)
+        repeated = mature.replace('30\t51', '75\t96')
+        # The following native _1 must not be displaced by an earlier repeated ID.
+        result = self.run_script(GFF.replace(mature, mature + repeated))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        features = [row.split('\t')[8] for row in (self.dir / 'out.gff3').read_text().splitlines() if '\tmiRNA\t' in row]
+        self.assertEqual([attrs.split(';')[:2] for attrs in features],
+                         [[f'ID=MIMAT0000001{suffix}', 'Alias=MIMAT0000001'] for suffix in ('', '_2', '_1')])
+
     def test_concurrent_builds_of_the_same_reference_do_not_collide(self):
         (self.dir / 'mirna.gff3').write_text(GFF)
         (self.dir / 'chr_map.tsv').write_text(CHR_MAP)

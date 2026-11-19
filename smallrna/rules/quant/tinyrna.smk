@@ -37,13 +37,21 @@ def tinyrna_flag(key):
     return 'T' if value else 'F'
 
 
-if TINYRNA_SELECTED:
-    if str(TINYRNA_CONF['mismatch']) not in ('0', '1', '2', '3'):
-        raise ValueError('quant.tinyrna.mismatch must be 0-3 (Bowtie -v), got {!r}'.format(TINYRNA_CONF['mismatch']))
-    TINYRNA_NORMALIZE = '--normalize-by-genomic-hits {} --normalize-by-feature-hits {}'.format(
+def tinyrna_mismatch(wildcards):
+    value = TINYRNA_CONF['mismatch']
+    if str(value) not in ('0', '1', '2', '3'):
+        raise ValueError('quant.tinyrna.mismatch must be 0-3 (Bowtie -v), got {!r}'.format(value))
+    return value
+
+
+def tinyrna_normalize(wildcards):
+    return '--normalize-by-genomic-hits {} --normalize-by-feature-hits {}'.format(
         tinyrna_flag('normalize_by_genomic_hits'), tinyrna_flag('normalize_by_feature_hits'))
-else:
-    TINYRNA_NORMALIZE = ''
+
+
+if TINYRNA_SELECTED:
+    tinyrna_mismatch(None)
+    tinyrna_normalize(None)
 
 
 rule tinyrna_features:
@@ -56,7 +64,7 @@ rule tinyrna_features:
     container:
         'docker://' + config['docker']['tiny-count']
     shell:
-        'python {params.script} features {params.args} > {output}'
+        'python {params.script:q} features {params.args} > {output:q}'
 
 
 rule tinyrna_collapse:
@@ -69,7 +77,7 @@ rule tinyrna_collapse:
     container:
         'docker://' + config['docker']['tiny-count']
     shell:
-        'tiny-collapse -i {input.fastq} -o {params.prefix}'
+        'tiny-collapse -i {input.fastq:q} -o {params.prefix:q}'
 
 
 rule tinyrna_align:
@@ -80,7 +88,7 @@ rule tinyrna_align:
         join(TINYRNA_OUT, '{sample}', '{sample}.bam')
     params:
         index = TINYRNA_INDEX,
-        mismatch = TINYRNA_CONF['mismatch']
+        mismatch = tinyrna_mismatch
     threads:
         4
     log:
@@ -89,8 +97,8 @@ rule tinyrna_align:
         'docker://' + config['docker']['tiny-count']
     shell:
         # --no-PG keeps Bowtie as the last program in the header, which tiny-count checks.
-        'bowtie -x {params.index} -f {input.reads} -v {params.mismatch} --all --best --strata --no-unal --sam --seed 0 '
-        '-p {threads} --reorder 2> {log} | samtools view -b --no-PG -o {output} -'
+        'bowtie -x {params.index:q} -f {input.reads:q} -v {params.mismatch} --all --best --strata --no-unal --sam --seed 0 '
+        '-p {threads} --reorder 2> {log:q} | samtools view -b --no-PG -o {output:q} -'
 
 
 rule tinyrna_count:
@@ -109,14 +117,14 @@ rule tinyrna_count:
     params:
         script = src_gcf('scripts/tinyrna.py'),
         out = join(TINYRNA_OUT, '{sample}'),
-        normalize = TINYRNA_NORMALIZE
+        normalize = tinyrna_normalize
     threads:
         1
     container:
         'docker://' + config['docker']['tiny-count']
     shell:
-        'python {params.script} count --sample {wildcards.sample} --alignments {input.alignments} --gff {input.gff} '
-        '--features {input.features} {params.normalize} --output {params.out}'
+        'python {params.script:q} count --sample {wildcards.sample:q} --alignments {input.alignments:q} --gff {input.gff:q} '
+        '--features {input.features:q} {params.normalize} --output {params.out:q}'
 
 
 rule tinyrna_counts:
@@ -126,11 +134,11 @@ rule tinyrna_counts:
         join(TINYRNA_OUT, 'tinyrna_counts.tsv')
     params:
         script = src_gcf('scripts/tinyrna.py'),
-        samples = ' '.join(SAMPLES)
+        samples = SAMPLES
     container:
         'docker://' + config['docker']['default']
     shell:
-        'python {params.script} join --samples {params.samples} --tables {input} > {output}'
+        'python {params.script:q} join --samples {params.samples:q} --tables {input:q} > {output:q}'
 
 
 rule tinyrna_all:

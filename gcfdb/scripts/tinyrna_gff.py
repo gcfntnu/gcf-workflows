@@ -4,8 +4,8 @@
 tiny-count matches alignments to GFF features by sequence name, so the miRBase GFF's UCSC names (`chr1`) are renamed
 by mirflowz's chromosome map (scripts/mirflowz_chr_map.py) to the genome's (`1`). Only `miRNA_primary_transcript`
 and `miRNA` rows are kept; rows on chromosomes the map removes (no target: they belong to no sequence of the assembly)
-are dropped, and a chromosome missing from the map stops. Coordinates and attributes are unchanged, so feature IDs
-stay miRBase's (`MIMAT0000416`, with `_1`, `_2` for the further loci of a mature miRNA).
+are dropped, and a chromosome missing from the map stops. Distinct mature loci receive unique IDs.
+Repeated IDs gain an unused numeric suffix. The original accession remains available as the alias.
 
 The header records the source files and their SHA-256 checksums.
 
@@ -15,6 +15,7 @@ import argparse
 import gzip
 import hashlib
 import os
+import re
 from pathlib import Path
 import sys
 import tempfile
@@ -68,11 +69,42 @@ def rename(lines, chr_map):
         if target is None:
             dropped += 1
             continue
-        rows.append('\t'.join([target] + fields[1:]) + '\n')
+        fields[0] = target
+        rows.append(fields)
         counts[fields[2]] += 1
     if not counts['miRNA']:
         fail('no miRNA rows')
-    return rows, counts, dropped
+    # Reserve even the suffixes appearing later in the source. A generated ID
+    # must never displace a locus that already has that ID in miRBase.
+    id_field = re.compile(r'(?:^|(?<=;))ID=([^;]+)')
+    used, seen = set(), set()
+    mature = []
+    for fields in rows:
+        match = id_field.search(fields[8])
+        if match:
+            used.add(match[1])
+        if fields[2] == 'miRNA':
+            if not match:
+                fail('mature miRNA without ID: {}'.format(fields[8]))
+            mature.append((fields, match))
+    next_suffix = {}
+    for fields, match in mature:
+        identifier = match[1]
+        if identifier not in seen:
+            seen.add(identifier)
+            continue
+        accession = re.sub(r'_\d+$', '', identifier)
+        suffix = next_suffix.get(accession, 1)
+        while f'{accession}_{suffix}' in used:
+            suffix += 1
+        replacement = f'{accession}_{suffix}'
+        used.add(replacement)
+        next_suffix[accession] = suffix + 1
+        attrs = fields[8]
+        fields[8] = attrs[:match.start(1)] + replacement + attrs[match.end(1):]
+        if not any(attr.startswith('Alias=') for attr in attrs.split(';')):
+            fields[8] = fields[8].rstrip(';') + ';Alias=' + accession
+    return ['\t'.join(fields) + '\n' for fields in rows], counts, dropped
 
 
 def main():
