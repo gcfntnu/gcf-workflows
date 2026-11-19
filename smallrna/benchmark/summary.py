@@ -29,7 +29,7 @@ SECTIONS = [
      'Over the pool\'s `exact` sequences: `detected` and `cv` across the pool, `within_2fold` and `spearman_vs_oracle` against '
      'the oracle (the filtered reads counted by exact match to the pool sequences). `outside` and `unplaced` are '
      'unweighted means of per-sample shares. Each denominator is all miRNA reads the method reported for that sample. '
-     'The numerators are reads assigned to miRNAs of no pool sequence and to names without a miRBase accession, respectively. '
+     'The numerators are reads assigned to accessions with no exact or shifted entry in the analyzed pool and reads on names without a miRBase accession, respectively. '
      '`shifted_within_2fold`: isomiRs of known amount against the oracle.'),
     ('ratiometric', 'Ratiometric pools', ['median_abs_error', 'spearman_vs_design', 'called', 'false_calls', 'shifted_called'],
      'Observed log2(A/B) against the design: `median_abs_error`, `spearman_vs_design`, `called` (designed at least 2-fold '
