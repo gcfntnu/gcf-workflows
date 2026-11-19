@@ -24,7 +24,11 @@ GENOME_ROUTES = ('mirflowz', 'tesmall', 'tinyrna')
 rule quant_reference:
     """Which miRBase release a route on the mirflowz reference annotated with (quant/<route>/reference.tsv, the layout of
     UNITAS's and miRge3's records), read by the benchmark before scoring (#407): db.mirbase.release, or NA for a
-    db.mirflowz.custom reference, whose annotation is the project's own."""
+    db.mirflowz.custom reference, whose annotation is the project's own. The route's count table is its input, so the
+    record is written only after that table was (re)built for the current configuration and never stamps an older one."""
+    input:
+        lambda wildcards: {'mirflowz': rules.mirflowz_quant.output.mirna, 'tesmall': rules.tesmall_counts.output[0],
+                           'tinyrna': rules.tinyrna_counts.output[0]}[wildcards.route]
     output:
         join(QUANT_INTERIM, '{route}', 'reference.tsv')
     params:

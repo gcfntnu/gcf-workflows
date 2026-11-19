@@ -161,7 +161,7 @@ def table_samples(method, quant_dir):
     path, sep, skip = TABLES[method]
     with open(Path(quant_dir) / path, newline='') as fh:
         header = next(csv.reader(fh, delimiter=sep), [])
-    return [s.strip() for s in header[skip:]]
+    return header[skip:]  # as written: the adapters score under the literal column names
 
 
 def method_mirbase(method, quant_dir):
@@ -169,10 +169,17 @@ def method_mirbase(method, quant_dir):
     unitas_reference and mirge3_reference, and by quant_reference for the routes on the mirflowz reference."""
     path = Path(quant_dir) / method / 'reference.tsv'
     with open(path, newline='') as fh:
-        fields = {row['field']: row['value'] for row in csv.DictReader(fh, delimiter='\t')}
-    if 'mirna_database' not in fields or 'mirna_release' not in fields:
-        raise ValueError('{}: no mirna_database or mirna_release record'.format(path))
-    return fields['mirna_database'], fields['mirna_release']
+        reader = csv.DictReader(fh, delimiter='\t')
+        if not reader.fieldnames or not {'field', 'value'} <= set(reader.fieldnames):
+            raise ValueError('{}: expected field and value columns, got {}'.format(path, reader.fieldnames))
+        rows = [(row['field'], row['value']) for row in reader]
+    values = []
+    for name in ('mirna_database', 'mirna_release'):
+        found = [value for field, value in rows if field == name]
+        if len(found) != 1 or not (found[0] or '').strip():
+            raise ValueError('{}: expected one non-empty {} row, found {}'.format(path, name, len(found)))
+        values.append(found[0])
+    return tuple(values)
 
 
 def common_table(methods, quant_dir, name_to_id, prefix, mirflowz_gff=None, unitas_hairpins=None, mature=None):

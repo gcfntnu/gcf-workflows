@@ -286,8 +286,11 @@ def test_routes_on_the_mirflowz_reference_record_their_mirbase_release(tmp_path)
     assert returncode == 0, output
     blocks = output.split('rule quant_reference:')[1:]
     assert sorted(re.search(r'output: data/tmp/smallrna/quant/(\w+)/reference.tsv', b).group(1) for b in blocks) == ['mirflowz', 'tesmall', 'tinyrna']
+    tables = {'mirflowz': 'mirflowz/all_mirna_counts.tab', 'tesmall': 'tesmall/tesmall_counts.tsv', 'tinyrna': 'tinyrna/tinyrna_counts.tsv'}
     for block in blocks:
         assert "mirbase db.mirbase.release 23.1 db.mirbase.release data/ext/mirflowz/mirbase-23.1_ensembl-116/mus_musculus > " in block
+        route = re.search(r'output: data/tmp/smallrna/quant/(\w+)/reference.tsv', block).group(1)
+        assert f'input: data/tmp/smallrna/quant/{tables[route]}' in block  # written after its count table
     refs = tmp_path / 'refs'
     refs.mkdir()
     files = {key: refs / name for key, name in (('genome', 'genome.fa.gz'), ('gtf', 'genes.gtf.gz'), ('mirna_gff', 'mirna.gff3'))}

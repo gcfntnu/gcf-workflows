@@ -266,12 +266,25 @@ def write_tsv(path, header, rows):
     Path(path).write_text('\t'.join(header) + '\n' + ''.join('\t'.join(str(v) for v in row) + '\n' for row in rows))
 
 
+def scored_samples(spec, bench):
+    """The samples scoring uses: the truth's (synthetic) or benchmark/samples.tsv's (pools, biological)."""
+    if spec['kind'] == 'synthetic':
+        return {row['sample'] for row in read_tsv(bench / 'truth.tsv')}
+    return {row['sample'] for row in read_tsv(bench / 'samples.tsv')}
+
+
 def check_methods(project, spec, config):
-    """Stop before scoring when a method's count table does not have exactly the project's samples (column order free;
-    a sample missing would be scored as zero), or, for datasets declaring a miRBase release (pools, biological), when the
-    method annotated with another miRNA database or release than the one the truth and names come from (#407)."""
+    """Stop before scoring when the project's configured samples or a method's count table do not have exactly the
+    samples scoring uses (column order free; a sample missing would be scored as zero), or, for datasets declaring a
+    miRBase release (pools, biological), when the method annotated with another miRNA database or release than the one
+    the truth and names come from (#407)."""
     quant = project / 'data/tmp/smallrna/quant'
-    samples = set(config.get('samples') or {})
+    samples = scored_samples(spec, project / 'benchmark')
+    configured = set(config.get('samples') or {})
+    if configured != samples:
+        fail('the project\'s configured samples differ from the benchmark\'s{}{}; prepare the project again'.format(
+            '; not configured ' + ', '.join(sorted(samples - configured)) if samples - configured else '',
+            '; not in the benchmark ' + ', '.join(sorted(configured - samples)) if configured - samples else ''))
     problems = []
     for method in spec['methods']:
         if method not in adapters.TABLES:
@@ -282,7 +295,7 @@ def check_methods(project, spec, config):
             fail('{}: count table missing ({}); run `snakemake quant_all` there'.format(method, e.filename))
         if len(set(found)) != len(found) or set(found) != samples:
             missing, extra = sorted(samples - set(found)), sorted(set(found) - samples)
-            problems.append('{}: table samples differ from the project\'s{}{}{}'.format(
+            problems.append('{}: table samples differ from the benchmark\'s{}{}{}'.format(
                 method, '; missing ' + ', '.join(missing) if missing else '', '; extra ' + ', '.join(extra) if extra else '',
                 '; repeated columns' if len(set(found)) != len(found) else ''))
         if 'mirbase' in spec:

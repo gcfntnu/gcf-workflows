@@ -853,11 +853,14 @@ def test_empty_tinyrna_counts_keep_synthetic_truth_rows(tmp_path):
 
 
 def check_project(tmp_path, kind, samples, methods):
-    """A project with config samples and a dataset declaration, for benchmark.check_methods."""
+    """A project with config samples, the benchmark's sample file and a dataset declaration, for benchmark.check_methods."""
     project = tmp_path / 'project'
     spec = {'name': 'd', 'kind': kind, 'methods': methods}
-    if kind != 'synthetic':
+    if kind == 'synthetic':
+        write(project / 'benchmark/truth.tsv', 'sample\tmature_id\n' + ''.join('{}\tMIMAT1\n'.format(s) for s in samples))
+    else:
         spec['mirbase'] = {'release': '23.1'}
+        write(project / 'benchmark/samples.tsv', 'sample\tgroup\n' + ''.join('{}\tA\n'.format(s) for s in samples))
     return project, spec, {'samples': {s: {} for s in samples}}
 
 
@@ -877,8 +880,8 @@ def test_evaluate_stops_when_a_method_ran_on_other_samples_or_another_mirbase_re
     with pytest.raises(SystemExit) as stop:
         benchmark.check_methods(project, spec, config)
     err = str(stop.value)
-    assert 'mirge3: table samples differ from the project\'s; missing S2' in err
-    assert 'tinyrna: table samples differ from the project\'s; extra S3' in err
+    assert 'mirge3: table samples differ from the benchmark\'s; missing S2' in err
+    assert 'tinyrna: table samples differ from the benchmark\'s; extra S3' in err
     assert 'unitas: annotated with mirbase 22, but the dataset declares miRBase 23.1' in err
 
     write(quant / 'mirge3/miR.Counts.csv', 'miRNA,S1,S2\nhsa-miR-1-3p,1,2\n')
@@ -895,6 +898,34 @@ def test_evaluate_stops_when_a_method_ran_on_other_samples_or_another_mirbase_re
         benchmark.check_methods(project, spec, config)
 
 
+@pytest.mark.parametrize('record, message', [
+    ('field\tvalue\tsource\nmirna_database\tmirbase\tx\nmirna_release\t22\tx\nmirna_release\t23.1\tx\n', 'one non-empty mirna_release row, found 2'),
+    ('field\tvalue\tsource\nmirna_database\tmirbase\tx\nmirna_release\t\tx\n', 'one non-empty mirna_release row, found 1'),
+    ('name\tsetting\nmirna_database\tmirbase\nmirna_release\t23.1\n', 'expected field and value columns'),
+])
+def test_evaluate_stops_on_a_malformed_reference_record(tmp_path, record, message):
+    project, spec, config = check_project(tmp_path, 'pool', ['S1'], ['mirge3'])
+    quant = project / 'data/tmp/smallrna/quant'
+    write(quant / 'mirge3/miR.Counts.csv', 'miRNA,S1\nhsa-miR-1-3p,1\n')
+    write(quant / 'mirge3/reference.tsv', record)
+    with pytest.raises(SystemExit, match=message):
+        benchmark.check_methods(project, spec, config)
+
+
+def test_evaluate_compares_configured_samples_and_literal_columns_with_the_scored_samples(tmp_path):
+    project, spec, config = check_project(tmp_path, 'pool', ['S1', 'S2'], ['unitas'])
+    quant = project / 'data/tmp/smallrna/quant'
+    write(quant / 'unitas/mir_counts.tsv', '\tS1\tS2\nmiR-1-3p\t1\t2\n')
+    write_records(quant, ['unitas'])
+    benchmark.check_methods(project, spec, config)
+    # requantified with one sample removed from the configuration, the prepared benchmark files kept
+    with pytest.raises(SystemExit, match="configured samples differ from the benchmark's; not configured S2"):
+        benchmark.check_methods(project, spec, {'samples': {'S1': {}}})
+    write(quant / 'unitas/mir_counts.tsv', '\tS1 \tS2\nmiR-1-3p\t1\t2\n')  # a padded column name scores under 'S1 '
+    with pytest.raises(SystemExit, match="unitas: table samples differ from the benchmark's; missing S1; extra S1 "):
+        benchmark.check_methods(project, spec, config)
+
+
 def test_synthetic_projects_check_samples_only(tmp_path):
     """Synthetic truth comes from the dataset's own reference, so no release is compared; samples still are."""
     project, spec, config = check_project(tmp_path, 'synthetic', ['S01'], ['tesmall', 'mirflowz'])
@@ -903,7 +934,7 @@ def test_synthetic_projects_check_samples_only(tmp_path):
     write(quant / 'mirflowz/all_mirna_counts.tab', 'ID\tS01\n')
     benchmark.check_methods(project, spec, config)  # no reference.tsv needed
     write(quant / 'mirflowz/all_mirna_counts.tab', 'ID\tS01\tS01\n')
-    with pytest.raises(SystemExit, match="mirflowz: table samples differ from the project's; repeated columns"):
+    with pytest.raises(SystemExit, match="mirflowz: table samples differ from the benchmark's; repeated columns"):
         benchmark.check_methods(project, spec, config)
     with pytest.raises(SystemExit, match='add its count table to adapters.TABLES'):
         benchmark.check_methods(project, dict(spec, methods=['newtool']), config)
