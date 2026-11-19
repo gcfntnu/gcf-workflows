@@ -22,7 +22,7 @@ For a genome augmented by a reporter sequence, point the project's `config.yaml`
 ref_dir: refs/panel-v1
 ```
 
-The directory must contain the augmented FASTA and its matching annotation. Relative paths start at the project working directory.
+The project reference directory can have any name and must contain the augmented FASTA and its matching annotation. Relative paths start at the project working directory.
 
 | File | Contents |
 | --- | --- |
@@ -60,7 +60,10 @@ If a managed source is missing, the workflow fetches it and creates a fresh loca
 Changing either source, the genome identifier or the image selects a separate directory. Existing counts can continue reading their original index.
 Legacy indexes directly under `ref_dir/cellranger` lack this identity and require a fresh build.
 The report derives its gene metadata and exon sequences in the project workdir under `<QUANT_INTERIM>/reference/<source-digest>/` from the same input pair.
-The directory name is arbitrary. The configured provider and annotation settings still apply.
+On a resumed report, the workflow checks the workdir FASTA and GTF against the selected source checksums.
+If either staged file has changed or is missing from a previously used copy, the workflow stages both files under `<staging-directory>.repairs/<n>/` and rebuilds the exon files and gene table there.
+Later reports reuse that copy and the existing Cell Ranger count and index.
+The configured provider and annotation settings still apply.
 
 With the standard 10x kit and no project reference directory, the workflow selects the reference by organism.
 
@@ -80,7 +83,8 @@ When Ensembl is selected and its lookup table lacks the organism, the workflow w
 See [Reduced custom references](#reduced-custom-references).
 
 For managed Cell Ranger builds, including Ensembl and custom assemblies, the workflow checksums a cached FASTA/GTF pair during planning.
-With an empty cache it plans retrieval, building, counting and reporting together. The builder records the checksums once the files arrive.
+With an empty cache it plans retrieval, building, counting and reporting together. Each managed FASTA or GTF download is decompressed into a temporary file beside its destination and published by atomic rename once complete.
+The builder records the checksums once the files arrive.
 The workdir pins the completed index for count. Cell Ranger reporting copies the verified original FASTA and GTF from that same index’s `gcf-source/`.
 The gene table and exon intermediates live under the workdir pin’s `annotations/<source-digest>/` directory, reached through its `annotation` symlink.
 A resumed run reuses the initial pin while the source pair matches. Replacing either source selects another generation even if its timestamp is preserved.

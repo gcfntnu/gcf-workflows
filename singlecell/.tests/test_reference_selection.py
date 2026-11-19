@@ -1048,3 +1048,80 @@ def test_splitpipe_restages_partial_local_frozen_import(splitpipe_import):
         assert selected != healthy
     assert 'rule stage_frozen_reference:' in plan and not (importer / selected).exists()
     assert all(not missing.exists() for missing in previous)
+
+
+@pytest.mark.parametrize('route,changed', [('explicit', 'anno/genes.gtf'), ('managed', 'fasta/genome.fa')])
+def test_retained_report_repairs_local_annotation_pair(tmp_path, route, changed):
+    if route == 'managed':
+        release = DB_DEFAULTS['ensembl']['release']
+        source = tmp_path / 'cache' / f'ensembl/release-{release}/salmo_salar/Ssal_v3.1'
+        settings = {'ext_dir': str(tmp_path / 'cache')}
+    else:
+        source = tmp_path / 'panel'
+        settings = {'ref_dir': str(source)}
+    write_panel(tmp_path, source)
+    exon = 'synthetic\tfixture\texon\t1\t4\t.\t+\t.\tgene_id "GENE"; transcript_id "TX";\n'
+    (source / 'anno/genes.gtf').write_text(exon)
+    report = dry_run(tmp_path, 'salmo_salar', **settings)
+    receipt = Path(next(iter(arguments(report, 'cellranger mkref ', '--receipt'))))
+    first = Path(next(iter(arguments(report, 'gtf2tsv.py ', '--output')))).parents[1]
+    env = protected_env(tmp_path)
+    env['PATH'] = os.pathsep.join([str(Path(__file__).parent / 'mock_tools'), str(MOCK_TOOLS), env['PATH']])
+    annotation_rules = ('project_annotation_inputs', 'exon_gtf', 'exon_bed', 'exon_fasta', 'convert_gtf2gene_info')
+
+    def build_metadata(*targets):
+        command = [sys.executable, '-m', 'snakemake', '--cores', '1', *map(str, targets), '--allowed-rules', 'cellranger_mkref', *annotation_rules]
+        result = subprocess.run(command, cwd=tmp_path, env=env, capture_output=True, text=True, timeout=120)
+        assert result.returncode == 0, result.stdout + result.stderr
+
+    table = Path('anno/genes.tsv')
+    # Record actual publisher, staging and gene/exon provenance. Only mkref and the four-base getfasta extraction use stubs.
+    build_metadata(receipt, first / table)
+    retain_count_outputs(tmp_path, report, env)
+    original = tmp_path / first
+    products = ('anno/exons.gtf', 'anno/exons.bed', 'fasta/exons.fa', 'fasta/genome.fa.fai', table)
+    expected = {member: (original / member).read_bytes() for member in products}
+    assert expected['anno/exons.gtf'] == exon.encode() and expected['fasta/exons.fa'] == b'>synthetic:0-4\nACGT\n'
+    header, row = expected[table].decode().splitlines()
+    gene = dict(zip(header.split('\t'), row.split('\t')))
+    assert gene['gene_id'] == 'GENE' and float(gene['gc_content']) == 50
+    frozen = (tmp_path / receipt.parent / 'index/gcf-source').resolve(strict=True)
+    manifest = (tmp_path / receipt).read_bytes()
+
+    damaged = original / changed
+    before = damaged.stat()
+    stale = damaged.read_bytes().replace(b'GENE', b'EDIT') if changed.endswith('.gtf') else damaged.read_bytes().replace(b'ACGT', b'CCCC')
+    assert len(stale) == before.st_size and stale != damaged.read_bytes()
+    damaged.write_bytes(stale)
+    os.utime(damaged, ns=(before.st_atime_ns, before.st_mtime_ns))
+    if route == 'explicit':
+        (original / table).unlink()  # A missing table previously made reporting convert the altered GTF.
+    (original / 'fasta/genome.fa.fai').write_text('obsolete index')
+
+    repaired = plan_existing(tmp_path, 'multiqc_report')
+    assert 'rule multiqc_report:' in repaired
+    for rule in annotation_rules:
+        assert f'rule {rule}:' in repaired
+    assert 'rule cellranger_mkref:' not in repaired and 'rule cellranger_quant_:' not in repaired
+    new = Path(next(iter(arguments(repaired, 'gtf2tsv.py ', '--output')))).parents[1]
+    assert new != first
+    assert_gene_metadata(repaired, new)
+    build_metadata(new / table)
+    local = tmp_path / new
+    for member in ('anno/genes.gtf', 'fasta/genome.fa'):
+        assert (local / member).read_bytes() == (frozen / member).read_bytes() == (source / member).read_bytes()
+    assert all((local / member).read_bytes() == data for member, data in expected.items())
+    assert damaged.read_bytes() == stale and (original / 'fasta/genome.fa.fai').read_text() == 'obsolete index'
+    assert (tmp_path / receipt).read_bytes() == manifest
+    warm = plan_existing(tmp_path, 'multiqc_report')
+    assert arguments(warm, 'convert_scanpy.py ', '--feature-info') == {str(new / table)}
+    assert all(f'rule {rule}:' not in warm for rule in (*annotation_rules, 'cellranger_mkref', 'cellranger_quant_'))
+
+    # If either staged member later disappears, even a retained table must be regenerated from the complete pair.
+    (local / changed).unlink()
+    missing = plan_existing(tmp_path, 'multiqc_report')
+    assert all(f'rule {rule}:' in missing for rule in annotation_rules)
+    replacement = Path(next(iter(arguments(missing, 'gtf2tsv.py ', '--output')))).parents[1]
+    assert replacement not in (first, new)
+    assert_gene_metadata(missing, replacement)
+    assert 'rule cellranger_mkref:' not in missing and 'rule cellranger_quant_:' not in missing
