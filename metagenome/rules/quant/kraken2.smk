@@ -5,7 +5,6 @@ import pandas as pd
 
 include: join(GCFDB_DIR, "krona.db")
 
-DB_CONF = config['db'][config['db']['reference_db']]
 K2_INTERIM = join(QUANT_INTERIM, 'kraken2', DB_CONF['assembly'])
 
 if PE:

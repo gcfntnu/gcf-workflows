@@ -25,7 +25,8 @@ class ProjectDatabaseTests(unittest.TestCase):
         shutil.copytree(FIXTURE / "data/raw", self.work / "data/raw")
         self.settings = yaml.safe_load((FIXTURE / "config.yaml").read_text())
         self.settings.update(ref_dir=str(DATABASE), skip_peppy=True)
-        self.settings["db"]["langmead"] = {"release": None}
+        for provider in ("ensembl", "langmead", "ncbi_16s"):
+            self.settings["db"][provider] = {"release": None}
         (self.work / "Snakefile").write_text(
             'configfile: "config.yaml"\n'
             f'include: {str(ROOT / "metagenome/metagenome.smk")!r}\n'
@@ -44,6 +45,12 @@ class ProjectDatabaseTests(unittest.TestCase):
         )
 
     def test_reporting_uses_project_database(self):
+        for provider in ("langmead", "ncbi_16s"):
+            with self.subTest(provider=provider):
+                self.settings["db"]["reference_db"] = provider
+                self.check_reporting_commands()
+
+    def check_reporting_commands(self):
         result = self.dry_run("multiqc_report")
         self.assertEqual(result.returncode, 0, result.stdout)
         commands = [shlex.split(line.removeprefix("Shell command: ")) for line in result.stdout.splitlines()
@@ -58,6 +65,8 @@ class ProjectDatabaseTests(unittest.TestCase):
             self.assertEqual(cmd[cmd.index("-d") + 1], str(DATABASE))
         self.assertNotIn("rule langmead_kraken_prebuild:", result.stdout)
         self.assertNotIn("rule langmead_shmem:", result.stdout)
+        self.assertNotIn("rule ncbi_16s_kraken_build:", result.stdout)
+        self.assertNotIn("rule ncbi_16s_shmem:", result.stdout)
 
     def test_single_end_kraken_only_needs_the_index(self):
         (self.work / DATABASE / "database150mers.kmer_distrib").unlink()

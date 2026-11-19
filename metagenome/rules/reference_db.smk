@@ -14,6 +14,8 @@ elif provider == 'ncbi_16s':
 else:
     raise ValueError(f"Unsupported metagenome db.reference_db: {provider!r}")
 
+DB_CONF = config['db'][provider]
+
 if config.get('ref_dir'):
     REF_DIR = config['ref_dir']
     KRAKEN_INDEX = [join(REF_DIR, name) for name in ('hash.k2d', 'opts.k2d', 'taxo.k2d')]
