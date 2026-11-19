@@ -88,9 +88,90 @@ def test_ensembl_fallback_through_reporting(tmp_path, organism, assembly, settin
     assert_build_and_count(log, ref)
     # Keep the assembly in the paths and provenance, but pass a valid Cell Ranger genome identifier.
     assert arguments(log, 'cellranger mkref ', '--genome') == {assembly.replace('.', '_')}
-    assert_gene_metadata(log, ref)
+    receipt, = arguments(log, 'cellranger mkref ', '--receipt')
+    assert_managed_gene_metadata(log, Path(receipt))
     assert 'rule txgenomics_org_prebuild:' not in log
     assert 'refdata-gex-' not in log
+
+
+def shell_command(log, program):
+    lines = [line.removeprefix('Shell command: ') for line in log.splitlines() if line.startswith('Shell command: ') and program in line]
+    assert len(lines) == 1, lines
+    return shlex.split(lines[0])
+
+
+def assert_managed_gene_metadata(log, receipt):
+    view = receipt.parent
+    assert_gene_metadata(log, view / 'annotation')
+    stage = shell_command(log, 'stage_project_annotation.sh')
+    assert stage[2:] == [str(view / 'index/gcf-source/fasta/genome.fa'), str(view / 'index/gcf-source/anno/genes.gtf'),
+                         str(view / 'annotation'), '--manifest', str(receipt)]
+
+
+@pytest.mark.parametrize('organism,provider_config,reference,changed', [
+    ('salmo_salar', {}, f"ensembl/release-{DB_DEFAULTS['ensembl']['release']}/salmo_salar/Ssal_v3.1", 'anno/genes.gtf'),
+    ('rangifer_tarandus', {'db': {'reference_db': 'custom_reference', 'custom_reference': {'assembly': 'Rtarandus_2.1'}}},
+     'custom_reference/rangifer_tarandus/Rtarandus_2.1', 'fasta/genome.fa'),
+])
+def test_managed_count_and_gene_metadata_share_verified_snapshot(tmp_path, organism, provider_config, reference, changed):
+    shared = tmp_path / 'ext'
+    work = tmp_path / 'work'
+    work.mkdir()
+    cold = dry_run(work, organism, ext_dir=str(shared), **provider_config)
+    assert 'rule multiqc_report:' in cold
+    receipt = Path(next(iter(arguments(cold, 'cellranger mkref ', '--receipt'))))
+    assert_managed_gene_metadata(cold, receipt)
+
+    # Stand in for the provider download and mkref binary, then run the production publisher and copy helper.
+    source = shared / reference
+    write_panel(tmp_path, source)
+    for path in ('fasta/genome.fa', 'anno/genes.gtf'):
+        os.utime(source / path, (100, 100))
+    binary = tmp_path / 'bin/cellranger'
+    binary.parent.mkdir()
+    binary.write_text(
+        '#!/usr/bin/env python3\nimport sys\nfrom pathlib import Path\n'
+        'assert sys.argv[1] == "mkref"\nroot = Path(sys.argv[sys.argv.index("--output-dir") + 1])\n'
+        'for name in ("reference.json", "fasta/genome.fa", "genes/genes.gtf.gz", "star/Genome", "star/SA", "star/SAindex"):\n'
+        '    path = root / name\n    path.parent.mkdir(parents=True, exist_ok=True)\n    path.write_bytes(b"processed mkref output")\n'
+    )
+    binary.chmod(0o755)
+    env = protected_env(work)
+    env['PATH'] = str(binary.parent) + os.pathsep + env['PATH']
+    publish = shell_command(cold, 'cellranger mkref ')
+    subprocess.run([sys.executable, *publish[1:]], cwd=work, env=env, check=True)
+
+    warm = plan_existing(work, 'multiqc_report')
+    assert 'rule cellranger_mkref:' not in warm
+    assert arguments(warm, 'cellranger count ', '--transcriptome') == {str(receipt.parent / 'index')}
+    assert_managed_gene_metadata(warm, receipt)
+    subprocess.run(shell_command(warm, 'stage_project_annotation.sh'), cwd=work, check=True)
+    local_snapshot = (work / receipt.parent / 'annotation').resolve()
+    assert local_snapshot.name == annotation_snapshot(source)[0].name
+    for name in ('fasta/genome.fa', 'anno/genes.gtf'):
+        assert (local_snapshot / name).read_bytes() == (source / name).read_bytes()
+
+    # Retain completed metadata from both the previous generation and the shared provider directory.
+    for root in (local_snapshot, source):
+        for name in ('fasta/genome.fa.fai', 'anno/exons.gtf', 'anno/exons.bed', 'fasta/exons.fa', 'anno/genes.tsv'):
+            (root / name).write_text('older annotation')
+    replacement = source / changed
+    old = replacement.stat()
+    replacement.write_bytes(replacement.read_bytes() + b'\n')
+    os.utime(replacement, ns=(old.st_atime_ns, old.st_mtime_ns))
+
+    fresh = tmp_path / 'fresh'
+    fresh.mkdir()
+    for plan in (plan_existing(work, 'multiqc_report'), dry_run(fresh, organism, ext_dir=str(shared), **provider_config)):
+        digest = annotation_snapshot(source)[0].name
+        assert arguments(plan, 'cellranger mkref ', '--expected-source') == {digest}
+        new_receipt = Path(next(iter(arguments(plan, 'cellranger mkref ', '--receipt'))))
+        assert new_receipt != receipt
+        assert all(digest in Path(value).parts for value in arguments(plan, 'cellranger count ', '--transcriptome'))
+        assert_managed_gene_metadata(plan, new_receipt)
+        for rule in ('exon_gtf', 'exon_bed', 'exon_fasta', 'convert_gtf2gene_info', 'multiqc_report'):
+            assert f'rule {rule}:' in plan
+    assert (local_snapshot / changed).read_bytes() != replacement.read_bytes()
 
 
 def test_vendor_default_release_through_reporting(tmp_path):

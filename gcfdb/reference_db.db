@@ -46,7 +46,8 @@ def get_gtf(*args, **kw):
 
 include: 'scripts/reference_identity.py'
 
-PROJECT_REFERENCE_DIGEST = PROJECT_REFERENCE_CHECKSUMS = None
-if config.get('ref_dir') and config['workflow'] == 'singlecell' and (config.get('libprepkit') or '').startswith('10X Genomics'):
-    PROJECT_REFERENCE_CHECKSUMS = reference_checksums(REF_DIR)
-    PROJECT_REFERENCE_DIGEST = reference_digest(PROJECT_REFERENCE_CHECKSUMS)
+REFERENCE_SOURCE_DIGEST = REFERENCE_SOURCE_CHECKSUMS = None
+build_10x_reference = config['workflow'] == 'singlecell' and (config.get('libprepkit') or '').startswith('10X Genomics') and not USE_10X_PREBUILT
+if build_10x_reference and (config.get('ref_dir') or (os.path.isfile(get_genome()) and os.path.isfile(get_gtf()))):
+    REFERENCE_SOURCE_CHECKSUMS = reference_checksums(REF_DIR)
+    REFERENCE_SOURCE_DIGEST = reference_digest(REFERENCE_SOURCE_CHECKSUMS)

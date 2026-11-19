@@ -9,10 +9,6 @@ ORG = config.get('organism', 'homo_sapiens')
 CR_CONF = config['quant']['cellranger']
 
 
-CR_REF_DIR = REF_DIR
-CR_REFERENCE_INPUTS = [join(REF_DIR, name) for name in ('reference.json', 'fasta/genome.fa', 'anno/genes.gtf')]
-
-
 def input_fastq_path(wildcards, input):
     pths = set()
     if isinstance(input.R1, six.string_types):
@@ -37,18 +33,6 @@ rule cellranger_gtf:
         'cellranger mkgtf {input} {output} {params}'
 
 if not USE_10X_PREBUILT:
-    # Cell Ranger 10.0 allows only letters, digits, underscores and dashes in --genome.
-    CR_GENOME = re.sub(r'[^A-Za-z0-9_-]', '_', DB_CONF.get('assembly') or ORG)
-    CR_IMAGE = config['docker']['cellranger']
-    CR_BUILD_KEY = cellranger_build_key(CR_GENOME, CR_IMAGE)
-    CR_CACHE = join(REF_DIR, 'cellranger', 'builds')
-    # A managed genome may be downloaded earlier in this DAG. Its content digest becomes known at build time.
-    managed_ref = join(config['db']['reference_db'], f"release-{DB_CONF.get('release') or 'unspecified'}", ORG, CR_GENOME)
-    CR_VIEW = join(QUANT_INTERIM, 'reference', 'cellranger', PROJECT_REFERENCE_DIGEST or managed_ref, CR_BUILD_KEY)
-    CR_RECEIPT = join(CR_VIEW, 'ready')
-    CR_REF_DIR = join(CR_CACHE, PROJECT_REFERENCE_DIGEST, CR_BUILD_KEY) if PROJECT_REFERENCE_DIGEST else join(CR_VIEW, 'index')
-    CR_REFERENCE_INPUTS = [CR_RECEIPT]
-
     rule cellranger_mkref:
         input:
             fasta = get_genome(),
@@ -59,7 +43,7 @@ if not USE_10X_PREBUILT:
             script = join(GCFDB_DIR, 'scripts', 'build_cellranger_reference.py'),
             source = REF_DIR,
             cache = CR_CACHE,
-            expected = ['--expected-source', PROJECT_REFERENCE_DIGEST] if PROJECT_REFERENCE_DIGEST else [],
+            expected = ['--expected-source', CR_EXPECTED_SOURCE] if CR_EXPECTED_SOURCE else [],
             name = CR_GENOME,
             image = CR_IMAGE
         threads:

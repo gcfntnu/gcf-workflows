@@ -46,12 +46,17 @@ With the standard 10x kit and no project reference directory, the workflow selec
   Omit `db.10xgenomics.release` in the project to inherit the configured default. An empty or null effective release stops planning.
 - For an organism with an Ensembl reference and no supported prebuilt, the workflow selects Ensembl for the build, count and gene metadata.
   For example, `salmo_salar` at Ensembl release 116 uses assembly `Ssal_v3.1` under `<EXT_DIR>/ensembl/release-116/salmo_salar/Ssal_v3.1/`.
-  Since managed FASTA and GTF files may be fetched as part of the DAG, the build computes their checksums at execution time and pins its immutable index in the project workdir for count.
   This route and the explicit-directory route work independently of the 10x release.
 
 To select a managed custom assembly, set `db.reference_db: custom_reference` and `db.custom_reference.assembly`.
 When Ensembl is selected and its lookup table lacks the organism, the workflow warns before falling back to the configured custom assembly.
 See [Reduced custom references](#reduced-custom-references).
+
+For managed Cell Ranger builds, including Ensembl and custom assemblies, the workflow checksums a cached FASTA/GTF pair during planning.
+With an empty cache it plans retrieval, building, counting and reporting together. The builder records the checksums once the files arrive.
+The workdir pins the completed index for count. Reporting copies the verified original FASTA and GTF from that same index’s `gcf-source/`.
+The gene table and exon intermediates live under the workdir pin’s `annotations/<source-digest>/` directory, reached through its `annotation` symlink.
+A resumed run reuses the initial pin while the source pair matches. Replacing either source selects another generation even if its timestamp is preserved.
 
 ### Download dates in logs
 
