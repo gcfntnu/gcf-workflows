@@ -39,16 +39,19 @@ class MicrobiomeReferenceTests(unittest.TestCase):
 
     def prepare_archives(self, regions, level='99'):
         archives = []
+        export = Path(self.config['ref_dir']) / 'qiime2/classifiers/export'
         for region in regions:
-            path = EXPORT / f'{level}_{self.primers[region]}' / 'sklearn_pipeline.tar'
+            path = export / f'{level}_{self.primers[region]}' / 'sklearn_pipeline.tar'
             (self.work / path).parent.mkdir(parents=True, exist_ok=True)
             (self.work / path).write_bytes(b'synthetic classifier')
             archives.append(path)
         return archives
 
-    def dry_run(self, target='qiime2_run_regions', success=True):
+    def dry_run(self, target='qiime2_run_regions', success=True, forceall=False):
         env = {k: v for k, v in os.environ.items() if not k.startswith('GCF_')}
         command = [sys.executable, '-m', 'snakemake', '-n', '-p', '--cores', '1', target]
+        if forceall:
+            command.append('--forceall')
         result = subprocess.run(command, cwd=self.work, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=60)
         self.assertEqual(result.returncode == 0, success, result.stdout)
         return result.stdout
@@ -99,6 +102,21 @@ class MicrobiomeReferenceTests(unittest.TestCase):
         planned = self.dry_run(str(target))
         self.assertIn('checkpoint qiime2_run_regions:', planned)
         self.assertIn('Updated input files: ' + str(archives[0]), planned)
+
+    def test_forced_checkpoint_preserves_classifiers_inside_managed_cache(self):
+        ref = Path('data/ext/silva/132')
+        self.config['ref_dir'] = str(ref)
+        self.configure()
+        self.prepare_archives([r for r in self.primers if r.startswith('V')])
+        # The managed classifier builder can run from these cached training inputs.
+        for name in ('fasta/99/otus.fa', 'anno/99/otus_taxonomy.txt'):
+            path = self.work / ref / name
+            path.parent.mkdir(parents=True)
+            path.touch()
+        planned = self.dry_run(forceall=True)
+        self.assertIn('checkpoint qiime2_run_regions:', planned)
+        self.assertNotIn('rule export_classifier:', planned)
+        self.assertNotIn('rule build_q2_classifer:', planned)
 
     def test_independent_ensembl_qc_reference_in_reporting(self):
         self.configure(ensembl={'release': None})

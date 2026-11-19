@@ -13,6 +13,4 @@ if not REF_DIR:
         include: join(GCFDB_DIR, 'unite.db')
 
     REF_DIR = join(EXT_DIR, ref, DB_CONF['release'])
-
-include:
-    join(GCFDB_DIR, 'qiime2_classifiers.smk')
+    include: join(GCFDB_DIR, 'qiime2_classifiers.smk')
