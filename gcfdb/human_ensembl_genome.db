@@ -3,7 +3,11 @@
 
 # CONF holds the configured defaults before project settings are applied.
 HUMAN_ENSEMBL_RELEASE = config['db']['ensembl']['release'] or CONF['db']['ensembl']['release']
-HUMAN_ENSEMBL_DIR = join(EXT_DIR, 'ensembl', f'release-{HUMAN_ENSEMBL_RELEASE}', 'homo_sapiens', 'GRCh38')
+human_cache_path = join('ensembl', f'release-{HUMAN_ENSEMBL_RELEASE}', 'homo_sapiens', 'GRCh38')
+HUMAN_ENSEMBL_DIR = join(EXT_DIR, human_cache_path)
+# A curated nonhuman panel may occupy the usual GRCh38 cache. Keep the stock human control independent.
+if ORG != 'homo_sapiens' and config.get('ref_dir') and os.path.realpath(config['ref_dir']) == os.path.realpath(HUMAN_ENSEMBL_DIR):
+    HUMAN_ENSEMBL_DIR = join(EXT_DIR, 'fastq_screen', human_cache_path)
 if not config.get('ref_dir') or os.path.realpath(config['ref_dir']) != os.path.realpath(HUMAN_ENSEMBL_DIR):
     rule human_ensembl_genome:
         output:

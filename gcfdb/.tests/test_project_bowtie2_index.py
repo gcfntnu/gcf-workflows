@@ -18,10 +18,14 @@ SMALL_MAX_BYTES = 4 * 1024**3 - 200
 
 
 class ProjectBowtie2Tests(unittest.TestCase):
-    def check_plan(self, size, cached, expected_extension, needs_build):
+    def check_plan(self, size, cached, expected_extension, needs_build, human_cache=None):
         with tempfile.TemporaryDirectory() as directory:
             work = Path(directory)
             ref = Path('refs/panel one')
+            if human_cache:
+                (work / human_cache).mkdir(parents=True)
+                (work / ref.parent).mkdir(parents=True)
+                (work / ref).symlink_to(work / human_cache, target_is_directory=True)
             prefix = ref / 'index/genome/bowtie2/genome'
             (work / prefix.parent).mkdir(parents=True)
             fasta = ref / 'fasta/genome.fa'
@@ -33,7 +37,7 @@ class ProjectBowtie2Tests(unittest.TestCase):
             config = yaml.safe_load((FIXTURE / 'config.yaml').read_text())
             config.update(ref_dir=str(ref), organism='synthetic_organism', skip_peppy=True)
             (work / 'config.yaml').write_text(yaml.safe_dump(config))
-            shutil.copytree(FIXTURE / 'data', work / 'data')
+            shutil.copytree(FIXTURE / 'data', work / 'data', dirs_exist_ok=True)
             # Simulate only the FASTA size reported to the planner. The fixture stays four bases long.
             (work / 'Snakefile').write_text(
                 'import os\n'
@@ -63,6 +67,21 @@ class ProjectBowtie2Tests(unittest.TestCase):
             self.assertIn('DATABASE Synthetic_Organism project_bowtie2_index/genome', log)
             screen = next(shlex.split(line) for line in jobs if '&& fastq_screen ' in line)
             self.assertIn(f'{work / prefix}.*.{expected_extension}', screen)
+            return log
+
+    def test_human_control_uses_stock_sequence_when_project_occupies_its_cache(self):
+        release = yaml.safe_load((ROOT / 'main.config').read_text())['db']['ensembl']['release']
+        cache_path = Path('ensembl') / f'release-{release}' / 'homo_sapiens/GRCh38'
+        log = self.check_plan(20, {}, 'bt2', True, human_cache=Path('data/ext') / cache_path)
+        control = Path('data/ext/fastq_screen') / cache_path
+        fasta, index = control / 'fasta/genome.fa', control / 'index/genome/bowtie2/genome'
+        url = f'https://ftp.ensembl.org/pub/release-{release}/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz'
+        self.assertIn(f'{url} | gunzip -c > {fasta}', log)
+        build = next(shlex.split(line) for line in log.splitlines() if 'bowtie2-build ' in line and str(fasta) in line)
+        self.assertEqual(build[-2:], [str(fasta), str(index)])
+        records = next(shlex.split(line) for line in log.splitlines() if 'DATABASE Human ' in line)
+        human = next(record for record in records if record.startswith('DATABASE Human '))
+        self.assertTrue(human.endswith('/' + str(index)), human)
 
     def test_fresh_build_at_and_above_small_index_limit(self):
         self.check_plan(SMALL_MAX_BYTES, {}, 'bt2', True)
