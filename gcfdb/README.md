@@ -65,9 +65,13 @@ See [Reduced custom references](#reduced-custom-references).
 
 For managed Cell Ranger builds, including Ensembl and custom assemblies, the workflow checksums a cached FASTA/GTF pair during planning.
 With an empty cache it plans retrieval, building, counting and reporting together. The builder records the checksums once the files arrive.
-The workdir pins the completed index for count. Reporting copies the verified original FASTA and GTF from that same index’s `gcf-source/`.
+The workdir pins the completed index for count. Cell Ranger reporting copies the verified original FASTA and GTF from that same index’s `gcf-source/`.
 The gene table and exon intermediates live under the workdir pin’s `annotations/<source-digest>/` directory, reached through its `annotation` symlink.
 A resumed run reuses the initial pin while the source pair matches. Replacing either source selects another generation even if its timestamp is preserved.
+
+In a project using both Cell Ranger and STARsolo, STARsolo reads `<REF_DIR>/anno/genes.tsv` from its managed provider directory.
+With an explicit `ref_dir`, both quantifiers read the workdir gene table derived from the checksum-verified project FASTA and GTF.
+Cell Ranger index verification runs only for targets that consume its pin, so STARsolo-only targets can run independently.
 
 ### Download dates in logs
 
