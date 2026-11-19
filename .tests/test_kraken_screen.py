@@ -167,6 +167,7 @@ class KrakenScreenRuleTests(unittest.TestCase):
                                     cwd=work, env=env, capture_output=True, text=True, timeout=120)
         self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
         self.assertIn(str(SCRIPT), result.stdout)
+        self.assertIn('k2_subsample.sh', result.stdout)
         self.assertIn('kreport2krona.py', result.stdout)
         self.assertIn('ktImportText', result.stdout)
         self.assertIn('kraken.kreport', result.stdout)
