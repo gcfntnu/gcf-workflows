@@ -25,7 +25,29 @@ if config.get('ref_dir') and ORG not in ('homo_sapiens', 'n/a') and config['db']
         'ensembl', '10xgenomics', 'custom_reference', 'refseq', 'gencode'):
     PROJECT_SCREEN_DB = join(config['ref_dir'], 'index', 'genome', 'bowtie2')
 PROJECT_SCREEN_ALIAS = 'project_bowtie2_index'
-PROJECT_SCREEN_SETUP = f'ln -s -- {quote(abspath(PROJECT_SCREEN_DB))} {PROJECT_SCREEN_ALIAS} && ' if PROJECT_SCREEN_DB else ''
+
+
+def project_screen_index_extension():
+    fasta = join(config['ref_dir'], 'fasta', 'genome.fa')
+    # bowtie2-build 2.3.4.3 switches binaries at this FASTA byte size (bowtie2-build wrapper, small_index_max_size).
+    if os.path.getsize(fasta) > 4 * 1024**3 - 200:
+        return 'bt2l'
+    prefix = join(PROJECT_SCREEN_DB, 'genome')
+    small = bowtie2_index_files(prefix, 'bt2')
+    large = bowtie2_index_files(prefix, 'bt2l')
+    if all(map(os.path.isfile, large)) and not all(map(os.path.isfile, small)):
+        return 'bt2l'
+    return 'bt2'
+
+
+def project_screen_setup(wildcards):
+    if not PROJECT_SCREEN_DB:
+        return ''
+    # An old small and a current large index can coexist in the cache. Make only the selected
+    # suffix visible to Bowtie2, which otherwise tries the small index first.
+    index = quote(abspath(join(PROJECT_SCREEN_DB, 'genome')))
+    extension = project_screen_index_extension()
+    return f'mkdir {PROJECT_SCREEN_ALIAS} && ln -s -- {index}.*.{extension} {PROJECT_SCREEN_ALIAS}/ && '
 
 
 def fastq_screen_indexes(*args, **kw):
@@ -36,7 +58,7 @@ def fastq_screen_indexes(*args, **kw):
    org = config.get('organism')
    if org not in ['homo_sapiens', 'N/A', 'n/a']:
       if PROJECT_SCREEN_DB:
-         INDEXES[org] = join(PROJECT_SCREEN_DB, 'genome.1.bt2')
+         INDEXES[org] = bowtie2_index_files(join(PROJECT_SCREEN_DB, 'genome'), project_screen_index_extension())
       elif config['db'].get('reference_db') in ['ensembl', '10xgenomics']:
          release = config['db']['ensembl']['release']
          assembly = config['db']['ensembl']['assembly']
@@ -57,9 +79,10 @@ def fastq_screen_indexes(*args, **kw):
 def fastq_screen_databases(wildcards, input):
     records = []
     for name, index in input.items():
-        prefix = abspath(str(index).removesuffix('.1.bt2'))
         if PROJECT_SCREEN_DB and name == ORG:
             prefix = join(PROJECT_SCREEN_ALIAS, 'genome')
+        else:
+            prefix = abspath(str(index).removesuffix('.1.bt2'))
         records.append(f'DATABASE {name.title()} {prefix}')
     return records
 
@@ -82,7 +105,7 @@ rule fastq_screen:
    output:
        join(QC_INTERIM, 'fastq_screen', '{sample}_screen.txt')
    params:
-       project_setup = PROJECT_SCREEN_SETUP,
+       project_setup = project_screen_setup,
        args = '-q --force',
        subset = 400000,
        outdir = join(QC_INTERIM, 'fastq_screen')

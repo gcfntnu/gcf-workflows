@@ -137,24 +137,26 @@ rule bowtie_index:
     shell:
         'bowtie-build {input} {params.index}'
 
+def bowtie2_index_files(prefix, extension):
+    return [f'{prefix}.{part}.{extension}' for part in ('1', '2', '3', '4', 'rev.1', 'rev.2')]
+
+
 rule bowtie2_index:
     input:
         join('{ref_dir}', 'fasta', '{prefix}.fa')
     output:
-        join('{ref_dir}', 'index', '{prefix}', 'bowtie2', '{prefix}.1.bt2'),
-        join('{ref_dir}', 'index', '{prefix}', 'bowtie2', '{prefix}.2.bt2'),
-        join('{ref_dir}', 'index', '{prefix}', 'bowtie2', '{prefix}.3.bt2'),
-        join('{ref_dir}', 'index', '{prefix}', 'bowtie2', '{prefix}.4.bt2'),
-        join('{ref_dir}', 'index', '{prefix}', 'bowtie2', '{prefix}.rev.1.bt2'),
-        join('{ref_dir}', 'index', '{prefix}', 'bowtie2', '{prefix}.rev.2.bt2')
+        bowtie2_index_files(join('{ref_dir}', 'index', '{prefix}', 'bowtie2', '{prefix}'), '{index_ext}')
     params:
-        index = join('{ref_dir}', 'index', '{prefix}', 'bowtie2', '{prefix}')
+        index = join('{ref_dir}', 'index', '{prefix}', 'bowtie2', '{prefix}'),
+        large = lambda wc: '--large-index' if wc.index_ext == 'bt2l' else ''
     threads:
         48
+    wildcard_constraints:
+        index_ext = 'bt2l?'
     container:
         'docker://' + config['docker']['bowtie2']
     shell:
-        'bowtie2-build --threads {threads} {input:q} {params.index:q}'
+        'bowtie2-build {params.large} --threads {threads} {input:q} {params.index:q}'
 
 rule bbmap_index:
     input:

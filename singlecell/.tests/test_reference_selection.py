@@ -150,7 +150,7 @@ def test_project_genome_in_fastq_screen(tmp_path, workflow_file, kit, rule):
     # The same per-job shell invocation installs the directory alias and starts FastQ Screen.
     screen = next(shlex.split(line) for line in log.splitlines() if '&& fastq_screen ' in line)
     pos = screen.index('ln')
-    assert screen[pos:pos + 7] == ['ln', '-s', '--', str(tmp_path / index_dir), str(Path(project_prefix).parent), '&&', 'fastq_screen']
+    assert screen[pos:pos + 7] == ['ln', '-s', '--', str(tmp_path / index_dir / 'genome.*.bt2'), str(Path(project_prefix).parent) + '/', '&&', 'fastq_screen']
     assert Path(project_prefix).name == 'genome'
 
 

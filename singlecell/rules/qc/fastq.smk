@@ -41,7 +41,7 @@ if config['libprepkit'].startswith("10X Genomics"):
             png = join(QC_INTERIM, 'fastq_screen', '{sample}_screen.png'),
             html = join(QC_INTERIM, 'fastq_screen', '{sample}_screen.html'),
         params:
-            project_setup = PROJECT_SCREEN_SETUP,
+            project_setup = project_screen_setup,
             args = '-q --force',
             subset = 400000,
             outdir = join(QC_INTERIM, 'fastq_screen')
