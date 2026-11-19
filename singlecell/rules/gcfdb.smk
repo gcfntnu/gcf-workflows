@@ -18,10 +18,14 @@ if build_10x_reference:
     if not config.get('ref_dir'):
         managed_ref = os.path.relpath(REF_DIR, EXT_DIR)
         CR_VIEW = join(views, managed_ref, CR_BUILD_KEY)
-        # Reuse a cold build's workdir pin and command on resume while its source pair matches.
-        cold_build = verify_cellranger_receipt(join(CR_VIEW, 'ready'), CR_CACHE, None, CR_GENOME, CR_IMAGE)
-        if cold_build and cold_build['inputs'] == REFERENCE_SOURCE_CHECKSUMS:
-            CR_EXPECTED_SOURCE = None
+        # A retained link identifies its generation even if the old cache was removed.
+        if CR_EXPECTED_SOURCE:
+            cold_pin = join(CR_VIEW, 'index')
+            expected_index = join(os.path.realpath(CR_CACHE), CR_EXPECTED_SOURCE, CR_BUILD_KEY)
+            if os.path.islink(cold_pin) and os.path.abspath(join(CR_VIEW, os.readlink(cold_pin))) == expected_index:
+                CR_EXPECTED_SOURCE = None
+        if CR_EXPECTED_SOURCE is None:
+            verify_cellranger_receipt(join(CR_VIEW, 'ready'), CR_CACHE, REFERENCE_SOURCE_CHECKSUMS, CR_GENOME, CR_IMAGE)
     if CR_EXPECTED_SOURCE:
         CR_VIEW = join(views, CR_EXPECTED_SOURCE, CR_BUILD_KEY)
         verify_cellranger_receipt(join(CR_VIEW, 'ready'), CR_CACHE, REFERENCE_SOURCE_CHECKSUMS, CR_GENOME, CR_IMAGE)

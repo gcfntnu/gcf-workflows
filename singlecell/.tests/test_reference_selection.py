@@ -134,12 +134,12 @@ def assert_managed_gene_metadata(log, receipt):
                          str(view / 'annotation'), '--manifest', str(receipt)]
 
 
-@pytest.mark.parametrize('organism,provider_config,reference,changed', [
-    ('salmo_salar', {}, f"ensembl/release-{DB_DEFAULTS['ensembl']['release']}/salmo_salar/Ssal_v3.1", 'anno/genes.gtf'),
+@pytest.mark.parametrize('organism,provider_config,reference,changed,removed', [
+    ('salmo_salar', {}, f"ensembl/release-{DB_DEFAULTS['ensembl']['release']}/salmo_salar/Ssal_v3.1", 'anno/genes.gtf', '.'),
     ('rangifer_tarandus', {'db': {'reference_db': 'custom_reference', 'custom_reference': {'assembly': 'Rtarandus_2.1'}}},
-     'custom_reference/rangifer_tarandus/Rtarandus_2.1', 'fasta/genome.fa'),
+     'custom_reference/rangifer_tarandus/Rtarandus_2.1', 'fasta/genome.fa', 'gcf-mkref.json'),
 ])
-def test_managed_count_and_gene_metadata_share_verified_snapshot(tmp_path, organism, provider_config, reference, changed):
+def test_managed_count_and_gene_metadata_share_verified_snapshot(tmp_path, organism, provider_config, reference, changed, removed):
     shared = tmp_path / 'ext'
     work = tmp_path / 'work'
     work.mkdir()
@@ -176,6 +176,12 @@ def test_managed_count_and_gene_metadata_share_verified_snapshot(tmp_path, organ
     assert local_snapshot.name == annotation_snapshot(source)[0].name
     for name in ('fasta/genome.fa', 'anno/genes.gtf'):
         assert (local_snapshot / name).read_bytes() == (source / name).read_bytes()
+
+    # A missing generation or manifest still fails while count selects that pair.
+    generation = (work / receipt.parent / 'index').resolve(strict=True)
+    (generation / removed).rename(tmp_path / 'withdrawn')
+    damaged = plan_existing(work, COUNT_TARGET, expect_success=False)
+    assert 'cellranger count ' not in damaged and str(generation) in damaged
 
     # Retain completed metadata from both the previous generation and the shared provider directory.
     for root in (local_snapshot, source):
