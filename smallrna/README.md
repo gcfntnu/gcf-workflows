@@ -58,11 +58,11 @@ The fastp report `logs/<sample>/<sample>.fastp.json` combines both passes; each 
 | gcfdb | `rules/gcfdb.smk` | Reference selection |
 | filter | `rules/quant/spikein.smk`, `rules/filter/cutadapt.smk`, `rules/filter/cliptrim.smk`, `rules/filter/spikein_bowtie.smk`, shared `common/` rules | Spike-in sets; FASTQ merging; adapter removal and filtering; spike-in counts and removal |
 | align | `rules/align/star.smk` | STAR, the only supported aligner |
-| quant | `rules/quant/unitas.smk`, `mirge3.smk`, `mirflowz.smk`, `tesmall.smk`, `tinyrna.smk` | UNITAS (delivered); miRge3, mirflowz, TEsmall, tiny-count |
+| quant | `rules/quant/unitas.smk`, `mirge3.smk`, `mirflowz.smk`, `tesmall.smk`, `tinyrna.smk`, `smrnaseq.smk` | UNITAS (delivered); miRge3, mirflowz, TEsmall, tiny-count, nf-core/smrnaseq |
 | qc | `rules/qc/`, shared `common/` rules | FastQC; miRTrace contamination check and miRNA complexity on the filtered reads |
 | bfq | `rules/bfq/` (levels 1–3) | Collect delivery products into `bfq/` |
 
-**`quant.method` and delivery.** `quant.method` selects what the `quant_all` target builds: `unitas`, `mirge3`, `mirflowz`, `tesmall`, `tinyrna`, or several, comma-separated. It does not change delivery: `bfq_all` and `multiqc_report` always deliver the UNITAS products. miRge3, mirflowz, TEsmall and tiny-count are routes to evaluate (see the [benchmark](benchmark/README.md)).
+**`quant.method` and delivery.** `quant.method` selects what the `quant_all` target builds: `unitas`, `mirge3`, `mirflowz`, `tesmall`, `tinyrna`, `smrnaseq`, or several, comma-separated. It does not change delivery: `bfq_all` and `multiqc_report` always deliver the UNITAS products. miRge3, mirflowz, TEsmall, tiny-count and nf-core/smrnaseq are routes to evaluate (see the [benchmark](benchmark/README.md)).
 
 ## Quantification routes
 
@@ -73,6 +73,7 @@ Every route reads the same filtered reads and removes no adapters itself (mirflo
 - **mirflowz** 0.10.0 (`quant/mirflowz/`): genome and transcriptome alignment with segemehl, counting miRNAs, isomiRs and pri-miRs from miRBase coordinates. It needs a reference on the miRBase GFF's assembly, so a rat project's mirflowz alignments are on Rnor_6.0. A read aligning equally well to several loci is split between them. Runs nested in `gcfntnu/mirflowz:0.10.0` ([`run_mirflowz.py`](rules/quant/scripts/run_mirflowz.py)), within `quant.mirflowz.mem_gb`.
 - **TEsmall** 2.1.0 (`quant/tesmall/`): exact Bowtie 1 alignment to the genome; each read goes to the first class it overlaps by 90% in `quant.tesmall.order` (miRNA first by default; TEsmall's own default puts structural RNA first and takes the reads of miRNAs inside snoRNA genes). `gcfntnu/tesmall:2.1.0-1` with `--no-trim`, so the filtered reads are not trimmed again ([`tesmall.smk`](rules/quant/tesmall.smk)). Sample names with dots stop the workflow at load.
 - **tiny-count** 1.6.0 (`quant/tinyrna/`), the counter of [tinyRNA](https://github.com/MontgomeryLab/tinyRNA) without the rest of its pipeline: reads collapsed to unique sequences, aligned end to end to the genome with Bowtie 1 (`quant.tinyrna.mismatch`, all alignments of the best stratum) and counted against the miRBase GFF with a Features Sheet written from `quant.tinyrna`: a read counts for a mature miRNA when it starts at one of the 5′ offsets of the annotated 5′ end (default −1, 0, +1) and ends at most `three_prime_extension` beyond its 3′ end (default 4). A sequence's reads are divided between its loci and between the features at a locus (`normalize_by_genomic_hits`, `normalize_by_feature_hits`). Feature IDs are miRBase's, one row per locus (`MIMAT0000416`, `MIMAT0000416_1`); `tinyrna_counts.tsv` joins the samples. `gcfntnu/tiny-count:1.6.0-1`, with a wrapper that checks tiny-count's log and tables, as it exits 0 after an error ([`tinyrna.py`](rules/quant/scripts/tinyrna.py)).
+- **nf-core/smrnaseq** 2.4.1's mirtop counting (`quant/smrnaseq/`): reads collapsed to unique sequences, aligned to the organism's miRBase hairpins with Bowtie 1 (up to 2 mismatches in the first 28 bases, none limited beyond; the best alignments, at most 50) and annotated by mirtop; `mirna.tsv` sums each miRNA's isomiRs. The pipeline's steps, images and arguments are reproduced as rules, without Nextflow ([`smrnaseq.smk`](rules/quant/smrnaseq.smk)); on the same reads its tables are identical to the pipeline's. It needs no genome reference.
 
 ### Spike-in counts
 
@@ -103,7 +104,7 @@ provenance/cutadapt/<sample>.{adapter,filter,artefacts}.{json,log}  (fastp route
 
 | Key | Default | Set in |
 | --- | --- | --- |
-| `quant.method` | `unitas`; also `mirge3`, `mirflowz`, `tesmall`, `tinyrna`, comma-separated. Selects the `quant_all` targets, not delivery | [smallrna.config](smallrna.config) |
+| `quant.method` | `unitas`; also `mirge3`, `mirflowz`, `tesmall`, `tinyrna`, `smrnaseq`, comma-separated. Selects the `quant_all` targets, not delivery | [smallrna.config](smallrna.config) |
 | `filter.trim.quantifier` | `cutadapt`; also `fastp` or `skip` (reads already trimmed) | Kit entry |
 | `filter.trim.cutadapt` | Per kit (table above) | Kit entry |
 | `filter.trim.fastp.args` | None; required with the fastp route only | Project |

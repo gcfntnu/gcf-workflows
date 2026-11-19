@@ -15,11 +15,15 @@ by name, because the methods name miRNAs differently:
 - TEsmall reports mature miRNAs by miRBase name (`ftype` miRNA); reads assigned to the precursor (`hairpin`, e.g.
   3' isomiRs that extend past the mature end) are not mature counts and are left out.
 - tiny-count reports miRBase GFF feature IDs, one row per locus: the accession, with `_1`, `_2` for further loci of
-  the same mature miRNA (`MIMAT0000416_1`); the loci are summed per accession.
+  the same mature miRNA (`MIMAT0000416_1`); the loci are summed per accession;
+- nf-core/smrnaseq's mirtop counting (`mirna.tsv`, smallrna/rules/quant/smrnaseq.smk) reports miRNAs by miRBase name,
+  isomiRs summed.
 
-Adding a method means adding one function to ADAPTERS that reads its output directory.
+Adding a method means adding one function to ADAPTERS that reads its output directory, and its count table to TABLES:
+before scoring, benchmark.py checks that table's samples and the miRBase release in the method's reference.tsv (#407).
 """
 import csv
+import hashlib
 import math
 from pathlib import Path
 import re
@@ -147,7 +151,77 @@ def tinyrna(quant_dir, name_to_id, **_):
     return [('tinyrna', s, names[a], a, math.fsum(c)) for (a, s), c in shares.items()]
 
 
-ADAPTERS = {'unitas': unitas, 'mirge3': mirge3, 'mirflowz': mirflowz, 'tesmall': tesmall, 'tinyrna': tinyrna}
+def smrnaseq(quant_dir, name_to_id, **_):
+    """nf-core/smrnaseq's mirtop table as the route writes it (miRNA, samples), by miRBase name. A header without unique
+    sample columns, or a row whose field count differs from the header (e.g. a truncated file), stops the evaluation."""
+    path = Path(quant_dir) / 'smrnaseq' / 'mirna.tsv'
+    rows = []
+    with open(path, newline='') as fh:
+        reader = csv.reader(fh, delimiter='\t')
+        header = next(reader, None)
+        samples = header[1:] if header and header[0] == 'miRNA' else []
+        if not samples or len(set(samples)) != len(samples) or not all(samples):
+            raise ValueError('{}: expected a miRNA column and unique sample columns, got {}'.format(path, header))
+        for i, row in enumerate(reader, 2):
+            if not row:
+                continue
+            if len(row) != len(header):
+                raise ValueError('{}:{}: {} fields, expected {}'.format(path, i, len(row), len(header)))
+            rows += [('smrnaseq', s, row[0], name_to_id.get(row[0], ''), float(c)) for s, c in zip(samples, row[1:])]
+    return rows
+
+
+ADAPTERS = {'unitas': unitas, 'mirge3': mirge3, 'mirflowz': mirflowz, 'tesmall': tesmall, 'tinyrna': tinyrna, 'smrnaseq': smrnaseq}
+
+# Each method's count table under the project's quant directory: (path, delimiter, columns before the samples).
+TABLES = {'unitas': ('unitas/mir_counts.tsv', '\t', 1), 'mirge3': ('mirge3/miR.Counts.csv', ',', 1),
+          'mirflowz': ('mirflowz/all_mirna_counts.tab', '\t', 1), 'tesmall': ('tesmall/tesmall_counts.tsv', '\t', 2),
+          'tinyrna': ('tinyrna/tinyrna_counts.tsv', '\t', 3), 'smrnaseq': ('smrnaseq/mirna.tsv', '\t', 1)}
+# Methods whose reference.tsv is written by quant_reference after their count table, with that table's SHA-256.
+TABLE_BOUND_RECORDS = ('mirflowz', 'tesmall', 'tinyrna', 'smrnaseq')
+
+
+def table_samples(method, quant_dir):
+    """The sample columns of a method's count table, in their order."""
+    path, sep, skip = TABLES[method]
+    with open(Path(quant_dir) / path, newline='') as fh:
+        header = next(csv.reader(fh, delimiter=sep), [])
+    return header[skip:]  # as written: the adapters score under the literal column names
+
+
+def method_record(method, quant_dir, names):
+    """{name: value} for the named fields of a method's quant/<method>/reference.tsv (written by unitas_reference,
+    mirge3_reference and quant_reference): unique field and value columns, rows as wide as the header, and exactly one
+    non-empty row per name; ValueError otherwise."""
+    path = Path(quant_dir) / method / 'reference.tsv'
+    with open(path, newline='') as fh:
+        rows = list(csv.reader(fh, delimiter='\t'))
+    header = rows[0] if rows else []
+    if len(set(header)) != len(header) or 'field' not in header or 'value' not in header:
+        raise ValueError('{}: expected unique field and value columns, got {}'.format(path, header))
+    for i, row in enumerate(rows[1:], 2):
+        if row and len(row) != len(header):
+            raise ValueError('{}:{}: {} fields, expected {}'.format(path, i, len(row), len(header)))
+    f, v = header.index('field'), header.index('value')
+    out = {}
+    for name in names:
+        found = [row[v] for row in rows[1:] if row and row[f] == name]
+        if len(found) != 1 or not found[0].strip():
+            raise ValueError('{}: expected one non-empty {} row, found {}'.format(path, name, len(found)))
+        out[name] = found[0]
+    return out
+
+
+def method_mirbase(method, quant_dir):
+    """(miRNA database, release) a method annotated with, from its reference.tsv."""
+    record = method_record(method, quant_dir, ('mirna_database', 'mirna_release'))
+    return record['mirna_database'], record['mirna_release']
+
+
+def table_sha256(method, quant_dir):
+    """SHA-256 of a method's count table."""
+    with open(Path(quant_dir) / TABLES[method][0], 'rb') as fh:
+        return hashlib.sha256(fh.read()).hexdigest()
 
 
 def common_table(methods, quant_dir, name_to_id, prefix, mirflowz_gff=None, unitas_hairpins=None, mature=None):

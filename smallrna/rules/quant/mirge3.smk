@@ -104,13 +104,18 @@ rule mirge3_quant:
         args = '--gff-out --isoform-entropy --AtoI --crThreshold 0 ',
         specific_args = get_args,
         tmp_out = join(QUANT_INTERIM, 'mirge3', MIRGE3_DB),
-        out = join(QUANT_INTERIM, 'mirge3')
+        out = join(QUANT_INTERIM, 'mirge3'),
+        collect = src_gcf('scripts/mirge3_collect.py'),
+        # Names other rules own in the miRge3 folder; miRge3 writing one of them stops the job (mirge3_collect.py)
+        reserved = ' '.join(os.path.basename(p) for p in (MIRGE3_FASTQ_DIR, MIRGE3_PROJECT_LIB, join(QUANT_INTERIM, 'mirge3', MIRGE3_DB),
+                            'spikein.tsv', 'reference.tsv', 'miR.Counts.mirge3.csv', 'unmapped.fasta'))
     threads:
         8
     container:
         'docker://' + config['docker']['mirge3']
     shell:
-        'rm -rf {params.fastq_dir} && mkdir -p {params.fastq_dir} {params.tmp_out} && {params.links} && '
+        # A failed run's folder is removed first, so the collect step finds this run only.
+        'rm -rf {params.fastq_dir} {params.tmp_out} && mkdir -p {params.fastq_dir} {params.tmp_out} && {params.links} && '
         'miRge3.0 '
         '--samples {params.fastq:q} '
         '--minimum-length {params.min_length} '
@@ -121,9 +126,10 @@ rule mirge3_quant:
         '{params.specific_args} '
         '--threads {threads} '
         '--outDir {params.tmp_out} '
-        '&& mv {params.tmp_out}/miRge*/* {params.out} '
-        '&& mv {params.out}/miR.Counts.csv {output.mirtable} '
-        '&& rm -rf {params.tmp_out} {params.fastq_dir} '
+        # miRge3's entries replace an earlier run's, and its miR.Counts.csv goes straight to miR.Counts.mirge3.csv (#404).
+        '&& python {params.collect:q} --run-root {params.tmp_out:q} --output {params.out:q} --mirtable {output.mirtable:q} '
+        '--reserved {params.reserved} '
+        '&& rm -rf {params.fastq_dir} '
 
 rule mirge3_counts:
     """miRNA counts from miRge3's mapped.csv: exact and isomiR reads, names folded by the library's merge file, for

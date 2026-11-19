@@ -1,5 +1,6 @@
 """Dry-run contract for the small-RNA `quant.method` selection of `quant_all`."""
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -276,3 +277,33 @@ def test_mirge3_counts_are_made_from_its_mapped_reads(tmp_path, db, name):
     counts = rule_block(output, 'mirge3_counts')
     assert 'output: data/tmp/smallrna/quant/mirge3/miR.Counts.csv' in counts
     assert f'--merges data/tmp/smallrna/quant/mirge3/lib/mouse/annotation.Libs/mouse_merges_{name}.csv' in counts
+
+
+def test_recorded_routes_write_their_mirbase_release_and_table_checksum(tmp_path):
+    """quant/<route>/reference.tsv for mirflowz, TEsmall, tiny-count and nf-core/smrnaseq (#407), written after the
+    route's count table with its SHA-256: db.mirbase.release, the mirflowz reference or gcfdb's miRBase files; NA for a
+    db.mirflowz.custom reference; UNITAS and miRge3 write their own."""
+    returncode, output = dry_run(tmp_path, 'unitas,mirflowz,tesmall,tinyrna,smrnaseq', printshell=True)
+    assert returncode == 0, output
+    blocks = {re.search(r'output: data/tmp/smallrna/quant/(\w+)/reference.tsv', b).group(1): b for b in output.split('rule quant_reference:')[1:]}
+    assert sorted(blocks) == ['mirflowz', 'smrnaseq', 'tesmall', 'tinyrna']
+    tables = {'mirflowz': 'mirflowz/all_mirna_counts.tab', 'tesmall': 'tesmall/tesmall_counts.tsv',
+              'tinyrna': 'tinyrna/tinyrna_counts.tsv', 'smrnaseq': 'smrnaseq/mirna.tsv'}
+    for route, block in blocks.items():
+        table = f'data/tmp/smallrna/quant/{tables[route]}'
+        assert f'input: {table}' in block  # written after its count table
+        assert f'sha=$(sha256sum {table} | cut' in block and f'"$sha" {table} > data/tmp/smallrna/quant/{route}/reference.tsv' in block
+        reference = 'data/ext/mirbase/mus_musculus/release-23.1' if route == 'smrnaseq' else 'data/ext/mirflowz/mirbase-23.1_ensembl-116/mus_musculus'
+        assert f"mirbase db.mirbase.release 23.1 db.mirbase.release {reference} " in block
+    refs = tmp_path / 'refs'
+    refs.mkdir()
+    files = {key: refs / name for key, name in (('genome', 'genome.fa.gz'), ('gtf', 'genes.gtf.gz'), ('mirna_gff', 'mirna.gff3'))}
+    for path in files.values():
+        path.touch()
+    custom = lambda s: s.setdefault('db', {}).setdefault('mirflowz', {}).update(custom=dict(name='reduced', **{k: str(v) for k, v in files.items()}))
+    returncode, output = dry_run(tmp_path, 'tinyrna', custom, printshell=True)
+    assert returncode == 0, output
+    assert 'NA db.mirflowz.custom NA db.mirflowz.custom data/ext/mirflowz/custom-reduced/mus_musculus ' in rule_block(output, 'quant_reference')
+    returncode, output = dry_run(tmp_path, 'unitas,mirge3')
+    assert returncode == 0, output
+    assert 'quant_reference' not in output
