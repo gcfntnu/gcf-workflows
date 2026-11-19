@@ -1,5 +1,4 @@
 #-*- mode:snakemake -*-
-import hashlib
 import six
 from collections import defaultdict
 
@@ -10,7 +9,8 @@ ORG = config.get('organism', 'homo_sapiens')
 CR_CONF = config['quant']['cellranger']
 
 
-CR_REF_DIR = REF_DIR if USE_10X_PREBUILT else join(REF_DIR, 'cellranger')
+CR_REF_DIR = REF_DIR
+CR_REFERENCE_INPUTS = [join(REF_DIR, name) for name in ('reference.json', 'fasta/genome.fa', 'anno/genes.gtf')]
 
 
 def input_fastq_path(wildcards, input):
@@ -36,61 +36,46 @@ rule cellranger_gtf:
     shell:
         'cellranger mkgtf {input} {output} {params}'
 
-# The name identifies the exact pair, even in a fresh workdir where Snakemake
-# has no build history and retained index files are newer than the project inputs.
-CR_INPUT_MANIFEST = []
 if not USE_10X_PREBUILT:
-    if config.get('ref_dir'):
-        record = hashlib.sha256()
-        for path in (get_genome(), get_gtf()):
-            if not os.path.isfile(path):
-                raise ValueError(f"Project ref_dir is missing required Cell Ranger input: {path}")
-            with open(path, 'rb') as source:
-                digest = hashlib.file_digest(source, 'sha256').hexdigest()
-            record.update(f"{digest}  {os.path.relpath(path, REF_DIR)}\n".encode())
-        CR_INPUT_MANIFEST = [join(CR_REF_DIR, f'.gcf-mkref-{record.hexdigest()}.sha256')]
+    # Cell Ranger 10.0 allows only letters, digits, underscores and dashes in --genome.
+    CR_GENOME = re.sub(r'[^A-Za-z0-9_-]', '_', DB_CONF.get('assembly') or ORG)
+    CR_IMAGE = config['docker']['cellranger']
+    CR_BUILD_KEY = cellranger_build_key(CR_GENOME, CR_IMAGE)
+    CR_CACHE = join(REF_DIR, 'cellranger', 'builds')
+    # A managed genome may be downloaded earlier in this DAG. Its content digest becomes known at build time.
+    managed_ref = join(config['db']['reference_db'], f"release-{DB_CONF.get('release') or 'unspecified'}", ORG, CR_GENOME)
+    CR_VIEW = join(QUANT_INTERIM, 'reference', 'cellranger', PROJECT_REFERENCE_DIGEST or managed_ref, CR_BUILD_KEY)
+    CR_RECEIPT = join(CR_VIEW, 'ready')
+    CR_REF_DIR = join(CR_CACHE, PROJECT_REFERENCE_DIGEST, CR_BUILD_KEY) if PROJECT_REFERENCE_DIGEST else join(CR_VIEW, 'index')
+    CR_REFERENCE_INPUTS = [CR_RECEIPT]
 
     rule cellranger_mkref:
         input:
             fasta = get_genome(),
             gtf = get_gtf()
         output:
-            join(CR_REF_DIR, 'reference.json'),
-            join(CR_REF_DIR, 'fasta', 'genome.fa'),
-            join(CR_REF_DIR, 'genes', 'genes.gtf.gz'),
-            manifest = CR_INPUT_MANIFEST
+            CR_RECEIPT
         params:
-            # Cell Ranger 10.0 accepts only letters, digits, underscores and dashes in --genome.
-            name = re.sub(r'[^A-Za-z0-9_-]', '_', DB_CONF.get('assembly') or ORG),
-            out_dir = CR_REF_DIR,
-            source_dir = REF_DIR,
-            install = src_gcf('scripts/install_cellranger_reference.sh')
+            script = join(GCFDB_DIR, 'scripts', 'build_cellranger_reference.py'),
+            source = REF_DIR,
+            cache = CR_CACHE,
+            expected = ['--expected-source', PROJECT_REFERENCE_DIGEST] if PROJECT_REFERENCE_DIGEST else [],
+            name = CR_GENOME,
+            image = CR_IMAGE
         threads:
             48
         container:
-            'docker://' + config['docker']['cellranger']
+            'docker://' + CR_IMAGE
         shell:
-            'stage=$(mktemp -d {params.out_dir:q}/.mkref.XXXXXXXX) && '
-            "trap 'rm -rf \"$stage\"' EXIT && "
-            'cellranger mkref --fasta {input.fasta:q} --genes {input.gtf:q} --nthreads {threads} '
-            '--genome {params.name:q} --output-dir "$stage/reference" && '
-            'bash {params.install:q} "$stage/reference" {params.out_dir:q} {params.source_dir:q} {output.manifest:q}'
+            'python3 {params.script:q} --source-dir {params.source:q} --cache {params.cache:q} '
+            '--receipt {output:q} {params.expected:q} --image {params.image:q} '
+            '-- cellranger mkref --fasta {input.fasta:q} --genes {input.gtf:q} --genome {params.name:q} --nthreads {threads}'
 
-    rule cellranger_symlink_gtf:
-        input:
-            join(CR_REF_DIR, 'genes', 'genes.gtf.gz')
-        output:
-            join(CR_REF_DIR, 'anno', 'genes.gtf')
-        shell:
-            'gzip -dc {input:q} > {output:q}'
 
 rule cellranger_quant_:
     input:
         unpack(get_raw_fastq),
-        manifest = CR_INPUT_MANIFEST,
-        reference = join(CR_REF_DIR, 'reference.json'),
-        genome = join(CR_REF_DIR, 'fasta', 'genome.fa'),
-        gtf = join(CR_REF_DIR, 'anno', 'genes.gtf')
+        reference = CR_REFERENCE_INPUTS
     params:
         input = input_fastq_path,
         id = '_tmp_{sample}',

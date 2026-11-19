@@ -30,11 +30,12 @@ The directory must contain the augmented FASTA and its matching annotation. Rela
 | `refs/panel-v1/anno/genes.gtf` | Gene annotation including the reporter feature with the same contig name and coordinates |
 
 A fresh `cellranger mkref` reads `--fasta refs/panel-v1/fasta/genome.fa` and `--genes refs/panel-v1/anno/genes.gtf`.
-Counting uses `--transcriptome refs/panel-v1/cellranger`.
-Planning hashes both source files. A successful build records their SHA-256 checksums in
-`cellranger/.gcf-mkref-<digest>.sha256`. Count depends on the manifest for that pair.
-A legacy index without the manifest, or a change to either input, schedules a fresh build even in a new project workdir.
-The reporting workflow derives gene metadata in `refs/panel-v1/anno/genes.tsv` from the same annotation and genome.
+Count uses `--transcriptome refs/panel-v1/cellranger/builds/<source-digest>/<build-key>`.
+The source digest covers the SHA-256 checksums of both files. The build key covers the normalized Cell Ranger genome identifier, configured image and recipe version.
+Each complete index and its input manifest are published together. A forced run or a second project reuses a matching generation.
+Changing either source, the genome identifier or the image selects a separate directory. Existing counts can continue reading their original index.
+Legacy indexes directly under `ref_dir/cellranger` lack this identity and require a fresh build.
+The report derives its gene metadata and exon sequences in the project workdir under `<QUANT_INTERIM>/reference/<source-digest>/` from the same input pair.
 The directory name is arbitrary. The configured provider and annotation settings still apply.
 
 With the standard 10x kit and no project reference directory, the workflow selects the reference by organism.
@@ -43,6 +44,7 @@ With the standard 10x kit and no project reference directory, the workflow selec
   Omit `db.10xgenomics.release` in the project to inherit the configured default. An empty or null effective release stops planning.
 - For an organism with an Ensembl reference and no supported prebuilt, the workflow selects Ensembl for the build, count and gene metadata.
   For example, `salmo_salar` at Ensembl release 116 uses assembly `Ssal_v3.1` under `<EXT_DIR>/ensembl/release-116/salmo_salar/Ssal_v3.1/`.
+  Since managed FASTA and GTF files may be fetched as part of the DAG, the build computes their checksums at execution time and pins its immutable index in the project workdir for count.
   This route and the explicit-directory route work independently of the 10x release.
 
 To select a managed custom assembly, set `db.reference_db: custom_reference` and `db.custom_reference.assembly`.

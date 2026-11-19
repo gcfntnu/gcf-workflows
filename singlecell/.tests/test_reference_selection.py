@@ -1,4 +1,5 @@
 """Plan the BFQ reporting target and inspect the tools' reference arguments with an empty cache."""
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -49,8 +50,14 @@ def arguments(log, command, flag):
 def assert_build_and_count(log, ref):
     assert arguments(log, 'cellranger mkref ', '--fasta') == {f'{ref}/fasta/genome.fa'}
     assert arguments(log, 'cellranger mkref ', '--genes') == {f'{ref}/anno/genes.gtf'}
-    assert f'{ref}/cellranger/reference.json' in log
-    assert arguments(log, 'cellranger count ', '--transcriptome') == {f'{ref}/cellranger'}
+    assert arguments(log, 'cellranger mkref ', '--cache') == {f'{ref}/cellranger/builds'}
+    receipt, = arguments(log, 'cellranger mkref ', '--receipt')
+    expected = Path(receipt).parent / 'index'  # A managed build pins the completed generation here.
+    if '--expected-source' in next(line for line in log.splitlines() if 'cellranger mkref ' in line):
+        source, = arguments(log, 'cellranger mkref ', '--expected-source')
+        build_key = Path(receipt).parent.name
+        expected = Path(ref) / 'cellranger/builds' / source / build_key
+    assert arguments(log, 'cellranger count ', '--transcriptome') == {str(expected)}
 
 
 def assert_gene_metadata(log, ref):
@@ -165,44 +172,42 @@ def test_configured_custom_assembly(tmp_path, provider):
         assert re.search(r'no hits in ensembl lookup file.*custom_reference', log, re.I)
 
 
-@pytest.mark.parametrize('changed', ['fasta/genome.fa', 'anno/genes.gtf'])
-def test_retained_project_index_requires_current_input_manifest(tmp_path, changed):
+@pytest.mark.parametrize('changed', ['fasta/genome.fa', 'anno/genes.gtf', 'assembly', 'image'])
+def test_retained_project_index_requires_current_build_identity(tmp_path, changed):
     ref = tmp_path / 'panel'
     write_panel(tmp_path, ref)
-    index = ref / 'cellranger'
-    # A legacy index is newer than the panel and has all the outputs Snakemake previously tracked.
+    # A complete legacy index, newer than both inputs, cannot establish which inputs and tool built it.
     for name in ('reference.json', 'fasta/genome.fa', 'genes/genes.gtf.gz', 'anno/genes.gtf'):
-        path = index / name
+        path = ref / 'cellranger' / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text('stock')
 
-    def count_plan(project):
+    def planned_index(project, assembly='Panel.v1', image='example/cellranger:1'):
         work = tmp_path / project
         work.mkdir()
-        return dry_run(work, 'homo_sapiens', COUNT_TARGET, ref_dir=str(ref))
+        log = dry_run(work, 'homo_sapiens', COUNT_TARGET, ref_dir=str(ref),
+                      db={'10xgenomics': {'assembly': assembly}}, docker={'cellranger': image})
+        assert_build_and_count(log, str(ref))
+        directory, = arguments(log, 'cellranger count ', '--transcriptome')
+        return Path(directory)
 
-    def planned_manifest(plan):
-        command = next(line for line in plan.splitlines() if 'cellranger mkref --fasta' in line)
-        return Path(shlex.split(command)[-1])
+    original = planned_index('legacy')
+    record = ''.join(f'{hashlib.sha256((ref / path).read_bytes()).hexdigest()}  {path}\n'
+                     for path in ('fasta/genome.fa', 'anno/genes.gtf'))
+    assert original.parent == ref / 'cellranger/builds' / hashlib.sha256(record.encode()).hexdigest()
+    # Same normalized Cell Ranger name and image can share a generation across fresh workdirs.
+    assert planned_index('same', assembly='Panel_v1') == original
 
-    manifest = planned_manifest(count_plan('legacy'))
-    # Exercise only the installer with stand-in output. No Cell Ranger binary or container runs.
-    stage = tmp_path / 'stage/reference'
-    stage.mkdir(parents=True)
-    (stage / 'reference.json').write_text('rebuilt')
-    install = ['bash', WORKFLOW.parent / 'rules/quant/scripts/install_cellranger_reference.sh', stage, index, ref]
-    subprocess.run([*install, manifest], check=True)
-    subprocess.run(['sha256sum', '--check', manifest], cwd=ref, check=True)
-    assert 'cellranger mkref ' not in count_plan('matching')
-
-    source = ref / changed
-    old = source.stat()
-    source.write_bytes(source.read_bytes() + b'\n')
-    os.utime(source, ns=(old.st_atime_ns, old.st_mtime_ns))
-    replacement = planned_manifest(count_plan('changed'))
-    assert replacement != manifest
-    # If inputs change during a build, the installer refuses to publish the planned identity.
-    stale = subprocess.run([*install, manifest], capture_output=True, text=True)
-    assert stale.returncode and 'changed during the build' in stale.stderr
-    subprocess.run([*install, replacement], check=True)
-    assert replacement.is_file() and not manifest.exists()
+    settings = {}
+    if changed == 'assembly':
+        settings['assembly'] = 'Panel.v2'
+    elif changed == 'image':
+        settings['image'] = 'example/cellranger:2'
+    else:
+        source = ref / changed
+        old = source.stat()
+        source.write_bytes(source.read_bytes() + b'\n')
+        os.utime(source, ns=(old.st_atime_ns, old.st_mtime_ns))
+    replacement = planned_index('changed', **settings)
+    assert replacement != original
+    assert (replacement.parent == original.parent) == (changed in ('assembly', 'image'))

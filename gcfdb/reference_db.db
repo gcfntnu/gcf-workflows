@@ -42,3 +42,11 @@ def get_genome(*args, **kw):
 
 def get_gtf(*args, **kw):
     return join(REF_DIR, 'anno', 'genes.gtf')
+
+
+include: 'scripts/reference_identity.py'
+
+PROJECT_REFERENCE_DIGEST = PROJECT_REFERENCE_CHECKSUMS = None
+if config.get('ref_dir') and config['workflow'] == 'singlecell' and (config.get('libprepkit') or '').startswith('10X Genomics'):
+    PROJECT_REFERENCE_CHECKSUMS = reference_checksums(REF_DIR)
+    PROJECT_REFERENCE_DIGEST = reference_digest(PROJECT_REFERENCE_CHECKSUMS)
