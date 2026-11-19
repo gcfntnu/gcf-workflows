@@ -74,7 +74,7 @@ def read_project(project, out_dir):
         rows = read_tsv(bench / 'samples.tsv')
         if len(rows) != samples or {row['sample'] for row in rows} != set(configured_samples):
             raise ValueError(f'{project}: samples.tsv must have exactly one row per configured sample')
-        reads = [row['reads'] if row.get('reads_source') in ('copied', 'declaration') else '' for row in rows]
+        reads = [row['reads'] if row.get('reads_source') in ('copied', 'verified_declaration') else '' for row in rows]
         libraries = {row['library'] for row in rows if row['lane'] != 'merged'} if kind == 'biological' else set()
         if libraries:
             samples = '{} lanes of {} samples'.format(samples, len(libraries))

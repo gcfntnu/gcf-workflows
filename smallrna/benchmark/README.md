@@ -52,8 +52,9 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    summaries can read the existing report and metrics from a read-only project.
    The command prints the canonical summary path to open, including when its directory is a symlink.
    Rerun `evaluate` on the existing outputs if the pair is incomplete or inconsistent. Preparation records actual
-   copied reads when capped and declared counts for linked runs. Missing counts, and totals from older non-synthetic
-   preparations without count provenance, appear as empty cells.
+   copied reads when capped. For an uncapped linked run, preparation reads the compressed FASTQ once to verify its
+   declared MD5 before recording its declared count. The overview uses these counts as of preparation. A missing count,
+   a missing or mismatched checksum, or an older unverified declaration leaves the total empty, including for merged lanes.
 
 ## Datasets
 

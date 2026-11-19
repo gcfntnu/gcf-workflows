@@ -1383,3 +1383,36 @@ def test_summary_cli_requires_a_filename_as_the_final_component(tmp_path, traili
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
     assert result.returncode and 'the extension must be .md or .html' in result.stderr
     assert output.read_text() == 'previous summary'
+
+
+@pytest.mark.parametrize('cache', ['match', 'different', 'no_md5'])
+def test_summary_of_linked_runs_requires_verified_declarations(tmp_path, cache):
+    import hashlib
+    import benchmark
+    import evaluation
+    import summary
+
+    ext, dataset, reads = biological_dataset(tmp_path)
+    spec = yaml.safe_load(dataset.read_text())
+    runs = spec['samples'][0]['runs']
+    for run in runs:
+        source = ext / spec['data'] / 'fastq' / (run['run'] + '.fastq.gz')
+        run['md5'] = hashlib.md5(source.read_bytes()).hexdigest()
+    if cache == 'different':
+        runs[0].update(reads=1000, md5=hashlib.md5(b'another FASTQ').hexdigest())
+    if cache == 'no_md5':
+        del runs[0]['md5']
+    write(dataset, yaml.safe_dump(spec))
+    project = tmp_path / 'linked'
+    subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'prepare', '--dataset', str(dataset),
+                    '--ext-dir', str(ext), '--project', str(project)], check=True, capture_output=True, timeout=15)
+    bench = project / 'benchmark'
+    samples = bench / 'samples.tsv'
+    row, = benchmark.read_tsv(samples)
+    evaluation.publish(bench, ['metric', 'unitas'], [['mirna_reads', '7']], ['# Report'])
+    expected = str(len(reads) * len(runs)) if cache == 'match' else ''
+    assert row['reads'] == expected and row['reads_source'] == ('verified_declaration' if expected else '')
+    assert summary.read_project(project, tmp_path)[1]['reads'] == expected
+    if cache == 'match':
+        samples.write_text(samples.read_text().replace('verified_declaration', 'declaration'))
+        assert summary.read_project(project, tmp_path)[1]['reads'] == ''
