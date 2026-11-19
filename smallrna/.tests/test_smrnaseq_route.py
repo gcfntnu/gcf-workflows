@@ -126,6 +126,17 @@ def test_tables_reach_their_final_paths_only_when_complete(tmp_path, monkeypatch
     assert target.read_text() == 'earlier\n' and [p.name for p in tmp_path.iterdir()] == ['mirna.tsv']
 
 
+def test_a_rerun_reclaims_the_staging_file_a_hard_kill_left(tmp_path):
+    """A hard kill skips the cleanup and leaves <table>.partial; the next run overwrites it and renames it into place."""
+    sys.path.insert(0, str(SCRIPTS))
+    import smrnaseq_counts
+    target = tmp_path / 'mirna.tsv'
+    (tmp_path / 'mirna.tsv.partial').write_text('miRNA\tS1\nhsa-miR-21-5p\t9\nhsa-miR-16-5p\t')  # cut off mid-row
+    smrnaseq_counts.write_table(str(target), [['miRNA', 'S1'], ['hsa-miR-21-5p', 1]])
+    assert target.read_text() == 'miRNA\tS1\nhsa-miR-21-5p\t1\n'
+    assert sorted(p.name for p in tmp_path.iterdir()) == ['mirna.tsv']
+
+
 @pytest.mark.parametrize('content, message', [
     ('UID\tRead\tmiRNA\tS1\nx\tA\tm\t1\n', 'expected the columns'),
     (f'{ANNOTATION}\tS1\n' + '\t'.join(iso('u', 'm', 'NA', 1)[:-1]) + '\t1.5\n', 'whole number'),

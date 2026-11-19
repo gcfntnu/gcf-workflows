@@ -12,8 +12,10 @@ bin/collapse_mirtop.r):
   such a read counts in full for the miRNA whose line sorts first; the counts are then summed per miRNA (`--mirna`).
 
 Counts are written as integers. The sample columns follow --tables, whose names come from each table's last column.
-Each table is written to a temporary file beside it and renamed into place when complete, so an interrupted run never
-leaves a partial table at the final path (the benchmark reads mirna.tsv outside Snakemake).
+Each table is written to `<table>.partial` beside it and renamed into place when complete, so an interrupted run never
+leaves a partial table at the final path (the benchmark reads mirna.tsv outside Snakemake). The staging name is fixed,
+so a rerun after a hard kill overwrites the leftover instead of adding another copy; Snakemake's directory lock keeps
+to one writer per table.
 
 Usage: smrnaseq_counts.py --tables S1/mirtop.tsv S2/mirtop.tsv --joined joined_samples_mirtop.tsv --mirna mirna.tsv
 """
@@ -83,8 +85,8 @@ def collapse(header, lines):
 
 
 def write_table(path, rows):
-    """Rows to path, through a temporary sibling renamed into place once written."""
-    tmp = '{}.tmp{}'.format(path, os.getpid())
+    """Rows to path, through `<path>.partial` renamed into place once written."""
+    tmp = '{}.partial'.format(path)
     try:
         with open(tmp, 'w', newline='') as fh:
             csv.writer(fh, delimiter='\t', lineterminator='\n').writerows(rows)
