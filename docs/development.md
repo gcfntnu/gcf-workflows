@@ -95,7 +95,7 @@ chmod +x .dev/bin/fastp
 
 Set `FASTP_0201` as shown in the check table. Without it, read-outcome cases skip explicitly;
 configuration, reporting-unit and dry-run cases still run. CI always supplies the pinned executable.
-See [small-RNA stage policy](../smallrna/README.md#fastp-stages-and-final-insert-policy) for the scientific scope.
+See the [small-RNA fastp route](../smallrna/README.md#fastp-route) for the route and its former kit options.
 
 ### `test-all.sh`
 
