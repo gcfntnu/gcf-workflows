@@ -52,6 +52,8 @@ def assert_build_and_count(log, ref):
 
 
 def assert_gene_metadata(log, ref):
+    assert arguments(log, 'bedtools getfasta ', '-fi') == {f'{ref}/fasta/genome.fa'}
+    assert arguments(log, 'gtf2tsv.py ', '--fasta') == {f'{ref}/fasta/exons.fa'}
     assert arguments(log, 'gtf2tsv.py ', '--gtf') == {f'{ref}/anno/genes.gtf'}
     assert arguments(log, 'gtf2tsv.py ', '--output') == {f'{ref}/anno/genes.tsv'}
     assert arguments(log, 'convert_scanpy.py ', '--feature-info') == {f'{ref}/anno/genes.tsv'}
@@ -70,6 +72,8 @@ def test_ensembl_fallback_through_reporting(tmp_path, organism, assembly, settin
     assert f'{organism.capitalize()}.{assembly}.dna.toplevel.fa.gz' in log
     assert f'{organism.capitalize()}.{assembly}.{release}.gtf.gz' in log
     assert_build_and_count(log, ref)
+    # Keep the assembly in the paths and provenance, but pass a valid Cell Ranger genome identifier.
+    assert arguments(log, 'cellranger mkref ', '--genome') == {assembly.replace('.', '_')}
     assert_gene_metadata(log, ref)
     assert 'rule txgenomics_org_prebuild:' not in log
     assert 'refdata-gex-' not in log
@@ -101,10 +105,13 @@ def write_panel(work, ref, missing=None):
             path.write_text(contents)
 
 
-@pytest.mark.parametrize('ref,organism', [('refs/panel-v1', 'synthetic_organism'), ('refs/10xgenomics/panel-v1', 'homo_sapiens')])
+@pytest.mark.parametrize('ref,organism', [('refs/panel-v1', 'synthetic_organism'), ('refs/10xgenomics/panel two', 'homo_sapiens')])
 def test_project_directory_through_reporting(tmp_path, ref, organism):
     write_panel(tmp_path, ref)
-    log = dry_run(tmp_path, organism, ref_dir=ref, db={'10xgenomics': {'release': None}})
+    db = {'10xgenomics': {'release': None}}
+    if organism == 'synthetic_organism':
+        db.update(ensembl={'release': None}, ensemblgenomes={'release': None})
+    log = dry_run(tmp_path, organism, ref_dir=ref, db=db)
     assert 'rule multiqc_report:' in log
     assert_build_and_count(log, ref)
     assert_gene_metadata(log, ref)
