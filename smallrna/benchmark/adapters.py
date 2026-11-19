@@ -13,13 +13,16 @@ by name, because the methods name miRNAs differently:
 - mirflowz names a miRNA after its locus (`mmu-miR-194-2-5p`) and reports isomiRs as separate rows
   (`name|5' shift|3' shift|CIGAR|length|sequence`); its own extended annotation maps names to accessions;
 - TEsmall reports mature miRNAs by miRBase name (`ftype` miRNA); reads assigned to the precursor (`hairpin`, e.g.
-  3' isomiRs that extend past the mature end) are not mature counts and are left out;
+  3' isomiRs that extend past the mature end) are not mature counts and are left out.
+- tiny-count reports miRBase GFF feature IDs, one row per locus: the accession, with `_1`, `_2` for further loci of
+  the same mature miRNA (`MIMAT0000416_1`); the loci are summed per accession;
 - nf-core/smrnaseq's mirtop counting (`mirna.tsv`, smallrna/rules/quant/smrnaseq.smk) reports miRNAs by miRBase name,
   isomiRs summed.
 
 Adding a method means adding one function to ADAPTERS that reads its output directory.
 """
 import csv
+import math
 from pathlib import Path
 import re
 
@@ -130,6 +133,22 @@ def tesmall(quant_dir, name_to_id, **_):
     return rows
 
 
+def tinyrna(quant_dir, name_to_id, **_):
+    """The workflow's tinyrna_counts.tsv (tiny-count feature counts joined over samples); loci summed per accession."""
+    shares, names = {}, {}
+    with open(Path(quant_dir) / 'tinyrna' / 'tinyrna_counts.tsv', newline='') as fh:
+        reader = csv.reader(fh, delimiter='\t')
+        samples = next(reader)[3:]
+        for row in reader:
+            if not row or row[1] != 'miRNA':
+                continue
+            accession = re.sub(r'_\d+$', '', row[0])
+            names.setdefault(accession, row[2].split(', ')[0])
+            for sample, value in zip(samples, row[3:]):
+                shares.setdefault((accession, sample), []).append(float(value or 0))
+    return [('tinyrna', s, names[a], a, math.fsum(c)) for (a, s), c in shares.items()]
+
+
 def smrnaseq(quant_dir, name_to_id, **_):
     """nf-core/smrnaseq's mirtop table as the route writes it (miRNA, samples), by miRBase name. A header without unique
     sample columns, or a row whose field count differs from the header (e.g. a truncated file), stops the evaluation."""
@@ -150,7 +169,7 @@ def smrnaseq(quant_dir, name_to_id, **_):
     return rows
 
 
-ADAPTERS = {'unitas': unitas, 'mirge3': mirge3, 'mirflowz': mirflowz, 'tesmall': tesmall, 'smrnaseq': smrnaseq}
+ADAPTERS = {'unitas': unitas, 'mirge3': mirge3, 'mirflowz': mirflowz, 'tesmall': tesmall, 'tinyrna': tinyrna, 'smrnaseq': smrnaseq}
 
 
 def common_table(methods, quant_dir, name_to_id, prefix, mirflowz_gff=None, unitas_hairpins=None, mature=None):
