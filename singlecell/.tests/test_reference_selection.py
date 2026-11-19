@@ -693,3 +693,59 @@ def test_mixed_methods_share_explicit_reference_metadata(tmp_path):
     plan = dry_run(tmp_path, 'salmo_salar', 'quant_all', ref_dir=str(panel), quant=quant)
     assert 'rule starsolo_quant:' in plan and 'cellranger count ' in plan
     assert_gene_metadata(plan, annotation_snapshot(tmp_path / panel)[0])
+
+
+@pytest.mark.parametrize('methods,provider,index_type,changed', [
+    ('cellranger,10x_starsolo', '10xgenomics', 'starsolo', 'anno/genes.gtf'),
+    ('10x_starsolo', 'ensembl', 'star', 'fasta/genome.fa'),
+])
+def test_starsolo_recounts_after_project_reference_changes(tmp_path, methods, provider, index_type, changed):
+    panel = Path('refs/panel-v1')
+    write_panel(tmp_path, panel)
+    target = '_tmp/10x_starsolo/filtered/libA/anndata.light.h5ad'
+    cold = dry_run(tmp_path, 'salmo_salar', target, ref_dir=str(panel), db={'reference_db': provider},
+                   quant={'method': methods, 'use_velo': False})
+    env = protected_env(tmp_path)
+
+    def stage_inputs(snapshot):
+        # Only the workflow's checksum-verifying copy rule runs on these synthetic sequences.
+        subprocess.run([sys.executable, '-m', 'snakemake', '--cores', '1', str(snapshot / 'fasta/genome.fa'),
+                        '--allowed-rules', 'project_annotation_inputs'], cwd=tmp_path, env=env, check=True, capture_output=True, text=True)
+        for member in ('fasta/genome.fa', 'anno/genes.gtf'):
+            assert (tmp_path / snapshot / member).read_bytes() == (tmp_path / panel / member).read_bytes()
+
+    original, _ = annotation_snapshot(tmp_path / panel)
+    stage_inputs(original)
+    # Give the complete synthetic DAG real Snakemake provenance without executing any scientific command.
+    for outputs in re.findall(r'^    output: (.+)$', cold, re.MULTILINE):
+        for name in outputs.split(', '):
+            path = tmp_path / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch()
+    subprocess.run([sys.executable, '-m', 'snakemake', '--cores', '1', '--touch', '--forceall', '--notemp', target],
+                   cwd=tmp_path, env=env, check=True, capture_output=True, text=True)
+    assert 'Nothing to be done' in plan_existing(tmp_path, target)
+
+    path = tmp_path / panel / changed
+    previous = path.read_bytes()
+    stat = path.stat()
+    path.write_bytes(previous + b'\n')
+    os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    current, _ = annotation_snapshot(tmp_path / panel)
+    retained = plan_existing(tmp_path, target)
+    assert current != original
+    assert 'rule starsolo_quant:' in retained and 'rule tmp_lightweight_filtered:' in retained
+    for plan, snapshot in ((cold, original), (retained, current)):
+        index_dir = snapshot / 'index/genome' / index_type / 'r_90'
+        assert arguments(plan, '--runMode genomeGenerate', '--genomeFastaFiles') == {str(snapshot / 'fasta/genome.fa')}
+        assert arguments(plan, '--runMode genomeGenerate', '--sjdbGTFfile') == {str(snapshot / 'anno/genes.gtf')}
+        assert arguments(plan, '--runMode genomeGenerate', '--genomeDir') == {str(index_dir)}
+        index_file = str(index_dir / 'SA')
+        assert f'    output: {index_file}\n' in plan
+        count_inputs = re.search(r'^rule starsolo_quant:\n    input: (.+)$', plan, re.MULTILINE).group(1)
+        assert index_file in count_inputs.split(', ')
+        assert arguments(plan, 'STAR --soloCBwhitelist ', '--genomeDir') == {str(index_dir)}
+        assert arguments(plan, 'convert_scanpy.py ', '--feature-info') == {str(snapshot / 'anno/genes.tsv')}
+        assert 'cellranger mkref ' not in plan
+    stage_inputs(current)
+    assert (tmp_path / original / changed).read_bytes() == previous

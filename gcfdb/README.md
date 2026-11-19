@@ -71,6 +71,8 @@ A resumed run reuses the initial pin while the source pair matches. Replacing ei
 
 In a project using both Cell Ranger and STARsolo, STARsolo reads `<REF_DIR>/anno/genes.tsv` from its managed provider directory.
 With an explicit `ref_dir`, both quantifiers read the workdir gene table derived from the checksum-verified project FASTA and GTF.
+STARsolo builds its read-length-specific index under that snapshot’s `index/genome/` directory using the same FASTA and GTF.
+Replacing either file selects a new index and reruns STARsolo counting and AnnData conversion, even when the replacement keeps the original timestamp.
 Cell Ranger index verification runs only for targets that consume its pin, so STARsolo-only targets can run independently.
 
 ### Download dates in logs
