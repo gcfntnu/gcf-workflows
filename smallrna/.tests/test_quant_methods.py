@@ -148,7 +148,7 @@ def test_mirge3_spikein_index_follows_the_configured_sets(tmp_path, ref, fasta):
     assert returncode == 0, output
     project = rule_block(output, 'mirge3_project_library')
     command = next(line for line in project.splitlines() if 'mirge3_project_library.py' in line)
-    assert ('--library data/ext/mirge3/09-11-2026/mouse --output data/tmp/smallrna/quant/mirge3/lib/mouse '
+    assert ('--library data/ext/mirge3/19-11-2026/mouse --output data/tmp/smallrna/quant/mirge3/lib/mouse '
             '--record data/tmp/smallrna/quant/mirge3/spikein.tsv') in command
     assert command.split('--record data/tmp/smallrna/quant/mirge3/spikein.tsv', 1)[1].split() == \
         [f'data/ext/spikein/fasta/{name}.fa' for name in fasta]
@@ -171,11 +171,11 @@ def test_mirge3_library_release_and_database_selection(tmp_path, db, name):
     returncode, output = dry_run(tmp_path, 'mirge3', update, printshell=True)
     assert returncode == 0, output
     library = rule_block(output, 'mirge3_library')
-    assert '--release-url mirge3/09-11-2026 --release 09-11-2026 --species mus_musculus --organism-name mouse' in library
-    assert '--output data/ext/mirge3/09-11-2026/verify/miRge3_lib_mus_musculus.tsv' in library
+    assert '--release-url mirge3/19-11-2026 --release 19-11-2026 --species mus_musculus --organism-name mouse' in library
+    assert '--output data/ext/mirge3/19-11-2026/verify/miRge3_lib_mus_musculus.tsv' in library
     reference = rule_block(output, 'mirge3_reference')
-    assert (f'--library data/ext/mirge3/09-11-2026/mouse --mirna-db {db.lower()} --release 09-11-2026 '
-            '--verification data/ext/mirge3/09-11-2026/verify/miRge3_lib_mus_musculus.tsv') in reference
+    assert (f'--library data/ext/mirge3/19-11-2026/mouse --mirna-db {db.lower()} --release 19-11-2026 '
+            '--verification data/ext/mirge3/19-11-2026/verify/miRge3_lib_mus_musculus.tsv') in reference
     command = ' '.join(mirge3_command(output).split())
     assert f'--mir-DB {name} --libraries-path data/tmp/smallrna/quant/mirge3/lib --organism-name mouse' in command
     assert 'data/tmp/smallrna/quant/mirge3/reference.tsv' in rule_block(output, 'quant_all')
@@ -200,7 +200,7 @@ def test_sourceforge_library_stays_at_its_old_place(tmp_path):
     assert '--library data/ext/mirge3/mus_musculus/mouse --output' in rule_block(output, 'mirge3_project_library')
 
 
-LIBRARY = 'data/ext/mirge3/09-11-2026/verify/miRge3_lib_mus_musculus.tsv'
+LIBRARY = 'data/ext/mirge3/19-11-2026/verify/miRge3_lib_mus_musculus.tsv'
 
 
 def test_switching_the_mirna_database_reruns_the_reference_check(tmp_path):

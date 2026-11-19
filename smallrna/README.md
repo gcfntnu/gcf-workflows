@@ -114,7 +114,7 @@ provenance/cutadapt/<sample>.{adapter,filter,artefacts}.{json,log}  (fastp route
 | `blockers` | `[]`; NEXTflex v4 only | Project |
 | `db.unitas.release`, `db.unitas.mirna_db`, `db.unitas.mirgenedb_release` | `05-11-2026`, `mirbase`, `06-11-2026-mirgenedb` | [main.config](../main.config) |
 | `db.mirbase.release` | `23.1`; must equal the UNITAS dump's miRBase release | `main.config` |
-| `db.mirge3.release`, `quant.mirge3.db` | `09-11-2026`, `mirbase` | `main.config`, `smallrna.config` |
+| `db.mirge3.release`, `quant.mirge3.db` | `19-11-2026`, `mirbase` | `main.config`, `smallrna.config` |
 | `db.mirflowz.ensembl_release`, `db.mirflowz.custom`, `quant.mirflowz.mem_gb` | 116 for human and mouse, 104 for rat; none; 60 | `main.config`, `smallrna.config` |
 | `quant.tesmall.order`, `max_length`, `mismatch`, `maxaln` | `miRNA,hairpin,structural_RNA,exon,TE,intron,piRNA_cluster`, 36, 0, 100 | `smallrna.config` |
 | `quant.tinyrna.mismatch`, `five_prime_offsets`, `three_prime_extension`, `strand`, `length`, `normalize_by_genomic_hits`, `normalize_by_feature_hits` | 0, `-1,0,1`, 4, `sense`, `16-28`, true, true | `smallrna.config` |
