@@ -41,6 +41,16 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    reference's release; `quant_reference` records it for mirflowz, TEsmall and tiny-count (`db.mirbase.release`, or `NA`
    for a `db.mirflowz.custom` reference) and nf-core/smrnaseq (`db.mirbase.release`), with the SHA-256 of the count
    table it was written after, which must match the table.
+   Every metric gets a 95% bootstrap interval (#413), and so does every difference between two methods, paired
+   because both are computed on the same resample. A resample draws the scoring units (truth miRNAs; the scored exact
+   and shifted pool sequences) and, where there are several, the runs or samples, the ratiometric pools' runs within
+   pool A and pool B, with replacement. `metrics_ci.tsv` (metric, row, value, low, high) and `differences.tsv`
+   (metric, row_a, row_b, difference, low, high) are published with the metrics and listed with their SHA-256 in
+   `evaluation.json`, with the resamples and seed (`--bootstrap N`, default 1000, `0` for none; `--seed`, default 1).
+   `report.md` has a section with the intervals and the differences whose interval excludes 0. Some values have no
+   interval: the synthetic totals `misassigned` and `unplaced`, and biological `detected_all_samples`, which a
+   resample repeating a sample biases upwards. With few samples (e.g. 6 in GSE317995) the sample part of the interval
+   is approximate.
 5. **Summary.** `benchmark.py summary` reads several evaluated projects and writes one overview, a Markdown file or a
    single self-contained HTML file (no external resources), by the output's extension:
 
@@ -50,7 +60,8 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
 
    It has a section per dataset kind (synthetic, equimolar pool, ratiometric pool, biological) with a row per project:
    its dataset, kit, samples, reads processed, methods, a link to its
-   `report.md`, and the kind's key metrics from its `metrics.tsv` per method (and the oracle, where it has values).
+   `report.md`, and the kind's key metrics from its `metrics.tsv` per method (and the oracle, where it has values),
+   each with its bootstrap interval in parentheses when the evaluation has one.
    A method not run on a dataset, or a metric missing from its table, is an empty cell. It writes nothing into the
    projects; an output inside one stops it. New evaluations publish `evaluation.json` with checksums for the metrics
    and report. For an older evaluation, the metrics must match the complete metrics table embedded in the report.

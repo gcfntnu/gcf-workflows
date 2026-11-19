@@ -64,9 +64,12 @@ def read_project(project, out_dir):
     if kind not in [s[0] for s in SECTIONS]:
         raise ValueError('{}: dataset kind {!r} (pool {!r}) is not one of synthetic, pool (equimolar, ratiometric), biological'.format(
             project, spec.get('kind'), spec.get('pool')))
-    table, record = evaluation.read_evaluation(bench)
+    table, record, intervals = evaluation.read_evaluation(bench)
     columns = table[0][1:]
     values = {(row[0], c): v for row in table[1:] for c, v in zip(columns, row[1:]) if v != ''}
+    for ci in intervals:  # bootstrap intervals (#413): the value with its interval
+        if (ci['metric'], ci['row']) in values and ci['low'] != '' and ci['high'] != '':
+            values[(ci['metric'], ci['row'])] = '{} ({}–{})'.format(values[(ci['metric'], ci['row'])], ci['low'], ci['high'])
     config = yaml.safe_load((project / 'config.yaml').read_text())
     configured_samples = config['samples']
     samples = len(configured_samples)
@@ -131,7 +134,8 @@ INTRO = ('Key metrics of each evaluated project, from its `metrics.tsv`; its `re
          'its cutadapt reports as recorded by `evaluate` (empty for another filter route, without the reports, or for an '
          'evaluation older than this record). An empty metric cell: the method '
          'was not run on that dataset, or the metric is not in its table. `oracle` is the pool reads counted by exact '
-         'match, the reference for the methods.')
+         'match, the reference for the methods. A value with a range in parentheses has its 95% bootstrap interval, '
+         'from the evaluation (`metrics_ci.tsv`; differences between methods are in each report).')
 
 
 def markdown_cell(value):

@@ -3,6 +3,7 @@ on synthetic tables."""
 import gzip
 import json
 import os
+import statistics
 from pathlib import Path
 import subprocess
 import sys
@@ -647,6 +648,19 @@ def test_prepare_and_evaluate_a_pool(tmp_path):
     result = subprocess.run(cmd + ['evaluate', '--project', str(project)], capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
     assert 'SRRA\thsa-miR-1-3p\texact\t\t\t8\t8\t8' in (project / 'benchmark/per_sequence.tsv').read_text().splitlines()
+
+    # Bootstrap intervals (#413): published with checksums, the same for the same seed, and removed with --bootstrap 0.
+    bench = project / 'benchmark'
+    record = json.loads((bench / 'evaluation.json').read_text())
+    assert record['bootstrap'] == {'resamples': 1000, 'seed': 1, 'skipped': record['bootstrap']['skipped']}
+    assert {'metrics_ci.tsv', 'differences.tsv'} <= set(record) and '## Uncertainty' in (bench / 'report.md').read_text()
+    ci = (bench / 'metrics_ci.tsv').read_text()
+    assert ci.startswith('metric\trow\tvalue\tlow\thigh\n') and '\toracle\t' in ci
+    assert (bench / 'differences.tsv').read_text().startswith('metric\trow_a\trow_b\tdifference\tlow\thigh\n')
+    assert subprocess.run(cmd + ['evaluate', '--project', str(project)], capture_output=True, timeout=60).returncode == 0
+    assert (bench / 'metrics_ci.tsv').read_text() == ci
+    assert subprocess.run(cmd + ['evaluate', '--project', str(project), '--bootstrap', '0'], capture_output=True, timeout=60).returncode == 0
+    assert not (bench / 'metrics_ci.tsv').exists() and 'bootstrap' not in json.loads((bench / 'evaluation.json').read_text())
 
 
 # Biological datasets: no truth; methods compared with each other, lane replicates, filtering and first bases.
@@ -1618,3 +1632,75 @@ def test_every_method_the_shipped_datasets_declare_is_checked_before_scoring():
         methods = yaml.safe_load(path.read_text())['methods']
         assert set(methods) <= set(adapters.TABLES), (path.name, set(methods) - set(adapters.TABLES))
         assert set(methods) <= set(adapters.ADAPTERS), path.name
+
+
+def test_bootstrap_intervals_are_paired_and_cover_the_value():
+    """A constant offset between two methods gives a difference interval of exactly that offset (paired draws), equal
+    methods one of 0; for the mean of normal units, the 95% interval covers the true mean in about 95% of datasets."""
+    import random
+    import uncertainty
+    rng = random.Random(7)
+    units = [rng.gauss(0, 1) for _ in range(40)]
+    compute = lambda drawn: {'a': {'mean': statistics.mean(drawn)}, 'b': {'mean': statistics.mean(drawn) + 0.5},
+                             'c': {'mean': statistics.mean(drawn)}, 'oracle': {'mean': 0}}
+    point = compute(units)
+    ci, differences, skipped = uncertainty.intervals(point, compute, lambda r: (uncertainty.resample(r, units),),
+                                                     ['oracle', 'a', 'b', 'c'], ['mean'], 200, 3)
+    assert skipped == 0 and [row[:2] for row in ci] == [['mean', 'oracle'], ['mean', 'a'], ['mean', 'b'], ['mean', 'c']]
+    low, high = ci[1][3:]
+    assert low < point['a']['mean'] < high
+    by_pair = {(row[1], row[2]): row[3:] for row in differences}
+    assert set(by_pair) == {('a', 'b'), ('a', 'c'), ('b', 'c')}                 # the oracle is not a method
+    assert by_pair[('a', 'b')] == [-0.5, -0.5, -0.5] and by_pair[('a', 'c')] == [0.0, 0.0, 0.0]
+    assert uncertainty.excludes_zero(['mean', 'a', 'b', -0.5, -0.5, -0.5]) and not uncertainty.excludes_zero(['mean', 'a', 'c', 0, 0, 0])
+    covered = 0
+    for seed in range(100):
+        r = random.Random(seed)
+        data = [r.gauss(0, 1) for _ in range(30)]
+        f = lambda drawn: {'m': {'mean': statistics.mean(drawn)}}
+        (_, _, _, low, high), = uncertainty.intervals(f(data), f, lambda g: (uncertainty.resample(g, data),), ['m'], ['mean'], 300, seed)[0]
+        covered += low <= 0 <= high
+    assert 85 <= covered <= 100
+
+
+def test_failing_resamples_are_left_out_and_counted():
+    import uncertainty
+    def compute(drawn):
+        if drawn.count(0) > 2:
+            raise ValueError('not scorable')
+        return {'m': {'x': sum(drawn)}}
+    ci, _, skipped = uncertainty.intervals({'m': {'x': 3}}, compute, lambda r: (uncertainty.resample(r, [0, 1, 2]),), ['m'], ['x'], 100, 1)
+    assert 0 < skipped < 100 and ci[0][:3] == ['x', 'm', 3]
+
+
+def test_biological_bootstrap_summary_matches_method_summary():
+    """summary_of, which each resample aggregates from per-sample values, gives method_summary's and unplaced's values."""
+    common = [('u', 'S1', 'miR-1', 'MIMAT1', 20.0), ('u', 'S1', 'miR-2', 'MIMAT2', 5.0), ('u', 'S2', 'miR-1', 'MIMAT1', 12.0),
+              ('u', 'S2', 'miR-2', 'MIMAT2', 15.0), ('m', 'S1', 'miR-1', 'MIMAT1', 30.0), ('m', 'S2', 'miR-3', 'MIMAT3', 11.0)]
+    raw = common + [('u', 'S1', 'miR-x', '', 4.0), ('m', 'S2', 'miR-y', '', 2.0)]
+    methods, samples = ['u', 'm'], ['S1', 'S2']
+    expected = biological.method_summary(common, methods, samples)
+    shares = biological.unplaced(raw, methods, samples)
+    for m in methods:
+        expected[m]['unplaced'] = shares[m]['share']
+    stats = biological.sample_stats(common, raw, methods, samples)
+    assert biological.summary_of(stats, methods, samples) == expected
+    assert biological.summary_of(stats, methods, ['S1', 'S1'])['u']['detected_all_samples'] == 1   # a resample repeating S1
+
+
+def test_published_intervals_are_checked_and_shown_in_the_summary(tmp_path):
+    import evaluation
+    import summary
+    project = summary_projects(tmp_path)[1]       # eq3
+    bench = project / 'benchmark'
+    metrics = [['metric', 'oracle', 'unitas', 'mirge3', 'mirflowz'], ['detected', '0.9', '0.97', '0.95', '0.96']]
+    ci = 'metric\trow\tvalue\tlow\thigh\ndetected\tunitas\t0.97\t0.93\t0.99\ndetected\tmirge3\t0.95\t\t\n'
+    evaluation.publish(bench, metrics[0], metrics[1:], ['# eq'], None, {'metrics_ci.tsv': ci, 'differences.tsv': 'metric\n'},
+                       {'resamples': 10, 'seed': 1, 'skipped': 0})
+    row = summary.read_project(project, tmp_path)[1]
+    assert row['values'][('detected', 'unitas')] == '0.97 (0.93–0.99)' and row['values'][('detected', 'mirge3')] == '0.95'
+    (bench / 'metrics_ci.tsv').write_text(ci.replace('0.99', '0.98'))
+    with pytest.raises(ValueError, match='incomplete or inconsistent evaluation'):
+        summary.read_project(project, tmp_path)
+    with pytest.raises(ValueError, match='not an evaluation file'):
+        evaluation.publish(bench, metrics[0], metrics[1:], ['# eq'], None, {'other.tsv': ''})

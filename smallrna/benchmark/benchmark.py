@@ -24,7 +24,7 @@ mirflowz is made with reduce_reference.py and named in the declaration.
 
 Usage: benchmark.py fill --dataset YAML --ext-dir DIR
        benchmark.py prepare --dataset YAML --project DIR --ext-dir DIR [--methods LIST] [--reads N] [--lanes]
-       benchmark.py evaluate --project DIR [--mirflowz-gff GFF3] [--unitas-ref DIR]
+       benchmark.py evaluate --project DIR [--mirflowz-gff GFF3] [--unitas-ref DIR] [--bootstrap N] [--seed S]
        benchmark.py summary --projects DIR [DIR ...] --output FILE.md|FILE.html
 """
 import argparse
@@ -50,6 +50,7 @@ import fill as filler  # noqa: E402
 import metrics  # noqa: E402
 import pool  # noqa: E402
 import summary as summarizer  # noqa: E402
+import uncertainty  # noqa: E402
 import synthetic  # noqa: E402
 
 PREFIX = {'homo_sapiens': 'hsa-', 'mus_musculus': 'mmu-', 'rattus_norvegicus': 'rno-'}
@@ -309,6 +310,20 @@ def prepare_biological(spec, project, ext_dir, methods, args):
                                                         ', up to {} reads of each run'.format(args.reads) if args.reads else '', args.project))
 
 
+def bootstrap(args, point, compute, draw, rows, keys, units):
+    """Bootstrap intervals for an evaluation (#413): (extra files for evaluation.publish, the record of resamples and
+    seed, report lines). Nothing when --bootstrap is 0."""
+    n = getattr(args, 'bootstrap', uncertainty.RESAMPLES)
+    if not n:
+        return {}, None, []
+    seed = getattr(args, 'seed', uncertainty.SEED)
+    ci, differences, skipped = uncertainty.intervals(point, compute, draw, rows, keys, n, seed)
+    extra = {'metrics_ci.tsv': uncertainty.table_text(uncertainty.CI_HEADER, ci),
+             'differences.tsv': uncertainty.table_text(uncertainty.DIFFERENCE_HEADER, differences)}
+    record = {'resamples': n, 'seed': seed, 'skipped': skipped}
+    return extra, record, uncertainty.report_lines(ci, differences, rows, keys, units, n, seed, skipped)
+
+
 def run_reads(project):
     """The reads the evaluated run processed, recorded with the evaluation (evaluation.reads_processed)."""
     try:
@@ -431,7 +446,12 @@ def evaluate(args):
     unplaced = sorted({(row[0], row[2]) for row in common if not row[3]})
     if unplaced:
         lines += ['', '## Names without a miRBase accession', ''] + ['- {}: `{}`'.format(m, n) for m, n in unplaced]
-    evaluation.publish(bench, ['metric'] + methods, metric_rows, lines, run_reads(project))
+    truth_keys = sorted(k for k, v in truth.items() if v > 0)
+    extra, record, ci_lines = bootstrap(
+        args, summary, lambda keys: metrics.count_metrics(common, truth, methods, keys=keys),
+        lambda rng: (uncertainty.resample(rng, truth_keys),), methods, ['recovered', 'exact'],
+        'the truth miRNAs (`misassigned` and `unplaced` are totals, without an interval)')
+    evaluation.publish(bench, ['metric'] + methods, metric_rows, lines + ci_lines, run_reads(project), extra, record)
     print(bench / 'report.md')
 
 
@@ -643,7 +663,22 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
                              [r for r in rows if any(r in v for v in per_kind.values())])
     lines += filter_section(*pool.filter_losses(stage_counts, entries, stage_names), stage_names, trim_route(project, next(iter(sample_groups))),
                             next(iter(stages.values()))[0][2])
-    evaluation.publish(bench, ['metric'] + rows, metric_rows, lines, run_reads(project))
+    if spec['pool'] == 'equimolar':
+        def compute(ex, sh, samples):
+            result = pool.equimolar_metrics(counts, reads, oracle, entries, methods, samples, exact=ex)
+            if sh:
+                for row, values in pool.agreement(counts, oracle, sh, methods, samples).items():
+                    result[row].update({'shifted_' + k: v for k, v in values.items()})
+            return result
+        draw = lambda rng: (uncertainty.resample(rng, exact), uncertainty.resample(rng, shifted), uncertainty.resample(rng, list(sample_groups)))
+        units = 'the scored pool sequences (exact and shifted) and the runs'
+    else:
+        compute = lambda ex, sh, pairs: pool.ratiometric_metrics(counts, oracle, entries, methods, pairs, exact=ex, shifted=sh)[0]
+        draw = lambda rng: (uncertainty.resample(rng, exact), uncertainty.resample(rng, shifted),
+                            uncertainty.resample_groups(rng, list(sample_groups.items())))
+        units = 'the scored pool sequences (exact and shifted) and the runs within each pool (A, B)'
+    extra, record, ci_lines = bootstrap(args, summary, compute, draw, rows, keys, units)
+    evaluation.publish(bench, ['metric'] + rows, metric_rows, lines + ci_lines, run_reads(project), extra, record)
     print(bench / 'report.md')
 
 
@@ -813,7 +848,15 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
         listed = ['{}: {}'.format(m, id_to_name.get(i, i)) for m in methods for i in rep[m]['overdispersed_mirnas']]
         if listed:
             lines += ['', 'Most often overdispersed: ' + '; '.join(listed)]
-    evaluation.publish(bench, ['metric'] + methods, metric_rows, lines, run_reads(project))
+
+    stats = biological.sample_stats(common, raw, methods, samples)
+    # detected_all_samples has no interval: a resample repeating a sample has fewer distinct samples, so it is biased up
+    extra, record, ci_lines = bootstrap(args, summary, lambda drawn: biological.summary_of(stats, methods, drawn),
+                                        lambda rng: (uncertainty.resample(rng, samples),), methods,
+                                        [k for k in keys if k != 'detected_all_samples'],
+                                        '{} (`detected_all_samples` without an interval: a resample repeating a sample has fewer '
+                                        'distinct samples)'.format('the lane samples' if lane_mode else 'the samples'))
+    evaluation.publish(bench, ['metric'] + methods, metric_rows, lines + ci_lines, run_reads(project), extra, record)
     print(bench / 'report.md')
 
 
@@ -848,6 +891,9 @@ def main():
     f.add_argument('--ext-dir', required=True)
     e = sub.add_parser('evaluate')
     e.add_argument('--project', required=True)
+    e.add_argument('--bootstrap', type=int, default=uncertainty.RESAMPLES, metavar='N',
+                   help='bootstrap resamples for the metrics\' 95%% intervals (#413); 0 for none (default %(default)s)')
+    e.add_argument('--seed', type=int, default=uncertainty.SEED, help='seed of the bootstrap (default %(default)s)')
     e.add_argument('--mirflowz-gff', type=Path, help="mirflowz's extended miRNA annotation; default from the declaration")
     e.add_argument('--unitas-ref', type=Path, help="UNITAS reference dump (its miRBase hairpins place locus names); default from "
                    "the project's db.unitas under EXT_DIR")

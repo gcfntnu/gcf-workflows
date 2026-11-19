@@ -99,6 +99,42 @@ def method_summary(common, methods, samples):
     return out
 
 
+def sample_stats(common, raw, methods, samples):
+    """{(method, sample): per-sample values behind method_summary and unplaced}: miRNA reads, detected miRNAs (set),
+    share of the 10 most abundant (None without reads), share on names without an accession (None without reads)."""
+    by = counts_by(common)
+    total, missing = collections.defaultdict(float), collections.defaultdict(float)
+    for method, sample, _, mature_id, count in raw:
+        total[(method, sample)] += float(count)
+        if not mature_id:
+            missing[(method, sample)] += float(count)
+    stats = {}
+    for m in methods:
+        for s in set(samples):
+            c = by.get((m, s), {})
+            reads = sum(c.values())
+            stats[(m, s)] = {'reads': reads, 'detected': frozenset(k for k, v in c.items() if v >= MIN_READS),
+                             'top10': sum(sorted(c.values(), reverse=True)[:10]) / reads if reads else None,
+                             'unplaced': missing[(m, s)] / total[(m, s)] if total[(m, s)] else None}
+    return stats
+
+
+def summary_of(stats, methods, samples):
+    """method_summary with unplaced's share, from sample_stats, for any list of samples (a bootstrap resample may
+    repeat one): the same values as method_summary and unplaced over the same samples."""
+    out = {}
+    for m in methods:
+        per = [stats[(m, s)] for s in samples]
+        top10 = [p['top10'] for p in per if p['top10'] is not None]
+        share = [p['unplaced'] for p in per if p['unplaced'] is not None]
+        out[m] = {'mirna_reads': round(statistics.median(p['reads'] for p in per)),
+                  'detected': statistics.median(len(p['detected']) for p in per),
+                  'detected_all_samples': len(frozenset.intersection(*(p['detected'] for p in per))) if per else 0,
+                  'top10_share': round(statistics.median(top10), 4) if top10 else '',
+                  'unplaced': round(statistics.median(share), 4) if share else ''}
+    return out
+
+
 def agreement(common, methods, samples):
     """Per pair of methods (medians over samples): Spearman of log2(CPM + 1) over miRNAs either detects and over those
     both detect, median |log2 CPM ratio| over miRNAs both detect, overlap of the TOP most abundant, and miRNAs only one
