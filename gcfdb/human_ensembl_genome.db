@@ -1,0 +1,21 @@
+#-*- mode:snakemake -*-
+"""Human GRCh38 used by FastQ Screen, including projects with their own reference."""
+
+# CONF holds the configured defaults before project settings are applied.
+HUMAN_ENSEMBL_RELEASE = config['db']['ensembl']['release'] or CONF['db']['ensembl']['release']
+HUMAN_ENSEMBL_DIR = join(EXT_DIR, 'ensembl', f'release-{HUMAN_ENSEMBL_RELEASE}', 'homo_sapiens', 'GRCh38')
+if not config.get('ref_dir') or os.path.realpath(config['ref_dir']) != os.path.realpath(HUMAN_ENSEMBL_DIR):
+    rule human_ensembl_genome:
+        output:
+            genome = join(HUMAN_ENSEMBL_DIR, 'fasta', 'genome.fa')
+        params:
+            proxy = config.get('proxy', {}).get('wget', ''),
+            url = (f'https://ftp.ensembl.org/pub/release-{HUMAN_ENSEMBL_RELEASE}/fasta/homo_sapiens/dna/'
+                   'Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz')
+        threads:
+            24
+        log:
+            join(HUMAN_ENSEMBL_DIR, 'logs', 'genome.log')
+        shell:
+            'wget {params.proxy} -O- {params.url:q} | gunzip -c > {output.genome:q} && '
+            'echo "Ensembl DNA,release-{HUMAN_ENSEMBL_RELEASE},{params.url},$(date -I)" > {log:q}'

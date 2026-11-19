@@ -2,9 +2,11 @@
 """Snakmake rules shared between workflows
 """
 
-# Keep Ensembl resources available for independent QC when a release is configured.
+# FastQ Screen can build its human index even when a project supplies its primary reference.
 if not config.get('ref_dir') or config['db']['ensembl'].get('release'):
     include: 'gcfdb/ensembl.db'
+else:
+    include: 'gcfdb/human_ensembl_genome.db'
 include:
     'gcfdb/indexes.smk'
 include:

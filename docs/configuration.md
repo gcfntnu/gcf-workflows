@@ -158,7 +158,8 @@ The directories are created when the workflow loads. Relative paths are relative
 Set the top-level `ref_dir` in the project's `config.yaml` to select a prepared reference directory.
 Relative paths start at the Snakemake working directory. The workflow uses the configured provider and annotation settings regardless of the directory name.
 If `ref_dir` is omitted, an empty string or YAML `null`, the configured provider supplies the reference under `EXT_DIR`.
-Downstream rules use the resolved path as `REF_DIR`.
+Downstream rules use the resolved path as `REF_DIR`. The project FASTA and GTF remain authoritative even when the directory is also an Ensembl cache directory.
+FastQ Screen still uses the shared human GRCh38 index. With a project directory and an empty Ensembl release, the screening index uses the configured default Ensembl release.
 
 The directory contents depend on the workflow. See the [augmented-genome example for Cell Ranger](../gcfdb/README.md#project-reference-for-cell-ranger)
 and the [metagenome classification database settings](../metagenome/README.md#key-configuration).

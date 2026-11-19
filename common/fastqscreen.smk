@@ -20,8 +20,7 @@ def fastq_screen_indexes(*args, **kw):
    """ Return name and index for screening databases.
    """
    # default human
-   release = config['db'].get('ensembl', {}).get('release', '103')
-   INDEXES = {'Human': join(EXT_DIR, 'ensembl', 'release-{}'.format(release), 'homo_sapiens', 'GRCh38', 'index', 'genome', 'bowtie2', 'genome.1.bt2')}
+   INDEXES = {'Human': join(HUMAN_ENSEMBL_DIR, 'index', 'genome', 'bowtie2', 'genome.1.bt2')}
    org = config.get('organism')
    if org not in ['homo_sapiens', 'N/A', 'n/a']:
       if config['db'].get('reference_db') in ['ensembl', '10xgenomics']:

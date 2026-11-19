@@ -96,23 +96,27 @@ else:
     ENSG_RELEASE = str(config['db']['ensemblgenomes']['release'])
     URL = 'ftp.ebi.ac.uk/ensemblgenomes/pub/release-{}/{}/{{}}/{{}}'.format(ENSG_RELEASE, ENS_DIVISION)
 
-rule ensembl_genome:
-    params:
-        proxy = config.get('proxy', {}).get('wget', ''),
-        url = join(PROTOCOL + URL.format('fasta', ORG), 'dna'),
-        filename = '.'.join([ORG.capitalize(), ENS_ASSEMBLY, 'dna', 'primary_assembly', 'fa', 'gz']) if ORG in ['homo_sapiens', 'mus_musculus'] else '.'.join([ORG.capitalize(), ENS_ASSEMBLY, 'dna', 'toplevel', 'fa', 'gz']),
-        release = ENS_RELEASE
-    output:
-        genome = join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), ORG, ENS_ASSEMBLY, 'fasta', 'genome.fa')
-    threads: 
-        24
-    log:
-        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), ORG, ENS_ASSEMBLY, 'logs', 'genome.log')
-    shell:
-        """
-        wget {params.proxy} -O- {params.url}/{params.filename} | gunzip -c >> {output.genome}
-        echo "Ensembl DNA,release-{params.release},{params.url}/{params.filename},`date -I`" > {log}
-        """
+ENSEMBL_DIR = join(EXT_DIR, 'ensembl', f'release-{ENS_RELEASE}', ORG, ENS_ASSEMBLY)
+# Curated files stay source inputs even when the selected directory is inside the provider cache.
+CURATED_ENSEMBL_DIR = config.get('ref_dir') and os.path.realpath(config['ref_dir']) == os.path.realpath(ENSEMBL_DIR)
+if not CURATED_ENSEMBL_DIR:
+    rule ensembl_genome:
+        params:
+            proxy = config.get('proxy', {}).get('wget', ''),
+            url = join(PROTOCOL + URL.format('fasta', ORG), 'dna'),
+            filename = '.'.join([ORG.capitalize(), ENS_ASSEMBLY, 'dna', 'primary_assembly', 'fa', 'gz']) if ORG in ['homo_sapiens', 'mus_musculus'] else '.'.join([ORG.capitalize(), ENS_ASSEMBLY, 'dna', 'toplevel', 'fa', 'gz']),
+            release = ENS_RELEASE
+        output:
+            genome = join(ENSEMBL_DIR, 'fasta', 'genome.fa')
+        threads:
+            24
+        log:
+            join(ENSEMBL_DIR, 'logs', 'genome.log')
+        shell:
+            """
+            wget {params.proxy} -O- {params.url}/{params.filename} | gunzip -c >> {output.genome}
+            echo "Ensembl DNA,release-{params.release},{params.url}/{params.filename},`date -I`" > {log}
+            """
 
 rule ensembl_noncoding:
     params:
@@ -174,35 +178,19 @@ rule ensembl_symlink_genes:
     output:
         join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), ORG, ENS_ASSEMBLY, 'anno', 'genes.{ext}')
     wildcard_constraints:
-        ext = 'g.+f$'
+        ext = 'gff' if CURATED_ENSEMBL_DIR else 'g.+f$'
     shell:
         'ln -sr {input} {output}'
 
 
 
 ## special casing human genome rules for some rules that need the human genome when working in other organisms (mostly contamination checks)
-ruleorder: human_ensembl_genome > ensembl_genome
+include: 'human_ensembl_genome.db'
+if 'human_ensembl_genome' in workflow._rules and 'ensembl_genome' in workflow._rules:
+    ruleorder: human_ensembl_genome > ensembl_genome
 ruleorder: human_ensembl_noncoding > ensembl_noncoding
 ruleorder: human_ensembl_gff > ensembl_gff
 ruleorder: human_ensembl_gtf > ensembl_gtf
-
-rule human_ensembl_genome:
-    params:
-        proxy = config.get('proxy', {}).get('wget', ''),
-        url = join(PROTOCOL + URL.format('fasta', 'homo_sapiens'), 'dna'),
-        filename = '.'.join(['homo_sapiens'.capitalize(), 'GRCh38', 'dna', 'primary_assembly', 'fa', 'gz']),
-        release = ENS_RELEASE
-    output:
-        genome = join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), 'homo_sapiens', 'GRCh38', 'fasta', 'genome.fa')
-    threads: 
-        24
-    log:
-        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), 'homo_sapiens', 'GRCh38', 'logs', 'genome.log')
-    shell:
-        """
-        wget {params.proxy} -O- {params.url}/{params.filename} | gunzip -c >> {output.genome}
-        echo 'Ensembl DNA,release-{params.release},{params.url}/{params.filename},`date -I`' >> {log}
-        """
 
 rule human_ensembl_noncoding:
     params:
