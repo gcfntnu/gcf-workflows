@@ -33,6 +33,10 @@ rule cellranger_gtf:
         'cellranger mkgtf {input} {output} {params}'
 
 if not USE_10X_PREBUILT:
+    # A completed cold build gains a known source digest on restart. This guards execution
+    # without changing the published recipe or triggering a params-based rebuild.
+    CR_SOURCE_GUARD = ['--expected-source', REFERENCE_SOURCE_DIGEST] if REFERENCE_SOURCE_DIGEST else []
+
     rule cellranger_mkref:
         input:
             fasta = join(CR_SOURCE, 'fasta', 'genome.fa'),
@@ -43,7 +47,6 @@ if not USE_10X_PREBUILT:
             script = join(GCFDB_DIR, 'scripts', 'build_cellranger_reference.py'),
             source = CR_SOURCE,
             cache = CR_CACHE,
-            expected = ['--expected-source', CR_EXPECTED_SOURCE] if CR_EXPECTED_SOURCE else [],
             name = CR_GENOME,
             image = CR_IMAGE
         threads:
@@ -52,7 +55,7 @@ if not USE_10X_PREBUILT:
             'docker://' + CR_IMAGE
         shell:
             'python3 {params.script:q} --source-dir {params.source:q} --cache {params.cache:q} '
-            '--receipt {output:q} {params.expected:q} --image {params.image:q} '
+            '--receipt {output:q} {CR_SOURCE_GUARD:q} --image {params.image:q} '
             '-- cellranger mkref --fasta {input.fasta:q} --genes {input.gtf:q} --genome {params.name:q} --nthreads {threads}'
 
 

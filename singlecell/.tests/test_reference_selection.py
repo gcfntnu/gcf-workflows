@@ -33,8 +33,8 @@ def dry_run(work, organism, target='multiqc_report', expect_success=True, workfl
     return plan_existing(work, target, expect_success)
 
 
-def plan_existing(work, target, expect_success=True):
-    result = subprocess.run([sys.executable, '-m', 'snakemake', '-n', '-p', '--cores', '1', target],
+def plan_existing(work, target, expect_success=True, extra=()):
+    result = subprocess.run([sys.executable, '-m', 'snakemake', '-n', '-p', '--cores', '1', *extra, target],
                             cwd=work, env=protected_env(work), capture_output=True, text=True, timeout=120)
     log = result.stdout + result.stderr
     assert (result.returncode == 0) == expect_success, log
@@ -217,6 +217,60 @@ def test_managed_count_and_gene_metadata_share_verified_snapshot(tmp_path, organ
     assert (local_snapshot / changed).read_bytes() != replacement.read_bytes()
 
 
+def retain_count_outputs(work, plan, env):
+    # Retain completed count outputs and their real Snakemake provenance without running Cell Ranger.
+    outputs = re.search(r'^rule cellranger_quant_:\n    input: .+\n    output: (.+)$', plan, re.MULTILINE).group(1)
+    for name in outputs.split(', '):
+        path = work / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    subprocess.run([sys.executable, '-m', 'snakemake', '--cores', '1', '--touch', '--force', COUNT_TARGET],
+                   cwd=work, env=env, check=True, capture_output=True, text=True)
+    assert 'Nothing to be done' in plan_existing(work, COUNT_TARGET)
+
+
+def test_forced_warm_publisher_keeps_previously_planned_source(tmp_path):
+    cold = dry_run(tmp_path, 'salmo_salar', COUNT_TARGET)
+    initial = shell_command(cold, 'cellranger mkref ')
+    receipt = Path(initial[initial.index('--receipt') + 1])
+    assert '--expected-source' not in initial
+    # Have Snakemake record the real cold publisher's inputs and params. Only the tiny
+    # synthetic getter and the publisher using the mock mkref executable may run.
+    snakefile = tmp_path / 'Snakefile'
+    snakefile.write_text(snakefile.read_text() + """
+ruleorder: synthetic_provider > ensembl_genome
+ruleorder: synthetic_provider > ensembl_symlink_genes
+rule synthetic_provider:
+    output: get_genome(), get_gtf()
+    shell: "echo '>synthetic' > {output[0]:q}; echo 'ACGT' >> {output[0]:q}; echo '# synthetic' > {output[1]:q}"
+""")
+    env = protected_env(tmp_path)
+    env['PATH'] = str(MOCK_TOOLS) + os.pathsep + env['PATH']
+    cmd = [sys.executable, '-m', 'snakemake', '--cores', '1', '-s', str(snakefile), str(receipt),
+           '--allowed-rules', 'synthetic_provider', 'cellranger_mkref']
+    subprocess.run(cmd, cwd=tmp_path, env=env, check=True, capture_output=True, text=True)
+
+    warm = plan_existing(tmp_path, COUNT_TARGET)
+    assert 'rule cellranger_mkref:' not in warm
+    retain_count_outputs(tmp_path, warm, env)
+    forced = plan_existing(tmp_path, str(receipt), extra=['--force'])
+    publish = shell_command(forced, 'cellranger mkref ')
+    local = tmp_path / receipt.parent
+    generation = (local / 'index').resolve(strict=True)
+    manifest = (local / 'ready').read_bytes()
+    annotation = (local / 'annotation').resolve(strict=True)
+    gtf = tmp_path / publish[publish.index('--genes') + 1]
+    original = gtf.read_bytes()
+    gtf.write_bytes(original + b'# changed after planning\n')
+    failed = subprocess.run(publish, cwd=tmp_path, env=env, capture_output=True, text=True)
+    assert failed.returncode and 'changed after planning' in failed.stderr, failed.stderr
+    assert publish[publish.index('--expected-source') + 1] == generation.parent.name
+    assert (local / 'index').resolve(strict=True) == generation
+    assert (local / 'ready').read_bytes() == manifest
+    assert (local / 'annotation').resolve(strict=True) == annotation
+    assert (generation / 'gcf-source/anno/genes.gtf').read_bytes() == original
+
+
 def test_managed_refetch_after_partial_cache_loss(tmp_path):
     work = tmp_path / 'work'
     work.mkdir()
@@ -267,16 +321,11 @@ def test_managed_refetch_after_partial_cache_loss(tmp_path):
         for name in ('fasta/genome.fa.fai', 'anno/exons.gtf', 'anno/exons.bed', 'fasta/exons.fa', 'anno/genes.tsv'):
             (local / name).write_text('previous result')
         if run == 0:
-            # Retain completed count outputs and their real Snakemake provenance without running Cell Ranger.
-            outputs = re.search(r'^rule cellranger_quant_:\n    input: .+\n    output: (.+)$', warm, re.MULTILINE).group(1)
-            for name in outputs.split(', '):
-                path = work / name
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.touch()
-            subprocess.run([sys.executable, '-m', 'snakemake', '--cores', '1', '--touch', '--force', COUNT_TARGET],
-                           cwd=work, env=env, check=True, capture_output=True, text=True)
-            assert 'Nothing to be done' in plan_existing(work, COUNT_TARGET)
+            retain_count_outputs(work, warm, env)
         receipt = new_receipt
+
+    forced = plan_existing(work, str(receipt), extra=['--force'])
+    assert arguments(forced, 'cellranger mkref ', '--expected-source') == {annotation_snapshot(source)[0].name}
 
 
 def test_vendor_default_release_through_reporting(tmp_path):
