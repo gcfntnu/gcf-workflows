@@ -98,6 +98,10 @@ rule tinyrna_align:
     # alignments together, as tiny-count needs.
     threads:
         1
+    resources:
+        # Bowtie holds the genome index in memory: about 1.5 GB for the human genome; --resources mem_mb caps the
+        # alignments run at once, which one thread each would otherwise allow per core.
+        mem_mb = 2000
     log:
         join(TINYRNA_OUT, '{sample}', 'bowtie.log')
     container:
