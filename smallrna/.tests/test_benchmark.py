@@ -756,7 +756,7 @@ def test_prepare_merges_runs_or_keeps_lanes_and_checks_lanes(tmp_path):
     config = yaml.safe_load((tmp_path / 'merged/config.yaml').read_text())
     assert config['samples']['GSM1']['R1'] == 'bio/SRR1_R1.fastq.gz,bio/SRR2_R1.fastq.gz' and config['blockers'] == ['blood miRNA']
     assert 'GSM1,"bio/SRR1_R1.fastq.gz,bio/SRR2_R1.fastq.gz",0' in (tmp_path / 'merged/pep/sample_table.csv').read_text()
-    assert (tmp_path / 'merged/benchmark/samples.tsv').read_text().splitlines()[1] == 'GSM1\tGSM1\tcontrol\tmerged\tSRR1,SRR2\t8'
+    assert (tmp_path / 'merged/benchmark/samples.tsv').read_text().splitlines()[1] == 'GSM1\tGSM1\tcontrol\tmerged\tSRR1,SRR2\t8\tcopied'
     result = subprocess.run(cmd + ['--project', str(tmp_path / 'lanes'), '--lanes'], capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
     assert sorted(yaml.safe_load((tmp_path / 'lanes/config.yaml').read_text())['samples']) == ['GSM1_L1', 'GSM1_L2']
@@ -821,12 +821,15 @@ def summary_project(root, name, spec, metrics, samples=None, truth=None):
     write(project / 'config.yaml', yaml.safe_dump({'workflow': 'smallrna', 'samples': {s: {'R1': s} for s in names}}))
     write(project / 'benchmark/dataset.yaml', yaml.safe_dump(dict(spec, organism='homo_sapiens')))
     write(project / 'benchmark/metrics.tsv', ''.join('\t'.join(row) + '\n' for row in metrics))
-    write(project / 'benchmark/report.md', '# {}\n'.format(spec['name']))
+    report_rows = ['| ' + ' | '.join(row) + ' |' for row in metrics]
+    report_rows.insert(1, '|---' * len(metrics[0]) + '|')
+    write(project / 'benchmark/report.md', '# {}\n\n{}\n'.format(spec['name'], '\n'.join(report_rows)))
     if truth:
         write(project / 'benchmark/truth.tsv', 'sample\tclass\tmature_name\tmature_id\tsequence\tcount\n' + ''.join(
             '{}\tcanonical\tm\tMIMAT1\tACGT\t{}\n'.format(s, n) for s, n in truth))
     else:
-        write(project / 'benchmark/samples.tsv', ''.join('\t'.join(row) + '\n' for row in samples))
+        write(project / 'benchmark/samples.tsv', ''.join('\t'.join(row + ['reads_source' if n == 0 else 'copied']) + '\n'
+                                                         for n, row in enumerate(samples)))
     return project
 
 
@@ -902,3 +905,75 @@ def test_summary_html_is_self_contained_and_bad_inputs_fail(tmp_path):
                           ((projects[1:2], output), 'run `benchmark.py evaluate')):
         with pytest.raises(ValueError, match=message):
             summary.write(*args)
+
+
+def test_summary_requires_matching_report_and_metrics_for_legacy_and_new_evaluations(tmp_path):
+    import evaluation
+    import summary
+    project = summary_projects(tmp_path)[0]
+    bench = project / 'benchmark'
+    output = tmp_path / 'overview.md'
+    summary.write([project], output)  # Pre-marker report with matching metrics.
+    (bench / 'report.md').write_text('unrelated evaluation')
+    with pytest.raises(ValueError, match='incomplete or inconsistent'):
+        summary.write([project], output)
+    evaluation.publish(bench, ['metric', 'unitas'], [['exact', '1']], ['# Report'])
+    summary.write([project], output)
+    (bench / 'metrics.tsv').write_text('metric\tunitas\nexact\t0\n')
+    with pytest.raises(ValueError, match='incomplete or inconsistent'):
+        summary.write([project], output)
+    (bench / 'report.md').unlink()
+    with pytest.raises(ValueError, match='incomplete or inconsistent'):
+        summary.write([project], output)
+
+
+def test_summary_preserves_project_files_and_resolves_relative_report_link(tmp_path):
+    import summary
+    project = summary_projects(tmp_path / 'projects')[0]
+    renamed = project.rename(project.with_name('A|B]'))
+    report = renamed / 'benchmark/report.md'
+    output = tmp_path / 'summary.md'
+    output.hardlink_to(report)
+    original = report.read_bytes()
+    through = tmp_path / 'link'
+    through.symlink_to(renamed / 'benchmark', target_is_directory=True)
+    summary.write([through / '..'], output)
+    assert report.read_bytes() == original
+    assert '[A&#124;B&#93;](projects/A%7CB%5D/benchmark/report.md)' in output.read_text()
+    assert not os.path.samefile(output, report)
+
+
+def test_prepare_actual_short_run_and_unknown_merged_counts(tmp_path):
+    import benchmark
+    ext, dataset, reads = biological_dataset(tmp_path)
+    spec = yaml.safe_load(dataset.read_text())
+    del spec['samples'][0]['runs'][0]['reads']
+    write(dataset, yaml.safe_dump(spec))
+    cmd = [sys.executable, str(BENCH / 'benchmark.py'), 'prepare', '--dataset', str(dataset), '--ext-dir', str(ext)]
+    for name, args, expected in [('capped', ['--reads', '100'], str(len(reads) * 2)), ('linked', [], '')]:
+        project = tmp_path / name
+        subprocess.run(cmd + ['--project', str(project), *args], check=True, capture_output=True, timeout=60)
+        row, = benchmark.read_tsv(project / 'benchmark/samples.tsv')
+        assert row['reads'] == expected
+
+
+def test_summary_does_not_guess_old_input_counts(tmp_path):
+    import summary
+    project = summary_projects(tmp_path)[1]
+    table = project / 'benchmark/samples.tsv'
+    table.write_text('\n'.join(line.rsplit('\t', 1)[0] for line in table.read_text().splitlines()) + '\n')
+    _, row = summary.read_project(project, tmp_path)
+    assert row['reads'] == ''
+
+
+def test_short_and_incomplete_pool_fastqs(tmp_path):
+    import benchmark
+    records = '@read\nACGT\n+\nIIII\n'
+    source = tmp_path / 'reads.fastq.gz'
+    target = tmp_path / 'capped.fastq.gz'
+    source.write_bytes(gzip.compress(records.encode() * 3))
+    assert benchmark.head_fastq(source, target, 100) == 3
+    assert gzip.decompress(target.read_bytes()) == records.encode() * 3
+    source.write_bytes(gzip.compress((records + '@short\nACGT\n+\n').encode()))
+    with pytest.raises(SystemExit, match='incomplete FASTQ record 2'):
+        benchmark.head_fastq(source, target, 100)

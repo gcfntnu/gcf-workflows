@@ -9,7 +9,10 @@ import csv
 import html
 import os
 from pathlib import Path
+from tempfile import TemporaryDirectory
 import urllib.parse
+
+import evaluation
 
 import yaml
 
@@ -26,9 +29,11 @@ SECTIONS = [
      '`shifted_within_2fold`: isomiRs of known amount against the oracle.'),
     ('ratiometric', 'Ratiometric pools', ['median_abs_error', 'spearman_vs_design', 'called', 'false_calls', 'shifted_called'],
      'Observed log2(A/B) against the design: `median_abs_error`, `spearman_vs_design`, `called` (designed at least 2-fold '
-     'apart and observed so), `false_calls` (designed less than 2-fold apart, observed so); `shifted_called` for isomiRs.'),
+     'apart and observed at least 2-fold in the designed direction), `false_calls` (designed less than 2-fold apart, '
+     'observed at least 2-fold); `shifted_called` applies the same direction requirement to shifted sequences.'),
     ('biological', 'Biological samples', ['mirna_reads', 'unplaced', 'detected', 'detected_all_samples', 'top10_share'],
-     'No known composition, so agreement is not accuracy: reads on miRNAs, the share on names without a miRBase accession, '
+     'No known composition: `mirna_reads` is the rounded median per sample of reads assigned to a miRBase accession. '
+     'The other metrics describe the share on names without a miRBase accession, '
      'miRNAs detected (at least 10 reads; median over samples) and in every sample, and the share of the 10 most abundant. '
      'Agreement between methods is in each report.'),
 ]
@@ -53,8 +58,7 @@ def read_project(project, out_dir):
     if kind not in [s[0] for s in SECTIONS]:
         raise ValueError('{}: dataset kind {!r} (pool {!r}) is not one of synthetic, pool (equimolar, ratiometric), biological'.format(
             project, spec.get('kind'), spec.get('pool')))
-    with open(bench / 'metrics.tsv', newline='') as fh:
-        table = list(csv.reader(fh, delimiter='\t'))
+    table = evaluation.read_metrics(bench)
     columns = table[0][1:]
     values = {(row[0], c): v for row in table[1:] for c, v in zip(columns, row[1:]) if v != ''}
     samples = len(yaml.safe_load((project / 'config.yaml').read_text())['samples'])
@@ -62,25 +66,25 @@ def read_project(project, out_dir):
         reads = [row['count'] for row in read_tsv(bench / 'truth.tsv')]
     else:
         rows = read_tsv(bench / 'samples.tsv')
-        reads = [row['reads'] for row in rows]
+        reads = [row['reads'] if row.get('reads_source') in ('copied', 'declaration') else '' for row in rows]
         libraries = {row['library'] for row in rows if row['lane'] != 'merged'} if kind == 'biological' else set()
         if libraries:
             samples = '{} lanes of {} samples'.format(samples, len(libraries))
-    report = os.path.relpath(bench / 'report.md', out_dir)
+    report = os.path.relpath((bench / 'report.md').resolve(), out_dir)
     return kind, {'project': project.resolve().name, 'link': urllib.parse.quote(report), 'dataset': spec['name'], 'kit': spec['libprepkit'],
-                  'samples': samples, 'reads': '{:,}'.format(sum(int(r) for r in reads)) if all(reads) else '',
+                  'samples': samples, 'reads': '{:,}'.format(sum(int(r) for r in reads)) if reads and all(reads) else '',
                   'methods': ', '.join(c for c in columns if c != 'oracle'), 'columns': columns, 'values': values}
 
 
 def summarize(projects, output):
     """[(title, note, [(metric, [method])], [row])]: the sections with projects, a metric's methods being those with a
     value in any of its rows (the oracle included), in order of appearance."""
-    out_dir = output.resolve().parent
+    out_dir = output.parent.resolve()
     names = [p.resolve().name for p in projects]
     repeated = sorted({n for n in names if names.count(n) > 1})
     if repeated:
         raise ValueError('projects named alike: {}; the summary names a project by its directory'.format(', '.join(repeated)))
-    inside = [str(p) for p in projects if output.resolve().is_relative_to(p.resolve())]
+    inside = [str(p) for p in projects if (out_dir / output.name).is_relative_to(p.resolve()) or output.resolve().is_relative_to(p.resolve())]
     if inside:
         raise ValueError('the output {} is inside the project {}; the summary writes nothing into the projects'.format(output, inside[0]))
     by_kind = {}
@@ -103,14 +107,22 @@ INTRO = ('Key metrics of each evaluated project, from its `metrics.tsv`; its `re
          'is not in its table. `oracle` is the pool reads counted by exact match, the reference for the methods.')
 
 
+def markdown_cell(value):
+    # Character references stay inside a GFM cell, including inside a link label.
+    text = html.escape(str(value)).replace('\r', ' ').replace('\n', ' ')
+    for character in ('\\', '|', '[', ']', '*', '`', '~'):
+        text = text.replace(character, f'&#{ord(character)};')
+    return text
+
+
 def markdown(sections):
     lines = ['# Small-RNA benchmark summary', '', INTRO]
     for title, note, metrics, rows in sections:
         header = FIXED + ['{}: {}'.format(k, m) for k, ms in metrics for m in ms]
-        lines += ['', '## ' + title, '', note, '', '| ' + ' | '.join(header) + ' |', '|---' * len(header) + '|']
+        lines += ['', '## ' + title, '', note, '', '| ' + ' | '.join(map(markdown_cell, header)) + ' |', '|---' * len(header) + '|']
         for row in rows:
-            cells = ['[{}]({})'.format(row['project'], row['link'])] + [str(row[k]) for k in FIXED[1:]]
-            lines.append('| ' + ' | '.join(cells + [row['values'].get((k, m), '') for k, ms in metrics for m in ms]) + ' |')
+            cells = ['[{}]({})'.format(markdown_cell(row['project']), row['link'])] + [markdown_cell(row[k]) for k in FIXED[1:]]
+            lines.append('| ' + ' | '.join(cells + [markdown_cell(row['values'].get((k, m), '')) for k, ms in metrics for m in ms]) + ' |')
     return '\n'.join(lines) + '\n'
 
 
@@ -164,4 +176,7 @@ def write(projects, output):
     if render is None:
         raise ValueError('--output {}: the extension must be .md or .html'.format(output))
     sections = summarize(projects, output)
-    output.write_text(render(sections))
+    with TemporaryDirectory(dir=output.parent) as directory:
+        staged = Path(directory) / 'summary'
+        staged.write_text(render(sections))
+        staged.replace(output)
