@@ -58,11 +58,11 @@ The fastp report `logs/<sample>/<sample>.fastp.json` combines both passes; each 
 | gcfdb | `rules/gcfdb.smk` | Reference selection |
 | filter | `rules/quant/spikein.smk`, `rules/filter/cutadapt.smk`, `rules/filter/cliptrim.smk`, `rules/filter/spikein_bowtie.smk`, shared `common/` rules | Spike-in sets; FASTQ merging; adapter removal and filtering; spike-in counts and removal |
 | align | `rules/align/star.smk` | STAR, the only supported aligner |
-| quant | `rules/quant/unitas.smk`, `mirge3.smk`, `mirflowz.smk`, `tesmall.smk` | UNITAS (delivered); miRge3, mirflowz, TEsmall |
+| quant | `rules/quant/unitas.smk`, `mirge3.smk`, `mirflowz.smk`, `tesmall.smk`, `smrnaseq.smk` | UNITAS (delivered); miRge3, mirflowz, TEsmall, nf-core/smrnaseq |
 | qc | `rules/qc/`, shared `common/` rules | FastQC; miRTrace contamination check and miRNA complexity on the filtered reads |
 | bfq | `rules/bfq/` (levels 1–3) | Collect delivery products into `bfq/` |
 
-**`quant.method` and delivery.** `quant.method` selects what the `quant_all` target builds: `unitas`, `mirge3`, `mirflowz`, `tesmall`, or several, comma-separated. It does not change delivery: `bfq_all` and `multiqc_report` always deliver the UNITAS products. miRge3, mirflowz and TEsmall are routes to evaluate (see the [benchmark](benchmark/README.md)).
+**`quant.method` and delivery.** `quant.method` selects what the `quant_all` target builds: `unitas`, `mirge3`, `mirflowz`, `tesmall`, `smrnaseq`, or several, comma-separated. It does not change delivery: `bfq_all` and `multiqc_report` always deliver the UNITAS products. miRge3, mirflowz, TEsmall and nf-core/smrnaseq are routes to evaluate (see the [benchmark](benchmark/README.md)).
 
 ## Quantification routes
 
@@ -72,6 +72,7 @@ Every route reads the same filtered reads and removes no adapters itself (mirflo
 - **miRge3** 0.1.4 (`quant/mirge3/`), with a versioned library (`db.mirge3.release`) and `quant.mirge3.db` (`mirbase` or `mirgenedb`). `miR.Counts.csv` is built by the workflow from miRge3's alignments: exact and isomiR reads together, for miRNAs with at least 2 exact reads in the project ([`mirge3_counts.py`](rules/quant/scripts/mirge3_counts.py)); miRge3's own table is kept as `miR.Counts.mirge3.csv`.
 - **mirflowz** 0.10.0 (`quant/mirflowz/`): genome and transcriptome alignment with segemehl, counting miRNAs, isomiRs and pri-miRs from miRBase coordinates. It needs a reference on the miRBase GFF's assembly, so a rat project's mirflowz alignments are on Rnor_6.0. A read aligning equally well to several loci is split between them. Runs nested in `gcfntnu/mirflowz:0.10.0` ([`run_mirflowz.py`](rules/quant/scripts/run_mirflowz.py)), within `quant.mirflowz.mem_gb`.
 - **TEsmall** 2.1.0 (`quant/tesmall/`): exact Bowtie 1 alignment to the genome; each read goes to the first class it overlaps by 90% in `quant.tesmall.order` (miRNA first by default; TEsmall's own default puts structural RNA first and takes the reads of miRNAs inside snoRNA genes). `gcfntnu/tesmall:2.1.0-1` with `--no-trim`, so the filtered reads are not trimmed again ([`tesmall.smk`](rules/quant/tesmall.smk)). Sample names with dots stop the workflow at load.
+- **nf-core/smrnaseq** 2.4.1's mirtop counting (`quant/smrnaseq/`): reads collapsed to unique sequences, aligned to the organism's miRBase hairpins with Bowtie 1 (up to 2 mismatches) and annotated by mirtop; `mirna.tsv` sums each miRNA's isomiRs. The pipeline's steps, images and arguments are reproduced as rules, without Nextflow ([`smrnaseq.smk`](rules/quant/smrnaseq.smk)); on the same reads its tables are identical to the pipeline's. It needs no genome reference.
 
 ### Spike-in counts
 
@@ -102,7 +103,7 @@ provenance/cutadapt/<sample>.{adapter,filter,artefacts}.{json,log}  (fastp route
 
 | Key | Default | Set in |
 | --- | --- | --- |
-| `quant.method` | `unitas`; also `mirge3`, `mirflowz`, `tesmall`, comma-separated. Selects the `quant_all` targets, not delivery | [smallrna.config](smallrna.config) |
+| `quant.method` | `unitas`; also `mirge3`, `mirflowz`, `tesmall`, `smrnaseq`, comma-separated. Selects the `quant_all` targets, not delivery | [smallrna.config](smallrna.config) |
 | `filter.trim.quantifier` | `cutadapt`; also `fastp` or `skip` (reads already trimmed) | Kit entry |
 | `filter.trim.cutadapt` | Per kit (table above) | Kit entry |
 | `filter.trim.fastp.args` | None; required with the fastp route only | Project |

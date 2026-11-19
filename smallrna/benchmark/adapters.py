@@ -13,7 +13,9 @@ by name, because the methods name miRNAs differently:
 - mirflowz names a miRNA after its locus (`mmu-miR-194-2-5p`) and reports isomiRs as separate rows
   (`name|5' shift|3' shift|CIGAR|length|sequence`); its own extended annotation maps names to accessions;
 - TEsmall reports mature miRNAs by miRBase name (`ftype` miRNA); reads assigned to the precursor (`hairpin`, e.g.
-  3' isomiRs that extend past the mature end) are not mature counts and are left out.
+  3' isomiRs that extend past the mature end) are not mature counts and are left out;
+- nf-core/smrnaseq's mirtop counting (`mirna.tsv`, smallrna/rules/quant/smrnaseq.smk) reports miRNAs by miRBase name,
+  isomiRs summed.
 
 Adding a method means adding one function to ADAPTERS that reads its output directory.
 """
@@ -128,7 +130,19 @@ def tesmall(quant_dir, name_to_id, **_):
     return rows
 
 
-ADAPTERS = {'unitas': unitas, 'mirge3': mirge3, 'mirflowz': mirflowz, 'tesmall': tesmall}
+def smrnaseq(quant_dir, name_to_id, **_):
+    """nf-core/smrnaseq's mirtop table as the route writes it (miRNA, samples), by miRBase name."""
+    rows = []
+    with open(Path(quant_dir) / 'smrnaseq' / 'mirna.tsv', newline='') as fh:
+        reader = csv.reader(fh, delimiter='\t')
+        samples = next(reader)[1:]
+        for row in reader:
+            if row:
+                rows += [('smrnaseq', s, row[0], name_to_id.get(row[0], ''), float(c or 0)) for s, c in zip(samples, row[1:])]
+    return rows
+
+
+ADAPTERS = {'unitas': unitas, 'mirge3': mirge3, 'mirflowz': mirflowz, 'tesmall': tesmall, 'smrnaseq': smrnaseq}
 
 
 def common_table(methods, quant_dir, name_to_id, prefix, mirflowz_gff=None, unitas_hairpins=None, mature=None):
