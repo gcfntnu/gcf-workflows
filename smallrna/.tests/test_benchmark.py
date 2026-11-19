@@ -1065,3 +1065,54 @@ def test_summary_cli_prints_canonical_path_and_preserves_underscore_labels(tmp_p
     label, href = next(line.split('](', 1) for line in page.read_text().splitlines() if line.startswith('| ['))
     assert label == '| [&#95;set&#95;' and unescape(label) == '| [_set_'
     assert (page.parent / href.split(')', 1)[0]).resolve() == renamed / 'benchmark/report.md'
+
+
+def test_summary_rejects_output_spelled_inside_project_through_external_directory(tmp_path):
+    import summary
+    project = summary_projects(tmp_path / 'projects')[0]
+    storage = tmp_path / 'external'
+    storage.mkdir()
+    (project / 'external-data').symlink_to(storage, target_is_directory=True)
+    alias = tmp_path / 'project-alias'
+    alias.symlink_to(project, target_is_directory=True)
+    for entry in (project, alias):
+        with pytest.raises(ValueError, match='inside the project'):
+            summary.write([project], entry / 'external-data/overview.md')
+    assert list(storage.iterdir()) == []
+
+
+def test_evaluation_locks_are_regular_and_exclusive_descriptor_is_writable(tmp_path, monkeypatch):
+    import evaluation
+    import fcntl
+    import stat
+    bench = summary_projects(tmp_path)[0] / 'benchmark'
+    actual_flock = fcntl.flock
+    modes = []
+
+    def check_lock(file, mode):
+        assert stat.S_ISREG(os.fstat(file.fileno()).st_mode)
+        access = fcntl.fcntl(file, fcntl.F_GETFL) & os.O_ACCMODE
+        assert access == (os.O_WRONLY if mode == fcntl.LOCK_EX else os.O_RDONLY)
+        modes.append(mode)
+        return actual_flock(file, mode)
+
+    monkeypatch.setattr(fcntl, 'flock', check_lock)
+    assert evaluation.read_metrics(bench) and not modes
+    assert not (bench / '.evaluation.lock').exists()
+    evaluation.publish(bench, ['metric', 'unitas'], [['exact', '1']], ['# Report'])
+    assert evaluation.read_metrics(bench)[1] == ['exact', '1']
+    assert modes == [fcntl.LOCK_EX, fcntl.LOCK_SH]
+
+
+def test_legacy_synthetic_summary_rejects_partial_truth_and_explains_metrics(tmp_path):
+    import summary
+    project = summary_projects(tmp_path)[0]
+    output = tmp_path / 'overview.md'
+    summary.write([project], output)
+    assert 'smaller of observed and true counts' in output.read_text() and 'positive-truth pairs' in output.read_text()
+    truth = project / 'benchmark/truth.tsv'
+    header, first, second = truth.read_text().splitlines()
+    for rows in [[first], [first, second.replace('S02', 'other')]]:
+        truth.write_text('\n'.join([header] + rows) + '\n')
+        with pytest.raises(ValueError, match='truth.tsv must cover every configured sample'):
+            summary.write([project], output)

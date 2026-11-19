@@ -5,7 +5,6 @@ import fcntl
 import hashlib
 import io
 import json
-import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -14,13 +13,19 @@ REPORT_MARKER = '<!-- benchmark evaluation: see evaluation.json -->'
 
 
 @contextmanager
-def directory_lock(directory, mode):
-    fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+def evaluation_lock(bench, *, writer):
+    # NFS requires write access on the descriptor for exclusive locks. Keep
+    # this inode stable across publications. Legacy readers create no files.
     try:
-        fcntl.flock(fd, mode)
+        lock = (bench / '.evaluation.lock').open('ab' if writer else 'rb')
+    except FileNotFoundError:
+        if writer:
+            raise
         yield
-    finally:
-        os.close(fd)
+        return
+    with lock:
+        fcntl.flock(lock, fcntl.LOCK_EX if writer else fcntl.LOCK_SH)
+        yield
 
 
 def publish(bench, header, rows, lines):
@@ -34,7 +39,7 @@ def publish(bench, header, rows, lines):
             (stage / name).write_bytes(data)
         pending = stage / 'pending.json'
         pending.write_text('{"status":"publishing"}\n')
-        with directory_lock(bench, fcntl.LOCK_EX):
+        with evaluation_lock(bench, writer=True):
             pending.replace(bench / 'evaluation.json')
             for name in files:  # The completion record is installed last.
                 (stage / name).replace(bench / name)
@@ -42,7 +47,7 @@ def publish(bench, header, rows, lines):
 
 def read_metrics(bench):
     message = f'{bench}: incomplete or inconsistent evaluation; run `benchmark.py evaluate --project {bench.parent}`'
-    with directory_lock(bench, fcntl.LOCK_SH):
+    with evaluation_lock(bench, writer=False):
         try:
             data = (bench / 'metrics.tsv').read_bytes()
             report = (bench / 'report.md').read_bytes()

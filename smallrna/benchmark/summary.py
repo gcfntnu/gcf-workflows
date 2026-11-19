@@ -20,9 +20,9 @@ import yaml
 # (kind, title, key metrics, what they show); a pool's kind is its `pool`
 SECTIONS = [
     ('synthetic', 'Synthetic data', ['recovered', 'exact', 'misassigned', 'unplaced'],
-     'Against the truth per read: `recovered` (share of the true reads counted on the right miRNA), `exact` (share of '
-     'miRNAs counted exactly), `misassigned` and `unplaced` (reads on miRNAs not in the truth, on names without a miRBase '
-     'accession).'),
+     'Counts are compared per sample and miRBase accession. `recovered` sums the smaller of observed and true counts '
+     'for each pair, divided by the total true count. `exact` is the fraction of positive-truth pairs with matching counts. '
+     '`misassigned` and `unplaced` count reads on accessions absent from that sample’s truth and on names without a miRBase accession.'),
     ('equimolar', 'Equimolar pools', ['detected', 'cv', 'within_2fold', 'spearman_vs_oracle', 'outside', 'unplaced', 'shifted_within_2fold'],
      'Over the pool\'s `exact` sequences: `detected` and `cv` across the pool, `within_2fold` and `spearman_vs_oracle` against '
      'the oracle (the filtered reads counted by exact match to the pool sequences); `outside` and `unplaced`: shares of a '
@@ -65,7 +65,10 @@ def read_project(project, out_dir):
     configured_samples = yaml.safe_load((project / 'config.yaml').read_text())['samples']
     samples = len(configured_samples)
     if kind == 'synthetic':
-        reads = [row['count'] for row in read_tsv(bench / 'truth.tsv')]
+        rows = read_tsv(bench / 'truth.tsv')
+        if {row['sample'] for row in rows} != set(configured_samples):
+            raise ValueError(f'{project}: truth.tsv must cover every configured sample and no others')
+        reads = [row['count'] for row in rows]
     else:
         rows = read_tsv(bench / 'samples.tsv')
         if len(rows) != samples or {row['sample'] for row in rows} != set(configured_samples):
@@ -88,13 +91,17 @@ def summarize(projects, output):
     repeated = sorted({n for n in names if names.count(n) > 1})
     if repeated:
         raise ValueError('projects named alike: {}; the summary names a project by its directory'.format(', '.join(repeated)))
-    destinations = {out_dir / output.name, output.resolve()}
+    destinations = {Path(os.path.abspath(output)), out_dir / output.name, output.resolve()}
+    # A project can itself be reached through another alias before a symlink
+    # leads out to storage. Retain the entry path of each traversed link.
+    destinations.update(parent.parent.resolve() / parent.name for parent in output.absolute().parents if parent.is_symlink())
     for project in projects:
         bench = project / 'benchmark'
         inputs = {(project / 'config.yaml').resolve()}
         inputs.update((bench / name).resolve() for name in
                       ('dataset.yaml', 'metrics.tsv', 'report.md', 'evaluation.json', 'truth.tsv', 'samples.tsv'))
-        if any(path.is_relative_to(project.resolve()) or path.is_relative_to(bench.resolve()) or path in inputs
+        project_dirs = {project.resolve(), bench.resolve()}
+        if any(any(path.is_relative_to(directory) for directory in project_dirs) or path in inputs
                for path in destinations):
             raise ValueError(f'the output {output} is inside the project {project} or aliases one of its inputs')
     by_kind = {}

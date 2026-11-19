@@ -30,7 +30,7 @@ Usage: benchmark.py fill --dataset YAML --ext-dir DIR
 import argparse
 import collections
 import csv
-import fcntl
+import errno
 import gzip
 import json
 import math
@@ -143,10 +143,16 @@ def prepare(args):
     with TemporaryDirectory(dir=project.parent) as temporary:
         staged = Path(temporary) / 'project'
         message = prepare_dataset(spec, staged, ext_dir, methods, args)
-        with evaluation.directory_lock(project.parent, fcntl.LOCK_EX):
-            if project.exists() or project.is_symlink():
-                fail('{} exists; choose a new project directory'.format(project))
+        if project.exists() or project.is_symlink():
+            fail('{} exists; choose a new project directory'.format(project))
+        # A completed project is nonempty. A concurrent prepare can win the
+        # rename, but POSIX rename cannot replace that winner's directory.
+        try:
             staged.rename(project)
+        except OSError as error:
+            if error.errno in (errno.EEXIST, errno.ENOTEMPTY):
+                fail('{} exists; choose a new project directory'.format(project))
+            raise
     print(message)
 
 
