@@ -46,7 +46,11 @@ With the standard 10x kit and no project reference directory, the workflow selec
   Omit `db.10xgenomics.release` in the project to inherit the configured default. An empty or null effective release stops planning.
 - For an organism with an Ensembl reference and no supported prebuilt, the workflow selects Ensembl for the build, count and gene metadata.
   For example, `salmo_salar` at Ensembl release 116 uses assembly `Ssal_v3.1` under `<EXT_DIR>/ensembl/release-116/salmo_salar/Ssal_v3.1/`.
-  This route and the explicit-directory route work independently of the 10x release.
+  For organisms in an Ensembl Genomes division, the workflow uses `db.ensemblgenomes.release` for the archives and reports the division.
+  For example, `arabidopsis_thaliana` uses the release 56 Ensembl Plants FASTA and annotation under
+  `<EXT_DIR>/ensemblgenomes/release-56/plants/arabidopsis_thaliana/TAIR10/`.
+  This division-specific cache applies to the 10x fallback. Directly configured Ensembl projects retain their existing cache layout.
+  These routes and the explicit-directory route work independently of the 10x release.
 
 To select a managed custom assembly, set `db.reference_db: custom_reference` and `db.custom_reference.assembly`.
 When Ensembl is selected and its lookup table lacks the organism, the workflow warns before falling back to the configured custom assembly.

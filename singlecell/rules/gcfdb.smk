@@ -14,7 +14,7 @@ if build_10x_reference:
     views = join(QUANT_INTERIM, 'reference', 'cellranger')
     CR_EXPECTED_SOURCE = REFERENCE_SOURCE_DIGEST
     if not config.get('ref_dir'):
-        managed_ref = join(config['db']['reference_db'], f"release-{DB_CONF.get('release') or 'unspecified'}", ORG, CR_GENOME)
+        managed_ref = os.path.relpath(REF_DIR, EXT_DIR)
         CR_VIEW = join(views, managed_ref, CR_BUILD_KEY)
         # Reuse a cold build's workdir pin and command on resume while its source pair matches.
         cold_build = verify_cellranger_receipt(join(CR_VIEW, 'ready'), CR_CACHE, None, CR_GENOME, CR_IMAGE)

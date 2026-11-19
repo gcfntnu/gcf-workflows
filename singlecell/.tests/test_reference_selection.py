@@ -94,6 +94,32 @@ def test_ensembl_fallback_through_reporting(tmp_path, organism, assembly, settin
     assert 'refdata-gex-' not in log
 
 
+def test_ensembl_genomes_fallback_and_workdir_release_change(tmp_path):
+    organism, assembly = 'arabidopsis_thaliana', 'TAIR10'
+    release = DB_DEFAULTS['ensemblgenomes']['release']
+    log = dry_run(tmp_path, organism)
+    for selected in (release, str(int(release) - 1)):
+        if selected != release:
+            configfile = tmp_path / 'config.yaml'
+            config = yaml.safe_load(configfile.read_text())
+            config['db'] = {'ensemblgenomes': {'release': selected}}
+            configfile.write_text(yaml.safe_dump(config))
+            log = plan_existing(tmp_path, 'multiqc_report')
+
+        archive = f'https://ftp.ebi.ac.uk/ensemblgenomes/pub/release-{selected}/plants'
+        genome_url = f'{archive}/fasta/{organism}/dna/Arabidopsis_thaliana.TAIR10.dna.toplevel.fa.gz'
+        gtf_url = f'{archive}/gtf/{organism}/Arabidopsis_thaliana.TAIR10.{selected}.gtf.gz'
+        assert f'-O- {genome_url} |' in log and f'-O- {gtf_url} |' in log
+        assert f'Ensembl DNA,release-{selected},{genome_url}' in log and f'Ensembl GTF,release-{selected},{gtf_url}' in log
+        assert f'source=ensemblgenomes release={selected} assembly={assembly}' in log and 'division=plants' in log
+        location = f'ensemblgenomes/release-{selected}/plants/{organism}/{assembly}'
+        assert_build_and_count(log, f'data/ext/{location}')
+        receipt, = arguments(log, 'cellranger mkref ', '--receipt')
+        assert f'/cellranger/{location}/' in receipt
+        assert_managed_gene_metadata(log, Path(receipt))
+        assert 'rule multiqc_report:' in log and 'refdata-gex-' not in log
+
+
 def shell_command(log, program):
     lines = [line.removeprefix('Shell command: ') for line in log.splitlines() if line.startswith('Shell command: ') and program in line]
     assert len(lines) == 1, lines

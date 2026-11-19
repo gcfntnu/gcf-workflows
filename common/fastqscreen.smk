@@ -60,9 +60,7 @@ def fastq_screen_indexes(*args, **kw):
       if PROJECT_SCREEN_DB:
          INDEXES[org] = bowtie2_index_files(join(PROJECT_SCREEN_DB, 'genome'), project_screen_index_extension())
       elif config['db'].get('reference_db') in ['ensembl', '10xgenomics']:
-         release = config['db']['ensembl']['release']
-         assembly = config['db']['ensembl']['assembly']
-         index = join(EXT_DIR, 'ensembl', 'release-{}'.format(release), org, assembly, 'index', 'genome', 'bowtie2', 'genome.1.bt2')
+         index = join(ENSEMBL_DIR, 'index', 'genome', 'bowtie2', 'genome.1.bt2')
          INDEXES[org] = index
       elif config['db'].get('reference_db') == 'custom_reference':
          assembly = config['db']['custom_reference'].get('assembly', '')

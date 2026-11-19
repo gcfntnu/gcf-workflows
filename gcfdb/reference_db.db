@@ -21,15 +21,22 @@ if not REF_DIR and ref in ('refseq', 'custom_reference', '10xgenomics', 'gencode
     include: '{}.db'.format(ref)
 
 DB_CONF = config['db'].setdefault(ref, {})
+source = 'ref_dir' if REF_DIR else ref
+source_release = DB_CONF.get('release')
 if not REF_DIR:
-    release = DB_CONF.get('release')
-    release_dir = f'release-{release}' if release is not None else ''
-    REF_DIR = join(EXT_DIR, ref, release_dir, ORG, str(DB_CONF.get('assembly') or ''))
+    if ref == 'ensembl':
+        REF_DIR = ENSEMBL_DIR
+        if ENS_DIVISION and ENS_DIVISION != 'vertebrates':
+            source, source_release = 'ensemblgenomes', ENSEMBL_ARCHIVE_RELEASE
+    else:
+        release_dir = f'release-{source_release}' if source_release is not None else ''
+        REF_DIR = join(EXT_DIR, ref, release_dir, ORG, str(DB_CONF.get('assembly') or ''))
 
 config['base_ref_dir'] = REF_DIR
 reference_message = "Reference for {}: source={} release={} assembly={} directory={}".format(
-    ORG, 'ref_dir' if config.get('ref_dir') else ref, DB_CONF.get('release') or 'unspecified',
-    DB_CONF.get('assembly') or 'unspecified', REF_DIR)
+    ORG, source, source_release or 'unspecified', DB_CONF.get('assembly') or 'unspecified', REF_DIR)
+if source == 'ensemblgenomes':
+    reference_message += f' division={ENS_DIVISION}'
 if ref != requested_provider:
     logger.warning(f"No {requested_provider} prebuilt for {ORG}. {reference_message}")
 else:

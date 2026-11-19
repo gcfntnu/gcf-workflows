@@ -90,13 +90,18 @@ if not config.get('ref_dir') and not ENS_ASSEMBLY and os.path.exists(ENS_LOOKUP)
         config['db']['reference_db'] = 'custom_reference'
 
 
+ENSEMBL_ARCHIVE_RELEASE = ENS_RELEASE
+ENSEMBL_DIR = join(EXT_DIR, 'ensembl', f'release-{ENS_RELEASE}', ORG, ENS_ASSEMBLY)
+annotation_release = ENS_RELEASE  # Preserve the versioned filenames in existing direct-Ensembl caches.
 if ENS_DIVISION == 'vertebrates':
     URL = 'ftp.ensembl.org/pub/release-{}/{{}}/{{}}'.format(ENS_RELEASE)
 else:
-    ENSG_RELEASE = str(config['db']['ensemblgenomes']['release'])
-    URL = 'ftp.ebi.ac.uk/ensemblgenomes/pub/release-{}/{}/{{}}/{{}}'.format(ENSG_RELEASE, ENS_DIVISION)
+    ENSEMBL_ARCHIVE_RELEASE = str(config['db']['ensemblgenomes']['release'])
+    URL = 'ftp.ebi.ac.uk/ensemblgenomes/pub/release-{}/{}/{{}}/{{}}'.format(ENSEMBL_ARCHIVE_RELEASE, ENS_DIVISION)
+    if ENS_DIVISION and not config.get('ref_dir') and config['db']['reference_db'] == '10xgenomics':
+        ENSEMBL_DIR = join(EXT_DIR, 'ensemblgenomes', f'release-{ENSEMBL_ARCHIVE_RELEASE}', ENS_DIVISION, ORG, ENS_ASSEMBLY)
+        annotation_release = ENSEMBL_ARCHIVE_RELEASE
 
-ENSEMBL_DIR = join(EXT_DIR, 'ensembl', f'release-{ENS_RELEASE}', ORG, ENS_ASSEMBLY)
 # Curated files stay source inputs even when the selected directory is inside the provider cache.
 CURATED_ENSEMBL_DIR = config.get('ref_dir') and os.path.realpath(config['ref_dir']) == os.path.realpath(ENSEMBL_DIR)
 if not CURATED_ENSEMBL_DIR:
@@ -105,7 +110,7 @@ if not CURATED_ENSEMBL_DIR:
             proxy = config.get('proxy', {}).get('wget', ''),
             url = join(PROTOCOL + URL.format('fasta', ORG), 'dna'),
             filename = '.'.join([ORG.capitalize(), ENS_ASSEMBLY, 'dna', 'primary_assembly', 'fa', 'gz']) if ORG in ['homo_sapiens', 'mus_musculus'] else '.'.join([ORG.capitalize(), ENS_ASSEMBLY, 'dna', 'toplevel', 'fa', 'gz']),
-            release = ENS_RELEASE
+            release = ENSEMBL_ARCHIVE_RELEASE
         output:
             genome = join(ENSEMBL_DIR, 'fasta', 'genome.fa')
         threads:
@@ -123,13 +128,13 @@ rule ensembl_noncoding:
         proxy = config.get('proxy', {}).get('wget', ''),
         url = join(PROTOCOL + URL.format('fasta', ORG), 'ncrna'),
         filename = '.'.join([ORG.capitalize(), ENS_ASSEMBLY, 'ncrna', 'fa', 'gz']),
-        release = ENS_RELEASE
+        release = ENSEMBL_ARCHIVE_RELEASE
     output:
-        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), ORG, ENS_ASSEMBLY, 'fasta', 'ncrna.fa')
+        join(ENSEMBL_DIR, 'fasta', 'ncrna.fa')
     threads: 
         24
     log:
-        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), ORG, ENS_ASSEMBLY, 'logs', 'ncrna.log')
+        join(ENSEMBL_DIR, 'logs', 'ncrna.log')
     shell: 
         """
         wget {params.proxy} -O- {params.url}/{params.filename} | gunzip -c >> {output}
@@ -140,14 +145,14 @@ rule ensembl_gff:
     params:
         proxy = config.get('proxy', {}).get('wget', ''),
         url = PROTOCOL + URL.format('gff3', ORG),
-        filename = '.'.join([ORG.capitalize(), ENS_ASSEMBLY, ENS_RELEASE, 'gff3', 'gz']),
-        release = ENS_RELEASE
+        filename = '.'.join([ORG.capitalize(), ENS_ASSEMBLY, ENSEMBL_ARCHIVE_RELEASE, 'gff3', 'gz']),
+        release = ENSEMBL_ARCHIVE_RELEASE
     output:
-        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), ORG, ENS_ASSEMBLY, 'anno', '.'.join([ORG, ENS_ASSEMBLY, ENS_RELEASE, 'gff']) )
+        join(ENSEMBL_DIR, 'anno', '.'.join([ORG, ENS_ASSEMBLY, annotation_release, 'gff']) )
     threads: 
         24
     log:
-        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), ORG, ENS_ASSEMBLY, 'logs', 'gff.log')
+        join(ENSEMBL_DIR, 'logs', 'gff.log')
     shell: 
         """
         wget {params.proxy} -O- {params.url}/{params.filename} | gunzip -c >> {output}
@@ -158,14 +163,14 @@ rule ensembl_gtf:
     params:
         proxy = config.get('proxy', {}).get('wget', ''),
         url = PROTOCOL + URL.format('gtf', ORG),
-        filename = '.'.join([ORG.capitalize(), ENS_ASSEMBLY, ENS_RELEASE, 'gtf', 'gz']),
-        release = ENS_RELEASE
+        filename = '.'.join([ORG.capitalize(), ENS_ASSEMBLY, ENSEMBL_ARCHIVE_RELEASE, 'gtf', 'gz']),
+        release = ENSEMBL_ARCHIVE_RELEASE
     output:
-        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), ORG, ENS_ASSEMBLY, 'anno', '.'.join([ORG, ENS_ASSEMBLY, ENS_RELEASE, 'gtf']))
+        join(ENSEMBL_DIR, 'anno', '.'.join([ORG, ENS_ASSEMBLY, annotation_release, 'gtf']))
     threads: 
         24
     log:
-        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), ORG, ENS_ASSEMBLY, 'logs', 'gtf.log')
+        join(ENSEMBL_DIR, 'logs', 'gtf.log')
     shell: 
         """
         wget {params.proxy} -O- {params.url}/{params.filename} | gunzip -c >> {output}
@@ -174,9 +179,9 @@ rule ensembl_gtf:
 
 rule ensembl_symlink_genes:
     input:
-        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), ORG, ENS_ASSEMBLY, 'anno', '.'.join([ORG, ENS_ASSEMBLY, ENS_RELEASE, '{ext}']))
+        join(ENSEMBL_DIR, 'anno', '.'.join([ORG, ENS_ASSEMBLY, annotation_release, '{ext}']))
     output:
-        join(EXT_DIR, 'ensembl', 'release-{}'.format(ENS_RELEASE), ORG, ENS_ASSEMBLY, 'anno', 'genes.{ext}')
+        join(ENSEMBL_DIR, 'anno', 'genes.{ext}')
     wildcard_constraints:
         ext = 'gff' if CURATED_ENSEMBL_DIR else 'g.+f$'
     shell:
