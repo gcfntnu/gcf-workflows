@@ -83,7 +83,7 @@ When Ensembl is selected and its lookup table lacks the organism, the workflow w
 See [Reduced custom references](#reduced-custom-references).
 
 For managed Cell Ranger builds, including Ensembl and custom assemblies, the workflow checksums a cached FASTA/GTF pair during planning.
-With an empty cache it plans retrieval, building, counting and reporting together. Each managed FASTA or GTF download is decompressed into a temporary file beside its destination and published by atomic rename once complete.
+With an empty cache it plans retrieval, building, counting and reporting together. Each managed FASTA or GTF download is staged in a temporary file beside its destination and published by atomic rename once complete.
 The builder records the checksums once the files arrive.
 The workdir pins the completed index for count. Cell Ranger reporting copies the verified original FASTA and GTF from that same index’s `gcf-source/`.
 The gene table and exon intermediates live under the workdir pin’s `annotations/<source-digest>/` directory, reached through its `annotation` symlink.
