@@ -19,8 +19,11 @@ gcfntnu/tiny-count:
 tiny-count's tables per sample (feature counts, counts per rule, summary and alignment statistics, length
 distributions, with the configuration it ran with) are under `<sample>/`; `tinyrna_counts.tsv` joins the samples'
 feature counts. Feature IDs are miRBase's: a mature miRNA at several loci has one row per locus (`MIMAT0000416`,
-`MIMAT0000416_1`). The reference (genome Bowtie index and renamed GFF) is gcfdb/tinyrna.db, on the mirflowz reference.
+`MIMAT0000416_1`); one listed at a locus under several hairpins is one row. The reference (genome Bowtie index and
+renamed GFF) is gcfdb/tinyrna.db, on the mirflowz reference.
 """
+
+import shlex
 
 TINYRNA_CONF = config['quant']['tinyrna']
 
@@ -59,8 +62,9 @@ rule tinyrna_features:
         join(TINYRNA_OUT, 'features.csv')
     params:
         script = src_gcf('scripts/tinyrna.py'),
-        args = '--offsets="{}" --extension {} --length "{}" --strand {}'.format(
-            TINYRNA_CONF['five_prime_offsets'], TINYRNA_CONF['three_prime_extension'], TINYRNA_CONF['length'], TINYRNA_CONF['strand'])
+        # Each setting is one shell word, so the script validates the project value as written.
+        args = '--offsets={} --extension {} --length {} --strand {}'.format(*(shlex.quote(str(TINYRNA_CONF[key])) for key in (
+            'five_prime_offsets', 'three_prime_extension', 'length', 'strand')))
     container:
         'docker://' + config['docker']['tiny-count']
     shell:

@@ -8,7 +8,7 @@ tiny-count, mirflowz, TEsmall and the benchmark share one genome and miRBase rel
 - the genome FASTA and Bowtie 1 index are TEsmall's shared ones (`tesmall_genome` in gcfdb/tesmall.db,
   `EXT_DIR/tesmall/<mirflowz reference>/genome/`), not a second index of the same genome;
 - the miRBase GFF3 is renamed to the genome's sequence names with mirflowz's chromosome map (scripts/tinyrna_gff.py),
-  into `EXT_DIR/tinyrna/<mirflowz reference>/mirna.gff3` (TINYRNA_REF).
+  into `EXT_DIR/tinyrna/<mirflowz reference>/mirna.v<TINYRNA_GFF_VERSION>.gff3` (TINYRNA_REF).
 
 Checks of the mirflowz reference stop the workflow when this route is selected (`TINYRNA_SELECTED`, set in
 smallrna/rules/quant.smk).
@@ -16,6 +16,9 @@ smallrna/rules/quant.smk).
 
 TINYRNA_REF = join(EXT_DIR, 'tinyrna', os.path.relpath(MIRFLOWZ_REF, join(EXT_DIR, 'mirflowz')))
 TINYRNA_INDEX = join(TESMALL_GENOME, 'bowtie_index', 'genome')
+# Raise when tinyrna_gff.py writes different rows from the same sources, so a GFF written by an earlier version is
+# not used (2: one row per mature miRNA, locus and strand).
+TINYRNA_GFF_VERSION = 2
 
 
 rule tinyrna_gff:
@@ -23,7 +26,7 @@ rule tinyrna_gff:
         mirna_gff = lambda wildcards: mirflowz_sources()['mirna_gff'],
         chr_map = rules.mirflowz_chr_map.output
     output:
-        gff = join(TINYRNA_REF, 'mirna.gff3')
+        gff = join(TINYRNA_REF, 'mirna.v{}.gff3'.format(TINYRNA_GFF_VERSION))
     params:
         script = src_gcf('scripts/tinyrna_gff.py')
     container:

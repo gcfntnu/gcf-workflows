@@ -69,11 +69,12 @@ def features_sheet(offsets, extension, length, strand):
 def paths_file(samples_csv, features_csv, gff):
     """tiny-count's Paths File; the keys of the full pipeline are present but empty, as tiny-count requires them."""
     # JSON is valid YAML 1.2, including quoted paths. Both tool images can use
-    # the standard library, and tiny-count reads this with its own YAML parser.
+    # the standard library, and tiny-count reads this with its own YAML parser. Characters outside ASCII are written
+    # as they are (UTF-8), as YAML parsers need not join JSON's surrogate-pair escapes into one character.
     return json.dumps({'samples_csv': str(samples_csv), 'features_csv': str(features_csv),
                        'gff_files': [{'path': str(gff), 'alias': ['Name']}], 'run_directory': 'run_directory',
                        'tmp_directory': None, 'ebwt': None, 'reference_genome_files': None,
-                       'adapter_fasta': None, 'plot_style_sheet': None}, indent=2) + '\n'
+                       'adapter_fasta': None, 'plot_style_sheet': None}, indent=2, ensure_ascii=False) + '\n'
 
 
 
@@ -117,7 +118,7 @@ def count(args):
         writer.writerow(('Input Files', 'Sample/Group Name', 'Replicate Number', 'Control', 'Normalization'))
         writer.writerow((str(alignments), args.sample, '1', '', ''))
     shutil.copy(args.features, work / 'features.csv')
-    (work / 'paths.yml').write_text(paths_file('samples.csv', 'features.csv', args.gff.resolve()))
+    (work / 'paths.yml').write_text(paths_file('samples.csv', 'features.csv', args.gff.resolve()), encoding='utf-8')
     log = output / 'tiny-count.log'
     command = ['tiny-count', '-pf', 'paths.yml', '-o', PREFIX, '-ng', args.normalize_by_genomic_hits,
                '-nf', args.normalize_by_feature_hits]

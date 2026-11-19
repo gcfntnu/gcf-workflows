@@ -236,7 +236,7 @@ def test_tesmall_or_tinyrna_only_project_keeps_the_reduced_reference(tmp_path, r
     assert 'input: {}'.format(ref / 'genome.fa.gz') in genome and 'tesmall/custom-mmu-test/mus_musculus/genome/genome.fa' in genome
     if method == 'tinyrna':
         gff = output.split('rule tinyrna_gff:', 1)[1].split('\nrule ', 1)[0]
-        assert 'input: {}'.format(ref / 'mirna.gff3') in gff and 'tinyrna/custom-mmu-test/mus_musculus/mirna.gff3' in gff
+        assert 'input: {}'.format(ref / 'mirna.gff3') in gff and 'tinyrna/custom-mmu-test/mus_musculus/mirna.v2.gff3' in gff
 
 
 def test_prepare_refuses_an_existing_project_and_a_missing_reference(tmp_path, ref):

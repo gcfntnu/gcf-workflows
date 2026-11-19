@@ -59,6 +59,28 @@ class TinyrnaGffTest(unittest.TestCase):
         self.assertEqual([attrs.split(';')[:2] for attrs in features],
                          [[f'ID=MIMAT0000001{suffix}', 'Alias=MIMAT0000001'] for suffix in ('', '_2', '_1')])
 
+    def test_a_mature_mirna_under_two_hairpins_at_one_locus_is_one_row(self):
+        """As mouse miR-669a-5p under mmu-mir-669a-1 and -4 (miRBase 23.1): one row with both parents, counted once."""
+        second = ('chr1\t.\tmiRNA_primary_transcript\t14\t76\t.\t+\t.\tID=MI0000009;Alias=MI0000009;Name=rno-mir-1-2\n'
+                  'chr1\t.\tmiRNA\t30\t51\t.\t+\t.\tID=MIMAT0000001;Alias=MIMAT0000001;Name=rno-miR-1-5p;Derives_from=MI0000009\n')
+        result = self.run_script(GFF.replace('chrUn_JH584304', second + 'chrUn_JH584304', 1))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = (self.dir / 'out.gff3').read_text().splitlines()
+        mature = [line.split('\t') for line in lines if '\tmiRNA\t' in line]
+        self.assertEqual([(r[0], r[3], r[8]) for r in mature], [
+            ('1', '30', 'ID=MIMAT0000001;Alias=MIMAT0000001;Name=rno-miR-1-5p;Derives_from=MI0000001,MI0000009'),
+            ('JH584304.1', '5', 'ID=MIMAT0000001_1;Alias=MIMAT0000001;Name=rno-miR-1-5p;Derives_from=MI0000002')])
+        self.assertEqual(sum('\tmiRNA_primary_transcript\t' in line for line in lines), 2)  # both hairpins stay
+        self.assertIn('# rows miRNA 2', lines)
+        self.assertIn('# coalesced (a mature miRNA at the same locus and strand under another hairpin) 1', lines)
+
+    def test_a_mature_mirna_at_one_locus_with_different_attributes_stops(self):
+        second = 'chr1\t.\tmiRNA\t30\t51\t.\t+\t.\tID=MIMAT0000001;Alias=MIMAT0000001;Name=rno-miR-1a-5p;Derives_from=MI0000009\n'
+        result = self.run_script(GFF.replace('chrUn_JH584304', second + 'chrUn_JH584304', 1))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('MIMAT0000001 at 1:30-51 (+) is listed twice with different attributes', result.stderr)
+        self.assertFalse((self.dir / 'out.gff3').exists())
+
     def test_concurrent_builds_of_the_same_reference_do_not_collide(self):
         (self.dir / 'mirna.gff3').write_text(GFF)
         (self.dir / 'chr_map.tsv').write_text(CHR_MAP)

@@ -30,16 +30,16 @@ def test_route_plans_reference_and_counting_and_delivery_stays_on_unitas(tmp_pat
     gff = rule_block(output, 'tinyrna_gff')
     assert ('--mirna-gff data/ext/mirbase/mus_musculus/release-23.1/anno/genes.gff3 '
             '--chr-map data/ext/mirflowz/mirbase-23.1_ensembl-116/mus_musculus/chr_map.tsv') in gff
-    assert '--output data/ext/tinyrna/mirbase-23.1_ensembl-116/mus_musculus/mirna.gff3' in gff
+    assert '--output data/ext/tinyrna/mirbase-23.1_ensembl-116/mus_musculus/mirna.v2.gff3' in gff
     assert 'input: data/ext/ensembl/release-116/mus_musculus/GRCm39/fasta/genome.fa' in rule_block(output, 'tesmall_genome')
     assert 'rule tesmall_db:' not in output  # only the shared genome index, not the TEsmall database
-    assert 'features --offsets="-1,0,1" --extension 4 --length "16-28" --strand sense' in rule_block(output, 'tinyrna_features')
+    assert 'features --offsets=-1,0,1 --extension 4 --length 16-28 --strand sense' in rule_block(output, 'tinyrna_features')
     assert 'tiny-collapse -i data/tmp/smallrna/filter/cutadapt/SR01_R1.fastq -o {}/SR01/SR01'.format(OUT) in output
     align = rule_block(output, 'tinyrna_align')
     assert '-v 0 --all --best --strata --no-unal --sam --seed 0' in align and '| samtools view -b --no-PG' in align
     assert 'bowtie -x {}/bowtie_index/genome -f {}/SR0'.format(GENOME, OUT) in align
     count = rule_block(output, 'tinyrna_count')
-    assert '--gff data/ext/tinyrna/mirbase-23.1_ensembl-116/mus_musculus/mirna.gff3 --features {}/features.csv'.format(OUT) in count
+    assert '--gff data/ext/tinyrna/mirbase-23.1_ensembl-116/mus_musculus/mirna.v2.gff3 --features {}/features.csv'.format(OUT) in count
     assert '--normalize-by-genomic-hits T --normalize-by-feature-hits T' in count
     assert '--samples SR01 SR02 SR03 SR04' in rule_block(output, 'tinyrna_counts')
     for name in ('assigned_nt_len_dist.csv', 'mapped_nt_len_dist.csv', 'config'):  # declared, so a rerun restores them
@@ -56,14 +56,27 @@ def test_settings_reach_the_rules(tmp_path):
     returncode, output = dry_run(tmp_path, 'tinyrna', settings, printshell=True)
     assert returncode == 0, output
     assert '-v 1 --all' in rule_block(output, 'tinyrna_align')
-    assert '--offsets="0" --extension 2 --length "18-25" --strand both' in rule_block(output, 'tinyrna_features')
+    assert '--offsets=0 --extension 2 --length 18-25 --strand both' in rule_block(output, 'tinyrna_features')
     assert '--normalize-by-genomic-hits F --normalize-by-feature-hits T' in rule_block(output, 'tinyrna_count')
+
+
+def test_settings_reach_the_script_as_written(tmp_path):
+    """Each Features Sheet setting is one shell word, so quotes or spaces in a project value reach the validator."""
+    def settings(s):
+        s['quant'].setdefault('tinyrna', {}).update(strand='"sense"', length='16 to 28')
+    returncode, output = dry_run(tmp_path, 'tinyrna', settings, printshell=True)
+    assert returncode == 0, output
+    command = rule_block(output, 'tinyrna_features')
+    assert """--length '16 to 28' --strand '"sense"'""" in command
+    result = subprocess.run([sys.executable, str(SCRIPT), 'features', '--offsets=0', '--extension', '4', '--length', '16-28',
+                             '--strand', '"sense"'], capture_output=True, text=True)
+    assert result.returncode != 0 and """strand must be one of sense, antisense, both, got '"sense"'""" in result.stderr
 
 
 def test_rat_uses_its_mirflowz_reference(tmp_path):
     returncode, output = dry_run(tmp_path, 'tinyrna', lambda s: s.update(organism='rattus_norvegicus'), printshell=True)
     assert returncode == 0, output
-    assert '--output data/ext/tinyrna/mirbase-23.1_ensembl-104/rattus_norvegicus/mirna.gff3' in rule_block(output, 'tinyrna_gff')
+    assert '--output data/ext/tinyrna/mirbase-23.1_ensembl-104/rattus_norvegicus/mirna.v2.gff3' in rule_block(output, 'tinyrna_gff')
 
 
 def test_guards_stop_at_load(tmp_path):
@@ -124,10 +137,11 @@ def run_count(tmp_path, env):
                            '--output', str(tmp_path / 'out')], capture_output=True, text=True, env=env)
 
 
-def test_count_keeps_tiny_count_tables_under_fixed_names(tmp_path):
+@pytest.mark.parametrize('folder', ['project # one', 'project \U0001F9EC'])
+def test_count_keeps_tiny_count_tables_under_fixed_names(tmp_path, folder):
     tables = ' '.join('tinyrna_2026-01-01_00-00-00_{}.csv'.format(n) for n in tinyrna.RUN_TABLES)
     tables += ' ' + ' '.join('tinyrna_2026-01-01_00-00-00_S1_rep_1_{}.csv'.format(n) for n in tinyrna.LIBRARY_TABLES)
-    tmp_path = tmp_path / 'project # one'
+    tmp_path = tmp_path / folder  # a path outside the Basic Multilingual Plane must survive paths.yml
     tmp_path.mkdir()
     env = fake_tiny_count(tmp_path / 'bin', 'cat samples.csv > args.txt; echo "$@" >> args.txt\n'
                           'd=tiny-count_2026-01-01_00-00-00; mkdir -p $d/config && cp args.txt paths.yml features.csv $d/config/\n'
@@ -137,7 +151,7 @@ def test_count_keeps_tiny_count_tables_under_fixed_names(tmp_path):
     out = tmp_path / 'out'
     assert sorted(p.name for p in out.glob('*.csv')) == sorted('{}.csv'.format(n) for n in tinyrna.RUN_TABLES + tinyrna.LIBRARY_TABLES)
     record = (out / 'config/args.txt').read_text()
-    paths = yaml.safe_load((out / 'config/paths.yml').read_text())
+    paths = yaml.safe_load((out / 'config/paths.yml').read_text(encoding='utf-8'))
     assert paths == {'samples_csv': 'samples.csv', 'features_csv': 'features.csv',
                      'gff_files': [{'path': str(tmp_path / 'mirna.gff3'), 'alias': ['Name']}], 'run_directory': 'run_directory',
                      'tmp_directory': None, 'ebwt': None, 'reference_genome_files': None, 'adapter_fasta': None, 'plot_style_sheet': None}
