@@ -1299,3 +1299,62 @@ def test_protected_paths_are_checked_after_the_output_directory_is_open(tmp_path
     with pytest.raises(ValueError, match='aliases one of its inputs'):
         summary.write([project], output_dir / report.name)
     assert report.read_bytes() == original
+
+
+@pytest.mark.parametrize('mounted_root', ['project', 'benchmark'])
+def test_summary_refuses_output_below_an_alternate_project_mount(tmp_path, monkeypatch, mounted_root):
+    import summary
+    project = summary_projects(tmp_path / 'projects')[0]
+    root = project if mounted_root == 'project' else project / 'benchmark'
+    alias = tmp_path / 'mount'
+    output_dir = alias / 'results/reports'
+    output_dir.mkdir(parents=True)
+    # A bind mount exposes the same root inode under another name. Model that
+    # identity locally without requiring mount privileges in the test runner.
+    alias_stat = alias.stat()
+    real_stat = Path.stat
+
+    def stat_under_alternate_name(path, **kwargs):
+        if path == root:
+            return alias_stat
+        return real_stat(path, **kwargs)
+
+    monkeypatch.setattr(Path, 'stat', stat_under_alternate_name)
+    with pytest.raises(ValueError, match='inside the project'):
+        summary.write([project], output_dir / 'new-overview.html')
+    assert not list(output_dir.iterdir())
+
+
+def test_summary_waits_for_first_evaluation_before_checking_for_metrics(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from contextlib import contextmanager
+    from threading import Event
+
+    import evaluation
+    import summary
+
+    project = summary_projects(tmp_path)[0]
+    bench = project / 'benchmark'
+    for name in ('metrics.tsv', 'report.md'):
+        (bench / name).unlink()
+    writer_ready, reader_ready = Event(), Event()
+    lock = evaluation.evaluation_lock
+
+    @contextmanager
+    def coordinate_first_publication(directory, *, writer):
+        if not writer:
+            reader_ready.set()
+        with lock(directory, writer=writer) as acquired:
+            if writer:
+                writer_ready.set()
+                assert reader_ready.wait(5)
+            yield acquired
+
+    monkeypatch.setattr(evaluation, 'evaluation_lock', coordinate_first_publication)
+    output = tmp_path / 'summary.md'
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        publication = workers.submit(evaluation.publish, bench, ['metric', 'unitas'], [['exact', '0.75']], ['# Report'])
+        assert writer_ready.wait(5)
+        summary.write([project], output)
+        publication.result(timeout=5)
+    assert '| 0.75 |' in output.read_text()

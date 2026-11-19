@@ -55,8 +55,6 @@ def read_project(project, out_dir):
     bench = project / 'benchmark'
     if not (bench / 'dataset.yaml').is_file():
         raise ValueError('{}: no benchmark/dataset.yaml; not a benchmark project (`benchmark.py prepare`)'.format(project))
-    if not (bench / 'metrics.tsv').is_file():
-        raise ValueError('{}: no benchmark/metrics.tsv; run `benchmark.py evaluate --project {}`'.format(project, project))
     spec = yaml.safe_load((bench / 'dataset.yaml').read_text())
     kind = spec.get('pool') if spec.get('kind') == 'pool' else spec.get('kind')
     if kind not in [s[0] for s in SECTIONS]:
@@ -197,15 +195,43 @@ def html_page(sections):
             '<style>{}</style>\n</head>\n<body>\n{}\n</body>\n</html>\n'.format(STYLE, '\n'.join(body)))
 
 
+def directory_ancestors(directory):
+    """Directory identities through the mounted tree, starting from the open output directory."""
+    identities = set()
+    current = os.dup(directory)
+    try:
+        while True:
+            info = os.fstat(current)
+            identity = (info.st_dev, info.st_ino)
+            if identity in identities:  # At the filesystem namespace root, .. is the same directory.
+                return identities
+            identities.add(identity)
+            parent = os.open('..', getattr(os, 'O_PATH', os.O_RDONLY) | os.O_DIRECTORY, dir_fd=current)
+            os.close(current)
+            current = parent
+    finally:
+        os.close(current)
+
+
 def validate_destination(projects, entry, directory, directory_links):
     """Check the bound directory entry against the project locations and their link chains."""
     opened = os.fstat(directory)
     check_directory_identity(directory, entry.parent)
+    ancestors = directory_ancestors(directory)
     final, file_links = resolve_with_links(entry)
     destinations = {entry, final, *directory_links, *file_links}
     for project in projects:
         bench = project / 'benchmark'
         project_dirs = {project.resolve(), bench.resolve()}
+        # A mounted project may have a second absolute path. Check the opened
+        # directory and its parents even for a previously unused output name.
+        for root in project_dirs:
+            try:
+                info = root.stat()
+            except FileNotFoundError:
+                continue  # read_project diagnoses unprepared projects.
+            if (info.st_dev, info.st_ino) in ancestors:
+                raise ValueError(f'the output {entry} is inside the project {project}')
         sources = [project / 'config.yaml', *(bench / name for name in
                    ('dataset.yaml', 'metrics.tsv', 'report.md', '.evaluation.lock', 'evaluation.json', 'truth.tsv', 'samples.tsv'))]
         inputs = set()

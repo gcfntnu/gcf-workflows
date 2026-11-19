@@ -72,6 +72,8 @@ def read_metrics(bench):
     if not locked and (bench / '.evaluation.lock').exists():
         with evaluation_lock(bench, writer=False):
             files = evaluation_files(bench)
+    if 'metrics.tsv' not in files and 'evaluation.json' not in files:
+        raise ValueError(f'{bench.parent}: no benchmark/metrics.tsv; run `benchmark.py evaluate --project {bench.parent}`')
     if 'metrics.tsv' not in files or 'report.md' not in files:
         raise ValueError(message)
     data, report = files['metrics.tsv'], files['report.md']
