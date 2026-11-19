@@ -1,7 +1,7 @@
 #-*- mode:snakemake -*-
 """Small-RNA filtering with cutadapt only (filter.trim.quantifier: cutadapt, #350): the 3' adapter, the kit's random
 ends, reads containing the 5' adapter discarded, minimum length and N limit, then reads still containing 3' adapter or
-Illumina primer sequence discarded (#353); see scripts/cutadapt_config.py.
+Illumina primer sequence (#353) or a reagent oligo of the kit (#380) discarded; see scripts/cutadapt_config.py.
 """
 
 include:
@@ -20,14 +20,15 @@ if config['filter']['trim']['quantifier'] == 'cutadapt':
         shell:
             'python {params.script:q} five-prime-fasta {params.adapter5} {params.piece} > {output:q}'
 
-    rule smallrna_three_prime_artefacts:
+    rule smallrna_artefact_fasta:
         output:
-            join(FILTER_INTERIM, 'cutadapt', 'three_prime_artefacts.fa')
+            join(FILTER_INTERIM, 'cutadapt', 'artefacts.fa')
         params:
             script = src_gcf('scripts/cutadapt_config.py'),
-            adapter3 = CUTADAPT_SETTINGS['adapter3']
+            adapter3 = CUTADAPT_SETTINGS['adapter3'],
+            oligos = ' '.join(CUTADAPT_SETTINGS['reagent_oligos'])
         shell:
-            'python {params.script:q} three-prime-artefact-fasta {params.adapter3} > {output:q}'
+            'python {params.script:q} artefact-fasta {params.adapter3} {params.oligos} > {output:q}'
 
     rule smallrna_cutadapt_adapter:
         input:
@@ -72,7 +73,7 @@ if config['filter']['trim']['quantifier'] == 'cutadapt':
     rule smallrna_cutadapt_artefacts:
         input:
             R1 = rules.smallrna_cutadapt_filter.output.R1,
-            artefacts = rules.smallrna_three_prime_artefacts.output
+            artefacts = rules.smallrna_artefact_fasta.output
         output:
             R1 = temp(join(FILTER_INTERIM, 'cutadapt', '{sample}_R1.fastq')),
             json = join(FILTER_INTERIM, 'cutadapt_stages', '{sample}.artefacts.json')

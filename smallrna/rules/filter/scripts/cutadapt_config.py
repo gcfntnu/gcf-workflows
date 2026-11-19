@@ -10,6 +10,8 @@ Three cutadapt passes per sample:
    too many sequencing errors for pass 1 (in public plasma data often the RNY4 Y RNA fragment), adapter dimers with an
    indel or duplication in the adapter, and reads of primer sequence only. With that much adapter left, no quantifier
    annotates them (UNITAS: "no annotation"), so discarding them changes no count; it names them in the report.
+   Reads of the kit's reagent oligos (`reagent_oligos`, #380) are discarded in the same pass and counted apart: these
+   do change counts (UNITAS counted the TruSeq Stop Oligo as protein-coding reads).
 
 Pass 3 is a separate pass so that its `discard_trimmed` counts exactly these reads: cutadapt matches adapters before it
 applies the length and N filters, so per-record match counts of a combined pass include reads those filters removed.
@@ -21,6 +23,21 @@ kit, so they are constants rather than kit settings. A read with both a 5' artef
 a 5' artefact (pass 2 removes it first). The 16-nt minimum is essential: with 14-nt pieces (10% errors), pieces at the
 adapter's end matched human 18S rRNA (around position 400), hsa-miR-2116-3p and a misc_RNA; from 16 nt no human mature
 miRNA (miRBase 23.1) or Ensembl/GtRNAdb/SILVA tRNA, rRNA, snRNA, snoRNA, scaRNA, vault or misc_RNA sequence matches.
+
+The kit's reagent oligos follow (reagent_oligo_fasta), two records each:
+- the oligo as a 5' adapter with a minimum overlap of REAGENT_OLIGO_MIN_OVERLAP nt and FIVE_PRIME_MAX_ERROR_RATE: the
+  oligo complete anywhere in the read, or its 3' end of at least that length at the read start, as in the 5'-truncated
+  copies of the TruSeq Small RNA Stop Oligo (STP), which pass the other filters and which UNITAS counts as
+  protein-coding reads (COL5A3). Its one allowed error makes it catch copies with a sequencing error too; the cost
+  is that a fragment of a transcript whose sequence matches the oligo's end with one error (78 human transcripts,
+  see the end record below) is discarded too when it starts exactly there;
+- its last REAGENT_OLIGO_MIN_OVERLAP nt, exactly, anywhere in the read: copies after a few other bases, with a deletion
+  near their start or repeated end to end (0.27% of the reads the first record kept in a public TruSeq plasma
+  library, e.g. AA + CACCACGTTCCCGTGG). Exactly, because with one error the STP's end matches 78 human transcripts
+  (Ensembl 116 cDNA, COL5A3 among them); exactly, it matches one, and no human mature miRNA either way.
+Chimeras of an oligo and an insert are discarded too (7 of 5.8 million reads in public TruSeq plasma data at 14 nt).
+Without the setting (or with null) a kit has none, as with random_ends. A read that matches both a 3' artefact and an
+oligo record counts for the record cutadapt finds best; merge_cutadapt.py counts the two kinds apart by record name.
 
 5' adapter artefacts are fragments of the 5' adapter (`adapter5`) that start anywhere in it, usually end before its
 end, and sometimes follow a few other bases. cutadapt accepts a partial 5' adapter only when it runs to the adapter's 3'
@@ -47,7 +64,7 @@ rather than as too short.
 
 Included by smallrna/rules/filter/cutadapt.smk; also a command-line script for the adapter FASTAs:
     cutadapt_config.py five-prime-fasta ADAPTER5 PIECE > five_prime_adapters.fa
-    cutadapt_config.py three-prime-artefact-fasta ADAPTER3 > three_prime_artefacts.fa
+    cutadapt_config.py artefact-fasta ADAPTER3 [OLIGO ...] > artefacts.fa
 """
 import argparse
 import re
@@ -57,19 +74,31 @@ FIVE_PRIME_MIN_OVERLAP = 12
 MIN_FIVE_PRIME_PIECE = 14  # 12-13-nt pieces anywhere match miR-625-5p
 FIVE_PRIME_MAX_ERROR_RATE = 0.1
 THREE_PRIME_ARTEFACT_PIECE = 16
+THREE_PRIME_ARTEFACT_RECORD, REAGENT_OLIGO_RECORD = 'three_prime_artefact_', 'reagent_oligo_'  # record name prefixes, read by merge_cutadapt.py
+REAGENT_OLIGO_MIN_OVERLAP = 14  # in TruSeq plasma: 7 STP-miRNA chimeras of 5.8 M reads discarded at 14 nt, 43 at 10 (#380)
 ILLUMINA_INDEX_PRIMER_START = 'AACTCCAGTCAC'
 ILLUMINA_P7 = 'ATCTCGTATGCCGTCTTCTGCTTG'
-DNA = re.compile(r'^[ACGT]+$')
+DNA = re.compile(r'^[ACGT]+\Z')  # \Z, not $: '$' also matches before a trailing newline
+
+
+def check_oligos(oligos):
+    """Fail unless oligos is a list of distinct A/C/G/T sequences of at least REAGENT_OLIGO_MIN_OVERLAP nt."""
+    if not isinstance(oligos, list) or not all(isinstance(o, str) and DNA.match(o) and len(o) >= REAGENT_OLIGO_MIN_OVERLAP for o in oligos):
+        raise ValueError('a list of A/C/G/T sequences of at least {} nt, got {!r}'.format(REAGENT_OLIGO_MIN_OVERLAP, oligos))
+    ends = [o[-REAGENT_OLIGO_MIN_OVERLAP:] for o in oligos]
+    if len(set(ends)) != len(ends):
+        raise ValueError('oligos must differ in their last {} nt (an oligo listed twice?): {!r}'.format(REAGENT_OLIGO_MIN_OVERLAP, oligos))
 
 
 def cutadapt_settings(config):
-    """Validated settings from config['adapter'] and config['filter']['trim']['cutadapt']; fails on anything missing."""
+    """Validated settings from config['adapter'] and config['filter']['trim']['cutadapt']; fails on anything missing
+    except the optional random_ends (0) and reagent_oligos (none)."""
     settings = (config.get('filter', {}).get('trim', {}) or {}).get('cutadapt') or {}
     kit = config.get('libprepkit', 'this kit')
     if not settings:
         raise ValueError('filter.trim.quantifier: cutadapt needs filter.trim.cutadapt settings, none for {!r}; '
                          'set them in libprep.config or the project configuration'.format(kit))
-    unknown = sorted(set(settings) - {'adapter5', 'five_prime_piece', 'random_ends', 'minimum_length', 'max_n', 'max_ee'})
+    unknown = sorted(set(settings) - {'adapter5', 'five_prime_piece', 'random_ends', 'minimum_length', 'max_n', 'max_ee', 'reagent_oligos'})
     if unknown:
         raise ValueError('filter.trim.cutadapt: unknown setting(s) {}'.format(', '.join(unknown)))
     adapter3 = config.get('adapter')
@@ -96,8 +125,14 @@ def cutadapt_settings(config):
         raise ValueError('filter.trim.cutadapt.max_n: a number of N bases >= 0, or null, got {!r}'.format(max_n))
     if max_ee is not None and (isinstance(max_ee, bool) or not isinstance(max_ee, (int, float)) or max_ee <= 0):
         raise ValueError('filter.trim.cutadapt.max_ee: expected errors > 0, or null, got {!r}'.format(max_ee))
+    oligos = settings.get('reagent_oligos')
+    oligos = [] if oligos is None else oligos
+    try:
+        check_oligos(oligos)
+    except ValueError as error:
+        raise ValueError('filter.trim.cutadapt.reagent_oligos: {}'.format(error))
     return {'adapter3': adapter3, 'adapter5': adapter5, 'five_prime_piece': piece, 'random_ends': random_ends, 'minimum_length': minimum_length,
-            'max_n': max_n, 'max_ee': max_ee}
+            'max_n': max_n, 'max_ee': max_ee, 'reagent_oligos': oligos}
 
 
 def adapter_args(settings):
@@ -132,7 +167,8 @@ def five_prime_fasta(adapter5, piece):
 
 
 def artefact_args():
-    """Options of the third pass, except the 3' artefact FASTA (-g file:...): only flag and discard."""
+    """Options of the third pass, except the artefact FASTA (-g file:...): only flag and discard. cutadapt's default of
+    one match per read (-n 1) lets merge_cutadapt.py split the discarded reads by record; keep it."""
     return '--action=none --discard-trimmed'
 
 
@@ -144,9 +180,26 @@ def three_prime_artefact_fasta(adapter3):
     for tag, sequence in (('adapter', adapter3 + ILLUMINA_INDEX_PRIMER_START), ('p7', ILLUMINA_P7)):
         pieces = sorted({sequence[i:i + n] for n in range(THREE_PRIME_ARTEFACT_PIECE, len(sequence) + 1)
                          for i in range(len(sequence) - n + 1)}, key=lambda p: (-len(p), sequence.index(p)))
-        records += ['>three_prime_artefact_{}_{}_{}\n{};min_overlap={};max_error_rate={}\n'.format(
-            tag, sequence.index(p), len(p), p, THREE_PRIME_ARTEFACT_PIECE, FIVE_PRIME_MAX_ERROR_RATE) for p in pieces]
+        records += ['>{}{}_{}_{}\n{};min_overlap={};max_error_rate={}\n'.format(
+            THREE_PRIME_ARTEFACT_RECORD, tag, sequence.index(p), len(p), p, THREE_PRIME_ARTEFACT_PIECE, FIVE_PRIME_MAX_ERROR_RATE) for p in pieces]
     return ''.join(records)
+
+
+def reagent_oligo_fasta(oligos):
+    """cutadapt adapter FASTA records of the kit's reagent oligos: the oligo as a 5' adapter with
+    REAGENT_OLIGO_MIN_OVERLAP and FIVE_PRIME_MAX_ERROR_RATE (complete anywhere, or its 3' end at the read start), and
+    its last REAGENT_OLIGO_MIN_OVERLAP nt without errors, anywhere (left out for an oligo of just that length)."""
+    n, records = REAGENT_OLIGO_MIN_OVERLAP, []
+    for i, o in enumerate(oligos, 1):
+        records.append('>{}{}_{}\n{};min_overlap={};max_error_rate={}\n'.format(REAGENT_OLIGO_RECORD, i, len(o), o, n, FIVE_PRIME_MAX_ERROR_RATE))
+        if len(o) > n:
+            records.append('>{}{}_end_{}\n{};min_overlap={};max_error_rate=0\n'.format(REAGENT_OLIGO_RECORD, i, n, o[-n:], n))
+    return ''.join(records)
+
+
+def artefact_fasta(adapter3, oligos):
+    """cutadapt adapter FASTA of the third pass: the 3' artefact records, then the reagent oligos."""
+    return three_prime_artefact_fasta(adapter3) + reagent_oligo_fasta(oligos)
 
 
 def main():
@@ -155,13 +208,18 @@ def main():
     fasta = sub.add_parser('five-prime-fasta')
     fasta.add_argument('adapter5')
     fasta.add_argument('piece', type=int)
-    artefacts = sub.add_parser('three-prime-artefact-fasta')
+    artefacts = sub.add_parser('artefact-fasta')
     artefacts.add_argument('adapter3')
+    artefacts.add_argument('oligos', nargs='*', help="the kit's reagent oligos")
     args = parser.parse_args()
-    if args.command == 'three-prime-artefact-fasta':
+    if args.command == 'artefact-fasta':
         if not DNA.match(args.adapter3):
             parser.error('adapter3 must be an A/C/G/T sequence')
-        print(three_prime_artefact_fasta(args.adapter3), end='')
+        try:
+            check_oligos(args.oligos)
+        except ValueError as error:
+            parser.error('reagent oligos: {}'.format(error))
+        print(artefact_fasta(args.adapter3, args.oligos), end='')
         return
     if not DNA.match(args.adapter5) or len(args.adapter5) < FIVE_PRIME_MIN_OVERLAP:
         parser.error('adapter5 must be an A/C/G/T sequence of at least {} nt'.format(FIVE_PRIME_MIN_OVERLAP))

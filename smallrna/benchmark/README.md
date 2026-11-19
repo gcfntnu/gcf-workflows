@@ -170,7 +170,7 @@ miRNA reads):
   (`only_a` and `only_b` for the first and second method of the pair).
 - **Blocked miRNAs:** CPM of miR-451a, miR-486-5p and miR-92a-3p, the targets of the NEXTflex blood miRNA blockers.
 - **Filtering:** reads through the cutadapt route's three passes (3' adapter found, 5' adapter discarded, too short,
-  N, expected errors, artefacts discarded, kept), from their JSON reports, which must chain (each pass read what the
+  N, expected errors, 3' artefacts and reagent oligo reads discarded, kept), from their JSON reports, which must chain (each pass read what the
   one before wrote); only for the cutadapt route.
 - **First bases:** in the 20 most abundant miRNAs, the share of reads that match from the second base on but have
   another first base, with the median quality of canonical and substituted first bases (reads of miRNAs that differ
