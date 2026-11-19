@@ -93,7 +93,7 @@ class LangmeadReleaseTests(unittest.TestCase):
                         text += f'include: {str(ROOT / "common/kraken2.smk")!r}\n'
                         target = 'qc/kraken2/synthetic.kraken.kreport'
                     else:
-                        text += f'include: {str(ROOT / "gcfdb/langmead.db")!r}\n'
+                        text += f'include: {str(ROOT / "metagenome/rules/reference_db.smk")!r}\n'
                         text += f'include: {str(ROOT / "metagenome/rules/quant/kraken2.smk")!r}\n'
                         target = f'quant/kraken2/{assembly}/synthetic/synthetic.kraken.kreport'
                     (work / 'Snakefile').write_text(text)

@@ -1,7 +1,6 @@
 #-*- mode: snakemake -*-
 """Snakemake rules for kraken2 workflow of metagenomic data
 """
-import glob
 import pandas as pd
 
 include: join(GCFDB_DIR, "krona.db")
@@ -9,27 +8,16 @@ include: join(GCFDB_DIR, "krona.db")
 DB_CONF = config['db'][config['db']['reference_db']]
 K2_INTERIM = join(QUANT_INTERIM, 'kraken2', DB_CONF['assembly'])
 
-if config['db']['reference_db'] == 'langmead':
-    # Use the producer's location; sample organism may be N/A or a host species.
-    K2_DB_DIR = dirname(rules.langmead_kraken_prebuild.output.hash)
-    DB_SHMEM = rules.langmead_shmem.output
-    BRACKEN_N_MERS = LM_BRACKEN_N_MERS
-elif config['db']['reference_db'] == 'ncbi_16s':
-    K2_DB_DIR = dirname(rules.ncbi_16s_kraken_build.output.hash)
-    DB_SHMEM = rules.ncbi_16s_shmem.output
-    BRACKEN_N_MERS = NCBI_BRACKEN_N_MERS
-
-
 if PE:
     rule kraken_classify:
         input:
             unpack(get_filtered_fastq),
-            shmem = DB_SHMEM,
+            database = lambda wc: [metagenome_database_input(path) for path in KRAKEN_INDEX],
         output:
             report = join(K2_INTERIM, '{sample}', '{sample}.kraken.kreport'),
             output = join(K2_INTERIM, '{sample}', '{sample}.kraken.out'),
         params:
-            db = dirname(DB_SHMEM[0]),
+            db = dirname(KRAKEN_INDEX[0]),
             params = '--gzip-compressed --memory-mapping --paired'
         log:
             join(K2_INTERIM, '{sample}', '{sample}.kraken.log')
@@ -39,7 +27,7 @@ if PE:
             'docker://' + config['docker']['kraken2']
         shell:
             'kraken2 '
-            '--db {params.db} '
+            '--db {params.db:q} '
             '--output {output.output} '
             '--report {output.report} '
             '--threads {threads} '
@@ -50,12 +38,12 @@ else:
     rule kraken_classify:
         input:
             unpack(get_filtered_fastq),
-            shmem = DB_SHMEM,
+            database = lambda wc: [metagenome_database_input(path) for path in KRAKEN_INDEX],
         output:
             report = join(K2_INTERIM, '{sample}', '{sample}.kraken.kreport'),
             output = join(K2_INTERIM, '{sample}', '{sample}.kraken.out'),
         params:
-            db = dirname(DB_SHMEM[0]),
+            db = dirname(KRAKEN_INDEX[0]),
             params = '--gzip-compressed --memory-mapping '
         log:
             join(K2_INTERIM, '{sample}', '{sample}.kraken.log')
@@ -65,7 +53,7 @@ else:
             'docker://' + config['docker']['kraken2']
         shell:
             'kraken2 '
-            '--db {params.db} '
+            '--db {params.db:q} '
             '--output {output.output} '
             '--report {output.report} '
             '--threads {threads} '
@@ -91,7 +79,7 @@ def get_bracken_level(input):
 
 rule bracken:
     input:
-        db = join(K2_DB_DIR, "database{}mers.kmer_distrib".format(N_MER)),
+        db = lambda wc: metagenome_database_input(join(REF_DIR, f"database{N_MER}mers.kmer_distrib")),
         report = rules.kraken_classify.output.report,
     output:
         report = join(K2_INTERIM, '{sample}', '{sample}.bracken_kreport'),
@@ -99,14 +87,14 @@ rule bracken:
     params:
         read_length = N_MER,
         level = lambda wildcards, input: get_bracken_level(input),
-        db = K2_DB_DIR,
+        db = REF_DIR,
         script = src_gcf("scripts/run_bracken.py")
     threads:
         4
     container:
         "docker://" + config['docker']['bracken']
     shell:
-        "python {params.script} -d {params.db} -i {input.report} -o {output.out} -w {output.report} -r {params.read_length} -l {params.level} "
+        "python {params.script} -d {params.db:q} -i {input.report} -o {output.out} -w {output.report} -r {params.read_length} -l {params.level} "
 
 
 rule bracken_all:

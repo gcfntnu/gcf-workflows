@@ -22,5 +22,5 @@ if __name__=='__main__':
             fh.write("name\ttaxonomy_id\ttaxonomy_lvl\tkraken_assigned_reads\tadded_reads new_est_reads\tfraction_total_reads\n")
             fh.write("root\t1\tR\t0\t0\t0\t100.00\n")
     else:
-        subprocess.run(f"bracken -d {args.d} -i {args.i} -o {args.o} -w {args.w} -r {args.r} -l {args.l} ", check=True, shell=True)
+        subprocess.run(["bracken", "-d", args.d, "-i", args.i, "-o", args.o, "-w", args.w, "-r", args.r, "-l", args.l], check=True)
 

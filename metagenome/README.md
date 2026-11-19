@@ -47,14 +47,20 @@ logs/<sample>/<sample>.fastp.html, .fastp.json, _R1_fastqc.html, _R1_fastqc.zip,
 | `db.langmead.release`, `db.langmead.assembly` | Full `k2_pluspf`, release in `main.config` | [main.config](../main.config); see [gcfdb/README.md](../gcfdb/README.md#langmead-prebuilt-kraken-databases) |
 | `db.ncbi_16s.*` | Release in `main.config` | `main.config` |
 | `db.primers` | Not set; QIAseq region primers enable Cutadapt | Kit entry |
-| `ref_dir` / `GCF_REFDIR` | Not set; custom reference directory | Project / environment ([#240](https://github.com/gcfntnu/gcf-workflows/issues/240)) |
+| `ref_dir` | Unset, empty or null selects the configured provider | Top-level project configuration |
 
 [metagenome.config](metagenome.config) is empty. Precedence is described in [docs/configuration.md](../docs/configuration.md#effective-precedence).
+
+A project can select a prepared classification database with, for example, `ref_dir: refs/panel-v1`.
+Kraken2 reads `hash.k2d`, `opts.k2d` and `taxo.k2d` directly from that directory.
+Reporting also requires Bracken's `database<N>mers.kmer_distrib` there. The workflow selects the provider-supported
+length closest to the first read's length (for example, `database150mers.kmer_distrib` for 151-base reads).
+The configured provider and assembly still determine the read-length options and intermediate output layout.
 
 ## Tests
 
 - `metagenome/.tests`: synthetic dry-run fixture (Nextera XT, paired-end, two samples). CI runs `snakemake -n -p --cores 1 multiqc_report` there (`test-metagenome.yaml`).
-- `metagenome/.tests/test_langmead_release.py` and `test_bracken_database.py`: dry-run regression tests of database paths and Bracken distributions, without downloads (CI job `bracken-database`).
+- `metagenome/.tests/test_langmead_release.py`, `test_bracken_database.py` and `test_project_database.py` check expanded Kraken2 and Bracken commands, database paths and Bracken distributions, without downloads (CI job `bracken-database`).
 - Commands and environments: [development guide](../docs/development.md#run-the-checks).
 
 ## More documentation
