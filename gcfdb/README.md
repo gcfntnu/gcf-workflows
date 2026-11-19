@@ -34,6 +34,7 @@ The builder copies the selected FASTA and GTF into a private working directory, 
 Absolute project paths and paths containing `..` are mapped into that private directory. The published index retains the verified originals in `gcf-source/`.
 Count uses `--transcriptome refs/panel-v1/cellranger/builds/<source-digest>/<build-key>`.
 The source digest covers the SHA-256 checksums of both files. The build key covers the normalized Cell Ranger genome identifier, configured image and recipe version.
+Workdir receipts distinguish the canonical cache directory, so changing to another prepared directory selects its own index even if the inputs are identical.
 Each complete index and its input manifest are published together. A forced run or a second project reuses a matching generation.
 Changing either source, the genome identifier or the image selects a separate directory. Existing counts can continue reading their original index.
 Legacy indexes directly under `ref_dir/cellranger` lack this identity and require a fresh build.

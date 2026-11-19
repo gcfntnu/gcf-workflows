@@ -11,7 +11,9 @@ if build_10x_reference:
     CR_IMAGE = config['docker']['cellranger']
     CR_BUILD_KEY = cellranger_build_key(CR_GENOME, CR_IMAGE)
     CR_CACHE = join(REF_DIR, 'cellranger', 'builds')
-    views = join(QUANT_INTERIM, 'reference', 'cellranger')
+    # Equal inputs can live in distinct project caches. A path alias for the same cache shares its pin.
+    cache_key = hashlib.sha256(os.fsencode(os.path.realpath(CR_CACHE))).hexdigest()
+    views = join(QUANT_INTERIM, 'reference', 'cellranger', cache_key)
     CR_EXPECTED_SOURCE = REFERENCE_SOURCE_DIGEST
     if not config.get('ref_dir'):
         managed_ref = os.path.relpath(REF_DIR, EXT_DIR)

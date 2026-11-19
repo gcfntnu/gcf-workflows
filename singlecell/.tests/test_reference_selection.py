@@ -115,7 +115,7 @@ def test_ensembl_genomes_fallback_and_workdir_release_change(tmp_path):
         location = f'ensemblgenomes/release-{selected}/plants/{organism}/{assembly}'
         assert_build_and_count(log, f'data/ext/{location}')
         receipt, = arguments(log, 'cellranger mkref ', '--receipt')
-        assert f'/cellranger/{location}/' in receipt
+        assert f'/{location}/' in receipt
         assert_managed_gene_metadata(log, Path(receipt))
         assert 'rule multiqc_report:' in log and 'refdata-gex-' not in log
 
@@ -404,6 +404,30 @@ def test_retained_receipt_checks_index_before_count(tmp_path):
     assert 'cellranger count ' in warm
     receipt = tmp_path / build[build.index('--receipt') + 1]
     manifest = receipt.resolve(strict=True)
+
+    # Switching to an identically prepared directory must honor the newly selected cache.
+    other = tmp_path / 'second panel'
+    write_panel(tmp_path, other)
+    configfile = tmp_path / 'config.yaml'
+    original_config = configfile.read_text()
+    config = yaml.safe_load(original_config)
+    config['ref_dir'] = str(other)
+    configfile.write_text(yaml.safe_dump(config))
+    switched = plan_existing(tmp_path, COUNT_TARGET)
+    assert_build_and_count(switched, str(other))
+    other_receipt, = arguments(switched, 'cellranger mkref ', '--receipt')
+    assert (tmp_path / other_receipt) != receipt
+    assert receipt.resolve(strict=True) == manifest
+
+    alias = tmp_path / 'first panel alias'
+    alias.symlink_to(panel, target_is_directory=True)
+    config['ref_dir'] = str(alias)
+    configfile.write_text(yaml.safe_dump(config))
+    same = plan_existing(tmp_path, COUNT_TARGET)
+    assert 'cellranger mkref ' not in same
+    transcriptome, = arguments(same, 'cellranger count ', '--transcriptome')
+    assert Path(transcriptome).resolve() == manifest.parent
+    configfile.write_text(original_config)
     fasta = manifest.parent / 'fasta/genome.fa'
     fasta.unlink()
     damaged = plan_existing(tmp_path, COUNT_TARGET, expect_success=False)
