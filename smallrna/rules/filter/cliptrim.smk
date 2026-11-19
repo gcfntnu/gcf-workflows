@@ -1,8 +1,14 @@
 #-*- mode:snakemake -*-
 
-"""Trim and filter of small-rna sequences.
+"""Trim and filter of small-rna sequences: the optional fastp route (filter.trim.quantifier: fastp, #215, #350).
 
-Adapter removal precedes fixed end clipping and automatic polyG processing for every kit.
+Adapter removal precedes fixed end clipping and automatic polyG processing for every kit. fastp 0.20.1 runs twice:
+adapter removal only, with the generated options `-Q -L -G` (no quality, N-base or length filtering, no polyG trimming;
+empty reads are still rejected and counted as too short), then the project's `filter.trim.fastp.args` with `-A`, so
+adapters are not removed again. Within one invocation fastp trims polyG and fixed ends before adapters
+(https://github.com/OpenGene/fastp/blob/v0.20.1/src/seprocessor.cpp): a polyG tract exposed only after adapter removal
+would be handled differently, and NEXTflex v3's `-f 4 -t 4` would clip the wrong 3' bases. A one-pass route needs a
+separately validated policy. merge_fastp.py reconciles the two passes into one report per sample.
 """
 ruleorder: smallrna_fastp > fastp_log > fastp
 

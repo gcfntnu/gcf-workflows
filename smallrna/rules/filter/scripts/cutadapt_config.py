@@ -62,6 +62,14 @@ adapter would keep artefacts (in a low-yield public plasma library 0.3% of kept 
 end after a few other bases, e.g. AAAAGTCCGACGATC) (#350). The match only flags the read (--action=none), so the report counts discarded artefacts as such
 rather than as too short.
 
+Quality: `max_ee` (cutadapt --max-ee, the sum of a read's error probabilities from its base qualities; 1 for every
+kit) discards reads expected to hold one or more sequencing errors, a read-level filter like the fastp route's
+`-q 15 -u 40`. On 11 public runs (TruSeq and NEXTflex v3 pools, TruSeq plasma) it removed 0-1.3% of reads, lost no
+read exactly matching a human mature miRNA in plasma and at most 2 exact pool reads per run, and changed no miRNA
+count; on four public NEXTflex v4 plasma runs it removed 0.03-0.08%. The NEXTflex v4 manual's 3' quality trimming
+(`--quality-cutoff 20`) and 16-nt minimum are not used: on the same runs `-q 20` lost 5-40 exact pool reads per run
+and gained nothing (#350).
+
 Included by smallrna/rules/filter/cutadapt.smk; also a command-line script for the adapter FASTAs:
     cutadapt_config.py five-prime-fasta ADAPTER5 PIECE > five_prime_adapters.fa
     cutadapt_config.py artefact-fasta ADAPTER3 [OLIGO ...] > artefacts.fa

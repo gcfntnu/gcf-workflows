@@ -24,6 +24,30 @@ references and everything downstream rerun when a workflow was resumed on a late
 day ([#330](https://github.com/gcfntnu/gcf-workflows/issues/330)).
 `.tests/test_rule_param_dates.py` checks that no rule's `params` reads the clock.
 
+### Small-RNA quantifier references
+
+The smallrna quantification routes each use their own reference under `EXT_DIR`; the getter files' docstrings give
+their identity, sources and checks.
+
+- **UNITAS reference dumps** ([`unitas.db`](unitas.db)): `UNITAS_refdump_<organism>` from `db.unitas.release`
+  (miRBase) or `db.unitas.mirgenedb_release` (MirGeneDB, with `db.unitas.mirna_db: mirgenedb`), for human, mouse and
+  rat only. `unitas_db_verify` checks a cached dump against its release's `SHA256SUMS`. smallrna's `unitas_reference`
+  (per project, [`unitas_reference.py`](../smallrna/rules/quant/scripts/unitas_reference.py)) records the dump's
+  releases and stops when its miRNA database or miRBase release differs from `db.unitas.mirna_db` or
+  `db.mirbase.release`: UNITAS counts are joined to the annotation by name, and names change between releases (with
+  the miRBase 22 GFF, 35% of the miRNAs a miRBase 23.1 dump counts are unannotated).
+- **miRge3 libraries** ([`mirge3.db`](mirge3.db), [`mirge3_library.py`](scripts/mirge3_library.py)): dated releases
+  built from public sources ([gcfntnu/gcf-docker#41](https://github.com/gcfntnu/gcf-docker/pull/41), which lists the
+  changes from the old SourceForge libraries: miRBase 23.1, MirGeneDB 3.0, Ensembl 116, merge groups of identical
+  sequences only), checked against `SHA256SUMS`; `sourceforge` keeps the old unversioned library for retained
+  analyses. smallrna builds each project's own library with its spike-in index
+  ([`mirge3_project_library.py`](../smallrna/rules/quant/scripts/mirge3_project_library.py)).
+- **mirflowz references** ([`mirflowz.db`](mirflowz.db)): genome, GTF and miRBase GFF on one assembly, the Ensembl
+  release fixed per organism in `db.mirflowz.ensembl_release`, prepared with mirflowz's own rules. segemehl needs about
+  60 GB of memory for a human or mouse genome index.
+- **TEsmall databases** ([`tesmall.db`](tesmall.db)): built on the mirflowz reference's genome, with a Bowtie 1 index
+  of it, and once per UNITAS dump, from which the piRNA clusters come.
+
 ### Langmead prebuilt Kraken databases
 
 The shared default is full **`k2_pluspf`, release `'20260626'`**. The
