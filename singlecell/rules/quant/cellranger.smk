@@ -9,20 +9,7 @@ ORG = config.get('organism', 'homo_sapiens')
 CR_CONF = config['quant']['cellranger']
 
 
-if 'txgenomics_org_prebuild' in workflow._rules:
-    ruleorder: txgenomics_org_prebuild > cellranger_symlink_gtf
-    ruleorder: txgenomics_org_prebuild > cellranger_mkref
-
-if not '10xgenomics' in REF_DIR:
-    CR_REF_DIR = join(REF_DIR, 'cellranger')
-else:
-    if ORG not in ['homo_sapiens', 'mus_musculus', 'homo_sapiens__mus_musculus']:
-        if 'txgenomics_org_prebuild' in workflow._rules:
-            ruleorder: cellranger_symlink_gtf > txgenomics_org_prebuild
-            ruleorder: cellranger_mkref > txgenomics_org_prebuild
-        CR_REF_DIR = join(REF_DIR, 'cellranger')
-    else:
-        CR_REF_DIR = REF_DIR
+CR_REF_DIR = REF_DIR if USE_10X_PREBUILT else join(REF_DIR, 'cellranger')
 
 
 def input_fastq_path(wildcards, input):
@@ -48,43 +35,47 @@ rule cellranger_gtf:
     shell:
         'cellranger mkgtf {input} {output} {params}'
 
-rule cellranger_mkref:
-    input:
-         fasta = rules.ensembl_genome.output,
-         gtf = rules.ensembl_gtf.output,
-    params:
-        out_name = ENS_ASSEMBLY,
-        out_dir = CR_REF_DIR,
-    output:
-        join(CR_REF_DIR, 'reference.json'),
-        join(CR_REF_DIR, 'fasta', 'genome.fa'),
-        join(CR_REF_DIR, 'genes', 'genes.gtf.gz')
-    threads:
-        48
-    container:
-        'docker://' + config['docker']['cellranger']
-    shell:
-        'cellranger mkref '
-        '--fasta {input.fasta} '
-        '--genes {input.gtf} '
-        '--nthreads {threads} '
-        '--genome {params.out_name} '
-        '&& cp -r {params.out_name}/* {params.out_dir}/ '
-        '&& rm -rf {params.out_name} '
+if not USE_10X_PREBUILT:
+    if config.get('ref_dir'):
+        for path in (get_genome(), get_gtf()):
+            if not os.path.isfile(path):
+                raise ValueError(f"Project ref_dir is missing required Cell Ranger input: {path}")
 
-rule cellranger_symlink_gtf:
-    input:
-        join(CR_REF_DIR, 'genes', 'genes.gtf.gz')
-    output:
-        join(CR_REF_DIR, 'anno', 'genes.gtf')
-    params:
-        gtf = join(CR_REF_DIR, 'genes', 'genes.gtf')
-    shell:
-        'gunzip -k {input} && mv {params.gtf} {output}'
+    rule cellranger_mkref:
+        input:
+            fasta = get_genome(),
+            gtf = get_gtf()
+        output:
+            join(CR_REF_DIR, 'reference.json'),
+            join(CR_REF_DIR, 'fasta', 'genome.fa'),
+            join(CR_REF_DIR, 'genes', 'genes.gtf.gz')
+        params:
+            # Cell Ranger 10.0 accepts only letters, digits, underscores and dashes in --genome.
+            name = re.sub(r'[^A-Za-z0-9_-]', '_', DB_CONF.get('assembly') or ORG),
+            out_dir = CR_REF_DIR
+        threads:
+            48
+        container:
+            'docker://' + config['docker']['cellranger']
+        shell:
+            'stage=$(mktemp -d {params.out_dir:q}/.mkref.XXXXXXXX) && '
+            "trap 'rm -rf \"$stage\"' EXIT && "
+            'cellranger mkref --fasta {input.fasta:q} --genes {input.gtf:q} --nthreads {threads} '
+            '--genome {params.name:q} --output-dir "$stage/reference" && '
+            'cp -a "$stage/reference/." {params.out_dir:q}/'
+
+    rule cellranger_symlink_gtf:
+        input:
+            join(CR_REF_DIR, 'genes', 'genes.gtf.gz')
+        output:
+            join(CR_REF_DIR, 'anno', 'genes.gtf')
+        shell:
+            'gzip -dc {input:q} > {output:q}'
 
 rule cellranger_quant_:
     input:
         unpack(get_raw_fastq),
+        reference = join(CR_REF_DIR, 'reference.json'),
         genome = join(CR_REF_DIR, 'fasta', 'genome.fa'),
         gtf = join(CR_REF_DIR, 'anno', 'genes.gtf')
     params:
@@ -122,7 +113,7 @@ rule cellranger_quant_:
         '--fastqs {params.input} '
         '--id {params.id} '
         '--sample {params.sample} '
-        '--transcriptome {params.genome_dir} '
+        '--transcriptome {params.genome_dir:q} '
         '--chemistry {params.chemistry} '
         '{params.extra_args} '
 

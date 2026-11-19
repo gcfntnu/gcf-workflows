@@ -58,7 +58,7 @@ def init_ensembl(els):
         return config
 
     for k in ['assembly', 'division']:
-        if els.get(k) is not None:
+        if els.get(k) is not None and not (config.get('ref_dir') and config['db']['ensembl'].get(k)):
             config['db']['ensembl'][k] = els[k]
 
     return config
@@ -72,7 +72,7 @@ config = init_ensembl(ensembl_lookup(ENS_LOOKUP))
 ENS_DIVISION = config['db']['ensembl'].get('division', '')
 ENS_ASSEMBLY = config['db']['ensembl'].get('assembly', '')
 
-if not ENS_ASSEMBLY and os.path.exists(ENS_LOOKUP):
+if not config.get('ref_dir') and not ENS_ASSEMBLY and os.path.exists(ENS_LOOKUP):
     # lookup exists, but organism was not found
     ref = config['db'].get('reference_db')
     if ref is None:

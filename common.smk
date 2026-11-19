@@ -2,8 +2,9 @@
 """Snakmake rules shared between workflows
 """
 
-include:
-    'gcfdb/ensembl.db'
+# Keep Ensembl resources available for independent QC when a release is configured.
+if not config.get('ref_dir') or config['db']['ensembl'].get('release'):
+    include: 'gcfdb/ensembl.db'
 include:
     'gcfdb/indexes.smk'
 include:

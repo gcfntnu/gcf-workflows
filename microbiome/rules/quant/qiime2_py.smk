@@ -3,9 +3,8 @@
 """
 import glob
 
-DB_CONF = config['db'][config['db']['reference_db']]
 QIIME2_INTERIM = join(QUANT_INTERIM, 'qiime2', config['db']['reference_db'])
-CLASSIFIER_DIR = join(EXT_DIR, config['db']['reference_db'].lower(), DB_CONF['release'], 'qiime2', 'classifiers', 'export')
+CLASSIFIER_DIR = join(REF_DIR, 'qiime2', 'classifiers', 'export')
 
 rule qiime2_sample_info:
     input:
@@ -62,7 +61,7 @@ checkpoint qiime2_run_regions:
         '--sample-info {input.sample_info} '
         '--libprep {params.libprep} '
         '--taxonomy-db {params.taxonomy_db} '
-        '--classifier-dir {params.classifier_dir} '
+        '--classifier-dir {params.classifier_dir:q} '
         '--classifier-level {params.classifier_level} '
         '--libprep-config {params.libprep_conf} '
         '--filter-region-count {params.filter_region_count} '
