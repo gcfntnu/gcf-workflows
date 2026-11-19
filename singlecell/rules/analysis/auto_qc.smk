@@ -139,7 +139,7 @@ rule autoqc_prepare:
         '--input-format {params.input_format} '
         '--barcode-rename {params.barcode_rename} '
         '{params.aggr_csv}'
-        '--feature-info {input.feature_info} '
+        '--feature-info {input.feature_info:q} '
         '--barcode-info {input.barcode_info} '
         '--output-metrics {output.metrics} '
         '--qc-sample {params.qc_sample} '

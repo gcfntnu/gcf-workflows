@@ -19,6 +19,7 @@ rule qiime2_sample_info:
 
 checkpoint qiime2_run_regions:
     input:
+        classifiers = [CLASSIFIER_DIR] if config.get('ref_dir') else [],
         sample_info = rules.qiime2_sample_info.output,
         R1 = expand(join(FILTER_INTERIM, 'fastp', '{sample}_R1.fastq'), sample=SAMPLES),
         R2 = expand(join(FILTER_INTERIM, 'fastp', '{sample}_R2.fastq'), sample=SAMPLES)

@@ -430,7 +430,7 @@ rule preprocess_plan:
     shell:
         'python {params.script} '
         '--anndata {input.anndata} '
-        '--gene-metadata {input.gene_metadata} '
+        '--gene-metadata {input.gene_metadata:q} '
         '--cells {output.cells} '
         '--genes {output.genes} '
         '--obs {output.obs} '

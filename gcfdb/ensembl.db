@@ -13,8 +13,9 @@ Use ensembl.org for vertebrates and ensemblgenomes for other kingdoms.
 PROTOCOL = 'https://'
 
 # assembly name lookup table
-include:
-    'init_ensembl.smk'
+# Project reference inputs do not need the remote release and division lookup.
+if not config.get('ref_dir'):
+    include: 'init_ensembl.smk'
 
 
 if '__' in config['organism']:

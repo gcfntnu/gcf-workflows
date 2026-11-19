@@ -545,7 +545,7 @@ rule tmp_lightweight_raw:
     shell:
         'python {params.script} '
         '{input.mtx} '
-        '--feature-info {input.feature_info} '
+        '--feature-info {input.feature_info:q} '
         '--barcode-rename skip '
         '--no-zero-cell-rm '
         '-o {params.base} '
@@ -580,7 +580,7 @@ rule tmp_lightweight_filtered:
     shell:
         'python {params.script} '
         '{input.mtx} '
-        '--feature-info {input.feature_info} '
+        '--feature-info {input.feature_info:q} '
         '{params.barcode_info_flag} {input.barcode_info:q} '
         '--barcode-rename skip '
         '-o {params.base} '
@@ -618,7 +618,7 @@ SCANPY_AGGR_SHELL = (
     '{input.inputs} '
     '-f {params.input_format} '
     '--barcode-rename {params.bc_type} '
-    '--feature-info {input.feature_info} '
+    '--feature-info {input.feature_info:q} '
     '--barcode-info {input.barcode_info} '
     '--sample-info {input.sample_info} '
     '--library-info {input.library_info} '
