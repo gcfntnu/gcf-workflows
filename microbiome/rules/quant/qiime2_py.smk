@@ -3,8 +3,23 @@
 """
 import glob
 
+include: 'scripts/qiime2_classifiers.py'
+
 QIIME2_INTERIM = join(QUANT_INTERIM, 'qiime2', config['db']['reference_db'])
 CLASSIFIER_DIR = join(REF_DIR, 'qiime2', 'classifiers', 'export')
+CLASSIFIER_LEVEL = config['db'].get('classifier_level', '99')
+
+
+def project_classifier_archives(wildcards):
+    if not config.get('ref_dir'):
+        return []
+    primers = classifier_primers(LIBPREP_CONF, config['libprep_name'], config['db']['reference_db'])
+    archives = [join(classifier_export_dir(CLASSIFIER_DIR, CLASSIFIER_LEVEL, pair), 'sklearn_pipeline.tar') for pair in primers.values()]
+    for archive in archives:
+        if not os.path.isfile(archive):
+            raise FileNotFoundError('Missing project classifier archive: {}'.format(archive))
+    return archives
+
 
 rule qiime2_sample_info:
     input:
@@ -19,7 +34,7 @@ rule qiime2_sample_info:
 
 checkpoint qiime2_run_regions:
     input:
-        classifiers = [CLASSIFIER_DIR] if config.get('ref_dir') else [],
+        classifiers = project_classifier_archives,
         sample_info = rules.qiime2_sample_info.output,
         R1 = expand(join(FILTER_INTERIM, 'fastp', '{sample}_R1.fastq'), sample=SAMPLES),
         R2 = expand(join(FILTER_INTERIM, 'fastp', '{sample}_R2.fastq'), sample=SAMPLES)
@@ -30,7 +45,7 @@ checkpoint qiime2_run_regions:
         regions = 'None',
         taxonomy_db = config['db']['reference_db'],
         classifier_dir = CLASSIFIER_DIR,
-        classifier_level = config['db'].get('classifier_level','99'),
+        classifier_level = CLASSIFIER_LEVEL,
         filter_region_count = 500,
         min_confidence = 0.8,
         output_dir = join(QIIME2_INTERIM),

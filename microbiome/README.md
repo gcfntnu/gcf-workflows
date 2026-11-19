@@ -59,6 +59,16 @@ region_demultiplexed_fastq/<sample>_R1.fastq.gz, <sample>_R2.fastq.gz
 | `db.silva.*`, `db.unite.*`, `db.greengenes.*` | Releases | [main.config](../main.config) |
 | `ref_dir` | Configured provider | Optional project directory containing `qiime2/classifiers/export/` for the selected primers and classifier level |
 
+For a project reference, supply a classifier archive for each region the selected kit can classify.
+SILVA and Greengenes use the kit’s `V*` regions. UNITE uses its `ITS*` regions.
+The archive path includes the configured classifier level and the forward–reverse **primer pair** from the kit’s `db.primers` in `libprep.config`.
+
+```text
+<ref_dir>/qiime2/classifiers/export/<level>_<forward>-<reverse>/sklearn_pipeline.tar
+```
+
+The QIIME2 checkpoint tracks each archive so that planning names any missing file and a newer classifier triggers reclassification.
+
 ## Tests
 
 `microbiome/.tests`: synthetic dry-run fixture (four samples, two groups). CI runs `snakemake -n -p --cores 1 multiqc_report` there (`test-microbiome.yaml`).
