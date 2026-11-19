@@ -802,6 +802,35 @@ def test_project_reusing_published_cellranger_source_preserves_both_pins(tmp_pat
     for root in {selected, frozen}:
         blocked = plan_existing(importer, str(root / 'anno/genes.tsv'), expect_success=False)
         assert 'published Cell Ranger generation' in blocked
+    if not new_recipe:
+        # A forced publisher replaces the local receipt symlink to the generation's manifest.
+        assert 'rule cellranger_mkref:' in plan_existing(importer, COUNT_TARGET, extra=('--forceall',))
+        alias = importer / 'generation-alias'
+        alias.symlink_to(generation, target_is_directory=True)
+        member = importer / 'member-alias'
+        member.symlink_to(generation / 'star/SA')
+        with (importer / 'Snakefile').open('a') as rules:
+            rules.write("""
+rule write_custom_product:
+    output: 'generation-alias/new/product'
+    shell: 'touch {output:q}'
+rule write_linked_member:
+    output: 'member-alias'
+    shell: 'touch {output:q}'
+rule read_frozen_source:
+    input: 'generation-alias/gcf-source/fasta/genome.fa'
+    output: 'local-copy.fa'
+    shell: 'cp {input:q} {output:q}'
+""")
+        assert 'rule read_frozen_source:' in plan_existing(importer, 'local-copy.fa')
+        for target in ('generation-alias/gcf-source/anno/exons.gtf', 'member-alias'):
+            blocked = plan_existing(importer, target, expect_success=False, extra=('--force',))
+            assert 'Cannot write inside a published Cell Ranger generation' in blocked and target in blocked
+        # A named user rule registered after the workflow must also fail before output preparation in real execution.
+        actual = subprocess.run([sys.executable, '-m', 'snakemake', '--cores', '1', 'write_custom_product'],
+                                cwd=importer, env=protected_env(importer), capture_output=True, text=True, timeout=120)
+        assert actual.returncode and 'Cannot write inside a published Cell Ranger generation' in actual.stdout + actual.stderr
+        assert not (generation / 'new').exists() and member.is_symlink()
     filtered = plan_existing(importer, 'cellranger_gtf')
     assert f'{expected_metadata(frozen)}/anno/genes.gtf.filtered' in filtered
 
