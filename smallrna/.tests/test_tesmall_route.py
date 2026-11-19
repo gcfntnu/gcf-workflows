@@ -5,6 +5,8 @@ import re
 import subprocess
 import sys
 
+import pytest
+
 from test_quant_methods import configure, dry_run, rule_block
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -124,3 +126,67 @@ def test_counts_join_samples_and_reject_unexpected_tables(tmp_path):
                                           'sense_TE\tL1:L1:LINE\t2\t0']
     result = subprocess.run(script + ['--samples', 'S2', '--tables', str(tmp_path / 'a.txt')], capture_output=True, text=True)
     assert result.returncode != 0 and 'expected columns fid, ftype, S2' in result.stderr
+
+
+def test_tesmall_runs_with_its_temporary_files_in_the_work_directory_and_is_checked(tmp_path):
+    """#419: TMPDIR inside the sample's work directory, and tesmall_check.py after TEsmall."""
+    returncode, output = dry_run(tmp_path, 'tesmall', printshell=True)
+    assert returncode == 0, output
+    run = rule_block(output, 'tesmall_quant')
+    assert 'cd data/tmp/smallrna/quant/tesmall/SR0' in run and ' && rm -rf tmp && mkdir tmp && TMPDIR=$PWD/tmp ' in run
+    assert '--verbose 2 > "$log" 2>&1 && rm -rf tmp && python "$script" --work . --sample SR0' in run
+    assert re.search(r'script=\$\(realpath \S+/smallrna/rules/quant/scripts/tesmall_check.py\)', run)
+    assert 'fastq=$(realpath data/tmp/smallrna/filter/cutadapt/SR0' in run  # :q quoting leaves plain paths as they are
+
+
+CHECK = ROOT / 'smallrna/rules/quant/scripts/tesmall_check.py'
+
+
+def bowtie_log(aligned=60):
+    return (f'# reads processed: 100\n# reads with at least one alignment: {aligned} ({aligned}.00%)\n'
+            f'# reads that failed to align: {100 - aligned} ({100 - aligned}.00%)\nReported {aligned} alignments\n')
+
+
+def tesmall_work(work, sample='S1', anno_rows=3, aligned_rows=5, genome_aligned=60, log_lines=('INFO TEsmall run completed',)):
+    """A TEsmall work directory as a finished run leaves it, reduced to what tesmall_check.py reads."""
+    work.mkdir(parents=True, exist_ok=True)
+    (work / 'tesmall.log').write_text('\n'.join(log_lines) + '\n')
+    for step in ('rRNA', 'genome', 'tRNA'):
+        (work / f'{sample}.{step}.log').write_text(bowtie_log(genome_aligned if step == 'genome' else 60))
+    (work / f'{sample}.aligned.rinfo').write_text('id\tlength\tcount\tmapper\n' + 'r\t22\t1\tunique\n' * aligned_rows)
+    (work / f'{sample}.anno').write_text('rid\trchr\n' + 'r\t1\n' * anno_rows)
+    return work
+
+
+def check(work, sample='S1'):
+    return subprocess.run([sys.executable, str(CHECK), '--work', str(work), '--sample', sample, '--log', str(work / 'tesmall.log')],
+                          capture_output=True, text=True)
+
+
+def test_check_passes_a_complete_run_and_one_without_aligned_reads(tmp_path):
+    assert check(tesmall_work(tmp_path / 'a')).returncode == 0  # Bowtie's "failed to align" summary is not an error
+    assert check(tesmall_work(tmp_path / 'b', anno_rows=0, aligned_rows=0, genome_aligned=0)).returncode == 0
+    work = tesmall_work(tmp_path / 'c')  # a nonfatal Bowtie warning mentioning "error" in a file name
+    (work / 'S1.genome.log').write_text('Warning: skipping read in error_reads.fq\n' + bowtie_log())
+    assert check(work).returncode == 0
+
+
+@pytest.mark.parametrize('change, message', [
+    (lambda w: tesmall_work(w, anno_rows=0), '60 reads aligned to the genome but S1.anno is empty'),
+    (lambda w: (tesmall_work(w), (w / 'S1.aligned.rinfo').unlink()), '60 reads aligned to the genome but S1.aligned.rinfo is missing'),
+    (lambda w: tesmall_work(w, log_lines=('sort: read failed: /x/tmp/sortQ: Input/output error', 'INFO TEsmall run completed')),
+     'tesmall.log: sort: read failed'),  # a partial, non-empty annotation passes the row check; the log does not
+    (lambda w: (tesmall_work(w), (w / 'S1.genome.log').write_text('# reads processed: 100\n')), 'S1.genome.log: no aligned-read count'),
+    (lambda w: tesmall_work(w, log_lines=('INFO Annotating...', 'sort: write failed: /tmp/sortX: Disk quota exceeded',
+                                          'INFO TEsmall run completed')), 'tesmall.log: sort: write failed'),
+    (lambda w: tesmall_work(w, log_lines=('[E::hts_open_format] Failed to open file "S1.genome.bam"',)), '[E::hts_open_format]'),
+    (lambda w: (tesmall_work(w), (w / 'S1.rRNA.log').write_text('Could not locate a Bowtie index corresponding to basename "x"\n')),
+     'S1.rRNA.log: Could not locate a Bowtie index'),
+    (lambda w: (tesmall_work(w), (w / 'S1.genome.log').write_text('')), 'S1.genome.log: no "# reads processed" summary'),
+    (lambda w: (tesmall_work(w), (w / 'S1.tRNA.log').unlink()), 'S1.tRNA.log: missing'),
+    (lambda w: (tesmall_work(w), (w / 'tesmall.log').write_text('')), 'missing or empty'),
+])
+def test_check_stops_a_run_whose_steps_failed(tmp_path, change, message):
+    change(tmp_path / 'w')
+    result = check(tmp_path / 'w')
+    assert result.returncode != 0 and message in result.stderr, result.stderr
