@@ -1,6 +1,6 @@
 #-*- mode:snakemake -*-
 
-QUANT_METHODS = ('unitas', 'mirge3', 'mirflowz', 'tesmall', 'tinyrna')
+QUANT_METHODS = ('unitas', 'mirge3', 'mirflowz', 'tesmall', 'tinyrna', 'smrnaseq')
 QUANT_SELECTED = [m.strip() for m in str(config['quant']['method']).split(',')]
 # Set before the routes are included: the TEsmall database and the tiny-count reference are built on the mirflowz
 # reference (gcfdb/mirflowz.db), and tiny-count uses TEsmall's genome index (gcfdb/tesmall.db).
@@ -17,6 +17,8 @@ include:
     'quant/tesmall.smk'
 include:
     'quant/tinyrna.smk'
+include:
+    'quant/smrnaseq.smk'
 
 def quant_all(wildcards):
     methods = [m.strip() for m in str(config['quant']['method']).split(',')]
@@ -35,6 +37,8 @@ def quant_all(wildcards):
             out.extend(rules.tesmall_all.input)
         elif m == 'tinyrna':
             out.extend(rules.tinyrna_all.input)
+        elif m == 'smrnaseq':
+            out.extend(rules.smrnaseq_all.input)
     return out
 
 rule quant_all:
