@@ -1,4 +1,5 @@
 """Plan the BFQ reporting target and inspect the tools' reference arguments with an empty cache."""
+import gzip
 import hashlib
 import os
 from pathlib import Path
@@ -6,6 +7,7 @@ import re
 import shlex
 import subprocess
 import sys
+import time
 
 import pytest
 import yaml
@@ -106,11 +108,13 @@ def test_ensembl_genomes_sources_for_direct_and_10x_routes(tmp_path):
         archive = f'https://ftp.ebi.ac.uk/ensemblgenomes/pub/release-{selected}/plants'
         genome_url = f'{archive}/fasta/{organism}/dna/Arabidopsis_thaliana.TAIR10.dna.toplevel.fa.gz'
         gtf_url = f'{archive}/gtf/{organism}/Arabidopsis_thaliana.TAIR10.{selected}.gtf.gz'
-        assert f'-O- {genome_url} |' in log and f'-O- {gtf_url} |' in log
         assert f'Ensembl DNA,release-{selected},{genome_url}' in log and f'Ensembl GTF,release-{selected},{gtf_url}' in log
         location = Path('ensemblgenomes') / f'release-{selected}' / 'plants' / organism / assembly
         ref = shared / location
-        assert str(ref / 'anno' / f'{organism}.{assembly}.{selected}.gtf') in log
+        genome = ref / 'fasta/genome.fa'
+        gtf = ref / 'anno' / f'{organism}.{assembly}.{selected}.gtf'
+        for destination, url in ((genome, genome_url), (gtf, gtf_url)):
+            assert any('publish_reference.sh' in line and str(destination) in line and f'-- {url}' in line for line in log.splitlines())
         assert_build_and_count(log, ref, directory)
         receipt, = arguments(log, 'cellranger mkref ', '--receipt')
         assert f'/{location}/' in receipt
@@ -269,6 +273,72 @@ rule synthetic_provider:
     assert (local / 'ready').read_bytes() == manifest
     assert (local / 'annotation').resolve(strict=True) == annotation
     assert (generation / 'gcf-source/anno/genes.gtf').read_bytes() == original
+
+
+@pytest.mark.parametrize('rule,member', [('ensembl_genome', 'fasta/genome.fa'), ('ensembl_gtf', 'anno/genes.gtf')])
+def test_concurrent_managed_refetch_keeps_partial_source_out_of_count_plan(tmp_path, rule, member):
+    writer, reader, shared = tmp_path / 'writer', tmp_path / 'reader', tmp_path / 'cache'
+    writer.mkdir()
+    reader.mkdir()
+    plan = dry_run(writer, 'salmo_salar', COUNT_TARGET, ext_dir=str(shared))
+    source = Path(next(iter(arguments(plan, 'cellranger mkref ', '--source-dir'))))
+    write_panel(tmp_path, source, missing=member)
+    selected = source / member
+    output = selected
+    if rule == 'ensembl_gtf':
+        # A retained genes.gtf link starts working as soon as its versioned target appears.
+        output = selected.with_name(f"salmo_salar.Ssal_v3.1.{DB_DEFAULTS['ensembl']['release']}.gtf")
+        selected.parent.mkdir(parents=True, exist_ok=True)
+        selected.symlink_to(output.name)
+    dry_run(reader, 'salmo_salar', COUNT_TARGET, ext_dir=str(shared))
+
+    # Pause after the first uncompressed byte reaches the real getter's output redirect.
+    tools = tmp_path / 'bin'
+    tools.mkdir()
+    data = b'>synthetic\nACGT\n' if member.endswith('.fa') else b'# synthetic annotation\n'
+    archive = tmp_path / 'synthetic.gz'
+    archive.write_bytes(gzip.compress(data))
+    wget, gunzip = tools / 'wget', tools / 'gunzip'
+    wget.write_text('#!/bin/sh\ncat -- "$ARCHIVE"\n')
+    gunzip.write_text('#!/usr/bin/env python3\n'
+                      'import gzip, os, pathlib, sys, time\n'
+                      'data = gzip.decompress(sys.stdin.buffer.read())\n'
+                      'sys.stdout.buffer.write(data[:1]); sys.stdout.buffer.flush()\n'
+                      'pathlib.Path(os.environ["PAUSED"]).touch()\n'
+                      'while not pathlib.Path(os.environ["CONTINUE"]).exists(): time.sleep(.02)\n'
+                      'sys.stdout.buffer.write(data[1:])\n')
+    for tool in (wget, gunzip):
+        tool.chmod(0o755)
+    paused, resume = tmp_path / 'paused', tmp_path / 'continue'
+    env = protected_env(writer)
+    env.update(PATH=str(tools) + os.pathsep + env['PATH'], ARCHIVE=str(archive), PAUSED=str(paused), CONTINUE=str(resume))
+    log = writer / 'getter.log'
+    with log.open('w') as stream:
+        job = subprocess.Popen([sys.executable, '-m', 'snakemake', '--cores', '1', rule, '--allowed-rules', rule],
+                               cwd=writer, env=env, stdout=stream, stderr=stream)
+        try:
+            deadline = time.monotonic() + 30
+            while not paused.exists() and job.poll() is None and time.monotonic() < deadline:
+                time.sleep(.02)
+            assert paused.exists(), log.read_text()
+            pending = plan_existing(reader, 'multiqc_report')
+            assert not selected.exists()
+            assert f'rule {rule}:' in pending and 'rule multiqc_report:' in pending
+            assert '--expected-source' not in shell_command(pending, 'cellranger mkref ')
+        finally:
+            resume.touch()
+            job.wait(timeout=30)
+    assert job.returncode == 0, log.read_text()
+    assert selected.read_bytes() == output.read_bytes() == data
+    if rule == 'ensembl_gtf':
+        # The other project's symlink job can publish the very same alias first.
+        link, = [line.removeprefix('Shell command: ') for line in plan.splitlines()
+                 if line.startswith('Shell command: ln ') and str(selected) in line]
+        subprocess.run(['bash', '-c', link], cwd=writer, check=True, capture_output=True)
+        assert selected.samefile(output)
+    assert not list(output.parent.glob('.gcf-reference.*'))
+    warm = plan_existing(reader, 'multiqc_report')
+    assert arguments(warm, 'cellranger mkref ', '--expected-source') == {annotation_snapshot(source)[0].name}
 
 
 def test_managed_refetch_after_partial_cache_loss(tmp_path):
@@ -904,6 +974,7 @@ def test_splitpipe_imports_frozen_source_without_modifying_the_generation(splitp
     stub.write_text("""#!/usr/bin/env python3
 from pathlib import Path
 import sys
+import time
 assert sys.argv[sys.argv.index('--mode') + 1] == 'mkref'
 Path(sys.argv[sys.argv.index('--output_dir') + 1], 'SA').write_text('synthetic index')
 """)

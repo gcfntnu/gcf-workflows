@@ -97,7 +97,8 @@ class ProjectBowtie2Tests(unittest.TestCase):
         fasta = directory / 'fasta' / f'{STOCK_NAME}.fa'
         prefix = directory / 'index' / STOCK_NAME / 'bowtie2' / STOCK_NAME
         url = f'https://ftp.ensembl.org/pub/release-{HUMAN_RELEASE}/fasta/homo_sapiens/dna/{STOCK_NAME}.fa.gz'
-        self.assertEqual(f'{url} | gunzip -c > {fasta}' in log, needs_build)
+        self.assertEqual(any('publish_reference.sh' in line and str(fasta) in line and f'-- {url}' in line
+                             for line in log.splitlines()), needs_build)
         builds = [shlex.split(line) for line in log.splitlines() if 'bowtie2-build ' in line and str(fasta) in line]
         self.assertEqual([args[-2:] for args in builds], [[str(fasta), str(prefix)]] if needs_build else [])
         records = next(shlex.split(line) for line in log.splitlines() if 'DATABASE Human ' in line)

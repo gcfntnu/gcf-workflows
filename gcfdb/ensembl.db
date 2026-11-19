@@ -107,6 +107,7 @@ CURATED_ENSEMBL_DIR = config.get('ref_dir') and os.path.realpath(config['ref_dir
 if not CURATED_ENSEMBL_DIR:
     rule ensembl_genome:
         params:
+            publisher = join(GCFDB_DIR, 'scripts', 'publish_reference.sh'),
             proxy = config.get('proxy', {}).get('wget', ''),
             url = join(PROTOCOL + URL.format('fasta', ORG), 'dna'),
             filename = '.'.join([ORG.capitalize(), ENS_ASSEMBLY, 'dna', 'primary_assembly', 'fa', 'gz']) if ORG in ['homo_sapiens', 'mus_musculus'] else '.'.join([ORG.capitalize(), ENS_ASSEMBLY, 'dna', 'toplevel', 'fa', 'gz']),
@@ -119,8 +120,8 @@ if not CURATED_ENSEMBL_DIR:
             join(ENSEMBL_DIR, 'logs', 'genome.log')
         shell:
             """
-            wget {params.proxy} -O- {params.url}/{params.filename} | gunzip -c >> {output.genome}
-            echo "Ensembl DNA,release-{params.release},{params.url}/{params.filename},`date -I`" > {log}
+            bash {params.publisher:q} {output.genome:q} gzip {params.proxy} -- {params.url:q}/{params.filename:q}
+            echo "Ensembl DNA,release-{params.release},{params.url}/{params.filename},`date -I`" > {log:q}
             """
 
 rule ensembl_noncoding:
@@ -161,6 +162,7 @@ rule ensembl_gff:
         
 rule ensembl_gtf:
     params:
+        publisher = join(GCFDB_DIR, 'scripts', 'publish_reference.sh'),
         proxy = config.get('proxy', {}).get('wget', ''),
         url = PROTOCOL + URL.format('gtf', ORG),
         filename = '.'.join([ORG.capitalize(), ENS_ASSEMBLY, ENSEMBL_ARCHIVE_RELEASE, 'gtf', 'gz']),
@@ -173,8 +175,8 @@ rule ensembl_gtf:
         join(ENSEMBL_DIR, 'logs', 'gtf.log')
     shell: 
         """
-        wget {params.proxy} -O- {params.url}/{params.filename} | gunzip -c >> {output}
-        echo 'Ensembl GTF,release-{params.release},{params.url}/{params.filename},`date -I`' > {log}
+        bash {params.publisher:q} {output:q} gzip {params.proxy} -- {params.url:q}/{params.filename:q}
+        echo 'Ensembl GTF,release-{params.release},{params.url}/{params.filename},`date -I`' > {log:q}
         """
 
 rule ensembl_symlink_genes:
@@ -185,7 +187,7 @@ rule ensembl_symlink_genes:
     wildcard_constraints:
         ext = 'gff' if CURATED_ENSEMBL_DIR else 'g.+f$'
     shell:
-        'ln -sr {input} {output}'
+        'ln -srT -- {input:q} {output:q} || test {input:q} -ef {output:q}'
 
 
 
