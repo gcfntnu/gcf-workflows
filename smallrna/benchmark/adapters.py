@@ -131,14 +131,22 @@ def tesmall(quant_dir, name_to_id, **_):
 
 
 def smrnaseq(quant_dir, name_to_id, **_):
-    """nf-core/smrnaseq's mirtop table as the route writes it (miRNA, samples), by miRBase name."""
+    """nf-core/smrnaseq's mirtop table as the route writes it (miRNA, samples), by miRBase name. A header without unique
+    sample columns, or a row whose field count differs from the header (e.g. a truncated file), stops the evaluation."""
+    path = Path(quant_dir) / 'smrnaseq' / 'mirna.tsv'
     rows = []
-    with open(Path(quant_dir) / 'smrnaseq' / 'mirna.tsv', newline='') as fh:
+    with open(path, newline='') as fh:
         reader = csv.reader(fh, delimiter='\t')
-        samples = next(reader)[1:]
-        for row in reader:
-            if row:
-                rows += [('smrnaseq', s, row[0], name_to_id.get(row[0], ''), float(c or 0)) for s, c in zip(samples, row[1:])]
+        header = next(reader, None)
+        samples = header[1:] if header and header[0] == 'miRNA' else []
+        if not samples or len(set(samples)) != len(samples) or not all(samples):
+            raise ValueError('{}: expected a miRNA column and unique sample columns, got {}'.format(path, header))
+        for i, row in enumerate(reader, 2):
+            if not row:
+                continue
+            if len(row) != len(header):
+                raise ValueError('{}:{}: {} fields, expected {}'.format(path, i, len(row), len(header)))
+            rows += [('smrnaseq', s, row[0], name_to_id.get(row[0], ''), float(c)) for s, c in zip(samples, row[1:])]
     return rows
 
 

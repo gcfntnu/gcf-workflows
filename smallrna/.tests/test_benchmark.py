@@ -124,6 +124,12 @@ def test_adapters_match_by_accession_whatever_the_method_names(tmp_path):
     assert ('tesmall', 'S02', 'mmu-miR-194-5p') not in got and not any(n.startswith(('mmu-mir', 'L1')) for m, _, n in got if m == 'tesmall')
     assert got[('smrnaseq', 'S01', 'mmu-miR-192-5p')] == ('MIMAT0000517', 45)  # samples by column name, whatever their order
     assert got[('smrnaseq', 'S02', 'mmu-miR-9999-5p')] == ('', 2) and ('smrnaseq', 'S02', 'mmu-miR-194-5p') not in got
+    write(tmp_path / 'quant/smrnaseq/mirna.tsv', 'miRNA\tS01\tS02\nmmu-miR-192-5p\t45\n')  # a truncated row
+    with pytest.raises(ValueError, match='2 fields, expected 3'):
+        adapters.smrnaseq(tmp_path / 'quant', NAME_TO_ID)
+    write(tmp_path / 'quant/smrnaseq/mirna.tsv', 'miRNA\tS01\tS01\nmmu-miR-192-5p\t45\t44\n')
+    with pytest.raises(ValueError, match='unique sample columns'):
+        adapters.smrnaseq(tmp_path / 'quant', NAME_TO_ID)
     with pytest.raises(ValueError, match='no benchmark adapter'):
         adapters.common_table(['newtool'], tmp_path / 'quant', NAME_TO_ID, 'mmu-')
 

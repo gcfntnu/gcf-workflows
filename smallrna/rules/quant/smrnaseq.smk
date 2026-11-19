@@ -10,8 +10,8 @@ exactly these reads. Its MIRNA_QUANT path to `mirna.tsv` is reproduced with the 
   and indexed with Bowtie 1;
 - per sample: reads collapsed to unique sequences (`seqcluster collapse -m 1 --min_size 15`), aligned to the hairpins
   (`bowtie -t -k 50 --best --strata -e 99999 --chunkmbs 2048`: Bowtie's default -n 2 mode, so up to 2 mismatches in
-  reads shorter than its 28-nt seed, every alignment of the best stratum), annotated (`mirtop gff`) and counted per
-  isomiR (`mirtop counts --add-extra`);
+  the first 28 bases, its seed, and with -e 99999 no limit beyond it; the alignments of the best stratum, at most 50),
+  annotated (`mirtop gff`) and counted per isomiR (`mirtop counts --add-extra`);
 - the samples joined and summed per miRNA (smrnaseq_counts.py): a collapsed read annotated to several miRNAs counts
   in full for the one whose line sorts first, as in the pipeline.
 
@@ -75,8 +75,8 @@ rule smrnaseq_collapse:
         'docker://' + config['docker']['smrnaseq_seqcluster']
     shell:
         # seqcluster names its output after the input file (<name>_trimmed.fastq), so each sample gets its own directory.
-        'rm -rf {params.work} && seqcluster collapse -m 1 --min_size 15 -f {input} -o {params.work} > {log} 2>&1 && '
-        'mv {params.work}/*_trimmed.fastq {output} && rm -r {params.work}'
+        'rm -rf "{params.work}" && seqcluster collapse -m 1 --min_size 15 -f "{input}" -o "{params.work}" > "{log}" 2>&1 && '
+        'mv "{params.work}"/*_trimmed.fastq "{output}" && rm -r "{params.work}"'
 
 
 rule smrnaseq_align:
@@ -96,8 +96,9 @@ rule smrnaseq_align:
     container:
         'docker://' + config['docker']['smrnaseq_bowtie']
     shell:
-        'set -o pipefail; bowtie --threads {threads} --sam -x {params.index} -q {params.args} {input.fastq} 2> {log} '
-        '| samtools view -@ {threads} -bS -o {output} -'
+        # samtools single-threaded: the threads are Bowtie's (thread counts do not change the alignments)
+        'set -o pipefail; bowtie --threads {threads} --sam -x "{params.index}" -q {params.args} "{input.fastq}" 2> "{log}" '
+        '| samtools view -bS -o "{output}" -'
 
 
 rule smrnaseq_mirtop:
