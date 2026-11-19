@@ -612,3 +612,43 @@ def test_retained_receipt_checks_index_before_count(tmp_path):
     manifest.write_text('{"genome": "another_panel"}')
     damaged = plan_existing(tmp_path, COUNT_TARGET, expect_success=False)
     assert 'cellranger count ' not in damaged and str(manifest) in damaged
+
+
+def test_only_jobs_using_cellranger_pin_validate_it(tmp_path):
+    cold = dry_run(tmp_path, 'salmo_salar')
+    build = shell_command(cold, 'cellranger mkref ')
+    write_panel(tmp_path, Path(build[build.index('--source-dir') + 1]))
+    receipt = Path(build[build.index('--receipt') + 1])
+    env = protected_env(tmp_path)
+    env['PATH'] = str(MOCK_TOOLS) + os.pathsep + env['PATH']
+    subprocess.run([sys.executable, *build[1:]], cwd=tmp_path, env=env, check=True)
+
+    # Count and managed annotation share one full verification in the report DAG.
+    with (tmp_path / 'Snakefile').open('a') as rules:
+        rules.write("""
+verify_original = verify_cellranger_receipt
+def verify_cellranger_receipt(*args):
+    with open('receipt-checks', 'a') as checks:
+        print(args[0], file=checks)
+    return verify_original(*args)
+""")
+    checks = tmp_path / 'receipt-checks'
+    assert 'rule multiqc_report:' in plan_existing(tmp_path, 'multiqc_report')
+    assert checks.read_text().splitlines() == [str(receipt)]
+
+    (tmp_path / receipt.parent / 'index/star/SA').unlink()
+    annotations = str(receipt.parent / 'annotation/anno/genes.tsv')
+    for target in [COUNT_TARGET, annotations, 'multiqc_report']:
+        damaged = plan_existing(tmp_path, target, expect_success=False)
+        assert 'Incomplete Cell Ranger reference' in damaged and '/star/SA' in damaged
+    checks.unlink()
+    qc = plan_existing(tmp_path, 'data/tmp/singlecell/qc/fastqc/libA.fastqc.zip')
+    assert 'fastqc -t' in qc and not checks.exists()
+
+    settings = tmp_path / 'config.yaml'
+    config = yaml.safe_load(settings.read_text())
+    config['quant'] = {'method': '10x_starsolo', 'aggregate': {'method': 'scanpy'}, 'use_velo': False}
+    settings.write_text(yaml.safe_dump(config))
+    star = plan_existing(tmp_path, 'multiqc_report')
+    assert 'rule starsolo_quant:' in star and 'rule multiqc_report:' in star
+    assert 'cellranger count ' not in star and not checks.exists()

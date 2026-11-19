@@ -1,5 +1,7 @@
 #-*- mode:snakemake -*-
 
+from functools import cache
+
 include:
     join(GCFDB_DIR, 'reference_db.db')
 
@@ -41,9 +43,15 @@ if build_10x_reference:
     if use_digest_view:
         CR_VIEW = join(views, REFERENCE_SOURCE_DIGEST, CR_BUILD_KEY)
     CR_RECEIPT = join(CR_VIEW, 'ready')
-    verify_cellranger_receipt(CR_RECEIPT, CR_CACHE, REFERENCE_SOURCE_CHECKSUMS, CR_GENOME, CR_IMAGE)
     CR_REF_DIR = join(CR_VIEW, 'index')
-    CR_REFERENCE_INPUTS = [CR_RECEIPT]
+
+    # Full index verification is shared by the count and annotation jobs that read this pin.
+    @cache
+    def verified_cellranger_receipt():
+        verify_cellranger_receipt(CR_RECEIPT, CR_CACHE, REFERENCE_SOURCE_CHECKSUMS, CR_GENOME, CR_IMAGE)
+        return CR_RECEIPT
+
+    CR_REFERENCE_INPUTS = lambda wildcards: verified_cellranger_receipt()
 
 GENE_TABLE = join(REF_DIR, 'anno', 'genes.tsv')
 managed_metadata = build_10x_reference and not config.get('ref_dir') and 'cellranger' in [m.strip() for m in config['quant']['method'].split(',')]
@@ -52,7 +60,7 @@ if (config.get('ref_dir') and REFERENCE_SOURCE_DIGEST) or managed_metadata:
         # The publisher pins both the original source pair and a digest-specific local annotation directory.
         metadata_ref = join(CR_VIEW, 'annotation')
         annotation_source = join(CR_VIEW, 'index', 'gcf-source')
-        annotation_inputs = [CR_RECEIPT]
+        annotation_inputs = CR_REFERENCE_INPUTS
         annotation_checksums = ['--manifest', CR_RECEIPT]
     else:
         metadata_ref = join(QUANT_INTERIM, 'reference', REFERENCE_SOURCE_DIGEST)
