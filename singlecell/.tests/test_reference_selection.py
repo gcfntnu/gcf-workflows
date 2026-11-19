@@ -699,7 +699,8 @@ def test_mixed_methods_share_explicit_reference_metadata(tmp_path):
     ('cellranger,10x_starsolo', '10xgenomics', 'starsolo', 'anno/genes.gtf'),
     ('10x_starsolo', 'ensembl', 'star', 'fasta/genome.fa'),
 ])
-def test_starsolo_recounts_after_project_reference_changes(tmp_path, methods, provider, index_type, changed):
+@pytest.mark.parametrize('change_local_copy', [False, True], ids=['project-source', 'retained-copy'])
+def test_starsolo_recounts_after_project_reference_changes(tmp_path, methods, provider, index_type, changed, change_local_copy):
     panel = Path('refs/panel-v1')
     write_panel(tmp_path, panel)
     target = '_tmp/10x_starsolo/filtered/libA/anndata.light.h5ad'
@@ -726,14 +727,19 @@ def test_starsolo_recounts_after_project_reference_changes(tmp_path, methods, pr
                    cwd=tmp_path, env=env, check=True, capture_output=True, text=True)
     assert 'Nothing to be done' in plan_existing(tmp_path, target)
 
-    path = tmp_path / panel / changed
+    path = tmp_path / (original if change_local_copy else panel) / changed
     previous = path.read_bytes()
     stat = path.stat()
     path.write_bytes(previous + b'\n')
     os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
-    current, _ = annotation_snapshot(tmp_path / panel)
     retained = plan_existing(tmp_path, target)
-    assert current != original
+    genome, = arguments(retained, '--runMode genomeGenerate', '--genomeFastaFiles')
+    current = Path(genome).parents[1]
+    if change_local_copy:
+        assert annotation_snapshot(tmp_path / panel)[0] == original
+    else:
+        assert current == annotation_snapshot(tmp_path / panel)[0]
+    assert current != original and not (tmp_path / current).exists()
     assert 'rule starsolo_quant:' in retained and 'rule tmp_lightweight_filtered:' in retained
     for plan, snapshot in ((cold, original), (retained, current)):
         index_dir = snapshot / 'index/genome' / index_type / 'r_90'
@@ -748,7 +754,8 @@ def test_starsolo_recounts_after_project_reference_changes(tmp_path, methods, pr
         assert arguments(plan, 'convert_scanpy.py ', '--feature-info') == {str(snapshot / 'anno/genes.tsv')}
         assert 'cellranger mkref ' not in plan
     stage_inputs(current)
-    assert (tmp_path / original / changed).read_bytes() == previous
+    expected_old = previous + b'\n' if change_local_copy else previous
+    assert (tmp_path / original / changed).read_bytes() == expected_old
 
 
 @pytest.mark.parametrize('use_alias,new_recipe', [(False, False), (True, True)])
@@ -903,7 +910,9 @@ Path(sys.argv[sys.argv.index('--output_dir') + 1], 'SA').write_text('synthetic i
     stub.chmod(0o755)
     env = protected_env(importer)
     env['PATH'] = str(tools) + os.pathsep + env['PATH']
-    # Supply the single extracted exon so the normal gene-table converter can also run without bedtools.
+    # Stage the real pair before supplying the single extracted exon that stands in for bedtools.
+    subprocess.run([sys.executable, '-m', 'snakemake', '--cores', '1', str(source / 'fasta/genome.fa'),
+                    '--allowed-rules', 'stage_frozen_reference'], cwd=importer, env=env, check=True, capture_output=True, text=True)
     exon_fasta = importer / source / 'fasta/exons.fa'
     exon_fasta.parent.mkdir(parents=True, exist_ok=True)
     exon_fasta.write_text('>synthetic:0-4\nACGT\n')
@@ -1005,3 +1014,37 @@ def test_owner_and_unrelated_workdir_cannot_write_published_outputs(tmp_path):
     # A project can keep the same JSON as provenance without becoming a generation.
     (other / 'gcf-mkref.json').write_bytes(manifest.read_bytes())
     assert 'rule multiqc_report:' in plan_existing(other, 'multiqc_report')
+
+
+def test_splitpipe_restages_partial_local_frozen_import(splitpipe_import):
+    _, importer, generation, _ = splitpipe_import
+    frozen = generation / 'gcf-source'
+
+    def plan_import():
+        plan = plan_existing(importer, 'multiqc_report')
+        fasta, = arguments(plan, 'split-pipe --mode mkref ', '--fasta')
+        local = Path(fasta).parents[1]
+        assert arguments(plan, 'split-pipe --mode mkref ', '--genes') == {str(local / 'anno/genes.gtf')}
+        assert arguments(plan, 'split-pipe --mode all ', '--genome_dir') == {str(local / 'index/genome/splitpipe')}
+        assert_gene_metadata(plan, local)
+        return local, plan
+
+    selected, plan = plan_import()
+    previous = []
+    for removed in ('anno/genes.gtf', 'fasta/genome.fa'):
+        assert 'rule stage_frozen_reference:' in plan
+        assert not (importer / selected).exists()
+        subprocess.run([sys.executable, '-m', 'snakemake', '--cores', '1', str(selected / 'fasta/genome.fa'),
+                        '--allowed-rules', 'stage_frozen_reference'], cwd=importer, env=protected_env(importer),
+                       check=True, capture_output=True, text=True)
+        for name in ('anno/genes.gtf', 'fasta/genome.fa'):
+            assert (importer / selected / name).read_bytes() == (frozen / name).read_bytes()
+        healthy, warm = plan_import()
+        assert healthy == selected and 'rule stage_frozen_reference:' not in warm
+        missing = importer / selected / removed
+        missing.unlink()
+        previous.append(missing)
+        selected, plan = plan_import()
+        assert selected != healthy
+    assert 'rule stage_frozen_reference:' in plan and not (importer / selected).exists()
+    assert all(not missing.exists() for missing in previous)

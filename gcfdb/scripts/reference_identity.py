@@ -42,6 +42,34 @@ def reference_digest(checksums):
     return hashlib.sha256(checksums.encode()).hexdigest()
 
 
+def staged_reference_directory(directory, checksums, *, source=None, pinned=False):
+    """Choose a verified workdir pair or a new location for the staging rule."""
+    base = Path(directory)
+    repairs = base.with_name(base.name + '.repairs')
+    attempt = 0
+    if os.path.lexists(repairs):
+        if repairs.is_symlink() or not repairs.is_dir():
+            raise ValueError(f'Invalid workdir reference repair directory: {repairs}')
+        attempt = max((int(path.name) for path in repairs.iterdir() if path.name.isdecimal()), default=0)
+    active = repairs / str(attempt) if attempt else base
+    # A previous workdir snapshot can itself be selected as the authoritative ref_dir.
+    if source is not None and active.resolve() == Path(source).resolve():
+        return staged_reference_directory(active / 'derived', checksums)
+    if not os.path.lexists(active):
+        return str(active)
+    if active.is_dir() and (not active.is_symlink() or (pinned and not attempt)):
+        # The Cell Ranger publisher reserves an empty directory for the cold annotation pin.
+        if not any(active.iterdir()):
+            return str(active)
+        pair = [active / name for name in CELLRANGER_SOURCES]
+        if checksums and all(path.is_file() and not path.is_symlink() and not path.parent.is_symlink() for path in pair):
+            if reference_checksums(active) == checksums:
+                return str(active)
+    # Keep old readers and every derived index/table intact. Changing the directory
+    # changes both the file dependencies and the tool arguments in retained jobs.
+    return str(repairs / str(attempt + 1))
+
+
 def cellranger_build_key(genome, image):
     # Version the recipe independently of the scientific inputs.
     return hashlib.sha256(json.dumps([CELLRANGER_RECIPE_VERSION, genome, image]).encode()).hexdigest()

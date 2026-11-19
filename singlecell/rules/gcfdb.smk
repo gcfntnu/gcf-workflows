@@ -66,15 +66,13 @@ if build_10x_reference:
         metadata_ref = REF_DIR
     elif not config.get('ref_dir'):
         # The publisher pins both the original source pair and a digest-specific local annotation directory.
-        metadata_ref = join(CR_VIEW, 'annotation')
+        metadata_ref = staged_reference_directory(join(CR_VIEW, 'annotation'), REFERENCE_SOURCE_CHECKSUMS, pinned=True)
         annotation_source = join(CR_VIEW, 'index', 'gcf-source')
         annotation_inputs = CR_REFERENCE_INPUTS
         annotation_checksums = ['--manifest', CR_RECEIPT]
     else:
-        metadata_ref = join(QUANT_INTERIM, 'reference', REFERENCE_SOURCE_DIGEST)
-        # A previous snapshot can itself be selected as the project reference.
-        if os.path.realpath(metadata_ref) == os.path.realpath(REF_DIR):
-            metadata_ref = join(metadata_ref, 'derived')
+        snapshot = join(QUANT_INTERIM, 'reference', REFERENCE_SOURCE_DIGEST)
+        metadata_ref = staged_reference_directory(snapshot, REFERENCE_SOURCE_CHECKSUMS, source=CR_SOURCE)
         annotation_source = CR_SOURCE
         annotation_inputs = [join(CR_SOURCE, 'fasta', 'genome.fa'), join(CR_SOURCE, 'anno', 'genes.gtf')]
         annotation_checksums = [REFERENCE_SOURCE_CHECKSUMS]

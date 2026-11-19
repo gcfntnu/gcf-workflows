@@ -50,7 +50,8 @@ if frozen_generation:
     # Published generations are immutable. All genome consumers use a workdir copy,
     # including quantifiers that derive indexes or annotation beside their input FASTA.
     source_key = hashlib.sha256(os.fsencode(selected_source)).hexdigest()
-    REF_DIR = join(QUANT_INTERIM, 'reference', 'imported', source_key, REFERENCE_SOURCE_DIGEST)
+    import_root = join(QUANT_INTERIM, 'reference', 'imported', source_key, REFERENCE_SOURCE_DIGEST)
+    REF_DIR = staged_reference_directory(import_root, REFERENCE_SOURCE_CHECKSUMS)
     workdir_reference_roots[frozen_generation] = Path(REF_DIR)
 
     rule stage_frozen_reference:
