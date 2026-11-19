@@ -189,12 +189,30 @@ def test_sample_without_annotation_rows_and_without_misc_rna_hits_is_zero(tmp_pa
 
 
 @pytest.mark.parametrize('summary', ['', 'miRNA\t20\n'])
-def test_sample_with_misc_rna_below_the_tolerance_passes_with_or_without_annotation_rows(tmp_path, summary):
-    """An absent sample (empty summary) and a sample without a misc_RNA row are both checked against 0 with the tolerance."""
-    write_sample(tmp_path, 'S1', summary=summary, hits=[('misc_RNA', 'RNY4-ENSG00000000001.1', 0.005)])
+def test_small_misc_rna_hits_without_a_misc_rna_class_fail(tmp_path, summary):
+    """A read split between many targets gives each a small share; without a misc_RNA class in annotations.tsv (no row,
+    or no rows for the sample at all) even 0.004 reads is a disagreement."""
+    write_sample(tmp_path, 'S1', summary=summary, hits=[('misc_RNA', 'RNY4-ENSG00000000001.1', 0.004)])
     result = family_table(tmp_path, ['S1'])
-    assert result.returncode == 0, result.stderr
-    assert result.table.splitlines()[1] == 'S1\tY_RNA\t0.005'
+    assert result.returncode != 0 and 'misc_RNA targets add up to 0.004 reads' in result.stderr
+
+
+@pytest.mark.parametrize('hits_text', ['', HITS_HEADER])
+def test_small_misc_rna_class_without_hits_fails(tmp_path, hits_text):
+    """An empty or header-only hits table cannot give a sample's positive misc_RNA class, however small."""
+    write_sample(tmp_path, 'S1', summary='miRNA\t20\nmisc_RNA\t0.004\n', hits_text=hits_text)
+    result = family_table(tmp_path, ['S1'])
+    assert result.returncode != 0 and 'misc_RNA targets add up to 0.0 reads, annotations.tsv has 0.004' in result.stderr
+
+
+@pytest.mark.parametrize('summary, ok', [('misc_RNA\t0.0130000000000001\n', True), ('misc_RNA\t0.013\n', True),
+                                         ('misc_RNA\t0.0130001\n', False), ('misc_RNA\t0.004\n', False)])
+def test_positive_totals_agree_up_to_summation_order(tmp_path, summary, ok):
+    """Small positive totals are compared relatively: 0.004 against 0.013 differs, the last of 15 digits does not."""
+    write_sample(tmp_path, 'S1', summary=summary, hits=[('misc_RNA', 'RNY4-ENSG00000000001.1', 0.01),
+                                                         ('misc_RNA', 'RN7SK-ENSG00000000002.1', 0.003)])
+    result = family_table(tmp_path, ['S1'])
+    assert (result.returncode == 0) == ok, result.stderr
 
 
 def test_samples_must_match_annotations_and_hits_tables(tmp_path):
