@@ -15,7 +15,7 @@ name, e.g. `RNY4-ENSG00000252316.1`), ignoring case, so mouse and rat symbols (`
 Names that match none are `other`, including transcript-only names without a gene symbol (`ENST...`).
 A read UNITAS splits between targets keeps its fractional counts, so a sample's families must add up to its misc_RNA
 class in annotations.tsv (unitas_annotations.py; Level1 misc_RNA without Level2, 0 when the sample has none, and
-for a sample without rows there, as from an empty summary, when its hits table has no misc_RNA reads either).
+for a sample without rows there, as from an empty summary): both 0, or both positive and equal up to summation order.
 A difference, a second misc_RNA row for a sample, a sample in annotations.tsv without hits table, a hits table with
 another header, a data row without class or target name, or a count that is not a non-negative decimal number stops
 the script, naming the file and line; a sample without rows in annotations.tsv is checked against 0 like a sample
@@ -113,10 +113,16 @@ def annotation_misc_rna(path):
     return {sample: 0.0 if total is None else total for sample, total in totals.items()}
 
 
+# UNITAS writes the summary at full precision (15 significant digits), and a read split between many targets gives each
+# a small share (1/6400 seen), so only summation order may differ: 4e-14 relative at most in development runs.
+TOTAL_REL_TOL = 1e-9
+
+
 def check_total(counts, misc_rna, path, source='annotations.tsv has'):
+    """The families must add up to the sample's misc_RNA class: both 0, or both positive and equal within TOTAL_REL_TOL."""
     total = math.fsum(counts.values())
-    if not abs(total - misc_rna) <= 0.01 + 1e-6 * misc_rna:
-        raise ValueError('{}: misc_RNA targets add up to {:.6g} reads, {} {:.6g}'.format(path, total, source, misc_rna))
+    if (total > 0) != (misc_rna > 0) or not math.isclose(total, misc_rna, rel_tol=TOTAL_REL_TOL):
+        raise ValueError('{}: misc_RNA targets add up to {!r} reads, {} {!r}'.format(path, total, source, misc_rna))
 
 
 def table(annotations, hits):
@@ -132,7 +138,7 @@ def table(annotations, hits):
     for sample in sorted(target_hits):
         counts = misc_rna_families(target_hits[sample])
         # A sample without reads may have an empty summary, so no rows in annotations.tsv: its misc_RNA total is 0, as for
-        # a sample there without a misc_RNA row, with the same tolerance.
+        # a sample there without a misc_RNA row.
         source = 'annotations.tsv has' if sample in totals else 'annotations.tsv has no rows for the sample, so'
         check_total(counts, totals.get(sample, 0.0), target_hits[sample], source)
         result[sample] = counts
