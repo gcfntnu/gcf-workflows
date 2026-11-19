@@ -179,7 +179,7 @@ rule vireo_donor_subset:
     output:
         vcf = join(DEMUX_DIR, "vireo_ref", "donor_subset.vcf"),
     container:
-        "docker://biocontainers/bcftools:v1.9-1-deb_cv1"
+        "docker://" + config["docker"]["bcftools"]
     shell:
         'bcftools query -l {input.donor_vcf} | grep -q . || '
         '(echo "ERROR: donor VCF contains no samples: {input.donor_vcf}" >&2; exit 1); '
@@ -281,7 +281,7 @@ rule souporcell_noref:
     threads:
         24
     container:
-        'shub://' + config['docker']['souporcell']
+        'docker://' + config['docker']['souporcell']
     shell:
         'mkdir -p {params.souporcell_dir}/logs && '
         'souporcell_pipeline.py '
@@ -311,7 +311,7 @@ rule souporcell_ref:
     threads:
         24
     container:
-        "library://wheaton5/souporcell/souporcell:release"
+        "docker://" + config["docker"]["souporcell"]
     shell:
         'mkdir -p {params.souporcell_dir}/logs && '
         'souporcell_pipeline.py '
@@ -372,7 +372,7 @@ rule freemuxlet_noref:
     threads:
         24
     container:
-        'docker://yenchungchen/popscle:latest'
+        'docker://' + config['docker']['popscle']
     shell:
         'popscle freemuxlet '
         '--group-list {input.barcodes} '

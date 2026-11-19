@@ -1,6 +1,6 @@
 # Small-RNA quantification benchmark
 
-Compares the smallrna quantification methods (`quant.method`: UNITAS, miRge3, mirflowz) on datasets with a known
+Compares the smallrna quantification methods (`quant.method`: UNITAS, miRge3, mirflowz, TEsmall) on datasets with a known
 truth, and makes adding a method or a dataset a small change ([#338](https://github.com/gcfntnu/gcf-workflows/issues/338)).
 It runs the workflow's own `quant_all` routes, never the tools directly, so it measures what a project would get.
 It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.py`.
@@ -89,7 +89,7 @@ python smallrna/benchmark/benchmark.py fill --dataset smallrna/benchmark/dataset
 ```
 
 `prepare` links the runs into the project, or copies the first `--reads N` reads of each for a quick run; `--methods`
-picks a subset of the declared methods (mirflowz on human needs the full human reference). Run `quant_all` with
+picks a subset of the declared methods (mirflowz and TEsmall on human need the full human reference). Run `quant_all` with
 `--notemp`: the oracle count reads the workflow's filtered reads, those of the project's filter route (`filter/cutadapt/`
 with the kit default; the spike-in prefilter's when the project's `filter.spikein.ref` lists sets removed by Bowtie,
 although the trimmed reads it starts from remain; the trimmed reads with native spike-ins, which UNITAS and miRge3
@@ -119,8 +119,12 @@ name miRNAs differently: UNITAS drops the species prefix and names reads it plac
 mature miRNA (reads with a modification, e.g. a substituted first base or a shorter 3' end) after the hairpin and arm
 (`miR-16-1-5p`), miRge3 (the workflow's own `miR.Counts.csv`, built from
 miRge3's `mapped.csv` with the project-level exact-read rule, #349) reports merge groups (`name1/name2`, counted on the
-first member), mirflowz names miRNAs after their locus (`mmu-miR-194-2-5p`) and reports isomiRs as separate rows. A new
-method needs one function in `ADAPTERS`, next to its smallrna route.
+first member), mirflowz names miRNAs after their locus (`mmu-miR-194-2-5p`) and reports isomiRs as separate rows,
+TEsmall reports mature miRNAs by miRBase name (a name at several loci counted once), and tiny-count reports one row per
+locus by miRBase feature ID (`MIMAT0000416_1`), summed per accession. Only TEsmall's `miRNA` rows are
+scored: reads it assigns to the precursor (`hairpin`: reads lying less than 90% within the mature miRNA, e.g. a moved
+5' end) are not mature counts and are left out. A new method needs one function in `ADAPTERS`, next to its smallrna
+route.
 
 A UNITAS name is placed by name when it is a mature miRNA of the organism, else by hairpin and arm: the hairpin of that
 name in the UNITAS dump (`miRBase_hairpin_<Species>.fas`), and the organism's mature miRNA on that arm, the hairpin
@@ -133,8 +137,8 @@ methods count on the same miRNAs (often a pool sequence one or two bases shorter
 ## Metrics
 
 **Synthetic data.** For truth as reads per miRNA, per method: `recovered` (share of the true reads counted on the right
-miRNA), `exact` (share of miRNAs counted exactly), `misassigned` (reads on miRNAs not in the truth) and `unplaced`
-(reads on names without a miRBase accession).
+miRNA), `exact` (share of miRNAs counted exactly, to within 1e-6 for the fractional counts of divided multimappers),
+`misassigned` (reads on miRNAs not in the truth) and `unplaced` (reads on names without a miRBase accession).
 
 **Pools** (`pool.py`):
 

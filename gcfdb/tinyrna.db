@@ -1,0 +1,35 @@
+#-*- mode:snakemake -*-
+"""tiny-count reference (smallrna quant.method: tinyrna, #373), on the mirflowz reference (gcfdb/mirflowz.db).
+
+tiny-count needs a genome Bowtie 1 index and a miRNA GFF with the genome's sequence names. Both come from the mirflowz
+reference (the Ensembl release fixed per organism on the assembly of the miRBase GFF, or `db.mirflowz.custom`), so
+tiny-count, mirflowz, TEsmall and the benchmark share one genome and miRBase release:
+
+- the genome FASTA and Bowtie 1 index are TEsmall's shared ones (`tesmall_genome` in gcfdb/tesmall.db,
+  `EXT_DIR/tesmall/<mirflowz reference>/genome/`), not a second index of the same genome;
+- the miRBase GFF3 is renamed to the genome's sequence names with mirflowz's chromosome map (scripts/tinyrna_gff.py),
+  into `EXT_DIR/tinyrna/<mirflowz reference>/mirna.v<TINYRNA_GFF_VERSION>.gff3` (TINYRNA_REF).
+
+Checks of the mirflowz reference stop the workflow when this route is selected (`TINYRNA_SELECTED`, set in
+smallrna/rules/quant.smk).
+"""
+
+TINYRNA_REF = join(EXT_DIR, 'tinyrna', os.path.relpath(MIRFLOWZ_REF, join(EXT_DIR, 'mirflowz')))
+TINYRNA_INDEX = join(TESMALL_GENOME, 'bowtie_index', 'genome')
+# Raise when tinyrna_gff.py writes different rows from the same sources, so a GFF written by an earlier version is
+# not used (2: one row per mature miRNA, locus and strand).
+TINYRNA_GFF_VERSION = 2
+
+
+rule tinyrna_gff:
+    input:
+        mirna_gff = lambda wildcards: mirflowz_sources()['mirna_gff'],
+        chr_map = rules.mirflowz_chr_map.output
+    output:
+        gff = join(TINYRNA_REF, 'mirna.v{}.gff3'.format(TINYRNA_GFF_VERSION))
+    params:
+        script = src_gcf('scripts/tinyrna_gff.py')
+    container:
+        'docker://' + config['docker']['default']
+    shell:
+        'python {params.script:q} --mirna-gff {input.mirna_gff:q} --chr-map {input.chr_map:q} --output {output.gff:q}'

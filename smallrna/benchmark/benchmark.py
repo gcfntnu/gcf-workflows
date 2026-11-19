@@ -104,7 +104,7 @@ def write_project(project, spec, ext_dir, samples, read_length, methods, mirflow
               'fastq_dir': 'data/raw/fastq',
               'quant': {'method': ','.join(methods), 'batch': {'method': 'skip'}},
               'samples': {s: {'R1': r1[s], 'R2': '', 'paired_end': 0, 'Sample_ID': s} for s in samples}}
-    if {'mirflowz', 'tesmall'} & set(methods) and mirflowz_reference:  # TEsmall's database is built on the mirflowz reference
+    if {'mirflowz', 'tesmall', 'tinyrna'} & set(methods) and mirflowz_reference:  # TEsmall and tiny-count use the mirflowz reference
         ref = mirflowz_reference
         config['db'] = {'mirflowz': {'custom': {'name': spec['reference']['name'], 'genome': str(ref / 'genome.fa.gz'),
                                                 'gtf': str(ref / 'genes.gtf.gz'), 'mirna_gff': str(ref / 'mirna.gff3')}}}
@@ -347,9 +347,9 @@ def evaluate(args):
         if row['mature_id']:
             key = (row['sample'], row['mature_id'])
             truth[key] = truth.get(key, 0) + int(row['count'])
-    summary = metrics.count_metrics(common, truth)
-    table = metrics.per_mirna(common, truth)
     methods = list(spec['methods'])
+    summary = metrics.count_metrics(common, truth, methods)
+    table = metrics.per_mirna(common, truth, methods)
     names = {}
     for _, _, name, mature_id, _ in common:
         names.setdefault(mature_id, name)

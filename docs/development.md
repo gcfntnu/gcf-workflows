@@ -57,7 +57,7 @@ The `unittest discover` commands are unaffected, and CI runs the tests serially.
 | Reporting dry runs of the seven CI workflows | `PATH="$PWD/.dev/ci/bin:$PATH" bash test-all.sh` (agents: [log-file form](#keep-the-output-in-a-log)) | `.dev/ci` |
 | Reporting dry run of one workflow | `(cd <workflow>/.tests && ../../.dev/ci/bin/snakemake -n --cores 1 multiqc_report)` | `.dev/ci` |
 | Configuration loading, kit selection, download-rule and workflow-level containers, `src_gcf` script paths and `test-all.sh` failure handling | `.dev/ci/bin/python -m unittest discover -s .tests -p 'test_*.py' -v` | `.dev/ci` |
-| Shared Kraken2 screening, including empty FASTQs | `.dev/ci/bin/python -m unittest discover -s .tests -p 'test_kraken_screen.py' -v` | `.dev/ci`; Bash/gzip/awk, mocked classifier |
+| Shared Kraken2 screening, including empty FASTQs | `.dev/ci/bin/python -m unittest discover -s .tests -p 'test_kraken*.py' -v` | `.dev/ci`; Bash/gzip/awk, mocked classifier |
 | MultiQC configuration and provenance | `.dev/ci/bin/python -m unittest discover -s misc/multiqc/.tests -p 'test_*.py' -v` | `.dev/ci` |
 | Single-cell regressions (CI selection) | `.dev/ci/bin/python -m pytest -q singlecell/.tests/test_metadata.py singlecell/.tests/test_bfq_delivery.py singlecell/.tests/test_velocity.py singlecell/.tests/test_splitpipe_velo.py singlecell/.tests/test_demultiplexing_profiles.py singlecell/.tests/test_tenx_reference.py singlecell/.tests/test_containers.py singlecell/.tests/test_doublet_seeds.py singlecell/.tests/test_lightweight_encoding.py singlecell/.tests/test_cellbender_presence.py` | `.dev/ci` |
 | Single-cell TCR and assay configuration (not in CI) | `.dev/ci/bin/python -m pytest -q singlecell/.tests/test_tcr_workflow.py singlecell/.tests/test_immune_config.py` | `.dev/ci` |
@@ -67,7 +67,7 @@ The `unittest discover` commands are unaffected, and CI runs the tests serially.
 | WGS QC delivery (not in CI) | `.dev/ci/bin/python -m unittest discover -s wgs/.tests -p 'test_bfq_qc.py' -v` | `.dev/ci` |
 | Small-RNA fastp stages | `FASTP_0201="$PWD/.dev/bin/fastp" .dev/ci/bin/python -m pytest -q smallrna/.tests/test_fastp.py` | `.dev/ci`, pinned fastp below |
 | Small-RNA cutadapt route | `.dev/ci/bin/python -m pytest -q smallrna/.tests/test_cutadapt.py` (read outcomes need cutadapt 5.2 on `PATH`, e.g. `.dev/ci/bin/pip install cutadapt==5.2`; they skip otherwise) | `.dev/ci` |
-| Small-RNA `quant.method` selection, route guards, UNITAS execution, UNITAS and miRge3 reference checks, miRge3 project libraries and spike-in index, miRge3 counts from `mapped.csv`, mirflowz route and runs, TEsmall route, UNITAS modification tables and misc_RNA families, quantification benchmark | `.dev/ci/bin/python -m pytest -q smallrna/.tests/test_quant_methods.py smallrna/.tests/test_route_guards.py smallrna/.tests/test_run_unitas.py smallrna/.tests/test_bfq_unitas_links.py smallrna/.tests/test_unitas_tables.py smallrna/.tests/test_unitas_misc_rna.py smallrna/.tests/test_unitas_reference.py smallrna/.tests/test_mirge3_reference.py smallrna/.tests/test_mirge3_project_library.py smallrna/.tests/test_mirge3_counts.py smallrna/.tests/test_mirflowz_route.py smallrna/.tests/test_run_mirflowz.py smallrna/.tests/test_tesmall_route.py smallrna/.tests/test_unitas_modifications.py smallrna/.tests/test_benchmark.py` | `.dev/ci` |
+| Small-RNA `quant.method` selection, route guards, UNITAS execution, UNITAS and miRge3 reference checks, miRge3 project libraries and spike-in index, miRge3 counts from `mapped.csv`, mirflowz route and runs, TEsmall route, tiny-count route, UNITAS modification tables and misc_RNA families, quantification benchmark | `.dev/ci/bin/python -m pytest -q smallrna/.tests/test_quant_methods.py smallrna/.tests/test_route_guards.py smallrna/.tests/test_run_unitas.py smallrna/.tests/test_bfq_unitas_links.py smallrna/.tests/test_unitas_tables.py smallrna/.tests/test_unitas_misc_rna.py smallrna/.tests/test_unitas_reference.py smallrna/.tests/test_mirge3_reference.py smallrna/.tests/test_mirge3_project_library.py smallrna/.tests/test_mirge3_counts.py smallrna/.tests/test_mirflowz_route.py smallrna/.tests/test_run_mirflowz.py smallrna/.tests/test_tesmall_route.py smallrna/.tests/test_tinyrna_route.py smallrna/.tests/test_unitas_modifications.py smallrna/.tests/test_benchmark.py` | `.dev/ci` |
 | Small-RNA AnnData | `.dev/anndata/bin/python -m pytest -q smallrna/.tests/test_create_anndata.py` | `.dev/anndata` |
 | Small-RNA report figures (PCA, top miRNAs) | `python -m pytest -q smallrna/.tests/test_report_figures.py`; the figure tests need scanpy 1.12.3 and anndata 0.13.3.post0 (the `scanpy` image), the dry runs need `.dev/ci` | scanpy image versions |
 
@@ -95,7 +95,7 @@ chmod +x .dev/bin/fastp
 
 Set `FASTP_0201` as shown in the check table. Without it, read-outcome cases skip explicitly;
 configuration, reporting-unit and dry-run cases still run. CI always supplies the pinned executable.
-See [small-RNA stage policy](../smallrna/README.md#fastp-stages-and-final-insert-policy) for the scientific scope.
+See the [small-RNA fastp route](../smallrna/README.md#fastp-route) for the route and its former kit options.
 
 ### `test-all.sh`
 

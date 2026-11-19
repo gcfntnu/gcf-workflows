@@ -5,7 +5,7 @@ organism: mus_musculus
 libprepkit: Bioo Scientific NEXTflex Small RNA-Seq Kit v4
 adapter: TGGAATTCTCGGGTGCCAAGG
 umi: 0                      # random nucleotides at each end of the insert (NEXTflex v3: 4)
-methods: [unitas, mirge3, mirflowz, tesmall]
+methods: [unitas, mirge3, mirflowz, tesmall, tinyrna]
 reference:                  # reduced reference, relative to EXT_DIR (reduce_reference.py)
   name: mmu-chr19
   dir: benchmark/references/mmu-chr19

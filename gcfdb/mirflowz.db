@@ -33,8 +33,9 @@ MIRFLOWZ_MIRBASE = str(config['db']['mirbase']['release'])
 
 
 def mirflowz_fail(message):
-    # The TEsmall database (tesmall.db) is built on the mirflowz reference genome, so its checks apply to both routes.
-    if MIRFLOWZ_SELECTED or globals().get('TESMALL_SELECTED'):
+    # The TEsmall database (tesmall.db) and the tiny-count reference (tinyrna.db) are built on the mirflowz reference
+    # genome, so its checks apply to those routes too.
+    if MIRFLOWZ_SELECTED or globals().get('TESMALL_SELECTED') or globals().get('TINYRNA_SELECTED'):
         raise ValueError(message)
 
 

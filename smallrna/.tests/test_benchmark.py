@@ -100,6 +100,10 @@ def native_outputs(quant):
     write(quant / 'mirge3/miR.Counts.csv', 'miRNA,S01,S02\nmmu-miR-192-5p,45,45\nmmu-miR-194-5p/mmu-miR-204-5p,25,25\nmmu-miR-9999-5p,1,0\n')
     write(quant / 'tesmall/tesmall_counts.tsv', 'ftype\tfid\tS01\tS02\nhairpin\tmmu-mir-192\t3\t3\n'
           'miRNA\tmmu-miR-192-5p\t42\t44\nmiRNA\tmmu-miR-194-5p\t25\t0\nsense_TE\tL1:L1:LINE\t9\t9\n')
+    # tiny-count: one row per locus (MIMAT0000224_1 is the second locus of miR-194-5p), fractional shares of multimappers
+    write(quant / 'tinyrna/tinyrna_counts.tsv', 'Feature ID\tClassifier\tFeature Name\tS01\tS02\n'
+          'MIMAT0000517\tmiRNA\tmmu-miR-192-5p\t40.0\t45.0\nMIMAT0000224\tmiRNA\tmmu-miR-194-5p\t12.5\t0.0\n'
+          'MIMAT0000224_1\tmiRNA\tmmu-miR-194-5p\t12.5\t0.0\nMIMAT0000237\tmiRNA\tmmu-miR-204-5p\t0.0\t3.0\n')
     write(quant / 'mirflowz/all_mirna_counts.tab',
           'ID\tS01\tS02\nmmu-miR-192-5p\t40\t40\nmmu-miR-192-5p|0|1|23M|23|CTGACCTATGAATTGACAGCCAA\t5\t5\nmmu-miR-194-2-5p\t25\t25\n'
           'mmu-miR-204-5p|0|0|22M|22|TTCCCTTTGTCATCCTATGCCT\tNA\t3\n')  # NA: no reads in that sample
@@ -109,7 +113,7 @@ def native_outputs(quant):
 
 def test_adapters_match_by_accession_whatever_the_method_names(tmp_path):
     gff = native_outputs(tmp_path / 'quant')
-    rows = adapters.common_table(['unitas', 'mirge3', 'mirflowz', 'tesmall'], tmp_path / 'quant', NAME_TO_ID, 'mmu-', gff)
+    rows = adapters.common_table(['unitas', 'mirge3', 'mirflowz', 'tesmall', 'tinyrna'], tmp_path / 'quant', NAME_TO_ID, 'mmu-', gff)
     got = {(m, s, n): (i, c) for m, s, n, i, c in rows}
     assert got[('unitas', 'S01', 'miR-194-5p')] == ('MIMAT0000224', 20)
     assert got[('unitas', 'S01', 'miR-194-2-5p')] == ('', 5)       # a hairpin name: placed only with the UNITAS hairpins
@@ -121,6 +125,9 @@ def test_adapters_match_by_accession_whatever_the_method_names(tmp_path):
     assert ('mirge3', 'S02', 'mmu-miR-9999-5p') not in got  # zero counts are dropped
     assert got[('tesmall', 'S01', 'mmu-miR-192-5p')] == ('MIMAT0000517', 42)  # mature miRNAs only, not hairpin or TE
     assert ('tesmall', 'S02', 'mmu-miR-194-5p') not in got and not any(n.startswith(('mmu-mir', 'L1')) for m, _, n in got if m == 'tesmall')
+    assert got[('tinyrna', 'S01', 'mmu-miR-194-5p')] == ('MIMAT0000224', 25)  # loci summed by accession
+    assert got[('tinyrna', 'S02', 'mmu-miR-192-5p')] == ('MIMAT0000517', 45) and got[('tinyrna', 'S02', 'mmu-miR-204-5p')] == ('MIMAT0000237', 3)
+    assert ('tinyrna', 'S01', 'mmu-miR-204-5p') not in got
     with pytest.raises(ValueError, match='no benchmark adapter'):
         adapters.common_table(['newtool'], tmp_path / 'quant', NAME_TO_ID, 'mmu-')
 
@@ -154,6 +161,16 @@ def test_count_metrics():
     common = [('m', 'S01', 'a', 'A', 10), ('m', 'S01', 'b', 'B', 3), ('m', 'S01', 'c', 'C', 2), ('m', 'S01', 'x', '', 4)]
     result = metrics.count_metrics(common, truth)['m']
     assert result == {'recovered': round(13 / 15, 4), 'exact': 0.5, 'misassigned': 2, 'unplaced': 4}
+
+
+def test_exact_allows_floating_point_noise_from_divided_reads(tmp_path):
+    """One read divided over ten loci sums to 0.9999999999999999 with plain addition; still exact."""
+    assert sum([0.1] * 10) != 1
+    common = [('m', 'S01', 'a', 'A', sum([0.1] * 10)), ('m', 'S01', 'b', 'B', 2.5)]
+    assert metrics.count_metrics(common, {('S01', 'A'): 1, ('S01', 'B'): 3})['m']['exact'] == 0.5
+    rows = ['MIMAT0000001{}\tmiRNA\tmmu-miR-1a-3p\t0.1'.format('_{}'.format(i) if i else '') for i in range(10)]
+    write(tmp_path / 'tinyrna/tinyrna_counts.tsv', 'Feature ID\tClassifier\tFeature Name\tS01\n' + '\n'.join(rows) + '\n')
+    assert adapters.tinyrna(tmp_path, {}) == [('tinyrna', 'S01', 'mmu-miR-1a-3p', 'MIMAT0000001', 1.0)]  # fsum
 
 
 def test_prepare_then_evaluate(tmp_path, ref):
@@ -192,14 +209,15 @@ def test_prepare_then_evaluate(tmp_path, ref):
     assert (project / 'benchmark/common.tsv').read_text().startswith('method\tsample\tmature_name\tmature_id\tcount\n')
 
 
-def test_tesmall_only_project_keeps_the_reduced_reference(tmp_path, ref):
-    """TEsmall builds its database on the mirflowz reference, so a project with TEsmall alone still gets the reduced
-    reference, and its dry run builds the TEsmall genome from it."""
+@pytest.mark.parametrize('method', ['tesmall', 'tinyrna'])
+def test_tesmall_or_tinyrna_only_project_keeps_the_reduced_reference(tmp_path, ref, method):
+    """TEsmall and tiny-count use the mirflowz reference, so a project with either alone still gets the reduced
+    reference, and its dry run builds the TEsmall genome (shared by both) from it."""
     for name in ('genome.fa.gz', 'genes.gtf.gz'):
         (ref / name).touch()  # the reduced reference's genome and annotation (reduce_reference.py)
     dataset = write(tmp_path / 'ds.yaml', yaml.safe_dump({
         'name': 'syn', 'kind': 'synthetic', 'organism': 'mus_musculus', 'libprepkit': 'Bioo Scientific NEXTflex Small RNA-Seq Kit v4',
-        'adapter': 'TGGAATTCTCGGGTGCCAAGG', 'methods': ['tesmall'],
+        'adapter': 'TGGAATTCTCGGGTGCCAAGG', 'methods': [method],
         'reference': {'name': 'mmu-test', 'dir': 'benchmark/references/mmu-test'},
         'synthetic': {'seed': 1, 'samples': 1, 'mirnas': {'mmu-miR-192-5p': 4}}}))
     project = tmp_path / 'project'
@@ -207,7 +225,7 @@ def test_tesmall_only_project_keeps_the_reduced_reference(tmp_path, ref):
                              '--ext-dir', str(tmp_path / 'ext')], capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
     config = yaml.safe_load((project / 'config.yaml').read_text())
-    assert config['quant']['method'] == 'tesmall' and config['db']['mirflowz']['custom']['genome'] == str(ref / 'genome.fa.gz')
+    assert config['quant']['method'] == method and config['db']['mirflowz']['custom']['genome'] == str(ref / 'genome.fa.gz')
     env = {k: v for k, v in os.environ.items() if not k.startswith('GCF_')}
     env.update(TMPDIR=str(tmp_path), XDG_CACHE_HOME=str(tmp_path / '.cache'))
     result = subprocess.run([str(Path(sys.executable).with_name('snakemake')), '-n', '--cores', '1', 'quant_all'], cwd=project, env=env,
@@ -216,6 +234,9 @@ def test_tesmall_only_project_keeps_the_reduced_reference(tmp_path, ref):
     assert result.returncode == 0, output
     genome = output.split('rule tesmall_genome:', 1)[1].split('\nrule ', 1)[0]
     assert 'input: {}'.format(ref / 'genome.fa.gz') in genome and 'tesmall/custom-mmu-test/mus_musculus/genome/genome.fa' in genome
+    if method == 'tinyrna':
+        gff = output.split('rule tinyrna_gff:', 1)[1].split('\nrule ', 1)[0]
+        assert 'input: {}'.format(ref / 'mirna.gff3') in gff and 'tinyrna/custom-mmu-test/mus_musculus/mirna.v2.gff3' in gff
 
 
 def test_prepare_refuses_an_existing_project_and_a_missing_reference(tmp_path, ref):
@@ -1477,3 +1498,12 @@ def test_summary_uses_one_selected_project_when_a_directory_link_is_retargeted(t
     observed = tmp_path / 'observed.md'
     summary.write([selection], observed)
     assert selection.resolve() == second and observed.read_text() == expected.read_text()
+
+
+def test_empty_tinyrna_counts_keep_synthetic_truth_rows(tmp_path):
+    write(tmp_path / 'tinyrna/tinyrna_counts.tsv', 'Feature ID\tClassifier\tFeature Name\tS1\nMIMAT1\tmiRNA\tmir-1\t0\n')
+    methods = ['tinyrna']
+    common = adapters.common_table(methods, tmp_path, {}, 'mmu-')
+    truth = {('S1', 'MIMAT1'): 12}
+    assert metrics.per_mirna(common, truth, methods) == {('tinyrna', 'S1', 'MIMAT1'): (12, 0)}
+    assert metrics.count_metrics(common, truth, methods)['tinyrna'] == {'recovered': 0, 'exact': 0, 'misassigned': 0, 'unplaced': 0}
