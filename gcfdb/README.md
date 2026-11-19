@@ -36,7 +36,7 @@ reporter	custom	exon	1	720	.	+	.	gene_id "REPORTER"; transcript_id "REPORTER-T1"
 ```
 
 When a gene has only exon records, the report derives one row in `genes.tsv` from its exons and joins it to the AnnData feature with the same `gene_id`.
-Supplied gene records keep their coordinates and attributes.
+Gene IDs are matched as text, preserving literal identifiers such as `NA` and `001`. Supplied gene records keep their coordinates and attributes.
 
 The builder copies the selected FASTA and GTF into a private working directory, verifies their checksums and runs
 `cellranger mkref --fasta refs/panel-v1/fasta/genome.fa --genes refs/panel-v1/anno/genes.gtf` there.
