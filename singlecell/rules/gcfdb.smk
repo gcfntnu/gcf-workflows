@@ -7,16 +7,24 @@ include:
 
 CR_REF_DIR = REF_DIR
 CR_REFERENCE_INPUTS = [join(REF_DIR, name) for name in ('reference.json', 'fasta/genome.fa', 'anno/genes.gtf')]
+frozen_generation = None
 if build_10x_reference:
     # Cell Ranger 10.0 allows only letters, digits, underscores and dashes in --genome.
     CR_GENOME = re.sub(r'[^A-Za-z0-9_-]', '_', DB_CONF.get('assembly') or ORG)
     CR_IMAGE = config['docker']['cellranger']
     CR_BUILD_KEY = cellranger_build_key(CR_GENOME, CR_IMAGE)
-    CR_CACHE = os.path.realpath(join(REF_DIR, 'cellranger', 'builds'))
     # Keep ordinary project-relative mkref arguments, but resolve project directory symlinks before jobs start.
     CR_SOURCE = REF_DIR
     if config.get('ref_dir') and os.path.realpath(REF_DIR) != os.path.abspath(REF_DIR):
         CR_SOURCE = os.path.realpath(REF_DIR)
+    frozen_generation = frozen_cellranger_generation(CR_SOURCE) if config.get('ref_dir') else None
+    if frozen_generation and (frozen_generation.parent.name, frozen_generation.name) == (REFERENCE_SOURCE_DIGEST, CR_BUILD_KEY):
+        # The publisher verifies the existing owner generation before pinning it for this workdir.
+        CR_CACHE = str(frozen_generation.parent.parent)
+    elif frozen_generation:
+        CR_CACHE = os.path.realpath(join(QUANT_INTERIM, 'reference', 'cellranger', 'builds'))
+    else:
+        CR_CACHE = os.path.realpath(join(CR_SOURCE, 'cellranger', 'builds'))
     # Equal inputs can live in distinct project caches. A path alias for the same cache shares its pin.
     cache_key = hashlib.sha256(os.fsencode(CR_CACHE)).hexdigest()
     views = join(QUANT_INTERIM, 'reference', 'cellranger', cache_key)
@@ -100,12 +108,28 @@ def gene_table_for_quantifier(wildcards):
 if config.get('ref_dir') and REFERENCE_SOURCE_DIGEST:
     # An explicitly requested legacy target can still export the current table.
     # Reporting reads the versioned table directly, never a shared mutable copy.
+    export_root = REF_DIR
+    export_paths = {REF_DIR}
+    if frozen_generation:
+        frozen_source = frozen_generation / 'gcf-source'
+        export_root = '{published_source}'
+        export_paths.update((str(frozen_source), os.path.abspath(REF_DIR), os.path.relpath(frozen_source)))
+
+    def gene_table_destination(wildcards, output):
+        if frozen_generation:
+            raise ValueError(f'Cannot write a gene table in a published Cell Ranger generation. Request {SNAPSHOT_GENE_TABLE} instead.')
+        return output[0]
+
     rule export_project_gene_table:
         input:
             SNAPSHOT_GENE_TABLE
         output:
-            join(REF_DIR, 'anno', 'genes.tsv')
+            join(export_root, 'anno', 'genes.tsv')
+        wildcard_constraints:
+            published_source = '(?:' + '|'.join(re.escape(path) for path in sorted(export_paths)) + ')'
+        params:
+            destination = gene_table_destination
         shell:
-            'cp -- {input:q} {output:q}'
+            'cp -- {input:q} {params.destination:q}'
 
     ruleorder: export_project_gene_table > convert_gtf2gene_info

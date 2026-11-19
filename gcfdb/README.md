@@ -43,6 +43,8 @@ The builder copies the selected FASTA and GTF into a private working directory, 
 Absolute project paths and paths containing `..` are mapped into that private directory. The published index retains the verified originals in `gcf-source/`.
 Count passes its workdir’s `index` symlink to `--transcriptome`. The link pins the published generation in `refs/panel-v1/cellranger/builds/<source-digest>/<build-key>`.
 When `ref_dir` is a symlink, the workflow resolves the selected directory before building. Changing the symlink later cannot redirect a planned count.
+A second project may select a published generation’s `gcf-source/` as `ref_dir`. A matching recipe reuses and verifies the existing generation. A different genome identifier or image builds under the importing workdir’s `QUANT_INTERIM/reference/cellranger/builds/`.
+Filtered annotations and gene metadata derived from frozen sources stay in the importing workdir.
 The source digest covers the SHA-256 checksums of both files. The build key covers the normalized Cell Ranger genome identifier, configured image and recipe version.
 Workdir receipts distinguish the canonical cache directory, so changing to another prepared directory selects its own index even if the inputs are identical.
 Each complete index is published with a manifest recording every file's size and SHA-256 checksum.

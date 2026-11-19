@@ -2,6 +2,7 @@
 import hashlib
 import json
 import math
+import re
 from pathlib import Path
 
 
@@ -43,6 +44,21 @@ def reference_digest(checksums):
 def cellranger_build_key(genome, image):
     # Version the recipe independently of the scientific inputs.
     return hashlib.sha256(json.dumps([CELLRANGER_RECIPE_VERSION, genome, image]).encode()).hexdigest()
+
+
+def frozen_cellranger_generation(source_dir):
+    source = Path(source_dir).resolve()
+    if source.name != 'gcf-source':
+        return None
+    generation = source.parent
+    # Also recognize a generation whose manifest has been removed. Creating files there
+    # would make recovering the original index harder.
+    cache = generation.parent.parent
+    if ((generation / CELLRANGER_MANIFEST).is_file()
+            or (cache.parts[-2:] == ('cellranger', 'builds')
+                and all(re.fullmatch('[0-9a-f]{64}', part) for part in generation.parts[-2:]))):
+        return generation
+    return None
 
 
 def metadata_sha256(path, genome):

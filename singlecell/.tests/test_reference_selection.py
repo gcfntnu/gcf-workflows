@@ -749,3 +749,55 @@ def test_starsolo_recounts_after_project_reference_changes(tmp_path, methods, pr
         assert 'cellranger mkref ' not in plan
     stage_inputs(current)
     assert (tmp_path / original / changed).read_bytes() == previous
+
+
+@pytest.mark.parametrize('use_alias,new_recipe', [(False, False), (True, True)])
+def test_project_reusing_published_cellranger_source_preserves_both_pins(tmp_path, use_alias, new_recipe):
+    owner, importer = tmp_path / 'owner', tmp_path / 'importer'
+    owner.mkdir()
+    importer.mkdir()
+    panel = tmp_path / 'panel'
+    write_panel(tmp_path, panel)
+
+    def publish(work, source, genome, image):
+        plan = dry_run(work, 'homo_sapiens', ref_dir=str(source), db={'10xgenomics': {'assembly': genome}},
+                       docker={'cellranger': image})
+        command = shell_command(plan, 'cellranger mkref ')
+        env = protected_env(work)
+        env['PATH'] = str(MOCK_TOOLS) + os.pathsep + env['PATH']
+        subprocess.run([sys.executable, *command[1:]], cwd=work, env=env, check=True)
+        transcriptome, = arguments(plan, 'cellranger count ', '--transcriptome')
+        assert_gene_metadata(plan, annotation_snapshot(source)[0])
+        return (work / transcriptome).resolve(strict=True)
+
+    generation = publish(owner, panel, 'Panel.v1', 'example/cellranger:1')
+    manifest = (generation / 'gcf-mkref.json').read_bytes()
+    frozen = generation / 'gcf-source'
+    selected = frozen
+    if use_alias:
+        selected = importer / 'frozen-panel'
+        selected.symlink_to(frozen, target_is_directory=True)
+    imported = publish(importer, selected, 'Other.v2' if new_recipe else 'Panel.v1',
+                       'example/cellranger:2' if new_recipe else 'example/cellranger:1')
+    if new_recipe:
+        assert imported.is_relative_to(importer / 'data/tmp/singlecell/quant/reference/cellranger/builds')
+    else:
+        assert imported == generation
+    assert not (frozen / 'cellranger').exists()
+
+    for work, expected in ((owner, generation), (importer, imported)):
+        retained = plan_existing(work, 'multiqc_report')
+        assert 'rule cellranger_mkref:' not in retained
+        pin, = arguments(retained, 'cellranger count ', '--transcriptome')
+        assert (work / pin).resolve(strict=True) == expected
+        assert 'rule multiqc_report:' in retained
+
+    for root in {selected, frozen}:
+        blocked = plan_existing(importer, str(root / 'anno/genes.tsv'), expect_success=False)
+        assert 'Cannot write a gene table in a published Cell Ranger generation' in blocked
+    filtered = plan_existing(importer, 'cellranger_gtf')
+    snapshot, _ = annotation_snapshot(frozen)
+    assert f'{snapshot}/anno/genes.gtf.filtered' in filtered
+
+    assert sorted(p.relative_to(frozen).as_posix() for p in frozen.rglob('*') if p.is_file()) == ['anno/genes.gtf', 'fasta/genome.fa']
+    assert (generation / 'gcf-mkref.json').read_bytes() == manifest
