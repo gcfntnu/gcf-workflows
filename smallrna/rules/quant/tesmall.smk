@@ -13,7 +13,9 @@ it would cut from the start of already-trimmed reads. Only its length filter (-m
 once per UNITAS reference dump by gcfdb/tesmall.db on the mirflowz reference genome.
 
 TEsmall writes into its working directory and always names its table count_summary.txt, so each sample runs in its own
-work directory; it runs single-threaded (its -p option is unused). Per-feature counts are rounded by TEsmall, so
+work directory; it runs single-threaded (its -p option is unused). Its temporary files (`sort` of the per-read
+annotation, several hundred MB per sample) go to tmp/ there (TMPDIR) rather than the host's /tmp, and tesmall_check.py
+stops the job when a TEsmall step failed although TEsmall reported success (#419). Per-feature counts are rounded by TEsmall, so
 fractional shares of multimapping reads below 0.5 are lost.
 """
 
@@ -51,7 +53,8 @@ rule tesmall_quant:
         db = TESMALL_DB,
         name = TESMALL_NAME,
         args = '-m {} -M {} --mismatch {} --maxaln {} -o {}'.format(TESMALL_MIN_LENGTH, TESMALL_CONF['max_length'],
-                                                                   TESMALL_CONF['mismatch'], TESMALL_CONF['maxaln'], ' '.join(TESMALL_ORDER))
+                                                                   TESMALL_CONF['mismatch'], TESMALL_CONF['maxaln'], ' '.join(TESMALL_ORDER)),
+        script = src_gcf('scripts/tesmall_check.py')
     threads:
         1
     log:
@@ -59,10 +62,13 @@ rule tesmall_quant:
     container:
         'docker://' + config['docker']['tesmall']
     shell:
-        # Paths made absolute, as TEsmall runs in the sample's work directory; matplotlib's cache goes there too.
-        'fastq=$(realpath {input.fastq}); db=$(realpath {params.db}); log=$(realpath -m {log}); cd {params.work} && '
-        'MPLCONFIGDIR=$PWD/.matplotlib TEsmall --no-trim -f "$fastq" -l {wildcards.sample} -g {params.name} --dbfolder "$db" '
-        '{params.args} --verbose 2 > "$log" 2>&1'
+        # Paths made absolute, as TEsmall runs in the sample's work directory; matplotlib's cache and the temporary files
+        # go there too. TEsmall exits 0 even when a step failed, so tesmall_check.py reads its logs and annotation after it.
+        'fastq=$(realpath {input.fastq}); db=$(realpath {params.db}); log=$(realpath -m {log}); script=$(realpath {params.script}); '
+        'cd {params.work} && rm -rf tmp && mkdir tmp && '
+        'TMPDIR=$PWD/tmp MPLCONFIGDIR=$PWD/.matplotlib TEsmall --no-trim -f "$fastq" -l {wildcards.sample} -g {params.name} '
+        '--dbfolder "$db" {params.args} --verbose 2 > "$log" 2>&1 && rm -rf tmp && '
+        'python "$script" --work . --sample {wildcards.sample} --log "$log"'
 
 
 rule tesmall_counts:
