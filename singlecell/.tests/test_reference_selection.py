@@ -14,6 +14,7 @@ from test_velocity import TENX_KIT, WORKFLOW, protected_env
 
 DB_DEFAULTS = yaml.safe_load((WORKFLOW.parents[1] / 'main.config').read_text())['db']
 COUNT_TARGET = '_tmp_libA/outs/web_summary.html'
+MOCK_TOOLS = WORKFLOW.parents[1] / 'gcfdb/.tests/mock_tools'
 
 
 def dry_run(work, organism, target='multiqc_report', expect_success=True, workflow_file=WORKFLOW, kit=TENX_KIT, **settings):
@@ -153,17 +154,8 @@ def test_managed_count_and_gene_metadata_share_verified_snapshot(tmp_path, organ
     write_panel(tmp_path, source)
     for path in ('fasta/genome.fa', 'anno/genes.gtf'):
         os.utime(source / path, (100, 100))
-    binary = tmp_path / 'bin/cellranger'
-    binary.parent.mkdir()
-    binary.write_text(
-        '#!/usr/bin/env python3\nimport sys\nfrom pathlib import Path\n'
-        'assert sys.argv[1] == "mkref"\nroot = Path(sys.argv[sys.argv.index("--output-dir") + 1])\n'
-        'for name in ("reference.json", "fasta/genome.fa", "genes/genes.gtf.gz", "star/Genome", "star/SA", "star/SAindex"):\n'
-        '    path = root / name\n    path.parent.mkdir(parents=True, exist_ok=True)\n    path.write_bytes(b"processed mkref output")\n'
-    )
-    binary.chmod(0o755)
     env = protected_env(work)
-    env['PATH'] = str(binary.parent) + os.pathsep + env['PATH']
+    env['PATH'] = str(MOCK_TOOLS) + os.pathsep + env['PATH']
     publish = shell_command(cold, 'cellranger mkref ')
     subprocess.run([sys.executable, *publish[1:]], cwd=work, env=env, check=True)
 
@@ -395,14 +387,9 @@ def test_retained_receipt_checks_index_before_count(tmp_path):
     cold = dry_run(tmp_path, 'homo_sapiens', COUNT_TARGET, ref_dir=str(panel))
     build = next(shlex.split(line.removeprefix('Shell command: ')) for line in cold.splitlines()
                  if line.startswith('Shell command: ') and 'cellranger mkref ' in line)
-    # Issue a real receipt using the publisher and six tiny stand-ins for mkref output.
-    binary = tmp_path / 'bin/cellranger'
-    binary.parent.mkdir()
-    binary.write_text('#!/bin/bash\nset -eu\nout=${!#}\nmkdir -p "$out"/{fasta,genes,star}\n'
-                      'touch "$out"/{reference.json,fasta/genome.fa,genes/genes.gtf.gz,star/Genome,star/SA,star/SAindex}\n')
-    binary.chmod(0o755)
+    # Issue a real receipt using the publisher and synthetic mkref output.
     env = protected_env(tmp_path)
-    env['PATH'] = str(binary.parent) + os.pathsep + env['PATH']
+    env['PATH'] = str(MOCK_TOOLS) + os.pathsep + env['PATH']
     subprocess.run([sys.executable, *build[1:]], cwd=tmp_path, env=env, check=True)
 
     warm = plan_existing(tmp_path, COUNT_TARGET)
@@ -434,12 +421,15 @@ def test_retained_receipt_checks_index_before_count(tmp_path):
     transcriptome, = arguments(same, 'cellranger count ', '--transcriptome')
     assert Path(transcriptome).resolve() == manifest.parent
     configfile.write_text(original_config)
-    fasta = manifest.parent / 'fasta/genome.fa'
-    fasta.unlink()
-    damaged = plan_existing(tmp_path, COUNT_TARGET, expect_success=False)
-    assert 'cellranger count ' not in damaged and str(fasta) in damaged
 
-    fasta.touch()
+    for removed in ('fasta/genome.fa', 'star/genomeParameters.txt', 'star/sjdbInfo.txt'):
+        member = manifest.parent / removed
+        original = member.read_bytes()
+        member.unlink()
+        damaged = plan_existing(tmp_path, COUNT_TARGET, expect_success=False)
+        assert 'cellranger count ' not in damaged and str(member) in damaged
+        member.write_bytes(original)
+
     annotation = receipt.parent / 'annotation'
     target = annotation.readlink()
     annotation.unlink()

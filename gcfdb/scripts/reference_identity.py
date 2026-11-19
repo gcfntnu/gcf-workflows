@@ -4,10 +4,16 @@ import json
 from pathlib import Path
 
 
-CELLRANGER_RECIPE_VERSION = 2
+CELLRANGER_RECIPE_VERSION = 3
 CELLRANGER_MANIFEST = 'gcf-mkref.json'
-CELLRANGER_PRODUCTS = ('reference.json', 'fasta/genome.fa', 'genes/genes.gtf.gz', 'star/Genome', 'star/SA', 'star/SAindex',
-                       'gcf-source/fasta/genome.fa', 'gcf-source/anno/genes.gtf')
+# Cell Ranger v10 check_refdata requires the eight core STAR files. Its count annotator
+# also reads transcriptInfo.tab and exonInfo.tab, and mkref builds and uses genome.fa.fai.
+CELLRANGER_PRODUCTS = (
+    'reference.json', 'fasta/genome.fa', 'fasta/genome.fa.fai',
+    'star/Genome', 'star/SA', 'star/SAindex', 'star/genomeParameters.txt',
+    'star/chrLength.txt', 'star/chrNameLength.txt', 'star/chrName.txt', 'star/chrStart.txt',
+    'star/transcriptInfo.tab', 'star/exonInfo.tab', 'gcf-source/fasta/genome.fa', 'gcf-source/anno/genes.gtf',
+)
 
 
 def reference_checksums(source_dir):
@@ -33,25 +39,39 @@ def cellranger_build_key(genome, image):
     return hashlib.sha256(json.dumps([CELLRANGER_RECIPE_VERSION, genome, image]).encode()).hexdigest()
 
 
-def check_cellranger_products(directory):
+def cellranger_product_inventory(directory):
+    manifest = directory / CELLRANGER_MANIFEST
+    files = {path.relative_to(directory).as_posix() for path in directory.rglob('*') if path != manifest and path.is_file()}
     for name in CELLRANGER_PRODUCTS:
-        path = directory / name
-        if not path.is_file():
-            raise ValueError(f'Incomplete Cell Ranger reference: missing {path}')
+        if name not in files:
+            raise ValueError(f'Incomplete Cell Ranger reference: missing {directory / name}')
+    if files.isdisjoint(('genes/genes.gtf.gz', 'genes/genes.gtf')):
+        raise ValueError(f"Incomplete Cell Ranger reference: missing {directory / 'genes/genes.gtf'} or its .gz file")
+    return sorted(files)
 
 
 def verify_cellranger_build(directory, identity):
     """Check the complete published generation and return its manifest."""
-    check_cellranger_products(directory)
+    actual = cellranger_product_inventory(directory)
     manifest = directory / CELLRANGER_MANIFEST
     try:
         record = json.loads(manifest.read_text())
     except ValueError as error:
         raise ValueError(f'Invalid Cell Ranger build manifest: {manifest}') from error
+    if not isinstance(record, dict) or not isinstance(record.get('inputs'), str):
+        raise ValueError(f'Invalid Cell Ranger build manifest: {manifest}')
+    declared = record.get('files')
+    if not isinstance(declared, list) or not all(isinstance(name, str) for name in declared):
+        raise ValueError(f'Invalid Cell Ranger file inventory: {manifest}')
     # A getter can be planned before the source files exist. In that case the manifest supplies the checksum record.
-    if isinstance(record, dict) and isinstance(record.get('inputs'), str) and record == {'inputs': record['inputs'], **identity}:
-        return record
-    raise ValueError(f'Cell Ranger build manifest does not match the selected inputs: {manifest}')
+    if record != {'inputs': record['inputs'], 'files': declared, **identity}:
+        raise ValueError(f'Cell Ranger build manifest does not match the selected inputs: {manifest}')
+    if declared != actual:
+        missing = sorted(set(declared).difference(actual))
+        if missing:
+            raise ValueError(f'Incomplete Cell Ranger reference: missing {directory / missing[0]}')
+        raise ValueError(f'Cell Ranger reference files do not match the published inventory: {manifest}')
+    return record
 
 
 def verify_cellranger_receipt(receipt, cache, checksums, genome, image):

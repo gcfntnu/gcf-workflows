@@ -54,8 +54,10 @@ class CellRangerPublicationTests(unittest.TestCase):
         self.assertNotEqual(gtf.resolve(), self.gtf.resolve())
         (directory / "fasta/genome.fa").write_bytes(fasta.read_bytes())
         (directory / "genes/genes.gtf.gz").write_bytes(gzip.compress(gtf.read_bytes()))
+        (directory / "fasta/genome.fa.fai").write_text("syn\t4\t5\t4\t5\n")
         # Distinguish complete snapshots built concurrently with identical inputs.
-        for member in ("Genome", "SA", "SAindex"):
+        for member in ("Genome", "SA", "SAindex", "genomeParameters.txt", "chrLength.txt", "chrNameLength.txt",
+                       "chrName.txt", "chrStart.txt", "exonInfo.tab", "transcriptInfo.tab"):
             (directory / "star" / member).write_text(directory.parent.name)
 
     def test_two_publishers_pin_one_complete_generation_through_forced_reruns(self):
@@ -144,6 +146,42 @@ class CellRangerPublicationTests(unittest.TestCase):
         self.assertEqual((index / "fasta/genome.fa").read_bytes(), original_fasta)
         self.assertEqual(gzip.decompress((index / "genes/genes.gtf.gz").read_bytes()), original_gtf)
         self.assertEqual((index / "gcf-source/anno/genes.gtf").read_bytes(), original_gtf)
+
+    def test_publication_requires_the_star_parameters(self):
+        def incomplete_mkref(command, *, cwd, check):
+            self.stub_mkref(command, cwd=cwd, check=check)
+            output = Path(command[command.index("--output-dir") + 1])
+            (output / "star/genomeParameters.txt").unlink()
+
+        with patch.object(publisher.subprocess, "run", side_effect=incomplete_mkref):
+            with self.assertRaisesRegex(ValueError, "star/genomeParameters.txt"):
+                self.publish("incomplete")
+        self.assertFalse((self.root / "incomplete/ready").is_symlink())
+        self.assertEqual(list(self.cache.rglob(publisher.MANIFEST)), [])
+
+    def test_inventory_tracks_actual_annotation_and_optional_files(self):
+        self.gtf.write_text('syn\tfixture\texon\t1\t4\t.\t+\t.\tgene_id "x"; transcript_id "tx";\n')
+
+        def uncompressed_mkref(command, *, cwd, check):
+            self.stub_mkref(command, cwd=cwd, check=check)
+            output = Path(command[command.index("--output-dir") + 1])
+            compressed = output / "genes/genes.gtf.gz"
+            compressed.with_suffix("").write_bytes(gzip.decompress(compressed.read_bytes()))
+            compressed.unlink()
+            (output / "star/sjdbList.fromGTF.out.tab").write_text("syn\t1\t4\t1\n")
+
+        with patch.object(publisher.subprocess, "run", side_effect=uncompressed_mkref):
+            manifest = self.publish("uncompressed").resolve(strict=True)
+        record = json.loads(manifest.read_text())
+        self.assertIn("genes/genes.gtf", record["files"])
+        self.assertNotIn("genes/genes.gtf.gz", record["files"])
+        optional = "star/sjdbList.fromGTF.out.tab"
+        self.assertIn(optional, record["files"])
+        (manifest.parent / optional).unlink()
+        with patch.object(publisher.subprocess, "run", side_effect=AssertionError("damaged cache rebuilt in place")):
+            with self.assertRaisesRegex(ValueError, optional):
+                self.publish("fresh")
+        self.assertFalse((self.root / "fresh/ready").is_symlink())
 
     def test_damaged_cache_is_rejected_before_pinning(self):
         with patch.object(publisher.subprocess, "run", side_effect=self.stub_mkref):

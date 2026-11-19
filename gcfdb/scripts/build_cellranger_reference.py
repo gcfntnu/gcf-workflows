@@ -12,7 +12,7 @@ from reference_identity import (
     CELLRANGER_MANIFEST as MANIFEST,
     CELLRANGER_RECIPE_VERSION,
     cellranger_build_key,
-    check_cellranger_products as check_products,
+    cellranger_product_inventory,
     reference_checksums,
     reference_digest,
     verify_cellranger_build as verify,
@@ -40,7 +40,6 @@ def build_from_snapshot(stage, source_dir, checksums, command):
     staged = stage / 'reference'
     subprocess.run([*args, '--output-dir', staged], cwd=work, check=True)
     snapshot.rename(staged / 'gcf-source')
-    check_products(staged)
     return staged
 
 
@@ -57,7 +56,8 @@ def build_reference(source_dir, cache, receipt, expected_source, image, command)
         final.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix='.mkref-', dir=final.parent) as stage:
             staged = build_from_snapshot(Path(stage).resolve(), source_dir, checksums, command)
-            (staged / MANIFEST).write_text(json.dumps(identity, indent=2) + '\n')
+            record = {**identity, 'files': cellranger_product_inventory(staged)}
+            (staged / MANIFEST).write_text(json.dumps(record, indent=2) + '\n')
             try:
                 # POSIX rename on the same filesystem never replaces a nonempty directory.
                 staged.rename(final)
