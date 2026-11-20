@@ -434,14 +434,40 @@ def test_quant_settings_script_binds_the_record_to_its_table(tmp_path):
 
 
 # Peak memory (MB) per job measured with the benchmark files on public plasma, GSE317995 at full depth (six samples,
-# 8-18M filtered reads each; #386). Each rule declares at least this, so --resources mem_mb caps parallel jobs.
-MEASURED_PEAK_MB = {'unitas': 4012, 'mirge3_quant': 15550, 'tesmall_quant': 6553, 'tinyrna_align': 5751,
-                    'tinyrna_count': 1471, 'smrnaseq_collapse': 646}
+# 8-18M filtered reads each; #386). Rules with a fixed reservation declare at least this; the rules that scale with a
+# sample's filtered reads (mem_from_reads in rules/quant.smk) declare at least it for the largest sample's FASTQ.
+FIXED_PEAK_MB = {'mirge3_quant': 15550, 'tinyrna_align': 5751, 'tinyrna_count': 1471}
+SCALED_PEAK_MB = {'unitas': 4012, 'tesmall_quant': 6553, 'smrnaseq_collapse': 646}
+LARGEST_FASTQ_MB = 1960   # 17.5M filtered reads of about 112 bytes
 
 
-def test_heavy_quant_rules_declare_at_least_their_measured_memory(tmp_path):
+def test_heavy_quant_rules_reserve_at_least_their_measured_memory(tmp_path):
+    """Fixed reservations (dry run) and read-scaled ones (mem_from_reads, as each rule calls it) cover the peaks."""
     returncode, output = dry_run(tmp_path, 'unitas,mirge3,tesmall,tinyrna,smrnaseq')
     assert returncode == 0, output
-    for rule, peak in MEASURED_PEAK_MB.items():
+    for rule, peak in FIXED_PEAK_MB.items():
         declared = re.search(r'mem_mb=(\d+)', rule_block(output, rule))
         assert declared and int(declared.group(1)) >= peak, (rule, declared and declared.group(0), peak)
+    # Snakemake computes an input-dependent reservation only when the job starts (a dry run shows <TBD>), so the
+    # helper is taken from rules/quant.smk and called as each rule calls it.
+    helper = re.search(r'^def mem_from_reads\(.*?(?=^\S)', (ROOT / 'smallrna/rules/quant.smk').read_text(), re.M | re.S).group(0)
+    namespace = {'os': os}
+    exec(helper, namespace)
+    files = {'unitas': 'unitas.smk', 'tesmall_quant': 'tesmall.smk', 'smrnaseq_collapse': 'smrnaseq.smk'}
+    for rule, peak in SCALED_PEAK_MB.items():
+        source = (ROOT / 'smallrna/rules/quant' / files[rule]).read_text().split('rule {}:'.format(rule), 1)[1].split('\nrule ', 1)[0]
+        call = re.search(r'mem_mb = (mem_from_reads\(.*\))', source).group(1)
+        mem = eval(call, namespace)
+        reserved_at = {}
+        for size_mb, minimum in ((0, None), (LARGEST_FASTQ_MB, peak), (10 * LARGEST_FASTQ_MB, peak)):
+            reads = tmp_path / '{}_{}.fastq'.format(rule, size_mb)
+            reads.touch()
+            os.truncate(reads, size_mb * 10 ** 6)    # sparse: the size counts, not the content
+            stub = type('Input', (list,), {})([str(reads)])
+            stub.fastq = str(reads)
+            reserved = reserved_at[size_mb] = mem(None, stub)
+            if minimum is None:
+                assert reserved == eval(call.replace('mem_from_reads(', '(lambda floor_mb, *a, **k: floor_mb)('), namespace), (rule, reserved)
+            else:
+                assert reserved >= minimum, (rule, call, reserved, minimum)
+        assert reserved_at[10 * LARGEST_FASTQ_MB] > reserved_at[0], (rule, reserved_at)   # it scales with the reads
