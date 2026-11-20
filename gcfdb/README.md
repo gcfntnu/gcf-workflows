@@ -52,6 +52,8 @@ their identity, sources and checks.
   (`mirna.v<n>.gff3`; `<n>` is raised when the script's output changes, so an older GFF is rebuilt). A mature miRNA
   listed at one locus under several hairpins is one row with every parent; repeated IDs at other loci get a numeric
   suffix.
+- **htseq reference** ([`htseq.db`](htseq.db)): a Bowtie 2 index of TEsmall's genome FASTA, under
+  `EXT_DIR/htseq/<mirflowz reference>/genome/bowtie2/`; the route annotates with tiny-count's renamed miRBase GFF.
 
 ### Langmead prebuilt Kraken databases
 

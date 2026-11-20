@@ -1,0 +1,40 @@
+#-*- mode:snakemake -*-
+"""Bowtie 2 genome index for the htseq route (smallrna quant.method: htseq, #425), on the mirflowz reference
+(gcfdb/mirflowz.db).
+
+The htseq route aligns reads to the genome with Bowtie 2, so it needs a Bowtie 2 index of the genome the other genome
+routes use: TEsmall's shared genome FASTA (`tesmall_genome` in gcfdb/tesmall.db, `EXT_DIR/tesmall/<mirflowz
+reference>/genome/genome.fa`), indexed into `EXT_DIR/htseq/<mirflowz reference>/genome/bowtie2/genome.*.bt2`
+(HTSEQ_INDEX). The miRNA annotation is tiny-count's renamed miRBase GFF (gcfdb/tinyrna.db), so the route shares one
+genome and miRBase release with mirflowz, TEsmall, tiny-count and the benchmark.
+
+On a reference without TEsmall's genome folder, `tesmall_genome` also builds TEsmall's Bowtie 1 index of it, which
+this route does not use; the folder exists once for every route on the reference. Checks of the mirflowz reference
+stop the workflow when this route is selected (`HTSEQ_SELECTED`, set in smallrna/rules/quant.smk).
+"""
+
+HTSEQ_REF = join(EXT_DIR, 'htseq', os.path.relpath(MIRFLOWZ_REF, join(EXT_DIR, 'mirflowz')))
+HTSEQ_INDEX = join(HTSEQ_REF, 'genome', 'bowtie2', 'genome')
+# A small index: the supported genomes are shorter than Bowtie 2's 4 Gbp limit for one.
+HTSEQ_INDEX_SUFFIXES = ('1.bt2', '2.bt2', '3.bt2', '4.bt2', 'rev.1.bt2', 'rev.2.bt2')
+
+
+rule htseq_bowtie2_index:
+    input:
+        rules.tesmall_genome.output.fasta
+    output:
+        expand(HTSEQ_INDEX + '.{suffix}', suffix=HTSEQ_INDEX_SUFFIXES)
+    params:
+        prefix = HTSEQ_INDEX
+    threads:
+        8
+    resources:
+        mem_mb = 16000
+    log:
+        join(HTSEQ_REF, 'genome', 'bowtie2', 'bowtie2-build.log')
+    benchmark:
+        join(HTSEQ_REF, 'benchmarks', 'htseq_bowtie2_index.tsv')
+    container:
+        'docker://' + config['docker']['htseq_bowtie2']
+    shell:
+        'bowtie2-build --threads {threads} {input:q} {params.prefix:q} > {log:q} 2>&1'
