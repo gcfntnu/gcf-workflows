@@ -150,7 +150,7 @@ def test_mirge3_spikein_index_follows_the_configured_sets(tmp_path, ref, fasta):
     assert returncode == 0, output
     project = rule_block(output, 'mirge3_project_library')
     command = next(line for line in project.splitlines() if 'mirge3_project_library.py' in line)
-    assert ('--library data/ext/mirge3/19-11-2026/mouse --output data/tmp/smallrna/quant/mirge3/lib/mouse '
+    assert ('--library data/ext/mirge3/20-11-2026-2/mouse --output data/tmp/smallrna/quant/mirge3/lib/mouse '
             '--record data/tmp/smallrna/quant/mirge3/spikein.tsv') in command
     assert command.split('--record data/tmp/smallrna/quant/mirge3/spikein.tsv', 1)[1].split() == \
         [f'data/ext/spikein/fasta/{name}.fa' for name in fasta]
@@ -173,11 +173,11 @@ def test_mirge3_library_release_and_database_selection(tmp_path, db, name):
     returncode, output = dry_run(tmp_path, 'mirge3', update, printshell=True)
     assert returncode == 0, output
     library = rule_block(output, 'mirge3_library')
-    assert '--release-url mirge3/19-11-2026 --release 19-11-2026 --species mus_musculus --organism-name mouse' in library
-    assert '--output data/ext/mirge3/19-11-2026/verify/miRge3_lib_mus_musculus.tsv' in library
+    assert '--release-url mirge3/20-11-2026-2 --release 20-11-2026-2 --species mus_musculus --organism-name mouse' in library
+    assert '--output data/ext/mirge3/20-11-2026-2/verify/miRge3_lib_mus_musculus.tsv' in library
     reference = rule_block(output, 'mirge3_reference')
-    assert (f'--library data/ext/mirge3/19-11-2026/mouse --mirna-db {db.lower()} --release 19-11-2026 '
-            '--verification data/ext/mirge3/19-11-2026/verify/miRge3_lib_mus_musculus.tsv') in reference
+    assert (f'--library data/ext/mirge3/20-11-2026-2/mouse --mirna-db {db.lower()} --release 20-11-2026-2 '
+            '--verification data/ext/mirge3/20-11-2026-2/verify/miRge3_lib_mus_musculus.tsv') in reference
     command = ' '.join(mirge3_command(output).split())
     assert f'--mir-DB {name} --libraries-path data/tmp/smallrna/quant/mirge3/lib --organism-name mouse' in command
     assert 'data/tmp/smallrna/quant/mirge3/reference.tsv' in rule_block(output, 'quant_all')
@@ -202,7 +202,7 @@ def test_sourceforge_library_stays_at_its_old_place(tmp_path):
     assert '--library data/ext/mirge3/mus_musculus/mouse --output' in rule_block(output, 'mirge3_project_library')
 
 
-LIBRARY = 'data/ext/mirge3/19-11-2026/verify/miRge3_lib_mus_musculus.tsv'
+LIBRARY = 'data/ext/mirge3/20-11-2026-2/verify/miRge3_lib_mus_musculus.tsv'
 
 
 def test_switching_the_mirna_database_reruns_the_reference_check(tmp_path):
@@ -241,7 +241,7 @@ def test_invalid_mirge3_selection_fails_at_load(tmp_path, update, message):
 
 @pytest.mark.parametrize('mirna_db, feature_info', [
     ('mirbase', 'data/ext/mirbase/mus_musculus/release-23.1/anno/genes.tsv'),
-    ('mirgenedb', 'data/ext/unitas/06-11-2026-mirgenedb/anno/mirgenedb_genes_mus_musculus.tsv')])
+    ('mirgenedb', 'data/ext/unitas/20-11-2026-mirgenedb/anno/mirgenedb_genes_mus_musculus.tsv')])
 def test_unitas_mirna_feature_info_follows_the_dump(tmp_path, mirna_db, feature_info):
     """A MirGeneDB dump names miRNAs as MirGeneDB does, so the AnnData annotation comes from the dump's GFF."""
     def select(settings):
@@ -254,14 +254,14 @@ def test_unitas_mirna_feature_info_follows_the_dump(tmp_path, mirna_db, feature_
 
 @pytest.mark.parametrize('mirna_db, annotation', [
     ('mirbase', 'data/ext/mirbase/mus_musculus/release-23.1/anno/genes.gff3'),
-    ('mirgenedb', 'data/ext/unitas/06-11-2026-mirgenedb/UNITAS_refdump_mus_musculus/gcf_mirgenedb.gff3')])
+    ('mirgenedb', 'data/ext/unitas/20-11-2026-mirgenedb/UNITAS_refdump_mus_musculus/gcf_mirgenedb.gff3')])
 def test_unitas_reference_is_checked_before_counts_meet_annotations(tmp_path, mirna_db, annotation):
     """The dump is verified once in EXT_DIR, then checked against the annotation the AnnData joins it to."""
     def select(settings):
         settings.setdefault('db', {}).setdefault('unitas', {})['mirna_db'] = mirna_db
     returncode, output = dry_run(tmp_path, 'unitas', update=select, target='unitas_mirna_anndata', printshell=True)
     assert returncode == 0, output
-    release = '06-11-2026-mirgenedb' if mirna_db == 'mirgenedb' else '05-11-2026'
+    release = '20-11-2026-mirgenedb' if mirna_db == 'mirgenedb' else '20-11-2026'
     assert f'--output data/ext/unitas/{release}/verify/UNITAS_refdump_mus_musculus.tsv' in output
     check = output.split('rule unitas_reference:', 1)[1].split('rule ', 1)[0]
     assert f'--mirna-db {mirna_db} --annotation {annotation} --release {release}' in check
@@ -337,6 +337,6 @@ def test_route_steps_write_the_benchmark_files_the_benchmark_reads(tmp_path):
     reference = 'data/ext/{}/mirbase-23.1_ensembl-116/mus_musculus'
     assert declared['mirflowz_prepare'] == {reference.format('mirflowz') + '/benchmarks/mirflowz_prepare.tsv'}
     assert declared['tesmall_genome'] == {reference.format('tesmall') + '/benchmarks/tesmall_genome.tsv'}
-    assert declared['tesmall_db'] == {reference.format('tesmall') + '/unitas-05-11-2026/benchmarks/tesmall_db.tsv'}
+    assert declared['tesmall_db'] == {reference.format('tesmall') + '/unitas-20-11-2026/benchmarks/tesmall_db.tsv'}
     assert declared['htseq_bowtie2_index'] == {reference.format('htseq') + '/benchmarks/htseq_bowtie2_index.tsv'}
     assert declared['miraligner_db'] == {'data/ext/miraligner/mirbase-23.1/mus_musculus/db.v1/benchmarks/miraligner_db.tsv'}

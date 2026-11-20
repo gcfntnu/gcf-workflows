@@ -12,7 +12,7 @@ from test_quant_methods import configure, dry_run, rule_block
 ROOT = Path(__file__).resolve().parents[2]
 REF = 'data/ext/tesmall/mirbase-23.1_ensembl-116/mus_musculus'
 GENOME = REF + '/genome'
-DUMP = REF + '/unitas-05-11-2026'
+DUMP = REF + '/unitas-20-11-2026'
 DB = DUMP + '/db/genomes/gcf'
 CLASSES = ('structural_RNA', 'miRNA', 'hairpin', 'exon', 'TE', 'intron', 'piRNA_cluster')
 INDEX = ('1.ebwt', '2.ebwt', '3.ebwt', '4.ebwt', 'rev.1.ebwt', 'rev.2.ebwt')
@@ -28,7 +28,7 @@ def test_route_plans_database_and_runs_and_delivery_stays_on_unitas(tmp_path):
     assert f'ln -sfr' in rule_block(output, 'tesmall_genome_links') and f'link={DB}/sequence/${{target#{GENOME}/}}' in output
     db = rule_block(output, 'tesmall_db')
     assert '--chr-map data/ext/mirflowz/mirbase-23.1_ensembl-116/mus_musculus/chr_map.tsv' in db
-    assert '--pirna-clusters data/ext/unitas/05-11-2026/UNITAS_refdump_mus_musculus/piRclDB' in db
+    assert '--pirna-clusters data/ext/unitas/20-11-2026/UNITAS_refdump_mus_musculus/piRclDB' in db
     assert f'--trna-archive {REF}/sources/mm39-tRNAs.tar.gz --rmsk {REF}/sources/rmsk.txt.gz' in db
     assert f'--genome-index {GENOME}/bowtie_index/genome' in db and f'--record {DUMP}/tesmall_reference.tsv' in db
     assert 'https://gtrnadb.ucsc.edu/GtRNAdb2/genomes/eukaryota/Mmusc39/mm39-tRNAs.tar.gz' in rule_block(output, 'tesmall_gtrnadb')
