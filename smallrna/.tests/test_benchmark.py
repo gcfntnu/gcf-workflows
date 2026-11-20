@@ -87,10 +87,15 @@ def write(path, text):
     return path
 
 
-def unitas_dump(ext, organism, species, hairpins):
-    """A UNITAS reference dump with only the organism's miRBase hairpins, where the project's db.unitas (main.config) puts it."""
+def unitas_dump_dir(ext, organism):
+    """Where the project's db.unitas (main.config) puts the organism's UNITAS reference dump."""
     release = yaml.safe_load((BENCH.parents[1] / 'main.config').read_text())['db']['unitas']['release']
-    return write(Path(ext) / 'unitas' / release / 'UNITAS_refdump_{}'.format(organism) / 'miRBase_hairpin_{}.fas'.format(species),
+    return Path(ext) / 'unitas' / release / 'UNITAS_refdump_{}'.format(organism)
+
+
+def unitas_dump(ext, organism, species, hairpins):
+    """A UNITAS reference dump with only the organism's miRBase hairpins, at unitas_dump_dir."""
+    return write(unitas_dump_dir(ext, organism) / 'miRBase_hairpin_{}.fas'.format(species),
                  ''.join('>{}_stem-loop\n{}\n'.format(n, s) for n, s in hairpins.items())).parent
 
 
@@ -98,11 +103,13 @@ def unitas_dump(ext, organism, species, hairpins):
 MMU_HAIRPINS = {'miR-194-2': 'GGTGTGTAACAGCAACTCCATGTGGACTGTGCTCGGATTCCAGTGGGGCTGCTGTTATCTGGGGCAACC'}
 
 
-def write_records(quant, methods, database='mirbase', release='23.1'):
+def write_records(quant, methods, database='mirbase', release='23.1', dump=None):
     """Each method's quant/<method>/reference.tsv, as unitas_reference, mirge3_reference and quant_reference write it
-    (quant_reference with the SHA-256 of the count table as it is now)."""
+    (quant_reference with the SHA-256 of the count table as it is now; UNITAS's with the dump it read, when given)."""
     for method in methods:
         text = 'field\tvalue\tsource\nmirna_database\t{}\tx\nmirna_release\t{}\tx\n'.format(database, release)
+        if method == 'unitas' and dump is not None:
+            text += 'dump\t{}\tconfiguration\n'.format(dump)
         if method in adapters.TABLE_BOUND_RECORDS:
             text += 'table_sha256\t{}\tx\n'.format(adapters.table_sha256(method, quant))
         write(quant / method / 'reference.tsv', text)
@@ -229,6 +236,7 @@ def test_prepare_then_evaluate(tmp_path, ref):
     assert (project / 'pep/sample_table.csv').read_text().splitlines()[1] == 'S01,syn/S01_R1.fastq.gz,0'
 
     gff = native_outputs(project / 'data/tmp/smallrna/quant')
+    write_records(project / 'data/tmp/smallrna/quant', ['unitas'], dump=unitas_dump_dir(tmp_path / 'ext', 'mus_musculus'))
     result = subprocess.run(cmd + ['evaluate', '--project', str(project), '--mirflowz-gff', str(gff)],
                             capture_output=True, text=True, timeout=60)
     assert result.returncode != 0 and 'no UNITAS reference dump at' in result.stderr
@@ -605,13 +613,14 @@ def test_prepare_and_evaluate_a_pool(tmp_path):
         'mirbase': {'release': '23.1', 'url': 'unused', 'sha256': 'unused'},
         'runs': [{'run': 'SRRA', 'group': 'A', 'md5': 'unused', 'url': 'unused'}, {'run': 'SRRB', 'group': 'B', 'md5': 'unused', 'url': 'unused'}]}))
     project = tmp_path / 'project'
-    unitas_dump(ext, 'homo_sapiens', 'Human', {})
+    dump = unitas_dump(ext, 'homo_sapiens', 'Human', {})
     cmd = [sys.executable, str(BENCH / 'benchmark.py')]
     result = subprocess.run(cmd + ['prepare', '--dataset', str(dataset), '--project', str(project), '--ext-dir', str(ext),
                                    '--methods', 'unitas,mirge3', '--reads', '6'], capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
     config = yaml.safe_load((project / 'config.yaml').read_text())
-    assert config['quant']['method'] == 'unitas,mirge3' and config['read_geometry'] == [32] and 'db' not in config
+    assert config['quant']['method'] == 'unitas,mirge3' and config['read_geometry'] == [32]
+    assert config['db'] == {'mirbase': {'release': '23.1'}}  # the declaration's release, for every method
     with gzip.open(project / 'data/raw/fastq/p/SRRA_R1.fastq.gz', 'rt') as fh:
         assert len(fh.read().splitlines()) == 24  # first 6 reads
     assert '3 exact' in result.stdout
@@ -619,7 +628,7 @@ def test_prepare_and_evaluate_a_pool(tmp_path):
     quant = project / 'data/tmp/smallrna/quant'
     write(quant / 'unitas/mir_counts.tsv', '\tSRRA\tSRRB\nmiR-1-3p\t8\t2\nmiR-21-5p\t2\t8\n')
     write(quant / 'mirge3/miR.Counts.csv', 'miRNA,SRRA,SRRB\nhsa-miR-1-3p,8,2\nhsa-miR-21-5p,2,8\n')
-    write_records(quant, ['unitas', 'mirge3'])
+    write_records(quant, ['unitas', 'mirge3'], dump=dump)
     result = subprocess.run(cmd + ['evaluate', '--project', str(project)], capture_output=True, text=True, timeout=60)
     assert result.returncode != 0 and 'quant_all --notemp' in result.stderr  # the oracle needs the filtered reads
     for run, seqs in reads.items():  # the adapter pass's reads hold one more read of each sequence, too short ones a filter removes
@@ -787,6 +796,106 @@ def test_fill_targets_for_a_biological_declaration(tmp_path):
                      'benchmark/smallrna/b/fastq/R2.fastq.gz']
 
 
+def release_declaration(tmp_path, **changes):
+    """A pool declaration with miRBase 23.1 and, under mirbase_releases, 22 and an incomplete 21."""
+    spec = {'name': 'p', 'kind': 'pool', 'pool': 'ratiometric', 'organism': 'homo_sapiens', 'libprepkit': 'TruSeq Small RNA Library Prep Kit',
+            'methods': ['unitas', 'mirge3'], 'data': 'benchmark/smallrna/p', 'composition': {'file': 'ratio.csv', 'url': 'u', 'sha256': 's'},
+            'mirbase': {'release': '23.1', 'url': 'u23', 'sha256': 's23'},
+            'mirbase_releases': {'22': {'url': 'u22', 'sha256': 's22'}, 21: {'url': 'u21'}},
+            'runs': [{'run': 'SRRA', 'group': 'A', 'md5': 'm', 'url': 'u'}, {'run': 'SRRB', 'group': 'B', 'md5': 'm', 'url': 'u'}]}
+    spec.update(changes)
+    return write(tmp_path / 'ds.yaml', yaml.safe_dump(spec)), spec
+
+
+def test_load_dataset_selects_a_declared_mirbase_release(tmp_path):
+    path, spec = release_declaration(tmp_path)
+    assert benchmark.load_dataset(path)['mirbase'] == spec['mirbase'] == benchmark.load_dataset(path, '23.1')['mirbase']
+    assert benchmark.load_dataset(path, '22')['mirbase'] == {'url': 'u22', 'sha256': 's22', 'release': '22'}
+    with pytest.raises(SystemExit, match='miRBase 21 is not declared with url and sha256; declared: 23.1, 21, 22'):
+        benchmark.load_dataset(path, '21')  # no sha256
+    with pytest.raises(SystemExit, match='miRBase 20 is not declared'):
+        benchmark.load_dataset(path, '20')
+    genome = {'name': 'g', 'kind': 'synthetic', 'organism': 'homo_sapiens', 'libprepkit': 'k', 'methods': ['unitas'], 'adapter': 'A',
+              'data': 'd', 'synthetic': {'mode': 'genome'},
+              'mirbase': {'release': '23.1', 'url': 'u', 'sha256': 's', 'hairpin': {'url': 'h', 'sha256': 's'}, 'gff': {'url': 'g', 'sha256': 's'}},
+              'mirbase_releases': {'22': {'url': 'u22', 'sha256': 's22'}}}
+    path = write(tmp_path / 'genome.yaml', yaml.safe_dump(genome))
+    with pytest.raises(SystemExit, match='a genome-wide synthetic dataset needs mirbase.hairpin and mirbase.gff'):
+        benchmark.load_dataset(path, '22')
+
+
+def test_prepare_with_another_mirbase_release_configures_it_for_every_method(tmp_path):
+    ext = tmp_path / 'ext'
+    data = ext / 'benchmark/smallrna/p'
+    write(data / 'composition/ratio.csv', RATIO)
+    write(data / 'mirbase/22/mature.fa', HSA)
+    for run in ('SRRA', 'SRRB'):
+        (data / 'fastq').mkdir(parents=True, exist_ok=True)
+        with gzip.open(data / 'fastq/{}.fastq.gz'.format(run), 'wt') as fh:
+            fh.write('@r\nTGGAATGTAAAGAAGTATGTATTGGAATTCTC\n+\n{}\n'.format('I' * 32))
+    unitas_dump(ext, 'homo_sapiens', 'Human', {})
+    cmd = [sys.executable, str(BENCH / 'benchmark.py'), 'prepare', '--project', str(tmp_path / 'project'), '--ext-dir', str(ext),
+           '--mirbase-release', '22']
+    dataset, _ = release_declaration(tmp_path)
+    result = subprocess.run(cmd + ['--dataset', str(dataset)], capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    config = yaml.safe_load((tmp_path / 'project/config.yaml').read_text())
+    assert config['db']['mirbase'] == {'release': '22'}
+    saved = yaml.safe_load((tmp_path / 'project/benchmark/dataset.yaml').read_text())
+    assert saved['mirbase'] == {'url': 'u22', 'sha256': 's22', 'release': '22'} and 'mirbase_releases' not in saved
+    dataset, _ = release_declaration(tmp_path, config={'db': {'mirbase': {'release': '23.1'}}})
+    result = subprocess.run(cmd[:4] + [str(tmp_path / 'other')] + cmd[5:] + ['--dataset', str(dataset)], capture_output=True, text=True, timeout=60)
+    assert result.returncode != 0 and "the declaration's config sets db.mirbase.release 23.1, but the run uses miRBase 22" in result.stderr
+
+
+def test_a_reduced_synthetic_dataset_keeps_its_reference_s_mirbase_release(tmp_path):
+    reduced = {'name': 's', 'kind': 'synthetic', 'organism': 'mus_musculus', 'libprepkit': 'k', 'methods': ['unitas'], 'adapter': 'A',
+               'synthetic': {'samples': 1}, 'reference': {'name': 'r', 'dir': 'd'},
+               'mirbase': {'release': '23.1', 'url': 'u', 'sha256': 's'}, 'mirbase_releases': {'22': {'url': 'u22', 'sha256': 's22'}}}
+    path = write(tmp_path / 'reduced.yaml', yaml.safe_dump(reduced))
+    assert benchmark.load_dataset(path, '23.1')['mirbase']['release'] == '23.1'
+    with pytest.raises(SystemExit, match="a reduced synthetic dataset's reference fixes its miRBase release"):
+        benchmark.load_dataset(path, '22')
+
+
+def test_evaluate_takes_the_unitas_dump_the_run_recorded_not_the_configured_one(tmp_path):
+    project = tmp_path / 'project'
+    quant = project / 'data/tmp/smallrna/quant'
+    write(project / 'config.yaml', yaml.safe_dump({'db': {'unitas': {'release': 'another'}}}))
+    with pytest.raises(SystemExit, match='no UNITAS reference record'):
+        benchmark.unitas_refdump(project)
+    write_records(quant, ['unitas'])
+    with pytest.raises(SystemExit, match='has no dump row: run quant_all again'):
+        benchmark.unitas_refdump(project)
+    recorded = unitas_dump(tmp_path / 'ext', 'homo_sapiens', 'Human', {})
+    write_records(quant, ['unitas'], dump=recorded)
+    assert benchmark.unitas_refdump(project) == recorded  # not db.unitas.release 'another'
+    write_records(quant, ['unitas'], dump=tmp_path / 'moved')
+    with pytest.raises(SystemExit, match='no UNITAS reference dump at .*moved .*name one with --unitas-ref'):
+        benchmark.unitas_refdump(project)
+    write_records(quant, ['unitas'], database='mirgenedb', release='3.0', dump=recorded)
+    with pytest.raises(SystemExit, match='the UNITAS dump was built from mirgenedb: the benchmark matches miRBase names'):
+        benchmark.unitas_refdump(project)
+
+
+def test_fill_targets_the_selected_mirbase_release(tmp_path):
+    path, _ = release_declaration(tmp_path)
+    paths = [str(t[3].relative_to(tmp_path)) for t in fill.targets(benchmark.load_dataset(path, '22'), tmp_path)]
+    assert 'benchmark/smallrna/p/mirbase/22/mature.fa' in paths and not any('/23.1/' in p for p in paths)
+
+
+def test_shipped_declarations_list_loadable_mirbase_releases():
+    """Every release a declaration lists loads, with files from that release's miRBase folder (#431)."""
+    listed = 0
+    for path in sorted((BENCH / 'datasets').glob('*.yaml')):
+        for release in (yaml.safe_load(path.read_text()).get('mirbase_releases') or {}):
+            selected = benchmark.load_dataset(path, release)['mirbase']
+            for files in [selected] + [selected[k] for k in ('hairpin', 'gff') if k in selected]:
+                assert '/{}/'.format(release) in files['url'] and len(files['sha256']) == 64, (path.name, files)
+            listed += 1
+    assert listed
+
+
 def write_cutadapt_reports(folder, sample, reads):
     """The cutadapt route's three JSON reports for a sample, chained: each pass reads what the one before wrote."""
     counts = {'adapter': {'input': reads, 'output': reads, 'read1_with_adapter': reads - 5, 'filtered': {}},
@@ -901,7 +1010,7 @@ def test_evaluate_a_biological_dataset_in_lanes(tmp_path):
     write(quant / 'mirge3/miR.Counts.csv', 'miRNA,GSM1_L1,GSM1_L2\nhsa-miR-16-5p,650,660\nhsa-miR-21-5p,320,300\n')
     write(quant / 'unitas/mir_counts.tsv', '\tGSM1_L1\tGSM1_L2\nmiR-16-5p\t700\t690\nmiR-21-5p\t300\t310\nmiR-451a\t1\t0\nmiR-16-1-5p\t30\t40\n'
           'miR-325-3p\t5\t0\n')  # miR-16-1-5p: hsa-miR-16-5p on the hairpin's 5' arm; miR-325-3p: no human mature on that arm
-    write_records(quant, ['unitas', 'mirge3'])
+    write_records(quant, ['unitas', 'mirge3'], dump=unitas_dump_dir(ext, 'homo_sapiens'))
     unitas_dump(ext, 'homo_sapiens', 'Human', {
         'miR-16-1': 'GTCAGCAGTGCCTTAGCAGCACGTAAATATTGGCGTTAAGATTCTAAAATTATCTCCAGTATTAACTGTGCTGCTGAAGTAAGGTTGAC',
         'miR-325': 'ATACAGTGCTTGGTTCCTAGTAGGTGTCCAGTAAGTGTTTGTGACATAATTTGTTTATTGAGGACCTCCTATCAATCAAGCACTGTGCTAGGCTCTGG'})
