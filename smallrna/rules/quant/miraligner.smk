@@ -30,14 +30,18 @@ rule miraligner_collapse:
         fastq = lambda wildcards: get_filtered_fastq(wildcards)['R1']
     output:
         join(MIRALIGNER_OUT, '{sample}', 'reads.tab')
+    log:
+        join(MIRALIGNER_OUT, '{sample}', 'collapse.log')
     benchmark:
         join(QUANT_BENCHMARKS, 'miraligner_collapse', '{sample}.tsv')
     container:
         'docker://' + config['docker']['fastx_toolkit']
     shell:
-        # fastx_collapser names each sequence `<rank>-<reads>`, on the line before it.
-        "fastx_collapser -Q 33 -i {input.fastq:q} | awk -F - -v OFS='\\t' 'NR % 2 == 1 {{count = $2; next}} {{print $0, count}}' "
-        '> {output:q}'
+        # fastx_collapser names each sequence `<rank>-<reads>`, on the line before it. It stops on an empty FASTQ: a
+        # sample without filtered reads gets an empty table (and miraligner_align no annotations).
+        'if [ -s {input.fastq:q} ]; then fastx_collapser -Q 33 -i {input.fastq:q} 2> {log:q} | '
+        "awk -F - -v OFS='\\t' 'NR % 2 == 1 {{count = $2; next}} {{print $0, count}}' > {output:q}; "
+        'else : > {output:q}; echo "no filtered reads" > {log:q}; fi'
 
 
 rule miraligner_align:
@@ -60,8 +64,11 @@ rule miraligner_align:
     container:
         'docker://' + config['docker']['seqbuster']
     shell:
-        'miraligner -Xmx3g -sub 1 -trim 3 -add 3 -s {params.species} -freq -i {input.reads:q} -db {params.db:q} '
-        '-o {params.prefix:q} > {log:q} 2>&1'
+        # miraligner stops on an empty table: a sample without sequences gets the output's header only.
+        'if [ -s {input.reads:q} ]; then miraligner -Xmx3g -sub 1 -trim 3 -add 3 -s {params.species} -freq -i {input.reads:q} '
+        '-db {params.db:q} -o {params.prefix:q} > {log:q} 2>&1; '
+        "else printf 'seq\\tname\\tfreq\\tmir\\tstart\\tend\\tmism\\tadd\\tt5\\tt3\\ts5\\ts3\\tDB\\tprecursor\\tambiguity\\n' > {output:q}; "
+        'echo "no sequences" > {log:q}; fi'
 
 
 rule miraligner_count:

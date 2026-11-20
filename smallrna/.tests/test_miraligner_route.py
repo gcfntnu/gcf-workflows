@@ -2,6 +2,7 @@
 miraligner counting, and the counting script."""
 import importlib.util
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -30,8 +31,10 @@ def test_route_plans_database_and_counting_and_delivery_stays_on_unitas(tmp_path
             '--gff data/ext/mirbase/mus_musculus/release-23.1/anno/genes.gff3 --output ' + DB) in db
     collapse = rule_block(output, 'miraligner_collapse')
     assert 'fastx_collapser -Q 33 -i data/tmp/smallrna/filter/cutadapt/SR0' in collapse and f'> {OUT}/SR0' in collapse
+    assert 'if [ -s data/tmp/smallrna/filter/cutadapt/SR0' in collapse and f'else : > {OUT}/SR0' in collapse  # no reads: empty table
     align = rule_block(output, 'miraligner_align')
     assert f'miraligner -Xmx3g -sub 1 -trim 3 -add 3 -s mmu -freq -i {OUT}/SR0' in align and f'-db {DB} -o {OUT}/SR0' in align
+    assert f'if [ -s {OUT}/SR0' in align  # miraligner stops on an empty table; such a sample gets the header only
     assert '-minl' not in align  # miraligner's default minimum length (16 nt), as in the pipeline
     assert 'mem_mb=4000' in align.replace(' ', '')
     assert '--samples SR01 SR02 SR03 SR04' in rule_block(output, 'miraligner_counts')
@@ -40,16 +43,30 @@ def test_route_plans_database_and_counting_and_delivery_stays_on_unitas(tmp_path
     assert 'miraligner' not in output
 
 
+def planned_shell(output, rule):
+    """The shell command of the first planned job of a rule (dry run with -p)."""
+    return rule_block(output, rule).split('Shell command: ', 1)[1].split('\n', 1)[0]
+
+
 def test_collapsed_reads_become_sequence_and_count(tmp_path):
-    """The collapse rule's awk program, as planned, on fastx_collapser output."""
+    """The collapse rule's awk command, its arguments exactly as planned (OFS escape included), on fastx_collapser output."""
     returncode, output = dry_run(tmp_path, 'miraligner', printshell=True)
     assert returncode == 0, output
-    command = rule_block(output, 'miraligner_collapse').split('| awk', 1)[1].split('>', 1)[0]
-    args = re.match(r" -F - -v OFS='\\t' '([^']+)'", command)
-    result = subprocess.run(['awk', '-F', '-', '-v', 'OFS=\t', args.group(1)], input='>1-120\nACGTACGTACGTACGTACG\n>2-3\nGGGGCCCC\n',
-                            capture_output=True, text=True)
+    awk = shlex.split('awk' + planned_shell(output, 'miraligner_collapse').split('| awk', 1)[1].split(' > ', 1)[0])
+    result = subprocess.run(awk, input='>1-120\nACGTACGTACGTACGTACG\n>2-3\nGGGGCCCC\n', capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     assert result.stdout == 'ACGTACGTACGTACGTACG\t120\nGGGGCCCC\t3\n'
+
+
+def test_a_sample_without_sequences_gets_a_header_the_counts_read(tmp_path):
+    """The alignment's branch for an empty table writes miraligner's header, which miraligner_counts.py reads as no rows."""
+    returncode, output = dry_run(tmp_path, 'miraligner', printshell=True)
+    assert returncode == 0, output
+    header = re.search(r"printf '([^']+)'", planned_shell(output, 'miraligner_align')).group(1)
+    mirna = tmp_path / 'S1.mirna'
+    subprocess.run(['bash', '-c', 'printf {} > {}'.format(shlex.quote(header), shlex.quote(str(mirna)))], check=True)
+    assert mirna.read_text() == HEADER
+    assert miraligner_counts.count(mirna) == ({}, {}, 0.0, 0.0)
 
 
 HEADER = 'seq\tname\tfreq\tmir\tstart\tend\tmism\tadd\tt5\tt3\ts5\ts3\tDB\tprecursor\tambiguity\n'
@@ -92,6 +109,7 @@ def test_fractional_counts_are_written_exactly(tmp_path):
     ('seq\tname\tmir\n', 'missing columns freq, mism, add, t5, t3, DB, ambiguity'),
     (HEADER + 'AAAA\tseq_1_x3\t3\n', '3 fields, expected 15'),
     (HEADER + row('AAAA', 3, 'mmu-miR-1a-3p', ambiguity=0), 'ambiguity 0'),
+    (HEADER + row('AAAA', 3, 'mmu-miR-1a-3p').replace('\t1\n', '\tNA\n'), "ambiguity 'NA' is not a number"),
 ])
 def test_count_stops_on_output_it_cannot_read(tmp_path, text, message):
     mirna = tmp_path / 'S1.mirna'
@@ -108,3 +126,7 @@ def test_join_fills_missing_mirnas_with_zero(tmp_path):
                             capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     assert result.stdout == 'miRNA\tS1\tS2\nmmu-miR-1a-3p\t2.5\t0\nmmu-miR-2-5p\t0\t3\n'
+    second.write_text('miRNA\tcount\nmmu-miR-2-5p\t3\nmmu-miR-2-5p\t1\n')
+    result = subprocess.run([sys.executable, str(SCRIPT), 'join', '--samples', 'S1', 'S2', '--tables', str(first), str(second)],
+                            capture_output=True, text=True)
+    assert result.returncode != 0 and 'mmu-miR-2-5p twice' in result.stderr

@@ -124,7 +124,7 @@ def place(sequence, mature, expected):
     if hits and (expected or len(hits) == 1):
         first = min(hits, key=lambda hit: (abs(hit - expected[0]) if expected else 0, hit))
         return (first, first + len(mature) - 1), 'sequence'
-    if expected and not hits:
+    if expected and not hits and expected[1] <= len(sequence):  # the whole GFF span lies in the hairpin sequence
         span = sequence[expected[0] - 1:expected[1]]
         if span and abs(len(span) - len(mature)) <= MAX_SHIFT and (
                 mature.startswith(span) or span.startswith(mature) or mature.endswith(span) or span.endswith(mature)):
@@ -134,8 +134,10 @@ def place(sequence, mature, expected):
 
 def positions(species, hairpin_seqs, mature_seqs, hairpins, matures):
     """({hairpin name: {mature name: (start, end)}}, {how: [notes]}): each mature row placed in its hairpin (place),
-    the expected offset from the stranded locus of its hairpin that contains the row, if any."""
-    out, notes = {}, {'sequence': [], 'gff-span': [], 'left out': []}
+    the expected offset from the stranded locus of its hairpin that contains the row, if any. Notes are one per hairpin
+    and mature miRNA: a placement from the GFF offset at any locus is no note, and a pair placed at one locus is not
+    listed as left out because another locus could not place it."""
+    out, how_by_pair = {}, {}
     for name, mature_id, chrom, start, end, strand, parent in matures:
         if parent not in hairpins:
             fail('mature miRNA {} derives from {}, which the GFF does not list'.format(name, parent))
@@ -153,14 +155,20 @@ def positions(species, hairpin_seqs, mature_seqs, hairpins, matures):
             h_start, h_end, _ = containing[0]
             expected = (start - h_start + 1, end - h_start + 1) if strand == '+' else (h_end - end + 1, h_end - start + 1)
         found, how = place(sequence, mature, expected)
-        if how != 'gff':
-            notes[how].append('{}@{}:{}'.format(name, hairpin, '{}-{}'.format(*found) if found else 'GFF {}..{}'.format(start, end)))
+        rank = {'gff': 0, 'sequence': 1, 'gff-span': 1, 'left out': 2}
+        pair = (name, hairpin)
+        if pair not in how_by_pair or rank[how] < rank[how_by_pair[pair][0]]:
+            how_by_pair[pair] = (how, found, start, end)
         if found is None:
             continue
         arms = out.setdefault(hairpin, {})
         if arms.get(name, found) != found:
             fail('mature miRNA {} is at {} and {} in hairpin {}'.format(name, arms[name], found, hairpin))
         arms[name] = found
+    notes = {'sequence': [], 'gff-span': [], 'left out': []}
+    for (name, hairpin), (how, found, start, end) in how_by_pair.items():
+        if how != 'gff':
+            notes[how].append('{}@{}:{}'.format(name, hairpin, '{}-{}'.format(*found) if found else 'GFF {}..{}'.format(start, end)))
     return out, notes
 
 

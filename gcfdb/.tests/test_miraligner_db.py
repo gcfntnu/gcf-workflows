@@ -88,6 +88,32 @@ class MiralignerDbTest(unittest.TestCase):
         self.assertNotIn('hsa-mir-1 ', (self.dir / 'db/miRNA.str').read_text())
         self.assertEqual(self.record()['matures_left_out'], 'hsa-miR-1-5p@hsa-mir-1:GFF 1011..1032')
 
+    def test_a_gff_span_beyond_the_hairpin_sequence_is_not_kept(self):
+        """A GFF locus longer than the hairpin sequence: its span is cut short there, so it cannot stand as a position."""
+        gff = GFF.replace('1001\t1066', '1001\t1080').replace('1011\t1032', '1050\t1071')
+        # not in the hairpin, but starts with its last 17 nt (from 50), so the cut-short span would pass as a prefix
+        short = MATURE.replace('UGGAAUGUAAAGAAGUAUGUAU', 'UUCUUUACAUUCCAGGGAA')
+        result = self.run_script(gff, mature=short)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('hsa-mir-1 ', (self.dir / 'db/miRNA.str').read_text())
+        self.assertEqual(self.record()['matures_left_out'], 'hsa-miR-1-5p@hsa-mir-1:GFF 1050..1071')
+
+    def test_one_note_per_hairpin_and_mature(self):
+        """A mature miRNA placed from its GFF offset at one locus is not listed as left out because a row elsewhere could
+        not be placed (no locus of its hairpin there, and its sequence twice in the hairpin)."""
+        mature = 'UAGCAGCACGUAAAUAUUGGCG'.replace('U', 'T')
+        hairpin = HAIRPIN + '>hsa-mir-5 MI0000005 Homo sapiens miR-5 stem-loop\n' + mature + 'AAAAA' + mature + '\n'
+        mature_fa = MATURE + '>hsa-miR-5-5p MIMAT0000005 Homo sapiens miR-5-5p\n' + mature + '\n'
+        gff = GFF + gff_rows([
+            ('chr5', '.', 'miRNA_primary_transcript', 1, 49, '.', '+', '.', 'ID=MI0000005;Alias=MI0000005;Name=hsa-mir-5'),
+            ('chr5', '.', 'miRNA', 1, 22, '.', '+', '.', 'ID=MIMAT0000005;Alias=MIMAT0000005;Name=hsa-miR-5-5p;Derives_from=MI0000005'),
+            ('chr6', '.', 'miRNA', 1, 22, '.', '+', '.', 'ID=MIMAT0000005_1;Alias=MIMAT0000005;Name=hsa-miR-5-5p;Derives_from=MI0000005'),
+        ]).replace('##gff-version 3\n', '')
+        result = self.run_script(gff, hairpin=hairpin, mature=mature_fa)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('>hsa-mir-5 (0.00)   [hsa-miR-5-5p:1-22]', (self.dir / 'db/miRNA.str').read_text())
+        self.assertEqual(self.record()['matures_left_out'], 'none')
+
     def test_rows_without_a_strand_or_locus_are_placed_by_their_sequence(self):
         """miRBase 23.1: hsa-mir-13168 has no strand and a mature row outside it."""
         gff = GFF.replace('1001\t1066\t.\t+', '1001\t1066\t.\t.').replace('1011\t1032\t.\t+', '1070\t1091\t.\t.')
