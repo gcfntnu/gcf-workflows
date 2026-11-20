@@ -611,7 +611,8 @@ def test_prepare_and_evaluate_a_pool(tmp_path):
                                    '--methods', 'unitas,mirge3', '--reads', '6'], capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
     config = yaml.safe_load((project / 'config.yaml').read_text())
-    assert config['quant']['method'] == 'unitas,mirge3' and config['read_geometry'] == [32] and 'db' not in config
+    assert config['quant']['method'] == 'unitas,mirge3' and config['read_geometry'] == [32]
+    assert config['db'] == {'mirbase': {'release': '23.1'}}  # the declaration's release, for every method
     with gzip.open(project / 'data/raw/fastq/p/SRRA_R1.fastq.gz', 'rt') as fh:
         assert len(fh.read().splitlines()) == 24  # first 6 reads
     assert '3 exact' in result.stdout
@@ -785,6 +786,76 @@ def test_fill_targets_for_a_biological_declaration(tmp_path):
     paths = [str(t[3].relative_to(tmp_path)) for t in fill.targets(spec, tmp_path)]
     assert paths == ['benchmark/smallrna/b/mirbase/23.1/mature.fa', 'benchmark/smallrna/b/fastq/R1.fastq.gz',
                      'benchmark/smallrna/b/fastq/R2.fastq.gz']
+
+
+def release_declaration(tmp_path, **changes):
+    """A pool declaration with miRBase 23.1 and, under mirbase_releases, 22 and an incomplete 21."""
+    spec = {'name': 'p', 'kind': 'pool', 'pool': 'ratiometric', 'organism': 'homo_sapiens', 'libprepkit': 'TruSeq Small RNA Library Prep Kit',
+            'methods': ['unitas', 'mirge3'], 'data': 'benchmark/smallrna/p', 'composition': {'file': 'ratio.csv', 'url': 'u', 'sha256': 's'},
+            'mirbase': {'release': '23.1', 'url': 'u23', 'sha256': 's23'},
+            'mirbase_releases': {'22': {'url': 'u22', 'sha256': 's22'}, 21: {'url': 'u21'}},
+            'runs': [{'run': 'SRRA', 'group': 'A', 'md5': 'm', 'url': 'u'}, {'run': 'SRRB', 'group': 'B', 'md5': 'm', 'url': 'u'}]}
+    spec.update(changes)
+    return write(tmp_path / 'ds.yaml', yaml.safe_dump(spec)), spec
+
+
+def test_load_dataset_selects_a_declared_mirbase_release(tmp_path):
+    path, spec = release_declaration(tmp_path)
+    assert benchmark.load_dataset(path)['mirbase'] == spec['mirbase'] == benchmark.load_dataset(path, '23.1')['mirbase']
+    assert benchmark.load_dataset(path, '22')['mirbase'] == {'url': 'u22', 'sha256': 's22', 'release': '22'}
+    with pytest.raises(SystemExit, match='miRBase 21 is not declared with url and sha256; declared: 23.1, 21, 22'):
+        benchmark.load_dataset(path, '21')  # no sha256
+    with pytest.raises(SystemExit, match='miRBase 20 is not declared'):
+        benchmark.load_dataset(path, '20')
+    genome = {'name': 'g', 'kind': 'synthetic', 'organism': 'homo_sapiens', 'libprepkit': 'k', 'methods': ['unitas'], 'adapter': 'A',
+              'data': 'd', 'synthetic': {'mode': 'genome'},
+              'mirbase': {'release': '23.1', 'url': 'u', 'sha256': 's', 'hairpin': {'url': 'h', 'sha256': 's'}, 'gff': {'url': 'g', 'sha256': 's'}},
+              'mirbase_releases': {'22': {'url': 'u22', 'sha256': 's22'}}}
+    path = write(tmp_path / 'genome.yaml', yaml.safe_dump(genome))
+    with pytest.raises(SystemExit, match='a genome-wide synthetic dataset needs mirbase.hairpin and mirbase.gff'):
+        benchmark.load_dataset(path, '22')
+
+
+def test_prepare_with_another_mirbase_release_configures_it_for_every_method(tmp_path):
+    ext = tmp_path / 'ext'
+    data = ext / 'benchmark/smallrna/p'
+    write(data / 'composition/ratio.csv', RATIO)
+    write(data / 'mirbase/22/mature.fa', HSA)
+    for run in ('SRRA', 'SRRB'):
+        (data / 'fastq').mkdir(parents=True, exist_ok=True)
+        with gzip.open(data / 'fastq/{}.fastq.gz'.format(run), 'wt') as fh:
+            fh.write('@r\nTGGAATGTAAAGAAGTATGTATTGGAATTCTC\n+\n{}\n'.format('I' * 32))
+    unitas_dump(ext, 'homo_sapiens', 'Human', {})
+    cmd = [sys.executable, str(BENCH / 'benchmark.py'), 'prepare', '--project', str(tmp_path / 'project'), '--ext-dir', str(ext),
+           '--mirbase-release', '22']
+    dataset, _ = release_declaration(tmp_path)
+    result = subprocess.run(cmd + ['--dataset', str(dataset)], capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    config = yaml.safe_load((tmp_path / 'project/config.yaml').read_text())
+    assert config['db']['mirbase'] == {'release': '22'}
+    saved = yaml.safe_load((tmp_path / 'project/benchmark/dataset.yaml').read_text())
+    assert saved['mirbase'] == {'url': 'u22', 'sha256': 's22', 'release': '22'} and 'mirbase_releases' not in saved
+    dataset, _ = release_declaration(tmp_path, config={'db': {'mirbase': {'release': '23.1'}}})
+    result = subprocess.run(cmd[:4] + [str(tmp_path / 'other')] + cmd[5:] + ['--dataset', str(dataset)], capture_output=True, text=True, timeout=60)
+    assert result.returncode != 0 and "the declaration's config sets db.mirbase.release 23.1, but the run uses miRBase 22" in result.stderr
+
+
+def test_fill_targets_the_selected_mirbase_release(tmp_path):
+    path, _ = release_declaration(tmp_path)
+    paths = [str(t[3].relative_to(tmp_path)) for t in fill.targets(benchmark.load_dataset(path, '22'), tmp_path)]
+    assert 'benchmark/smallrna/p/mirbase/22/mature.fa' in paths and not any('/23.1/' in p for p in paths)
+
+
+def test_shipped_declarations_list_loadable_mirbase_releases():
+    """Every release a declaration lists loads, with files from that release's miRBase folder (#431)."""
+    listed = 0
+    for path in sorted((BENCH / 'datasets').glob('*.yaml')):
+        for release in (yaml.safe_load(path.read_text()).get('mirbase_releases') or {}):
+            selected = benchmark.load_dataset(path, release)['mirbase']
+            for files in [selected] + [selected[k] for k in ('hairpin', 'gff') if k in selected]:
+                assert '/{}/'.format(release) in files['url'] and len(files['sha256']) == 64, (path.name, files)
+            listed += 1
+    assert listed
 
 
 def write_cutadapt_reports(folder, sample, reads):

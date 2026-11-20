@@ -23,8 +23,8 @@ The benchmark runs the workflow's own `quant_all` routes; it never calls the too
 References and public datasets live under `EXT_DIR` (`ext_dir` in the project configuration); a reduced reference for
 mirflowz is made with reduce_reference.py and named in the declaration.
 
-Usage: benchmark.py fill --dataset YAML --ext-dir DIR
-       benchmark.py prepare --dataset YAML --project DIR --ext-dir DIR [--methods LIST] [--reads N] [--lanes]
+Usage: benchmark.py fill --dataset YAML --ext-dir DIR [--mirbase-release R]
+       benchmark.py prepare --dataset YAML --project DIR --ext-dir DIR [--mirbase-release R] [--methods LIST] [--reads N] [--lanes]
        benchmark.py evaluate --project DIR [--mirflowz-gff GFF3] [--unitas-ref DIR] [--bootstrap N] [--seed S]
        benchmark.py summary --projects DIR [DIR ...] --output FILE.md|FILE.html
 """
@@ -65,7 +65,9 @@ def fail(message):
     sys.exit('benchmark.py: ' + message)
 
 
-def load_dataset(path):
+def load_dataset(path, mirbase_release=None):
+    """The declaration, with `mirbase` the release a run uses: the declared one, or with `mirbase_release` one of those
+    listed under `mirbase_releases` (#431)."""
     spec = yaml.safe_load(Path(path).read_text())
     for key in ('name', 'kind', 'organism', 'libprepkit', 'methods'):
         if key not in spec:
@@ -80,6 +82,8 @@ def load_dataset(path):
     for key in required:
         if key not in spec:
             fail('{}: a {} dataset needs {!r}'.format(path, spec['kind'], key))
+    if mirbase_release is not None:
+        spec = select_mirbase(spec, str(mirbase_release), path)
     if genome and not all(isinstance(spec['mirbase'].get(k), dict) and {'url', 'sha256'} <= set(spec['mirbase'][k]) for k in ('hairpin', 'gff')):
         fail('{}: a genome-wide synthetic dataset needs mirbase.hairpin and mirbase.gff, each with url and sha256'.format(path))
     if spec['kind'] == 'pool' and spec['pool'] not in ('equimolar', 'ratiometric'):
@@ -96,6 +100,21 @@ def load_dataset(path):
         if any(type(lane) is not int for lane in lanes):
             fail('{}: a run\'s lane must be a whole number, e.g. `lane: 1`'.format(path))
     return spec
+
+
+def select_mirbase(spec, release, path):
+    """The declaration with `mirbase` set to `release`: its own, or one listed under `mirbase_releases` with url and
+    sha256 (and, for a genome-wide synthetic dataset, hairpin and gff, checked by load_dataset)."""
+    if 'mirbase' not in spec:
+        fail('{}: --mirbase-release needs a declaration with miRBase files (mirbase)'.format(path))
+    declared = str(spec['mirbase']['release'])
+    if release == declared:
+        return spec
+    others = {str(r): files for r, files in (spec.get('mirbase_releases') or {}).items()}
+    files = others.get(release)
+    if not isinstance(files, dict) or not {'url', 'sha256'} <= set(files):
+        fail('{}: miRBase {} is not declared with url and sha256; declared: {}'.format(path, release, ', '.join([declared] + sorted(others))))
+    return dict(spec, mirbase=dict(files, release=release))
 
 
 def synthetic_mode(spec):
@@ -124,6 +143,13 @@ def write_project(project, spec, ext_dir, samples, read_length, methods, mirflow
         config['db'] = {'mirflowz': {'custom': {'name': spec['reference']['name'], 'genome': str(ref / 'genome.fa.gz'),
                                                 'gtf': str(ref / 'genes.gtf.gz'), 'mirna_gff': str(ref / 'mirna.gff3')}}}
     config.update(spec.get('config') or {})
+    if 'mirbase' in spec:  # every method uses the declaration's release (#407), also when another is selected (#431)
+        release = str(spec['mirbase']['release'])
+        db = config.setdefault('db', {})
+        configured = str((db.get('mirbase') or {}).get('release', release))
+        if configured != release:
+            fail('the declaration\'s config sets db.mirbase.release {}, but the run uses miRBase {}'.format(configured, release))
+        db.setdefault('mirbase', {})['release'] = release
     (project / 'pep').mkdir(parents=True, exist_ok=True)
     (project / 'config.yaml').write_text(yaml.safe_dump(config, sort_keys=False))
     (project / 'pep/pep_config.yaml').write_text('pep_version: 2.0.0\nsample_table: sample_table.csv\n')
@@ -133,7 +159,8 @@ def write_project(project, spec, ext_dir, samples, read_length, methods, mirflow
     (project / 'Snakefile').write_text('configfile: "config.yaml"\npepfile: "pep/pep_config.yaml"\ninclude: {!r}\n'.format(str(workflow)))
     bench = project / 'benchmark'
     bench.mkdir()
-    (bench / 'dataset.yaml').write_text(yaml.safe_dump(dict(spec, methods=list(methods)), sort_keys=False))
+    saved = {k: v for k, v in spec.items() if k != 'mirbase_releases'}  # the project uses one release
+    (bench / 'dataset.yaml').write_text(yaml.safe_dump(dict(saved, methods=list(methods)), sort_keys=False))
     return bench
 
 
@@ -142,7 +169,7 @@ def project_fastq(project, spec, sample):
 
 
 def prepare(args):
-    spec = load_dataset(args.dataset)
+    spec = load_dataset(args.dataset, args.mirbase_release)
     project, ext_dir = Path(args.project), Path(args.ext_dir).resolve()
     if project.exists() or project.is_symlink():
         fail('{} exists; choose a new project directory'.format(project))
@@ -1032,7 +1059,7 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
 
 
 def fill(args):
-    spec = load_dataset(args.dataset)
+    spec = load_dataset(args.dataset, args.mirbase_release)
     try:
         filler.fill(spec, Path(args.ext_dir))
     except (OSError, ValueError) as error:
@@ -1054,6 +1081,7 @@ def main():
     p.add_argument('--dataset', required=True)
     p.add_argument('--project', required=True)
     p.add_argument('--ext-dir', required=True, help='EXT_DIR holding the references and data named in the declaration')
+    p.add_argument('--mirbase-release', help="a miRBase release the declaration lists under mirbase_releases (default: its mirbase)")
     p.add_argument('--methods', help="comma-separated subset of the declaration's methods, e.g. unitas,mirge3")
     p.add_argument('--reads', type=int, help='pool and biological datasets: copy the first N reads of each run instead of linking the runs; '
                    'genome-wide synthetic dataset: the mean reads of a mixed sample')
@@ -1061,6 +1089,7 @@ def main():
     f = sub.add_parser('fill', help='download a public dataset into EXT_DIR (the only step that writes there)')
     f.add_argument('--dataset', required=True)
     f.add_argument('--ext-dir', required=True)
+    f.add_argument('--mirbase-release', help="a miRBase release the declaration lists under mirbase_releases (default: its mirbase)")
     e = sub.add_parser('evaluate')
     e.add_argument('--project', required=True)
     e.add_argument('--bootstrap', type=nonnegative, default=uncertainty.RESAMPLES, metavar='N',

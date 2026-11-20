@@ -20,6 +20,16 @@ mirbase:                    # the release every method uses (#407)
   gff:                      # loci: multi-locus matures, genomic clusters (co-regulation), annotated matures only
     url: https://www.mirbase.org/download_version_genome_files/23.1/hsa.gff3
     sha256: 45b2aa4f8306dc6b86831f652acb166567efe9e59c599d1b6f009f15d3424d07
+mirbase_releases:           # other releases a run can select: fill and prepare --mirbase-release (#431)
+  '22':
+    url: https://www.mirbase.org/download_version_files/22/mature.fa
+    sha256: 3c521fc9bea3c7993e71cf188b11caf73e2d40ac83454e32876455317cc6d342
+    hairpin:
+      url: https://www.mirbase.org/download_version_files/22/hairpin.fa
+      sha256: 57419931ac0421c5dcbe871128b48d4b2ee1af219313f6183388be8da9b52517
+    gff:
+      url: https://www.mirbase.org/download_version_genome_files/22/hsa.gff3
+      sha256: d02c0b4e9a401e66240418a572a10732b103dd64acfd10f59df171bcbbd40f59
 synthetic:
   mode: genome
   seed: 1

@@ -161,6 +161,17 @@ although the trimmed reads it starts from remain; the trimmed reads with native 
 read), and the filter-route count reads those after each of the route's passes. Reads left by two trimming routes stop
 `evaluate`.
 
+**Another miRBase release** (#431). A declaration lists other releases under `mirbase_releases`, each with `url` and
+`sha256` (and `hairpin` and `gff` for the genome-wide synthetic set); the human declarations list miRBase 22.
+- `fill --mirbase-release 22` fetches that release's files into `EXT_DIR/<data>/mirbase/22/`.
+- `prepare --mirbase-release 22` makes the project use it. The truth, the names and the release check come from it, and
+  the project's `db.mirbase.release` is set to it for every method; `prepare` always sets the declaration's release.
+- Every method's reference must then be built from that release, or the workflow's reference checks stop:
+  - UNITAS and miRge3 need a dump and a library built from it (`db.unitas.release`, `db.mirge3.release`);
+  - nf-core/smrnaseq and biocore_miraligner build theirs from gcfdb's miRBase files;
+  - the genome routes need a genome reference for that release's assembly (#431).
+- Evaluate each release in its own project, and compare across releases only where the miRNA set does not matter.
+
 **Biological samples** (`kind: biological`): runs and metadata, no known composition, so the methods are compared with
 each other, and agreement is not accuracy. A declaration lists `samples`, each with its `group` and `runs` (with `lane`
 when known; `prepare` checks it against the read names), and the miRBase release for names and accessions. A sample's

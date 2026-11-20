@@ -15,6 +15,10 @@ mirbase:                    # mature miRNAs of the release the methods use: name
   release: '23.1'
   url: https://www.mirbase.org/download_version_files/23.1/mature.fa
   sha256: 52d69eeb3c23c5ed0f66c8c9f24e1ad2cd94cc34e72e4fc376c0dd438d2779ff
+mirbase_releases:           # other releases a run can select: fill and prepare --mirbase-release (#431)
+  '22':
+    url: https://www.mirbase.org/download_version_files/22/mature.fa
+    sha256: 3c521fc9bea3c7993e71cf188b11caf73e2d40ac83454e32876455317cc6d342
 runs:
   - {run: SRR5234383, group: A, lab: Lab1, instrument: HiSeq 4000, reads: 9685027, md5: 240737240df907c6710870ea8dea00f6, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR523/003/SRR5234383/SRR5234383.fastq.gz}
   - {run: SRR5234384, group: A, lab: Lab1, instrument: HiSeq 4000, reads: 9553315, md5: 0c492d9a96b6c44e156bae4b36491cb5, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR523/004/SRR5234384/SRR5234384.fastq.gz}
