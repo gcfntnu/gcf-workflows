@@ -39,6 +39,8 @@ rule smrnaseq_hairpin:
     params:
         script = src_gcf('scripts/smrnaseq_hairpin.py'),
         species = SMRNASEQ_SPS
+    benchmark:
+        join(QUANT_BENCHMARKS, 'smrnaseq_hairpin.tsv')
     container:
         'docker://' + config['docker']['default']
     shell:
@@ -56,6 +58,8 @@ rule smrnaseq_hairpin_index:
         4
     log:
         join(SMRNASEQ_REF, 'bowtie', 'hairpin.log')
+    benchmark:
+        join(QUANT_BENCHMARKS, 'smrnaseq_hairpin_index.tsv')
     container:
         'docker://' + config['docker']['smrnaseq_bowtie']
     shell:
@@ -71,6 +75,8 @@ rule smrnaseq_collapse:
         work = join(SMRNASEQ_OUT, 'collapsed', '{sample}.work')
     log:
         join(SMRNASEQ_OUT, 'collapsed', '{sample}.log')
+    benchmark:
+        join(QUANT_BENCHMARKS, 'smrnaseq_collapse', '{sample}.tsv')
     container:
         'docker://' + config['docker']['smrnaseq_seqcluster']
     shell:
@@ -93,6 +99,8 @@ rule smrnaseq_align:
         4
     log:
         join(SMRNASEQ_OUT, 'bam', '{sample}.log')
+    benchmark:
+        join(QUANT_BENCHMARKS, 'smrnaseq_align', '{sample}.tsv')
     container:
         'docker://' + config['docker']['smrnaseq_bowtie']
     shell:
@@ -114,6 +122,8 @@ rule smrnaseq_mirtop:
         species = SMRNASEQ_SPS
     log:
         join(SMRNASEQ_OUT, 'mirtop', '{sample}', 'mirtop.log')
+    benchmark:
+        join(QUANT_BENCHMARKS, 'smrnaseq_mirtop', '{sample}.tsv')
     container:
         'docker://' + config['docker']['smrnaseq_mirtop']
     shell:
@@ -130,6 +140,8 @@ rule smrnaseq_counts:
         joined = join(SMRNASEQ_OUT, 'joined_samples_mirtop.tsv')
     params:
         script = src_gcf('scripts/smrnaseq_counts.py')
+    benchmark:
+        join(QUANT_BENCHMARKS, 'smrnaseq_counts.tsv')
     container:
         'docker://' + config['docker']['default']
     shell:

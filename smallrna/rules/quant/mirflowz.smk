@@ -41,6 +41,8 @@ rule mirflowz_quant:
         8
     resources:
         mem_mb = MIRFLOWZ_MEM_GB * 1024
+    benchmark:
+        join(QUANT_BENCHMARKS, 'mirflowz_quant.tsv')
     container:
         'docker://' + config['docker']['mirflowz']
     shell:

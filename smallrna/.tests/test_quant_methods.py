@@ -307,3 +307,25 @@ def test_recorded_routes_write_their_mirbase_release_and_table_checksum(tmp_path
     returncode, output = dry_run(tmp_path, 'unitas,mirge3')
     assert returncode == 0, output
     assert 'quant_reference' not in output
+
+
+def test_route_steps_write_the_benchmark_files_the_benchmark_reads(tmp_path):
+    """Every step benchmark/resources.py counts for a method declares its Snakemake benchmark file where resources.jobs
+    reads it (#386): quant/benchmarks/<rule>/<sample>.tsv per sample, <rule>.tsv per project, the shared reference
+    builds included."""
+    sys.path.insert(0, str(ROOT / 'smallrna/benchmark'))
+    import resources
+    returncode, output = dry_run(tmp_path, ','.join(resources.STEPS))
+    assert returncode == 0, output
+    declared = {}
+    for block in output.split('\nrule ')[1:]:
+        match = re.search(r'^    benchmark: (\S+)$', block, re.M)
+        if match:
+            declared.setdefault(block.split(':', 1)[0], set()).add(match.group(1))
+    base = 'data/tmp/smallrna/quant/benchmarks/'
+    samples = {Path(p).stem for p in declared['unitas']}
+    assert len(samples) == 4
+    for method, steps in resources.STEPS.items():
+        for step, per_sample, _ in steps:
+            expected = {f'{base}{step}/{s}.tsv' for s in samples} if per_sample else {f'{base}{step}.tsv'}
+            assert declared.get(step) == expected, (method, step)

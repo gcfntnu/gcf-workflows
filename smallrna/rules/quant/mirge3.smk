@@ -57,6 +57,8 @@ rule mirge3_project_library:
         script = src_gcf('scripts/mirge3_project_library.py'),
         shared = MIRGE3_EXT,
         sets = ','.join(SPIKEIN_REF_SETS) if SPIKEIN_NATIVE else 'none'
+    benchmark:
+        join(QUANT_BENCHMARKS, 'mirge3_project_library.tsv')
     container:
         'docker://' + config['docker']['mirge3']
     shell:
@@ -111,6 +113,8 @@ rule mirge3_quant:
                             'spikein.tsv', 'reference.tsv', 'miR.Counts.mirge3.csv', 'unmapped.fasta'))
     threads:
         8
+    benchmark:
+        join(QUANT_BENCHMARKS, 'mirge3_quant.tsv')
     container:
         'docker://' + config['docker']['mirge3']
     shell:
@@ -145,6 +149,8 @@ rule mirge3_counts:
         script = src_gcf('scripts/mirge3_counts.py'),
         merges = join(MIRGE3_PROJECT_LIB, MIRGE_ORG, 'annotation.Libs',
                       '{}_merges_{}.csv'.format(MIRGE_ORG, MIRGE3_DATABASES[MIRGE3_DB]))
+    benchmark:
+        join(QUANT_BENCHMARKS, 'mirge3_counts.tsv')
     shell:
         'python {params.script:q} --mapped {input.mapped:q} --merges {params.merges:q} '
         '--mirge3-table {input.mirtable:q} > {output:q}'
