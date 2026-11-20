@@ -3,18 +3,21 @@
 
 miRBase 23.1's GFF3 files disagree with its own sequences in places: hairpin rows that cover only the stem, rows
 without a strand, matures placed from outdated hairpin rows and, in mouse, rows left on the previous assembly
-(GRCm38). The table gives each correction for a release and organism: the row's old and new position and the reason.
-The new positions are where the hairpin sequences lie exactly in the genome; rows whose sequence cannot match their
-hairpin are exempt from the check, with the reason. This script:
+(GRCm38). The table gives each correction for a release and organism: the row's old and new position, how the row is
+checked afterwards, and the reason. The new positions are where the hairpin sequences lie exactly in the genome.
+This script:
 
-1. applies the table's rows for `--release` and `--organism`. A table row names a GFF row by ID and old position (23.1
-   reuses a mature's ID at each hairpin it comes from), which must match exactly one row with that name, so a changed
-   download or a stale table stops the build;
-2. checks every row the table does not exempt:
-   - a hairpin row has a strand and spans its hairpin.fa sequence;
-   - a mature row lies in a locus of its hairpin, on the same strand, exactly where its mature.fa sequence is in the
-     hairpin sequence;
-   - chromosome names use one style (with or without `chr`);
+1. applies the table's rows for `--release` and `--organism`. A table row names a GFF row by ID, `Derives_from` (empty
+   for a hairpin) and old position, because 23.1 reuses a mature's ID at each hairpin it comes from. It must match
+   exactly one row with that name, so a changed download or a stale table stops the build. A row moved onto another
+   row of the same miRNA and hairpin stops it too, as that would silently merge two loci;
+2. checks the rows, by the table's `check` (`sequence` for every row the table does not list):
+   - `sequence`: a hairpin row has a strand and spans its hairpin.fa sequence; a mature row lies in a locus of its
+     hairpin, on the same strand, exactly where its mature.fa sequence is in the hairpin sequence;
+   - `placement`, for a mature whose sequence cannot match its hairpin (it differs from a paralogous hairpin): the
+     row lies in a locus of its hairpin, on the same strand, and has its sequence's length;
+   - `none`, for a reviewed structural anomaly: not checked;
+   and chromosome names use one style (with or without `chr`) in every checked row;
 3. writes the GFF3 with the header lines kept and one added naming the table, and the applied rows to `--record`.
 
 A disagreement the table does not list stops with the rows named: check the row against the genome, then add it to the
@@ -29,7 +32,8 @@ import csv
 import os
 import sys
 
-COLUMNS = ['release', 'organism', 'id', 'name', 'old', 'new', 'check', 'reason']
+COLUMNS = ['release', 'organism', 'id', 'parent', 'name', 'old', 'new', 'check', 'reason']
+CHECKS = ('sequence', 'placement', 'none')
 HAIRPIN, MATURE = 'miRNA_primary_transcript', 'miRNA'
 SHOWN = 25
 
@@ -66,12 +70,13 @@ def parse_position(text, where):
 
 class Row:
     def __init__(self, fields, number):
-        self.fields, self.number, self.exempt = fields, number, False
+        self.fields, self.number, self.check = fields, number, 'sequence'
         self.attrs = dict(a.split('=', 1) for a in fields[8].split(';') if '=' in a)
         if 'ID' not in self.attrs:
             fail('GFF line {} has no ID'.format(number))
 
     id = property(lambda self: self.attrs['ID'])
+    parent = property(lambda self: self.attrs.get('Derives_from', ''))
     name = property(lambda self: self.attrs.get('Name', ''))
     acc = property(lambda self: self.attrs.get('Alias', self.attrs['ID']))
     type = property(lambda self: self.fields[2])
@@ -113,71 +118,94 @@ def read_table(path, release, organism):
     if reader.fieldnames != COLUMNS:
         fail('{}: columns must be {}'.format(path, ', '.join(COLUMNS)))
     entries = {}
-    for n, entry in enumerate(reader, 2):
-        if entry['check'] not in ('sequence', 'exempt') or not entry['reason']:
-            fail('{} row {}: check must be sequence or exempt, with a reason'.format(path, entry['id']))
+    for entry in reader:
+        if entry['check'] not in CHECKS or not entry['reason']:
+            fail('{} row {}: check must be one of {}, with a reason'.format(path, entry['id'], ', '.join(CHECKS)))
         if entry['release'] == release and entry['organism'] == organism:
-            key = (entry['id'], entry['old'])
+            key = (entry['id'], entry['parent'], entry['old'])
             if key in entries:
-                fail('{}: {} at {} is listed twice for miRBase {} {}'.format(path, entry['id'], entry['old'], release, organism))
+                fail('{}: {} ({}) at {} is listed twice for miRBase {} {}'.format(
+                    path, entry['id'], entry['parent'] or 'hairpin', entry['old'], release, organism))
             entries[key] = entry
     return entries
 
 
+def parent_accession(row, hairpin_ids):
+    """The accession of a mature row's hairpin: its Derives_from row's, or Derives_from without a locus suffix."""
+    return hairpin_ids[row.parent].acc if row.parent in hairpin_ids else row.parent.split('_')[0]
+
+
+def identities(rows, hairpin_ids):
+    """Rows by miRNA, its hairpin and position: two rows with one identity are one locus."""
+    return collections.Counter((r.acc, parent_accession(r, hairpin_ids) if r.type == MATURE else '', r.position()) for r in rows)
+
+
 def apply(rows, entries, table):
-    """Moves the rows the table names (by ID and old position) and marks the exempt ones."""
+    """Moves the rows the table names (by ID, Derives_from and old position) and sets how each is checked."""
+    hairpin_ids = {r.id: r for r in rows if r.type == HAIRPIN}
+    before = identities(rows, hairpin_ids)
     at = collections.defaultdict(list)
     for row in rows:
-        at[(row.id, row.position())].append(row)
-    for (row_id, old), entry in entries.items():
-        where = '{} ({} at {})'.format(table, row_id, old)
+        at[(row.id, row.parent, row.position())].append(row)
+    for (row_id, parent, old), entry in entries.items():
+        where = '{} ({}{} at {})'.format(table, row_id, ' from ' + parent if parent else '', old)
         parse_position(old, where)
-        found = at.get((row_id, old), [])
-        problem = ('no GFF row with this ID and position' if not found else
-                   '{} GFF rows with this ID and position'.format(len(found)) if len(found) > 1 else
+        found = at.get((row_id, parent, old), [])
+        problem = ('no GFF row with this ID, Derives_from and position' if not found else
+                   '{} GFF rows with this ID, Derives_from and position'.format(len(found)) if len(found) > 1 else
                    'the GFF row is named {}, not {}'.format(found[0].name, entry['name']) if found[0].name != entry['name'] else '')
         if problem:
             fail('{}: {}; the table is stale or the download changed'.format(where, problem))
         found[0].move(*parse_position(entry['new'], where))
-        found[0].exempt = entry['check'] == 'exempt'
+        found[0].check = entry['check']
+    merged = [key for key, n in identities(rows, hairpin_ids).items() if n > 1 and n > before.get(key, 0)]
+    if merged:
+        fail('{} moves rows onto another row of the same miRNA and hairpin, merging two loci: {}'.format(
+            table, '; '.join('{} ({}) at {}'.format(acc, parent or 'hairpin', position) for acc, parent, position in merged)))
 
 
 def check(rows, hairpin_seqs, mature_seqs):
     problems = []
     loci = collections.defaultdict(list)
-    by_id = {row.id: row for row in rows if row.type == HAIRPIN}
+    hairpin_ids = {row.id: row for row in rows if row.type == HAIRPIN}
     for h in (r for r in rows if r.type == HAIRPIN):
         loci[h.acc].append(h)
-        if h.exempt:
+        if h.check == 'none':
             continue
         seq = hairpin_seqs.get(h.acc)
         if h.strand not in ('+', '-'):
             problems.append('{} {} {}: no strand'.format(h.id, h.name, h.position()))
+        elif h.check == 'placement':
+            continue
         elif seq is None:
             problems.append('{} {}: accession {} is not in the hairpin FASTA'.format(h.id, h.name, h.acc))
         elif h.end - h.start + 1 != len(seq):
             problems.append('{} {} {}: spans {} nt, its sequence has {}'.format(h.id, h.name, h.position(), h.end - h.start + 1, len(seq)))
     for m in (r for r in rows if r.type == MATURE):
-        if m.exempt:
+        if m.check == 'none':
             continue
         seq = mature_seqs.get(m.acc)
-        parent = m.attrs.get('Derives_from', '')
-        acc = by_id[parent].acc if parent in by_id else parent.split('_')[0]
+        acc = parent_accession(m, hairpin_ids)
         inside = [h for h in loci.get(acc, []) if h.chrom == m.chrom and h.start <= m.start and m.end <= h.end]
-        if seq is None:
+        if seq is None and m.check == 'sequence':
             problems.append('{} {}: accession {} is not in the mature FASTA'.format(m.id, m.name, m.acc))
         elif not inside:
             problems.append('{} {} {}: outside every locus of its hairpin {}'.format(m.id, m.name, m.position(), acc))
+        elif m.check == 'placement':
+            if not any(h.strand == m.strand and (seq is None or m.end - m.start + 1 == len(seq)) for h in inside):
+                problems.append('{} {} {}: not on its hairpin\'s strand with its sequence\'s length ({} nt)'.format(
+                    m.id, m.name, m.position(), len(seq) if seq else 'unknown'))
         elif not any(placed(m, h, hairpin_seqs.get(h.acc, ''), seq) for h in inside):
             h = inside[0]
             hseq = hairpin_seqs.get(h.acc, '')
             offsets = [i for i in range(len(hseq)) if hseq.startswith(seq, i)]
             problems.append('{} {} {}: not where its sequence is in {} {} (sequence at hairpin offsets {})'.format(
                 m.id, m.name, m.position(), h.id, h.position(), offsets or 'none'))
-    styles = collections.Counter('chr' if r.chrom.startswith('chr') else 'other' for r in rows if not r.exempt)
+    checked = [r for r in rows if r.check != 'none']
+    styles = collections.Counter('chr' if r.chrom.startswith('chr') else 'other' for r in checked)
     if len(styles) > 1:
         minority = min(styles, key=styles.get)
-        examples = [r.id for r in rows if not r.exempt and ('chr' if r.chrom.startswith('chr') else 'other') == minority][:5]
+        examples = [r.id for r in checked if ('chr' if r.chrom.startswith('chr') else 'other') == minority][:5]
         problems.append('chromosome names mixed: {} rows with chr, {} without (e.g. {})'.format(styles['chr'], styles['other'], ', '.join(examples)))
     return problems
 
@@ -202,9 +230,9 @@ def main():
         fail('{} rows of {} disagree with the miRBase {} sequences and are not in {}:\n  {}{}'.format(
             len(problems), args.gff, args.release, args.table, '\n  '.join(problems[:SHOWN]),
             '\n  ...' if len(problems) > SHOWN else ''))
-    note = '# gcf-workflows: {} rows corrected and {} exempt from the sequence check by {} (#429)'.format(
-        sum(1 for e in entries.values() if e['old'] != e['new']), sum(1 for e in entries.values() if e['check'] == 'exempt'),
-        os.path.basename(args.table))
+    checks = collections.Counter(e['check'] for e in entries.values())
+    note = '# gcf-workflows: {} rows corrected, {} checked for placement only and {} not checked, by {} (#429)'.format(
+        sum(1 for e in entries.values() if e['old'] != e['new']), checks['placement'], checks['none'], os.path.basename(args.table))
     first = next((i for i, line in enumerate(lines) if isinstance(line, Row)), len(lines))
     with open(args.output, 'w') as out:
         for i, line in enumerate(lines):
@@ -215,9 +243,9 @@ def main():
             out.write(note + '\n')
     with open(args.record, 'w', newline='') as out:
         writer = csv.writer(out, delimiter='\t', lineterminator='\n')
-        writer.writerow(['id', 'name', 'old', 'new', 'check', 'reason'])
+        writer.writerow(['id', 'parent', 'name', 'old', 'new', 'check', 'reason'])
         for entry in entries.values():
-            writer.writerow([entry[k] for k in ('id', 'name', 'old', 'new', 'check', 'reason')])
+            writer.writerow([entry[k] for k in ('id', 'parent', 'name', 'old', 'new', 'check', 'reason')])
 
 
 if __name__ == '__main__':

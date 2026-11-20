@@ -1,196 +1,198 @@
 # miRBase GFF3 corrections, applied by gcfdb/scripts/mirbase_gff_correct.py (#429).
 # New positions are where the miRBase hairpin sequence lies exactly in the genome (GRCh38, GRCm39,
 # Rnor_6.0), with the matures at their sequences in the hairpin. Mouse rows left on GRCm38 were placed on
-# GRCm39 by the flanking GRCm38 sequence. check: sequence (the row must then match its sequences) or
-# exempt (it cannot, for the reason given). Positions: chrom:start-end:strand, as in the GFF3.
-release	organism	id	name	old	new	check	reason
-23.1	homo_sapiens	MI0046424	hsa-mir-13168	chr1:156103047-156103105:.	chr1:156103017-156103135:-	sequence	hairpin row covered the stem only, without a strand: set to the hairpin sequence in GRCh38
-23.1	homo_sapiens	MIMAT0071374	hsa-miR-13168-5p	chr1:156103077-156103099:.	chr1:156103083-156103105:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	homo_sapiens	MIMAT0071373	hsa-miR-13168-3p	chr1:156103114-156103135:.	chr1:156103047-156103068:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	homo_sapiens	MI0016011	hsa-mir-3620	chr1:228097263-228097341:+	chr1:228097285-228097341:+	sequence	hairpin row not updated when release 23 changed the hairpin sequence: set to the sequence in GRCh38
-23.1	homo_sapiens	MIMAT0022967	hsa-miR-3620-5p	chr1:228097263-228097283:+	chr1:228097285-228097305:+	sequence	placed from the outdated hairpin row: set to its sequence in the hairpin
-23.1	homo_sapiens	MIMAT0018001	hsa-miR-3620-3p	chr1:228097298-228097319:+	chr1:228097320-228097341:+	sequence	placed from the outdated hairpin row: set to its sequence in the hairpin
-23.1	homo_sapiens	MI0046426	hsa-mir-376d	chr14:101039358-101039415:+	chr14:101039328-101039445:+	sequence	hairpin row covered the stem only: set to the hairpin sequence in GRCh38
-23.1	homo_sapiens	MIMAT0077748	hsa-miR-376d-5p	chr14:101039388-101039409:+	chr14:101039358-101039379:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	homo_sapiens	MIMAT0077749	hsa-mir-376d-3p	chr14:101039425-101039446:+	chr14:101039395-101039416:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	homo_sapiens	MI0000081	hsa-mir-24-2	chr19:13836287-13836359:-	chr19:13836259-13836378:-	sequence	hairpin row not updated when release 23 changed the hairpin sequence: set to the sequence in GRCh38
-23.1	homo_sapiens	MIMAT0004497	hsa-miR-24-2-5p	chr19:13836306-13836329:-	chr19:13836325-13836348:-	sequence	placed from the outdated hairpin row: set to its sequence in the hairpin
-23.1	homo_sapiens	MIMAT0000080	hsa-miR-24-3p	chr19:13836270-13836291:-	chr19:13836289-13836310:-	sequence	placed from the outdated hairpin row: set to its sequence in the hairpin
-23.1	homo_sapiens	MI0046423	hsa-mir-13167	chr4:75973882-75973940:.	chr4:75973852-75973970:-	sequence	hairpin row covered the stem only, without a strand: set to the hairpin sequence in GRCh38
-23.1	homo_sapiens	MIMAT0071371	hsa-miR-13167-5p	chr4:75973912-75973934:.	chr4:75973918-75973940:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	homo_sapiens	MIMAT0071372	hsa-miR-13167-3p	chr4:75973948-75973970:.	chr4:75973882-75973904:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	homo_sapiens	MI0017273	hsa-mir-4646	chr6:31701029-31701091:-	chr6:31701029-31701091:-	exempt	its 23.1 hairpin sequence starts with 8 nt that are not in GRCh38 here: row kept on the 63 genomic nt
-23.1	homo_sapiens	MIMAT0019707	hsa-miR-4646-5p	chr6:31701061-31701083:-	chr6:31701069-31701091:-	exempt	placed from the 8-nt longer hairpin sequence: set to its sequence in GRCh38
-23.1	homo_sapiens	MIMAT0019708	hsa-miR-4646-3p	chr6:31701021-31701040:-	chr6:31701029-31701048:-	exempt	placed from the 8-nt longer hairpin sequence: set to its sequence in GRCh38
-23.1	homo_sapiens	MI0046425	hsa-mir-514c	chrX:147255308-147255368:.	chrX:147255278-147255398:-	sequence	hairpin row covered the stem only, without a strand: set to the hairpin sequence in GRCh38
-23.1	homo_sapiens	MIMAT0071376	hsa-miR-514c-5p	chrX:147255338-147255360:.	chrX:147255346-147255368:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	homo_sapiens	MIMAT0071375	hsa-miR-514c-3p	chrX:147255376-147255398:.	chrX:147255308-147255330:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	homo_sapiens	MIMAT0015081	hsa-miR-548x-2-3p	chr13:65966353-65966370:-	chr13:65966351-65966371:-	exempt	its sequence differs from this hairpin at 1 position (another paralog or a variant): set to its best match
-23.1	homo_sapiens	MIMAT0005895	hsa-miR-548f-3p	chr2:212426270-212426291:-	chr2:212426283-212426303:-	sequence	row not at its sequence in the hairpin: set to it
-23.1	homo_sapiens	MIMAT0005895	hsa-miR-548f-3p	chr5:110513830-110513851:-	chr5:110513843-110513863:-	sequence	row not at its sequence in the hairpin: set to it
-23.1	homo_sapiens	MIMAT0005895	hsa-miR-548f-3p	chrX:32641476-32641499:-	chrX:32641489-32641509:-	exempt	its sequence differs from this hairpin at 1 position (another paralog or a variant): set to its best match
-23.1	homo_sapiens	MIMAT0019078	hsa-miR-4536-5p	chrX:55451496-55451516:+	chrX:55451498-55451519:+	sequence	row not at its sequence in the hairpin: set to it
-23.1	homo_sapiens	MIMAT0020959	hsa-miR-4536-3p	chrX:55451562-55451582:+	chrX:55451560-55451581:+	sequence	row not at its sequence in the hairpin: set to it
-23.1	rattus_norvegicus	MI0046553	rno-mir-16-2	901866519:341-405:+	901866519:341-405:+	exempt	on NCBI GI 901866519, a Plasmodium vivax contig, not a rat sequence: left as it is (the genome routes drop it, MIRFLOWZ_GFF_REMOVE)
-23.1	rattus_norvegicus	MIMAT0071627	rno-miR-16-2-5p	901866519:371-392:+	901866519:371-392:+	exempt	on NCBI GI 901866519, a Plasmodium vivax contig, not a rat sequence: left as it is (the genome routes drop it, MIRFLOWZ_GFF_REMOVE)
-23.1	rattus_norvegicus	MIMAT0071628	rno-miR-16-2-3p	901866519:413-435:+	901866519:413-435:+	exempt	on NCBI GI 901866519, a Plasmodium vivax contig, not a rat sequence: left as it is (the genome routes drop it, MIRFLOWZ_GFF_REMOVE)
-23.1	rattus_norvegicus	MI0046532	rno-mir-1962-2	chr1:207848066-207848128:+	chr1:207848036-207848158:+	sequence	hairpin row covered the stem only: set to the hairpin sequence in Rnor_6.0
-23.1	rattus_norvegicus	MIMAT0071586	rno-miR-1962-2-5p	chr1:207848096-207848122:+	chr1:207848066-207848092:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MIMAT0071585	rno-miR-1962-2-3p	chr1:207848137-207848158:+	chr1:207848107-207848128:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MI0046529	rno-mir-6715	chr1:275972856-275972911:+	chr1:275972826-275972941:+	sequence	hairpin row covered the stem only: set to the hairpin sequence in Rnor_6.0
-23.1	rattus_norvegicus	MIMAT0071579	rno-miR-6715-5p	chr1:275972886-275972906:+	chr1:275972856-275972876:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MIMAT0071580	rno-miR-6715-3p	chr1:275972921-275972941:+	chr1:275972891-275972911:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MI0046537	rno-mir-744	chr10:52244131-52244208:.	chr10:52244101-52244238:-	sequence	hairpin row covered the stem only, without a strand: set to the hairpin sequence in Rnor_6.0
-23.1	rattus_norvegicus	MIMAT0071595	rno-miR-744-5p	chr10:52244161-52244182:.	chr10:52244187-52244208:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MIMAT0071596	rno-miR-744-3p	chr10:52244218-52244238:.	chr10:52244131-52244151:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MI0046546	rno-mir-365-3	chr14:30326669-30326729:.	chr14:30326639-30326759:-	sequence	hairpin row covered the stem only, without a strand: set to the hairpin sequence in Rnor_6.0
-23.1	rattus_norvegicus	MIMAT0071614	rno-miR-365-3-5p	chr14:30326699-30326720:.	chr14:30326708-30326729:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MIMAT0071613	rno-miR-365-3-3p	chr14:30326739-30326759:.	chr14:30326669-30326689:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MI0046534	rno-mir-1271	chr17:10572276-10572334:.	chr17:10572246-10572364:-	sequence	hairpin row covered the stem only, without a strand: set to the hairpin sequence in Rnor_6.0
-23.1	rattus_norvegicus	MIMAT0071589	rno-miR-1271-5p	chr17:10572306-10572327:.	chr17:10572313-10572334:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MIMAT0071590	rno-miR-1271-3p	chr17:10572342-10572364:.	chr17:10572276-10572298:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MI0046550	rno-mir-449b	chr2:44897502-44897562:+	chr2:44897472-44897592:+	sequence	hairpin row covered the stem only: set to the hairpin sequence in Rnor_6.0
-23.1	rattus_norvegicus	MIMAT0071621	rno-miR-449b-5p	chr2:44897532-44897557:+	chr2:44897502-44897527:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MIMAT0071622	rno-miR-449b-3p	chr2:44897572-44897593:+	chr2:44897542-44897563:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MI0046544	rno-mir-302b	chr2:231874984-231875043:+	chr2:231874954-231875073:+	sequence	hairpin row covered the stem only: set to the hairpin sequence in Rnor_6.0
-23.1	rattus_norvegicus	MIMAT0071610	rno-miR-302b-5p	chr2:231875014-231875036:+	chr2:231874984-231875006:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MIMAT0071609	rno-miR-302b-3p	chr2:231875051-231875073:+	chr2:231875021-231875043:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MI0046543	rno-mir-302a	chr2:231875231-231875291:+	chr2:231875201-231875321:+	sequence	hairpin row covered the stem only: set to the hairpin sequence in Rnor_6.0
-23.1	rattus_norvegicus	MIMAT0071608	rno-miR-302a-5p	chr2:231875261-231875283:+	chr2:231875231-231875253:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MIMAT0071607	rno-miR-302a-3p	chr2:231875299-231875321:+	chr2:231875269-231875291:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MI0046542	rno-mir-302d	chr2:231875359-231875416:+	chr2:231875329-231875446:+	sequence	hairpin row covered the stem only: set to the hairpin sequence in Rnor_6.0
-23.1	rattus_norvegicus	MIMAT0071606	rno-miR-302d-5p	chr2:231875389-231875415:+	chr2:231875359-231875385:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MIMAT0071605	rno-miR-302d-3p	chr2:231875424-231875446:+	chr2:231875394-231875416:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MI0046549	rno-mir-367	chr2:231875463-231875522:+	chr2:231875433-231875552:+	sequence	hairpin row covered the stem only: set to the hairpin sequence in Rnor_6.0
-23.1	rattus_norvegicus	MIMAT0071620	rno-miR-367-5p	chr2:231875493-231875514:+	chr2:231875463-231875484:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MIMAT0071619	rno-miR-367-3p	chr2:231875531-231875552:+	chr2:231875501-231875522:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MI0046545	rno-mir-199-2	chr3:11348209-11348269:+	chr3:11348179-11348299:+	sequence	hairpin row covered the stem only: set to the hairpin sequence in Rnor_6.0
-23.1	rattus_norvegicus	MIMAT0071612	rno-miR-199-2-5p	chr3:11348239-11348261:+	chr3:11348209-11348231:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MIMAT0071611	rno-miR-199-2-3p	chr3:11348278-11348299:+	chr3:11348248-11348269:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MI0046533	rno-mir-1955	chr3:81106509-81106571:+	chr3:81106479-81106601:+	sequence	hairpin row covered the stem only: set to the hairpin sequence in Rnor_6.0
-23.1	rattus_norvegicus	MIMAT0071587	rno-miR-1955-5p	chr3:81106539-81106561:+	chr3:81106509-81106531:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MIMAT0071588	rno-miR-1955-3p	chr3:81106579-81106601:+	chr3:81106549-81106571:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MI0046539	rno-mir-670	chr3:83158232-83158294:.	chr3:83158202-83158324:-	sequence	hairpin row covered the stem only, without a strand: set to the hairpin sequence in Rnor_6.0
-23.1	rattus_norvegicus	MIMAT0071600	rno-miR-670-5p	chr3:83158262-83158284:.	chr3:83158272-83158294:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MIMAT0071599	rno-miR-670-3p	chr3:83158300-83158324:.	chr3:83158232-83158256:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MI0046548	rno-mir-133a-2	chr3:175779574-175779633:+	chr3:175779544-175779663:+	sequence	hairpin row covered the stem only: set to the hairpin sequence in Rnor_6.0
-23.1	rattus_norvegicus	MIMAT0071618	rno-miR-133a-2-5p	chr3:175779604-175779626:+	chr3:175779574-175779596:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MIMAT0071617	rno-miR-133a-2-3p	chr3:175779641-175779663:+	chr3:175779611-175779633:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MI0046540	rno-mir-491	chr5:106446191-106446246:+	chr5:106446161-106446276:+	sequence	hairpin row covered the stem only: set to the hairpin sequence in Rnor_6.0
-23.1	rattus_norvegicus	MIMAT0071601	rno-miR-491-5p	chr5:106446221-106446243:+	chr5:106446191-106446213:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MIMAT0071602	rno-miR-491-3p	chr5:106446255-106446276:+	chr5:106446225-106446246:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MI0046538	rno-mir-700	chr5:153774001-153774062:.	chr5:153773971-153774092:-	sequence	hairpin row covered the stem only, without a strand: set to the hairpin sequence in Rnor_6.0
-23.1	rattus_norvegicus	MIMAT0071597	rno-miR-700-5p	chr5:153774031-153774053:.	chr5:153774040-153774062:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MIMAT0071598	rno-miR-700-3p	chr5:153774072-153774092:.	chr5:153774001-153774021:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MI0046536	rno-mir-1251	chr7:32983168-32983226:.	chr7:32983138-32983256:-	sequence	hairpin row covered the stem only, without a strand: set to the hairpin sequence in Rnor_6.0
-23.1	rattus_norvegicus	MIMAT0071593	rno-miR-1251-5p	chr7:32983198-32983218:.	chr7:32983206-32983226:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MIMAT0071594	rno-miR-1251-3p	chr7:32983236-32983256:.	chr7:32983168-32983188:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MI0046531	rno-mir-3059	chr7:43324718-43324775:+	chr7:43324688-43324805:+	sequence	hairpin row covered the stem only: set to the hairpin sequence in Rnor_6.0
-23.1	rattus_norvegicus	MIMAT0071583	rno-miR-3059-5p	chr7:43324748-43324771:+	chr7:43324718-43324741:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MIMAT0071584	rno-miR-3059-3p	chr7:43324784-43324806:+	chr7:43324754-43324776:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MI0046551	rno-mir-26a-2	chr7:70287326-70287385:+	chr7:70287296-70287415:+	sequence	hairpin row covered the stem only: set to the hairpin sequence in Rnor_6.0
-23.1	rattus_norvegicus	MIMAT0071623	rno-miR-26a-2-5p	chr7:70287356-70287377:+	chr7:70287326-70287347:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MIMAT0071624	rno-miR-26a-2-3p	chr7:70287394-70287415:+	chr7:70287364-70287385:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MI0046547	rno-mir-135a-2	chr8:114847396-114847455:+	chr8:114847366-114847485:+	sequence	hairpin row covered the stem only: set to the hairpin sequence in Rnor_6.0
-23.1	rattus_norvegicus	MIMAT0071615	rno-miR-135a-2-5p	chr8:114847426-114847448:+	chr8:114847396-114847418:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MIMAT0071616	rno-miR-135a-2-3p	chr8:114847464-114847485:+	chr8:114847434-114847455:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MI0046530	rno-mir-3112	chrX:104898922-104898979:+	chrX:104898892-104899009:+	sequence	hairpin row covered the stem only: set to the hairpin sequence in Rnor_6.0
-23.1	rattus_norvegicus	MIMAT0071581	rno-miR-3112-5p	chrX:104898952-104898972:+	chrX:104898922-104898942:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MIMAT0071582	rno-miR-3112-3p	chrX:104898989-104899009:+	chrX:104898959-104898979:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MI0046535	rno-mir-1264	chrX:118131824-118131886:+	chrX:118131794-118131916:+	sequence	hairpin row covered the stem only: set to the hairpin sequence in Rnor_6.0
-23.1	rattus_norvegicus	MIMAT0071591	rno-miR-1264-5p	chrX:118131854-118131875:+	chrX:118131824-118131845:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MIMAT0071592	rno-miR-1264-3p	chrX:118131895-118131916:+	chrX:118131865-118131886:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MI0046552	rno-mir-18b	chrX:140117734-140117798:.	chrX:140117704-140117828:-	sequence	hairpin row covered the stem only, without a strand: set to the hairpin sequence in Rnor_6.0
-23.1	rattus_norvegicus	MIMAT0071625	rno-miR-18b-5p	chrX:140117764-140117786:.	chrX:140117776-140117798:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MIMAT0071626	rno-miR-18b-3p	chrX:140117790-140117826:.	chrX:140117736-140117772:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MI0046541	rno-mir-450c-2	chrX:158153555-158153611:+	chrX:158153525-158153641:+	sequence	hairpin row covered the stem only: set to the hairpin sequence in Rnor_6.0
-23.1	rattus_norvegicus	MIMAT0071603	rno-miR-450c-2-5p	chrX:158153585-158153605:+	chrX:158153555-158153575:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MIMAT0071604	rno-miR-450c-2-3p	chrX:158153621-158153641:+	chrX:158153591-158153611:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
-23.1	rattus_norvegicus	MIMAT0000824	rno-miR-103-3p	chr10:20606766-20606788:+	chr10:20606766-20606789:+	sequence	row not at its sequence in the hairpin: set to it
-23.1	rattus_norvegicus	MIMAT0000859	rno-miR-181b-5p	chr3:23151469-23151491:+	chr3:23151469-23151493:+	exempt	its sequence differs from this hairpin at 1 position (another paralog or a variant): set to its best match
-23.1	rattus_norvegicus	MIMAT0000834	rno-miR-128-3p	chr8:120378957-120378977:-	chr8:120378956-120378977:-	exempt	its sequence differs from this hairpin at 1 position (another paralog or a variant): set to its best match
-23.1	rattus_norvegicus	MIMAT0000778	rno-let-7f-5p	chrX:21583279-21583301:+	chrX:21583279-21583301:+	exempt	its sequence differs from this hairpin at 1 position (another paralog or a variant): set to its best match
-23.1	mus_musculus	MI0005492	mmu-mir-297c	chr2:10509016-10509113:+	2:10513827-10513905:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
-23.1	mus_musculus	MIMAT0004865	mmu-miR-297c-5p	chr2:10509026-10509047:+	2:10513837-10513858:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MIMAT0004866	mmu-miR-297c-3p	chr2:10509064-10509085:+	2:10513875-10513896:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MI0004674	mmu-mir-297b	chr2:10511667-10511775:+	2:10516488-10516563:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
-23.1	mus_musculus	MIMAT0003480	mmu-miR-297b-5p	chr2:10511676-10511697:+	2:10516497-10516518:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MIMAT0004827	mmu-miR-297b-3p	chr2:10511712-10511733:+	2:10516533-10516554:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MI0005488	mmu-mir-297a-3	chr2:10515820-10515921:+	2:10520635-10520705:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
-23.1	mus_musculus	MIMAT0000375	mmu-miR-297a-5p	chr2:10515826-10515847:+	2:10520641-10520662:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MIMAT0004864	mmu-miR-297a-3p	chr2:10515864-10515885:+	2:10520679-10520700:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MI0005489	mmu-mir-297a-4	chr2:10517067-10517164:+	2:10521879-10521956:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
-23.1	mus_musculus	MIMAT0000375	mmu-miR-297a-5p	chr2:10517076-10517097:+	2:10521888-10521909:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MIMAT0004864	mmu-miR-297a-3p	chr2:10517114-10517135:+	2:10521926-10521947:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MIMAT0000533	mmu-miR-26a-5p	10:126831412-126831432:+	10:126831412-126831433:+	sequence	row not at its sequence in the hairpin: set to it
-23.1	mus_musculus	MIMAT0000513	mmu-miR-19b-3p	14:115281790-115281812:+	14:115281790-115281813:+	exempt	its sequence differs from this hairpin at 1 position (another paralog or a variant): set to its best match
-23.1	mus_musculus	MIMAT0015642	mmu-miR-3471-5p	4:3537103-3537127:+	4:3537103-3537125:+	sequence	row not at its sequence in the hairpin: set to it
-23.1	mus_musculus	MIMAT0014856	mmu-miR-3074-5p	8:84935503-84935520:-	8:84935502-84935520:-	sequence	row not at its sequence in the hairpin: set to it
-23.1	mus_musculus	MI0005508	mmu-mir-466f-2	chr2:10468675-10468768:+	2:10473486-10473579:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
-23.1	mus_musculus	MIMAT0004881	mmu-miR-466f-5p	chr2:10468691-10468713:+	2:10473497-10473518:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MIMAT0004882	mmu-miR-466f-3p	chr2:10468730-10468751:+	2:10473535-10473556:+	exempt	its sequence differs from this hairpin at 2 positions (another paralog or a variant): set to its best match
-23.1	mus_musculus	MI0005509	mmu-mir-466f-3	chr2:10471953-10472046:+	2:10476764-10476857:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
-23.1	mus_musculus	MIMAT0004881	mmu-miR-466f-5p	chr2:10471970-10471989:+	2:10476775-10476796:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MIMAT0004882	mmu-miR-466f-3p	chr2:10472008-10472029:+	2:10476813-10476834:+	exempt	its sequence differs from this hairpin at 2 positions (another paralog or a variant): set to its best match
-23.1	mus_musculus	MIMAT0000525	mmu-let-7f-5p	X:150695349-150695371:+	X:150695349-150695371:+	exempt	its sequence differs from this hairpin at 1 position (another paralog or a variant): set to its best match
-23.1	mus_musculus	MI0006295	mmu-mir-466j	chr10:60960723-60960844:+	10:60796502-60796623:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
-23.1	mus_musculus	MIMAT0050697	mmu-miR-466j-5p	chr10:60960751-60960771:+	10:60796530-60796550:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MIMAT0005848	mmu-miR-466j-3p	chr10:60960802-60960823:+	10:60796581-60796602:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MI0006291	mmu-mir-466f-4	chr13:71107089-71107209:+	13:71255208-71255328:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
-23.1	mus_musculus	MIMAT0005844	mmu-miR-466f-4-5p	chr13:71107108-71107129:+	13:71255227-71255248:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MI0014050	mmu-mir-466m	chr2:10466663-10466746:+	2:10471474-10471557:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
-23.1	mus_musculus	MIMAT0014882	mmu-miR-466m-5p	chr2:10466678-10466701:+	2:10471489-10471512:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MIMAT0014883	mmu-miR-466m-3p	chr2:10466710-10466727:+	2:10471521-10471538:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MI0005507	mmu-mir-466f-1	chr2:10466944-10467037:+	2:10471755-10471848:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
-23.1	mus_musculus	MIMAT0004881	mmu-miR-466f-5p	chr2:10466955-10466976:+	2:10471766-10471787:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MIMAT0004882	mmu-miR-466f-3p	chr2:10466993-10467014:+	2:10471804-10471825:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MI0009942	mmu-mir-669l	chr2:10468971-10469068:+	2:10473782-10473879:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
-23.1	mus_musculus	MIMAT0009418	mmu-miR-669l-5p	chr2:10468989-10469010:+	2:10473800-10473821:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MIMAT0017345	mmu-miR-669l-3p	chr2:10469027-10469048:+	2:10473838-10473859:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MI0005502	mmu-mir-466b-1	chr2:10474219-10474300:+	2:10479030-10479111:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
-23.1	mus_musculus	MIMAT0004875	mmu-miR-466b-5p	chr2:10474228-10474249:+	2:10479039-10479060:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MIMAT0004876	mmu-miR-466b-3p	chr2:10474269-10474290:+	2:10479080-10479101:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MI0014112	mmu-mir-466b-8	chr2:10476628-10476713:+	2:10481439-10481524:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
-23.1	mus_musculus	MIMAT0004875	mmu-miR-466b-5p	chr2:10476640-10476661:+	2:10481451-10481472:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MIMAT0004876	mmu-miR-466b-3p	chr2:10476681-10476702:+	2:10481492-10481513:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MI0005506	mmu-mir-466e	chr2:10479088-10479171:+	2:10483899-10483982:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
-23.1	mus_musculus	MIMAT0004879	mmu-miR-466e-5p	chr2:10479098-10479119:+	2:10483909-10483930:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MIMAT0004880	mmu-miR-466e-3p	chr2:10479139-10479160:+	2:10483950-10483971:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MI0014057	mmu-mir-466c-2	chr2:10483966-10484055:+	2:10488777-10488866:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
-23.1	mus_musculus	MIMAT0004877	mmu-miR-466c-5p	chr2:10483979-10484002:+	2:10488790-10488813:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MIMAT0004878	mmu-miR-466c-3p	chr2:10484020-10484041:+	2:10488831-10488852:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MI0014060	mmu-mir-466b-4	chr2:10486423-10486512:+	2:10491234-10491323:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
-23.1	mus_musculus	MIMAT0004875	mmu-miR-466b-5p	chr2:10486436-10486457:+	2:10491247-10491268:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MIMAT0004876	mmu-miR-466b-3p	chr2:10486477-10486498:+	2:10491288-10491309:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MI0014063	mmu-mir-466b-5	chr2:10488887-10488974:+	2:10493698-10493785:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
-23.1	mus_musculus	MIMAT0004875	mmu-miR-466b-5p	chr2:10488898-10488919:+	2:10493709-10493730:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MIMAT0004876	mmu-miR-466b-3p	chr2:10488939-10488960:+	2:10493750-10493771:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MI0031753	mmu-mir-466c-3	chr2:10491336-10491425:+	2:10496147-10496236:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
-23.1	mus_musculus	MIMAT0004877	mmu-miR-466c-5p	chr2:10491349-10491372:+	2:10496160-10496183:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MIMAT0004878	mmu-miR-466c-3p	chr2:10491390-10491411:+	2:10496201-10496222:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MI0014067	mmu-mir-466b-6	chr2:10493798-10493887:+	2:10498609-10498698:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
-23.1	mus_musculus	MIMAT0004875	mmu-miR-466b-5p	chr2:10493811-10493832:+	2:10498622-10498643:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MIMAT0004876	mmu-miR-466b-3p	chr2:10493852-10493873:+	2:10498663-10498684:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MI0014070	mmu-mir-466b-7	chr2:10496268-10496355:+	2:10501079-10501166:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
-23.1	mus_musculus	MIMAT0004875	mmu-miR-466b-5p	chr2:10496279-10496300:+	2:10501090-10501111:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MIMAT0004876	mmu-miR-466b-3p	chr2:10496320-10496341:+	2:10501131-10501152:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MI0005546	mmu-mir-466d	chr2:10511967-10512062:+	2:10516778-10516873:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
-23.1	mus_musculus	MIMAT0004930	mmu-miR-466d-5p	chr2:10511978-10511999:+	2:10516789-10516810:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MIMAT0004931	mmu-miR-466d-3p	chr2:10512017-10512037:+	2:10516828-10516848:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MI0009945	mmu-mir-669o	chr2:10514300-10514395:+	2:10519111-10519206:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
-23.1	mus_musculus	MIMAT0009421	mmu-miR-669o-5p	chr2:10514318-10514340:+	2:10519129-10519151:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MIMAT0017347	mmu-miR-669o-3p	chr2:10514355-10514377:+	2:10519166-10519188:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MI0005511	mmu-mir-466h	chr2:10514891-10514971:+	2:10519702-10519782:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
-23.1	mus_musculus	MIMAT0004884	mmu-miR-466h-5p	chr2:10514901-10514925:+	2:10519712-10519736:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MIMAT0017274	mmu-miR-466h-3p	chr2:10514940-10514961:+	2:10519751-10519772:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MI0006292	mmu-mir-466k	chr3:85467377-85467498:+	3:85374684-85374805:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
-23.1	mus_musculus	MIMAT0005845	mmu-miR-466k-5p	chr3:85467384-85467403:+	3:85374691-85374710:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MIMAT0050695	mmu-miR-466k-3p	chr3:85467480-85467498:+	3:85374787-85374805:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MI0000395	mmu-mir-297a-1	chr7:10958437-10958512:-	7:10692364-10692439:-	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
-23.1	mus_musculus	MIMAT0000375	mmu-miR-297a-5p	chr7:10958477-10958498:-	7:10692404-10692425:-	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MI0014111	mmu-mir-3113	chrX:151859562-151859637:+	X:150642558-150642633:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
-23.1	mus_musculus	MIMAT0014959	mmu-miR-3113-5p	chrX:151859575-151859595:+	X:150642571-150642591:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-23.1	mus_musculus	MIMAT0014960	mmu-miR-3113-3p	chrX:151859612-151859629:+	X:150642608-150642625:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
-22	rattus_norvegicus	MIMAT0035742	rno-miR-3084b-3p	chr6:91633048-91633069:-	chr6:91633048-91633069:-	exempt	accession not in the release's mature.fa
-22	rattus_norvegicus	MIMAT0035742_1	rno-miR-3084b-3p	chr6:91645148-91645169:-	chr6:91645148-91645169:-	exempt	accession not in the release's mature.fa
-22	rattus_norvegicus	MIMAT0035745	rno-miR-3084d	chr7:66663845-66663866:-	chr7:66663845-66663866:-	exempt	accession not in the release's mature.fa
+# GRCm39 by the flanking GRCm38 sequence. A row is named by id, parent (its Derives_from, empty for a
+# hairpin) and old position. check: sequence (the row must match its sequences), placement (a mature whose
+# sequence cannot match this hairpin: it must lie in the hairpin, on its strand, with the sequence's length)
+# or none (a reviewed anomaly). Positions: chrom:start-end:strand, as in the GFF3.
+release	organism	id	parent	name	old	new	check	reason
+23.1	homo_sapiens	MI0046424		hsa-mir-13168	chr1:156103047-156103105:.	chr1:156103017-156103135:-	sequence	hairpin row covered the stem only, without a strand: set to the hairpin sequence in GRCh38
+23.1	homo_sapiens	MIMAT0071374	MI0046424	hsa-miR-13168-5p	chr1:156103077-156103099:.	chr1:156103083-156103105:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	homo_sapiens	MIMAT0071373	MI0046424	hsa-miR-13168-3p	chr1:156103114-156103135:.	chr1:156103047-156103068:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	homo_sapiens	MI0016011		hsa-mir-3620	chr1:228097263-228097341:+	chr1:228097285-228097341:+	sequence	hairpin row not updated when release 23 changed the hairpin sequence: set to the sequence in GRCh38
+23.1	homo_sapiens	MIMAT0022967	MI0016011	hsa-miR-3620-5p	chr1:228097263-228097283:+	chr1:228097285-228097305:+	sequence	placed from the outdated hairpin row: set to its sequence in the hairpin
+23.1	homo_sapiens	MIMAT0018001	MI0016011	hsa-miR-3620-3p	chr1:228097298-228097319:+	chr1:228097320-228097341:+	sequence	placed from the outdated hairpin row: set to its sequence in the hairpin
+23.1	homo_sapiens	MI0046426		hsa-mir-376d	chr14:101039358-101039415:+	chr14:101039328-101039445:+	sequence	hairpin row covered the stem only: set to the hairpin sequence in GRCh38
+23.1	homo_sapiens	MIMAT0077748	MI0046426	hsa-miR-376d-5p	chr14:101039388-101039409:+	chr14:101039358-101039379:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	homo_sapiens	MIMAT0077749	MI0046426	hsa-mir-376d-3p	chr14:101039425-101039446:+	chr14:101039395-101039416:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	homo_sapiens	MI0000081		hsa-mir-24-2	chr19:13836287-13836359:-	chr19:13836259-13836378:-	sequence	hairpin row not updated when release 23 changed the hairpin sequence: set to the sequence in GRCh38
+23.1	homo_sapiens	MIMAT0004497	MI0000081	hsa-miR-24-2-5p	chr19:13836306-13836329:-	chr19:13836325-13836348:-	sequence	placed from the outdated hairpin row: set to its sequence in the hairpin
+23.1	homo_sapiens	MIMAT0000080	MI0000081	hsa-miR-24-3p	chr19:13836270-13836291:-	chr19:13836289-13836310:-	sequence	placed from the outdated hairpin row: set to its sequence in the hairpin
+23.1	homo_sapiens	MI0046423		hsa-mir-13167	chr4:75973882-75973940:.	chr4:75973852-75973970:-	sequence	hairpin row covered the stem only, without a strand: set to the hairpin sequence in GRCh38
+23.1	homo_sapiens	MIMAT0071371	MI0046423	hsa-miR-13167-5p	chr4:75973912-75973934:.	chr4:75973918-75973940:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	homo_sapiens	MIMAT0071372	MI0046423	hsa-miR-13167-3p	chr4:75973948-75973970:.	chr4:75973882-75973904:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	homo_sapiens	MI0017273		hsa-mir-4646	chr6:31701029-31701091:-	chr6:31701029-31701099:-	sequence	hairpin row not updated when release 23 added 8 nt to the 5' end of the hairpin sequence (its first base differs from GRCh38): set to the full sequence
+23.1	homo_sapiens	MIMAT0019707	MI0017273	hsa-miR-4646-5p	chr6:31701061-31701083:-	chr6:31701069-31701091:-	sequence	placed from the outdated hairpin row: set to its sequence in the hairpin
+23.1	homo_sapiens	MIMAT0019708	MI0017273	hsa-miR-4646-3p	chr6:31701021-31701040:-	chr6:31701029-31701048:-	sequence	placed from the outdated hairpin row: set to its sequence in the hairpin
+23.1	homo_sapiens	MI0046425		hsa-mir-514c	chrX:147255308-147255368:.	chrX:147255278-147255398:-	sequence	hairpin row covered the stem only, without a strand: set to the hairpin sequence in GRCh38
+23.1	homo_sapiens	MIMAT0071376	MI0046425	hsa-miR-514c-5p	chrX:147255338-147255360:.	chrX:147255346-147255368:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	homo_sapiens	MIMAT0071375	MI0046425	hsa-miR-514c-3p	chrX:147255376-147255398:.	chrX:147255308-147255330:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	homo_sapiens	MIMAT0015081	MI0016833	hsa-miR-548x-2-3p	chr13:65966353-65966370:-	chr13:65966351-65966371:-	placement	its sequence differs from this hairpin at 1 position (another paralog or a variant): set to its best match
+23.1	homo_sapiens	MIMAT0005895	MI0006375	hsa-miR-548f-3p	chr2:212426270-212426291:-	chr2:212426283-212426303:-	sequence	row not at its sequence in the hairpin: set to it
+23.1	homo_sapiens	MIMAT0005895	MI0006376	hsa-miR-548f-3p	chr5:110513830-110513851:-	chr5:110513843-110513863:-	sequence	row not at its sequence in the hairpin: set to it
+23.1	homo_sapiens	MIMAT0005895	MI0006378	hsa-miR-548f-3p	chrX:32641476-32641499:-	chrX:32641489-32641509:-	placement	its sequence differs from this hairpin at 1 position (another paralog or a variant): set to its best match
+23.1	homo_sapiens	MIMAT0019078	MI0019149	hsa-miR-4536-5p	chrX:55451496-55451516:+	chrX:55451498-55451519:+	sequence	row not at its sequence in the hairpin: set to it
+23.1	homo_sapiens	MIMAT0020959	MI0019149	hsa-miR-4536-3p	chrX:55451562-55451582:+	chrX:55451560-55451581:+	sequence	row not at its sequence in the hairpin: set to it
+23.1	rattus_norvegicus	MI0046553		rno-mir-16-2	901866519:341-405:+	901866519:341-405:+	none	on NCBI GI 901866519, a Plasmodium vivax contig, not a rat sequence: left as it is (the genome routes drop it, MIRFLOWZ_GFF_REMOVE)
+23.1	rattus_norvegicus	MIMAT0071627	MI0046553	rno-miR-16-2-5p	901866519:371-392:+	901866519:371-392:+	none	on NCBI GI 901866519, a Plasmodium vivax contig, not a rat sequence: left as it is (the genome routes drop it, MIRFLOWZ_GFF_REMOVE)
+23.1	rattus_norvegicus	MIMAT0071628	MI0046553	rno-miR-16-2-3p	901866519:413-435:+	901866519:413-435:+	none	on NCBI GI 901866519, a Plasmodium vivax contig, not a rat sequence: left as it is (the genome routes drop it, MIRFLOWZ_GFF_REMOVE)
+23.1	rattus_norvegicus	MI0046532		rno-mir-1962-2	chr1:207848066-207848128:+	chr1:207848036-207848158:+	sequence	hairpin row covered the stem only: set to the hairpin sequence in Rnor_6.0
+23.1	rattus_norvegicus	MIMAT0071586	MI0046532	rno-miR-1962-2-5p	chr1:207848096-207848122:+	chr1:207848066-207848092:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MIMAT0071585	MI0046532	rno-miR-1962-2-3p	chr1:207848137-207848158:+	chr1:207848107-207848128:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MI0046529		rno-mir-6715	chr1:275972856-275972911:+	chr1:275972826-275972941:+	sequence	hairpin row covered the stem only: set to the hairpin sequence in Rnor_6.0
+23.1	rattus_norvegicus	MIMAT0071579	MI0046529	rno-miR-6715-5p	chr1:275972886-275972906:+	chr1:275972856-275972876:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MIMAT0071580	MI0046529	rno-miR-6715-3p	chr1:275972921-275972941:+	chr1:275972891-275972911:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MI0046537		rno-mir-744	chr10:52244131-52244208:.	chr10:52244101-52244238:-	sequence	hairpin row covered the stem only, without a strand: set to the hairpin sequence in Rnor_6.0
+23.1	rattus_norvegicus	MIMAT0071595	MI0046537	rno-miR-744-5p	chr10:52244161-52244182:.	chr10:52244187-52244208:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MIMAT0071596	MI0046537	rno-miR-744-3p	chr10:52244218-52244238:.	chr10:52244131-52244151:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MI0046546		rno-mir-365-3	chr14:30326669-30326729:.	chr14:30326639-30326759:-	sequence	hairpin row covered the stem only, without a strand: set to the hairpin sequence in Rnor_6.0
+23.1	rattus_norvegicus	MIMAT0071614	MI0046546	rno-miR-365-3-5p	chr14:30326699-30326720:.	chr14:30326708-30326729:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MIMAT0071613	MI0046546	rno-miR-365-3-3p	chr14:30326739-30326759:.	chr14:30326669-30326689:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MI0046534		rno-mir-1271	chr17:10572276-10572334:.	chr17:10572246-10572364:-	sequence	hairpin row covered the stem only, without a strand: set to the hairpin sequence in Rnor_6.0
+23.1	rattus_norvegicus	MIMAT0071589	MI0046534	rno-miR-1271-5p	chr17:10572306-10572327:.	chr17:10572313-10572334:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MIMAT0071590	MI0046534	rno-miR-1271-3p	chr17:10572342-10572364:.	chr17:10572276-10572298:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MI0046550		rno-mir-449b	chr2:44897502-44897562:+	chr2:44897472-44897592:+	sequence	hairpin row covered the stem only: set to the hairpin sequence in Rnor_6.0
+23.1	rattus_norvegicus	MIMAT0071621	MI0046550	rno-miR-449b-5p	chr2:44897532-44897557:+	chr2:44897502-44897527:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MIMAT0071622	MI0046550	rno-miR-449b-3p	chr2:44897572-44897593:+	chr2:44897542-44897563:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MI0046544		rno-mir-302b	chr2:231874984-231875043:+	chr2:231874954-231875073:+	sequence	hairpin row covered the stem only: set to the hairpin sequence in Rnor_6.0
+23.1	rattus_norvegicus	MIMAT0071610	MI0046544	rno-miR-302b-5p	chr2:231875014-231875036:+	chr2:231874984-231875006:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MIMAT0071609	MI0046544	rno-miR-302b-3p	chr2:231875051-231875073:+	chr2:231875021-231875043:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MI0046543		rno-mir-302a	chr2:231875231-231875291:+	chr2:231875201-231875321:+	sequence	hairpin row covered the stem only: set to the hairpin sequence in Rnor_6.0
+23.1	rattus_norvegicus	MIMAT0071608	MI0046543	rno-miR-302a-5p	chr2:231875261-231875283:+	chr2:231875231-231875253:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MIMAT0071607	MI0046543	rno-miR-302a-3p	chr2:231875299-231875321:+	chr2:231875269-231875291:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MI0046542		rno-mir-302d	chr2:231875359-231875416:+	chr2:231875329-231875446:+	sequence	hairpin row covered the stem only: set to the hairpin sequence in Rnor_6.0
+23.1	rattus_norvegicus	MIMAT0071606	MI0046542	rno-miR-302d-5p	chr2:231875389-231875415:+	chr2:231875359-231875385:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MIMAT0071605	MI0046542	rno-miR-302d-3p	chr2:231875424-231875446:+	chr2:231875394-231875416:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MI0046549		rno-mir-367	chr2:231875463-231875522:+	chr2:231875433-231875552:+	sequence	hairpin row covered the stem only: set to the hairpin sequence in Rnor_6.0
+23.1	rattus_norvegicus	MIMAT0071620	MI0046549	rno-miR-367-5p	chr2:231875493-231875514:+	chr2:231875463-231875484:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MIMAT0071619	MI0046549	rno-miR-367-3p	chr2:231875531-231875552:+	chr2:231875501-231875522:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MI0046545		rno-mir-199-2	chr3:11348209-11348269:+	chr3:11348179-11348299:+	sequence	hairpin row covered the stem only: set to the hairpin sequence in Rnor_6.0
+23.1	rattus_norvegicus	MIMAT0071612	MI0046545	rno-miR-199-2-5p	chr3:11348239-11348261:+	chr3:11348209-11348231:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MIMAT0071611	MI0046545	rno-miR-199-2-3p	chr3:11348278-11348299:+	chr3:11348248-11348269:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MI0046533		rno-mir-1955	chr3:81106509-81106571:+	chr3:81106479-81106601:+	sequence	hairpin row covered the stem only: set to the hairpin sequence in Rnor_6.0
+23.1	rattus_norvegicus	MIMAT0071587	MI0046533	rno-miR-1955-5p	chr3:81106539-81106561:+	chr3:81106509-81106531:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MIMAT0071588	MI0046533	rno-miR-1955-3p	chr3:81106579-81106601:+	chr3:81106549-81106571:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MI0046539		rno-mir-670	chr3:83158232-83158294:.	chr3:83158202-83158324:-	sequence	hairpin row covered the stem only, without a strand: set to the hairpin sequence in Rnor_6.0
+23.1	rattus_norvegicus	MIMAT0071600	MI0046539	rno-miR-670-5p	chr3:83158262-83158284:.	chr3:83158272-83158294:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MIMAT0071599	MI0046539	rno-miR-670-3p	chr3:83158300-83158324:.	chr3:83158232-83158256:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MI0046548		rno-mir-133a-2	chr3:175779574-175779633:+	chr3:175779544-175779663:+	sequence	hairpin row covered the stem only: set to the hairpin sequence in Rnor_6.0
+23.1	rattus_norvegicus	MIMAT0071618	MI0046548	rno-miR-133a-2-5p	chr3:175779604-175779626:+	chr3:175779574-175779596:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MIMAT0071617	MI0046548	rno-miR-133a-2-3p	chr3:175779641-175779663:+	chr3:175779611-175779633:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MI0046540		rno-mir-491	chr5:106446191-106446246:+	chr5:106446161-106446276:+	sequence	hairpin row covered the stem only: set to the hairpin sequence in Rnor_6.0
+23.1	rattus_norvegicus	MIMAT0071601	MI0046540	rno-miR-491-5p	chr5:106446221-106446243:+	chr5:106446191-106446213:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MIMAT0071602	MI0046540	rno-miR-491-3p	chr5:106446255-106446276:+	chr5:106446225-106446246:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MI0046538		rno-mir-700	chr5:153774001-153774062:.	chr5:153773971-153774092:-	sequence	hairpin row covered the stem only, without a strand: set to the hairpin sequence in Rnor_6.0
+23.1	rattus_norvegicus	MIMAT0071597	MI0046538	rno-miR-700-5p	chr5:153774031-153774053:.	chr5:153774040-153774062:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MIMAT0071598	MI0046538	rno-miR-700-3p	chr5:153774072-153774092:.	chr5:153774001-153774021:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MI0046536		rno-mir-1251	chr7:32983168-32983226:.	chr7:32983138-32983256:-	sequence	hairpin row covered the stem only, without a strand: set to the hairpin sequence in Rnor_6.0
+23.1	rattus_norvegicus	MIMAT0071593	MI0046536	rno-miR-1251-5p	chr7:32983198-32983218:.	chr7:32983206-32983226:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MIMAT0071594	MI0046536	rno-miR-1251-3p	chr7:32983236-32983256:.	chr7:32983168-32983188:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MI0046531		rno-mir-3059	chr7:43324718-43324775:+	chr7:43324688-43324805:+	sequence	hairpin row covered the stem only: set to the hairpin sequence in Rnor_6.0
+23.1	rattus_norvegicus	MIMAT0071583	MI0046531	rno-miR-3059-5p	chr7:43324748-43324771:+	chr7:43324718-43324741:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MIMAT0071584	MI0046531	rno-miR-3059-3p	chr7:43324784-43324806:+	chr7:43324754-43324776:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MI0046551		rno-mir-26a-2	chr7:70287326-70287385:+	chr7:70287296-70287415:+	sequence	hairpin row covered the stem only: set to the hairpin sequence in Rnor_6.0
+23.1	rattus_norvegicus	MIMAT0071623	MI0046551	rno-miR-26a-2-5p	chr7:70287356-70287377:+	chr7:70287326-70287347:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MIMAT0071624	MI0046551	rno-miR-26a-2-3p	chr7:70287394-70287415:+	chr7:70287364-70287385:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MI0046547		rno-mir-135a-2	chr8:114847396-114847455:+	chr8:114847366-114847485:+	sequence	hairpin row covered the stem only: set to the hairpin sequence in Rnor_6.0
+23.1	rattus_norvegicus	MIMAT0071615	MI0046547	rno-miR-135a-2-5p	chr8:114847426-114847448:+	chr8:114847396-114847418:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MIMAT0071616	MI0046547	rno-miR-135a-2-3p	chr8:114847464-114847485:+	chr8:114847434-114847455:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MI0046530		rno-mir-3112	chrX:104898922-104898979:+	chrX:104898892-104899009:+	sequence	hairpin row covered the stem only: set to the hairpin sequence in Rnor_6.0
+23.1	rattus_norvegicus	MIMAT0071581	MI0046530	rno-miR-3112-5p	chrX:104898952-104898972:+	chrX:104898922-104898942:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MIMAT0071582	MI0046530	rno-miR-3112-3p	chrX:104898989-104899009:+	chrX:104898959-104898979:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MI0046535		rno-mir-1264	chrX:118131824-118131886:+	chrX:118131794-118131916:+	sequence	hairpin row covered the stem only: set to the hairpin sequence in Rnor_6.0
+23.1	rattus_norvegicus	MIMAT0071591	MI0046535	rno-miR-1264-5p	chrX:118131854-118131875:+	chrX:118131824-118131845:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MIMAT0071592	MI0046535	rno-miR-1264-3p	chrX:118131895-118131916:+	chrX:118131865-118131886:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MI0046552		rno-mir-18b	chrX:140117734-140117798:.	chrX:140117704-140117828:-	sequence	hairpin row covered the stem only, without a strand: set to the hairpin sequence in Rnor_6.0
+23.1	rattus_norvegicus	MIMAT0071625	MI0046552	rno-miR-18b-5p	chrX:140117764-140117786:.	chrX:140117776-140117798:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MIMAT0071626	MI0046552	rno-miR-18b-3p	chrX:140117790-140117826:.	chrX:140117736-140117772:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MI0046541		rno-mir-450c-2	chrX:158153555-158153611:+	chrX:158153525-158153641:+	sequence	hairpin row covered the stem only: set to the hairpin sequence in Rnor_6.0
+23.1	rattus_norvegicus	MIMAT0071603	MI0046541	rno-miR-450c-2-5p	chrX:158153585-158153605:+	chrX:158153555-158153575:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MIMAT0071604	MI0046541	rno-miR-450c-2-3p	chrX:158153621-158153641:+	chrX:158153591-158153611:+	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
+23.1	rattus_norvegicus	MIMAT0000824	MI0000888	rno-miR-103-3p	chr10:20606766-20606788:+	chr10:20606766-20606789:+	sequence	row not at its sequence in the hairpin: set to it
+23.1	rattus_norvegicus	MIMAT0000859	MI0000927	rno-miR-181b-5p	chr3:23151469-23151491:+	chr3:23151469-23151493:+	placement	its sequence differs from this hairpin at 1 position (another paralog or a variant): set to its best match
+23.1	rattus_norvegicus	MIMAT0000834	MI0000901	rno-miR-128-3p	chr8:120378957-120378977:-	chr8:120378956-120378977:-	placement	its sequence differs from this hairpin at 1 position (another paralog or a variant): set to its best match
+23.1	rattus_norvegicus	MIMAT0000778	MI0000834	rno-let-7f-5p	chrX:21583279-21583301:+	chrX:21583279-21583301:+	placement	its sequence differs from this hairpin at 1 position (another paralog or a variant): set to its best match
+23.1	mus_musculus	MI0005492		mmu-mir-297c	chr2:10509016-10509113:+	2:10513827-10513905:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
+23.1	mus_musculus	MIMAT0004865	MI0005492	mmu-miR-297c-5p	chr2:10509026-10509047:+	2:10513837-10513858:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MIMAT0004866	MI0005492	mmu-miR-297c-3p	chr2:10509064-10509085:+	2:10513875-10513896:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MI0004674		mmu-mir-297b	chr2:10511667-10511775:+	2:10516488-10516563:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
+23.1	mus_musculus	MIMAT0003480	MI0004674	mmu-miR-297b-5p	chr2:10511676-10511697:+	2:10516497-10516518:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MIMAT0004827	MI0004674	mmu-miR-297b-3p	chr2:10511712-10511733:+	2:10516533-10516554:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MI0005488		mmu-mir-297a-3	chr2:10515820-10515921:+	2:10520635-10520705:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
+23.1	mus_musculus	MIMAT0000375	MI0005488	mmu-miR-297a-5p	chr2:10515826-10515847:+	2:10520641-10520662:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MIMAT0004864	MI0005488	mmu-miR-297a-3p	chr2:10515864-10515885:+	2:10520679-10520700:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MI0005489		mmu-mir-297a-4	chr2:10517067-10517164:+	2:10521879-10521956:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
+23.1	mus_musculus	MIMAT0000375	MI0005489	mmu-miR-297a-5p	chr2:10517076-10517097:+	2:10521888-10521909:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MIMAT0004864	MI0005489	mmu-miR-297a-3p	chr2:10517114-10517135:+	2:10521926-10521947:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MIMAT0000533	MI0000706	mmu-miR-26a-5p	10:126831412-126831432:+	10:126831412-126831433:+	sequence	row not at its sequence in the hairpin: set to it
+23.1	mus_musculus	MIMAT0000513	MI0000718	mmu-miR-19b-3p	14:115281790-115281812:+	14:115281790-115281813:+	placement	its sequence differs from this hairpin at 1 position (another paralog or a variant): set to its best match
+23.1	mus_musculus	MIMAT0015642	MI0014701	mmu-miR-3471-5p	4:3537103-3537127:+	4:3537103-3537125:+	sequence	row not at its sequence in the hairpin: set to it
+23.1	mus_musculus	MIMAT0014856	MI0014104	mmu-miR-3074-5p	8:84935503-84935520:-	8:84935502-84935520:-	sequence	row not at its sequence in the hairpin: set to it
+23.1	mus_musculus	MI0005508		mmu-mir-466f-2	chr2:10468675-10468768:+	2:10473486-10473579:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
+23.1	mus_musculus	MIMAT0004881	MI0005508	mmu-miR-466f-5p	chr2:10468691-10468713:+	2:10473497-10473518:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MIMAT0004882	MI0005508	mmu-miR-466f-3p	chr2:10468730-10468751:+	2:10473535-10473556:+	placement	its sequence differs from this hairpin at 2 positions (another paralog or a variant): set to its best match
+23.1	mus_musculus	MI0005509		mmu-mir-466f-3	chr2:10471953-10472046:+	2:10476764-10476857:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
+23.1	mus_musculus	MIMAT0004881	MI0005509	mmu-miR-466f-5p	chr2:10471970-10471989:+	2:10476775-10476796:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MIMAT0004882	MI0005509	mmu-miR-466f-3p	chr2:10472008-10472029:+	2:10476813-10476834:+	placement	its sequence differs from this hairpin at 2 positions (another paralog or a variant): set to its best match
+23.1	mus_musculus	MIMAT0000525	MI0000563	mmu-let-7f-5p	X:150695349-150695371:+	X:150695349-150695371:+	placement	its sequence differs from this hairpin at 1 position (another paralog or a variant): set to its best match
+23.1	mus_musculus	MI0006295		mmu-mir-466j	chr10:60960723-60960844:+	10:60796502-60796623:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
+23.1	mus_musculus	MIMAT0050697	MI0006295	mmu-miR-466j-5p	chr10:60960751-60960771:+	10:60796530-60796550:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MIMAT0005848	MI0006295	mmu-miR-466j-3p	chr10:60960802-60960823:+	10:60796581-60796602:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MI0006291		mmu-mir-466f-4	chr13:71107089-71107209:+	13:71255208-71255328:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
+23.1	mus_musculus	MIMAT0005844	MI0006291	mmu-miR-466f-4-5p	chr13:71107108-71107129:+	13:71255227-71255248:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MI0014050		mmu-mir-466m	chr2:10466663-10466746:+	2:10471474-10471557:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
+23.1	mus_musculus	MIMAT0014882	MI0014050	mmu-miR-466m-5p	chr2:10466678-10466701:+	2:10471489-10471512:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MIMAT0014883	MI0014050	mmu-miR-466m-3p	chr2:10466710-10466727:+	2:10471521-10471538:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MI0005507		mmu-mir-466f-1	chr2:10466944-10467037:+	2:10471755-10471848:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
+23.1	mus_musculus	MIMAT0004881	MI0005507	mmu-miR-466f-5p	chr2:10466955-10466976:+	2:10471766-10471787:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MIMAT0004882	MI0005507	mmu-miR-466f-3p	chr2:10466993-10467014:+	2:10471804-10471825:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MI0009942		mmu-mir-669l	chr2:10468971-10469068:+	2:10473782-10473879:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
+23.1	mus_musculus	MIMAT0009418	MI0009942	mmu-miR-669l-5p	chr2:10468989-10469010:+	2:10473800-10473821:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MIMAT0017345	MI0009942	mmu-miR-669l-3p	chr2:10469027-10469048:+	2:10473838-10473859:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MI0005502		mmu-mir-466b-1	chr2:10474219-10474300:+	2:10479030-10479111:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
+23.1	mus_musculus	MIMAT0004875	MI0005502	mmu-miR-466b-5p	chr2:10474228-10474249:+	2:10479039-10479060:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MIMAT0004876	MI0005502	mmu-miR-466b-3p	chr2:10474269-10474290:+	2:10479080-10479101:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MI0014112		mmu-mir-466b-8	chr2:10476628-10476713:+	2:10481439-10481524:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
+23.1	mus_musculus	MIMAT0004875	MI0014112	mmu-miR-466b-5p	chr2:10476640-10476661:+	2:10481451-10481472:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MIMAT0004876	MI0014112	mmu-miR-466b-3p	chr2:10476681-10476702:+	2:10481492-10481513:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MI0005506		mmu-mir-466e	chr2:10479088-10479171:+	2:10483899-10483982:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
+23.1	mus_musculus	MIMAT0004879	MI0005506	mmu-miR-466e-5p	chr2:10479098-10479119:+	2:10483909-10483930:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MIMAT0004880	MI0005506	mmu-miR-466e-3p	chr2:10479139-10479160:+	2:10483950-10483971:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MI0014057		mmu-mir-466c-2	chr2:10483966-10484055:+	2:10488777-10488866:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
+23.1	mus_musculus	MIMAT0004877	MI0014057	mmu-miR-466c-5p	chr2:10483979-10484002:+	2:10488790-10488813:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MIMAT0004878	MI0014057	mmu-miR-466c-3p	chr2:10484020-10484041:+	2:10488831-10488852:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MI0014060		mmu-mir-466b-4	chr2:10486423-10486512:+	2:10491234-10491323:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
+23.1	mus_musculus	MIMAT0004875	MI0014060	mmu-miR-466b-5p	chr2:10486436-10486457:+	2:10491247-10491268:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MIMAT0004876	MI0014060	mmu-miR-466b-3p	chr2:10486477-10486498:+	2:10491288-10491309:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MI0014063		mmu-mir-466b-5	chr2:10488887-10488974:+	2:10493698-10493785:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
+23.1	mus_musculus	MIMAT0004875	MI0014063	mmu-miR-466b-5p	chr2:10488898-10488919:+	2:10493709-10493730:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MIMAT0004876	MI0014063	mmu-miR-466b-3p	chr2:10488939-10488960:+	2:10493750-10493771:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MI0031753		mmu-mir-466c-3	chr2:10491336-10491425:+	2:10496147-10496236:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
+23.1	mus_musculus	MIMAT0004877	MI0031753	mmu-miR-466c-5p	chr2:10491349-10491372:+	2:10496160-10496183:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MIMAT0004878	MI0031753	mmu-miR-466c-3p	chr2:10491390-10491411:+	2:10496201-10496222:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MI0014067		mmu-mir-466b-6	chr2:10493798-10493887:+	2:10498609-10498698:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
+23.1	mus_musculus	MIMAT0004875	MI0014067	mmu-miR-466b-5p	chr2:10493811-10493832:+	2:10498622-10498643:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MIMAT0004876	MI0014067	mmu-miR-466b-3p	chr2:10493852-10493873:+	2:10498663-10498684:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MI0014070		mmu-mir-466b-7	chr2:10496268-10496355:+	2:10501079-10501166:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
+23.1	mus_musculus	MIMAT0004875	MI0014070	mmu-miR-466b-5p	chr2:10496279-10496300:+	2:10501090-10501111:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MIMAT0004876	MI0014070	mmu-miR-466b-3p	chr2:10496320-10496341:+	2:10501131-10501152:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MI0005546		mmu-mir-466d	chr2:10511967-10512062:+	2:10516778-10516873:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
+23.1	mus_musculus	MIMAT0004930	MI0005546	mmu-miR-466d-5p	chr2:10511978-10511999:+	2:10516789-10516810:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MIMAT0004931	MI0005546	mmu-miR-466d-3p	chr2:10512017-10512037:+	2:10516828-10516848:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MI0009945		mmu-mir-669o	chr2:10514300-10514395:+	2:10519111-10519206:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
+23.1	mus_musculus	MIMAT0009421	MI0009945	mmu-miR-669o-5p	chr2:10514318-10514340:+	2:10519129-10519151:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MIMAT0017347	MI0009945	mmu-miR-669o-3p	chr2:10514355-10514377:+	2:10519166-10519188:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MI0005511		mmu-mir-466h	chr2:10514891-10514971:+	2:10519702-10519782:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
+23.1	mus_musculus	MIMAT0004884	MI0005511	mmu-miR-466h-5p	chr2:10514901-10514925:+	2:10519712-10519736:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MIMAT0017274	MI0005511	mmu-miR-466h-3p	chr2:10514940-10514961:+	2:10519751-10519772:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MI0006292		mmu-mir-466k	chr3:85467377-85467498:+	3:85374684-85374805:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
+23.1	mus_musculus	MIMAT0005845	MI0006292	mmu-miR-466k-5p	chr3:85467384-85467403:+	3:85374691-85374710:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MIMAT0050695	MI0006292	mmu-miR-466k-3p	chr3:85467480-85467498:+	3:85374787-85374805:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MI0000395		mmu-mir-297a-1	chr7:10958437-10958512:-	7:10692364-10692439:-	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
+23.1	mus_musculus	MIMAT0000375	MI0000395	mmu-miR-297a-5p	chr7:10958477-10958498:-	7:10692404-10692425:-	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MI0014111		mmu-mir-3113	chrX:151859562-151859637:+	X:150642558-150642633:+	sequence	GRCm38 position in the GRCm39 file: set to GRCm39 by the flanking GRCm38 sequence
+23.1	mus_musculus	MIMAT0014959	MI0014111	mmu-miR-3113-5p	chrX:151859575-151859595:+	X:150642571-150642591:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+23.1	mus_musculus	MIMAT0014960	MI0014111	mmu-miR-3113-3p	chrX:151859612-151859629:+	X:150642608-150642625:+	sequence	GRCm38 position in the GRCm39 file: set to its sequence in the GRCm39 hairpin
+22	rattus_norvegicus	MIMAT0035742	MI0030359	rno-miR-3084b-3p	chr6:91633048-91633069:-	chr6:91633048-91633069:-	placement	accession not in the release's mature.fa
+22	rattus_norvegicus	MIMAT0035742_1	MI0031762	rno-miR-3084b-3p	chr6:91645148-91645169:-	chr6:91645148-91645169:-	placement	accession not in the release's mature.fa
+22	rattus_norvegicus	MIMAT0035745	MI0030361	rno-miR-3084d	chr7:66663845-66663866:-	chr7:66663845-66663866:-	placement	accession not in the release's mature.fa
