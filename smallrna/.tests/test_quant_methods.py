@@ -1,4 +1,5 @@
 """Dry-run contract for the small-RNA `quant.method` selection of `quant_all`."""
+import hashlib
 import os
 import re
 from pathlib import Path
@@ -11,6 +12,17 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def corrected_mirbase_gff(ext='data/ext', organism='mus_musculus', release='23.1'):
+    """The corrected miRBase GFF3, named after the correction table and script (MIRBASE_GFF_ID in gcfdb/mirbase.db, #438)."""
+    digest = hashlib.sha256()
+    for name in ('gcfdb/tables/mirbase_gff_corrections.tsv', 'gcfdb/scripts/mirbase_gff_correct.py'):
+        digest.update(hashlib.sha256((ROOT / name).read_bytes()).digest())
+    return f'{ext}/mirbase/{organism}/release-{release}/anno/genes.{digest.hexdigest()[:12]}.gff3'
+
+
+MIRBASE_GFF = corrected_mirbase_gff()
 
 
 def configure(tmp_path, method, update=None):
@@ -253,7 +265,7 @@ def test_unitas_mirna_feature_info_follows_the_dump(tmp_path, mirna_db, feature_
 
 
 @pytest.mark.parametrize('mirna_db, annotation', [
-    ('mirbase', 'data/ext/mirbase/mus_musculus/release-23.1/anno/genes.gff3'),
+    ('mirbase', MIRBASE_GFF),
     ('mirgenedb', 'data/ext/unitas/20-11-2026-mirgenedb/UNITAS_refdump_mus_musculus/gcf_mirgenedb.gff3')])
 def test_unitas_reference_is_checked_before_counts_meet_annotations(tmp_path, mirna_db, annotation):
     """The dump is verified once in EXT_DIR, then checked against the annotation the AnnData joins it to."""

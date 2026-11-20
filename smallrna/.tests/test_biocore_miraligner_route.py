@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from test_quant_methods import dry_run, rule_block
+from test_quant_methods import MIRBASE_GFF, dry_run, rule_block
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / 'smallrna/rules/quant/scripts/miraligner_counts.py'
@@ -28,7 +28,7 @@ def test_route_plans_database_and_counting_and_delivery_stays_on_unitas(tmp_path
     db = rule_block(output, 'biocore_miraligner_db')
     assert ('--species mmu --hairpin data/ext/mirbase/mus_musculus/release-23.1/fasta/hairpin.fa '
             '--mature data/ext/mirbase/mus_musculus/release-23.1/fasta/mature.fa '
-            '--gff data/ext/mirbase/mus_musculus/release-23.1/anno/genes.gff3 --output ' + DB) in db
+            f'--gff {MIRBASE_GFF} --output ' + DB) in db
     collapse = rule_block(output, 'biocore_miraligner_collapse')
     assert 'fastx_collapser -Q 33 -i data/tmp/smallrna/filter/cutadapt/SR0' in collapse and f'> {OUT}/SR0' in collapse
     assert 'if [ -s data/tmp/smallrna/filter/cutadapt/SR0' in collapse and f'else : > {OUT}/SR0' in collapse  # no reads: empty table

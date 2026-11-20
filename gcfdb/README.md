@@ -27,7 +27,8 @@ day ([#330](https://github.com/gcfntnu/gcf-workflows/issues/330)).
 ### miRBase GFF3 correction
 
 [`mirbase.db`](mirbase.db) downloads the hairpin and mature sequences and the genome GFF3 of `db.mirbase.release`. The
-GFF3 that every consumer reads, `EXT_DIR/mirbase/<organism>/release-<release>/anno/genes.gff3`, is miRBase's file
+GFF3 that every consumer reads, `EXT_DIR/mirbase/<organism>/release-<release>/anno/genes.<id>.gff3` (named after the
+corrections, below), is miRBase's file
 (`sources/<code>.gff3`) corrected with the reviewed rows of
 [`tables/mirbase_gff_corrections.tsv`](tables/mirbase_gff_corrections.tsv) and checked by
 [`mirbase_gff_correct.py`](scripts/mirbase_gff_correct.py) ([#429](https://github.com/gcfntnu/gcf-workflows/issues/429)).
@@ -44,7 +45,13 @@ Its consumers are UNITAS's annotation and `genes.tsv`, the genome routes, smrnas
   Two table levels relax this. `placement`, for a mature whose sequence differs from a paralogous hairpin, checks only
   that the row lies in the hairpin, on its strand, with the sequence's length. `none`, for a reviewed anomaly, skips
   the check.
-- **Record:** the applied rows go to `logs/gff_corrections.tsv`.
+- **Record:** the applied rows go to `logs/gff_corrections.<id>.tsv`.
+- **Name:** `<id>` (`MIRBASE_GFF_ID`) is a digest of the table and `mirbase_gff_correct.py`, so any change to either
+  gives new files, which an `EXT_DIR` then builds, and the consumers rebuild through the new path. Unchanged files are
+  never rebuilt: the table is an `ancient()` input, since a checkout gives it the checkout time
+  ([#438](https://github.com/gcfntnu/gcf-workflows/issues/438)). The files built from the GFF3 keep their paths, so
+  code versions with different corrections should not share an `EXT_DIR`
+  ([#440](https://github.com/gcfntnu/gcf-workflows/issues/440)).
 
 **miRBase 23.1's corrections:**
 - hairpin rows that cover only the stem, with their matures placed from them; some of these rows have no strand;
@@ -78,7 +85,9 @@ their identity, sources and checks.
   release fixed per organism in `db.mirflowz.ensembl_release`, prepared with mirflowz's own rules. segemehl needs about
   60 GB of memory for a human or mouse genome index.
 - **TEsmall databases** ([`tesmall.db`](tesmall.db)): built on the mirflowz reference's genome, with a Bowtie 1 index
-  of it, and once per UNITAS dump, from which the piRNA clusters come.
+  of it, and once per UNITAS dump, from which the piRNA clusters come. The genome FASTA and its index are built from the
+  genome alone, so a new annotation does not rebuild them or the biocore_htseq index
+  ([#433](https://github.com/gcfntnu/gcf-workflows/issues/433)).
 - **tiny-count reference** ([`tinyrna.db`](tinyrna.db), [`tinyrna_gff.py`](scripts/tinyrna_gff.py)): TEsmall's Bowtie 1
   genome index, and the miRBase GFF renamed to the genome's sequence names with the mirflowz chromosome map
   (`mirna.v<n>.gff3`; `<n>` is raised when the script's output changes, so an older GFF is rebuilt). A mature miRNA

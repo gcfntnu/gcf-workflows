@@ -1,7 +1,7 @@
 """Dry-run contract for the mirflowz route: selection, reference planning, assembly checks and read settings."""
 import pytest
 
-from test_quant_methods import configure, dry_run, rule_block, snakemake
+from test_quant_methods import MIRBASE_GFF, configure, dry_run, rule_block, snakemake
 
 REF_116 = 'data/ext/mirflowz/mirbase-23.1_ensembl-116'
 
@@ -25,7 +25,7 @@ def test_mouse_reference_reuses_the_project_ensembl_files(tmp_path):
     prepare = rule_block(output, 'mirflowz_prepare')
     assert ('--genome data/ext/ensembl/release-116/mus_musculus/GRCm39/fasta/genome.fa '
             '--gtf data/ext/ensembl/release-116/mus_musculus/GRCm39/anno/mus_musculus.GRCm39.116.gtf '
-            '--mirna-gff data/ext/mirbase/mus_musculus/release-23.1/anno/genes.gff3') in prepare
+            f'--mirna-gff {MIRBASE_GFF}') in prepare
     assert f'--output {REF_116}/mus_musculus/prepared --record {REF_116}/mus_musculus/mirflowz_reference.tsv' in prepare
     assert '--assembly GRCm39 --output' in rule_block(output, 'mirflowz_chr_map')
     assert 'rule mirflowz_ensembl_genome:' not in output
