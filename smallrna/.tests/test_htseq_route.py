@@ -38,7 +38,8 @@ def test_route_plans_reference_and_counting_and_delivery_stays_on_unitas(tmp_pat
     # secondary alignments scored, as HTSeq 0.9.1 did by default (HTSeq 2 ignores them unless told)
     assert ('htseq-count -f sam -a 0 -s yes -t miRNA -i Name --secondary-alignments score --supplementary-alignments score '
             '--samout {0}/SR0'.format(OUT)) in annotate
-    assert ' - data/ext/tinyrna/mirbase-23.1_ensembl-116/mus_musculus/mirna.v2.gff3 > ' in annotate
+    assert f' - {OUT}/mirna.gff3 > ' in annotate  # tiny-count's renamed GFF without rows that have no strand
+    assert 'gff --input data/ext/tinyrna/mirbase-23.1_ensembl-116/mus_musculus/mirna.v2.gff3 > {}/mirna.gff3'.format(OUT) in rule_block(output, 'htseq_gff')
     assert '--species mmu --collapsed' in rule_block(output, 'htseq_count')
     assert '--samples SR01 SR02 SR03 SR04' in rule_block(output, 'htseq_counts')
     returncode, output = dry_run(tmp_path, 'unitas,htseq', target='bfq_all')
@@ -147,3 +148,18 @@ def test_join_fills_missing_mirnas_with_zero(tmp_path):
     result = subprocess.run([sys.executable, str(SCRIPT), 'join', '--samples', 'S1', 'S2', '--tables', str(first), str(second)],
                             capture_output=True, text=True)
     assert result.returncode != 0 and 'expected the header miRNA, count' in result.stderr
+
+
+def test_gff_leaves_out_rows_without_a_strand(tmp_path):
+    gff = tmp_path / 'mirna.gff3'
+    gff.write_text('##gff-version 3\n# source x\n'
+                   '1\t.\tmiRNA_primary_transcript\t10\t80\t.\t+\t.\tID=MI1;Name=hsa-mir-1\n'
+                   '1\t.\tmiRNA_primary_transcript\t90\t150\t.\t.\t.\tID=MI2;Name=hsa-mir-13168\n'
+                   '1\t.\tmiRNA\t100\t122\t.\t.\t.\tID=MIMAT2;Name=hsa-miR-13168-5p;Derives_from=MI2\n'
+                   '1\t.\tmiRNA\t30\t51\t.\t-\t.\tID=MIMAT1;Name=hsa-miR-1-5p;Derives_from=MI1\n')
+    result = subprocess.run([sys.executable, str(SCRIPT), 'gff', '--input', str(gff)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.splitlines()
+    assert lines[0] == '##gff-version 3'
+    assert lines[1] == '# htseq_counts.py gff: rows without a strand left out (2): hsa-mir-13168,hsa-miR-13168-5p'
+    assert [line.split('\t')[8].split(';')[0] for line in lines if not line.startswith('#')] == ['ID=MI1', 'ID=MIMAT1']

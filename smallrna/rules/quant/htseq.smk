@@ -20,14 +20,31 @@ The pipeline's own trimming is replaced by the shared filtered reads, as for the
 Per sample `mature.tsv` (name, count), `isomir.tsv` (name_sequence, count) and `stats.tsv`; `htseq_counts.tsv` joins
 the samples' mature counts. The pipeline's annotation added RNAcentral transcripts and Ensembl genes for its ncRNA
 tables. In union mode those only turn a miRNA hit into `__ambiguous[...]`, which step 4 expands back, so the miRNA
-counts do not depend on them; the route uses the miRBase features only, tiny-count's renamed GFF (gcfdb/tinyrna.db).
-The genome's Bowtie 2 index is gcfdb/htseq.db.
+counts do not depend on them; the route uses the miRBase features only, tiny-count's renamed GFF (gcfdb/tinyrna.db),
+without its rows that have no strand (`mirna.gff3`; miRBase 23.1: hsa-mir-13167, hsa-mir-13168 and hsa-mir-514c with
+their mature miRNAs, and some rat rows), which htseq-count's stranded mode cannot place and stops on. The genome's
+Bowtie 2 index is gcfdb/htseq.db.
 """
 
 include:
     join(GCFDB_DIR, 'htseq.db')
 
 HTSEQ_OUT = join(QUANT_INTERIM, 'htseq')
+
+
+rule htseq_gff:
+    input:
+        rules.tinyrna_gff.output.gff
+    output:
+        join(HTSEQ_OUT, 'mirna.gff3')
+    params:
+        script = src_gcf('scripts/htseq_counts.py')
+    benchmark:
+        join(QUANT_BENCHMARKS, 'htseq_gff.tsv')
+    container:
+        'docker://' + config['docker']['default']
+    shell:
+        'python {params.script:q} gff --input {input:q} > {output:q}'
 
 
 rule htseq_collapse:
@@ -71,7 +88,7 @@ rule htseq_align:
 rule htseq_annotate:
     input:
         alignments = rules.htseq_align.output,
-        gff = rules.tinyrna_gff.output.gff
+        gff = rules.htseq_gff.output
     output:
         join(HTSEQ_OUT, '{sample}', 'annotated.sam.gz')
     params:

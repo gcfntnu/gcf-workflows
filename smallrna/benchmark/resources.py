@@ -36,8 +36,8 @@ STEPS = {
     'smrnaseq': [('smrnaseq_hairpin', False, 'reference'), ('smrnaseq_hairpin_index', False, 'reference'),
                  ('smrnaseq_collapse', True, 'quant'), ('smrnaseq_align', True, 'quant'), ('smrnaseq_mirtop', True, 'quant'),
                  ('smrnaseq_counts', False, 'quant')],
-    'htseq': [('htseq_collapse', True, 'quant'), ('htseq_align', True, 'quant'), ('htseq_annotate', True, 'quant'),
-              ('htseq_count', True, 'quant'), ('htseq_counts', False, 'quant')],
+    'htseq': [('htseq_gff', False, 'reference'), ('htseq_collapse', True, 'quant'), ('htseq_align', True, 'quant'),
+              ('htseq_annotate', True, 'quant'), ('htseq_count', True, 'quant'), ('htseq_counts', False, 'quant')],
 }
 HEADER = ['method', 'kind', 'step', 'sample', 'wall_s', 'cpu_s', 'max_rss_mb']
 FIELDS = {'s': 'wall_s', 'cpu_time': 'cpu_s', 'max_rss': 'max_rss_mb'}

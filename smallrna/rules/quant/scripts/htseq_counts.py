@@ -19,9 +19,13 @@ summed mature counts (more than the counted reads when reads count for several n
 
 join: the samples' mature tables as one table, miRNA and one column per sample (0 where a sample lacks the miRNA).
 
+gff: the miRNA GFF3 without its rows that have no strand (`.`), which htseq-count's stranded mode stops on, to standard
+output; a header comment names the rows left out.
+
 Usage:
   htseq_counts.py count --species CODE --collapsed FASTA --annotated SAM[.gz] --mature TSV --isomir TSV --stats TSV
   htseq_counts.py join --samples S1 [S2 ...] --tables MATURE_TSV [MATURE_TSV ...]
+  htseq_counts.py gff --input GFF3
 """
 import argparse
 import gzip
@@ -143,6 +147,27 @@ def run_join(args):
         out.write('\t'.join([name] + [counts[name].get(s, '0') for s in args.samples]) + '\n')
 
 
+def run_gff(args):
+    kept, left = [], []
+    with open(args.input) as fh:
+        for line in fh:
+            fields = line.rstrip('\n').split('\t')
+            if line.startswith('#') or len(fields) < 9:
+                kept.append(line)
+            elif fields[6] in ('+', '-'):
+                kept.append(line)
+            elif fields[6] in ('.', '?'):
+                name = [a[5:] for a in fields[8].split(';') if a.startswith('Name=')]
+                left.append(name[0] if name else fields[8])
+            else:
+                fail('{}: strand {!r} in {!r}'.format(args.input, fields[6], line[:200]))
+    out = sys.stdout
+    header = [line for line in kept if line.startswith('##gff-version')]
+    out.writelines(header)
+    out.write('# htseq_counts.py gff: rows without a strand left out ({}): {}\n'.format(len(left), ','.join(left) or 'none'))
+    out.writelines(line for line in kept if not line.startswith('##gff-version'))
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     commands = parser.add_subparsers(dest='command', required=True)
@@ -156,8 +181,10 @@ def main(argv=None):
     many = commands.add_parser('join')
     many.add_argument('--samples', nargs='+', required=True)
     many.add_argument('--tables', nargs='+', required=True)
+    gff = commands.add_parser('gff')
+    gff.add_argument('--input', required=True)
     args = parser.parse_args(argv)
-    run_count(args) if args.command == 'count' else run_join(args)
+    {'count': run_count, 'join': run_join, 'gff': run_gff}[args.command](args)
 
 
 if __name__ == '__main__':
