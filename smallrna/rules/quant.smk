@@ -1,5 +1,7 @@
 #-*- mode:snakemake -*-
 
+import os
+
 QUANT_METHODS = ('unitas', 'mirge3', 'mirflowz', 'tesmall', 'tinyrna', 'smrnaseq', 'biocore_htseq', 'biocore_miraligner')
 QUANT_SELECTED = [m.strip() for m in str(config['quant']['method']).split(',')]
 # Set before the routes are included: the TEsmall database and the tiny-count and biocore_htseq references are built on the
@@ -12,6 +14,17 @@ BIOCORE_HTSEQ_SELECTED = 'biocore_htseq' in QUANT_SELECTED
 # gcfdb/tesmall.db, gcfdb/biocore_htseq.db and gcfdb/biocore_miraligner.db write theirs in the reference they built
 # (<reference>/benchmarks/<rule>.tsv), not here.
 QUANT_BENCHMARKS = join(QUANT_INTERIM, 'benchmarks')
+
+
+def mem_from_reads(floor_mb, per_mb, base_mb=0, key='fastq'):
+    """mem_mb for a rule whose memory grows with a sample's filtered reads: the larger of floor_mb and base_mb plus
+    per_mb times the size in MB of the job's input `key` (the filtered FASTQ; an int for a positional input).
+    Calibrated with the benchmark files of public plasma at full depth (GSE317995, 8-18M filtered reads, about 110
+    bytes per read; #386). Snakemake computes it once the reads exist; --set-resources <rule>:mem_mb=<MB> overrides it."""
+    def mem_mb(wildcards, input):
+        path = input[key] if isinstance(key, int) else getattr(input, key)
+        return max(floor_mb, int(base_mb + per_mb * os.path.getsize(path) / 1e6))
+    return mem_mb
 
 include:
     'quant/mirge3.smk'

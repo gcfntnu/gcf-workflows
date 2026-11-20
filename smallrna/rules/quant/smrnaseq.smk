@@ -74,8 +74,9 @@ rule smrnaseq_collapse:
     params:
         work = join(SMRNASEQ_OUT, 'collapsed', '{sample}.work')
     resources:
-        # Peak 0.65 GB per sample, measured on public plasma (GSE317995, 8-18M filtered reads per sample; #386).
-        mem_mb = 1500
+        # Peak 0.3-0.65 GB per sample at 8-18M filtered reads (0.9-2.0 GB of FASTQ), public plasma (GSE317995; #386);
+        # seqcluster keeps every distinct sequence, so the reservation scales with the filtered reads.
+        mem_mb = mem_from_reads(1500, 1, key=0)
     log:
         join(SMRNASEQ_OUT, 'collapsed', '{sample}.log')
     benchmark:

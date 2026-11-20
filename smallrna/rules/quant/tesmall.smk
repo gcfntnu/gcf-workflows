@@ -58,8 +58,9 @@ rule tesmall_quant:
     threads:
         1
     resources:
-        # Peak 6.6 GB per sample, measured on public plasma (GSE317995, 8-18M filtered reads per sample; #386).
-        mem_mb = 10000
+        # Peak 4.7-6.6 GB per sample at 8-18M filtered reads (0.9-2.0 GB of FASTQ), public plasma (GSE317995; #386);
+        # about 4 GB plus a share that grows with the reads, so the reservation scales with them.
+        mem_mb = mem_from_reads(10000, 2.5, base_mb=4000)
     log:
         join(TESMALL_OUT, '{sample}', 'tesmall.log')
     benchmark:
