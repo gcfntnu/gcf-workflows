@@ -94,29 +94,30 @@ def read_record(path):
 
 
 def stale(record, texts):
-    """The inputs, and `script` for de.R, whose MD5 in de.R's record differs from the current one ([] when all agree)."""
+    """The inputs, and `script` for de.R, whose MD5 in de.R's record differs from the current one ([] when all agree);
+    the record also names the results table de.R wrote (`md5_results`), checked by the caller on the bytes it parses."""
     current = {Path(name).stem: md5(text) for name, text in texts.items()}
     current['script'] = md5(SCRIPT.read_bytes())
     return [name for name, value in current.items() if record.get('md5_' + name) != value]
 
 
-def read_results(path, rows, pool_ids):
-    """{(row, test, pool_id): (log2fc, pvalue, padj)} from de.R's results.tsv, None for NA; ValueError unless there is
-    exactly one line for every row, test and scored exact sequence."""
+def read_results(text, rows, pool_ids, path='results.tsv'):
+    """{(row, test, pool_id): (log2fc, pvalue, padj)} from the text of de.R's results.tsv (`path` names it in messages),
+    None for NA; ValueError unless there is exactly one line for every row, test and scored exact sequence."""
+    lines = text.splitlines()
+    header = lines[0].split('\t') if lines else []
+    if header != RESULT_HEADER:
+        raise ValueError('{}: columns {}, expected {}'.format(path, ', '.join(header), ', '.join(RESULT_HEADER)))
     table = {}
-    with open(path) as fh:
-        header = fh.readline().rstrip('\n').split('\t')
-        if header != RESULT_HEADER:
-            raise ValueError('{}: columns {}, expected {}'.format(path, ', '.join(header), ', '.join(RESULT_HEADER)))
-        for number, line in enumerate(fh, 2):
-            fields = line.rstrip('\n').split('\t')
-            if len(fields) != len(RESULT_HEADER):
-                raise ValueError('{}: line {} has {} fields, expected {}'.format(path, number, len(fields), len(RESULT_HEADER)))
-            key = tuple(fields[:3])
-            if key in table:
-                raise ValueError('{}: line {}: {} repeated'.format(path, number, ' '.join(key)))
-            values = [None if v == 'NA' else float(v) for v in fields[3:]]
-            table[key] = tuple(None if v is None or math.isnan(v) else v for v in values)
+    for number, line in enumerate(lines[1:], 2):
+        fields = line.split('\t')
+        if len(fields) != len(RESULT_HEADER):
+            raise ValueError('{}: line {} has {} fields, expected {}'.format(path, number, len(fields), len(RESULT_HEADER)))
+        key = tuple(fields[:3])
+        if key in table:
+            raise ValueError('{}: line {}: {} repeated'.format(path, number, ' '.join(key)))
+        values = [None if v == 'NA' else float(v) for v in fields[3:]]
+        table[key] = tuple(None if v is None or math.isnan(v) else v for v in values)
     expected = {(row, test, pool_id) for row in rows for test in TESTS for pool_id in pool_ids}
     missing, extra = sorted(expected - set(table)), sorted(set(table) - expected)
     if missing or extra:

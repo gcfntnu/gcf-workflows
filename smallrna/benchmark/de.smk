@@ -21,7 +21,8 @@ rule benchmark_de:
     input:
         counts = DE_INPUT + '/counts.tsv',
         library_sizes = DE_INPUT + '/library_sizes.tsv',
-        design = DE_INPUT + '/design.tsv'
+        design = DE_INPUT + '/design.tsv',
+        script = str(HERE / 'de.R')  # an edit to de.R reruns the fits, as evaluate --de checks its MD5
     output:
         results = 'benchmark/de/results.tsv',
         record = 'benchmark/de/record.tsv'

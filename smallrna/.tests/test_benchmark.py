@@ -1977,18 +1977,19 @@ def test_de_results_must_cover_every_row_test_and_sequence(tmp_path):
     lines = ['\t'.join(de.RESULT_HEADER)] + ['m\t{}\t{}\t1.5\t0.01\t{}'.format(t, p, 'NA' if p == 'S1' else '0.02')
                                              for t in de.TESTS for p in ('S0', 'S1')]
     path = write(tmp_path / 'results.tsv', '\n'.join(lines) + '\n')
-    table = de.read_results(path, ['m'], ['S0', 'S1'])
+    read = lambda pool_ids: de.read_results(path.read_text(), ['m'], pool_ids, path)
+    table = read(['S0', 'S1'])
     assert table[('m', 'edger', 'S0')] == (1.5, 0.01, 0.02) and table[('m', 'voom', 'S1')] == (1.5, 0.01, None)
     with pytest.raises(ValueError, match='and 2 unexpected'):  # S1 in both tests
-        de.read_results(path, ['m'], ['S0'])
+        read(['S0'])
     with pytest.raises(ValueError, match='2 expected lines missing'):
-        de.read_results(path, ['m'], ['S0', 'S1', 'S2'])
+        read(['S0', 'S1', 'S2'])
     write(path, '\n'.join(lines + [lines[1]]) + '\n')
     with pytest.raises(ValueError, match='repeated'):
-        de.read_results(path, ['m'], ['S0', 'S1'])
+        read(['S0', 'S1'])
     write(path, 'row\ttest\tpool_id\tlogFC\n')
     with pytest.raises(ValueError, match='columns'):
-        de.read_results(path, ['m'], ['S0', 'S1'])
+        read(['S0', 'S1'])
 
 
 def de_declaration(tmp_path, change):
@@ -2005,6 +2006,9 @@ def de_declaration(tmp_path, change):
     (lambda s: [run.update(lab='Lab1') for run in s['runs']], 'at least two different ones'),
     (lambda s: s['runs'][0].pop('lab'), 'every run needs a value'),
     (lambda s: s.update(runs=[r for r in s['runs'] if r['group'] == 'A'] + [s['runs'][2]]), 'got 4 A and 1 B'),
+    # two runs per pool over three labs, one lab shared: ~ lab + group has as many coefficients as runs
+    (lambda s: s.update(runs=[dict(s['runs'][0], lab='L1'), dict(s['runs'][1], lab='L2'), dict(s['runs'][2], lab='L1'),
+                              dict(s['runs'][3], lab='L3')]), '4 coefficients for 4 runs, so no residual degrees of freedom'),
 ])
 def test_de_declaration_needs_lab_with_two_levels_and_replicates(tmp_path, change, message):
     with pytest.raises(SystemExit, match=message):
@@ -2083,18 +2087,20 @@ def de_project(tmp_path):
     return project
 
 
-def de_outputs(project, fits, change=None):
+def de_outputs(project, fits, change=None, drop_last=False):
     """de.smk's outputs as de.R writes them for the project's current inputs: every row and test gets `fits`
-    ({pool_id: (log2fc, pvalue, padj)}); `change` edits the record."""
+    ({pool_id: (log2fc, pvalue, padj)}); `change` edits the record; `drop_last` leaves the table's last line out (a
+    table de.R recorded, but incomplete)."""
     bench = project / 'benchmark'
     texts = {name: (bench / 'de/input' / name).read_text() for name in de.INPUTS}
     rows = list(dict.fromkeys(line.split('\t')[0] for line in texts['counts.tsv'].splitlines()[1:]))
     lines = ['\t'.join(de.RESULT_HEADER)] + ['\t'.join([row, test, pool_id] + ['NA' if v is None else str(v) for v in fit])
                                              for row in rows for test in de.TESTS for pool_id, fit in fits.items()]
-    write(bench / 'de/results.tsv', '\n'.join(lines) + '\n')
+    results = '\n'.join(lines[:-1] if drop_last else lines) + '\n'
+    write(bench / 'de/results.tsv', results)
     record = {'md5_' + Path(name).stem: de.md5(text) for name, text in texts.items()}
-    record.update(md5_script=de.md5(de.SCRIPT.read_bytes()), R='R version 4.5.3', edgeR='4.10.7', limma='3.68.5', formula='~lab + group',
-                  edger='exact test', voom='voom')
+    record.update(md5_script=de.md5(de.SCRIPT.read_bytes()), md5_results=de.md5(results), R='R version 4.5.3', edgeR='4.10.7',
+                  limma='3.68.5', formula='~lab + group', edger='exact test', voom='voom')
     if change:
         change(record)
     write(bench / 'de/record.tsv', 'field\tvalue\n' + ''.join('{}\t{}\n'.format(k, v) for k, v in record.items()))
@@ -2118,6 +2124,7 @@ def test_evaluate_de_adds_metrics_intervals_and_report(tmp_path):
                                                                   'unitas\t13.0\t15.0\t14.0\t16.0\nmirge3\t13.0\t15.0\t14.0\t16.0\n')
     assert 'edger_called' not in (bench / 'metrics.tsv').read_text()  # without --de, nothing is scored
     plain_ci = (bench / 'metrics_ci.tsv').read_text().splitlines()
+    assert json.loads((bench / 'evaluation.json').read_text())['bootstrap']['skipped'] > 0  # draws without the 1:1 sequence
     de_outputs(project, DE_FITS)
     result = evaluate_cmd(project, '--de')
     assert result.returncode == 0, result.stderr
@@ -2128,6 +2135,7 @@ def test_evaluate_de_adds_metrics_intervals_and_report(tmp_path):
     assert table['edger_fc_bias'] == ['-0.35'] * 3  # median of 1.8 - 2 and -(-2.5 + 3)
     ci = (bench / 'metrics_ci.tsv').read_text().splitlines()
     assert [line for line in ci if not line.startswith(('edger_', 'voom_'))] == plain_ci  # the existing intervals are unchanged
+    assert json.loads((bench / 'evaluation.json').read_text())['bootstrap']['skipped'] == 0  # the DE scores use every draw
     assert any(line.startswith('edger_called\tunitas\t1.0\t') for line in ci)
     report = (bench / 'report.md').read_text()
     assert '## Differential expression' in report and '| 4× | 1 | 1.00 | 1.00 | 1.00 |' in report and '| 1× | 1 | 0.00 |' in report
@@ -2158,20 +2166,26 @@ def equimolar(project):
     ('no results', 'no results.tsv or record.tsv'),
     ('other inputs', 'comes from other inputs or another de.R (counts)'),
     ('other script', 'comes from other inputs or another de.R (script)'),
+    ('other results', 'is not the table de.R recorded'),
+    ('new counts', 'comes from other inputs or another de.R (counts, library_sizes)'),
     ('incomplete', '1 expected lines missing'),
 ])
 def test_evaluate_de_stops_early(tmp_path, case, message):
     project = de_project(tmp_path)
     bench = project / 'benchmark'
     assert evaluate_cmd(project).returncode == 0
-    if case in ('other inputs', 'other script', 'incomplete'):
+    if case in ('other inputs', 'other script', 'other results', 'new counts', 'incomplete'):
         changes = {'other inputs': lambda r: r.update(md5_counts='0' * 32), 'other script': lambda r: r.update(md5_script='0' * 32)}
-        de_outputs(project, DE_FITS, changes.get(case))
-        if case == 'incomplete':
-            results = (bench / 'de/results.tsv').read_text().splitlines()
-            write(bench / 'de/results.tsv', '\n'.join(results[:-1]) + '\n')
+        de_outputs(project, DE_FITS, changes.get(case), drop_last=case == 'incomplete')
+    if case == 'other results':  # an older table beside the current record, e.g. after a partial restore
+        write(bench / 'de/results.tsv', (bench / 'de/results.tsv').read_text().replace('\t1.8\t', '\t2.8\t'))
+    if case == 'new counts':  # the method's counts changed after de.smk ran
+        write(project / 'data/tmp/smallrna/quant/mirge3/miR.Counts.csv',
+              'miRNA,A1,A2,B1,B2\nhsa-miR-1-3p,9,9,2,2\nhsa-miR-199a-3p,4,5,4,5\nhsa-miR-21-5p,1,1,8,9\n')
     {'equimolar': equimolar, 'undeclared': no_de}.get(case, lambda p: None)(project)
-    published = {name: (bench / name).read_text() for name in ('metrics.tsv', 'report.md', 'evaluation.json')}
+    names = ['metrics.tsv', 'report.md', 'evaluation.json', 'common.tsv', 'per_sequence.tsv', 'filter_stages.tsv', 'unitas_names.tsv'] + \
+        ['de/input/' + name for name in de.INPUTS]
+    before = {name: (bench / name).read_text() for name in names}
     result = evaluate_cmd(project, '--de')
     assert result.returncode != 0 and message in result.stderr, result.stderr
-    assert {name: (bench / name).read_text() for name in published} == published  # nothing published
+    assert {name: (bench / name).read_text() for name in names} == before  # nothing published, no supporting table rewritten

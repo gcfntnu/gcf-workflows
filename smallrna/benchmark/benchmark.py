@@ -128,6 +128,10 @@ def check_de(spec, path):
     sizes = collections.Counter(run.get('group') for run in spec['runs'])
     if sizes['A'] < 2 or sizes['B'] < 2:
         fail('{}: differential expression needs at least two runs in each pool, got {} A and {} B'.format(path, sizes['A'], sizes['B']))
+    coefficients = 2 + sum(len({run[c] for run in spec['runs']}) - 1 for c in covariates)  # intercept, covariate levels, group
+    if len(spec['runs']) - coefficients < 1:
+        fail('{}: the voom design ~ {} has {} coefficients for {} runs, so no residual degrees of freedom'.format(
+            path, ' + '.join(covariates + ['group']), coefficients, len(spec['runs'])))
 
 
 def select_mirbase(spec, release, path):
@@ -625,22 +629,24 @@ def unitas_refdump(project):
     return refdump
 
 
-def common_table(args, project, bench, spec, ext_dir, methods, mature, gff):
+def common_table(args, project, bench, spec, ext_dir, methods, mature, gff, pending=None):
     """Every method's counts in one table (adapters.py), written to common.tsv; with UNITAS, also how each UNITAS name
-    was placed (unitas_names.tsv: by name, by hairpin and arm, or not)."""
+    was placed (unitas_names.tsv: by name, by hairpin and arm, or not). With `pending`, the tables are added to it
+    (path, header, rows) for the caller to write later."""
+    write = write_tsv if pending is None else lambda *table: pending.append(table)
     prefix = PREFIX[spec['organism']]
     name_to_id = {name: accession for name, (accession, _) in mature.items()}
     hairpins = adapters.unitas_hairpins(args.unitas_ref or unitas_refdump(project)) if 'unitas' in methods else None
     common = adapters.common_table(methods, project / 'data/tmp/smallrna/quant', name_to_id, prefix, gff, hairpins, mature)
-    write_tsv(bench / 'common.tsv', adapters.COMMON_COLUMNS, common)
+    write(bench / 'common.tsv', adapters.COMMON_COLUMNS, common)
     if hairpins is not None:
         reads = collections.Counter()
         for method, _, name, _, count in common:
             if method == 'unitas':
                 reads[name] += float(count)
         placed = {name: adapters.unitas_place(name, name_to_id, prefix, hairpins, mature) for name in reads}
-        write_tsv(bench / 'unitas_names.tsv', ['name', 'step', 'mature_id', 'reads'],
-                  [[n, placed[n][1] or 'unplaced', placed[n][0], '{:g}'.format(reads[n])] for n in sorted(reads)])
+        write(bench / 'unitas_names.tsv', ['name', 'step', 'mature_id', 'reads'],
+              [[n, placed[n][1] or 'unplaced', placed[n][0], '{:g}'.format(reads[n])] for n in sorted(reads)])
         steps = collections.defaultdict(lambda: [0, 0.0])
         for n, (_, step) in placed.items():
             steps[step or 'unplaced'][0] += 1
@@ -757,7 +763,8 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
     name_to_id = {name: accession for name, (accession, _) in mature.items()}
     methods = list(spec['methods'])
     gff = args.mirflowz_gff or (mirflowz_annotation(ext_dir, spec) if 'mirflowz' in methods else None)
-    common = common_table(args, project, bench, spec, ext_dir, methods, mature, gff)
+    pending = []  # tables written once the differential-expression checks (evaluate --de) have passed
+    common = common_table(args, project, bench, spec, ext_dir, methods, mature, gff, pending)
     entries = pool.read_pool(bench / 'pool.tsv')
     kinds = pool.shift_kinds(entries, dict(mature.values()))
     sample_rows = read_tsv(bench / 'samples.tsv')
@@ -767,16 +774,16 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
     stage_counts = {sample: {stage: pool.oracle(path, sequences, *cuts) for stage, path, cuts in stages[sample]} for sample in sample_groups}
     stage_names = [stage for stage, _, _ in next(iter(stages.values()))]
     oracle = {sample: stage_counts[sample][stage_names[-1]] for sample in sample_groups}
-    write_tsv(bench / 'filter_stages.tsv', ['sample', 'pool_id', 'group'] + stage_names,
-              [[sample, e['pool_id'], e['group']] + [stage_counts[sample][st].get(e['sequence'], 0) for st in stage_names]
-               for sample in sample_groups for e in entries if e['group'] != 'excluded'])
+    pending.append((bench / 'filter_stages.tsv', ['sample', 'pool_id', 'group'] + stage_names,
+                    [[sample, e['pool_id'], e['group']] + [stage_counts[sample][st].get(e['sequence'], 0) for st in stage_names]
+                     for sample in sample_groups for e in entries if e['group'] != 'excluded']))
     counts, reads = pool.method_counts(common, entries)
-    write_tsv(bench / 'per_sequence.tsv', pool.PER_SEQUENCE + methods, pool.per_sequence(counts, oracle, entries, methods, sample_groups, kinds))
+    pending.append((bench / 'per_sequence.tsv', pool.PER_SEQUENCE + methods, pool.per_sequence(counts, oracle, entries, methods, sample_groups, kinds)))
     rows = ['oracle'] + methods
     shifted = pool.scored(entries, 'shifted')
     by_kind = {kind: [e for e in shifted if kinds[e['pool_id']] == kind] for kind in pool.SHIFT_KINDS}
     by_kind = {kind: group for kind, group in by_kind.items() if group}
-    de_results = de_lines = None
+    de_texts = de_results = de_lines = None
     if spec['pool'] == 'equimolar':
         summary = pool.equimolar_metrics(counts, reads, oracle, entries, methods, list(sample_groups))
         keys = ['detected', 'cv', 'qcd', 'median_log2_vs_oracle', 'within_2fold', 'beyond_10fold', 'spearman_vs_oracle', 'outside', 'unplaced']
@@ -796,11 +803,15 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
                                                  for e in group if not math.isnan(observed[r][e['pool_id']])])
                            for r in observed} for kind, group in by_kind.items()}
         if 'de' in spec:
-            de_results, de_lines = differential_expression(args, bench, spec, counts, reads, oracle, entries, rows, sample_rows)
+            de_texts, de_results, de_lines = differential_expression(args, bench, spec, counts, reads, oracle, entries, rows, sample_rows)
         if de_results:
             for row, values in de.scores(de_results, pool.scored(entries), rows).items():
                 summary.setdefault(row, {}).update(values)
             keys += de.metric_keys()
+    for path, header, table in pending:
+        write_tsv(path, header, table)
+    if de_texts:
+        de.write_inputs(bench / 'de' / 'input', de_texts)
     metric_rows = [[k] + [summary.get(r, {}).get(k, '') for r in rows] for k in keys]
 
     groups = {g: sum(1 for e in entries if e['group'] == g) for g in pool.GROUPS}
@@ -838,7 +849,12 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
         units = 'the scored pool sequences (exact and shifted) and the runs'
     else:
         def compute(ex, sh, pairs):
-            result = pool.ratiometric_metrics(counts, oracle, entries, methods, pairs, exact=ex, shifted=sh)[0]
+            try:
+                result = pool.ratiometric_metrics(counts, oracle, entries, methods, pairs, exact=ex, shifted=sh)[0]
+            except ValueError:  # a draw without a 1:1 sequence: no ratio metrics, but the DE scores need none
+                if not de_results:
+                    raise
+                result = {}
             if de_results:  # the DE fits stay fixed: their scores resample the sequences only
                 for row, values in de.scores(de_results, ex, rows).items():
                     result.setdefault(row, {}).update(values)
@@ -854,28 +870,32 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
 
 
 def differential_expression(args, bench, spec, counts, reads, oracle, entries, rows, sample_rows):
-    """A ratiometric pool that declares `de:` (#414): writes the inputs of de.smk to benchmark/de/input/ (a file only
-    when its text changed); with --de, checks that de.smk's results come from these inputs and the current de.R and
-    returns (results, report lines), else (None, None)."""
+    """A ratiometric pool that declares `de:` (#414): (input texts, results, report lines). The caller writes the inputs
+    of de.smk to benchmark/de/input/ with the other tables. With --de, this first checks that de.smk's results come
+    from these inputs and the current de.R, and that the results table is the one de.R recorded; it verifies, parses
+    and reports one read of it. Without --de: (texts, None, None)."""
     covariates = list((spec['de'] or {}).get('covariates') or [])
     design = [(row['sample'], row['group'], {c: row[c] for c in covariates}) for row in sample_rows]
     sizes = de.library_sizes(reads, oracle, entries, rows, [s for s, _, _ in design])
     texts = de.input_tables(counts, oracle, entries, rows, design, sizes)
-    de.write_inputs(bench / 'de' / 'input', texts)
     if not args.de:
-        return None, None
+        return texts, None, None
+    path = bench / 'de/results.tsv'
     record = de.read_record(bench / 'de/record.tsv')
     changed = de.stale(record, texts)
     if changed:
-        fail('{} comes from other inputs or another de.R ({}): run de.smk again (with --forceall after a change to de.R), '
-             'then evaluate --de'.format(bench / 'de/results.tsv', ', '.join(changed)))
+        fail('{} comes from other inputs or another de.R ({}); nothing was written: run `benchmark.py evaluate` without --de '
+             '(it writes the current inputs), then de.smk, then evaluate --de'.format(path, ', '.join(changed)))
+    data = path.read_bytes()
+    if de.md5(data) != record.get('md5_results'):
+        fail('{} is not the table de.R recorded in {}; nothing was written: run de.smk again, then evaluate --de'.format(
+            path, bench / 'de/record.tsv'))
     exact = pool.scored(entries)
     try:
-        results = de.read_results(bench / 'de/results.tsv', rows, [e['pool_id'] for e in exact])
+        results = de.read_results(data.decode(), rows, [e['pool_id'] for e in exact], path)
     except ValueError as error:
         fail(str(error))
-    sha256 = hashlib.sha256((bench / 'de/results.tsv').read_bytes()).hexdigest()
-    return results, de.report_lines(results, exact, rows, record, sha256)
+    return texts, results, de.report_lines(results, exact, rows, record, hashlib.sha256(data).hexdigest())
 
 
 SHIFT_TEXT = {'3p_shorter': "3' end shorter", '3p_longer': "3' end longer", '5p_moved': "5' end moved", 'mixed': 'mixed'}
