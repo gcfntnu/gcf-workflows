@@ -6,11 +6,13 @@ import collections
 import re
 
 import pandas as pd
-from snakemake.logging import logger
 
 
 patt = re.compile(r'\s\(\d+\-\d+\)$')
-patt2 = re.compile(r'\-\(\d+\)$')
+# The dump names a gene's further ncRNA transcripts '<symbol>-<gene>_(n)' (from 20-11-2026, gcfntnu/gcf-docker#56);
+# stripping the suffix counts them with the first, '<symbol>-<gene>'. Older dumps wrote '<symbol>-(n)', stripped to
+# '<symbol>'.
+patt2 = re.compile(r'[-_]\(\d+\)$')
 patt3 = re.compile('\(.*\-\>.*\)$') 
 trna_patt = re.compile('(.*)(tRNA-\w{3}-\w{3})(.*)')
 
