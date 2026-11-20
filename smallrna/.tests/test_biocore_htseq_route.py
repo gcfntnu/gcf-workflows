@@ -1,4 +1,4 @@
-"""htseq route (#425): selection, the reference (a Bowtie 2 index of TEsmall's shared genome, tiny-count's renamed
+"""biocore_htseq route (#425): selection, the reference (a Bowtie 2 index of TEsmall's shared genome, tiny-count's renamed
 miRBase GFF), the commands of the earlier pipeline's genome counter, guards, and the counting script."""
 import gzip
 import importlib.util
@@ -13,53 +13,54 @@ from test_quant_methods import dry_run, rule_block
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / 'smallrna/rules/quant/scripts/htseq_counts.py'
-REF = 'data/ext/htseq/mirbase-23.1_ensembl-116/mus_musculus/genome/bowtie2'
-OUT = 'data/tmp/smallrna/quant/htseq'
+REF = 'data/ext/biocore_htseq/mirbase-23.1_ensembl-116/mus_musculus/genome/bowtie2'
+OUT = 'data/tmp/smallrna/quant/biocore_htseq'
 
-spec = importlib.util.spec_from_file_location('htseq_counts', SCRIPT)
-htseq_counts = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(htseq_counts)
+spec = importlib.util.spec_from_file_location('biocore_htseq_counts', SCRIPT)
+biocore_htseq_counts = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(biocore_htseq_counts)
 
 
 def test_route_plans_reference_and_counting_and_delivery_stays_on_unitas(tmp_path):
-    returncode, output = dry_run(tmp_path, 'unitas,htseq', printshell=True)
+    returncode, output = dry_run(tmp_path, 'unitas,biocore_htseq', printshell=True)
     assert returncode == 0, output
-    assert 'rule unitas_mirtable:' in output and output.count('rule htseq_count:') == 4
-    index = rule_block(output, 'htseq_bowtie2_index')
+    assert 'rule unitas_mirtable:' in output and output.count('rule biocore_htseq_count:') == 4
+    index = rule_block(output, 'biocore_htseq_bowtie2_index')
     assert 'input: data/ext/tesmall/mirbase-23.1_ensembl-116/mus_musculus/genome/genome.fa' in index
     assert f'bowtie2-build --threads 1 data/ext/tesmall/mirbase-23.1_ensembl-116/mus_musculus/genome/genome.fa {REF}/genome >' in index
     assert 'rule tesmall_db:' not in output  # only the shared genome, not the TEsmall database
-    collapse = rule_block(output, 'htseq_collapse')
+    collapse = rule_block(output, 'biocore_htseq_collapse')
     assert ('if [ -s data/tmp/smallrna/filter/cutadapt/SR0' in collapse and f'fastx_collapser -Q 33 -i data/tmp/smallrna/filter/cutadapt/SR0'
             in collapse and f'else : > {OUT}/SR0' in collapse)  # no filtered reads: no sequences, zero counts
-    align = rule_block(output, 'htseq_align')
+    align = rule_block(output, 'biocore_htseq_align')
     assert "length($0) >= 15 {print name; print}" in align
     assert f'bowtie2 -p 1 -k 10 -f -x {REF}/genome -U - 2>' in align and '| gzip > ' in align
     assert 'mem_mb=5000' in align.replace(' ', '')  # the index in memory, so --resources caps parallel jobs
-    annotate = rule_block(output, 'htseq_annotate')
+    annotate = rule_block(output, 'biocore_htseq_annotate')
     # secondary alignments scored, as HTSeq 0.9.1 did by default (HTSeq 2 ignores them unless told)
     assert ('htseq-count -f sam -a 0 -s yes -t miRNA -i Name --secondary-alignments score --supplementary-alignments score '
             '--samout {0}/SR0'.format(OUT)) in annotate
     assert f' - {OUT}/mirna.gff3 > ' in annotate  # tiny-count's renamed GFF without rows that have no strand
     assert '|| { rm -f ' in annotate  # a failed htseq-count leaves no uncompressed samout behind
-    assert 'gff --input data/ext/tinyrna/mirbase-23.1_ensembl-116/mus_musculus/mirna.v2.gff3 > {}/mirna.gff3'.format(OUT) in rule_block(output, 'htseq_gff')
-    assert '--species mmu --collapsed' in rule_block(output, 'htseq_count')
-    assert '--samples SR01 SR02 SR03 SR04' in rule_block(output, 'htseq_counts')
-    returncode, output = dry_run(tmp_path, 'unitas,htseq', target='bfq_all')
+    gff = 'gff --input data/ext/tinyrna/mirbase-23.1_ensembl-116/mus_musculus/mirna.v2.gff3 > {}/mirna.gff3'.format(OUT)
+    assert gff in rule_block(output, 'biocore_htseq_gff')
+    assert '--species mmu --collapsed' in rule_block(output, 'biocore_htseq_count')
+    assert '--samples SR01 SR02 SR03 SR04' in rule_block(output, 'biocore_htseq_counts')
+    returncode, output = dry_run(tmp_path, 'unitas,biocore_htseq', target='bfq_all')
     assert returncode == 0, output
-    assert 'htseq' not in output
+    assert 'biocore_htseq' not in output
 
 
 def test_guards_stop_at_load(tmp_path):
-    returncode, output = dry_run(tmp_path, 'htseq', lambda s: s.update(organism='danio_rerio'))
+    returncode, output = dry_run(tmp_path, 'biocore_htseq', lambda s: s.update(organism='danio_rerio'))
     assert returncode != 0 and 'organism' in output  # the mirflowz reference checks apply to this route
 
 
 def test_length_filter_keeps_sequences_of_at_least_15_nt(tmp_path):
     """The alignment's awk program, as planned, on fastx_collapser records: 15 nt and longer go to Bowtie 2."""
-    returncode, output = dry_run(tmp_path, 'htseq', printshell=True)
+    returncode, output = dry_run(tmp_path, 'biocore_htseq', printshell=True)
     assert returncode == 0, output
-    program = re.search(r"awk '([^']+)'", rule_block(output, 'htseq_align')).group(1)
+    program = re.search(r"awk '([^']+)'", rule_block(output, 'biocore_htseq_align')).group(1)
     reads = tmp_path / 'collapsed.fa'
     reads.write_text('>1-10\n' + 'A' * 15 + '\n>2-5\n' + 'C' * 14 + '\n>3-1\n' + 'G' * 22 + '\n')
     result = subprocess.run(['awk', program, str(reads)], capture_output=True, text=True)
@@ -100,7 +101,7 @@ def test_counts_perfect_alignments_and_every_name_a_read_overlaps(tmp_path):
         record('5-3', 4, 'GGGGGGGGGGGGGGGGGG', '', '__not_aligned'),
         record('6-2', 16, MIR21, '22', 'mmu-miR-21a-5p'),                         # minus strand: the read as sequenced
     ])
-    mature, isomir, aligned, counted = htseq_counts.count('mmu', path)
+    mature, isomir, aligned, counted = biocore_htseq_counts.count('mmu', path)
     assert mature == {'mmu-miR-21a-5p': 102, 'mmu-miR-194-5p': 40, 'mmu-miR-x-5p': 40, 'mmu-miR-y-5p': 40}
     reverse = MIR21[::-1].translate(str.maketrans('ACGT', 'TGCA'))
     assert isomir['mmu-miR-21a-5p_' + MIR21] == 100 and isomir['mmu-miR-21a-5p_' + reverse] == 2
@@ -108,7 +109,7 @@ def test_counts_perfect_alignments_and_every_name_a_read_overlaps(tmp_path):
 
 
 def test_perfect_alignment_test_is_the_pipelines_md_pattern():
-    perfect = lambda md: bool(htseq_counts.PERFECT.search('x\tMD:Z:{}\tYT:Z:UU'.format(md)))
+    perfect = lambda md: bool(biocore_htseq_counts.PERFECT.search('x\tMD:Z:{}\tYT:Z:UU'.format(md)))
     assert perfect('22') and perfect('9') and perfect('15')
     assert not perfect('0A21') and not perfect('10A11') and not perfect('100')
     assert perfect('21^A1')  # the pattern reads only the first run of matches: a deletion after it passes, as in the pipeline
@@ -136,7 +137,7 @@ def test_count_command_writes_tables_and_stats(tmp_path):
 ])
 def test_count_stops_on_records_it_cannot_read(tmp_path, line, message):
     with pytest.raises(SystemExit, match=message):
-        htseq_counts.count('mmu', annotated(tmp_path, [line]))
+        biocore_htseq_counts.count('mmu', annotated(tmp_path, [line]))
 
 
 def test_join_fills_missing_mirnas_with_zero(tmp_path):

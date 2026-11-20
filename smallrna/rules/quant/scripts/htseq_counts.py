@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Counts of the htseq route (smallrna quant.method: htseq, #425), the genome counter of an earlier in-house small-RNA
+"""Counts of the biocore_htseq route (smallrna quant.method: biocore_htseq, #425), the genome counter of an earlier in-house small-RNA
 pipeline, from htseq-count's annotated alignments.
 
 count: one sample, counted as the pipeline counted:

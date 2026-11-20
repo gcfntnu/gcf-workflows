@@ -5,7 +5,7 @@ kind: pool
 pool: equimolar
 organism: homo_sapiens
 libprepkit: Bioo Scientific NEXTflex Small RNA-Seq Kit v3
-methods: [unitas, mirge3, mirflowz, tesmall, smrnaseq, htseq, miraligner]
+methods: [unitas, mirge3, mirflowz, tesmall, smrnaseq, biocore_htseq, biocore_miraligner]
 data: benchmark/smallrna/giraldez2018   # relative to EXT_DIR
 composition:
   file: FINAL_Equimolar_pool_SynthRNA_1152-1.csv

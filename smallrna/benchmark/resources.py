@@ -18,7 +18,7 @@ that job's current output. After a partial rerun a method's jobs can therefore c
 different machines; a benchmark project quantified from scratch has them from one run.
 
 The shared reference builds under EXT_DIR (gcfdb/mirflowz.db's mirflowz_prepare, gcfdb/tesmall.db's tesmall_genome
-and tesmall_db, gcfdb/htseq.db's htseq_bowtie2_index, gcfdb/miraligner.db's miraligner_db) are not reported here: their
+and tesmall_db, gcfdb/biocore_htseq.db's biocore_htseq_bowtie2_index, gcfdb/biocore_miraligner.db's biocore_miraligner_db) are not reported here: their
 benchmark files are in the reference they built (`<reference>/benchmarks/<rule>.tsv`), whichever project built it.
 """
 import csv
@@ -36,10 +36,11 @@ STEPS = {
     'smrnaseq': [('smrnaseq_hairpin', False, 'reference'), ('smrnaseq_hairpin_index', False, 'reference'),
                  ('smrnaseq_collapse', True, 'quant'), ('smrnaseq_align', True, 'quant'), ('smrnaseq_mirtop', True, 'quant'),
                  ('smrnaseq_counts', False, 'quant')],
-    'htseq': [('htseq_gff', False, 'reference'), ('htseq_collapse', True, 'quant'), ('htseq_align', True, 'quant'),
-              ('htseq_annotate', True, 'quant'), ('htseq_count', True, 'quant'), ('htseq_counts', False, 'quant')],
-    'miraligner': [('miraligner_collapse', True, 'quant'), ('miraligner_align', True, 'quant'), ('miraligner_count', True, 'quant'),
-                   ('miraligner_counts', False, 'quant')],
+    'biocore_htseq': [('biocore_htseq_gff', False, 'reference'), ('biocore_htseq_collapse', True, 'quant'),
+                      ('biocore_htseq_align', True, 'quant'), ('biocore_htseq_annotate', True, 'quant'),
+                      ('biocore_htseq_count', True, 'quant'), ('biocore_htseq_counts', False, 'quant')],
+    'biocore_miraligner': [('biocore_miraligner_collapse', True, 'quant'), ('biocore_miraligner_align', True, 'quant'),
+                           ('biocore_miraligner_count', True, 'quant'), ('biocore_miraligner_counts', False, 'quant')],
 }
 HEADER = ['method', 'kind', 'step', 'sample', 'wall_s', 'cpu_s', 'max_rss_mb']
 FIELDS = {'s': 'wall_s', 'cpu_time': 'cpu_s', 'max_rss': 'max_rss_mb'}

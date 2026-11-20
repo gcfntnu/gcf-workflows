@@ -119,7 +119,7 @@ def write_project(project, spec, ext_dir, samples, read_length, methods, mirflow
               'fastq_dir': 'data/raw/fastq',
               'quant': {'method': ','.join(methods), 'batch': {'method': 'skip'}},
               'samples': {s: {'R1': r1[s], 'R2': '', 'paired_end': 0, 'Sample_ID': s} for s in samples}}
-    if {'mirflowz', 'tesmall', 'tinyrna', 'htseq'} & set(methods) and mirflowz_reference:  # the routes on the mirflowz reference
+    if {'mirflowz', 'tesmall', 'tinyrna', 'biocore_htseq'} & set(methods) and mirflowz_reference:  # the routes on the mirflowz reference
         ref = mirflowz_reference
         config['db'] = {'mirflowz': {'custom': {'name': spec['reference']['name'], 'genome': str(ref / 'genome.fa.gz'),
                                                 'gtf': str(ref / 'genes.gtf.gz'), 'mirna_gff': str(ref / 'mirna.gff3')}}}
@@ -421,6 +421,10 @@ def check_methods(project, spec, config):
     samples scoring uses (column order free; a sample missing would be scored as zero), or, for datasets declaring a
     miRBase release (pools, biological), when the method annotated with another miRNA database or release than the one
     the truth and names come from (#407)."""
+    renamed = [m for m in spec['methods'] if m in adapters.RENAMED]
+    if renamed:
+        fail('the project names {} in benchmark/dataset.yaml, since renamed {} (#434): rerun those routes under the new names, '
+             'rename them in benchmark/dataset.yaml and evaluate again'.format(', '.join(renamed), ', '.join(adapters.RENAMED[m] for m in renamed)))
     quant = project / 'data/tmp/smallrna/quant'
     samples = scored_samples(spec, project / 'benchmark')
     configured = set(config.get('samples') or {})

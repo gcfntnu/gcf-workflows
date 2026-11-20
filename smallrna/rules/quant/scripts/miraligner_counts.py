@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Counts of the miraligner route (smallrna quant.method: miraligner, #426), from miraligner's `.mirna` output, as an
+"""Counts of the biocore_miraligner route (smallrna quant.method: biocore_miraligner, #426), from miraligner's `.mirna` output, as an
 earlier in-house small-RNA pipeline counted them.
 
 count: one sample. Each annotation row (a collapsed sequence annotated to a mature miRNA) is weighted

@@ -31,7 +31,7 @@ GFF3 that every consumer reads, `EXT_DIR/mirbase/<organism>/release-<release>/an
 (`sources/<code>.gff3`) corrected with the reviewed rows of
 [`tables/mirbase_gff_corrections.tsv`](tables/mirbase_gff_corrections.tsv) and checked by
 [`mirbase_gff_correct.py`](scripts/mirbase_gff_correct.py) ([#429](https://github.com/gcfntnu/gcf-workflows/issues/429)).
-Its consumers are UNITAS's annotation and `genes.tsv`, the genome routes, smrnaseq's mirtop and miraligner.
+Its consumers are UNITAS's annotation and `genes.tsv`, the genome routes, smrnaseq's mirtop and biocore_miraligner.
 
 - **Table rows:** each names a GFF3 row by ID, `Derives_from` and old position, and gives its new position, how it is
   checked and the reason. A row not found at that position stops the build, so a changed download or a stale table is
@@ -84,9 +84,9 @@ their identity, sources and checks.
   (`mirna.v<n>.gff3`; `<n>` is raised when the script's output changes, so an older GFF is rebuilt). A mature miRNA
   listed at one locus under several hairpins is one row with every parent; repeated IDs at other loci get a numeric
   suffix.
-- **htseq reference** ([`htseq.db`](htseq.db)): a Bowtie 2 index of TEsmall's genome FASTA, under
-  `EXT_DIR/htseq/<mirflowz reference>/genome/bowtie2/`; the route annotates with tiny-count's renamed miRBase GFF.
-- **miraligner database** ([`miraligner.db`](miraligner.db), [`miraligner_db.py`](scripts/miraligner_db.py)): the
+- **biocore_htseq reference** ([`biocore_htseq.db`](biocore_htseq.db)): a Bowtie 2 index of TEsmall's genome FASTA, under
+  `EXT_DIR/biocore_htseq/<mirflowz reference>/genome/bowtie2/`; the route annotates with tiny-count's renamed miRBase GFF.
+- **biocore_miraligner database** ([`biocore_miraligner.db`](biocore_miraligner.db), [`miraligner_db.py`](scripts/miraligner_db.py)): the
   organism's miRBase hairpins and a `miRNA.str` with each mature miRNA's position in its hairpin, where its sequence lies
   there, guided by the GFF3 (for miRBase 22 identical to miRBase's own file; miRBase serves none for 23.1). The record
   `miraligner_db.tsv` lists the rows whose GFF3 position disagrees with the sequences; with the corrected GFF3 (below),

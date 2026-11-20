@@ -1,6 +1,6 @@
 #-*- mode:snakemake -*-
 """The genome counter of an earlier in-house small-RNA pipeline, Bowtie 2 and htseq-count, as an optional quant_all
-route (quant.method: htseq, alone or combined, e.g. unitas,htseq; #425). Delivery (bfq_all, multiqc_report) does not
+route (quant.method: biocore_htseq, alone or combined, e.g. unitas,biocore_htseq; #425). Delivery (bfq_all, multiqc_report) does not
 use it.
 
 The pipeline's own trimming is replaced by the shared filtered reads, as for the other routes. Per sample:
@@ -23,39 +23,39 @@ tables. In union mode those only turn a miRNA hit into `__ambiguous[...]`, which
 counts do not depend on them; the route uses the miRBase features only, tiny-count's renamed GFF (gcfdb/tinyrna.db),
 without its rows that have no strand (`mirna.gff3`), which htseq-count's stranded mode cannot place and stops on. The
 corrected miRBase GFF3 has none (gcfdb/mirbase.db, #429); a custom reference (`db.mirflowz.custom`) may. The genome's
-Bowtie 2 index is gcfdb/htseq.db.
+Bowtie 2 index is gcfdb/biocore_htseq.db.
 """
 
 include:
-    join(GCFDB_DIR, 'htseq.db')
+    join(GCFDB_DIR, 'biocore_htseq.db')
 
-HTSEQ_OUT = join(QUANT_INTERIM, 'htseq')
+BIOCORE_HTSEQ_OUT = join(QUANT_INTERIM, 'biocore_htseq')
 
 
-rule htseq_gff:
+rule biocore_htseq_gff:
     input:
         rules.tinyrna_gff.output.gff
     output:
-        join(HTSEQ_OUT, 'mirna.gff3')
+        join(BIOCORE_HTSEQ_OUT, 'mirna.gff3')
     params:
         script = src_gcf('scripts/htseq_counts.py')
     benchmark:
-        join(QUANT_BENCHMARKS, 'htseq_gff.tsv')
+        join(QUANT_BENCHMARKS, 'biocore_htseq_gff.tsv')
     container:
         'docker://' + config['docker']['default']
     shell:
         'python {params.script:q} gff --input {input:q} > {output:q}'
 
 
-rule htseq_collapse:
+rule biocore_htseq_collapse:
     input:
         fastq = lambda wildcards: get_filtered_fastq(wildcards)['R1']
     output:
-        join(HTSEQ_OUT, '{sample}', 'collapsed.fa')
+        join(BIOCORE_HTSEQ_OUT, '{sample}', 'collapsed.fa')
     log:
-        join(HTSEQ_OUT, '{sample}', 'collapse.log')
+        join(BIOCORE_HTSEQ_OUT, '{sample}', 'collapse.log')
     benchmark:
-        join(QUANT_BENCHMARKS, 'htseq_collapse', '{sample}.tsv')
+        join(QUANT_BENCHMARKS, 'biocore_htseq_collapse', '{sample}.tsv')
     container:
         'docker://' + config['docker']['fastx_toolkit']
     shell:
@@ -64,45 +64,45 @@ rule htseq_collapse:
         'else : > {output:q}; echo "no filtered reads" > {log:q}; fi'
 
 
-rule htseq_align:
+rule biocore_htseq_align:
     input:
-        reads = rules.htseq_collapse.output,
-        index = rules.htseq_bowtie2_index.output
+        reads = rules.biocore_htseq_collapse.output,
+        index = rules.biocore_htseq_bowtie2_index.output
     output:
-        join(HTSEQ_OUT, '{sample}', 'alignments.sam.gz')
+        join(BIOCORE_HTSEQ_OUT, '{sample}', 'alignments.sam.gz')
     params:
-        index = HTSEQ_INDEX
+        index = BIOCORE_HTSEQ_INDEX
     threads:
         4
     resources:
         # Bowtie 2 holds the genome index in memory, about 3.5 GB for the human genome.
         mem_mb = 5000
     log:
-        join(HTSEQ_OUT, '{sample}', 'bowtie2.log')
+        join(BIOCORE_HTSEQ_OUT, '{sample}', 'bowtie2.log')
     benchmark:
-        join(QUANT_BENCHMARKS, 'htseq_align', '{sample}.tsv')
+        join(QUANT_BENCHMARKS, 'biocore_htseq_align', '{sample}.tsv')
     container:
-        'docker://' + config['docker']['htseq_bowtie2']
+        'docker://' + config['docker']['biocore_htseq_bowtie2']
     shell:
         # fastx_collapser writes each sequence on one line after its name.
         "awk 'NR % 2 == 1 {{name = $0; next}} length($0) >= 15 {{print name; print}}' {input.reads:q} | "
         'bowtie2 -p {threads} -k 10 -f -x {params.index:q} -U - 2> {log:q} | gzip > {output:q}'
 
 
-rule htseq_annotate:
+rule biocore_htseq_annotate:
     input:
-        alignments = rules.htseq_align.output,
-        gff = rules.htseq_gff.output
+        alignments = rules.biocore_htseq_align.output,
+        gff = rules.biocore_htseq_gff.output
     output:
-        join(HTSEQ_OUT, '{sample}', 'annotated.sam.gz')
+        join(BIOCORE_HTSEQ_OUT, '{sample}', 'annotated.sam.gz')
     params:
-        samout = join(HTSEQ_OUT, '{sample}', 'annotated.sam')
+        samout = join(BIOCORE_HTSEQ_OUT, '{sample}', 'annotated.sam')
     resources:
         mem_mb = 1000
     log:
-        join(HTSEQ_OUT, '{sample}', 'htseq-count.log')
+        join(BIOCORE_HTSEQ_OUT, '{sample}', 'htseq-count.log')
     benchmark:
-        join(QUANT_BENCHMARKS, 'htseq_annotate', '{sample}.tsv')
+        join(QUANT_BENCHMARKS, 'biocore_htseq_annotate', '{sample}.tsv')
     container:
         'docker://' + config['docker']['htseq']
     shell:
@@ -113,21 +113,21 @@ rule htseq_annotate:
         'gzip -f {params.samout:q}'
 
 
-rule htseq_count:
+rule biocore_htseq_count:
     input:
-        collapsed = rules.htseq_collapse.output,
-        annotated = rules.htseq_annotate.output
+        collapsed = rules.biocore_htseq_collapse.output,
+        annotated = rules.biocore_htseq_annotate.output
     output:
-        mature = join(HTSEQ_OUT, '{sample}', 'mature.tsv'),
-        isomir = join(HTSEQ_OUT, '{sample}', 'isomir.tsv'),
-        stats = join(HTSEQ_OUT, '{sample}', 'stats.tsv')
+        mature = join(BIOCORE_HTSEQ_OUT, '{sample}', 'mature.tsv'),
+        isomir = join(BIOCORE_HTSEQ_OUT, '{sample}', 'isomir.tsv'),
+        stats = join(BIOCORE_HTSEQ_OUT, '{sample}', 'stats.tsv')
     params:
         script = src_gcf('scripts/htseq_counts.py'),
         species = MIR_ORG.get(ORG, '')
     resources:
         mem_mb = 1000
     benchmark:
-        join(QUANT_BENCHMARKS, 'htseq_count', '{sample}.tsv')
+        join(QUANT_BENCHMARKS, 'biocore_htseq_count', '{sample}.tsv')
     container:
         'docker://' + config['docker']['default']
     shell:
@@ -135,23 +135,23 @@ rule htseq_count:
         '--annotated {input.annotated:q} --mature {output.mature:q} --isomir {output.isomir:q} --stats {output.stats:q}'
 
 
-rule htseq_counts:
+rule biocore_htseq_counts:
     input:
-        expand(rules.htseq_count.output.mature, sample=SAMPLES)
+        expand(rules.biocore_htseq_count.output.mature, sample=SAMPLES)
     output:
-        join(HTSEQ_OUT, 'htseq_counts.tsv')
+        join(BIOCORE_HTSEQ_OUT, 'htseq_counts.tsv')
     params:
         script = src_gcf('scripts/htseq_counts.py'),
         samples = SAMPLES
     benchmark:
-        join(QUANT_BENCHMARKS, 'htseq_counts.tsv')
+        join(QUANT_BENCHMARKS, 'biocore_htseq_counts.tsv')
     container:
         'docker://' + config['docker']['default']
     shell:
         'python {params.script:q} join --samples {params.samples:q} --tables {input:q} > {output:q}'
 
 
-rule htseq_all:
+rule biocore_htseq_all:
     input:
-        rules.htseq_counts.output,
-        expand(rules.htseq_count.output, sample=SAMPLES)
+        rules.biocore_htseq_counts.output,
+        expand(rules.biocore_htseq_count.output, sample=SAMPLES)
