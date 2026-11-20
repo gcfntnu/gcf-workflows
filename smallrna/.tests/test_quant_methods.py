@@ -352,3 +352,17 @@ def test_route_steps_write_the_benchmark_files_the_benchmark_reads(tmp_path):
     assert declared['tesmall_db'] == {reference.format('tesmall') + '/unitas-20-11-2026/benchmarks/tesmall_db.tsv'}
     assert declared['biocore_htseq_bowtie2_index'] == {reference.format('biocore_htseq') + '/benchmarks/biocore_htseq_bowtie2_index.tsv'}
     assert declared['biocore_miraligner_db'] == {'data/ext/biocore_miraligner/mirbase-23.1/mus_musculus/db.v1/benchmarks/biocore_miraligner_db.tsv'}
+
+
+# Peak memory (MB) per job measured with the benchmark files on public plasma, GSE317995 at full depth (six samples,
+# 8-18M filtered reads each; #386). Each rule declares at least this, so --resources mem_mb caps parallel jobs.
+MEASURED_PEAK_MB = {'unitas': 4012, 'mirge3_quant': 15550, 'tesmall_quant': 6553, 'tinyrna_align': 5751,
+                    'tinyrna_count': 1471, 'smrnaseq_collapse': 646}
+
+
+def test_heavy_quant_rules_declare_at_least_their_measured_memory(tmp_path):
+    returncode, output = dry_run(tmp_path, 'unitas,mirge3,tesmall,tinyrna,smrnaseq')
+    assert returncode == 0, output
+    for rule, peak in MEASURED_PEAK_MB.items():
+        declared = re.search(r'mem_mb=(\d+)', rule_block(output, rule))
+        assert declared and int(declared.group(1)) >= peak, (rule, declared and declared.group(0), peak)

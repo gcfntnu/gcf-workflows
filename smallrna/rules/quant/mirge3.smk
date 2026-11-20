@@ -113,6 +113,11 @@ rule mirge3_quant:
                             'spikein.tsv', 'reference.tsv', 'miR.Counts.mirge3.csv', 'unmapped.fasta'))
     threads:
         8
+    resources:
+        # One job for all samples: peak 15.6 GB for 6 samples with 74M filtered reads in all,
+        # measured on public plasma (GSE317995, 8-18M filtered reads per sample; #386).
+        # It grows with the project's unique sequences; give a larger project more with --set-resources mirge3_quant:mem_mb=<MB>.
+        mem_mb = 24000
     benchmark:
         join(QUANT_BENCHMARKS, 'mirge3_quant.tsv')
     container:

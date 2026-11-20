@@ -57,6 +57,9 @@ rule tesmall_quant:
         script = src_gcf('scripts/tesmall_check.py')
     threads:
         1
+    resources:
+        # Peak 6.6 GB per sample, measured on public plasma (GSE317995, 8-18M filtered reads per sample; #386).
+        mem_mb = 10000
     log:
         join(TESMALL_OUT, '{sample}', 'tesmall.log')
     benchmark:

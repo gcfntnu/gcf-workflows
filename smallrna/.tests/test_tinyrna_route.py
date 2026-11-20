@@ -38,7 +38,7 @@ def test_route_plans_reference_and_counting_and_delivery_stays_on_unitas(tmp_pat
     align = rule_block(output, 'tinyrna_align')
     assert '-v 0 --all --best --strata --no-unal --sam --seed 0' in align and '| samtools view -b --no-PG' in align
     assert '--reorder' not in align and ' -p ' not in align   # one thread: --reorder with threads deadlocks Bowtie 1.3.1
-    assert 'mem_mb=2000' in align.replace(' ', '')             # the index in memory, so --resources caps parallel jobs
+    assert 'mem_mb=8000' in align.replace(' ', '')             # the index in memory, so --resources caps parallel jobs
     assert 'bowtie -x {}/bowtie_index/genome -f {}/SR0'.format(GENOME, OUT) in align
     count = rule_block(output, 'tinyrna_count')
     assert '--gff data/ext/tinyrna/mirbase-23.1_ensembl-116/mus_musculus/mirna.v2.gff3 --features {}/features.csv'.format(OUT) in count
