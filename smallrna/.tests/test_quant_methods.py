@@ -52,7 +52,8 @@ def record_as_done(tmp_path, *files):
 
 @pytest.mark.parametrize('method, rule', [('unitas', 'unitas_mirtable'), ('mirge3', 'mirge3_quant'),
                                           ('unitas,mirge3', 'mirge3_quant'), ('mirflowz', 'mirflowz_quant'),
-                                          ('unitas,mirflowz', 'mirflowz_quant')])
+                                          ('unitas,mirflowz', 'mirflowz_quant'), ('htseq', 'htseq_count'),
+                                          ('unitas,htseq', 'htseq_count')])
 def test_supported_methods_plan_their_quantifier(tmp_path, method, rule):
     returncode, output = dry_run(tmp_path, method)
     assert returncode == 0, output
@@ -280,15 +281,15 @@ def test_mirge3_counts_are_made_from_its_mapped_reads(tmp_path, db, name):
 
 
 def test_recorded_routes_write_their_mirbase_release_and_table_checksum(tmp_path):
-    """quant/<route>/reference.tsv for mirflowz, TEsmall, tiny-count and nf-core/smrnaseq (#407), written after the
-    route's count table with its SHA-256: db.mirbase.release, the mirflowz reference or gcfdb's miRBase files; NA for a
-    db.mirflowz.custom reference; UNITAS and miRge3 write their own."""
-    returncode, output = dry_run(tmp_path, 'unitas,mirflowz,tesmall,tinyrna,smrnaseq', printshell=True)
+    """quant/<route>/reference.tsv for mirflowz, TEsmall, tiny-count, nf-core/smrnaseq and htseq (#407), written after
+    the route's count table with its SHA-256: db.mirbase.release, the mirflowz reference or gcfdb's miRBase files; NA for
+    a db.mirflowz.custom reference; UNITAS and miRge3 write their own."""
+    returncode, output = dry_run(tmp_path, 'unitas,mirflowz,tesmall,tinyrna,smrnaseq,htseq', printshell=True)
     assert returncode == 0, output
     blocks = {re.search(r'output: data/tmp/smallrna/quant/(\w+)/reference.tsv', b).group(1): b for b in output.split('rule quant_reference:')[1:]}
-    assert sorted(blocks) == ['mirflowz', 'smrnaseq', 'tesmall', 'tinyrna']
+    assert sorted(blocks) == ['htseq', 'mirflowz', 'smrnaseq', 'tesmall', 'tinyrna']
     tables = {'mirflowz': 'mirflowz/all_mirna_counts.tab', 'tesmall': 'tesmall/tesmall_counts.tsv',
-              'tinyrna': 'tinyrna/tinyrna_counts.tsv', 'smrnaseq': 'smrnaseq/mirna.tsv'}
+              'tinyrna': 'tinyrna/tinyrna_counts.tsv', 'smrnaseq': 'smrnaseq/mirna.tsv', 'htseq': 'htseq/htseq_counts.tsv'}
     for route, block in blocks.items():
         table = f'data/tmp/smallrna/quant/{tables[route]}'
         assert f'input: {table}' in block  # written after its count table
@@ -334,3 +335,4 @@ def test_route_steps_write_the_benchmark_files_the_benchmark_reads(tmp_path):
     assert declared['mirflowz_prepare'] == {reference.format('mirflowz') + '/benchmarks/mirflowz_prepare.tsv'}
     assert declared['tesmall_genome'] == {reference.format('tesmall') + '/benchmarks/tesmall_genome.tsv'}
     assert declared['tesmall_db'] == {reference.format('tesmall') + '/unitas-05-11-2026/benchmarks/tesmall_db.tsv'}
+    assert declared['htseq_bowtie2_index'] == {reference.format('htseq') + '/benchmarks/htseq_bowtie2_index.tsv'}
