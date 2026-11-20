@@ -6,6 +6,10 @@ QUANT_SELECTED = [m.strip() for m in str(config['quant']['method']).split(',')]
 # reference (gcfdb/mirflowz.db), and tiny-count uses TEsmall's genome index (gcfdb/tesmall.db).
 TESMALL_SELECTED = 'tesmall' in QUANT_SELECTED
 TINYRNA_SELECTED = 'tinyrna' in QUANT_SELECTED
+# Snakemake benchmark files of the routes' rules (runtime and memory, read by the benchmark's evaluate, #386):
+# <rule>/<sample>.tsv per sample, <rule>.tsv per project. The shared reference builds of gcfdb/mirflowz.db and
+# gcfdb/tesmall.db write theirs in the reference they built (<reference>/benchmarks/<rule>.tsv), not here.
+QUANT_BENCHMARKS = join(QUANT_INTERIM, 'benchmarks')
 
 include:
     'quant/mirge3.smk'

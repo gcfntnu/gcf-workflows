@@ -51,6 +51,7 @@ import fill as filler  # noqa: E402
 import genome_metrics  # noqa: E402
 import metrics  # noqa: E402
 import pool  # noqa: E402
+import resources  # noqa: E402
 import summary as summarizer  # noqa: E402
 import uncertainty  # noqa: E402
 import synthetic  # noqa: E402
@@ -367,6 +368,23 @@ def bootstrap(args, point, compute, draw, rows, keys, units):
     return extra, record, uncertainty.report_lines(ci, differences, rows, keys, units, n, seed, skipped)
 
 
+def run_resources(project, bench, spec, reads):
+    """(resources.tsv text, report lines) of the methods' runtime and memory (resources.py, #386); a malformed benchmark
+    file stops the evaluation."""
+    try:
+        return resources.summarize(project / 'data/tmp/smallrna/quant', spec['methods'], sorted(scored_samples(spec, bench)), reads)
+    except ValueError as error:
+        fail(str(error))
+
+
+def publish(project, bench, spec, header, rows, lines, extra, record):
+    """evaluation.publish with the run's reads processed, and the methods' runtime and memory as a last report section
+    and resources.tsv."""
+    reads = run_reads(project)
+    text, resource_lines = run_resources(project, bench, spec, reads)
+    evaluation.publish(bench, header, rows, lines + resource_lines, reads, {**extra, 'resources.tsv': text}, record)
+
+
 def nonnegative(text):
     value = int(text)
     if value < 0:
@@ -451,6 +469,7 @@ def evaluate(args):
     config = yaml.safe_load((project / 'config.yaml').read_text())
     ext_dir = Path(config['ext_dir'])
     check_methods(project, spec, config)
+    run_resources(project, bench, spec, None)  # benchmark files checked before any scoring table is written
     if spec['kind'] == 'pool':
         return evaluate_pool(args, project, bench, spec, ext_dir)
     if spec['kind'] == 'biological':
@@ -507,7 +526,7 @@ def evaluate(args):
         args, summary, lambda keys: metrics.truth_scores(table, truth, methods, keys),
         lambda rng: ([key for m in uncertainty.resample(rng, mirnas) for key in by_mirna[m]],), methods, ['recovered', 'exact'],
         'the truth miRNAs, each with all its samples (`misassigned` and `unplaced` are totals, without an interval)')
-    evaluation.publish(bench, ['metric'] + methods, metric_rows, lines + ci_lines, run_reads(project), extra, record)
+    publish(project, bench, spec, ['metric'] + methods, metric_rows, lines + ci_lines, extra, record)
     print(bench / 'report.md')
 
 
@@ -734,7 +753,7 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
                             uncertainty.resample_groups(rng, list(sample_groups.items())))
         units = 'the scored pool sequences (exact and shifted) and the runs within each pool (A, B)'
     extra, record, ci_lines = bootstrap(args, summary, compute, draw, rows, keys, units)
-    evaluation.publish(bench, ['metric'] + rows, metric_rows, lines + ci_lines, run_reads(project), extra, record)
+    publish(project, bench, spec, ['metric'] + rows, metric_rows, lines + ci_lines, extra, record)
     print(bench / 'report.md')
 
 
@@ -879,7 +898,7 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
                      uncertainty.resample(rng, ev.dev_units)),
         rows, GENOME_CI_KEYS, 'the miRNAs (each with all mixed samples), the near-identical pairs, the miRNAs any row tests for DE '
         'and the deviation miRNAs (DE calls made once; unplaced, structure, coexpression and probes without an interval)')
-    evaluation.publish(bench, ['metric'] + rows, metric_rows, lines + ci_lines, run_reads(project), extra, record)
+    publish(project, bench, spec, ['metric'] + rows, metric_rows, lines + ci_lines, extra, record)
     print(bench / 'report.md')
 
 
@@ -1004,7 +1023,7 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
                                         [k for k in keys if k != 'detected_all_samples'],
                                         '{} (`detected_all_samples` without an interval: a resample repeating a sample has fewer '
                                         'distinct samples)'.format('the libraries, each with all its lanes' if lane_mode else 'the samples'))
-    evaluation.publish(bench, ['metric'] + methods, metric_rows, lines + ci_lines, run_reads(project), extra, record)
+    publish(project, bench, spec, ['metric'] + methods, metric_rows, lines + ci_lines, extra, record)
     print(bench / 'report.md')
 
 

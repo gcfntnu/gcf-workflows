@@ -149,6 +149,8 @@ rule mirflowz_prepare:
         16
     resources:
         mem_mb = MIRFLOWZ_MEM_GB * 1024
+    benchmark:
+        join(MIRFLOWZ_REF, 'benchmarks', 'mirflowz_prepare.tsv')
     container:
         'docker://' + config['docker']['mirflowz']
     shell:

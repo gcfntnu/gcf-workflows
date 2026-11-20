@@ -111,6 +111,8 @@ rule tesmall_genome:
         prefix = join(TESMALL_GENOME, 'bowtie_index', 'genome')
     threads:
         16
+    benchmark:
+        join(TESMALL_REF, 'benchmarks', 'tesmall_genome.tsv')
     container:
         'docker://' + config['docker']['tesmall']
     shell:
@@ -164,6 +166,8 @@ rule tesmall_db:
             'ensembl={}'.format(MIRFLOWZ_RELEASE), 'assembly={}'.format(MIRFLOWZ_ASSEMBLY or 'NA'),
             'gtrnadb={}'.format(TESMALL_GTRNADB.get(ORG, ('NA',))[0]), 'rmsk={}'.format(TESMALL_RMSK.get(ORG, 'NA')),
             'rdna={}'.format(TESMALL_RDNA.get(ORG, 'NA')), 'unitas_dump={}'.format(UNITAS_RELEASE)))
+    benchmark:
+        join(TESMALL_DUMP_REF, 'benchmarks', 'tesmall_db.tsv')
     container:
         'docker://' + config['docker']['tesmall']
     shell:

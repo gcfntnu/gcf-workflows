@@ -65,6 +65,8 @@ rule tinyrna_features:
         # Each setting is one shell word, so the script validates the project value as written.
         args = '--offsets={} --extension {} --length {} --strand {}'.format(*(shlex.quote(str(TINYRNA_CONF[key])) for key in (
             'five_prime_offsets', 'three_prime_extension', 'length', 'strand')))
+    benchmark:
+        join(QUANT_BENCHMARKS, 'tinyrna_features.tsv')
     container:
         'docker://' + config['docker']['tiny-count']
     shell:
@@ -78,6 +80,8 @@ rule tinyrna_collapse:
         join(TINYRNA_OUT, '{sample}', '{sample}_collapsed.fa')
     params:
         prefix = join(TINYRNA_OUT, '{sample}', '{sample}')
+    benchmark:
+        join(QUANT_BENCHMARKS, 'tinyrna_collapse', '{sample}.tsv')
     container:
         'docker://' + config['docker']['tiny-count']
     shell:
@@ -104,6 +108,8 @@ rule tinyrna_align:
         mem_mb = 2000
     log:
         join(TINYRNA_OUT, '{sample}', 'bowtie.log')
+    benchmark:
+        join(QUANT_BENCHMARKS, 'tinyrna_align', '{sample}.tsv')
     container:
         'docker://' + config['docker']['tiny-count']
     shell:
@@ -131,6 +137,8 @@ rule tinyrna_count:
         normalize = tinyrna_normalize
     threads:
         1
+    benchmark:
+        join(QUANT_BENCHMARKS, 'tinyrna_count', '{sample}.tsv')
     container:
         'docker://' + config['docker']['tiny-count']
     shell:
@@ -146,6 +154,8 @@ rule tinyrna_counts:
     params:
         script = src_gcf('scripts/tinyrna.py'),
         samples = SAMPLES
+    benchmark:
+        join(QUANT_BENCHMARKS, 'tinyrna_counts.tsv')
     container:
         'docker://' + config['docker']['default']
     shell:

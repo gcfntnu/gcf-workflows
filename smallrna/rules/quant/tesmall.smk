@@ -59,6 +59,8 @@ rule tesmall_quant:
         1
     log:
         join(TESMALL_OUT, '{sample}', 'tesmall.log')
+    benchmark:
+        join(QUANT_BENCHMARKS, 'tesmall_quant', '{sample}.tsv')
     container:
         'docker://' + config['docker']['tesmall']
     shell:
@@ -79,6 +81,8 @@ rule tesmall_counts:
     params:
         script = src_gcf('scripts/tesmall_counts.py'),
         samples = ' '.join(SAMPLES)
+    benchmark:
+        join(QUANT_BENCHMARKS, 'tesmall_counts.tsv')
     container:
         'docker://' + config['docker']['default']
     shell:

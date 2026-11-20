@@ -51,6 +51,24 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    interval: the synthetic totals `misassigned` and `unplaced`, and biological `detected_all_samples`, which a
    resample repeating a sample biases upwards. With few samples (e.g. 6 in GSE317995) the sample part of the interval
    is approximate.
+   The last section of `report.md` is each method's runtime and memory (#386, `resources.py`), from the Snakemake
+   benchmark files its rules write under `quant/benchmarks/`. Per method:
+   - the wall time and CPU time of its quantification jobs, summed;
+   - the largest job's peak memory;
+   - the run's input reads per second of summed wall time.
+
+   Reference steps built in the project, such as smrnaseq's hairpin index, are listed apart. Shared builds under
+   `EXT_DIR` (the mirflowz reference, TEsmall's genome index and database) are not in the report: each records its
+   build in its own folder, as `<reference>/benchmarks/<rule>.tsv`.
+   Every job is in `resources.tsv`, which is listed in `evaluation.json`. A method run before #386, or with a step's
+   file missing, is reported as not measured. `evaluate` checks the benchmark files before it writes anything.
+   Snakemake rewrites a job's benchmark file whenever the job runs, so each file describes the run that made that
+   job's current output. After a partial rerun a method's jobs can come from different runs, possibly on different
+   machines; quantify a benchmark project from scratch to measure it in one run. The numbers depend on the machine, its storage and the cores and memory
+   the run was given.
+   The wall time is exact, I/O waits included. Snakemake samples memory and CPU every 30 s after a job's first 15 s,
+   so short memory peaks can be missed. CPU time is a lower bound: a route that starts many short processes is
+   undercounted most (mirflowz: 12 s recorded, 45 s measured with `/usr/bin/time`).
 5. **Summary.** `benchmark.py summary` reads several evaluated projects and writes one overview, a Markdown file or a
    single self-contained HTML file (no external resources), by the output's extension:
 

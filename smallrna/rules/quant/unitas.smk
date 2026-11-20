@@ -69,6 +69,8 @@ rule unitas:
         2
     log:
         join(QUANT_INTERIM, 'unitas', 'logs', '{sample}.log')
+    benchmark:
+        join(QUANT_BENCHMARKS, 'unitas', '{sample}.tsv')
     container:
         'docker://' + config['docker']['unitas']
     shell:
@@ -93,6 +95,8 @@ rule unitas_mirtable:
         script = src_gcf('scripts/unitas_mirtable.py')
     output:
         counts = join(QUANT_INTERIM, 'unitas', 'mir_counts.tsv')
+    benchmark:
+        join(QUANT_BENCHMARKS, 'unitas_mirtable.tsv')
     shell:
         'python {params.script} {input} > {output}'
         
