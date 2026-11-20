@@ -146,9 +146,10 @@ rule tinyrna_align:
     threads:
         1
     resources:
-        # Bowtie holds the genome index in memory: about 1.5 GB for the human genome; --resources mem_mb caps the
-        # alignments run at once, which one thread each would otherwise allow per core.
-        mem_mb = 2000
+        # Bowtie holds the genome index in memory: peak 5.8 GB per sample on the human genome,
+        # measured on public plasma (GSE317995, 8-18M filtered reads per sample; #386).
+        # --resources mem_mb caps the alignments run at once, which one thread each would otherwise allow per core.
+        mem_mb = 8000
     log:
         join(TINYRNA_OUT, '{sample}', 'bowtie.log')
     benchmark:
@@ -180,6 +181,9 @@ rule tinyrna_count:
         normalize = tinyrna_normalize
     threads:
         1
+    resources:
+        # Peak 1.5 GB per sample, measured on public plasma (GSE317995, 8-18M filtered reads per sample; #386).
+        mem_mb = 2500
     benchmark:
         join(QUANT_BENCHMARKS, 'tinyrna_count', '{sample}.tsv')
     container:

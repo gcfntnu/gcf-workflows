@@ -84,6 +84,9 @@ rule smrnaseq_collapse:
         join(SMRNASEQ_OUT, 'collapsed', '{sample}.fastq')
     params:
         work = join(SMRNASEQ_OUT, 'collapsed', '{sample}.work')
+    resources:
+        # Peak 0.65 GB per sample, measured on public plasma (GSE317995, 8-18M filtered reads per sample; #386).
+        mem_mb = 1500
     log:
         join(SMRNASEQ_OUT, 'collapsed', '{sample}.log')
     benchmark:

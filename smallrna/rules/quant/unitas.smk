@@ -75,6 +75,9 @@ rule unitas:
         args = unitas_args
     threads:
         2
+    resources:
+        # Peak 4.0 GB per sample, measured on public plasma (GSE317995, 8-18M filtered reads per sample; #386); it grows with a sample's unique sequences.
+        mem_mb = 6000
     log:
         join(QUANT_INTERIM, 'unitas', 'logs', '{sample}.log')
     benchmark:
