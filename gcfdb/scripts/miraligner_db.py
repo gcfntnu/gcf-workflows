@@ -16,12 +16,13 @@ the expected offset (from the hairpin's 5' end on its strand):
   23 nt at mmu-mir-19b-1);
 - otherwise the mature miRNA is left out of that hairpin.
 
-miRBase 22 places every human mature miRNA at its GFF offset, and those positions equal its own miRNA.str. miRBase
-23.1's GFF3 disagrees with its sequences for a few rows per species (e.g. mmu-miR-26a-5p one nt short at mmu-mir-26a-2,
-rows outside their hairpin, hairpins without a strand); every position not taken from the GFF offset, and every mature
-miRNA left out, is listed in the record. A mature miRNA whose hairpin or sequence is missing from the FASTA files, or
-that gets two positions in one hairpin, stops. The energy is not computed (`(0.00)`); miraligner does not read it, nor
-the structure lines, which are not written.
+miRBase 22 places every human mature miRNA at its GFF offset, and those positions equal its own miRNA.str. The GFF3
+is gcfdb's corrected file (gcfdb/mirbase.db, #429); miRBase 23.1's own disagrees with its sequences for some rows per
+species (e.g. mmu-miR-26a-5p one nt short at mmu-mir-26a-2, hairpin rows covering only the stem, rows without a
+strand). Every position not taken from the GFF offset, and every mature miRNA left out, is listed in the record.
+A mature miRNA whose hairpin or sequence is missing from the FASTA files, or that gets two positions in one hairpin,
+stops. The energy is not computed (`(0.00)`); miraligner does not read it, nor the structure lines, which are not
+written.
 
 Hairpins in hairpin.fa without GFF rows have no mature positions; they are written to hairpin.fa only (reads there are
 annotated to no mature miRNA) and listed in the record.

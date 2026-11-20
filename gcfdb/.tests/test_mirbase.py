@@ -89,6 +89,11 @@ class MirbaseRuleTests(unittest.TestCase):
                 self.assertNotIn('miRNA.str', output)
                 self.assertIn(f"miRBase v{release}$'", output)
                 self.assertEqual(output.count('mirbase_species_fasta.py --species hsa -'), 2)
+                # The GFF3 consumers read is miRBase's download corrected and checked (#429).
+                self.assertIn(f'release-{release}/sources/hsa.gff3', output)
+                self.assertIn('scripts/mirbase_gff_correct.py --gff ', output)
+                self.assertIn(f'--release {release} --organism homo_sapiens --table ', output)
+                self.assertIn('gcfdb/tables/mirbase_gff_corrections.tsv', output)
 
     def test_release_that_miRBase_does_not_serve_fails_at_load(self):
         for release in ('19', '23', 'CURRENT'):

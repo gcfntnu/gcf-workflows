@@ -24,6 +24,38 @@ references and everything downstream rerun when a workflow was resumed on a late
 day ([#330](https://github.com/gcfntnu/gcf-workflows/issues/330)).
 `.tests/test_rule_param_dates.py` checks that no rule's `params` reads the clock.
 
+### miRBase GFF3 correction
+
+[`mirbase.db`](mirbase.db) downloads the hairpin and mature sequences and the genome GFF3 of `db.mirbase.release`. The
+GFF3 that every consumer reads, `EXT_DIR/mirbase/<organism>/release-<release>/anno/genes.gff3`, is miRBase's file
+(`sources/<code>.gff3`) corrected with the reviewed rows of
+[`tables/mirbase_gff_corrections.tsv`](tables/mirbase_gff_corrections.tsv) and checked by
+[`mirbase_gff_correct.py`](scripts/mirbase_gff_correct.py) ([#429](https://github.com/gcfntnu/gcf-workflows/issues/429)).
+Its consumers are UNITAS's annotation and `genes.tsv`, the genome routes, smrnaseq's mirtop and miraligner.
+
+- **Table rows:** each names a GFF3 row by ID, `Derives_from` and old position, and gives its new position, how it is
+  checked and the reason. A row not found at that position stops the build, so a changed download or a stale table is
+  noticed. So does a row moved onto another row of the same miRNA and hairpin, which would merge two loci.
+- **Check:** every row must agree with the release's sequences, or the build stops:
+  - a hairpin row has a strand and spans its hairpin sequence;
+  - a mature row lies where its sequence is in its hairpin;
+  - chromosome names use one style.
+
+  Two table levels relax this. `placement`, for a mature whose sequence differs from a paralogous hairpin, checks only
+  that the row lies in the hairpin, on its strand, with the sequence's length. `none`, for a reviewed anomaly, skips
+  the check.
+- **Record:** the applied rows go to `logs/gff_corrections.tsv`.
+
+**miRBase 23.1's corrections:**
+- hairpin rows that cover only the stem, with their matures placed from them; some of these rows have no strand;
+- hairpin rows not updated when release 23 changed the hairpin sequence;
+- mature rows away from their sequence;
+- in mouse, rows still on GRCm38 instead of GRCm39.
+
+The new positions are where the hairpin sequences lie exactly in GRCh38, GRCm39 and Rnor_6.0. Matures whose sequence
+differs from a paralogous hairpin are placed at their best match and checked for placement only. Releases 20, 21 and 22
+pass unchanged; 22 checks three rat rows for placement only, as their accession is missing from its `mature.fa`.
+
 ### Small-RNA quantifier references
 
 The smallrna quantification routes each use their own reference under `EXT_DIR`; the getter files' docstrings give
@@ -57,7 +89,8 @@ their identity, sources and checks.
 - **miraligner database** ([`miraligner.db`](miraligner.db), [`miraligner_db.py`](scripts/miraligner_db.py)): the
   organism's miRBase hairpins and a `miRNA.str` with each mature miRNA's position in its hairpin, where its sequence lies
   there, guided by the GFF3 (for miRBase 22 identical to miRBase's own file; miRBase serves none for 23.1). The record
-  `miraligner_db.tsv` lists the miRBase 23.1 rows whose GFF3 position disagrees with the sequences.
+  `miraligner_db.tsv` lists the rows whose GFF3 position disagrees with the sequences; with the corrected GFF3 (below),
+  those the correction checks for placement only or not at all.
 
 ### Langmead prebuilt Kraken databases
 
