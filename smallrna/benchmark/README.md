@@ -72,6 +72,23 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    The wall time is exact, I/O waits included. Snakemake samples memory and CPU every 30 s after a job's first 15 s,
    so short memory peaks can be missed. CPU time is a lower bound: a route that starts many short processes is
    undercounted most (mirflowz: 12 s recorded, 45 s measured with `/usr/bin/time`).
+
+   **Differential expression** (#414). For a ratiometric pool that declares `de:`, `evaluate` also writes the inputs
+   to `benchmark/de/input/`. `de.smk` tests them with edgeR and limma-voom (`de.R`, in the `sartools` image), and
+   `evaluate --de` adds the scores of their calls (Metrics, below):
+
+   ```bash
+   snakemake -s smallrna/benchmark/de.smk -d <project> --use-apptainer --cores 1
+   python smallrna/benchmark/benchmark.py evaluate --project <project> --de
+   ```
+
+   Run `de.smk` with the same container settings as the project's `quant_all`: the repository holding `de.R` must be
+   visible in the container. `de.R` fits copies of the inputs and records their MD5s, its own and that of the results
+   table it writes. `evaluate --de` stops before writing anything unless that record matches the current inputs, `de.R`
+   and the results table; after new counts, run `evaluate` without `--de` (it writes the current inputs), then
+   `de.smk`, which also reruns after a change to `de.R`. A project prepared before #414 enables it by adding its
+   dataset's `de:` to `benchmark/dataset.yaml`. The DE files are not listed in `evaluation.json`; the report gives the
+   results' SHA-256.
 5. **Summary.** `benchmark.py summary` reads several evaluated projects and writes one overview, a Markdown file or a
    single self-contained HTML file (no external resources), by the output's extension:
 
@@ -232,7 +249,7 @@ the best the design allows) as a column:
   average in its own counts, as an analysis of them would (`de_tested`), so reads spilled onto a relative of a DE miRNA
   can make a false call. Reported as `de_sensitivity`, `de_fdr` (calls on any miRNA not designed DE, absent ones
   included; the report lists them) and `de_fc_error` (median |observed - true log2 fold change| of the true DE
-  miRNAs). DESeq2 and edgeR are #414.
+  miRNAs). The ratiometric pools test edgeR and limma-voom (#414, Pools below).
 - **Structure:** `structure_group_r2` and `structure_nuisance_r2` (each true factor regressed on the top two principal
   components) and `coexpression` (agreement of the miRNA-miRNA correlations).
 - **Probe samples:** `probe_<class>`, the recovery of each read class, control subtracted. A generated read can still be
@@ -278,6 +295,22 @@ miRNA), `exact` (share of miRNAs counted exactly, to within 1e-6 for the fractio
   methods is quantification. The report also lists the median observed log2(A/B) per designed ratio. Over the
   `shifted` group, with a `shifted_` prefix, the same four, its sequences scaled by the `exact` group's counts and
   centred on its 1:1 sequences, so the `exact` results do not depend on them.
+- **Differential expression on the ratiometric pools** (#414; `de:` and `evaluate --de`). Each method's counts of the
+  scored `exact` sequences, rounded to whole numbers, are tested pool A against pool B with edgeR's exact test and
+  limma-voom. Library sizes are all the miRNA reads the method reported in a sample, the workflow's counts per million
+  (the oracle: its pool reads). There is no TMM and, unlike the metrics above, no centring, so an offset between the
+  pools stays in the fold changes. edgeR runs as the best configuration in the McCall lab's benchmark of miRNA-seq
+  normalisation and differential expression (Aparicio-Puerta et al., bioRxiv 2026, doi:10.64898/2026.05.08.723923):
+  a common dispersion and the exact test, so two groups without covariates. voom takes the declaration's covariates
+  (`de: {covariates: [lab]}`: `~ lab + group`). DESeq2 is left out: it did worst there. A call is a BH-adjusted p of at
+  most 0.05. Metrics, prefixed `edger_` and `voom_`: `called` (sequences designed at least 2-fold apart called in the
+  designed direction), `false_calls` (1:1 sequences called; a call on a sequence designed 1.5-fold apart is a true
+  one), `fdr` (the share of calls on 1:1 sequences or in the wrong direction), `fc_bias` (median of sign(d) × (log2
+  fold change − d), negative when fold changes are compressed) and `offset` (median log2 fold change of the 1:1
+  sequences). Their intervals resample the sequences on the fixed fits, on every draw: a draw without a 1:1 sequence
+  has no `offset` or `false_calls` but still scores the rest, while the metrics above skip it. The declaration must leave
+  the voom design residual degrees of freedom. The report gives the share called per designed fold change, and the
+  tools' versions.
 - **Filter route.** The same exact-match count of the pool sequences after each pass of the project's filter route
   (`filter_stages.tsv`): for cutadapt after the 3' adapter, the filter (random ends, 5' adapter, length, N, expected
   errors) and the artefact pass, for fastp after the adapter and the filter pass, then the spike-in prefilter with

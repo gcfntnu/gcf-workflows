@@ -1912,3 +1912,280 @@ def test_synthetic_bootstrap_scores_and_options():
     assert benchmark.nonnegative('0') == 0
     with pytest.raises(argparse.ArgumentTypeError, match='must be 0 or more'):
         benchmark.nonnegative('-5')
+
+
+# Differential expression on the ratiometric pools (#414): inputs, scores, the de.smk rule and evaluate --de.
+
+import de  # noqa: E402
+import hashlib  # noqa: E402
+import math  # noqa: E402
+
+DE_RUNS = {'A1': ('A', 'L1'), 'A2': ('A', 'L2'), 'B1': ('B', 'L1'), 'B2': ('B', 'L2')}
+ONE, EQUAL, TWENTY_ONE = 'TGGAATGTAAAGAAGTATGTAT', 'ACAGTAGTCTGCACATTGGTTA', 'TAGCTTATCAGACTGATGTTGA'
+
+
+def de_entries(*designs):
+    """Scored exact pool entries S0, S1, ... with designed amounts (a, b)."""
+    return [{'pool_id': 'S{}'.format(i), 'sequence': 'SEQ{}'.format(i), 'group': 'exact', 'mature_ids': ['MIMAT{:07d}'.format(i)],
+             'amount_a': a, 'amount_b': b} for i, (a, b) in enumerate(designs)]
+
+
+def test_de_inputs_use_the_workflow_library_sizes_and_whole_counts():
+    entries = de_entries((4, 1), (1, 1)) + [{'pool_id': 'SH', 'sequence': 'SEQSH', 'group': 'shifted', 'mature_ids': ['MIMAT9999999'],
+                                             'amount_a': 1, 'amount_b': 1}]
+    counts = {('m', 'A1', 'S0'): 0.5, ('m', 'A1', 'S1'): 1.5, ('m', 'B1', 'S0'): 2.5, ('m', 'B1', 'S1'): 3}
+    reads = {('m', 'A1'): {'all': 1234.5}, ('m', 'B1'): {'all': 100}}  # every miRNA read, outside the pool too
+    oracle = {'A1': {'SEQ0': 7, 'SEQ1': 2, 'SEQSH': 1, 'OTHER': 50}, 'B1': {'SEQ0': 1, 'SEQ1': 2, 'SEQSH': 0}}
+    sizes = de.library_sizes(reads, oracle, entries, ['oracle', 'm'], ['A1', 'B1'])
+    assert sizes == {('oracle', 'A1'): 10, ('oracle', 'B1'): 3, ('m', 'A1'): 1234.5, ('m', 'B1'): 100}  # oracle: exact + shifted reads
+    texts = de.input_tables(counts, oracle, entries, ['oracle', 'm'], [('A1', 'A', {'lab': 'L1'}), ('B1', 'B', {'lab': 'L2'})], sizes)
+    assert texts['counts.tsv'] == 'row\tpool_id\tA1\tB1\noracle\tS0\t7\t1\noracle\tS1\t2\t2\nm\tS0\t0\t2\nm\tS1\t2\t3\n'  # half to even
+    assert texts['library_sizes.tsv'] == 'row\tA1\tB1\noracle\t10\t3\nm\t1234.5\t100\n'
+    assert texts['design.tsv'] == 'sample\tgroup\tlab\nA1\tA\tL1\nB1\tB\tL2\n'
+
+
+def test_de_inputs_are_rewritten_only_when_changed(tmp_path):
+    folder = tmp_path / 'de/input'
+    de.write_inputs(folder, {'counts.tsv': 'a\n'})
+    os.utime(folder / 'counts.tsv', (1, 1))
+    de.write_inputs(folder, {'counts.tsv': 'a\n'})
+    assert (folder / 'counts.tsv').stat().st_mtime == 1  # unchanged: de.smk does not run again
+    de.write_inputs(folder, {'counts.tsv': 'b\n'})
+    assert (folder / 'counts.tsv').read_text() == 'b\n'
+
+
+def test_de_scores_call_in_the_designed_direction_and_false_calls_on_1to1_only():
+    exact = de_entries((1, 1), (1, 1), (3, 2), (4, 1), (1, 8))  # designed log2(A/B): 0, 0, 0.58, 2, -3
+    fits = {'S0': (0.2, 0.001, 0.01), 'S1': (-0.1, 0.5, 0.6), 'S2': (0.5, 0.001, 0.02), 'S3': (1.5, 0.001, 0.01), 'S4': (2.0, 0.001, 0.01)}
+    results = {('m', test, pool_id): fit for test in de.TESTS for pool_id, fit in fits.items()}
+    expected = {'called': 0.5,        # of S3 and S4 (at least 2-fold), S4 is called in the wrong direction
+                'false_calls': 0.5,   # S0 of the 1:1 S0 and S1
+                'fdr': 0.5,           # of the calls S0, S2, S3 and S4: S0 (1:1) and S4 (wrong direction); S2, 1.5-fold, is true
+                'fc_bias': -0.5,      # median of -0.08 (S2), -0.5 (S3) and -5 (S4)
+                'offset': 0.05}       # median of S0 and S1
+    assert de.scores(results, exact, ['m']) == {'m': {'{}_{}'.format(t, k): v for t in de.TESTS for k, v in expected.items()}}
+    assert sorted(de.metric_keys()) == sorted('{}_{}'.format(t, k) for t in de.TESTS for k in expected)
+
+
+def test_de_scores_of_a_resample_are_nan_not_errors():
+    results = {('m', test, 'S0'): (None, None, None) for test in de.TESTS}  # untested: no reads
+    values = de.scores(results, de_entries((3, 2)), ['m'])['m']  # no 1:1 and no 2-fold sequence, no call
+    assert len(values) == len(de.metric_keys()) and all(math.isnan(v) for v in values.values())
+
+
+def test_de_results_must_cover_every_row_test_and_sequence(tmp_path):
+    lines = ['\t'.join(de.RESULT_HEADER)] + ['m\t{}\t{}\t1.5\t0.01\t{}'.format(t, p, 'NA' if p == 'S1' else '0.02')
+                                             for t in de.TESTS for p in ('S0', 'S1')]
+    path = write(tmp_path / 'results.tsv', '\n'.join(lines) + '\n')
+    read = lambda pool_ids: de.read_results(path.read_text(), ['m'], pool_ids, path)
+    table = read(['S0', 'S1'])
+    assert table[('m', 'edger', 'S0')] == (1.5, 0.01, 0.02) and table[('m', 'voom', 'S1')] == (1.5, 0.01, None)
+    with pytest.raises(ValueError, match='and 2 unexpected'):  # S1 in both tests
+        read(['S0'])
+    with pytest.raises(ValueError, match='2 expected lines missing'):
+        read(['S0', 'S1', 'S2'])
+    write(path, '\n'.join(lines + [lines[1]]) + '\n')
+    with pytest.raises(ValueError, match='repeated'):
+        read(['S0', 'S1'])
+    write(path, 'row\ttest\tpool_id\tlogFC\n')
+    with pytest.raises(ValueError, match='columns'):
+        read(['S0', 'S1'])
+
+
+def de_declaration(tmp_path, change):
+    spec = yaml.safe_load((BENCH / 'datasets/giraldez2018_ratiometric_truseq.yaml').read_text())
+    change(spec)
+    return write(tmp_path / 'ds.yaml', yaml.safe_dump(spec))
+
+
+@pytest.mark.parametrize('change, message', [
+    (lambda s: s.update(pool='equimolar'), 'is for ratiometric pools'),
+    (lambda s: s.update(de={'covariates': ['batch']}), 'distinct names from lab'),
+    (lambda s: s.update(de={'covariates': ['lab', 'lab']}), 'distinct names from lab'),
+    (lambda s: s.update(de={'covariates': ['lab'], 'test': 'deseq2'}), 'takes only `covariates`'),
+    (lambda s: [run.update(lab='Lab1') for run in s['runs']], 'at least two different ones'),
+    (lambda s: s['runs'][0].pop('lab'), 'every run needs a value'),
+    (lambda s: s.update(runs=[r for r in s['runs'] if r['group'] == 'A'] + [s['runs'][2]]), 'got 4 A and 1 B'),
+    # two runs per pool over three labs, one lab shared: ~ lab + group has as many coefficients as runs
+    (lambda s: s.update(runs=[dict(s['runs'][0], lab='L1'), dict(s['runs'][1], lab='L2'), dict(s['runs'][2], lab='L1'),
+                              dict(s['runs'][3], lab='L3')]), '4 coefficients for 4 runs, so no residual degrees of freedom'),
+])
+def test_de_declaration_needs_lab_with_two_levels_and_replicates(tmp_path, change, message):
+    with pytest.raises(SystemExit, match=message):
+        benchmark.load_dataset(de_declaration(tmp_path, change))
+
+
+def test_shipped_ratiometric_declarations_declare_their_de_design():
+    truseq = benchmark.load_dataset(BENCH / 'datasets/giraldez2018_ratiometric_truseq.yaml')
+    nextflex = benchmark.load_dataset(BENCH / 'datasets/giraldez2018_ratiometric_nextflex.yaml')
+    assert truseq['de'] == {'covariates': ['lab']} and nextflex['de'] == {'covariates': []}
+    for path in BENCH.glob('datasets/*.yaml'):
+        spec = yaml.safe_load(path.read_text())
+        assert ('de' in spec) == (spec.get('pool') == 'ratiometric'), path.name
+
+
+def de_snakemake(cwd, *args):
+    env = {k: v for k, v in os.environ.items() if not k.startswith('GCF_')}
+    env.update(TMPDIR=str(cwd), XDG_CACHE_HOME=str(cwd / '.cache'))
+    return subprocess.run([str(Path(sys.executable).with_name('snakemake')), *args], cwd=cwd, env=env, capture_output=True, text=True, timeout=120)
+
+
+def test_de_snakefile_runs_r_in_the_sartools_image(tmp_path):
+    for name in de.INPUTS:
+        write(tmp_path / 'benchmark/de/input' / name, 'x\n')
+    write(tmp_path / 'Snakefile', 'include: {!r}\nimport json\nfrom pathlib import Path\n'
+          'Path("rules.json").write_text(json.dumps({{r.name: r.container_img for r in workflow.rules}}))\n'.format(str(BENCH / 'de.smk')))
+    result = de_snakemake(tmp_path, '--list-rules')
+    assert result.returncode == 0, result.stdout + result.stderr
+    sartools = yaml.safe_load((ROOT / 'docker.config').read_text())['docker']['sartools']
+    assert json.loads((tmp_path / 'rules.json').read_text()) == {'benchmark_de': 'docker://' + sartools}
+    result = de_snakemake(tmp_path, '-s', str(BENCH / 'de.smk'), '-n', '-p', '--cores', '1')
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert ('Rscript {} --counts benchmark/de/input/counts.tsv --library-sizes benchmark/de/input/library_sizes.tsv '
+            '--design benchmark/de/input/design.tsv --results benchmark/de/results.tsv --record benchmark/de/record.tsv > '
+            'benchmark/de/de.log 2>&1'.format(BENCH / 'de.R')) in result.stdout
+
+
+def test_de_snakefile_passes_the_options_the_r_script_defines():
+    import re
+    defined = set(re.findall(r"make_option\('(--[a-z-]+)'", (BENCH / 'de.R').read_text()))
+    passed = set(re.findall(r"(--[a-z-]+) \{", (BENCH / 'de.smk').read_text()))
+    assert defined == passed == {'--counts', '--library-sizes', '--design', '--results', '--record'}
+
+
+def de_project(tmp_path):
+    """A prepared and quantified ratiometric pool (RATIO: miR-1-3p 4:1, miR-199a-3p 1:1, miR-21-5p 1:8) with two runs
+    per pool over two labs, declaring `de:`; UNITAS and miRge3 outputs and the filtered reads, as quant_all --notemp
+    leaves them."""
+    ext = tmp_path / 'ext'
+    data = ext / 'benchmark/smallrna/p'
+    write(data / 'composition/ratio.csv', RATIO)
+    write(data / 'mirbase/23.1/mature.fa', HSA)
+    reads = {'A1': [ONE] * 8 + [EQUAL] * 4 + [TWENTY_ONE], 'A2': [ONE] * 9 + [EQUAL] * 5 + [TWENTY_ONE],
+             'B1': [ONE] * 2 + [EQUAL] * 4 + [TWENTY_ONE] * 8, 'B2': [ONE] * 2 + [EQUAL] * 5 + [TWENTY_ONE] * 9}
+    for run, seqs in reads.items():
+        (data / 'fastq').mkdir(parents=True, exist_ok=True)
+        with gzip.open(data / 'fastq/{}.fastq.gz'.format(run), 'wt') as fh:
+            fh.write(''.join('@r{}\n{}TGGAATTCTC\n+\n{}\n'.format(i, s, 'I' * (len(s) + 10)) for i, s in enumerate(seqs)))
+    dataset = write(tmp_path / 'ds.yaml', yaml.safe_dump({
+        'name': 'p', 'kind': 'pool', 'pool': 'ratiometric', 'organism': 'homo_sapiens', 'libprepkit': 'TruSeq Small RNA Library Prep Kit',
+        'methods': ['unitas', 'mirge3'], 'data': 'benchmark/smallrna/p', 'de': {'covariates': ['lab']},
+        'composition': {'file': 'ratio.csv', 'url': 'unused', 'sha256': 'unused'},
+        'mirbase': {'release': '23.1', 'url': 'unused', 'sha256': 'unused'},
+        'runs': [{'run': r, 'group': g, 'lab': lab, 'md5': 'unused', 'url': 'unused'} for r, (g, lab) in DE_RUNS.items()]}))
+    project = tmp_path / 'project'
+    dump = unitas_dump(ext, 'homo_sapiens', 'Human', {})
+    result = subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'prepare', '--dataset', str(dataset), '--project', str(project),
+                             '--ext-dir', str(ext)], capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    quant = project / 'data/tmp/smallrna/quant'
+    write(quant / 'unitas/mir_counts.tsv', '\tA1\tA2\tB1\tB2\nmiR-1-3p\t8\t9\t2\t2\nmiR-199a-3p\t4\t5\t4\t5\nmiR-21-5p\t1\t1\t8\t9\n')
+    write(quant / 'mirge3/miR.Counts.csv', 'miRNA,A1,A2,B1,B2\nhsa-miR-1-3p,8,9,2,2\nhsa-miR-199a-3p,4,5,4,5\nhsa-miR-21-5p,1,1,8,9\n')
+    write_records(quant, ['unitas', 'mirge3'], dump=dump)
+    for run, seqs in reads.items():
+        write_stages(project, run, seqs, seqs, seqs)
+    return project
+
+
+def de_outputs(project, fits, change=None, drop_last=False):
+    """de.smk's outputs as de.R writes them for the project's current inputs: every row and test gets `fits`
+    ({pool_id: (log2fc, pvalue, padj)}); `change` edits the record; `drop_last` leaves the table's last line out (a
+    table de.R recorded, but incomplete)."""
+    bench = project / 'benchmark'
+    texts = {name: (bench / 'de/input' / name).read_text() for name in de.INPUTS}
+    rows = list(dict.fromkeys(line.split('\t')[0] for line in texts['counts.tsv'].splitlines()[1:]))
+    lines = ['\t'.join(de.RESULT_HEADER)] + ['\t'.join([row, test, pool_id] + ['NA' if v is None else str(v) for v in fit])
+                                             for row in rows for test in de.TESTS for pool_id, fit in fits.items()]
+    results = '\n'.join(lines[:-1] if drop_last else lines) + '\n'
+    write(bench / 'de/results.tsv', results)
+    record = {'md5_' + Path(name).stem: de.md5(text) for name, text in texts.items()}
+    record.update(md5_script=de.md5(de.SCRIPT.read_bytes()), md5_results=de.md5(results), R='R version 4.5.3', edgeR='4.10.7',
+                  limma='3.68.5', formula='~lab + group', edger='exact test', voom='voom')
+    if change:
+        change(record)
+    write(bench / 'de/record.tsv', 'field\tvalue\n' + ''.join('{}\t{}\n'.format(k, v) for k, v in record.items()))
+
+
+DE_FITS = {'hsa-miR-1-3p': (1.8, 0.001, 0.01), 'hsa-miR-199a-3p': (0.1, 0.4, 0.6), 'hsa-miR-21-5p': (-2.5, 0.001, 0.001)}
+
+
+def evaluate_cmd(project, *args):
+    return subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'evaluate', '--project', str(project), *args],
+                          capture_output=True, text=True, timeout=120)
+
+
+def test_evaluate_de_adds_metrics_intervals_and_report(tmp_path):
+    project = de_project(tmp_path)
+    bench = project / 'benchmark'
+    result = evaluate_cmd(project)
+    assert result.returncode == 0, result.stderr
+    assert (bench / 'de/input/design.tsv').read_text() == 'sample\tgroup\tlab\nA1\tA\tL1\nA2\tA\tL2\nB1\tB\tL1\nB2\tB\tL2\n'
+    assert (bench / 'de/input/library_sizes.tsv').read_text() == ('row\tA1\tA2\tB1\tB2\noracle\t13\t15\t14\t16\n'
+                                                                  'unitas\t13.0\t15.0\t14.0\t16.0\nmirge3\t13.0\t15.0\t14.0\t16.0\n')
+    assert 'edger_called' not in (bench / 'metrics.tsv').read_text()  # without --de, nothing is scored
+    plain_ci = (bench / 'metrics_ci.tsv').read_text().splitlines()
+    assert json.loads((bench / 'evaluation.json').read_text())['bootstrap']['skipped'] > 0  # draws without the 1:1 sequence
+    de_outputs(project, DE_FITS)
+    result = evaluate_cmd(project, '--de')
+    assert result.returncode == 0, result.stderr
+    table = {line.split('\t')[0]: line.split('\t')[1:] for line in (bench / 'metrics.tsv').read_text().splitlines()}
+    assert table['metric'] == ['oracle', 'unitas', 'mirge3']
+    assert table['edger_called'] == table['voom_called'] == ['1.0'] * 3
+    assert table['edger_false_calls'] == ['0.0'] * 3 and table['edger_offset'] == ['0.1'] * 3
+    assert table['edger_fc_bias'] == ['-0.35'] * 3  # median of 1.8 - 2 and -(-2.5 + 3)
+    ci = (bench / 'metrics_ci.tsv').read_text().splitlines()
+    assert [line for line in ci if not line.startswith(('edger_', 'voom_'))] == plain_ci  # the existing intervals are unchanged
+    assert json.loads((bench / 'evaluation.json').read_text())['bootstrap']['skipped'] == 0  # the DE scores use every draw
+    assert any(line.startswith('edger_called\tunitas\t1.0\t') for line in ci)
+    report = (bench / 'report.md').read_text()
+    assert '## Differential expression' in report and '| 4× | 1 | 1.00 | 1.00 | 1.00 |' in report and '| 1× | 1 | 0.00 |' in report
+    assert 'design `~lab + group`' in report and hashlib.sha256((bench / 'de/results.tsv').read_bytes()).hexdigest() in report
+    summary_md = tmp_path / 'summary.md'
+    result = subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'summary', '--projects', str(project), '--output', str(summary_md)],
+                            capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    assert 'edger_called: unitas' in summary_md.read_text()
+
+
+def no_de(project):
+    path = project / 'benchmark/dataset.yaml'
+    spec = yaml.safe_load(path.read_text())
+    spec.pop('de')
+    path.write_text(yaml.safe_dump(spec))
+
+
+def equimolar(project):
+    no_de(project)
+    path = project / 'benchmark/dataset.yaml'
+    path.write_text(path.read_text().replace('pool: ratiometric', 'pool: equimolar'))
+
+
+@pytest.mark.parametrize('case, message', [
+    ('equimolar', 'is for ratiometric pools, not this equimolar dataset'),
+    ('undeclared', "declares no `de:`"),
+    ('no results', 'no results.tsv or record.tsv'),
+    ('other inputs', 'comes from other inputs or another de.R (counts)'),
+    ('other script', 'comes from other inputs or another de.R (script)'),
+    ('other results', 'is not the table de.R recorded'),
+    ('new counts', 'comes from other inputs or another de.R (counts, library_sizes)'),
+    ('incomplete', '1 expected lines missing'),
+])
+def test_evaluate_de_stops_early(tmp_path, case, message):
+    project = de_project(tmp_path)
+    bench = project / 'benchmark'
+    assert evaluate_cmd(project).returncode == 0
+    if case in ('other inputs', 'other script', 'other results', 'new counts', 'incomplete'):
+        changes = {'other inputs': lambda r: r.update(md5_counts='0' * 32), 'other script': lambda r: r.update(md5_script='0' * 32)}
+        de_outputs(project, DE_FITS, changes.get(case), drop_last=case == 'incomplete')
+    if case == 'other results':  # an older table beside the current record, e.g. after a partial restore
+        write(bench / 'de/results.tsv', (bench / 'de/results.tsv').read_text().replace('\t1.8\t', '\t2.8\t'))
+    if case == 'new counts':  # the method's counts changed after de.smk ran
+        write(project / 'data/tmp/smallrna/quant/mirge3/miR.Counts.csv',
+              'miRNA,A1,A2,B1,B2\nhsa-miR-1-3p,9,9,2,2\nhsa-miR-199a-3p,4,5,4,5\nhsa-miR-21-5p,1,1,8,9\n')
+    {'equimolar': equimolar, 'undeclared': no_de}.get(case, lambda p: None)(project)
+    names = ['metrics.tsv', 'report.md', 'evaluation.json', 'common.tsv', 'per_sequence.tsv', 'filter_stages.tsv', 'unitas_names.tsv'] + \
+        ['de/input/' + name for name in de.INPUTS]
+    before = {name: (bench / name).read_text() for name in names}
+    result = evaluate_cmd(project, '--de')
+    assert result.returncode != 0 and message in result.stderr, result.stderr
+    assert {name: (bench / name).read_text() for name in names} == before  # nothing published, no supporting table rewritten
