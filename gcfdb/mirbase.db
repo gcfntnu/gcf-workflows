@@ -69,7 +69,7 @@ rule mirbase_gff_download:
         echo "Mirbase gff,{MIRBASE_RELEASE},{params.url},$(date +%d-%m-%Y)" > {log}
         """
 
-# The GFF3 every consumer reads (UNITAS's annotation and genes.tsv, the genome routes, smrnaseq's mirtop, miraligner):
+# The GFF3 every consumer reads (UNITAS's annotation and genes.tsv, the genome routes, smrnaseq's mirtop, biocore_miraligner):
 # miRBase's file corrected with the reviewed rows of tables/mirbase_gff_corrections.tsv, then checked against the
 # release's hairpin and mature sequences; a disagreement the table does not list stops the build
 # (scripts/mirbase_gff_correct.py, #429).

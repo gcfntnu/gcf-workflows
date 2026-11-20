@@ -119,7 +119,7 @@ def write_project(project, spec, ext_dir, samples, read_length, methods, mirflow
               'fastq_dir': 'data/raw/fastq',
               'quant': {'method': ','.join(methods), 'batch': {'method': 'skip'}},
               'samples': {s: {'R1': r1[s], 'R2': '', 'paired_end': 0, 'Sample_ID': s} for s in samples}}
-    if {'mirflowz', 'tesmall', 'tinyrna', 'htseq'} & set(methods) and mirflowz_reference:  # the routes on the mirflowz reference
+    if {'mirflowz', 'tesmall', 'tinyrna', 'biocore_htseq'} & set(methods) and mirflowz_reference:  # the routes on the mirflowz reference
         ref = mirflowz_reference
         config['db'] = {'mirflowz': {'custom': {'name': spec['reference']['name'], 'genome': str(ref / 'genome.fa.gz'),
                                                 'gtf': str(ref / 'genes.gtf.gz'), 'mirna_gff': str(ref / 'mirna.gff3')}}}

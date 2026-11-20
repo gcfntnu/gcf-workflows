@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""miraligner database for the smallrna miraligner route (#426): one species' miRBase hairpins and a `miRNA.str` with
+"""miraligner database for the smallrna biocore_miraligner route (#426): one species' miRBase hairpins and a `miRNA.str` with
 each mature miRNA's position in its hairpin.
 
 miraligner (SeqBuster) reads `hairpin.fa` and `miRNA.str` from its `-db` folder, and from `miRNA.str` only the header

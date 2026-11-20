@@ -118,10 +118,10 @@ def native_outputs(quant):
           'MIMAT0000517\tmiRNA\tmmu-miR-192-5p\t40.0\t45.0\nMIMAT0000224\tmiRNA\tmmu-miR-194-5p\t12.5\t0.0\n'
           'MIMAT0000224_1\tmiRNA\tmmu-miR-194-5p\t12.5\t0.0\nMIMAT0000237\tmiRNA\tmmu-miR-204-5p\t0.0\t3.0\n')
     write(quant / 'smrnaseq/mirna.tsv', 'miRNA\tS02\tS01\nmmu-miR-192-5p\t44\t45\nmmu-miR-194-5p\t0\t25\nmmu-miR-9999-5p\t2\t0\n')
-    # htseq: a read counts in full for every name it overlaps, so identical miR-194-5p and miR-204-5p reads count twice
-    write(quant / 'htseq/htseq_counts.tsv', 'miRNA\tS01\tS02\nmmu-miR-192-5p\t45\t45\nmmu-miR-194-5p\t25\t0\nmmu-miR-204-5p\t25\t0\n')
-    # miraligner: a sequence annotated to two miRNAs is divided between them
-    write(quant / 'miraligner/mirna.tsv', 'miRNA\tS01\tS02\nmmu-miR-192-5p\t45\t44.5\nmmu-miR-194-5p\t12.5\t0\nmmu-miR-204-5p\t12.5\t0\n')
+    # biocore_htseq: a read counts in full for every name it overlaps, so identical miR-194-5p and miR-204-5p reads count twice
+    write(quant / 'biocore_htseq/htseq_counts.tsv', 'miRNA\tS01\tS02\nmmu-miR-192-5p\t45\t45\nmmu-miR-194-5p\t25\t0\nmmu-miR-204-5p\t25\t0\n')
+    # biocore_miraligner: a sequence annotated to two miRNAs is divided between them
+    write(quant / 'biocore_miraligner/mirna.tsv', 'miRNA\tS01\tS02\nmmu-miR-192-5p\t45\t44.5\nmmu-miR-194-5p\t12.5\t0\nmmu-miR-204-5p\t12.5\t0\n')
     write(quant / 'mirflowz/all_mirna_counts.tab',
           'ID\tS01\tS02\nmmu-miR-192-5p\t40\t40\nmmu-miR-192-5p|0|1|23M|23|CTGACCTATGAATTGACAGCCAA\t5\t5\nmmu-miR-194-2-5p\t25\t25\n'
           'mmu-miR-204-5p|0|0|22M|22|TTCCCTTTGTCATCCTATGCCT\tNA\t3\n')  # NA: no reads in that sample
@@ -131,7 +131,7 @@ def native_outputs(quant):
 
 def test_adapters_match_by_accession_whatever_the_method_names(tmp_path):
     gff = native_outputs(tmp_path / 'quant')
-    rows = adapters.common_table(['unitas', 'mirge3', 'mirflowz', 'tesmall', 'tinyrna', 'smrnaseq', 'htseq', 'miraligner'], tmp_path / 'quant',
+    rows = adapters.common_table(['unitas', 'mirge3', 'mirflowz', 'tesmall', 'tinyrna', 'smrnaseq', 'biocore_htseq', 'biocore_miraligner'], tmp_path / 'quant',
                                  NAME_TO_ID, 'mmu-', gff)
     got = {(m, s, n): (i, c) for m, s, n, i, c in rows}
     assert got[('unitas', 'S01', 'miR-194-5p')] == ('MIMAT0000224', 20)
@@ -149,21 +149,22 @@ def test_adapters_match_by_accession_whatever_the_method_names(tmp_path):
     assert ('tinyrna', 'S01', 'mmu-miR-204-5p') not in got
     assert got[('smrnaseq', 'S01', 'mmu-miR-192-5p')] == ('MIMAT0000517', 45)  # samples by column name, whatever their order
     assert got[('smrnaseq', 'S02', 'mmu-miR-9999-5p')] == ('', 2) and ('smrnaseq', 'S02', 'mmu-miR-194-5p') not in got
-    assert got[('htseq', 'S01', 'mmu-miR-194-5p')] == ('MIMAT0000224', 25) and got[('htseq', 'S01', 'mmu-miR-204-5p')] == ('MIMAT0000237', 25)
-    assert ('htseq', 'S02', 'mmu-miR-194-5p') not in got
-    assert got[('miraligner', 'S02', 'mmu-miR-192-5p')] == ('MIMAT0000517', 44.5) and got[('miraligner', 'S01', 'mmu-miR-204-5p')] == ('MIMAT0000237', 12.5)
+    assert got[('biocore_htseq', 'S01', 'mmu-miR-194-5p')] == ('MIMAT0000224', 25) and got[('biocore_htseq', 'S01', 'mmu-miR-204-5p')] == ('MIMAT0000237', 25)
+    assert ('biocore_htseq', 'S02', 'mmu-miR-194-5p') not in got
+    assert got[('biocore_miraligner', 'S02', 'mmu-miR-192-5p')] == ('MIMAT0000517', 44.5)
+    assert got[('biocore_miraligner', 'S01', 'mmu-miR-204-5p')] == ('MIMAT0000237', 12.5)
     write(tmp_path / 'quant/smrnaseq/mirna.tsv', 'miRNA\tS01\tS02\nmmu-miR-192-5p\t45\n')  # a truncated row
     with pytest.raises(ValueError, match='2 fields, expected 3'):
         adapters.smrnaseq(tmp_path / 'quant', NAME_TO_ID)
     write(tmp_path / 'quant/smrnaseq/mirna.tsv', 'miRNA\tS01\tS01\nmmu-miR-192-5p\t45\t44\n')
     with pytest.raises(ValueError, match='unique sample columns'):
         adapters.smrnaseq(tmp_path / 'quant', NAME_TO_ID)
-    write(tmp_path / 'quant/htseq/htseq_counts.tsv', 'miRNA\tS01\tS02\nmmu-miR-192-5p\t45\n')
+    write(tmp_path / 'quant/biocore_htseq/htseq_counts.tsv', 'miRNA\tS01\tS02\nmmu-miR-192-5p\t45\n')
     with pytest.raises(ValueError, match='htseq_counts.tsv:2: 2 fields, expected 3'):
-        adapters.htseq(tmp_path / 'quant', NAME_TO_ID)
-    write(tmp_path / 'quant/miraligner/mirna.tsv', 'miRNA\tS01\tS02\nmmu-miR-192-5p\t45\n')
+        adapters.biocore_htseq(tmp_path / 'quant', NAME_TO_ID)
+    write(tmp_path / 'quant/biocore_miraligner/mirna.tsv', 'miRNA\tS01\tS02\nmmu-miR-192-5p\t45\n')
     with pytest.raises(ValueError, match='mirna.tsv:2: 2 fields, expected 3'):
-        adapters.miraligner(tmp_path / 'quant', NAME_TO_ID)
+        adapters.biocore_miraligner(tmp_path / 'quant', NAME_TO_ID)
     with pytest.raises(ValueError, match='no benchmark adapter'):
         adapters.common_table(['newtool'], tmp_path / 'quant', NAME_TO_ID, 'mmu-')
 
@@ -245,9 +246,9 @@ def test_prepare_then_evaluate(tmp_path, ref):
     assert (project / 'benchmark/common.tsv').read_text().startswith('method\tsample\tmature_name\tmature_id\tcount\n')
 
 
-@pytest.mark.parametrize('method', ['tesmall', 'tinyrna', 'htseq'])
+@pytest.mark.parametrize('method', ['tesmall', 'tinyrna', 'biocore_htseq'])
 def test_tesmall_or_tinyrna_only_project_keeps_the_reduced_reference(tmp_path, ref, method):
-    """TEsmall, tiny-count and htseq use the mirflowz reference, so a project with any of them alone still gets the
+    """TEsmall, tiny-count and biocore_htseq use the mirflowz reference, so a project with any of them alone still gets the
     reduced reference, and its dry run builds the TEsmall genome (shared by all three) from it."""
     for name in ('genome.fa.gz', 'genes.gtf.gz'):
         (ref / name).touch()  # the reduced reference's genome and annotation (reduce_reference.py)
@@ -270,12 +271,13 @@ def test_tesmall_or_tinyrna_only_project_keeps_the_reduced_reference(tmp_path, r
     assert result.returncode == 0, output
     genome = output.split('rule tesmall_genome:', 1)[1].split('\nrule ', 1)[0]
     assert 'input: {}'.format(ref / 'genome.fa.gz') in genome and 'tesmall/custom-mmu-test/mus_musculus/genome/genome.fa' in genome
-    if method in ('tinyrna', 'htseq'):
+    if method in ('tinyrna', 'biocore_htseq'):
         gff = output.split('rule tinyrna_gff:', 1)[1].split('\nrule ', 1)[0]
         assert 'input: {}'.format(ref / 'mirna.gff3') in gff and 'tinyrna/custom-mmu-test/mus_musculus/mirna.v2.gff3' in gff
-    if method == 'htseq':
-        index = output.split('rule htseq_bowtie2_index:', 1)[1].split('\nrule ', 1)[0]
-        assert 'tesmall/custom-mmu-test/mus_musculus/genome/genome.fa' in index and 'htseq/custom-mmu-test/mus_musculus/genome/bowtie2/genome.1.bt2' in index
+    if method == 'biocore_htseq':
+        index = output.split('rule biocore_htseq_bowtie2_index:', 1)[1].split('\nrule ', 1)[0]
+        assert 'tesmall/custom-mmu-test/mus_musculus/genome/genome.fa' in index
+        assert 'biocore_htseq/custom-mmu-test/mus_musculus/genome/bowtie2/genome.1.bt2' in index
 
 
 def test_prepare_refuses_an_existing_project_and_a_missing_reference(tmp_path, ref):
