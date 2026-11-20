@@ -5,7 +5,7 @@ kind: pool
 pool: equimolar
 organism: homo_sapiens
 libprepkit: TruSeq Small RNA Library Prep Kit
-methods: [unitas, mirge3, mirflowz, tesmall, smrnaseq]
+methods: [unitas, mirge3, mirflowz, tesmall, smrnaseq, miraligner]
 data: benchmark/smallrna/giraldez2018   # relative to EXT_DIR
 composition:
   file: FINAL_Equimolar_pool_SynthRNA_1152-1.csv

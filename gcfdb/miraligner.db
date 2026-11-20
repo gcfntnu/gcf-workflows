@@ -1,0 +1,38 @@
+#-*- mode:snakemake -*-
+"""miraligner database for the miraligner route (smallrna quant.method: miraligner, #426), from gcfdb's miRBase files
+(gcfdb/mirbase.db, db.mirbase.release).
+
+miraligner reads `hairpin.fa` and `miRNA.str` from one folder. miRBase does not serve `miRNA.str` for every release
+(not for 23.1), so scripts/miraligner_db.py writes its header lines: each mature miRNA's position in its hairpin, where
+its sequence lies in the hairpin's sequence, guided by the release's GFF3 (for miRBase 22, identical to miRBase's own
+miRNA.str). The record lists the few miRBase 23.1 rows whose GFF3 position disagrees with the sequences. Folder:
+`EXT_DIR/miraligner/mirbase-<release>/<organism>/db.v<MIRALIGNER_DB_VERSION>/` (MIRALIGNER_DB), with the record
+`miraligner_db.tsv`.
+"""
+
+# Raise when miraligner_db.py writes different files from the same sources, so a database written by an earlier version
+# is not used.
+MIRALIGNER_DB_VERSION = 1
+MIRALIGNER_DB = join(EXT_DIR, 'miraligner', 'mirbase-{}'.format(MIRBASE_RELEASE), ORG, 'db.v{}'.format(MIRALIGNER_DB_VERSION))
+
+
+rule miraligner_db:
+    input:
+        hairpin = rules.mirbase_hairpin_fasta.output.fasta,
+        mature = rules.mirbase_mature_fasta.output.fasta,
+        gff = rules.mirbase_gff.output[0]
+    output:
+        hairpin = join(MIRALIGNER_DB, 'hairpin.fa'),
+        structure = join(MIRALIGNER_DB, 'miRNA.str'),
+        record = join(MIRALIGNER_DB, 'miraligner_db.tsv')
+    params:
+        script = src_gcf('scripts/miraligner_db.py'),
+        species = MIR_ORG[ORG],
+        folder = MIRALIGNER_DB
+    benchmark:
+        join(MIRALIGNER_DB, 'benchmarks', 'miraligner_db.tsv')
+    container:
+        'docker://' + config['docker']['default']
+    shell:
+        'python {params.script:q} --species {params.species} --hairpin {input.hairpin:q} --mature {input.mature:q} '
+        '--gff {input.gff:q} --output {params.folder:q}'

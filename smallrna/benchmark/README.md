@@ -1,6 +1,6 @@
 # Small-RNA quantification benchmark
 
-Compares the smallrna quantification methods (`quant.method`: UNITAS, miRge3, mirflowz, TEsmall, tiny-count, nf-core/smrnaseq) on datasets with a known
+Compares the smallrna quantification methods (`quant.method`: UNITAS, miRge3, mirflowz, TEsmall, tiny-count, nf-core/smrnaseq, miraligner) on datasets with a known
 truth, and makes adding a method or a dataset a small change ([#338](https://github.com/gcfntnu/gcf-workflows/issues/338)).
 It runs the workflow's own `quant_all` routes, never the tools directly, so it measures what a project would get.
 It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.py`.
@@ -39,7 +39,7 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    would count as zero), or, for pools and biological datasets, when the method's `quant/<method>/reference.tsv` names
    another miRNA database or release than the dataset's `mirbase.release` (#407). UNITAS and miRge3 record their
    reference's release; `quant_reference` records it for mirflowz, TEsmall and tiny-count (`db.mirbase.release`, or `NA`
-   for a `db.mirflowz.custom` reference) and nf-core/smrnaseq (`db.mirbase.release`), with the SHA-256 of the count
+   for a `db.mirflowz.custom` reference) and nf-core/smrnaseq and miraligner (`db.mirbase.release`), with the SHA-256 of the count
    table it was written after, which must match the table.
    Every metric gets a 95% bootstrap interval (#413), and so does every difference between two methods, paired
    because both are computed on the same resample. A resample draws the scoring units (truth miRNAs; the scored exact
@@ -187,7 +187,9 @@ TEsmall reports mature miRNAs by miRBase name (a name at several loci counted on
 locus by miRBase feature ID (`MIMAT0000416_1`), summed per accession. Only TEsmall's `miRNA` rows are
 scored: reads it assigns to the precursor (`hairpin`: reads lying less than 90% within the mature miRNA, e.g. a moved
 5' end) are not mature counts and are left out. nf-core/smrnaseq's `mirna.tsv` names miRNAs by miRBase name, isomiRs
-summed. A new method needs one function in `ADAPTERS`, next to its smallrna route.
+summed. miraligner's `mirna.tsv` (#426) names miRNAs by miRBase name, its substitution-free isomiRs summed, a sequence
+annotated to several miRNAs divided between them. A new method needs one function in `ADAPTERS`, next to its smallrna
+route.
 
 A UNITAS name is placed by name when it is a mature miRNA of the organism, else by hairpin and arm: the hairpin of that
 name in the UNITAS dump (`miRBase_hairpin_<Species>.fas`), and the organism's mature miRNA on that arm, the hairpin
