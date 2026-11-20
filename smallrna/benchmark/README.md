@@ -35,7 +35,8 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
 4. **Evaluate.** `benchmark.py evaluate --project <project>` writes `<project>/benchmark/`: `common.tsv` (every
    method's counts in one table), `per_mirna.tsv` (pools: `per_sequence.tsv` and `filter_stages.tsv`), `metrics.tsv`
    and `report.md`; with UNITAS, `unitas_names.tsv` (how each UNITAS name was placed, below). UNITAS names are placed
-   with the project's UNITAS reference dump (`db.unitas` under `EXT_DIR`, read only; `--unitas-ref` names another).
+   with the reference dump the project's UNITAS run recorded (`quant/unitas/reference.tsv`; read only; `--unitas-ref`
+   names another).
    Before scoring, it stops when a method's count table does not have exactly the project's samples (a missing sample
    would count as zero), or, for pools and biological datasets, when the method's `quant/<method>/reference.tsv` names
    another miRNA database or release than the dataset's `mirbase.release` (#407). UNITAS and miRge3 record their
@@ -166,8 +167,10 @@ read), and the filter-route count reads those after each of the route's passes. 
 - `fill --mirbase-release 22` fetches that release's files into `EXT_DIR/<data>/mirbase/22/`.
 - `prepare --mirbase-release 22` makes the project use it. The truth, the names and the release check come from it, and
   the project's `db.mirbase.release` is set to it for every method; `prepare` always sets the declaration's release.
-- Every method's reference must then be built from that release, or the workflow's reference checks stop:
-  - UNITAS and miRge3 need a dump and a library built from it (`db.unitas.release`, `db.mirge3.release`);
+- Every method's reference must then be built from that release:
+  - UNITAS and miRge3 need a dump and a library built from it (`db.unitas.release`, `db.mirge3.release`). UNITAS stops at
+    its reference check before counting; miRge3 records its library's release, and `evaluate` stops on a mismatch after
+    quantification;
   - nf-core/smrnaseq and biocore_miraligner build theirs from gcfdb's miRBase files;
   - the genome routes need a genome reference for that release's assembly (#431).
 - Evaluate each release in its own project, and compare across releases only where the miRNA set does not matter.

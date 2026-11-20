@@ -110,6 +110,9 @@ def select_mirbase(spec, release, path):
     declared = str(spec['mirbase']['release'])
     if release == declared:
         return spec
+    if spec['kind'] == 'synthetic' and synthetic_mode(spec) == 'reduced':
+        fail('{}: a reduced synthetic dataset\'s reference fixes its miRBase release; --mirbase-release is for pools, '
+             'biological and genome-wide synthetic datasets'.format(path))
     others = {str(r): files for r, files in (spec.get('mirbase_releases') or {}).items()}
     files = others.get(release)
     if not isinstance(files, dict) or not {'url', 'sha256'} <= set(files):
@@ -561,18 +564,20 @@ def evaluate(args):
     print(bench / 'report.md')
 
 
-MAIN_CONFIG = Path(__file__).resolve().parents[2] / 'main.config'
-
-
-def unitas_refdump(project, ext_dir, organism):
-    """The UNITAS reference dump the project's UNITAS run read: db.unitas from the project, else main.config."""
-    unitas = dict(yaml.safe_load(MAIN_CONFIG.read_text())['db']['unitas'])
-    unitas.update(((yaml.safe_load((project / 'config.yaml').read_text()) or {}).get('db') or {}).get('unitas') or {})
-    if unitas.get('mirna_db', 'mirbase') != 'mirbase':
-        fail('db.unitas.mirna_db is {}: the benchmark matches miRBase names'.format(unitas['mirna_db']))
-    refdump = Path(ext_dir) / 'unitas' / str(unitas['release']) / 'UNITAS_refdump_{}'.format(organism)
+def unitas_refdump(project):
+    """The UNITAS reference dump the project's UNITAS run read: the `dump` row of its reference record (written by the
+    workflow), not today's configuration or defaults, which may name another dump since."""
+    record = project / 'data/tmp/smallrna/quant/unitas/reference.tsv'
+    if not record.is_file():
+        fail('no UNITAS reference record {}: run quant_all again'.format(record))
+    rows = {row['field']: row['value'] for row in read_tsv(record)}
+    if rows.get('mirna_database', 'mirbase') != 'mirbase':
+        fail('the UNITAS dump was built from {}: the benchmark matches miRBase names'.format(rows['mirna_database']))
+    if not rows.get('dump'):
+        fail('{} has no dump row: run quant_all again'.format(record))
+    refdump = Path(rows['dump']) if Path(rows['dump']).is_absolute() else project / rows['dump']
     if not refdump.is_dir():
-        fail('no UNITAS reference dump at {}; name one with --unitas-ref'.format(refdump))
+        fail('no UNITAS reference dump at {} (named by {}); name one with --unitas-ref'.format(refdump, record))
     return refdump
 
 
@@ -581,7 +586,7 @@ def common_table(args, project, bench, spec, ext_dir, methods, mature, gff):
     was placed (unitas_names.tsv: by name, by hairpin and arm, or not)."""
     prefix = PREFIX[spec['organism']]
     name_to_id = {name: accession for name, (accession, _) in mature.items()}
-    hairpins = adapters.unitas_hairpins(args.unitas_ref or unitas_refdump(project, ext_dir, spec['organism'])) if 'unitas' in methods else None
+    hairpins = adapters.unitas_hairpins(args.unitas_ref or unitas_refdump(project)) if 'unitas' in methods else None
     common = adapters.common_table(methods, project / 'data/tmp/smallrna/quant', name_to_id, prefix, gff, hairpins, mature)
     write_tsv(bench / 'common.tsv', adapters.COMMON_COLUMNS, common)
     if hairpins is not None:
@@ -1096,8 +1101,8 @@ def main():
                    help='bootstrap resamples for the metrics\' 95%% intervals (#413); 0 for none (default %(default)s)')
     e.add_argument('--seed', type=int, default=uncertainty.SEED, help='seed of the bootstrap (default %(default)s)')
     e.add_argument('--mirflowz-gff', type=Path, help="mirflowz's extended miRNA annotation; default from the declaration")
-    e.add_argument('--unitas-ref', type=Path, help="UNITAS reference dump (its miRBase hairpins place locus names); default from "
-                   "the project's db.unitas under EXT_DIR")
+    e.add_argument('--unitas-ref', type=Path, help="UNITAS reference dump (its miRBase hairpins place locus names); default the "
+                   "dump the project's UNITAS run recorded")
     s = sub.add_parser('summary', help='one overview of several evaluated projects (Markdown or HTML by the extension)')
     s.add_argument('--projects', nargs='+', required=True)
     s.add_argument('--output', required=True, help='.md or .html; written outside the projects')

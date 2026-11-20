@@ -352,7 +352,8 @@ def test_prepare_and_evaluate_in_genome_mode(tmp_path):
     assert result.returncode == 0, result.stderr
     assert '6 mixed samples' in result.stdout and '9 probe samples' in result.stdout
     config = yaml.safe_load((project / 'config.yaml').read_text())
-    assert 'db' not in config and len(config['samples']) == 15  # the standard references; mixed + probe + control
+    assert config['db'] == {'mirbase': {'release': '23.1'}}  # the standard references, on the declaration's release
+    assert len(config['samples']) == 15  # mixed + probe + control
     bench = project / 'benchmark'
     truth = benchmark.read_tsv(bench / 'truth.tsv')
     counts = collections.defaultdict(float)
