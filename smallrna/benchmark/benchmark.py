@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 """Benchmark small-RNA quantification methods on datasets with a known truth, and compare them on biological samples.
 
-The benchmark runs the workflow's own `quant_all` routes; it never calls the tools itself. Steps:
+The benchmark runs the workflow's own `quant_all` routes, and de.smk for differential expression; it never calls the
+tools itself. Steps:
 
 0. `fill` (public pool and biological datasets, and the genome-wide synthetic dataset's miRBase files) downloads a
    dataset's runs, composition table and miRBase files into `EXT_DIR/<data>/`, checked against the declared checksums
@@ -16,7 +17,10 @@ The benchmark runs the workflow's own `quant_all` routes; it never calls the too
    filtered reads (and the filtering table its cutadapt reports).
 3. `evaluate` turns each method's output into one common table (adapters.py), computes the same metrics for every
    method (metrics.py, pool.py; biological.py compares methods with each other) and writes
-   `<project>/benchmark/report.md` with the tables behind it.
+   `<project>/benchmark/report.md` with the tables behind it. For a ratiometric pool that declares `de:` (#414) it
+   also writes the inputs of differential expression to `<project>/benchmark/de/input/`;
+   `snakemake -s <repo>/smallrna/benchmark/de.smk -d <project> --use-apptainer` tests them with edgeR and limma-voom
+   (de.R), and `evaluate --de` adds the scores of their calls (de.py).
 4. `summary` reads several evaluated projects and writes one overview, a section per dataset kind with each project's
    key metrics per method (summary.py), as Markdown or a self-contained HTML file; it writes nothing into the projects.
 
@@ -25,7 +29,7 @@ mirflowz is made with reduce_reference.py and named in the declaration.
 
 Usage: benchmark.py fill --dataset YAML --ext-dir DIR [--mirbase-release R]
        benchmark.py prepare --dataset YAML --project DIR --ext-dir DIR [--mirbase-release R] [--methods LIST] [--reads N] [--lanes]
-       benchmark.py evaluate --project DIR [--mirflowz-gff GFF3] [--unitas-ref DIR] [--bootstrap N] [--seed S]
+       benchmark.py evaluate --project DIR [--de] [--mirflowz-gff GFF3] [--unitas-ref DIR] [--bootstrap N] [--seed S]
        benchmark.py summary --projects DIR [DIR ...] --output FILE.md|FILE.html
 """
 import argparse
@@ -33,6 +37,7 @@ import collections
 import csv
 import errno
 import gzip
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -46,6 +51,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import adapters  # noqa: E402
 import biological  # noqa: E402
+import de  # noqa: E402
 import evaluation  # noqa: E402
 import fill as filler  # noqa: E402
 import genome_metrics  # noqa: E402
@@ -88,6 +94,8 @@ def load_dataset(path, mirbase_release=None):
         fail('{}: a genome-wide synthetic dataset needs mirbase.hairpin and mirbase.gff, each with url and sha256'.format(path))
     if spec['kind'] == 'pool' and spec['pool'] not in ('equimolar', 'ratiometric'):
         fail('{}: pool must be equimolar or ratiometric, got {!r}'.format(path, spec['pool']))
+    if 'de' in spec:
+        check_de(spec, path)
     if spec['kind'] == 'biological':
         names = [s['sample'] for s in spec['samples']]
         if len(set(names)) != len(names) or any(not s.get('runs') for s in spec['samples']):
@@ -100,6 +108,26 @@ def load_dataset(path, mirbase_release=None):
         if any(type(lane) is not int for lane in lanes):
             fail('{}: a run\'s lane must be a whole number, e.g. `lane: 1`'.format(path))
     return spec
+
+
+def check_de(spec, path):
+    """A ratiometric pool's `de:` (#414): covariates of the voom design from de.COVARIATES, each with a value for every
+    run and at least two levels, and at least two runs in each pool."""
+    if spec['kind'] != 'pool' or spec['pool'] != 'ratiometric':
+        fail('{}: `de` (differential expression, #414) is for ratiometric pools'.format(path))
+    declared = spec['de'] or {}
+    if not isinstance(declared, dict) or set(declared) - {'covariates'}:
+        fail('{}: `de` takes only `covariates`'.format(path))
+    covariates = declared.get('covariates') or []
+    if not isinstance(covariates, list) or len(set(covariates)) != len(covariates) or not set(covariates) <= set(de.COVARIATES):
+        fail('{}: de.covariates must be distinct names from {}, got {!r}'.format(path, ', '.join(de.COVARIATES), covariates))
+    for covariate in covariates:
+        values = [run.get(covariate) for run in spec['runs']]
+        if not all(values) or len(set(values)) < 2:
+            fail('{}: de.covariates {}: every run needs a value, with at least two different ones'.format(path, covariate))
+    sizes = collections.Counter(run.get('group') for run in spec['runs'])
+    if sizes['A'] < 2 or sizes['B'] < 2:
+        fail('{}: differential expression needs at least two runs in each pool, got {} A and {} B'.format(path, sizes['A'], sizes['B']))
 
 
 def select_mirbase(spec, release, path):
@@ -500,6 +528,8 @@ def evaluate(args):
     project = Path(args.project)
     bench = project / 'benchmark'
     spec = load_dataset(bench / 'dataset.yaml')
+    if args.de:
+        check_de_results(project, bench, spec)
     config = yaml.safe_load((project / 'config.yaml').read_text())
     ext_dir = Path(config['ext_dir'])
     check_methods(project, spec, config)
@@ -562,6 +592,20 @@ def evaluate(args):
         'the truth miRNAs, each with all its samples (`misassigned` and `unplaced` are totals, without an interval)')
     publish(project, bench, spec, ['metric'] + methods, metric_rows, lines + ci_lines, extra, record)
     print(bench / 'report.md')
+
+
+def check_de_results(project, bench, spec):
+    """`evaluate --de` stops before writing anything unless the project is a ratiometric pool that declares `de:` and
+    de.smk has written its results."""
+    if spec['kind'] != 'pool' or spec['pool'] != 'ratiometric':
+        fail('--de (differential expression, #414) is for ratiometric pools, not this {} dataset'.format(spec.get('pool', spec['kind'])))
+    if 'de' not in spec:
+        fail("{} declares no `de:`; add the dataset's `de:` (datasets/{}.yaml) to it, run `benchmark.py evaluate` and de.smk, "
+             "then evaluate --de".format(bench / 'dataset.yaml', spec['name']))
+    missing = [p.name for p in (bench / 'de/results.tsv', bench / 'de/record.tsv') if not p.is_file()]
+    if missing:
+        fail('no {} in {}: run `benchmark.py evaluate --project {}`, then `snakemake -s {} -d {} --use-apptainer`, then evaluate '
+             '--de'.format(' or '.join(missing), bench / 'de', project, Path(__file__).resolve().with_name('de.smk'), project))
 
 
 def unitas_refdump(project):
@@ -716,7 +760,8 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
     common = common_table(args, project, bench, spec, ext_dir, methods, mature, gff)
     entries = pool.read_pool(bench / 'pool.tsv')
     kinds = pool.shift_kinds(entries, dict(mature.values()))
-    sample_groups = {row['sample']: row['group'] for row in read_tsv(bench / 'samples.tsv')}
+    sample_rows = read_tsv(bench / 'samples.tsv')
+    sample_groups = {row['sample']: row['group'] for row in sample_rows}
     sequences = [e['sequence'] for e in entries if e['group'] != 'excluded']
     stages = {sample: filter_stages(project, sample) for sample in sample_groups}
     stage_counts = {sample: {stage: pool.oracle(path, sequences, *cuts) for stage, path, cuts in stages[sample]} for sample in sample_groups}
@@ -731,6 +776,7 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
     shifted = pool.scored(entries, 'shifted')
     by_kind = {kind: [e for e in shifted if kinds[e['pool_id']] == kind] for kind in pool.SHIFT_KINDS}
     by_kind = {kind: group for kind, group in by_kind.items() if group}
+    de_results = de_lines = None
     if spec['pool'] == 'equimolar':
         summary = pool.equimolar_metrics(counts, reads, oracle, entries, methods, list(sample_groups))
         keys = ['detected', 'cv', 'qcd', 'median_log2_vs_oracle', 'within_2fold', 'beyond_10fold', 'spearman_vs_oracle', 'outside', 'unplaced']
@@ -749,6 +795,12 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
         per_kind = {kind: {r: pool.ratio_scores([(observed[r][e['pool_id']], math.log2(e['amount_a'] / e['amount_b']))
                                                  for e in group if not math.isnan(observed[r][e['pool_id']])])
                            for r in observed} for kind, group in by_kind.items()}
+        if 'de' in spec:
+            de_results, de_lines = differential_expression(args, bench, spec, counts, reads, oracle, entries, rows, sample_rows)
+        if de_results:
+            for row, values in de.scores(de_results, pool.scored(entries), rows).items():
+                summary.setdefault(row, {}).update(values)
+            keys += de.metric_keys()
     metric_rows = [[k] + [summary.get(r, {}).get(k, '') for r in rows] for k in keys]
 
     groups = {g: sum(1 for e in entries if e['group'] == g) for g in pool.GROUPS}
@@ -770,6 +822,7 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
             ids = [e['pool_id'] for e in exact if (e['amount_a'], e['amount_b']) == (a, b)]
             lines.append('| {:g}:{:g} | {:.2f} | {} | '.format(a, b, math.log2(a / b), len(ids)) + ' | '.join(
                 '{:.2f}'.format(statistics.median(observed[r][i] for i in ids)) for r in rows if r in observed) + ' |')
+    lines += de_lines or []
     lines += shifted_section(per_kind, {kind: len(group) for kind, group in by_kind.items()}, kind_keys,
                              [r for r in rows if any(r in v for v in per_kind.values())])
     lines += filter_section(*pool.filter_losses(stage_counts, entries, stage_names), stage_names, trim_route(project, next(iter(sample_groups))),
@@ -784,13 +837,45 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
         draw = lambda rng: (uncertainty.resample(rng, exact), uncertainty.resample(rng, shifted), uncertainty.resample(rng, list(sample_groups)))
         units = 'the scored pool sequences (exact and shifted) and the runs'
     else:
-        compute = lambda ex, sh, pairs: pool.ratiometric_metrics(counts, oracle, entries, methods, pairs, exact=ex, shifted=sh)[0]
+        def compute(ex, sh, pairs):
+            result = pool.ratiometric_metrics(counts, oracle, entries, methods, pairs, exact=ex, shifted=sh)[0]
+            if de_results:  # the DE fits stay fixed: their scores resample the sequences only
+                for row, values in de.scores(de_results, ex, rows).items():
+                    result.setdefault(row, {}).update(values)
+            return result
         draw = lambda rng: (uncertainty.resample(rng, exact), uncertainty.resample(rng, shifted),
                             uncertainty.resample_groups(rng, list(sample_groups.items())))
         units = 'the scored pool sequences (exact and shifted) and the runs within each pool (A, B)'
+        if de_results:
+            units += '; the differential-expression metrics resample the sequences only, on the fixed fits'
     extra, record, ci_lines = bootstrap(args, summary, compute, draw, rows, keys, units)
     publish(project, bench, spec, ['metric'] + rows, metric_rows, lines + ci_lines, extra, record)
     print(bench / 'report.md')
+
+
+def differential_expression(args, bench, spec, counts, reads, oracle, entries, rows, sample_rows):
+    """A ratiometric pool that declares `de:` (#414): writes the inputs of de.smk to benchmark/de/input/ (a file only
+    when its text changed); with --de, checks that de.smk's results come from these inputs and the current de.R and
+    returns (results, report lines), else (None, None)."""
+    covariates = list((spec['de'] or {}).get('covariates') or [])
+    design = [(row['sample'], row['group'], {c: row[c] for c in covariates}) for row in sample_rows]
+    sizes = de.library_sizes(reads, oracle, entries, rows, [s for s, _, _ in design])
+    texts = de.input_tables(counts, oracle, entries, rows, design, sizes)
+    de.write_inputs(bench / 'de' / 'input', texts)
+    if not args.de:
+        return None, None
+    record = de.read_record(bench / 'de/record.tsv')
+    changed = de.stale(record, texts)
+    if changed:
+        fail('{} comes from other inputs or another de.R ({}): run de.smk again (with --forceall after a change to de.R), '
+             'then evaluate --de'.format(bench / 'de/results.tsv', ', '.join(changed)))
+    exact = pool.scored(entries)
+    try:
+        results = de.read_results(bench / 'de/results.tsv', rows, [e['pool_id'] for e in exact])
+    except ValueError as error:
+        fail(str(error))
+    sha256 = hashlib.sha256((bench / 'de/results.tsv').read_bytes()).hexdigest()
+    return results, de.report_lines(results, exact, rows, record, sha256)
 
 
 SHIFT_TEXT = {'3p_shorter': "3' end shorter", '3p_longer': "3' end longer", '5p_moved': "5' end moved", 'mixed': 'mixed'}
@@ -1097,6 +1182,8 @@ def main():
     f.add_argument('--mirbase-release', help="a miRBase release the declaration lists under mirbase_releases (default: its mirbase)")
     e = sub.add_parser('evaluate')
     e.add_argument('--project', required=True)
+    e.add_argument('--de', action='store_true', help="ratiometric pools that declare `de:`: score de.smk's differential "
+                   'expression (#414); its results must come from the inputs this evaluation writes')
     e.add_argument('--bootstrap', type=nonnegative, default=uncertainty.RESAMPLES, metavar='N',
                    help='bootstrap resamples for the metrics\' 95%% intervals (#413); 0 for none (default %(default)s)')
     e.add_argument('--seed', type=int, default=uncertainty.SEED, help='seed of the bootstrap (default %(default)s)')
