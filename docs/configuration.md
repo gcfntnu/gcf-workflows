@@ -202,9 +202,10 @@ Any other key in an entry is merged into the configuration like these.
 `read_orientation` is read 1's orientation relative to the transcript: `forward` when read 1 has the RNA's sequence,
 `reverse` when it is antisense, as in dUTP kits, or `unstranded`. In rnaseq it sets salmon's library type (`SF`/`ISF`,
 `SR`/`ISR`, `U`/`IU`) and featureCounts' strand (`-s 1`, `-s 2`, `-s 0`); without it, salmon detects the library type
-(`-l A`) and featureCounts counts as `reverse`. `library_strand` says the same in cDNA terms: `first strand` for
-`reverse`, `second strand` for `forward`. [`.tests/test_kit_orientation.py`](../.tests/test_kit_orientation.py) lists
-each rnaseq kit's orientation with its evidence ([#362](https://github.com/gcfntnu/gcf-workflows/issues/362)).
+(`-l A`) and featureCounts counts as `reverse`. For an rnaseq kit, `library_strand` says the same in cDNA terms:
+`first strand` for `reverse`, `second strand` for `forward` and `unstranded` for `unstranded`.
+[`.tests/test_kit_orientation.py`](../.tests/test_kit_orientation.py) lists each rnaseq kit's orientation with its evidence
+([#362](https://github.com/gcfntnu/gcf-workflows/issues/362)).
 
 ### `docker.config`
 

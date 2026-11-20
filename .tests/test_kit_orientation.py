@@ -1,8 +1,9 @@
 """rnaseq kit entries in libprep.config: read 1's orientation relative to the transcript (#362).
 
 `read_orientation` sets salmon's library type and featureCounts' strand (rnaseq/rules/quant/salmon.smk,
-featurecounts.smk): `reverse` gives `SR`/`ISR` and `-s 2`, `forward` gives `SF`/`ISF` and `-s 1`. `library_strand` says the
-same in cDNA terms: `first strand` for `reverse`, `second strand` for `forward`.
+featurecounts.smk): `reverse` gives `SR`/`ISR` and `-s 2`, `forward` gives `SF`/`ISF` and `-s 1`, `unstranded` gives `U`/`IU`
+and `-s 0`. `library_strand` says the same in cDNA terms: `first strand` for `reverse`, `second strand` for `forward`,
+`unstranded` for `unstranded`.
 """
 import re
 import unittest
@@ -30,26 +31,38 @@ EXPECTED = {
     'Lexogen CORALL mRNA-Seq Library Prep Kit': 'forward',
     'CORALL Total RNA-Seq Library Prep Kit (w/RiboCop rRNA Depletion Kit V1.2)': 'forward',
 }
-STRAND = {'reverse': 'first strand', 'forward': 'second strand'}
+STRAND = {'reverse': 'first strand', 'forward': 'second strand', 'unstranded': 'unstranded'}
 
 
 def family(name):
     return re.sub(r' (SE|PE)$', '', name)
 
 
+def mismatches(kits, expected):
+    """Entries whose read_orientation is not the reviewed one for their family, or whose library_strand disagrees with
+    their read_orientation."""
+    found = []
+    for name, kit in sorted(kits.items()):
+        orientation, reviewed = kit.get('read_orientation'), expected.get(family(name))
+        if orientation != reviewed:
+            found.append('{}: read_orientation {} (reviewed: {})'.format(name, orientation, reviewed))
+        if kit.get('library_strand') != STRAND.get(orientation):
+            found.append('{}: library_strand {} with read_orientation {}'.format(name, kit.get('library_strand'), orientation))
+    return found
+
+
 class RnaseqKitOrientationTests(unittest.TestCase):
     def test_every_rnaseq_kit_has_a_reviewed_orientation(self):
         self.assertEqual({family(name) for name in RNASEQ}, set(EXPECTED))
 
-    def test_read_orientation_follows_the_kit_chemistry(self):
-        for name, kit in RNASEQ.items():
-            with self.subTest(kit=name):
-                self.assertEqual(kit['read_orientation'], EXPECTED[family(name)])
+    def test_rnaseq_kits_follow_their_reviewed_orientation_and_strand(self):
+        self.assertEqual(mismatches(RNASEQ, EXPECTED), [])
 
-    def test_library_strand_agrees_with_read_orientation(self):
-        for name, kit in RNASEQ.items():
-            with self.subTest(kit=name):
-                self.assertEqual(kit['library_strand'], STRAND[kit['read_orientation']])
+    def test_an_unstranded_kit_records_library_strand_unstranded(self):
+        reviewed = {'Example Kit': 'unstranded'}
+        self.assertEqual(mismatches({'Example Kit SE': {'read_orientation': 'unstranded', 'library_strand': 'unstranded'}}, reviewed), [])
+        self.assertEqual(mismatches({'Example Kit SE': {'read_orientation': 'unstranded', 'library_strand': 'first strand'}}, reviewed),
+                         ['Example Kit SE: library_strand first strand with read_orientation unstranded'])
 
 
 if __name__ == '__main__':
