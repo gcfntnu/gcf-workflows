@@ -20,6 +20,8 @@ by name, because the methods name miRNAs differently:
   isomiRs summed.
 - htseq (the genome counter of an earlier in-house pipeline, `htseq_counts.tsv`, smallrna/rules/quant/htseq.smk)
   reports miRNAs by miRBase name, isomiRs summed; a read counts in full for every name it overlaps.
+- miraligner (`mirna.tsv`, smallrna/rules/quant/miraligner.smk) reports miRNAs by miRBase name, its substitution-free
+  isomiRs summed; a sequence annotated to several mature miRNAs is divided between them.
 
 Adding a method means adding one function to ADAPTERS that reads its output directory, and its count table to TABLES:
 before scoring, benchmark.py checks that table's samples and the miRBase release in the method's reference.tsv (#407).
@@ -163,6 +165,11 @@ def htseq(quant_dir, name_to_id, **_):
     return named_counts('htseq', Path(quant_dir) / 'htseq' / 'htseq_counts.tsv', name_to_id)
 
 
+def miraligner(quant_dir, name_to_id, **_):
+    """The miraligner route's joined mature counts (miRNA, samples), by miRBase name."""
+    return named_counts('miraligner', Path(quant_dir) / 'miraligner' / 'mirna.tsv', name_to_id)
+
+
 def named_counts(method, path, name_to_id):
     """Common rows of a table of miRNA names and one column per sample. A header without unique sample columns, or a row
     whose field count differs from the header (e.g. a truncated file), stops the evaluation."""
@@ -183,15 +190,15 @@ def named_counts(method, path, name_to_id):
 
 
 ADAPTERS = {'unitas': unitas, 'mirge3': mirge3, 'mirflowz': mirflowz, 'tesmall': tesmall, 'tinyrna': tinyrna, 'smrnaseq': smrnaseq,
-            'htseq': htseq}
+            'htseq': htseq, 'miraligner': miraligner}
 
 # Each method's count table under the project's quant directory: (path, delimiter, columns before the samples).
 TABLES = {'unitas': ('unitas/mir_counts.tsv', '\t', 1), 'mirge3': ('mirge3/miR.Counts.csv', ',', 1),
           'mirflowz': ('mirflowz/all_mirna_counts.tab', '\t', 1), 'tesmall': ('tesmall/tesmall_counts.tsv', '\t', 2),
           'tinyrna': ('tinyrna/tinyrna_counts.tsv', '\t', 3), 'smrnaseq': ('smrnaseq/mirna.tsv', '\t', 1),
-          'htseq': ('htseq/htseq_counts.tsv', '\t', 1)}
+          'htseq': ('htseq/htseq_counts.tsv', '\t', 1), 'miraligner': ('miraligner/mirna.tsv', '\t', 1)}
 # Methods whose reference.tsv is written by quant_reference after their count table, with that table's SHA-256.
-TABLE_BOUND_RECORDS = ('mirflowz', 'tesmall', 'tinyrna', 'smrnaseq', 'htseq')
+TABLE_BOUND_RECORDS = ('mirflowz', 'tesmall', 'tinyrna', 'smrnaseq', 'htseq', 'miraligner')
 
 
 def table_samples(method, quant_dir):

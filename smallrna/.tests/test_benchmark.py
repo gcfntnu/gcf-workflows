@@ -120,6 +120,8 @@ def native_outputs(quant):
     write(quant / 'smrnaseq/mirna.tsv', 'miRNA\tS02\tS01\nmmu-miR-192-5p\t44\t45\nmmu-miR-194-5p\t0\t25\nmmu-miR-9999-5p\t2\t0\n')
     # htseq: a read counts in full for every name it overlaps, so identical miR-194-5p and miR-204-5p reads count twice
     write(quant / 'htseq/htseq_counts.tsv', 'miRNA\tS01\tS02\nmmu-miR-192-5p\t45\t45\nmmu-miR-194-5p\t25\t0\nmmu-miR-204-5p\t25\t0\n')
+    # miraligner: a sequence annotated to two miRNAs is divided between them
+    write(quant / 'miraligner/mirna.tsv', 'miRNA\tS01\tS02\nmmu-miR-192-5p\t45\t44.5\nmmu-miR-194-5p\t12.5\t0\nmmu-miR-204-5p\t12.5\t0\n')
     write(quant / 'mirflowz/all_mirna_counts.tab',
           'ID\tS01\tS02\nmmu-miR-192-5p\t40\t40\nmmu-miR-192-5p|0|1|23M|23|CTGACCTATGAATTGACAGCCAA\t5\t5\nmmu-miR-194-2-5p\t25\t25\n'
           'mmu-miR-204-5p|0|0|22M|22|TTCCCTTTGTCATCCTATGCCT\tNA\t3\n')  # NA: no reads in that sample
@@ -129,8 +131,8 @@ def native_outputs(quant):
 
 def test_adapters_match_by_accession_whatever_the_method_names(tmp_path):
     gff = native_outputs(tmp_path / 'quant')
-    rows = adapters.common_table(['unitas', 'mirge3', 'mirflowz', 'tesmall', 'tinyrna', 'smrnaseq', 'htseq'], tmp_path / 'quant', NAME_TO_ID,
-                                 'mmu-', gff)
+    rows = adapters.common_table(['unitas', 'mirge3', 'mirflowz', 'tesmall', 'tinyrna', 'smrnaseq', 'htseq', 'miraligner'], tmp_path / 'quant',
+                                 NAME_TO_ID, 'mmu-', gff)
     got = {(m, s, n): (i, c) for m, s, n, i, c in rows}
     assert got[('unitas', 'S01', 'miR-194-5p')] == ('MIMAT0000224', 20)
     assert got[('unitas', 'S01', 'miR-194-2-5p')] == ('', 5)       # a hairpin name: placed only with the UNITAS hairpins
@@ -149,6 +151,7 @@ def test_adapters_match_by_accession_whatever_the_method_names(tmp_path):
     assert got[('smrnaseq', 'S02', 'mmu-miR-9999-5p')] == ('', 2) and ('smrnaseq', 'S02', 'mmu-miR-194-5p') not in got
     assert got[('htseq', 'S01', 'mmu-miR-194-5p')] == ('MIMAT0000224', 25) and got[('htseq', 'S01', 'mmu-miR-204-5p')] == ('MIMAT0000237', 25)
     assert ('htseq', 'S02', 'mmu-miR-194-5p') not in got
+    assert got[('miraligner', 'S02', 'mmu-miR-192-5p')] == ('MIMAT0000517', 44.5) and got[('miraligner', 'S01', 'mmu-miR-204-5p')] == ('MIMAT0000237', 12.5)
     write(tmp_path / 'quant/smrnaseq/mirna.tsv', 'miRNA\tS01\tS02\nmmu-miR-192-5p\t45\n')  # a truncated row
     with pytest.raises(ValueError, match='2 fields, expected 3'):
         adapters.smrnaseq(tmp_path / 'quant', NAME_TO_ID)
@@ -158,6 +161,9 @@ def test_adapters_match_by_accession_whatever_the_method_names(tmp_path):
     write(tmp_path / 'quant/htseq/htseq_counts.tsv', 'miRNA\tS01\tS02\nmmu-miR-192-5p\t45\n')
     with pytest.raises(ValueError, match='htseq_counts.tsv:2: 2 fields, expected 3'):
         adapters.htseq(tmp_path / 'quant', NAME_TO_ID)
+    write(tmp_path / 'quant/miraligner/mirna.tsv', 'miRNA\tS01\tS02\nmmu-miR-192-5p\t45\n')
+    with pytest.raises(ValueError, match='mirna.tsv:2: 2 fields, expected 3'):
+        adapters.miraligner(tmp_path / 'quant', NAME_TO_ID)
     with pytest.raises(ValueError, match='no benchmark adapter'):
         adapters.common_table(['newtool'], tmp_path / 'quant', NAME_TO_ID, 'mmu-')
 

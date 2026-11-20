@@ -1,6 +1,6 @@
 #-*- mode:snakemake -*-
 
-QUANT_METHODS = ('unitas', 'mirge3', 'mirflowz', 'tesmall', 'tinyrna', 'smrnaseq', 'htseq')
+QUANT_METHODS = ('unitas', 'mirge3', 'mirflowz', 'tesmall', 'tinyrna', 'smrnaseq', 'htseq', 'miraligner')
 QUANT_SELECTED = [m.strip() for m in str(config['quant']['method']).split(',')]
 # Set before the routes are included: the TEsmall database and the tiny-count and htseq references are built on the
 # mirflowz reference (gcfdb/mirflowz.db), and tiny-count and htseq use TEsmall's genome (gcfdb/tesmall.db).
@@ -9,7 +9,8 @@ TINYRNA_SELECTED = 'tinyrna' in QUANT_SELECTED
 HTSEQ_SELECTED = 'htseq' in QUANT_SELECTED
 # Snakemake benchmark files of the routes' rules (runtime and memory, read by the benchmark's evaluate, #386):
 # <rule>/<sample>.tsv per sample, <rule>.tsv per project. The shared reference builds of gcfdb/mirflowz.db,
-# gcfdb/tesmall.db and gcfdb/htseq.db write theirs in the reference they built (<reference>/benchmarks/<rule>.tsv), not here.
+# gcfdb/tesmall.db, gcfdb/htseq.db and gcfdb/miraligner.db write theirs in the reference they built
+# (<reference>/benchmarks/<rule>.tsv), not here.
 QUANT_BENCHMARKS = join(QUANT_INTERIM, 'benchmarks')
 
 include:
@@ -26,16 +27,20 @@ include:
     'quant/smrnaseq.smk'
 include:
     'quant/htseq.smk'
+include:
+    'quant/miraligner.smk'
 
-RECORDED_ROUTES = ('mirflowz', 'tesmall', 'tinyrna', 'smrnaseq', 'htseq')
+RECORDED_ROUTES = ('mirflowz', 'tesmall', 'tinyrna', 'smrnaseq', 'htseq', 'miraligner')
 
 
 def quant_reference_record(route):
     """(miRNA database, release, source, reference) a route annotated with: the mirflowz reference's for mirflowz, TEsmall,
     tiny-count and htseq (db.mirbase.release, or NA for a db.mirflowz.custom reference, whose annotation is the project's
-    own), gcfdb's miRBase files for nf-core/smrnaseq."""
+    own), gcfdb's miRBase files for nf-core/smrnaseq, and the database written from them for miraligner."""
     if route == 'smrnaseq':
         return 'mirbase', MIRBASE_RELEASE, 'db.mirbase.release', MIRBASE_EXT
+    if route == 'miraligner':
+        return 'mirbase', MIRBASE_RELEASE, 'db.mirbase.release', MIRALIGNER_DB
     if MIRFLOWZ_CUSTOM:
         return 'NA', 'NA', 'db.mirflowz.custom', MIRFLOWZ_REF
     return 'mirbase', MIRFLOWZ_MIRBASE, 'db.mirbase.release', MIRFLOWZ_REF
@@ -49,7 +54,8 @@ rule quant_reference:
     input:
         lambda wildcards: {'mirflowz': rules.mirflowz_quant.output.mirna, 'tesmall': rules.tesmall_counts.output[0],
                            'tinyrna': rules.tinyrna_counts.output[0], 'smrnaseq': rules.smrnaseq_counts.output.mirna,
-                           'htseq': rules.htseq_counts.output[0]}[wildcards.route]
+                           'htseq': rules.htseq_counts.output[0],
+                           'miraligner': rules.miraligner_counts.output[0]}[wildcards.route]
     output:
         join(QUANT_INTERIM, '{route}', 'reference.tsv')
     params:
@@ -88,6 +94,8 @@ def quant_all(wildcards):
             out.extend(rules.smrnaseq_all.input)
         elif m == 'htseq':
             out.extend(rules.htseq_all.input)
+        elif m == 'miraligner':
+            out.extend(rules.miraligner_all.input)
     out.extend(join(QUANT_INTERIM, m, 'reference.tsv') for m in methods if m in RECORDED_ROUTES)
     return out
 

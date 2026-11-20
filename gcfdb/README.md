@@ -54,6 +54,10 @@ their identity, sources and checks.
   suffix.
 - **htseq reference** ([`htseq.db`](htseq.db)): a Bowtie 2 index of TEsmall's genome FASTA, under
   `EXT_DIR/htseq/<mirflowz reference>/genome/bowtie2/`; the route annotates with tiny-count's renamed miRBase GFF.
+- **miraligner database** ([`miraligner.db`](miraligner.db), [`miraligner_db.py`](scripts/miraligner_db.py)): the
+  organism's miRBase hairpins and a `miRNA.str` with each mature miRNA's position in its hairpin, where its sequence lies
+  there, guided by the GFF3 (for miRBase 22 identical to miRBase's own file; miRBase serves none for 23.1). The record
+  `miraligner_db.tsv` lists the miRBase 23.1 rows whose GFF3 position disagrees with the sequences.
 
 ### Langmead prebuilt Kraken databases
 
