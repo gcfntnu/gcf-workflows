@@ -1636,6 +1636,13 @@ def test_evaluate_stops_when_a_method_ran_on_other_samples_or_another_mirbase_re
         benchmark.check_methods(project, spec, config)
 
 
+def test_evaluate_of_a_project_prepared_before_the_biocore_rename_names_the_new_methods(tmp_path):
+    project, spec, config = check_project(tmp_path, 'pool', ['S1'], ['unitas', 'htseq', 'miraligner'])
+    with pytest.raises(SystemExit, match=r'names htseq, miraligner in benchmark/dataset.yaml, since renamed biocore_htseq, '
+                                         r'biocore_miraligner \(#434\): rerun those routes under the new names'):
+        benchmark.check_methods(project, spec, config)
+
+
 @pytest.mark.parametrize('record, message', [
     ('field\tvalue\tsource\nmirna_database\tmirbase\tx\nmirna_release\t22\tx\nmirna_release\t23.1\tx\n', 'one non-empty mirna_release row, found 2'),
     ('field\tvalue\tsource\nmirna_database\tmirbase\tx\nmirna_release\t\tx\n', 'one non-empty mirna_release row, found 1'),

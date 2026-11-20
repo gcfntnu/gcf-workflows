@@ -421,6 +421,10 @@ def check_methods(project, spec, config):
     samples scoring uses (column order free; a sample missing would be scored as zero), or, for datasets declaring a
     miRBase release (pools, biological), when the method annotated with another miRNA database or release than the one
     the truth and names come from (#407)."""
+    renamed = [m for m in spec['methods'] if m in adapters.RENAMED]
+    if renamed:
+        fail('the project names {} in benchmark/dataset.yaml, since renamed {} (#434): rerun those routes under the new names, '
+             'rename them in benchmark/dataset.yaml and evaluate again'.format(', '.join(renamed), ', '.join(adapters.RENAMED[m] for m in renamed)))
     quant = project / 'data/tmp/smallrna/quant'
     samples = scored_samples(spec, project / 'benchmark')
     configured = set(config.get('samples') or {})

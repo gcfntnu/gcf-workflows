@@ -199,6 +199,9 @@ TABLES = {'unitas': ('unitas/mir_counts.tsv', '\t', 1), 'mirge3': ('mirge3/miR.C
           'biocore_htseq': ('biocore_htseq/htseq_counts.tsv', '\t', 1), 'biocore_miraligner': ('biocore_miraligner/mirna.tsv', '\t', 1)}
 # Methods whose reference.tsv is written by quant_reference after their count table, with that table's SHA-256.
 TABLE_BOUND_RECORDS = ('mirflowz', 'tesmall', 'tinyrna', 'smrnaseq', 'biocore_htseq', 'biocore_miraligner')
+# Methods renamed since (#434). A project prepared earlier names them in its benchmark/dataset.yaml; evaluating it stops
+# with the new names rather than reading the outputs under the old ones.
+RENAMED = {'htseq': 'biocore_htseq', 'miraligner': 'biocore_miraligner'}
 
 
 def table_samples(method, quant_dir):
