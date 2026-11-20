@@ -15,7 +15,8 @@ miRBase release. The sources:
 
 Layout under `EXT_DIR/tesmall/<mirflowz reference>/` (TESMALL_REF):
 
-- `sources/` and `genome/` (the genome FASTA and its Bowtie 1 index), shared by every database on this reference;
+- `sources/` and `genome/` (the genome FASTA and its Bowtie 1 index, built from the genome alone), shared by every
+  database on this reference;
 - `unitas-<db.unitas release>/` (TESMALL_DUMP_REF), one per UNITAS reference dump, as the piRNA clusters come from
   it: the database TEsmall reads with `--dbfolder TESMALL_DB -g TESMALL_NAME`, `db/genomes/TESMALL_NAME/`
   (`annotation/`, `sequence/` with relative links to the shared genome files, `sequence/bowtie_index/`), and
@@ -100,9 +101,11 @@ if ORG in TESMALL_ORGANISMS:
             'mv {output}.part {output} && echo "NCBI nucleotide,{params.accession},{params.url},`date -I`" > {log}'
 
 
+# Only the genome: the GTF and the miRNA GFF are inputs of the rules that read them (tesmall_db, tinyrna_gff,
+# mirflowz_chr_map), so a new annotation does not rebuild the genome FASTA, its index or the indexes built on it (#433).
 rule tesmall_genome:
     input:
-        unpack(lambda wildcards: mirflowz_sources())
+        genome = lambda wildcards: mirflowz_sources()['genome']
     output:
         fasta = join(TESMALL_GENOME, 'genome.fa'),
         fai = join(TESMALL_GENOME, 'genome.fa.fai'),

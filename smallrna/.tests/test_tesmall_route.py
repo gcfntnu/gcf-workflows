@@ -1,13 +1,15 @@
 """TEsmall route (#374): selection, database planning on the mirflowz reference (one database per UNITAS dump, the
 genome shared), run settings, guards and the joined table."""
+import os
 from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 
 import pytest
 
-from test_quant_methods import configure, dry_run, rule_block
+from test_quant_methods import MIRBASE_GFF, configure, dry_run, rule_block, snakemake
 
 ROOT = Path(__file__).resolve().parents[2]
 REF = 'data/ext/tesmall/mirbase-23.1_ensembl-116/mus_musculus'
@@ -190,3 +192,32 @@ def test_check_stops_a_run_whose_steps_failed(tmp_path, change, message):
     change(tmp_path / 'w')
     result = check(tmp_path / 'w')
     assert result.returncode != 0 and message in result.stderr, result.stderr
+
+
+def test_a_newer_mirna_gff_or_gtf_does_not_rebuild_the_shared_genome_indexes(tmp_path):
+    """tesmall_genome reads only the genome (#433), so a new miRNA GFF3 or GTF rebuilds what is built from them, not
+    the genome FASTA, its Bowtie index or the biocore_htseq Bowtie 2 index built from that FASTA."""
+    configure(tmp_path, 'tesmall,biocore_htseq')
+    targets = ('tesmall_genome', 'biocore_htseq_bowtie2_index', 'tinyrna_gff', 'tesmall_db')
+    returncode, output = snakemake(tmp_path, '-n', *targets)
+    assert returncode == 0, output
+    built = {path for line in re.findall(r'^    (?:output|log|benchmark): (.+)$', output, re.M) for path in line.split(', ')}
+    gtf = 'data/ext/ensembl/release-116/mus_musculus/GRCm39/anno/mus_musculus.GRCm39.116.gtf'
+    assert {MIRBASE_GFF, gtf} <= built
+    earlier = time.time() - 86400
+    for name in sorted(built):  # every file the targets need (a missing benchmark file reruns its job), all built at once
+        path = tmp_path / name
+        if any(other.startswith(name + '/') for other in built):
+            path.mkdir(parents=True, exist_ok=True)
+        else:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch()
+    for name in built:
+        os.utime(tmp_path / name, (earlier, earlier))
+    for name in (MIRBASE_GFF, gtf):  # a new annotation
+        os.utime(tmp_path / name, (earlier + 3600, earlier + 3600))
+    returncode, output = snakemake(tmp_path, '-n', *targets)
+    assert returncode == 0, output
+    planned = set(re.findall(r'^(?:local)?rule (\w+):', output, re.M))
+    assert {'tesmall_db', 'mirflowz_chr_map', 'tinyrna_gff'} <= planned, output
+    assert not planned & {'tesmall_genome', 'biocore_htseq_bowtie2_index'}, output

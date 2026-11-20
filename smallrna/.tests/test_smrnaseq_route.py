@@ -7,7 +7,7 @@ import sys
 
 import pytest
 
-from test_quant_methods import dry_run, rule_block
+from test_quant_methods import MIRBASE_GFF, corrected_mirbase_gff, dry_run, rule_block
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / 'smallrna/rules/quant/scripts'
@@ -37,7 +37,7 @@ def test_route_plans_the_pipelines_steps_on_the_filtered_reads_and_delivery_stay
     for suffix in INDEX:
         assert f'{OUT}/reference/bowtie/hairpin.{suffix}' in align.split('output:', 1)[0]
     mirtop = rule_block(output, 'smrnaseq_mirtop')
-    gff = 'data/ext/mirbase/mus_musculus/release-23.1/anno/genes.gff3'
+    gff = MIRBASE_GFF
     assert f'mirtop gff --sps mmu --hairpin {OUT}/reference/hairpin.fa --gtf {gff} -o {OUT}/mirtop/SR0' in mirtop
     assert f'mirtop counts --add-extra --hairpin {OUT}/reference/hairpin.fa --gtf {gff} --sps mmu --gff {OUT}/mirtop/SR0' in mirtop
     assert f'--joined {OUT}/joined_samples_mirtop.tsv --mirna {OUT}/mirna.tsv' in rule_block(output, 'smrnaseq_counts')
@@ -53,7 +53,7 @@ def test_route_quotes_paths_with_spaces(tmp_path):
     assert returncode == 0, output
     hairpin = f"'{ext}/mirbase/mus_musculus/release-23.1/fasta/hairpin.fa'"
     assert f'--species mmu {hairpin} > ' in rule_block(output, 'smrnaseq_hairpin')
-    assert f"--gtf '{ext}/mirbase/mus_musculus/release-23.1/anno/genes.gff3' -o " in rule_block(output, 'smrnaseq_mirtop')
+    assert f"--gtf '{corrected_mirbase_gff(ext)}' -o " in rule_block(output, 'smrnaseq_mirtop')
 
 
 def run(script, *args, stdin=None):

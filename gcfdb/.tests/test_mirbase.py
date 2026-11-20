@@ -2,7 +2,6 @@
 import hashlib
 import os
 from pathlib import Path
-import re
 import subprocess
 import sys
 import tempfile
@@ -79,11 +78,12 @@ def dry_run(release, organism='homo_sapiens', work=None):
     return result.returncode, result.stdout + result.stderr
 
 
-# The corrected GFF3's name (MIRBASE_GFF_NAME in gcfdb/mirbase.db) and the SHA-256 of the table and the script that
-# write it (#438). A new checkout must not rebuild that file, so a change to its content must give it a new name.
-CORRECTED_GFF = 'genes.gff3'
-CORRECTED_BY = {'gcfdb/tables/mirbase_gff_corrections.tsv': 'c195584499eb9aeabb61eb2639edf978b59dc6a5355adc1db67b0f7c019ffe2e',
-                'gcfdb/scripts/mirbase_gff_correct.py': 'ef744392efeaaa2ffffee65768155668129cb31caa97e785d429ffc7196a33cc'}
+def corrected_id():
+    """MIRBASE_GFF_ID (gcfdb/mirbase.db), which names the corrected GFF3 and its record after the table and the script."""
+    digest = hashlib.sha256()
+    for name in ('gcfdb/tables/mirbase_gff_corrections.tsv', 'gcfdb/scripts/mirbase_gff_correct.py'):
+        digest.update(hashlib.sha256((ROOT / name).read_bytes()).digest())
+    return digest.hexdigest()[:12]
 
 
 class MirbaseRuleTests(unittest.TestCase):
@@ -112,8 +112,9 @@ class MirbaseRuleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             work = Path(directory)
             ext = work / 'data/ext/mirbase/homo_sapiens/release-23.1'
-            built = [ext / 'fasta/hairpin.fa', ext / 'fasta/mature.fa', ext / 'sources/hsa.gff3', ext / 'anno' / CORRECTED_GFF,
-                     ext / 'logs/gff_corrections.tsv', ext / 'anno/genes.tsv']
+            gff = ext / 'anno' / f'genes.{corrected_id()}.gff3'
+            built = [ext / 'fasta/hairpin.fa', ext / 'fasta/mature.fa', ext / 'sources/hsa.gff3', gff,
+                     ext / f'logs/gff_corrections.{corrected_id()}.tsv', ext / 'anno/genes.tsv']
             before = (ROOT / 'gcfdb/tables/mirbase_gff_corrections.tsv').stat().st_mtime - 86400
             for n, path in enumerate(built):  # in build order, all before the table's file time
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -123,22 +124,21 @@ class MirbaseRuleTests(unittest.TestCase):
             self.assertEqual(returncode, 0, output)
             self.assertNotIn('rule mirbase_gff:', output)
             self.assertIn('Nothing to be done', output)
-            # Under a new name, the file does not exist yet: it is built, and its consumers rebuild after it.
-            (ext / 'anno' / CORRECTED_GFF).unlink()
+            # A store with other corrections, or none (genes.gff3 before #429), has no file of this name: the GFF3 is
+            # corrected, and its consumers rebuild after it.
+            gff.rename(ext / 'anno/genes.gff3')
             returncode, output = dry_run('23.1', work=work)
             self.assertEqual(returncode, 0, output)
             self.assertIn('rule mirbase_gff:', output)
             self.assertIn('rule mirbase_genes:', output)
 
-    def test_a_change_to_the_correction_table_or_script_renames_the_corrected_gff3(self):
-        name = re.search(r"^MIRBASE_GFF_NAME = '([^']+)'$", (ROOT / 'gcfdb/mirbase.db').read_text(), re.M)
-        self.assertEqual(name.group(1) if name else None, CORRECTED_GFF)
-        for path, sha256 in CORRECTED_BY.items():
-            with self.subTest(path=path):
-                self.assertEqual(hashlib.sha256((ROOT / path).read_bytes()).hexdigest(), sha256,
-                                 f'{path} changed. If the corrected GFF3 changes, give it a new name: MIRBASE_GFF_NAME in '
-                                 'gcfdb/mirbase.db and CORRECTED_GFF here (genes.v2.gff3, then genes.v3.gff3, ...). '
-                                 'Either way, pin the new SHA-256 here (#438).')
+    def test_the_corrected_gff3_and_its_record_are_named_after_the_table_and_script(self):
+        # Any change to either gives new files, so no build with other corrections is taken for this one (#438).
+        returncode, output = dry_run('23.1')
+        self.assertEqual(returncode, 0, output)
+        self.assertIn(f'release-23.1/anno/genes.{corrected_id()}.gff3', output)
+        self.assertIn(f'release-23.1/logs/gff_corrections.{corrected_id()}.tsv', output)
+        self.assertNotIn('anno/genes.gff3', output)
 
     def test_release_that_miRBase_does_not_serve_fails_at_load(self):
         for release in ('19', '23', 'CURRENT'):

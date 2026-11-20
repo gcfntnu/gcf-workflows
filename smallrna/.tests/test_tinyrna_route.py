@@ -11,7 +11,7 @@ import sys
 import pytest
 import yaml
 
-from test_quant_methods import dry_run, rule_block
+from test_quant_methods import MIRBASE_GFF, dry_run, rule_block
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / 'smallrna/rules/quant/scripts/tinyrna.py'
@@ -28,7 +28,7 @@ def test_route_plans_reference_and_counting_and_delivery_stays_on_unitas(tmp_pat
     assert returncode == 0, output
     assert 'rule unitas_mirtable:' in output and output.count('rule tinyrna_count:') == 4
     gff = rule_block(output, 'tinyrna_gff')
-    assert ('--mirna-gff data/ext/mirbase/mus_musculus/release-23.1/anno/genes.gff3 '
+    assert (f'--mirna-gff {MIRBASE_GFF} '
             '--chr-map data/ext/mirflowz/mirbase-23.1_ensembl-116/mus_musculus/chr_map.tsv') in gff
     assert '--output data/ext/tinyrna/mirbase-23.1_ensembl-116/mus_musculus/mirna.v2.gff3' in gff
     assert 'input: data/ext/ensembl/release-116/mus_musculus/GRCm39/fasta/genome.fa' in rule_block(output, 'tesmall_genome')
