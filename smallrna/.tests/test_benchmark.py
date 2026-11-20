@@ -800,15 +800,15 @@ def test_resources_per_method_from_the_benchmark_files(tmp_path):
         write_benchmark(quant / 'benchmarks/tesmall_quant/{}.tsv'.format(sample), 600, 590, 1500)
     write_benchmark(quant / 'benchmarks/smrnaseq_counts.tsv', 4, 'NA', 'NA')
     write_benchmark(quant / 'benchmarks/smrnaseq_hairpin_index.tsv', 3, 9, 50)
-    write_benchmark(quant / 'benchmarks/tesmall_genome.tsv', 3600, 50000, 9000)   # built by this run, shared by both genome routes
+    write_benchmark(quant / 'benchmarks/tesmall_genome.tsv', 3600, 50000, 9000)   # a shared build's name: not a step here
     text, lines = resources.summarize(quant, ['smrnaseq', 'tesmall', 'tinyrna'], ['S1', 'S2'], 1000)
     table = '\n'.join(lines)
     assert '| smrnaseq | 7 | 68 | 192 | 2000 (smrnaseq_mirtop) | 14.7 |' in table
     assert '| tesmall | not measured |' in table and 'tesmall (1 missing, e.g. `tesmall_counts.tsv`)' in table
     assert 'tinyrna (7 missing, e.g. `tinyrna_collapse/S1.tsv`)' in table
     assert '| smrnaseq | smrnaseq_hairpin_index | 3 | 9 | 50 |' in table
-    assert '| tesmall | tesmall_genome | 3600 | 50000 | 9000 |' in table and '| tinyrna | tesmall_genome | 3600 |' in table
-    assert text.splitlines()[0] == '\t'.join(resources.HEADER) and len(text.splitlines()) == 1 + 8 + 3 + 1  # header; smrnaseq, tesmall and tinyrna jobs
+    assert 'tesmall_genome' not in table and 'tesmall_genome' not in text
+    assert text.splitlines()[0] == '\t'.join(resources.HEADER) and len(text.splitlines()) == 1 + 8 + 2  # header; smrnaseq and tesmall jobs
     _, lines = resources.summarize(quant, ['smrnaseq'], ['S1', 'S2'], None)
     assert '| smrnaseq | 7 | 68 | 192 | 2000 (smrnaseq_mirtop) |  |' in lines
     for bad in ('s\tcpu_time\n1\t2\n', 's\tmax_rss\tcpu_time\n1\t2\t3\n4\t5\t6\n', 's\tmax_rss\tcpu_time\nNA\t2\t3\n',
@@ -904,6 +904,13 @@ def test_evaluate_a_biological_dataset_in_lanes(tmp_path):
     assert '| unitas | 3 | 81 | 160 | 950 (unitas) | 2.47 |' in report    # 200 input reads over 81 s
     assert '| mirge3 | not measured |' in report and 'mirge3 (2 missing, e.g. `mirge3_quant.tsv`)' in report
     record = json.loads((project / 'benchmark/evaluation.json').read_text())
+    published = {name: (project / 'benchmark' / name).read_bytes() for name in ('common.tsv', 'report.md', 'evaluation.json')}
+    # a malformed benchmark file stops a new evaluation before any scoring table is rewritten
+    write(quant / 'unitas/mir_counts.tsv', '\tGSM1_L1\tGSM1_L2\nmiR-16-5p\t1\t2\n')
+    write(quant / 'benchmarks/unitas_mirtable.tsv', 's\tmax_rss\tcpu_time\n1\tx\t1\n')
+    result = subprocess.run(cmd + ['evaluate', '--project', str(project)], capture_output=True, text=True, timeout=60)
+    assert result.returncode != 0 and 'unitas_mirtable.tsv: max_rss is' in result.stderr
+    assert {name: (project / 'benchmark' / name).read_bytes() for name in published} == published
     assert record['resources.tsv'] and (project / 'benchmark/resources.tsv').read_text().splitlines()[1:] == [
         'unitas\tquant\tunitas\tGSM1_L1\t30\t60\t930', 'unitas\tquant\tunitas\tGSM1_L2\t50\t100\t950',
         'unitas\tquant\tunitas_mirtable\t\t1\t\t']

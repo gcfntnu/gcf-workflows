@@ -150,7 +150,7 @@ rule mirflowz_prepare:
     resources:
         mem_mb = MIRFLOWZ_MEM_GB * 1024
     benchmark:
-        join(QUANT_BENCHMARKS, 'mirflowz_prepare.tsv')
+        join(MIRFLOWZ_REF, 'benchmarks', 'mirflowz_prepare.tsv')
     container:
         'docker://' + config['docker']['mirflowz']
     shell:

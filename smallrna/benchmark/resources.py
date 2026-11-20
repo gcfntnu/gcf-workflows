@@ -10,10 +10,16 @@ that start many short processes are undercounted most: mirflowz's nested Snakema
 /usr/bin/time measured 45 s (#386).
 
 Each method's steps are listed in STEPS: `quant` steps make its count table from the filtered reads; `reference` steps
-build what it counts against. A reference step built once per project (e.g. smrnaseq's hairpin index) is measured in
-every run; a shared one under EXT_DIR (the mirflowz reference, TEsmall's genome index and database) only in the run
-that built it, so it is usually absent and then not listed. A method is measured when every `quant`
-step has its files; a run from before #386, or with a step left out, is reported as not measured.
+build, in the project, what it counts against (e.g. smrnaseq's hairpin index). A method is measured when every `quant`
+step has its file; a run from before #386, or with a step left out, is reported as not measured.
+
+A benchmark file is an output of its job, rewritten whenever the job runs, so each file describes the run that made
+that job's current output. After a partial rerun a method's jobs can therefore come from different runs, possibly on
+different machines; a benchmark project quantified from scratch has them from one run.
+
+The shared reference builds under EXT_DIR (gcfdb/mirflowz.db's mirflowz_prepare, gcfdb/tesmall.db's tesmall_genome
+and tesmall_db) are not reported here: their benchmark files are in the reference they built
+(`<reference>/benchmarks/<rule>.tsv`), whichever project built it.
 """
 import csv
 import math
@@ -23,10 +29,9 @@ from pathlib import Path
 STEPS = {
     'unitas': [('unitas', True, 'quant'), ('unitas_mirtable', False, 'quant')],
     'mirge3': [('mirge3_project_library', False, 'reference'), ('mirge3_quant', False, 'quant'), ('mirge3_counts', False, 'quant')],
-    'mirflowz': [('mirflowz_prepare', False, 'reference'), ('mirflowz_quant', False, 'quant')],
-    'tesmall': [('tesmall_genome', False, 'reference'), ('tesmall_db', False, 'reference'),
-                ('tesmall_quant', True, 'quant'), ('tesmall_counts', False, 'quant')],
-    'tinyrna': [('tesmall_genome', False, 'reference'), ('tinyrna_features', False, 'reference'), ('tinyrna_collapse', True, 'quant'),
+    'mirflowz': [('mirflowz_quant', False, 'quant')],
+    'tesmall': [('tesmall_quant', True, 'quant'), ('tesmall_counts', False, 'quant')],
+    'tinyrna': [('tinyrna_features', False, 'reference'), ('tinyrna_collapse', True, 'quant'),
                 ('tinyrna_align', True, 'quant'), ('tinyrna_count', True, 'quant'), ('tinyrna_counts', False, 'quant')],
     'smrnaseq': [('smrnaseq_hairpin', False, 'reference'), ('smrnaseq_hairpin_index', False, 'reference'),
                  ('smrnaseq_collapse', True, 'quant'), ('smrnaseq_align', True, 'quant'), ('smrnaseq_mirtop', True, 'quant'),
@@ -115,10 +120,9 @@ def summarize(quant, methods, samples, reads):
     lines += md_table(['method', 'jobs', 'wall s', 'CPU s (at least)', 'peak MB (step)', 'reads/s'], summary)
     if unmeasured:
         lines += ['', 'Not measured (run before benchmark files were written, or steps left out): ' + '; '.join(unmeasured) + '.']
-    lines += ['', 'Reference steps run with this project: per-project ones (the miRge3 project library, smrnaseq\'s hairpin '
-              'index, tiny-count\'s feature sheet) in every run, shared builds under EXT_DIR (mirflowz reference, TEsmall '
-              'genome index and database) only in the run that built them.', '']
-    lines += md_table(['method', 'step', 'wall s', 'CPU s (at least)', 'peak MB'], references) if references else ['None in this run.']
+    lines += ['', 'Reference steps built in the project (the miRge3 project library, smrnaseq\'s hairpin index, tiny-count\'s '
+              'feature sheet). Shared references under EXT_DIR record their build in their own `benchmarks/` folder.', '']
+    lines += md_table(['method', 'step', 'wall s', 'CPU s (at least)', 'peak MB'], references) if references else ['None.']
     return text, lines
 
 

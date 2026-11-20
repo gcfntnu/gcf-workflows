@@ -368,15 +368,20 @@ def bootstrap(args, point, compute, draw, rows, keys, units):
     return extra, record, uncertainty.report_lines(ci, differences, rows, keys, units, n, seed, skipped)
 
 
-def publish(project, bench, spec, header, rows, lines, extra, record):
-    """evaluation.publish with the run's reads processed, and the methods' runtime and memory (resources.py, #386) as a
-    last report section and resources.tsv."""
-    reads = run_reads(project)
+def run_resources(project, bench, spec, reads):
+    """(resources.tsv text, report lines) of the methods' runtime and memory (resources.py, #386); a malformed benchmark
+    file stops the evaluation."""
     try:
-        text, resource_lines = resources.summarize(project / 'data/tmp/smallrna/quant', spec['methods'],
-                                                   sorted(scored_samples(spec, bench)), reads)
+        return resources.summarize(project / 'data/tmp/smallrna/quant', spec['methods'], sorted(scored_samples(spec, bench)), reads)
     except ValueError as error:
         fail(str(error))
+
+
+def publish(project, bench, spec, header, rows, lines, extra, record):
+    """evaluation.publish with the run's reads processed, and the methods' runtime and memory as a last report section
+    and resources.tsv."""
+    reads = run_reads(project)
+    text, resource_lines = run_resources(project, bench, spec, reads)
     evaluation.publish(bench, header, rows, lines + resource_lines, reads, {**extra, 'resources.tsv': text}, record)
 
 
@@ -464,6 +469,7 @@ def evaluate(args):
     config = yaml.safe_load((project / 'config.yaml').read_text())
     ext_dir = Path(config['ext_dir'])
     check_methods(project, spec, config)
+    run_resources(project, bench, spec, None)  # benchmark files checked before any scoring table is written
     if spec['kind'] == 'pool':
         return evaluate_pool(args, project, bench, spec, ext_dir)
     if spec['kind'] == 'biological':

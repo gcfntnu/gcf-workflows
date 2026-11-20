@@ -112,7 +112,7 @@ rule tesmall_genome:
     threads:
         16
     benchmark:
-        join(QUANT_BENCHMARKS, 'tesmall_genome.tsv')
+        join(TESMALL_REF, 'benchmarks', 'tesmall_genome.tsv')
     container:
         'docker://' + config['docker']['tesmall']
     shell:
@@ -167,7 +167,7 @@ rule tesmall_db:
             'gtrnadb={}'.format(TESMALL_GTRNADB.get(ORG, ('NA',))[0]), 'rmsk={}'.format(TESMALL_RMSK.get(ORG, 'NA')),
             'rdna={}'.format(TESMALL_RDNA.get(ORG, 'NA')), 'unitas_dump={}'.format(UNITAS_RELEASE)))
     benchmark:
-        join(QUANT_BENCHMARKS, 'tesmall_db.tsv')
+        join(TESMALL_DUMP_REF, 'benchmarks', 'tesmall_db.tsv')
     container:
         'docker://' + config['docker']['tesmall']
     shell:

@@ -311,8 +311,8 @@ def test_recorded_routes_write_their_mirbase_release_and_table_checksum(tmp_path
 
 def test_route_steps_write_the_benchmark_files_the_benchmark_reads(tmp_path):
     """Every step benchmark/resources.py counts for a method declares its Snakemake benchmark file where resources.jobs
-    reads it (#386): quant/benchmarks/<rule>/<sample>.tsv per sample, <rule>.tsv per project, the shared reference
-    builds included."""
+    reads it (#386): quant/benchmarks/<rule>/<sample>.tsv per sample, <rule>.tsv per project; the shared reference builds
+    in their reference's benchmarks/ folder."""
     sys.path.insert(0, str(ROOT / 'smallrna/benchmark'))
     import resources
     returncode, output = dry_run(tmp_path, ','.join(resources.STEPS))
@@ -329,3 +329,8 @@ def test_route_steps_write_the_benchmark_files_the_benchmark_reads(tmp_path):
         for step, per_sample, _ in steps:
             expected = {f'{base}{step}/{s}.tsv' for s in samples} if per_sample else {f'{base}{step}.tsv'}
             assert declared.get(step) == expected, (method, step)
+    # shared builds: in the reference they built, so a file never describes another reference
+    reference = 'data/ext/{}/mirbase-23.1_ensembl-116/mus_musculus'
+    assert declared['mirflowz_prepare'] == {reference.format('mirflowz') + '/benchmarks/mirflowz_prepare.tsv'}
+    assert declared['tesmall_genome'] == {reference.format('tesmall') + '/benchmarks/tesmall_genome.tsv'}
+    assert declared['tesmall_db'] == {reference.format('tesmall') + '/unitas-05-11-2026/benchmarks/tesmall_db.tsv'}

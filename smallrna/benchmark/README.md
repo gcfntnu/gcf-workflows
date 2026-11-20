@@ -57,11 +57,14 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    - the largest job's peak memory;
    - the run's input reads per second of summed wall time.
 
-   Reference steps measured in this run are listed apart. Per-project ones, such as smrnaseq's hairpin index, are
-   measured in every run. Shared builds under `EXT_DIR` (the mirflowz reference, TEsmall's genome index and database)
-   are measured only in the run that built them.
+   Reference steps built in the project, such as smrnaseq's hairpin index, are listed apart. Shared builds under
+   `EXT_DIR` (the mirflowz reference, TEsmall's genome index and database) are not in the report: each records its
+   build in its own folder, as `<reference>/benchmarks/<rule>.tsv`.
    Every job is in `resources.tsv`, which is listed in `evaluation.json`. A method run before #386, or with a step's
-   file missing, is reported as not measured. The numbers depend on the machine, its storage and the cores and memory
+   file missing, is reported as not measured. `evaluate` checks the benchmark files before it writes anything.
+   Snakemake rewrites a job's benchmark file whenever the job runs, so each file describes the run that made that
+   job's current output. After a partial rerun a method's jobs can come from different runs, possibly on different
+   machines; quantify a benchmark project from scratch to measure it in one run. The numbers depend on the machine, its storage and the cores and memory
    the run was given.
    The wall time is exact, I/O waits included. Snakemake samples memory and CPU every 30 s after a job's first 15 s,
    so short memory peaks can be missed. CPU time is a lower bound: a route that starts many short processes is
