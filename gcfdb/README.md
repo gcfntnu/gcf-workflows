@@ -52,6 +52,8 @@ their identity, sources and checks.
   (`mirna.v<n>.gff3`; `<n>` is raised when the script's output changes, so an older GFF is rebuilt). A mature miRNA
   listed at one locus under several hairpins is one row with every parent; repeated IDs at other loci get a numeric
   suffix.
+- **htseq reference** ([`htseq.db`](htseq.db)): a Bowtie 2 index of TEsmall's genome FASTA, under
+  `EXT_DIR/htseq/<mirflowz reference>/genome/bowtie2/`; the route annotates with tiny-count's renamed miRBase GFF.
 - **miraligner database** ([`miraligner.db`](miraligner.db), [`miraligner_db.py`](scripts/miraligner_db.py)): the
   organism's miRBase hairpins and a `miRNA.str` with each mature miRNA's position in its hairpin, where its sequence lies
   there, guided by the GFF3 (for miRBase 22 identical to miRBase's own file; miRBase serves none for 23.1). The record

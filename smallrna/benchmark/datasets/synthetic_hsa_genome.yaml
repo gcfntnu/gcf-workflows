@@ -8,7 +8,7 @@ organism: homo_sapiens
 libprepkit: Bioo Scientific NEXTflex Small RNA-Seq Kit v4
 adapter: TGGAATTCTCGGGTGCCAAGG
 umi: 0                      # random nucleotides at each end of the insert (NEXTflex v3: 4)
-methods: [unitas, mirge3, tinyrna, smrnaseq, tesmall, miraligner]   # mirflowz needs about 60 GB for the human genome
+methods: [unitas, mirge3, tinyrna, smrnaseq, tesmall, htseq, miraligner]   # mirflowz needs about 60 GB for the human genome
 data: benchmark/smallrna/synthetic_hsa
 mirbase:                    # the release every method uses (#407)
   release: '23.1'
