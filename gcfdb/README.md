@@ -27,7 +27,7 @@ day ([#330](https://github.com/gcfntnu/gcf-workflows/issues/330)).
 ### miRBase GFF3 correction
 
 [`mirbase.db`](mirbase.db) downloads the hairpin and mature sequences and the genome GFF3 of `db.mirbase.release`. The
-GFF3 that every consumer reads, `EXT_DIR/mirbase/<organism>/release-<release>/anno/genes.gff3`, is miRBase's file
+GFF3 that every consumer reads, `EXT_DIR/mirbase/<organism>/release-<release>/anno/genes.gff3` (`MIRBASE_GFF_NAME`, below), is miRBase's file
 (`sources/<code>.gff3`) corrected with the reviewed rows of
 [`tables/mirbase_gff_corrections.tsv`](tables/mirbase_gff_corrections.tsv) and checked by
 [`mirbase_gff_correct.py`](scripts/mirbase_gff_correct.py) ([#429](https://github.com/gcfntnu/gcf-workflows/issues/429)).
@@ -45,6 +45,12 @@ Its consumers are UNITAS's annotation and `genes.tsv`, the genome routes, smrnas
   that the row lies in the hairpin, on its strand, with the sequence's length. `none`, for a reviewed anomaly, skips
   the check.
 - **Record:** the applied rows go to `logs/gff_corrections.tsv`.
+- **Changing the table or the script:** the table is an `ancient()` input, so the file time a checkout gives it does
+  not rebuild the corrected GFF3. A change to its content therefore needs a new name. If a change to the table or to
+  `mirbase_gff_correct.py` changes the corrected GFF3, rename it (`MIRBASE_GFF_NAME` in `mirbase.db`: `genes.v2.gff3`,
+  then `genes.v3.gff3`, …). A shared `EXT_DIR` then builds the new file, and its consumers rebuild through the new path.
+  `.tests/test_mirbase.py` pins the SHA-256 of both files to the name and fails until they are updated
+  ([#438](https://github.com/gcfntnu/gcf-workflows/issues/438)).
 
 **miRBase 23.1's corrections:**
 - hairpin rows that cover only the stem, with their matures placed from them; some of these rows have no strand;

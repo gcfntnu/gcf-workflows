@@ -1,6 +1,8 @@
 """miRBase reference rules (#278): release-specific URLs, load-time checks and species FASTA extraction; no downloads."""
+import hashlib
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -60,19 +62,28 @@ class MirbaseGenesTests(unittest.TestCase):
         rows = [line.split('\t') for line in lines[1:]]
         self.assertEqual([(row[0], row[9]) for row in rows], [('miR-1a-5p', 'MIMAT0000001'), ('miR-1a-1-5p', 'MIMAT0000002')])
 
-def dry_run(release, organism='homo_sapiens'):
-    with tempfile.TemporaryDirectory() as directory:
-        work = Path(directory)
-        settings = {'read_geometry': [50], 'organism': organism, 'db': {'mirbase': {'release': release}},
-                    'docker': {'default': 'example/default:1'}}
-        (work / 'Snakefile').write_text(f'config.update({settings!r})\n'
-                                        f'include: {str(ROOT / "utils.py")!r}\n'
-                                        f'include: {str(ROOT / "gcfdb/mirbase.db")!r}\n')
-        env = {k: v for k, v in os.environ.items() if not k.startswith('GCF_')}
-        result = subprocess.run([sys.executable, '-m', 'snakemake', '-n', '-p', '--cores', '1', 'mirbase_db_all',
-                                 'data/ext/mirbase/{}/release-{}/anno/genes.tsv'.format(organism, release)],
-                                cwd=work, env=env, capture_output=True, text=True, timeout=60)
-        return result.returncode, result.stdout + result.stderr
+def dry_run(release, organism='homo_sapiens', work=None):
+    """A dry run of mirbase_db_all and genes.tsv in a new project: `work`, or an empty temporary folder."""
+    if work is None:
+        with tempfile.TemporaryDirectory() as directory:
+            return dry_run(release, organism, Path(directory))
+    settings = {'read_geometry': [50], 'organism': organism, 'db': {'mirbase': {'release': release}},
+                'docker': {'default': 'example/default:1'}}
+    (work / 'Snakefile').write_text(f'config.update({settings!r})\n'
+                                    f'include: {str(ROOT / "utils.py")!r}\n'
+                                    f'include: {str(ROOT / "gcfdb/mirbase.db")!r}\n')
+    env = {k: v for k, v in os.environ.items() if not k.startswith('GCF_')}
+    result = subprocess.run([sys.executable, '-m', 'snakemake', '-n', '-p', '--cores', '1', 'mirbase_db_all',
+                             'data/ext/mirbase/{}/release-{}/anno/genes.tsv'.format(organism, release)],
+                            cwd=work, env=env, capture_output=True, text=True, timeout=60)
+    return result.returncode, result.stdout + result.stderr
+
+
+# The corrected GFF3's name (MIRBASE_GFF_NAME in gcfdb/mirbase.db) and the SHA-256 of the table and the script that
+# write it (#438). A new checkout must not rebuild that file, so a change to its content must give it a new name.
+CORRECTED_GFF = 'genes.gff3'
+CORRECTED_BY = {'gcfdb/tables/mirbase_gff_corrections.tsv': 'c195584499eb9aeabb61eb2639edf978b59dc6a5355adc1db67b0f7c019ffe2e',
+                'gcfdb/scripts/mirbase_gff_correct.py': 'ef744392efeaaa2ffffee65768155668129cb31caa97e785d429ffc7196a33cc'}
 
 
 class MirbaseRuleTests(unittest.TestCase):
@@ -94,6 +105,40 @@ class MirbaseRuleTests(unittest.TestCase):
                 self.assertIn('scripts/mirbase_gff_correct.py --gff ', output)
                 self.assertIn(f'--release {release} --organism homo_sapiens --table ', output)
                 self.assertIn('gcfdb/tables/mirbase_gff_corrections.tsv', output)
+
+    def test_a_newer_correction_table_does_not_rebuild_the_corrected_gff3(self):
+        # A checkout gives the table the checkout time, later than a corrected GFF3 built before in a shared EXT_DIR;
+        # a new project has no metadata to compare the table's content with (#438).
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory)
+            ext = work / 'data/ext/mirbase/homo_sapiens/release-23.1'
+            built = [ext / 'fasta/hairpin.fa', ext / 'fasta/mature.fa', ext / 'sources/hsa.gff3', ext / 'anno' / CORRECTED_GFF,
+                     ext / 'logs/gff_corrections.tsv', ext / 'anno/genes.tsv']
+            before = (ROOT / 'gcfdb/tables/mirbase_gff_corrections.tsv').stat().st_mtime - 86400
+            for n, path in enumerate(built):  # in build order, all before the table's file time
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('x\n')
+                os.utime(path, (before + n, before + n))
+            returncode, output = dry_run('23.1', work=work)
+            self.assertEqual(returncode, 0, output)
+            self.assertNotIn('rule mirbase_gff:', output)
+            self.assertIn('Nothing to be done', output)
+            # Under a new name, the file does not exist yet: it is built, and its consumers rebuild after it.
+            (ext / 'anno' / CORRECTED_GFF).unlink()
+            returncode, output = dry_run('23.1', work=work)
+            self.assertEqual(returncode, 0, output)
+            self.assertIn('rule mirbase_gff:', output)
+            self.assertIn('rule mirbase_genes:', output)
+
+    def test_a_change_to_the_correction_table_or_script_renames_the_corrected_gff3(self):
+        name = re.search(r"^MIRBASE_GFF_NAME = '([^']+)'$", (ROOT / 'gcfdb/mirbase.db').read_text(), re.M)
+        self.assertEqual(name.group(1) if name else None, CORRECTED_GFF)
+        for path, sha256 in CORRECTED_BY.items():
+            with self.subTest(path=path):
+                self.assertEqual(hashlib.sha256((ROOT / path).read_bytes()).hexdigest(), sha256,
+                                 f'{path} changed. If the corrected GFF3 changes, give it a new name: MIRBASE_GFF_NAME in '
+                                 'gcfdb/mirbase.db and CORRECTED_GFF here (genes.v2.gff3, then genes.v3.gff3, ...). '
+                                 'Either way, pin the new SHA-256 here (#438).')
 
     def test_release_that_miRBase_does_not_serve_fails_at_load(self):
         for release in ('19', '23', 'CURRENT'):

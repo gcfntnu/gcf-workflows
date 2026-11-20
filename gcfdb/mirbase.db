@@ -73,14 +73,21 @@ rule mirbase_gff_download:
 # miRBase's file corrected with the reviewed rows of tables/mirbase_gff_corrections.tsv, then checked against the
 # release's hairpin and mature sequences; a disagreement the table does not list stops the build
 # (scripts/mirbase_gff_correct.py, #429).
+# Its name changes with every change to the table or the script that changes the file: genes.gff3, then genes.v2.gff3,
+# genes.v3.gff3, ... A shared EXT_DIR then builds the new file, and the consumers rebuild through its path. The table is
+# an ancient() input, so its file time is not compared: a checkout gives it the checkout time, which would otherwise
+# rebuild the unchanged file and everything built from it in every new project (#438). .tests/test_mirbase.py pins
+# the table's and the script's SHA-256 to the name.
+MIRBASE_GFF_NAME = 'genes.gff3'
+
 rule mirbase_gff:
     input:
         gff = rules.mirbase_gff_download.output,
         hairpins = rules.mirbase_hairpin_fasta.output.fasta,
         matures = rules.mirbase_mature_fasta.output.fasta,
-        table = src_gcf('tables/mirbase_gff_corrections.tsv')
+        table = ancient(src_gcf('tables/mirbase_gff_corrections.tsv'))
     output:
-        join(MIRBASE_EXT, 'anno', 'genes.gff3')
+        join(MIRBASE_EXT, 'anno', MIRBASE_GFF_NAME)
     params:
         script = src_gcf('scripts/mirbase_gff_correct.py'),
         release = MIRBASE_RELEASE,
@@ -109,5 +116,5 @@ rule mirbase_db_all:
     input:
         join(MIRBASE_EXT, 'fasta', 'hairpin.fa'),
         join(MIRBASE_EXT, 'fasta', 'mature.fa'),
-        join(MIRBASE_EXT, 'anno', 'genes.gff3')
+        join(MIRBASE_EXT, 'anno', MIRBASE_GFF_NAME)
                 
