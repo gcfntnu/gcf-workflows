@@ -138,8 +138,13 @@ def run_join(args):
             header = fh.readline().rstrip('\n').split('\t')
             if header != ['miRNA', 'count']:
                 fail('{}: expected the header miRNA, count, got {}'.format(path, header))
-            for line in fh:
-                name, value = line.rstrip('\n').split('\t')
+            for i, line in enumerate(fh, 2):
+                fields = line.rstrip('\n').split('\t')
+                if len(fields) != 2:
+                    fail('{}:{}: expected a miRNA and a count, got {!r}'.format(path, i, line[:100]))
+                name, value = fields
+                if sample in counts.get(name, {}):
+                    fail('{}:{}: {} twice'.format(path, i, name))
                 counts.setdefault(name, {})[sample] = value
     out = sys.stdout
     out.write('\t'.join(['miRNA'] + args.samples) + '\n')

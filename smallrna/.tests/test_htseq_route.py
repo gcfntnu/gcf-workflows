@@ -29,7 +29,9 @@ def test_route_plans_reference_and_counting_and_delivery_stays_on_unitas(tmp_pat
     assert 'input: data/ext/tesmall/mirbase-23.1_ensembl-116/mus_musculus/genome/genome.fa' in index
     assert f'bowtie2-build --threads 1 data/ext/tesmall/mirbase-23.1_ensembl-116/mus_musculus/genome/genome.fa {REF}/genome >' in index
     assert 'rule tesmall_db:' not in output  # only the shared genome, not the TEsmall database
-    assert f'fastx_collapser -Q 33 -i data/tmp/smallrna/filter/cutadapt/SR01_R1.fastq -o {OUT}/SR01/collapsed.fa' in output
+    collapse = rule_block(output, 'htseq_collapse')
+    assert ('if [ -s data/tmp/smallrna/filter/cutadapt/SR0' in collapse and f'fastx_collapser -Q 33 -i data/tmp/smallrna/filter/cutadapt/SR0'
+            in collapse and f'else : > {OUT}/SR0' in collapse)  # no filtered reads: no sequences, zero counts
     align = rule_block(output, 'htseq_align')
     assert "length($0) >= 15 {print name; print}" in align
     assert f'bowtie2 -p 1 -k 10 -f -x {REF}/genome -U - 2>' in align and '| gzip > ' in align
@@ -39,6 +41,7 @@ def test_route_plans_reference_and_counting_and_delivery_stays_on_unitas(tmp_pat
     assert ('htseq-count -f sam -a 0 -s yes -t miRNA -i Name --secondary-alignments score --supplementary-alignments score '
             '--samout {0}/SR0'.format(OUT)) in annotate
     assert f' - {OUT}/mirna.gff3 > ' in annotate  # tiny-count's renamed GFF without rows that have no strand
+    assert '|| { rm -f ' in annotate  # a failed htseq-count leaves no uncompressed samout behind
     assert 'gff --input data/ext/tinyrna/mirbase-23.1_ensembl-116/mus_musculus/mirna.v2.gff3 > {}/mirna.gff3'.format(OUT) in rule_block(output, 'htseq_gff')
     assert '--species mmu --collapsed' in rule_block(output, 'htseq_count')
     assert '--samples SR01 SR02 SR03 SR04' in rule_block(output, 'htseq_counts')
@@ -144,6 +147,10 @@ def test_join_fills_missing_mirnas_with_zero(tmp_path):
                             capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     assert result.stdout == 'miRNA\tS1\tS2\nmmu-miR-1a-3p\t5\t0\nmmu-miR-21a-5p\t7\t3\n'
+    second.write_text('miRNA\tcount\nmmu-miR-21a-5p\t3\nmmu-miR-21a-5p\t4\n')
+    result = subprocess.run([sys.executable, str(SCRIPT), 'join', '--samples', 'S1', 'S2', '--tables', str(first), str(second)],
+                            capture_output=True, text=True)
+    assert result.returncode != 0 and 'mmu-miR-21a-5p twice' in result.stderr
     second.write_text('name\tcount\n')
     result = subprocess.run([sys.executable, str(SCRIPT), 'join', '--samples', 'S1', 'S2', '--tables', str(first), str(second)],
                             capture_output=True, text=True)

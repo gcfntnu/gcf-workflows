@@ -8,8 +8,9 @@ reference>/genome/genome.fa`), indexed into `EXT_DIR/htseq/<mirflowz reference>/
 (HTSEQ_INDEX). The miRNA annotation is tiny-count's renamed miRBase GFF (gcfdb/tinyrna.db), so the route shares one
 genome and miRBase release with mirflowz, TEsmall, tiny-count and the benchmark.
 
-Checks of the mirflowz reference stop the workflow when this route is selected (`HTSEQ_SELECTED`, set in
-smallrna/rules/quant.smk).
+On a reference without TEsmall's genome folder, `tesmall_genome` also builds TEsmall's Bowtie 1 index of it, which
+this route does not use; the folder exists once for every route on the reference. Checks of the mirflowz reference
+stop the workflow when this route is selected (`HTSEQ_SELECTED`, set in smallrna/rules/quant.smk).
 """
 
 HTSEQ_REF = join(EXT_DIR, 'htseq', os.path.relpath(MIRFLOWZ_REF, join(EXT_DIR, 'mirflowz')))

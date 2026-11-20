@@ -52,12 +52,16 @@ rule htseq_collapse:
         fastq = lambda wildcards: get_filtered_fastq(wildcards)['R1']
     output:
         join(HTSEQ_OUT, '{sample}', 'collapsed.fa')
+    log:
+        join(HTSEQ_OUT, '{sample}', 'collapse.log')
     benchmark:
         join(QUANT_BENCHMARKS, 'htseq_collapse', '{sample}.tsv')
     container:
         'docker://' + config['docker']['fastx_toolkit']
     shell:
-        'fastx_collapser -Q 33 -i {input.fastq:q} -o {output:q}'
+        # fastx_collapser stops on an empty FASTQ; a sample without filtered reads has no sequences (and zero counts).
+        'if [ -s {input.fastq:q} ]; then fastx_collapser -Q 33 -i {input.fastq:q} -o {output:q} 2> {log:q}; '
+        'else : > {output:q}; echo "no filtered reads" > {log:q}; fi'
 
 
 rule htseq_align:
@@ -102,9 +106,10 @@ rule htseq_annotate:
     container:
         'docker://' + config['docker']['htseq']
     shell:
-        'gzip -dc {input.alignments:q} | '
+        # The uncompressed samout is not a declared output: removed if htseq-count fails, compressed if it succeeds.
+        '(gzip -dc {input.alignments:q} | '
         'htseq-count -f sam -a 0 -s yes -t miRNA -i Name --secondary-alignments score --supplementary-alignments score '
-        '--samout {params.samout:q} - {input.gff:q} > {log:q} 2>&1 && '
+        '--samout {params.samout:q} - {input.gff:q} > {log:q} 2>&1) || {{ rm -f {params.samout:q}; exit 1; }}; '
         'gzip -f {params.samout:q}'
 
 
