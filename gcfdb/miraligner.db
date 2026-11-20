@@ -5,7 +5,8 @@
 miraligner reads `hairpin.fa` and `miRNA.str` from one folder. miRBase does not serve `miRNA.str` for every release
 (not for 23.1), so scripts/miraligner_db.py writes its header lines: each mature miRNA's position in its hairpin, where
 its sequence lies in the hairpin's sequence, guided by the release's GFF3 (for miRBase 22, identical to miRBase's own
-miRNA.str). The record lists the few miRBase 23.1 rows whose GFF3 position disagrees with the sequences. Folder:
+miRNA.str). The record lists the rows whose GFF3 position disagrees with the sequences: with gcfdb's corrected GFF3
+(gcfdb/mirbase.db, #429), those the correction exempts. Folder:
 `EXT_DIR/miraligner/mirbase-<release>/<organism>/db.v<MIRALIGNER_DB_VERSION>/` (MIRALIGNER_DB), with the record
 `miraligner_db.tsv`.
 """

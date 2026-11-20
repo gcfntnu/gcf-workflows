@@ -21,8 +21,8 @@ Per sample `mature.tsv` (name, count), `isomir.tsv` (name_sequence, count) and `
 the samples' mature counts. The pipeline's annotation added RNAcentral transcripts and Ensembl genes for its ncRNA
 tables. In union mode those only turn a miRNA hit into `__ambiguous[...]`, which step 4 expands back, so the miRNA
 counts do not depend on them; the route uses the miRBase features only, tiny-count's renamed GFF (gcfdb/tinyrna.db),
-without its rows that have no strand (`mirna.gff3`; miRBase 23.1: hsa-mir-13167, hsa-mir-13168 and hsa-mir-514c with
-their mature miRNAs, and some rat rows), which htseq-count's stranded mode cannot place and stops on. The genome's
+without its rows that have no strand (`mirna.gff3`), which htseq-count's stranded mode cannot place and stops on. The
+corrected miRBase GFF3 has none (gcfdb/mirbase.db, #429); a custom reference (`db.mirflowz.custom`) may. The genome's
 Bowtie 2 index is gcfdb/htseq.db.
 """
 

@@ -52,13 +52,13 @@ rule mirbase_mature_fasta:
         echo "Mirbase mature,{MIRBASE_RELEASE},{params.url},$(date +%d-%m-%Y)" > {log}
         """
 
-rule mirbase_gff:        
+rule mirbase_gff_download:
+    output:
+        join(MIRBASE_EXT, 'sources', '{}.gff3'.format(MIR_ORG[ORG]))
     params:
         url = URLS['gff'],
         mirbase_org = MIR_ORG[ORG],
         proxy = config.get('proxy', {}).get('wget', ''),
-    output:
-        join(MIRBASE_EXT, 'anno', 'genes.gff3')
     log:
        join(MIRBASE_EXT, 'logs', 'gff.log')
     shell:
@@ -68,6 +68,30 @@ rule mirbase_gff:
         grep -q '^# microRNAs: *miRBase v{MIRBASE_RELEASE}$' {output} || {{ echo "{params.url}/{params.mirbase_org}.gff3 is not miRBase release {MIRBASE_RELEASE}" >&2; exit 1; }}
         echo "Mirbase gff,{MIRBASE_RELEASE},{params.url},$(date +%d-%m-%Y)" > {log}
         """
+
+# The GFF3 every consumer reads (UNITAS's annotation and genes.tsv, the genome routes, smrnaseq's mirtop, miraligner):
+# miRBase's file corrected with the reviewed rows of tables/mirbase_gff_corrections.tsv, then checked against the
+# release's hairpin and mature sequences; a disagreement the table does not list stops the build
+# (scripts/mirbase_gff_correct.py, #429).
+rule mirbase_gff:
+    input:
+        gff = rules.mirbase_gff_download.output,
+        hairpins = rules.mirbase_hairpin_fasta.output.fasta,
+        matures = rules.mirbase_mature_fasta.output.fasta,
+        table = src_gcf('tables/mirbase_gff_corrections.tsv')
+    output:
+        join(MIRBASE_EXT, 'anno', 'genes.gff3')
+    params:
+        script = src_gcf('scripts/mirbase_gff_correct.py'),
+        release = MIRBASE_RELEASE,
+        organism = ORG
+    log:
+        join(MIRBASE_EXT, 'logs', 'gff_corrections.tsv')
+    container:
+        'docker://' + config['docker']['default']
+    shell:
+        'python {params.script} --gff {input.gff} --hairpins {input.hairpins} --matures {input.matures} '
+        '--release {params.release} --organism {params.organism} --table {input.table} --output {output} --record {log}'
 
 rule mirbase_genes:
     input:

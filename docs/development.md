@@ -63,7 +63,7 @@ The `unittest discover` commands are unaffected, and CI runs the tests serially.
 | Single-cell TCR and assay configuration (not in CI) | `.dev/ci/bin/python -m pytest -q singlecell/.tests/test_tcr_workflow.py singlecell/.tests/test_immune_config.py` | `.dev/ci` |
 | QIAseq demultiplexing | `.dev/ci/bin/python -m pytest -q common/.tests/test_qiaseq_demultiplex.py` | `.dev/ci` |
 | Metagenome reference and Bracken paths | `.dev/ci/bin/python -m unittest discover -s metagenome/.tests -p 'test_*.py' -v` | `.dev/ci` |
-| Reference roots, miRBase rules, UNITAS dump selection (miRBase or MirGeneDB), dump verification, miRge3 library installation, mirflowz reference preparation, TEsmall databases, the miraligner database and ERCC92 downloads | `.dev/ci/bin/python -m unittest discover -s gcfdb/.tests -p 'test_*.py' -v` | `.dev/ci` |
+| Reference roots, miRBase rules and GFF3 correction, UNITAS dump selection (miRBase or MirGeneDB), dump verification, miRge3 library installation, mirflowz reference preparation, TEsmall databases, the miraligner database and ERCC92 downloads | `.dev/ci/bin/python -m unittest discover -s gcfdb/.tests -p 'test_*.py' -v` | `.dev/ci` |
 | WGS QC delivery (not in CI) | `.dev/ci/bin/python -m unittest discover -s wgs/.tests -p 'test_bfq_qc.py' -v` | `.dev/ci` |
 | Small-RNA fastp stages | `FASTP_0201="$PWD/.dev/bin/fastp" .dev/ci/bin/python -m pytest -q smallrna/.tests/test_fastp.py` | `.dev/ci`, pinned fastp below |
 | Small-RNA cutadapt route | `.dev/ci/bin/python -m pytest -q smallrna/.tests/test_cutadapt.py` (read outcomes need cutadapt 5.2 on `PATH`, e.g. `.dev/ci/bin/pip install cutadapt==5.2`; they skip otherwise) | `.dev/ci` |
