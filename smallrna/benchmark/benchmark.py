@@ -2100,7 +2100,7 @@ def evaluate_mixture(args, project, bench, spec, ext_dir):
     samples = [row['sample'] for row in read_tsv(bench / 'samples.tsv')]
     if set(samples) != set(design.samples):
         fail('benchmark/samples.tsv does not hold the declaration\'s samples; prepare the project again (a mixture has no --lanes)')
-    gff = args.mirflowz_gff or (mirflowz_annotation(ext_dir, spec) if 'mirflowz' in methods else None)
+    gff = args.mirflowz_gff or (mirflowz_annotation(project) if 'mirflowz' in methods else None)
     pending = []  # tables written once the differential-expression checks (evaluate --de) have passed
     raw = common_table(args, project, bench, spec, ext_dir, methods, mature, gff, pending)
     common, _ = biological.collapse(raw, id_to_seq)
