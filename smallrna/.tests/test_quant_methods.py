@@ -354,12 +354,16 @@ def test_route_steps_write_the_benchmark_files_the_benchmark_reads(tmp_path):
     assert declared['biocore_miraligner_db'] == {'data/ext/biocore_miraligner/mirbase-23.1/mus_musculus/db.v1/benchmarks/biocore_miraligner_db.tsv'}
 
 
-# Peak memory (MB) per job measured with the benchmark files on public plasma, GSE317995 at full depth (six samples,
-# 8-18M filtered reads each; #386). Rules with a fixed reservation declare at least this; the rules that scale with a
-# sample's filtered reads (mem_from_reads in rules/quant.smk) declare at least it for the largest sample's FASTQ.
-FIXED_PEAK_MB = {'mirge3_quant': 15550, 'tinyrna_align': 5751, 'tinyrna_count': 1471}
-SCALED_PEAK_MB = {'unitas': 4012, 'tesmall_quant': 6553, 'smrnaseq_collapse': 646}
-LARGEST_FASTQ_MB = 1960   # 17.5M filtered reads of about 112 bytes
+# Peak memory (MB) per job measured with the benchmark files on public data at full depth (#386). Rules with a fixed
+# reservation declare at least their peak. The rules that scale with their filtered reads (mem_from_reads in
+# rules/quant.smk) declare at least each peak for the filtered FASTQ (MB) it was measured on: per sample for UNITAS,
+# TEsmall and seqcluster (the largest plasma sample, 17.5M filtered reads of about 112 bytes), and summed over the
+# project for miRge3's one job (three Giraldez pools, the six plasma samples subsampled, and at full depth).
+FIXED_PEAK_MB = {'tinyrna_align': 5751, 'tinyrna_count': 1471}
+SCALED_PEAK_MB = {'unitas': [(1960, 4012)], 'tesmall_quant': [(1960, 6553)], 'smrnaseq_collapse': [(1960, 646)],
+                  'mirge3_quant': [(70, 1587), (199, 1814), (464, 3081), (2495, 7523), (8300, 15550)]}
+SCALED_RULE_FILES = {'unitas': 'unitas.smk', 'tesmall_quant': 'tesmall.smk', 'smrnaseq_collapse': 'smrnaseq.smk',
+                     'mirge3_quant': 'mirge3.smk'}
 
 
 def test_heavy_quant_rules_reserve_at_least_their_measured_memory(tmp_path):
@@ -371,24 +375,38 @@ def test_heavy_quant_rules_reserve_at_least_their_measured_memory(tmp_path):
         assert declared and int(declared.group(1)) >= peak, (rule, declared and declared.group(0), peak)
     # Snakemake computes an input-dependent reservation only when the job starts (a dry run shows <TBD>), so the
     # helper is taken from rules/quant.smk and called as each rule calls it.
-    helper = re.search(r'^def mem_from_reads\(.*?(?=^\S)', (ROOT / 'smallrna/rules/quant.smk').read_text(), re.M | re.S).group(0)
+    helper = re.search(r'^def mem_from_reads\(.*?(?=^\S)', (ROOT / 'smallrna/rules/quant.smk').read_text(), re.M | re.S)
+    assert helper, 'mem_from_reads not found in rules/quant.smk'
     namespace = {'os': os}
-    exec(helper, namespace)
-    files = {'unitas': 'unitas.smk', 'tesmall_quant': 'tesmall.smk', 'smrnaseq_collapse': 'smrnaseq.smk'}
-    for rule, peak in SCALED_PEAK_MB.items():
-        source = (ROOT / 'smallrna/rules/quant' / files[rule]).read_text().split('rule {}:'.format(rule), 1)[1].split('\nrule ', 1)[0]
-        call = re.search(r'mem_mb = (mem_from_reads\(.*\))', source).group(1)
+    exec(helper.group(0), namespace)
+
+    def reads(name, size_mb, files):
+        """`files` sparse FASTQ files of size_mb MB together (the size counts, not the content)."""
+        paths = []
+        for i in range(files):
+            path = tmp_path / '{}_{}_{}.fastq'.format(name, size_mb, i)
+            path.touch()
+            os.truncate(path, size_mb * 10 ** 6 // files)
+            paths.append(str(path))
+        return paths
+
+    for rule, points in SCALED_PEAK_MB.items():
+        source = (ROOT / 'smallrna/rules/quant' / SCALED_RULE_FILES[rule]).read_text().split('rule {}:'.format(rule), 1)[-1].split('\nrule ', 1)[0]
+        call = re.search(r'mem_mb = (mem_from_reads\(.*\))', source)
+        assert call, '{}: no one-line "mem_mb = mem_from_reads(...)" in {}'.format(rule, SCALED_RULE_FILES[rule])
+        call = call.group(1)
         mem = eval(call, namespace)
-        reserved_at = {}
-        for size_mb, minimum in ((0, None), (LARGEST_FASTQ_MB, peak), (10 * LARGEST_FASTQ_MB, peak)):
-            reads = tmp_path / '{}_{}.fastq'.format(rule, size_mb)
-            reads.touch()
-            os.truncate(reads, size_mb * 10 ** 6)    # sparse: the size counts, not the content
-            stub = type('Input', (list,), {})([str(reads)])
-            stub.fastq = str(reads)
-            reserved = reserved_at[size_mb] = mem(None, stub)
-            if minimum is None:
-                assert reserved == eval(call.replace('mem_from_reads(', '(lambda floor_mb, *a, **k: floor_mb)('), namespace), (rule, reserved)
-            else:
-                assert reserved >= minimum, (rule, call, reserved, minimum)
-        assert reserved_at[10 * LARGEST_FASTQ_MB] > reserved_at[0], (rule, reserved_at)   # it scales with the reads
+        files = 2 if rule == 'mirge3_quant' else 1    # miRge3's one job reads all samples' FASTQ: the sizes add up
+
+        def reserve(size_mb):
+            paths = reads(rule, size_mb, files)
+            stub = type('Input', (list,), {})(paths)
+            stub.fastq = paths if files > 1 else paths[0]
+            return mem(None, stub)
+
+        floor = eval(call.replace('mem_from_reads(', '(lambda floor_mb, *a, **k: floor_mb)('), namespace)
+        assert reserve(0) == floor, (rule, reserve(0), floor)
+        for size_mb, peak in points:
+            assert reserve(size_mb) >= peak, (rule, call, size_mb, reserve(size_mb), peak)
+        largest = max(size for size, _ in points)
+        assert reserve(10 * largest) > reserve(0), rule   # it scales with the reads
