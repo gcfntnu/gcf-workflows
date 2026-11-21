@@ -23,14 +23,19 @@ import yaml
 # (kind, title, key metrics, what they show); a pool's kind is its `pool`
 SECTIONS = [
     ('synthetic', 'Synthetic data',
-     ['recovered', 'precision', 'exact', 'misassigned', 'unplaced', 'near_spill', 'de_sensitivity', 'de_fdr', 'isomir_recovered'],
+     ['recovered', 'precision', 'exact', 'misassigned', 'unplaced', 'near_spill', 'edger_called', 'edger_false_calls', 'edger_fdr',
+      'isomir_recovered'],
      'Counts are compared per sample and miRBase accession. `recovered` sums the smaller of observed and true counts '
      'for each pair, divided by the total true count. `exact` is the fraction of positive-truth pairs with matching counts. '
      '`misassigned` and `unplaced` count reads on accessions absent from that sample’s truth and on names without a miRBase accession. '
      'The genome-wide dataset (#412) adds `precision` (the smaller counts over the observed ones), `near_spill` (reads above the truth '
-     'on near-identical partners) and `de_sensitivity` and `de_fdr` (differential expression between its two groups); there '
-     '`misassigned` and `unplaced` are shares of the observed reads. `isomir_recovered` (#454): the share of its true isomiR reads '
-     '(no substitutions) a method reports as their own sequence on their miRNA; empty for methods without isomiR output.'),
+     'on near-identical partners); there `misassigned` and `unplaced` are shares of the observed reads. Differential expression '
+     'between its two groups (#447, `evaluate --de`) uses the tests of the ratiometric pools, so the two can be compared: with '
+     'edgeR\'s exact test on the workflow\'s library sizes, `edger_called` (miRNAs designed at least 2-fold apart, BH-adjusted p at '
+     'most 0.05 in the designed direction), `edger_false_calls` (miRNAs designed not to change and called) and `edger_fdr` (the '
+     'share of calls on unchanged miRNAs or in the wrong direction). edgeR\'s GLM test, limma-voom, the tests adjusted for the '
+     'nuisance factor and the built-in check `de_*` are in each report. `isomir_recovered` (#454): the share of its true isomiR '
+     'reads (no substitutions) a method reports as their own sequence on their miRNA; empty for methods without isomiR output.'),
     ('equimolar', 'Equimolar pools', ['detected', 'cv', 'within_2fold', 'spearman_vs_oracle', 'outside', 'unplaced', 'shifted_within_2fold',
                                       'shifted_isomir_recovered'],
      'Scored `exact` entries share no miRNA accession with any other exact or shifted entry. The metrics are averaged across samples: '

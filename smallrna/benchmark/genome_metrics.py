@@ -9,7 +9,9 @@ Mixed samples (`kind` mixed in samples.tsv), per method, over units: every miRNA
   partner, relative to the high member's truth.
 - deviation_correlation: miRNAs with at least DETECT truth reads on average; each miRNA's log2(count + 1) minus its mean
   over the samples, observed against truth, as one Pearson correlation.
-- DE (`de_*`): counts normalised by median-of-ratios size factors, log2(normalised + 1), a linear model per miRNA with
+- DE with de.R (#447, benchmark.py and de.py): the tests of the ratiometric pools on these counts, scored over
+  de_features; the metrics `<test>_*`.
+- DE, the built-in check that needs no container (`de_*`): counts normalised by median-of-ratios size factors, log2(normalised + 1), a linear model per miRNA with
   the group (and, `_adjusted`, the nuisance factor's true sample scores), and a moderated t: the residual variance
   shrunk towards the median with PRIOR_DF prior degrees of freedom. Each row tests the miRNAs with at least DE_MIN
   reads on average in its own counts, as an analysis of them would (de_tested), so reads spilled onto a relative of a
@@ -162,6 +164,13 @@ class Evaluation:
         for k, r in enumerate(rows):
             out[self.units[r]] = (bool(q[k] <= FDR), bool(qa[k] <= FDR), float(plain[0][k]), float(adjusted[0][k]))
         return out
+
+    def de_features(self):
+        """[(unit, designed log2 fold change)] that de.py scores (#447): the true DE miRNAs with their fold change, and
+        with 0 every other unit not designed DE (absent ones included). A miRNA designed DE with fewer than DE_MIN truth
+        reads on average is left out: neither a change the design lets a row find nor an unchanged miRNA."""
+        return [(i, float(self.mirnas[i]['log2fc']) if i in self.true_de else 0.0) for i in self.units
+                if i in self.true_de or self.mirnas.get(i, {}).get('de') != '1']
 
     def false_calls(self, name):
         """[(unit, truth mean, observed mean, estimate)] of the row's DE calls on miRNAs not designed DE."""

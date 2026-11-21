@@ -13,6 +13,7 @@ Kits whose [libprep.config](../libprep.config) entry sets `workflow: smallrna`. 
 | --- | --- |
 | Bioo Scientific NEXTflex Small RNA-Seq Kit v3 | SE |
 | Bioo Scientific NEXTflex Small RNA-Seq Kit v4 | SE |
+| NEBNext Multiplex Small RNA Library Prep Kit | SE |
 | TruSeq Small RNA Library Prep Kit | SE |
 
 The kit entries set the filter route (`filter.trim.quantifier: cutadapt` with `filter.trim.cutadapt`) and `db.reference_db: ensembl`.
@@ -32,8 +33,9 @@ Three cutadapt 5.2 passes per sample. [`cutadapt_config.py`](rules/filter/script
 | NEXTflex v3 | `GTTCAGAGTTCTACAGTCCGACGATC` | 14 | 4 | 15 | 5 | 1 | none |
 | NEXTflex v4 | `TCTTTCCCTACACGACGCTCTTCCGATCT` | 15 | 0 | 15 | 5 | 1 | none |
 | TruSeq Small RNA | `GTTCAGAGTTCTACAGTCCGACGATC` | 14 | 0 | 15 | 5 | 1 | Stop Oligo (STP) |
+| NEBNext Multiplex Small RNA | `GTTCAGAGTTCTACAGTCCGACGATC` | 14 | 0 | 15 | 5 | 1 | none |
 
-All three kits share the 3′ adapter (`adapter`) `TGGAATTCTCGGGTGCCAAGG`. miRge3 and mirflowz take their minimum read length from `minimum_length`.
+The NEXTflex and TruSeq kits share the 3′ adapter (`adapter`) `TGGAATTCTCGGGTGCCAAGG`; NEBNext's is `AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC`, its 3′ SR Adapter read through into Illumina's index-read primer as NEB gives it for trimming. miRge3 and mirflowz take their minimum read length from `minimum_length`.
 The passes' reports are merged into `logs/<sample>/<sample>.cutadapt.json` ([`merge_cutadapt.py`](rules/filter/scripts/merge_cutadapt.py)), shown in MultiQC by gcf-multiqc's `gcf_smallrna_cutadapt` module; the per-pass reports are delivered under `provenance/cutadapt/`.
 
 ### fastp route

@@ -6,6 +6,7 @@ import gzip
 import math
 from pathlib import Path
 import random
+import re
 import subprocess
 import sys
 
@@ -336,15 +337,20 @@ def test_loader_and_fill_for_genome_mode(tmp_path):
     assert fill.fill(spec, tmp_path, log=lambda *_: None, fetch=fetch) == 0      # a second fill skips every file
 
 
-def test_prepare_and_evaluate_in_genome_mode(tmp_path):
+def genome_project(tmp_path, declared=None, methods=('tinyrna',)):
+    """A prepared genome-wide synthetic project whose method tinyrna counts every read on its miRNA; with `declared`, the
+    dataset's `de:`; `methods`, the dataset's methods, whose outputs other than tinyrna's the caller writes. (project, the
+    benchmark.py command)."""
     ext = tmp_path / 'ext'
     files, _ = fake_mirbase(ext / 'benchmark/smallrna/syn_genome/mirbase/23.1')
     spec = {'name': 'syn_genome', 'kind': 'synthetic', 'organism': 'homo_sapiens', 'libprepkit': 'Bioo Scientific NEXTflex Small RNA-Seq Kit v4',
-            'adapter': ADAPTER, 'umi': 0, 'methods': ['tinyrna', 'smrnaseq'], 'data': 'benchmark/smallrna/syn_genome', 'synthetic': copy.deepcopy(SPEC),
+            'adapter': ADAPTER, 'umi': 0, 'methods': list(methods), 'data': 'benchmark/smallrna/syn_genome', 'synthetic': copy.deepcopy(SPEC),
             'mirbase': {'release': '23.1', 'url': 'u', 'sha256': 'a' * 64, 'hairpin': {'url': 'u', 'sha256': 'b' * 64},
                         'gff': {'url': 'u', 'sha256': 'c' * 64}}}
+    if declared is not None:
+        spec['de'] = declared
     dataset = tmp_path / 'ds.yaml'
-    dataset.write_text(yaml.safe_dump(spec))
+    dataset.write_text(yaml.safe_dump(spec, sort_keys=False))  # the groups in their order: control, then case
     project = tmp_path / 'project'
     cmd = [sys.executable, str(BENCH / 'benchmark.py')]
     result = subprocess.run(cmd + ['prepare', '--dataset', str(dataset), '--project', str(project), '--ext-dir', str(ext)],
@@ -370,10 +376,33 @@ def test_prepare_and_evaluate_in_genome_mode(tmp_path):
     # the record quant_reference writes (#407): the miRBase release, bound to this count table
     (quant / 'reference.tsv').write_text('field\tvalue\tsource\nmirna_database\tmirbase\tx\nmirna_release\t23.1\tx\n'
                                          'table_sha256\t{}\tx\n'.format(adapters.table_sha256('tinyrna', quant.parent)))
-    # nf-core/smrnaseq as a perfect isomiR route (#454): every true read on its miRNA as its own sequence, labelled canonical
-    # when it is a canonical read without a substitution
+    return project, cmd
+
+
+def test_prepare_and_evaluate_in_genome_mode(tmp_path):
+    project, cmd = genome_project(tmp_path)
+    bench = project / 'benchmark'
+    result = subprocess.run(cmd + ['evaluate', '--project', str(project), '--bootstrap', '20'], capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    report = (bench / 'report.md').read_text()
+    assert '| recovered | 1.0 | 1.0 |' in report and '| precision | 1.0 | 1.0 |' in report and '| near_spill | 0.0 | 0.0 |' in report
+    assert '## Recovery by stratum' in report and '## Probe samples' in report and '| 3p_add_A |' in report
+    assert (bench / 'metrics_ci.tsv').is_file() and (bench / 'per_mirna.tsv').read_text().startswith('mature_name\tmature_id\ttruth\ttinyrna\n')
+    out = tmp_path / 'summary.md'
+    result = subprocess.run(cmd + ['summary', '--projects', str(project), '--output', str(out)], capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    row = next(line for line in out.read_text().splitlines() if line.startswith('| [project]'))
+    assert '| 6 mixed, 9 probe |' in row and '| tinyrna |' in row
+
+
+def test_isomirs_in_genome_mode(tmp_path):
+    """#454: nf-core/smrnaseq as a perfect isomiR route, every true read on its miRNA as its own sequence, labelled canonical
+    when it is a canonical read without a substitution."""
+    project, cmd = genome_project(tmp_path, methods=('tinyrna', 'smrnaseq'))
+    bench = project / 'benchmark'
+    samples = list(yaml.safe_load((project / 'config.yaml').read_text())['samples'])
     reads = collections.defaultdict(lambda: collections.defaultdict(float))
-    for row in truth:
+    for row in benchmark.read_tsv(bench / 'truth.tsv'):
         if row['mature_id']:
             label = 'NA' if row['class'] == 'canonical' and row['errors'] == '0' else 'iso_3p:-1'
             reads[(row['mature_name'], row['sequence'], label)][row['sample']] += float(row['count'])
@@ -399,11 +428,95 @@ def test_prepare_and_evaluate_in_genome_mode(tmp_path):
     assert metrics['isomir_misassigned'] == metrics['isomir_as_canonical'] == metrics['canonical_as_isomir'] == ['', '', '0.0']
     assert metrics['isomir_recovered_substituted'] == ['', '', '1.0'] and (bench / 'isomirs.tsv').is_file()
     assert '## isomiRs' in report and 'Without isomiR output (features only): tinyrna.' in report
-    assert '| recovered | 1.0 | 1.0 |' in report and '| precision | 1.0 | 1.0 |' in report and '| near_spill | 0.0 | 0.0 |' in report
-    assert '## Recovery by stratum' in report and '## Probe samples' in report and '| 3p_add_A |' in report
-    assert (bench / 'metrics_ci.tsv').is_file() and (bench / 'per_mirna.tsv').read_text().startswith('mature_name\tmature_id\ttruth\ttinyrna\tsmrnaseq\n')
+    assert not any(line.startswith('isomir_') for line in (bench / 'metrics_ci.tsv').read_text().splitlines())  # no intervals yet
+
+
+def test_differential_expression_uses_the_pools_tests_in_genome_mode(tmp_path):
+    """#447: the mixed samples go through de.smk as the ratiometric pools do, case against control, also with the true
+    nuisance scores as a numeric covariate; `evaluate --de` scores the calls against the designed changes and the truth's fits."""
+    import de
+    path = tmp_path / 'bad.yaml'
+    path.write_text(yaml.safe_dump({'name': 'g', 'kind': 'synthetic', 'organism': 'homo_sapiens', 'libprepkit': 'k', 'adapter': ADAPTER,
+                                    'methods': ['tinyrna'], 'data': 'd', 'synthetic': copy.deepcopy(SPEC), 'de': {'covariates': ['nuisance']},
+                                    'mirbase': {'release': '23.1', 'url': 'u', 'sha256': 'a' * 64, 'hairpin': {'url': 'u', 'sha256': 'b' * 64},
+                                                'gff': {'url': 'u', 'sha256': 'c' * 64}}}))
+    with pytest.raises(SystemExit, match=re.escape('`de` takes no options for the synthetic dataset')):
+        benchmark.load_dataset(path)
+    project, cmd = genome_project(tmp_path, {})
+    units = benchmark.de_units(benchmark.load_dataset(project / 'benchmark/dataset.yaml'), benchmark.read_tsv(project / 'benchmark/samples.tsv'))
+    assert benchmark.de_contrast({'kind': 'synthetic', 'synthetic': {'mode': 'genome'}}, units) == ('case', 'control')  # the group scored +0.5
+    assert benchmark.de_contrast({'kind': 'synthetic', 'synthetic': {'mode': 'genome'}}, units[::-1]) == ('case', 'control')  # in any order
+    bench = project / 'benchmark'
+    evaluate = lambda *args: subprocess.run(cmd + ['evaluate', '--project', str(project), '--bootstrap', '20', *args],
+                                            capture_output=True, text=True, timeout=120)
+    result = evaluate('--de')
+    assert result.returncode != 0 and 'no results.tsv or record.tsv' in result.stderr and not (bench / 'report.md').exists()
+    result = evaluate()
+    assert result.returncode == 0, result.stderr
+    samples = {row['sample']: row for row in benchmark.read_tsv(bench / 'samples.tsv') if row['kind'] == 'mixed'}
+    mirnas = {row['mature_id']: row for row in benchmark.read_tsv(bench / 'mirnas.tsv')}
+    assert (bench / 'de/levels.tsv').read_text() == 'column\tlevel\nadjusted\tnuisance\n'
+    assert (bench / 'de/input/model.tsv').read_text() == de.model_text('case', 'control', (), 10)
+    assert (bench / 'de/adjusted/nuisance/input/model.tsv').read_text() == de.model_text('case', 'control', ['nuisance'], 10)
+    design = (bench / 'de/input/design.tsv').read_text().splitlines()
+    assert design[0] == 'sample\tgroup' and design[1:] == ['{}\t{}'.format(s, row['group']) for s, row in samples.items()]  # no probe sample
+    adjusted = (bench / 'de/adjusted/nuisance/input/design.tsv').read_text().splitlines()
+    assert adjusted[0] == 'sample\tgroup\tnuisance' and adjusted[1] == '{}\t{}\t{}'.format(*[(s, r['group'], r['factor_nuisance'])
+                                                                                       for s, r in samples.items()][0])
+    counts = [line.split('\t') for line in (bench / 'de/input/counts.tsv').read_text().splitlines()]
+    assert counts[0] == ['row', 'feature'] + list(samples)
+    by_row = {row: {line[1]: line[2:] for line in counts[1:] if line[0] == row} for row in ('truth', 'tinyrna')}
+    sizes = [line.split('\t') for line in (bench / 'de/input/library_sizes.tsv').read_text().splitlines()]
+    truth_reads, in_mixed = collections.Counter(), set()
+    for row in benchmark.read_tsv(bench / 'truth.tsv'):
+        if row['mature_id']:
+            truth_reads[row['sample']] += float(row['count'])
+            if row['sample'] in samples:
+                in_mixed.add(row['mature_id'])
+    assert by_row['truth'] == by_row['tinyrna'] and set(by_row['truth']) == in_mixed  # every miRNA of the mixed samples, tested or not
+    assert [float(v) for v in sizes[1][1:]] == [float(v) for v in sizes[2][1:]] == [truth_reads[s] for s in samples]  # every miRNA read
+    assert 'edger_called' not in (bench / 'metrics.tsv').read_text()  # without --de, nothing of de.R's is scored
+    plain_ci = (bench / 'metrics_ci.tsv').read_text().splitlines()
+
+    def outputs(folder, formula):
+        """de.smk's outputs for a set: every row calls the miRNAs designed to change, at their designed fold change."""
+        base = bench / 'de' / folder
+        texts = {name: (base / 'input' / name).read_text() for name in de.INPUTS}
+        features = list(by_row['truth'])
+        fit = lambda i: (float(mirnas[i]['log2fc']), 0.001, 0.01) if mirnas.get(i, {}).get('de') == '1' else (0.05, 0.5, 0.9)
+        table = '\n'.join(['\t'.join(de.RESULT_HEADER)] + ['\t'.join([row, test, i] + [str(v) for v in fit(i)])
+                                                         for row in ('truth', 'tinyrna') for test in de.TESTS for i in features]) + '\n'
+        (base / 'results.tsv').write_text(table)
+        record = {'md5_' + Path(name).stem: de.md5(text) for name, text in texts.items()}
+        record.update(md5_script=de.md5(de.SCRIPT.read_bytes()), md5_results=de.md5(table), R='R version 4.5.3', edgeR='4.10.7',
+                      limma='3.68.5', formula=formula, min_mean='10', edger='exact test', edger_glm='GLM test', voom='voom')
+        (base / 'record.tsv').write_text('field\tvalue\n' + ''.join('{}\t{}\n'.format(k, v) for k, v in record.items()))
+
+    outputs('', '~group')
+    result = evaluate('--de')
+    assert result.returncode != 0 and 'no adjusted/nuisance/results.tsv or adjusted/nuisance/record.tsv' in result.stderr
+    outputs('adjusted/nuisance', '~nuisance + group')
+    result = evaluate('--de')
+    assert result.returncode == 0, result.stderr
+    table = {line.split('\t')[0]: line.split('\t')[1:] for line in (bench / 'metrics.tsv').read_text().splitlines()}
+    assert table['metric'] == ['truth', 'tinyrna']
+    for test in de.TESTS:
+        assert table[test + '_called'] == table[test + '_called.adjusted'] == ['1.0', '1.0']  # every designed 4-fold change, in its direction
+        assert table[test + '_false_calls'] == table[test + '_fdr'] == ['0.0', '0.0'] and table[test + '_offset'] == ['0.05', '0.05']
+        assert table[test + '_discordant_vs_truth'] == table[test + '_fc_error_vs_truth.adjusted'] == ['', '0.0']  # nothing for the truth
+    assert table['de_sensitivity'] and table['recovered'] == ['1.0', '1.0']  # the built-in check and the count metrics stay
+    ci = (bench / 'metrics_ci.tsv').read_text().splitlines()
+    assert [line for line in ci if not line.startswith(('edger_', 'voom_'))] == plain_ci  # the existing intervals are unchanged
+    assert any(line.startswith('voom_called.adjusted\ttinyrna\t1.0\t') for line in ci)
+    report = (bench / 'report.md').read_text()
+    main = report.split('## Differential expression')[0]
+    assert '| edger_called | 1.0 | 1.0 |' in main and '.adjusted |' not in main  # the adjusted set has its own table
+    assert 'The case samples against the control samples over' in report and '| 4× |' in report and '| 1× |' in report
+    assert '### Adjusted for the nuisance factor' in report and '| adjusted | called | 1.0 | 1.0 |' in report
+    assert 'adjusted: 3 case and 3 control samples, design `~nuisance + group` (edgeR 4.10.7, limma 3.68.5); `de/adjusted/nuisance/results.tsv`' in report
+    assert 'share of its miRNAs with reads that have a fractional count: tinyrna 0.0.' in report
+    assert '.adjusted' not in report.split('## Uncertainty')[1]
     out = tmp_path / 'summary.md'
     result = subprocess.run(cmd + ['summary', '--projects', str(project), '--output', str(out)], capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stderr
-    row = next(line for line in out.read_text().splitlines() if line.startswith('| [project]'))
-    assert '| 6 mixed, 9 probe |' in row and '| tinyrna, smrnaseq |' in row
+    assert 'edger_called: tinyrna' in out.read_text()

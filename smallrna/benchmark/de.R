@@ -1,19 +1,24 @@
 #!/usr/bin/env Rscript
-# Differential expression on the small-RNA benchmark's ratiometric pools (#414): for each row (the oracle and each
-# method), pool A against pool B with edgeR's exact test, edgeR's GLM likelihood-ratio test and limma-voom, on the
-# counts, library sizes and design that `benchmark.py evaluate` writes (benchmark/de/input/). Library sizes are the
-# workflow's, without TMM. The exact test runs as in the McCall-lab benchmark's best configuration (common dispersion,
-# exact test; two groups, no covariates). The GLM test is its counterpart on the design with the covariates: a common
-# dispersion estimated under the design and a likelihood-ratio test of the group. Without covariates it calls nearly
-# what the exact test calls, so the two differ mainly by the covariates. voom takes the same design. A sequence without
-# reads in a row is written as NA for every test, and so is every sequence of a row without reads on any of them. Each
-# row's two common dispersions go to the log.
+# Differential expression in the small-RNA benchmark (#414, #447): for each row (a reference row such as the oracle or
+# the truth, and each method), one group against the other with edgeR's exact test, edgeR's GLM likelihood-ratio test
+# and limma-voom, on the counts, library sizes, design and model that `benchmark.py evaluate` writes
+# (benchmark/de/input/). The model names the contrast (`numerator` against `denominator`, so a positive log2 fold
+# change is more in the numerator), the covariates that are numbers (`numeric`; the others are factors) and the least
+# mean count of a feature a row tests (`min_mean`). Library sizes are the workflow's, without TMM. The exact test runs
+# as in the McCall-lab benchmark's best configuration (common dispersion, exact test; two groups, no covariates). The
+# GLM test is its counterpart on the design with the covariates: a common dispersion estimated under the design and a
+# likelihood-ratio test of the group. Without covariates it calls nearly what the exact test calls, so the two differ
+# mainly by the covariates. voom takes the same design. A feature without reads in a row, or with a mean count under
+# `min_mean` there, is written as NA for every test, and so is every feature of a row with fewer than two features to
+# test: one feature gives no common dispersion and no mean-variance trend. Each row's two common dispersions go to
+# the log. Group labels, covariate values and names are read as text (a group may be called NA), and covariate names
+# are quoted in the formula (one may be an R keyword such as `repeat`).
 #
 # The inputs and this script are copied when it starts; the fits read the copies and the record names their MD5s, so
 # it describes the bytes the fits used even if `evaluate` rewrites an input meanwhile. The record also names the MD5
 # of the results table written.
 #
-# Usage: de.R --counts TSV --library-sizes TSV --design TSV --results TSV --record TSV
+# Usage: de.R --counts TSV --library-sizes TSV --design TSV --model TSV --results TSV --record TSV
 suppressPackageStartupMessages({
   library(optparse)
   library(edgeR)
@@ -22,9 +27,9 @@ suppressPackageStartupMessages({
 tests <- c('edger', 'edger_glm', 'voom')  # as de.py's TESTS
 
 options <- list(make_option('--counts'), make_option('--library-sizes', dest = 'library_sizes'), make_option('--design'),
-                make_option('--results'), make_option('--record'))
+                make_option('--model'), make_option('--results'), make_option('--record'))
 opt <- parse_args(OptionParser(option_list = options))
-for (name in c('counts', 'library_sizes', 'design', 'results', 'record')) {
+for (name in c('counts', 'library_sizes', 'design', 'model', 'results', 'record')) {
   if (is.null(opt[[name]])) stop('--', gsub('_', '-', name), ' is required')
 }
 snapshot <- function(path) {
@@ -34,40 +39,66 @@ snapshot <- function(path) {
 }
 script <- normalizePath(sub('^--file=', '', grep('^--file=', commandArgs(FALSE), value = TRUE)))
 copies <- list(counts = snapshot(opt$counts), library_sizes = snapshot(opt$library_sizes), design = snapshot(opt$design),
-               script = snapshot(script))
+               model = snapshot(opt$model), script = snapshot(script))
 md5 <- function(path) unname(tools::md5sum(path))
-read <- function(path) read.delim(path, check.names = FALSE, quote = '', colClasses = 'character')
+read <- function(path) read.delim(path, check.names = FALSE, quote = '', colClasses = 'character', na.strings = character())  # NA is text
 
 design <- read(copies$design)
 counts <- read(copies$counts)
 sizes <- read(copies$library_sizes)
+settings <- read(copies$model)
 samples <- design$sample
+if (!identical(colnames(settings), c('field', 'value'))) stop(opt$model, ': columns must be field and value')
+setting <- function(field) settings$value[settings$field == field]
+numerator <- setting('numerator')
+denominator <- setting('denominator')
+if (length(numerator) != 1 || length(denominator) != 1 || numerator == denominator) stop(opt$model, ': needs one numerator and one other denominator')
+min_mean <- if (length(setting('min_mean'))) suppressWarnings(as.numeric(setting('min_mean'))) else 0
+if (length(min_mean) != 1 || is.na(min_mean) || min_mean < 0) stop(opt$model, ': min_mean must be one number of 0 or more')
+numeric <- setting('numeric')
+unknown <- setdiff(settings$field, c('numerator', 'denominator', 'min_mean', 'numeric'))
+if (length(unknown)) stop(opt$model, ': unknown field ', paste(unknown, collapse = ', '))
 if (!identical(colnames(design)[1:2], c('sample', 'group'))) stop(opt$design, ': the first columns must be sample and group')
-if (!identical(sort(unique(design$group)), c('A', 'B'))) stop(opt$design, ': groups must be A and B')
-if (!identical(colnames(counts), c('row', 'pool_id', samples))) stop(opt$counts, ': columns must be row, pool_id and the design samples in order')
+if (any(!nzchar(design$sample)) || any(!nzchar(design$group))) stop(opt$design, ': every sample needs a name and a group')
+if (!identical(sort(unique(design$group)), sort(c(numerator, denominator)))) stop(opt$design, ': groups must be ', numerator, ' and ', denominator)
+if (!identical(colnames(counts), c('row', 'feature', samples))) stop(opt$counts, ': columns must be row, feature and the design samples in order')
 if (!identical(colnames(sizes), c('row', samples))) stop(opt$library_sizes, ': columns must be row and the design samples in order')
 
 covariates <- setdiff(colnames(design), c('sample', 'group'))
-frame <- data.frame(group = factor(design$group, levels = c('B', 'A')), row.names = samples)
-for (covariate in covariates) frame[[covariate]] <- factor(design[[covariate]])
-formula <- as.formula(paste('~', paste(c(covariates, 'group'), collapse = ' + ')))
+if (length(setdiff(numeric, covariates))) stop(opt$model, ': numeric names ', paste(setdiff(numeric, covariates), collapse = ', '), ', not a covariate of the design')
+frame <- data.frame(group = factor(design$group, levels = c(denominator, numerator)), row.names = samples)
+for (covariate in covariates) {
+  if (covariate %in% numeric) {
+    frame[[covariate]] <- suppressWarnings(as.numeric(design[[covariate]]))
+    if (anyNA(frame[[covariate]])) stop(opt$design, ': ', covariate, ' is numeric in the model but has values that are not numbers')
+  } else {
+    frame[[covariate]] <- factor(design[[covariate]])
+  }
+}
+formula <- as.formula(paste('~', paste(sprintf('`%s`', c(covariates, 'group')), collapse = ' + ')))  # quoted: a name may be a keyword
+formula_text <- paste(deparse(formula, width.cutoff = 500L), collapse = ' ')  # one string, however long the formula
 model <- model.matrix(formula, data = frame)
-if (qr(model)$rank < ncol(model)) stop('the design ', deparse(formula), ' is not full rank: a covariate is confounded with the pools')
-if (nrow(model) - ncol(model) < 1) stop('the design ', deparse(formula), ' leaves no residual degrees of freedom for ', nrow(model), ' samples')
+coefficient <- ncol(model)  # the group is the formula's last term, with two levels: its one column, group<numerator>
+if (qr(model)$rank < ncol(model)) stop('the design ', formula_text, ' is not full rank: a covariate is confounded with the groups')
+if (nrow(model) - ncol(model) < 1) stop('the design ', formula_text, ' leaves no residual degrees of freedom for ', nrow(model), ' samples')
 
 results <- list()
 add <- function(row, test, table) results[[length(results) + 1]] <<- data.frame(row = row, test = test, table, check.names = FALSE)
 for (row in unique(counts$row)) {
   part <- counts[counts$row == row, , drop = FALSE]
-  if (anyDuplicated(part$pool_id)) stop(opt$counts, ': ', row, ' lists a sequence twice')
-  values <- suppressWarnings(matrix(as.numeric(as.matrix(part[samples])), ncol = length(samples), dimnames = list(part$pool_id, samples)))
+  if (anyDuplicated(part$feature)) stop(opt$counts, ': ', row, ' lists a feature twice')
+  values <- suppressWarnings(matrix(as.numeric(as.matrix(part[samples])), ncol = length(samples), dimnames = list(part$feature, samples)))
   if (anyNA(values) || any(values < 0) || any(values != round(values))) stop(opt$counts, ': ', row, ' has counts that are not whole numbers of 0 or more')
   size <- suppressWarnings(as.numeric(unlist(sizes[sizes$row == row, samples])))
   if (length(size) != length(samples) || anyNA(size) || any(size <= 0)) stop(opt$library_sizes, ': ', row, ' needs one positive library size per sample')
-  keep <- rowSums(values) > 0
+  keep <- rowSums(values) > 0 & rowMeans(values) >= min_mean
+  if (sum(keep) == 1) {  # one feature: no common dispersion and no mean-variance trend (voom needs two), so no test
+    message(sprintf('%s: 1 feature to test (%s), at least 2 are needed; none tested', row, part$feature[keep]))
+    keep[] <- FALSE
+  }
   none <- rep(NA_real_, sum(!keep))
-  untested <- data.frame(pool_id = part$pool_id[!keep], log2fc = none, pvalue = none, padj = none)
-  if (!any(keep)) {  # no reads on any scored sequence: nothing to fit
+  untested <- data.frame(feature = part$feature[!keep], log2fc = none, pvalue = none, padj = none)
+  if (!any(keep)) {  # no feature to test in this row: nothing to fit
     for (test in tests) add(row, test, untested)
     next
   }
@@ -75,32 +106,37 @@ for (row in unique(counts$row)) {
 
   y <- DGEList(counts = tested, lib.size = size, group = frame$group)
   y <- estimateCommonDisp(y)
-  exact <- exactTest(y, pair = c('B', 'A'), dispersion = 'common')$table
-  edger <- data.frame(pool_id = rownames(exact), log2fc = exact$logFC, pvalue = exact$PValue, padj = p.adjust(exact$PValue, 'BH'))
+  exact <- exactTest(y, pair = c(denominator, numerator), dispersion = 'common')$table
+  edger <- data.frame(feature = rownames(exact), log2fc = exact$logFC, pvalue = exact$PValue, padj = p.adjust(exact$PValue, 'BH'))
 
   common <- estimateGLMCommonDisp(y, model)$common.dispersion  # under the design, so without the covariates' variance
-  lrt <- glmLRT(glmFit(y, model, dispersion = common), coef = 'groupA')$table
-  edger_glm <- data.frame(pool_id = rownames(lrt), log2fc = lrt$logFC, pvalue = lrt$PValue, padj = p.adjust(lrt$PValue, 'BH'))
-  message(sprintf('%s: common dispersion %.4g for the exact test, %.4g for the GLM test', row, y$common.dispersion, common))
+  lrt <- glmLRT(glmFit(y, model, dispersion = common), coef = coefficient)$table
+  edger_glm <- data.frame(feature = rownames(lrt), log2fc = lrt$logFC, pvalue = lrt$PValue, padj = p.adjust(lrt$PValue, 'BH'))
+  message(sprintf('%s: %d features tested; common dispersion %.4g for the exact test, %.4g for the GLM test', row, nrow(tested),
+                  y$common.dispersion, common))
 
   fit <- eBayes(lmFit(voom(tested, model, lib.size = size), model))
-  top <- topTable(fit, coef = 'groupA', number = Inf, sort.by = 'none', adjust.method = 'BH')
-  voomed <- data.frame(pool_id = rownames(top), log2fc = top$logFC, pvalue = top$P.Value, padj = top$adj.P.Val)
+  top <- topTable(fit, coef = coefficient, number = Inf, sort.by = 'none', adjust.method = 'BH')
+  voomed <- data.frame(feature = rownames(top), log2fc = top$logFC, pvalue = top$P.Value, padj = top$adj.P.Val)
 
   fits <- list(edger = edger, edger_glm = edger_glm, voom = voomed)
   for (test in tests) {
     table <- rbind(fits[[test]], untested)
-    add(row, test, table[match(part$pool_id, table$pool_id), ])
+    add(row, test, table[match(part$feature, table$feature), ])
   }
 }
-write.table(do.call(rbind, results), opt$results, sep = '\t', quote = FALSE, row.names = FALSE, na = 'NA')
+table <- if (length(results)) do.call(rbind, results) else  # no feature in any row: the header alone
+  data.frame(row = character(), test = character(), feature = character(), log2fc = numeric(), pvalue = numeric(), padj = numeric())
+write.table(table, opt$results, sep = '\t', quote = FALSE, row.names = FALSE, na = 'NA')
 
 record <- data.frame(
-  field = c('md5_counts', 'md5_library_sizes', 'md5_design', 'md5_script', 'md5_results', 'R', 'edgeR', 'limma', 'formula',
-            'edger', 'edger_glm', 'voom'),
-  value = c(md5(copies$counts), md5(copies$library_sizes), md5(copies$design), md5(copies$script), md5(opt$results),
-            R.version.string, as.character(packageVersion('edgeR')), as.character(packageVersion('limma')), deparse(formula),
-            'DGEList with the library sizes and no normalisation factors, estimateCommonDisp, exactTest of A against B',
-            'the same DGEList, estimateGLMCommonDisp under the design, glmFit with that common dispersion, glmLRT of coefficient groupA',
-            'voom with the library sizes, lmFit, eBayes, coefficient groupA'))
+  field = c('md5_counts', 'md5_library_sizes', 'md5_design', 'md5_model', 'md5_script', 'md5_results', 'R', 'edgeR', 'limma', 'formula',
+            'contrast', 'min_mean', 'edger', 'edger_glm', 'voom'),
+  value = c(md5(copies$counts), md5(copies$library_sizes), md5(copies$design), md5(copies$model), md5(copies$script), md5(opt$results),
+            R.version.string, as.character(packageVersion('edgeR')), as.character(packageVersion('limma')), formula_text,
+            paste(numerator, 'against', denominator), as.character(min_mean),
+            sprintf('DGEList with the library sizes and no normalisation factors, estimateCommonDisp, exactTest of %s against %s', numerator, denominator),
+            sprintf('the same DGEList, estimateGLMCommonDisp under the design, glmFit with that common dispersion, glmLRT of coefficient %s',
+                    colnames(model)[coefficient]),
+            sprintf('voom with the library sizes, lmFit, eBayes, coefficient %s', colnames(model)[coefficient])))
 write.table(record, opt$record, sep = '\t', quote = FALSE, row.names = FALSE)

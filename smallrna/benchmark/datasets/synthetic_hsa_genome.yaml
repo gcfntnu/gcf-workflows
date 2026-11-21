@@ -30,6 +30,8 @@ mirbase_releases:           # other releases a run can select: fill and prepare 
     gff:
       url: https://www.mirbase.org/download_version_genome_files/22/hsa.gff3
       sha256: d02c0b4e9a401e66240418a572a10732b103dd64acfd10f59df171bcbbd40f59
+de: {}                      # differential expression (#447): the ratiometric pools' tests (de.R) on the mixed samples, the
+                            # group the designed fold changes raise against the other; also with the true nuisance scores
 synthetic:
   mode: genome
   seed: 1
