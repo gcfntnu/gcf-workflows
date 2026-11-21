@@ -73,7 +73,8 @@ def transfer(url, out, checksum, log=print):
         with response:
             if received and getattr(response, 'status', None) != 206:
                 raise ValueError('{}: no partial content for a resumed download (HTTP {})'.format(url, getattr(response, 'status', None)))
-            length = getattr(response, 'headers', None) and response.headers.get('Content-Length')
+            headers = getattr(response, 'headers', None)
+            length = headers.get('Content-Length') if headers is not None else None
             if length is not None:
                 total = received + int(length)
             while True:
