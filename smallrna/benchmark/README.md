@@ -301,6 +301,23 @@ with the controls of its own level. GSE77989 has `within: set`: the DROSHA knock
 libraries (set 1), the XPO5 and DICER knockouts with one (set 2). Its knockout clones are 2 libraries each, shallow, from
 one cell line after gel selection; XPO5 knockout lowers miRNAs only partly, so it is reported but not used for the list.
 
+A biological dataset may declare `other_rna:` (#415), the sources of molecules of other RNA classes: `refseq_rrna`,
+`gtrnadb` and `ensembl_ncrna`, each with url and sha256, the same files as the synthetic decoys, filled into
+`<data>/other_rna/`. Its miRBase entries whose mature lies exactly inside such a molecule (rRNA, tRNA, Y RNA, snoRNA,
+other ncRNA) are flagged (`other_rna.tsv`); a fragment that overlaps a mature only partly is not. The report and
+metrics.tsv then give, per method:
+- `flagged_reads`: the median share of its miRNA reads on flagged entries;
+- `flagged_detected` and `detected_unflagged`: the median detected miRNAs among the flagged and without them, so
+  `detected` can be compared without the inflation (#385); only `detected_unflagged` has an interval;
+- `read_in_other_class`: the share of its miRNA reads (isomiR output, #454) whose read sequence lies exactly inside
+  another class's molecule.
+
+Both the flag and `read_in_other_class` are lower bounds: they cover five classes (no mRNA, introns or repeats) and
+exact matches only, so a read with a non-templated end or a sequencing error does not match.
+
+With knockouts, `knockout.tsv` names each tested miRNA's other class, and `knockout_surviving_flagged` counts the
+surviving miRNAs that are flagged. Both human biological declarations have `other_rna`.
+
 GSE317995 is the only public NEXTflex v4 dataset found. Its lanes are one library each, so they replicate sequencing
 only; library-preparation reproducibility needs separate libraries of one sample (e.g. the Giraldez 2018 plasma pool
 made in several labs). `blockers: [blood miRNA]` is inferred, not recorded: miR-486-5p and miR-451a are nearly absent.

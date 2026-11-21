@@ -127,6 +127,44 @@ def molecules(unit, path, hairpins=None):
     return out
 
 
+def embedded(molecules_by_unit, matures):
+    """{class: {key: [molecule names]}}: the matures ({key: sequence}) that lie exactly inside a molecule of a unit of an
+    EMBEDDING class ({unit: [(name, sequence, extra)]}); the synthetic generator's embedded matures (#412) and the
+    biological evaluation's flag (#415)."""
+    by_length = collections.defaultdict(dict)
+    for key, seq in matures.items():
+        by_length[len(seq)].setdefault(seq, key)
+    out = collections.defaultdict(lambda: collections.defaultdict(list))
+    for unit, mols in molecules_by_unit.items():
+        cls = unit_class(unit)
+        if cls not in EMBEDDING:
+            continue
+        for name, seq, _ in mols:
+            for length, by_seq in by_length.items():
+                for i in range(len(seq) - length + 1):
+                    key = by_seq.get(seq[i:i + length])
+                    if key and name not in out[cls][key]:
+                        out[cls][key].append(name)
+    return {cls: dict(keys) for cls, keys in out.items() if keys}
+
+
+def contained(molecules_by_unit, sequences):
+    """{sequence: [classes]}: the sequences (reads) that lie exactly inside a molecule of a unit of an EMBEDDING class
+    (#415). One length at a time: the set of every substring of that length of a unit's molecules, built and dropped."""
+    by_length = collections.defaultdict(set)
+    for seq in sequences:
+        by_length[len(seq)].add(seq)
+    out = collections.defaultdict(set)
+    for length, wanted in sorted(by_length.items()):
+        for unit, mols in molecules_by_unit.items():
+            if unit_class(unit) not in EMBEDDING:
+                continue
+            present = {seq[i:i + length] for _, seq, _ in mols for i in range(len(seq) - length + 1)}
+            for seq in wanted & present:
+                out[seq].add(unit_class(unit))
+    return {seq: sorted(classes) for seq, classes in out.items()}
+
+
 class Decoys:
     """The declared units' fragment catalogues, the embedded miRNAs, and the decoy rows of mixed and probe samples."""
 
@@ -241,22 +279,8 @@ class Decoys:
     def find_embedded(self, universe):
         """{class: {miRNA representative: [molecule names]}}: the organism's miRBase matures that lie exactly inside a
         molecule of an EMBEDDING class's declared units."""
-        by_length = collections.defaultdict(dict)
-        for rep, m in universe.mirnas.items():
-            if m['loci']:
-                by_length[len(m['sequence'])][m['sequence']] = rep
-        out = collections.defaultdict(lambda: collections.defaultdict(list))
-        for unit in self.units:
-            cls = unit_class(unit)
-            if cls not in EMBEDDING:
-                continue
-            for name, seq, _ in self.molecules[unit]:
-                for length, matures in by_length.items():
-                    for i in range(len(seq) - length + 1):
-                        rep = matures.get(seq[i:i + length])
-                        if rep and name not in out[cls][rep]:
-                            out[cls][rep].append(name)
-        return {cls: dict(reps) for cls, reps in out.items() if reps}
+        return embedded({u: self.molecules[u] for u in self.units},
+                        {rep: m['sequence'] for rep, m in universe.mirnas.items() if m['loci']})
 
     def draw_overlaps(self, excluded=()):
         """{class: ([(fragment, origin, source)], weights)}: up to `fragments` distinct fragments per EMBEDDING class of the

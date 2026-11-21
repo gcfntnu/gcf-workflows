@@ -99,6 +99,8 @@ def load_dataset(path, mirbase_release=None):
         fail('{}: a genome-wide synthetic dataset needs mirbase.hairpin and mirbase.gff, each with url and sha256'.format(path))
     if genome and spec['synthetic'].get('decoys') is not None:
         check_decoys(spec['synthetic'], path)
+    if spec['kind'] == 'biological' and 'other_rna' in spec:
+        check_other_rna(spec['other_rna'], path)
     if spec['kind'] == 'pool' and spec['pool'] not in ('equimolar', 'ratiometric'):
         fail('{}: pool must be equimolar or ratiometric, got {!r}'.format(path, spec['pool']))
     if 'de' in spec:
@@ -450,6 +452,72 @@ def check_decoys(syn, path):
     if not (type(d.get('fragments', 1)) is int and d.get('fragments', 1) > 0) or not number(d.get('weight_sd', 0)) or \
             d.get('weight_sd', 0) < 0 or not number(d.get('nuisance', 0)):
         fail('{}: fragments must be a whole number above 0, weight_sd a number of at least 0 and nuisance a number'.format(where))
+
+
+OTHER_RNA_SOURCES = ('refseq_rrna', 'gtrnadb', 'ensembl_ncrna')  # the sources of the embedding classes' molecules (#415)
+
+
+def check_other_rna(declared, path):
+    """A biological declaration's `other_rna` (#415): `sources` {source: {url, sha256}} of OTHER_RNA_SOURCES, at least
+    one, whose molecules flag the miRBase entries that lie inside them."""
+    sources = declared.get('sources') if isinstance(declared, dict) else None
+    if not isinstance(declared, dict) or set(declared) != {'sources'} or not isinstance(sources, dict) or not sources or \
+            set(sources) - set(OTHER_RNA_SOURCES) or not all(isinstance(v, dict) and {'url', 'sha256'} <= set(v) for v in sources.values()):
+        fail('{}: other_rna takes `sources`, each of {} with url and sha256, got {!r}'.format(path, ', '.join(OTHER_RNA_SOURCES), declared))
+
+
+def other_rna_files(spec, ext_dir):
+    """{source: filled path} of a biological declaration's other_rna sources (fill.decoy_path, folder other_rna)."""
+    sources = (spec.get('other_rna') or {}).get('sources') or {}
+    return {key: filler.decoy_path(spec, ext_dir, key, value['url'], 'other_rna') for key, value in sources.items()}
+
+
+def other_rna_molecules(spec, ext_dir):
+    """{unit: molecules} of the embedding classes whose source a biological declaration's other_rna fills (#415)."""
+    files = other_rna_files(spec, ext_dir)
+    missing = sorted(str(p) for p in files.values() if not p.is_file())
+    if missing:
+        fail('not filled: {}; run `benchmark.py fill --dataset ...` first'.format(', '.join(missing)))
+    return {unit: decoys.molecules(unit, files[source]) for unit, source in decoys.UNITS.items()
+            if source in files and decoys.unit_class(unit) in decoys.EMBEDDING}
+
+
+def other_rna_section(flag, iso_rows, methods, no_isomirs, summary, common, molecules, id_to_name):
+    """#415 on a biological dataset: the miRBase entries inside molecules of other RNA classes (`flag`, {accession:
+    [(class, molecules)]}), each method's read_in_other_class (from its isomiR rows), and the report lines."""
+    within = decoys.contained(molecules, {row[4] for row in iso_rows if row[4]})
+    reads, inside = collections.Counter(), collections.Counter()
+    for method, _, _, _, sequence, _, count in iso_rows:
+        if sequence:
+            reads[method] += float(count)
+            if sequence in within:
+                inside[method] += float(count)
+    for m in methods:
+        summary[m]['read_in_other_class'] = round(inside[m] / reads[m], 4) if m not in no_isomirs and reads[m] else ''
+    by_class = collections.defaultdict(list)
+    for accession, places in flag.items():
+        for cls, names in places:
+            by_class[cls].append('{} ({})'.format(id_to_name.get(accession, accession), ', '.join(names[:3]) + (', ...' if len(names) > 3 else '')))
+    on = collections.defaultdict(collections.Counter)
+    for m, _, _, accession, count in common:
+        if accession in flag:
+            on[m][accession] += float(count)
+    lines = ['', '## miRNAs inside other RNA classes (#415)', '',
+             'miRBase entries whose mature sequence lies exactly inside a molecule of another RNA class (the declaration\'s '
+             '`other_rna` sources: RefSeq and Ensembl rRNA, GtRNAdb and mitochondrial tRNAs, Ensembl Y RNA, snoRNA and other '
+             'ncRNA) are flagged ({} entries, in `other_rna.tsv`); fragments overlapping a mature only partly are not. Per '
+             'method: `flagged_reads`, the median share of its miRNA reads on flagged entries; `flagged_detected` and '
+             '`detected_unflagged`, the median detected miRNAs among and without them; `read_in_other_class`, the share of its '
+             'miRNA reads (isomiR table, #454) whose read sequence lies exactly inside another class\'s molecule (empty for '
+             'methods without isomiR output: {}). Both are lower bounds: five classes (no mRNA, introns or repeats) and exact '
+             'matches only, so a read with a non-templated end or an error does not match.'.format(len(flag), ', '.join(no_isomirs) or 'none'), '']
+    lines += md_table(['metric'] + methods, [[k] + [summary[m].get(k, '') for m in methods]
+                                             for k in ('detected', 'flagged_detected', 'detected_unflagged', 'flagged_reads', 'read_in_other_class')])
+    lines += [''] + ['- {}: {}.'.format(cls, '; '.join(sorted(entries))) for cls, entries in sorted(by_class.items())]
+    top = ['- {}: '.format(m) + ', '.join('{} ({:.0f})'.format(id_to_name.get(a, a), v) for a, v in on[m].most_common(5)) for m in methods if on[m]]
+    if top:
+        lines += ['', 'The flagged miRNAs with the most reads, per method (all samples):', ''] + top
+    return lines
 
 
 def decoy_files(spec, ext_dir):
@@ -1690,10 +1758,27 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
     if de_texts:
         write_de_inputs(bench, de_texts)
 
-    summary = biological.method_summary(common, methods, samples)
+    flag, molecules = None, {}
+    if 'other_rna' in spec:  # the miRBase entries inside molecules of other RNA classes (#415)
+        molecules = other_rna_molecules(spec, ext_dir)
+        representative = {}
+        for accession, seq in sorted(id_to_seq.items()):
+            representative.setdefault(seq, accession)  # the first sorted accession, as biological.collapse
+        found = decoys.embedded(molecules, {a: seq for seq, a in representative.items()})
+        flag = collections.defaultdict(list)
+        for cls, keys in sorted(found.items()):
+            for accession, names in keys.items():
+                flag[accession].append((cls, names))
+        write_tsv(bench / 'other_rna.tsv', ['mature_id', 'mirna', 'class', 'molecules'],
+                  [[a, id_to_name.get(a, a), cls, ','.join(names)] for a in sorted(flag) for cls, names in flag[a]])
+    summary = biological.method_summary(common, methods, samples, frozenset(flag) if flag is not None else None)
     for m in methods:
         summary[m]['unplaced'] = unplaced[m]['share']
     keys = ['mirna_reads', 'unplaced', 'detected', 'detected_all_samples', 'top10_share']
+    other_lines = []
+    if flag is not None:
+        other_lines = other_rna_section(flag, iso_rows, methods, no_isomirs, summary, common, molecules, id_to_name)
+        keys += OTHER_RNA_KEYS
     if null_values:  # the null comparisons' false calls (#449), with their spread over the splits in the report
         for m in methods:
             summary[m].update(null_values[m])
@@ -1710,7 +1795,7 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
     metric_rows = [[k] + [summary[m][k] for m in methods] for k in keys]
     knockout_lines = []
     if knockout:
-        ko_rows, knockout_lines = knockout_section(bench, spec, table, common, methods, filt, id_to_name)
+        ko_rows, knockout_lines = knockout_section(bench, spec, table, common, methods, filt, id_to_name, flag)
         metric_rows += ko_rows
     pairs = biological.agreement(common, methods, samples)
     pair_keys = list(next(iter(pairs.values()), {}))
@@ -1734,6 +1819,7 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
     lines += ['', '## Agreement between methods (medians over samples)', ''] + md_table(
         ['methods'] + pair_keys, [['{} / {}'.format(a, b)] + [v.get(k, '') for k in pair_keys] for (a, b), v in pairs.items()])
     lines += isomirs.biological_lines(iso, iso_kinds, iso_overlap, with_isomirs, no_isomirs)
+    lines += other_lines
     lines += knockout_lines
 
     targets = {n: acc for n, acc in BLOCKED.items() if acc in id_to_name} if spec['organism'] == 'homo_sapiens' else {}
@@ -1796,13 +1882,14 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
         lanes_of.setdefault(row['library'], []).append(row['sample'])
     libraries = sorted(lanes_of)
     def compute(drawn):
-        result = biological.summary_of(stats, methods, drawn, all_samples=False)
+        result = biological.summary_of(stats, methods, drawn, all_samples=False, flagged=frozenset(flag) if flag is not None else None)
         for m, values in isomirs.biological_values(iso_tallies, drawn).items():  # the isomiR table's tallies (#459)
             result[m].update(values)
         return result
     extra, record, ci_lines = bootstrap(args, summary, compute,
                                         lambda rng: ([s for lib in uncertainty.resample(rng, libraries) for s in lanes_of[lib]],), methods,
-                                        [k for k in keys if k not in ('detected_all_samples', 'isomirs_detected') + tuple(de.null_keys())],
+                                        [k for k in keys if k not in ('detected_all_samples', 'isomirs_detected') + tuple(de.null_keys()) +
+                                         tuple(k for k in OTHER_RNA_KEYS if k != 'detected_unflagged')],
                                         '{} (`detected_all_samples` and `isomirs_detected` without an interval: a resample repeating a '
                                         'sample has fewer distinct samples)'.format('the libraries, each with all its lanes' if lane_mode else 'the samples'))
     publish(project, bench, spec, ['metric'] + methods, metric_rows, lines + ci_lines, extra, record)
@@ -1810,11 +1897,13 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
 
 
 KNOCKOUT_LISTED = 50  # surviving miRNAs shown in the report; knockout.tsv has every tested one
+OTHER_RNA_KEYS = ['flagged_reads', 'flagged_detected', 'detected_unflagged', 'read_in_other_class']  # #415
 
 
-def knockout_section(bench, spec, table, common, methods, filt, id_to_name):
+def knockout_section(bench, spec, table, common, methods, filt, id_to_name, flag=None):
     """The knockout comparison of a biological dataset (#452): its metrics.tsv rows and report lines; writes
-    benchmark/knockout.tsv (every method, knockout group and tested miRNA)."""
+    benchmark/knockout.tsv (every method, knockout group and tested miRNA). With `flag` (#415, {accession: [(class,
+    molecules)]}), the surviving miRNAs inside molecules of other RNA classes too."""
     declared = spec['knockout']
     control, survival = str(declared['control']), str(declared['survival'])
     units = knockout_units(spec, table)
@@ -1828,9 +1917,13 @@ def knockout_section(bench, spec, table, common, methods, filt, id_to_name):
     rounded = lambda v, n=4: round(v, n) if v != '' else ''
     rows = [['knockout_mirna_share'] + [rounded(result[m]['share'][survival]) for m in methods],
             ['knockout_surviving'] + [len(per[m]['surviving']) for m in methods]]
-    tsv = [[m, g, i, id_to_name.get(i, i), round(c, 2), round(k, 2), round(r, 4), int(r > biological.SURVIVING)]
+    other = lambda i: ';'.join('{}:{}'.format(cls, ','.join(names[:3])) for cls, names in (flag or {}).get(i, []))
+    tsv = [[m, g, i, id_to_name.get(i, i), round(c, 2), round(k, 2), round(r, 4), int(r > biological.SURVIVING)] + ([other(i)] if flag is not None else [])
            for m in methods for g in groups for i, (c, k, r) in result[m]['ratios'][g].items()]
-    write_tsv(bench / 'knockout.tsv', ['method', 'group', 'mature_id', 'mirna', 'control_reads', 'knockout_reads', 'ratio', 'surviving'], tsv)
+    write_tsv(bench / 'knockout.tsv', ['method', 'group', 'mature_id', 'mirna', 'control_reads', 'knockout_reads', 'ratio', 'surviving'] +
+              (['other_class'] if flag is not None else []), tsv)
+    if flag is not None:
+        rows.append(['knockout_surviving_flagged'] + [len(per[m]['surviving'] & set(flag)) for m in methods])
     within = declared.get('within')
     lines = ['', '## Knockouts (#452)', '',
              'Canonical miRNAs need DROSHA and DICER, so in those knockouts their reads should fall to near zero. The miRNA reads a',
@@ -1861,7 +1954,12 @@ def knockout_section(bench, spec, table, common, methods, filt, id_to_name):
               '`only`: the surviving miRNAs no other method lists, and their reads (mean per {} sample).'.format(survival), ''] + md_table(
         ['metric'] + methods,
         [['tested'] + [per[m]['tested'] for m in methods], ['surviving'] + [len(per[m]['surviving']) for m in methods],
-         ['only'] + [len(per[m]['only']) for m in methods], ['only_reads'] + [round(per[m]['only_reads'], 1) for m in methods]])
+         ['only'] + [len(per[m]['only']) for m in methods], ['only_reads'] + [round(per[m]['only_reads'], 1) for m in methods]] +
+        ([['flagged (#415)'] + [len(per[m]['surviving'] & set(flag)) for m in methods]] if flag is not None else []))
+    if flag is not None and any(per[m]['surviving'] & set(flag) for m in methods):
+        lines += ['', 'Surviving miRNAs that lie inside molecules of other RNA classes (#415), per method: ' + '; '.join(
+            '{}: {}'.format(m, ', '.join(sorted(id_to_name.get(i, i) for i in per[m]['surviving'] & set(flag))))
+            for m in methods if per[m]['surviving'] & set(flag)) + '.']
     listed = set().union(*(per[m]['surviving'] for m in methods))
     order = sorted(listed, key=lambda i: (-sum(i in per[m]['surviving'] for m in methods), id_to_name.get(i, i)))
     if order:

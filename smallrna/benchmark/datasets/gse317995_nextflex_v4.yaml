@@ -20,6 +20,17 @@ mirbase_releases:           # other releases a run can select: fill and prepare 
   '22':
     url: https://www.mirbase.org/download_version_files/22/mature.fa
     sha256: 3c521fc9bea3c7993e71cf188b11caf73e2d40ac83454e32876455317cc6d342
+other_rna:                  # #415: miRBase entries inside molecules of other RNA classes are flagged; filled into <data>/other_rna/
+  sources:
+    refseq_rrna:            # 18S, 28S, 5.8S, 5S and the 45S pre-rRNA, whose spacers are taken outside the matures
+      url: 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=NR_003286.4,NR_003287.4,NR_003285.3,NR_023363.1,NR_046235.3&rettype=fasta&retmode=text'
+      sha256: 8ca32fdbf271f4337da04b4b5cbf551d3f163c48706af3724127637b4fe8ba63
+    gtrnadb:                # mature tRNAs, introns removed; CCA is added
+      url: https://gtrnadb.ucsc.edu/genomes/eukaryota/Hsapi38/hg38-mature-tRNAs.fa
+      sha256: 1b4a5f3be176ca11debbc045ebeb0da12619005669877df428ab8fd533688adc
+    ensembl_ncrna:          # Y RNA, snoRNA and scaRNA, snRNA, 7SK, 7SL, vault, mitochondrial tRNA and rRNA, 5S and 5.8S genes
+      url: https://ftp.ensembl.org/pub/release-116/fasta/homo_sapiens/ncrna/Homo_sapiens.GRCh38.ncrna.fa.gz
+      sha256: 7f03bb303e939517b322f7887a74c1ee15bbb82a6affbb54f0be84e82f89cff1
 de:                         # null comparisons (#449): each group's samples split in two, so every call is false
   'null': {splits: 50, seed: 1}   # quoted: a bare null key is YAML's null
 samples:
