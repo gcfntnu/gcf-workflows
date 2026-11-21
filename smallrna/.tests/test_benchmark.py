@@ -579,8 +579,9 @@ def test_runs_filled_from_sra_are_checked_by_their_reads_not_their_file(tmp_path
     digest = hashlib.md5(''.join('{}\n{}\n'.format(s, q) for s, q in reads).encode()).hexdigest()
     for size in (1, 7, 4096, len(fastq)):  # blocks cut anywhere
         assert fill.content(fastq[i:i + size] for i in range(0, len(fastq), size)) == (300, digest)
+    assert fill.content([fastq[:-1]]) == (300, digest)  # no newline after the last line
     with pytest.raises(ValueError, match='incomplete record after read 299'):
-        fill.content([fastq[:-10]])
+        fill.content([fastq[:-40]])
     with pytest.raises(ValueError, match='not FASTQ'):
         fill.content([b'>seq\nACGT\n>seq2\nACGT\n'])
 
@@ -624,7 +625,7 @@ def test_runs_filled_from_sra_are_checked_by_their_reads_not_their_file(tmp_path
     assert fill.fill(spec, tmp_path / 'ext', log=messages.append, source='sra', fasterq_dump=str(dump)) == 0  # in place
 
     for change, message in (({'reads': 299}, '300 reads from SRA, 299 declared'), ({'content_md5': '0' * 32}, 'content md5'),
-                            ({'sra': {'md5': '0' * 32, 'bytes': len(sra)}}, 'md5 .* does not match the declared'), ({'sra': None}, 'no `sra')):
+                            ({'sra': {'md5': '0' * 32, 'bytes': len(sra)}}, 'md5 .* does not match the declared'), ({'sra': None}, 'declares `reads` and `sra')):
         target.unlink(missing_ok=True)
         (target.parent / 'SRR1.sra.json').unlink(missing_ok=True)
         spec['samples'][0]['runs'] = [dict(run, **change)]

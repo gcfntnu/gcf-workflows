@@ -28,6 +28,7 @@ import concurrent.futures
 import gzip
 import hashlib
 import http.client
+import itertools
 import json
 import os
 from pathlib import Path
@@ -148,7 +149,7 @@ def content(lines, out=None):
     MD5 does not depend on read names or compression, so it is the same for a run's file from ENA and from SRA. With
     `out`, the records are also written there, with a bare `+` as third line."""
     digest, reads, rest = hashlib.md5(), 0, b''
-    for block in lines:
+    for block in itertools.chain(lines, [b'\n']):  # a last line without its newline still ends its record
         rows = (rest + block).split(b'\n')
         rest = rows.pop()
         whole = len(rows) // 4 * 4
@@ -228,8 +229,8 @@ def sra_run(run, path, connections=8, fasterq_dump='fasterq-dump', threads=4, lo
     matches `content_md5`. `<run>.sra.json` beside it records the source. Everything is done in a temporary folder
     next to `path`, removed afterwards. Returns the content MD5."""
     name, declared = run['run'], run.get('sra') or {}
-    if not declared.get('md5') or not declared.get('bytes'):
-        raise ValueError('{}: no `sra: {{md5, bytes}}` declared; fill it from ENA, or declare the SRA file'.format(name))
+    if not declared.get('md5') or not declared.get('bytes') or 'reads' not in run:
+        raise ValueError('{}: a run filled from SRA declares `reads` and `sra: {{md5, bytes}}`; fill it from ENA, or declare them'.format(name))
     url = SRA_URL.format(run=name)
     path.parent.mkdir(parents=True, exist_ok=True)
     work = Path(tempfile.mkdtemp(prefix='.partial-{}.sra.'.format(name), dir=path.parent))
@@ -245,10 +246,17 @@ def sra_run(run, path, connections=8, fasterq_dump='fasterq-dump', threads=4, lo
         messages = work / 'fasterq-dump.log'
         with open(messages, 'wb') as errors, subprocess.Popen(command, stdout=subprocess.PIPE, stderr=errors, cwd=work) as process, \
                 gzip.open(packed, 'wb', compresslevel=4) as out:
-            reads, digest = content(iter(lambda: process.stdout.read(CHUNK * 16), b''), out)
+            try:
+                reads, digest = content(iter(lambda: process.stdout.read(CHUNK * 16), b''), out)
+            except ValueError as error:  # a stream that ends early: fasterq-dump's own message says why
+                reads, digest, broken = 0, None, error
+            else:
+                broken = None
         errors = messages.read_text(errors='replace').strip()
         if process.returncode:
             raise ValueError('{}: fasterq-dump failed ({}): {}'.format(name, process.returncode, errors[-500:]))
+        if broken:
+            raise ValueError('{}: {}'.format(name, broken))
         if reads != int(run['reads']):
             raise ValueError('{}: {} reads from SRA, {} declared (a paired run gives two per spot; only single-end runs are '
                              'filled from SRA)'.format(name, reads, run['reads']))
