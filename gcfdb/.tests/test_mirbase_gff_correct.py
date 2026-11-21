@@ -224,7 +224,7 @@ class ShippedTableTests(unittest.TestCase):
                 self.assertIn(row['check'], ('sequence', 'placement', 'none'))
                 self.assertTrue(row['reason'])
                 self.assertEqual(row['parent'] == '', not row['id'].startswith('MIMAT'))
-                for position in (row['old'], row['new']):
+                for position in (row['old'], row['new']) if row['new'] != '-' else (row['old'],):  # `-` drops the row (check none)
                     chrom, span, strand = position.rsplit(':', 2)
                     start, end = (int(x) for x in span.split('-'))
                     self.assertTrue(chrom and 0 < start <= end and strand in '+-.', position)
@@ -235,6 +235,42 @@ class ShippedTableTests(unittest.TestCase):
                 key = (row['release'], row['organism'], row['id'], row['parent'], row['old'])
                 self.assertNotIn(key, keys)
                 keys.add(key)
+
+
+
+class DropTests(unittest.TestCase):
+    def test_a_row_the_table_drops_is_left_out_and_recorded(self):
+        """A reviewed mature listed twice under two hairpins of one locus (as mouse miR-669a in 23.1): the table drops
+        the copy under one hairpin (new `-`); the rest is checked as before, and other duplicates stay."""
+        lines = gff('h1', 'm1', 'm2', 'h5', 'm5')
+        drop = table_row('MIMAT0000001', 'hsa-miR-1-5p', 'chr1:104-113:+', '-', check='none', parent='MI0000005')
+        result, out, record = run(lines, [drop])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn(ROWS['m5'], out)
+        self.assertIn(ROWS['m1'], out)
+        self.assertIn(ROWS['h5'], out)  # a hairpin row stays unless the table drops it too
+        hairpin = table_row('MI0000005', 'hsa-mir-1b', 'chr1:101-140:+', '-', check='none')
+        orphan, _, _ = run(lines, [hairpin])  # the hairpin without its mature row: the GFF would name a missing parent
+        self.assertNotEqual(orphan.returncode, 0)
+        self.assertIn('drops hairpin MI0000005 but keeps mature rows that derive from it: MIMAT0000001 at chr1:104-113:+', orphan.stderr)
+        both, out_both, _ = run(lines, [drop, hairpin])
+        self.assertEqual(both.returncode, 0, both.stderr)
+        self.assertNotIn(ROWS['h5'], out_both)
+        self.assertNotIn(ROWS['m5'], out_both)
+        self.assertTrue(any(line.startswith(NOTE + '0 rows corrected, 0 checked for placement only and 1 not checked') for line in out))
+        self.assertEqual(record[1].split('\t')[3:5], ['chr1:104-113:+', '-'])
+        result, _, _ = run(lines, [table_row('MIMAT0000001', 'hsa-miR-1-5p', 'chr1:104-113:+', '-', parent='MI0000005')])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('a dropped row has check none', result.stderr)
+
+
+    def test_the_mouse_table_drops_mir_669a_4_and_its_two_matures(self):
+        with open(TABLE, newline='') as fh:
+            rows = list(csv.DictReader([line for line in fh if not line.startswith('#')], delimiter='\t'))
+        dropped = sorted((r['organism'], r['id'], r['parent']) for r in rows if r['new'] == '-')
+        self.assertEqual(dropped, [('mus_musculus', 'MI0014054', ''), ('mus_musculus', 'MIMAT0003477', 'MI0014054'),
+                                   ('mus_musculus', 'MIMAT0017243', 'MI0014054')])
+        self.assertTrue(all(r['check'] == 'none' for r in rows if r['new'] == '-'))
 
 
 if __name__ == '__main__':

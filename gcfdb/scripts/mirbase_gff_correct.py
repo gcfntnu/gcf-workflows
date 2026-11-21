@@ -10,7 +10,11 @@ This script:
 1. applies the table's rows for `--release` and `--organism`. A table row names a GFF row by ID, `Derives_from` (empty
    for a hairpin) and old position, because 23.1 reuses a mature's ID at each hairpin it comes from. It must match
    exactly one row with that name, so a changed download or a stale table stops the build. A row moved onto another
-   row of the same miRNA and hairpin stops it too, as that would silently merge two loci;
+   row of the same miRNA and hairpin stops it too, as that would silently merge two loci. `new` `-` drops the row
+   (with `check: none`, so the note counts it as not checked): a reviewed second hairpin entry of one locus with the
+   same matures at the same positions, and its mature rows, which mirflowz's annotation cannot take (it emits a mature
+   once per hairpin that holds it and stops on the repeated ID: mouse mmu-mir-669a-4 inside mmu-mir-669a-1, with
+   miR-669a-5p and -3p). Other duplicates are kept, as before;
 2. checks the rows, by the table's `check` (`sequence` for every row the table does not list):
    - `sequence`: a hairpin row has a strand and spans its hairpin.fa sequence; a mature row lies in a locus of its
      hairpin, on the same strand, exactly where its mature.fa sequence is in the hairpin sequence;
@@ -36,6 +40,7 @@ COLUMNS = ['release', 'organism', 'id', 'parent', 'name', 'old', 'new', 'check',
 CHECKS = ('sequence', 'placement', 'none')
 HAIRPIN, MATURE = 'miRNA_primary_transcript', 'miRNA'
 SHOWN = 25
+DROP = '-'  # a table row's `new` that drops the GFF row
 
 
 def fail(message):
@@ -70,7 +75,7 @@ def parse_position(text, where):
 
 class Row:
     def __init__(self, fields, number):
-        self.fields, self.number, self.check = fields, number, 'sequence'
+        self.fields, self.number, self.check, self.dropped = fields, number, 'sequence', False
         self.attrs = dict(a.split('=', 1) for a in fields[8].split(';') if '=' in a)
         if 'ID' not in self.attrs:
             fail('GFF line {} has no ID'.format(number))
@@ -156,8 +161,18 @@ def apply(rows, entries, table):
                    'the GFF row is named {}, not {}'.format(found[0].name, entry['name']) if found[0].name != entry['name'] else '')
         if problem:
             fail('{}: {}; the table is stale or the download changed'.format(where, problem))
+        if entry['new'] == DROP:
+            if entry['check'] != 'none':
+                fail('{}: a dropped row has check none'.format(where))
+            found[0].dropped = True
+            continue
         found[0].move(*parse_position(entry['new'], where))
         found[0].check = entry['check']
+    gone = {r.id for r in rows if r.dropped and r.type == HAIRPIN}
+    orphans = [r for r in rows if not r.dropped and r.type == MATURE and r.parent in gone]
+    if orphans:  # a dropped hairpin takes its mature rows along, or the GFF names a parent it no longer has
+        fail('{} drops hairpin {} but keeps mature rows that derive from it: {}; drop them too'.format(
+            table, ', '.join(sorted({r.parent for r in orphans})), ', '.join('{} at {}'.format(r.id, r.position()) for r in orphans)))
     merged = [key for key, n in identities(rows, hairpin_ids).items() if n > 1 and n > before.get(key, 0)]
     if merged:
         fail('{} moves rows onto another row of the same miRNA and hairpin, merging two loci: {}'.format(
@@ -225,6 +240,8 @@ def main():
     lines, rows = read_gff(args.gff)
     entries = read_table(args.table, args.release, args.organism)
     apply(rows, entries, os.path.basename(args.table))
+    lines = [line for line in lines if not (isinstance(line, Row) and line.dropped)]
+    rows = [row for row in rows if not row.dropped]
     problems = check(rows, read_fasta(args.hairpins), read_fasta(args.matures))
     if problems:
         fail('{} rows of {} disagree with the miRBase {} sequences and are not in {}:\n  {}{}'.format(
@@ -232,7 +249,8 @@ def main():
             '\n  ...' if len(problems) > SHOWN else ''))
     checks = collections.Counter(e['check'] for e in entries.values())
     note = '# gcf-workflows: {} rows corrected, {} checked for placement only and {} not checked, by {} (#429)'.format(
-        sum(1 for e in entries.values() if e['old'] != e['new']), checks['placement'], checks['none'], os.path.basename(args.table))
+        sum(1 for e in entries.values() if e['old'] != e['new'] and e['new'] != DROP), checks['placement'], checks['none'],
+        os.path.basename(args.table))
     first = next((i for i, line in enumerate(lines) if isinstance(line, Row)), len(lines))
     with open(args.output, 'w') as out:
         for i, line in enumerate(lines):
