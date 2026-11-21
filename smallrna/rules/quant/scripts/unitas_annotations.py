@@ -14,26 +14,29 @@ import unitas_misc_rna
 
 def move_y_rna(df, moved, source):
     """The sample's class table with the Y RNA that Ensembl files under another class moved to misc_RNA (#423): `moved`
-    is {class: reads} from its hits_per_target table (unitas_misc_rna.y_rna_by_class). The classes still add up; a
-    class left without reads (rat's Y_RNA) is dropped."""
+    is {class: reads} from its hits_per_target table (unitas_misc_rna.y_rna_by_class). What a class loses is what
+    misc_RNA gains, so the sample's total stays as it is; a class that is Y RNA as a whole (rat's Y_RNA) moves with
+    its count and is dropped."""
     moved = {name: reads for name, reads in moved.items() if reads > 0}
     if not moved:
         return df
     df = df.copy()
     df['Count'] = df['Count'].astype(float)
     top = (df.Level2 == '') & (df.Level3 == '')
+    total = 0.0
     for name, reads in moved.items():
         rows = df.index[top & (df.Level1 == name)]
         if len(rows) != 1 or df.loc[rows[0], 'Count'] < reads * (1 - unitas_misc_rna.TOTAL_REL_TOL):
             raise ValueError('{}: its {} targets that are Y RNA have {!r} reads, but the summary has {} for the class'.format(
                 source, name, reads, 'no single row' if len(rows) != 1 else repr(float(df.loc[rows[0], 'Count']))))
-        left = df.loc[rows[0], 'Count'] - reads
-        if left <= reads * unitas_misc_rna.TOTAL_REL_TOL:
+        if name in unitas_misc_rna.Y_RNA_CLASSES:  # the whole class is Y RNA: its count moves, and the class goes
+            total += df.loc[rows[0], 'Count']
             df = df[df.Level1 != name]
             top = (df.Level2 == '') & (df.Level3 == '')
-        else:
-            df.loc[rows[0], 'Count'] = left
-    total = sum(moved.values())
+        else:  # what is taken from the class is what misc_RNA gets, so the sample's total stays as it is
+            taken = min(reads, df.loc[rows[0], 'Count'])
+            df.loc[rows[0], 'Count'] -= taken
+            total += taken
     rows = df.index[top & (df.Level1 == 'misc_RNA')]
     if len(rows):
         df.loc[rows[0], 'Count'] += total

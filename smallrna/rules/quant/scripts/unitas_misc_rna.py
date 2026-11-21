@@ -45,7 +45,8 @@ RULES = '; '.join('{} as {}'.format(' and '.join(p + '...' for p in prefixes), l
     '; other names, including transcript-only names without a gene symbol, as other misc_RNA'
 DESCRIPTION = ('Reads of the UNITAS misc_RNA class by gene family, from the names of the Ensembl genes they hit, the first '
                'match counting: {}. Y RNA genes that Ensembl files under another class (human RNY5, a mouse Rny1 gene, the rat '
-               'Y RNA genes) count here, as Y RNA. Reads split between genes keep their fractional counts.').format(RULES)
+               'Y RNA genes) count here, as Y RNA; the UNITAS section above shows UNITAS\'s own classes, with those reads under '
+               'lncRNA or Y_RNA. Reads split between genes keep their fractional counts.').format(RULES)
 # Y RNA outside the misc_RNA class (#423): genes by Ensembl ID, as the dump's target names carry it (`<name>-<gene>.<version>`),
 # and whole classes.
 Y_RNA_GENES = ('ENSG00000286171', 'ENSMUSG00000138036')  # human RNY5; the mouse Rny1 gene with the biotype lncRNA
