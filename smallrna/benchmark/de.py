@@ -31,11 +31,11 @@ import pool
 TESTS = ('edger', 'edger_glm', 'voom')  # as de.R's tests
 TEST_NAMES = {'edger': "edgeR's exact test", 'edger_glm': "edgeR's GLM likelihood-ratio test", 'voom': 'limma-voom'}
 FDR = 0.05
-ORACLE_KEYS = ('own_false_calls', 'discordant_vs_oracle', 'fc_error_vs_oracle')  # a method against the oracle's fits
+ORACLE_KEYS = ('own_false_calls', 'discordant_vs_oracle', 'fc_shift_vs_oracle', 'fc_error_vs_oracle')  # against the oracle's fits
 KEYS = ('called', 'false_calls', 'fdr', 'fc_bias', 'offset') + ORACLE_KEYS
 LEVEL_KEYS = ('called', 'false_calls') + ORACLE_KEYS  # the report's table of each level
 COVARIATES = ('lab',)  # design columns of samples.tsv a declaration may name
-LEVEL_NAME = re.compile(r'[A-Za-z0-9._-]+')  # a level of `within` names a folder and a metric suffix
+LEVEL_NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]*')  # a level of `within` names a folder and a metric suffix
 LEVELS = 'levels.tsv'  # benchmark/de/levels.tsv: the levels of `within` de.smk tests besides the whole pool
 INPUTS = ('counts.tsv', 'library_sizes.tsv', 'design.tsv')
 RESULT_HEADER = ['row', 'test', 'pool_id', 'log2fc', 'pvalue', 'padj']
@@ -179,8 +179,11 @@ def scores(results, exact, rows, suffix=''):
 
     Against the oracle's fits on the same runs, for each method when `rows` holds the oracle (ORACLE_KEYS, #444):
     `own_false_calls`, share of the 1:1 sequences the method calls and the oracle does not; `discordant_vs_oracle`, share
-    of the sequences whose call (up, down or none) differs from the oracle's; `fc_error_vs_oracle`, median absolute
-    difference of the log2 fold changes over the sequences both test."""
+    of the sequences whose call (up, down or none) differs from the oracle's. Over the sequences both test, the
+    differences of the log2 fold changes (method - oracle): `fc_shift_vs_oracle`, their median, a shift common to all
+    sequences that comes from the library sizes (a method's every miRNA read, the oracle's pool reads, in other A/B
+    ratios); `fc_error_vs_oracle`, their median absolute deviation from that shift, the disagreement of the counts
+    themselves. The shift also moves calls near the cutoff, so the two call metrics include it."""
     out = {}
     for row in rows:
         values = {}
@@ -198,10 +201,12 @@ def scores(results, exact, rows, suffix=''):
                            test + '_offset': median(offsets)})
             if row != 'oracle' and 'oracle' in rows:
                 pairs = [(f, results[('oracle', test, e['pool_id'])], d) for (f, d), e in zip(fits, exact)]
+                differences = [f[0] - o[0] for f, o, _ in pairs if f[0] is not None and o[0] is not None]
+                shift = statistics.median(differences) if differences else 0.0
                 values.update({test + '_own_false_calls': share([significant(f) and not significant(o) for f, o, d in pairs if d == 0]),
                                test + '_discordant_vs_oracle': share([call(f) != call(o) for f, o, _ in pairs]),
-                               test + '_fc_error_vs_oracle': median([abs(f[0] - o[0]) for f, o, _ in pairs
-                                                                     if f[0] is not None and o[0] is not None])})
+                               test + '_fc_shift_vs_oracle': median(differences),
+                               test + '_fc_error_vs_oracle': median([abs(x - shift) for x in differences])})
         out[row] = {key + suffix: value for key, value in values.items()}
     return out
 
@@ -217,8 +222,10 @@ def report_lines(results, exact, rows, record, results_sha256):
              'direction, at 1:1 the share called at all; `tested`: the share of sequences with reads, so with a test. Against '
              'the oracle\'s fits on the same runs (the metrics table, #444): `own_false_calls`, the 1:1 sequences a method calls '
              'and the oracle does not; `discordant_vs_oracle`, the sequences whose call (up, down or none) differs from the '
-             'oracle\'s; `fc_error_vs_oracle`, the median absolute difference of the log2 fold changes over the sequences '
-             'both test.'.format(len(exact), FDR)]
+             'oracle\'s; over the sequences both test, `fc_shift_vs_oracle`, the median difference of the log2 fold changes '
+             '(method - oracle), a shift that comes from the library sizes (all of a method\'s miRNA reads, the oracle\'s pool '
+             'reads) and also moves calls near the cutoff; `fc_error_vs_oracle`, the median absolute deviation of those '
+             'differences from the shift, the disagreement of the counts themselves.'.format(len(exact), FDR)]
     for test in TESTS:
         lines += ['', '**{}**'.format(TEST_NAMES[test]), '', '| fold | n | ' + ' | '.join(rows) + ' |', '|---' * (len(rows) + 2) + '|']
         for value in folds:
@@ -245,20 +252,24 @@ def text(value):
 
 def level_lines(column, levels, values, rows):
     """report.md's section on the tests within each level of `within` (#444): for each test, LEVEL_KEYS of every level
-    and row from `values` ({row: {metric: value}}, the levels' metrics with their suffix), then each level's runs and the
-    SHA-256 of its results. `levels`: [(level, runs, results_sha256)], `runs` describing the level's runs."""
+    and row from `values` ({row: {metric: value}}, the levels' metrics with their suffix), then each level's runs, the
+    design and tool versions de.R recorded, and the SHA-256 of its results. `levels`: [(level, runs, results_sha256,
+    record)], `runs` describing the level's runs."""
     if not levels:
         return []
     lines = ['', '### Within each {}'.format(column), '',
-             "The runs of each {0} tested on their own, pool A against pool B with `~ group`, and scored as above; in "
-             "metrics.tsv and the intervals the metrics carry the {0}, e.g. `edger_called.{1}`. The metrics against the "
-             "oracle are empty for the oracle.".format(column, levels[0][0])]
+             "The runs of each {0} tested on their own, pool A against pool B with the design below, and scored as above. In "
+             "metrics.tsv the metrics carry the {0}, e.g. `edger_called.{1}`; their intervals and the differences between "
+             "methods are in metrics_ci.tsv and differences.tsv, not in the uncertainty section below. The metrics against "
+             "the oracle are empty for the oracle.".format(column, levels[0][0])]
     for test in TESTS:
         lines += ['', '**{}**'.format(TEST_NAMES[test]), '', '| {} | metric | '.format(column) + ' | '.join(rows) + ' |',
                   '|---' * (len(rows) + 2) + '|']
-        for level, _, _ in levels:
+        for level, _, _, _ in levels:
             lines += ['| {} | {} | '.format(level if i == 0 else '', key) +
                       ' | '.join(text(values.get(row, {}).get('{}_{}.{}'.format(test, key, level))) for row in rows) + ' |'
                       for i, key in enumerate(LEVEL_KEYS)]
-    lines += [''] + ['{}: {}; `de/{}/{}/results.tsv` SHA-256 `{}`.'.format(level, runs, column, level, sha) for level, runs, sha in levels]
+    lines += [''] + ['{}: {}, design `{}` (edgeR {}, limma {}); `de/{}/{}/results.tsv` SHA-256 `{}`.'.format(
+        level, runs, record.get('formula', '?'), record.get('edgeR', '?'), record.get('limma', '?'), column, level, sha)
+        for level, runs, sha, record in levels]
     return lines

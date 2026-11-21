@@ -131,8 +131,10 @@ def check_de(spec, path):
         fail('{}: de.within must be a name from {}, got {!r}'.format(path, ', '.join(de.COVARIATES), within))
     values = [run.get(within) for run in spec['runs']]
     if not all(isinstance(v, str) and de.LEVEL_NAME.fullmatch(v) for v in values) or len(set(values)) < 2:
-        fail('{}: de.within {}: every run needs a value of letters, digits, `.`, `_` or `-` (it names a folder and metrics), '
-             'with at least two different ones'.format(path, within))
+        fail('{}: de.within {}: every run needs a value that starts with a letter or digit and has only letters, digits, `.`, '
+             '`_` or `-` (it names a folder and metrics), with at least two different ones'.format(path, within))
+    if len({value.lower() for value in values}) != len(set(values)):
+        fail('{}: de.within {}: values that differ only in case would share a folder: {}'.format(path, within, ', '.join(sorted(set(values)))))
     for level in sorted(set(values)):
         check_design([run for run in spec['runs'] if run[within] == level], [c for c in covariates if c != within],
                      '{}: de.within {} {}'.format(path, within, level))
@@ -437,9 +439,10 @@ def prepare_biological(spec, project, ext_dir, methods, args):
                                                         ', up to {} reads of each run'.format(args.reads) if args.reads else '', args.project))
 
 
-def bootstrap(args, point, compute, draw, rows, keys, units):
+def bootstrap(args, point, compute, draw, rows, keys, units, shown=None):
     """Bootstrap intervals for an evaluation (#413): (extra files for evaluation.publish, the record of resamples and
-    seed, report lines). Nothing when --bootstrap is 0."""
+    seed, report lines). Nothing when --bootstrap is 0. The files have every metric in `keys`, the report's section the
+    metrics in `shown` (default: all); a lab's DE metrics have their own report section (#444)."""
     n, seed = args.bootstrap, args.seed
     if not n:
         return {}, None, []
@@ -447,7 +450,9 @@ def bootstrap(args, point, compute, draw, rows, keys, units):
     extra = {'metrics_ci.tsv': uncertainty.table_text(uncertainty.CI_HEADER, ci),
              'differences.tsv': uncertainty.table_text(uncertainty.DIFFERENCE_HEADER, differences)}
     record = {'resamples': n, 'seed': seed, 'skipped': skipped}
-    return extra, record, uncertainty.report_lines(ci, differences, rows, keys, units, n, seed, skipped)
+    shown = set(keys if shown is None else shown)
+    return extra, record, uncertainty.report_lines([row for row in ci if row[0] in shown], [row for row in differences if row[0] in shown],
+                                                   rows, [key for key in keys if key in shown], units, n, seed, skipped)
 
 
 def run_resources(project, bench, spec, reads):
@@ -834,8 +839,9 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
             table_keys = list(keys)  # the report's metrics table: each level's DE metrics have a section of their own
             keys += de.metric_keys([suffix for suffix in de_results if suffix])
             de_lines = de.report_lines(de_results[''], pool.scored(entries), rows, *de_reports[''][:2])
-            de_lines += de.level_lines((spec['de'] or {}).get('within'), [(suffix[1:], de_reports[suffix][2], de_reports[suffix][1])
-                                                                         for suffix in de_results if suffix], summary, rows)
+            de_lines += de.level_lines((spec['de'] or {}).get('within'), [(suffix[1:], de_reports[suffix][2], de_reports[suffix][1],
+                                                                          de_reports[suffix][0]) for suffix in de_results if suffix],
+                                       summary, rows)
     for path, header, table in pending:
         write_tsv(path, header, table)
     if de_texts:
@@ -894,7 +900,7 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
         units = 'the scored pool sequences (exact and shifted) and the runs within each pool (A, B)'
         if de_results:
             units += '; the differential-expression metrics resample the sequences only, on the fixed fits'
-    extra, record, ci_lines = bootstrap(args, summary, compute, draw, rows, keys, units)
+    extra, record, ci_lines = bootstrap(args, summary, compute, draw, rows, keys, units, table_keys)
     publish(project, bench, spec, ['metric'] + rows, metric_rows, lines + ci_lines, extra, record)
     print(bench / 'report.md')
 

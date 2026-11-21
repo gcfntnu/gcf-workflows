@@ -1977,12 +1977,22 @@ def test_de_scores_against_the_oracle_compare_calls_and_fold_changes_on_the_same
     values = de.scores(results, exact, ['oracle', 'm'], '.L1')
     assert values['m']['edger_own_false_calls.L1'] == 0.5       # S0 of the 1:1 S0 and S1; the oracle calls S1 too
     assert values['m']['voom_discordant_vs_oracle.L1'] == 0.5   # S0 (up, the oracle none) and S2 (down, the oracle up); S3 untested, none
-    assert values['m']['edger_glm_fc_error_vs_oracle.L1'] == 0.2  # median of 0.2, 0.1 and 3 over the sequences both test
+    assert values['m']['edger_fc_shift_vs_oracle.L1'] == 0.1      # median of the differences 0.2, 0.1 and -3 over the sequences both test
+    assert values['m']['edger_glm_fc_error_vs_oracle.L1'] == 0.1  # median of their distances from that shift: 0.1, 0 and 3.1
     assert not {'{}_{}.L1'.format(t, k) for t in de.TESTS for k in de.ORACLE_KEYS} & set(values['oracle'])
     untested = {key: (None, None, None) if key[0] == 'm' else fit for key, fit in results.items()}
     values = de.scores(untested, exact[2:], ['oracle', 'm'])['m']  # no 1:1 sequence, nothing tested by both
-    assert math.isnan(values['edger_own_false_calls']) and math.isnan(values['edger_fc_error_vs_oracle'])
+    assert math.isnan(values['edger_own_false_calls']) and math.isnan(values['edger_fc_error_vs_oracle']) and math.isnan(values['edger_fc_shift_vs_oracle'])
     assert values['edger_discordant_vs_oracle'] == 0.5  # S2: the oracle calls it, the untested method does not
+
+
+def test_de_fold_change_shift_against_the_oracle_is_not_counted_as_error():
+    exact = de_entries((1, 1), (4, 1), (1, 4), (2, 1))
+    oracle = {'S0': (0.1, 0.5, 0.6), 'S1': (2.1, 0.001, 0.01), 'S2': (-1.9, 0.001, 0.01), 'S3': (0.8, 0.01, 0.02)}
+    method = {pool_id: (lfc - 0.25, p, padj) for pool_id, (lfc, p, padj) in oracle.items()}  # other library sizes: every log2fc 0.25 lower
+    results = {(row, test, pool_id): fit for row, fits in (('oracle', oracle), ('m', method)) for test in de.TESTS for pool_id, fit in fits.items()}
+    values = de.scores(results, exact, ['oracle', 'm'])['m']
+    assert values['voom_fc_shift_vs_oracle'] == -0.25 and values['voom_fc_error_vs_oracle'] == 0.0
 
 
 def test_de_scores_of_a_resample_are_nan_not_errors():
@@ -2041,8 +2051,10 @@ def one_lab(spec):
 
 @pytest.mark.parametrize('change, message', [
     (lambda s: s['de'].update(within='instrument'), "de.within must be a name from lab, got 'instrument'"),
-    (one_lab, 'de.within lab: every run needs a value of letters, digits'),
+    (one_lab, 'de.within lab: every run needs a value that starts with a letter or digit'),
     (lambda s: s['runs'][0].update(lab='Lab 1'), 'with at least two different ones'),
+    (lambda s: s['runs'][0].update(lab='..'), 'de.within lab: every run needs a value that starts with a letter or digit'),  # not a folder of its own
+    (lambda s: s['runs'][0].update(lab='lab1'), 'values that differ only in case would share a folder: Lab1, Lab5, lab1'),
     (lambda s: s['runs'].pop(0), 'de.within lab Lab1: differential expression needs at least two runs in each pool, got 1 A and 2 B'),
 ])
 def test_de_within_needs_safe_level_names_and_replicates_in_each_level(tmp_path, change, message):
@@ -2157,7 +2169,7 @@ def de_outputs(project, fits, change=None, drop_last=False, folder=''):
     write(base / 'results.tsv', results)
     record = {'md5_' + Path(name).stem: de.md5(text) for name, text in texts.items()}
     record.update(md5_script=de.md5(de.SCRIPT.read_bytes()), md5_results=de.md5(results), R='R version 4.5.3', edgeR='4.10.7',
-                  limma='3.68.5', formula='~lab + group', edger='exact test', edger_glm='GLM test', voom='voom')
+                  limma='3.68.5', formula='~group' if folder else '~lab + group', edger='exact test', edger_glm='GLM test', voom='voom')
     if change:
         change(record)
     write(base / 'record.tsv', 'field\tvalue\n' + ''.join('{}\t{}\n'.format(k, v) for k, v in record.items()))
@@ -2233,13 +2245,15 @@ def test_evaluate_de_within_each_lab_scores_each_lab_and_against_the_oracle(tmp_
     main = report.split('## Differential expression')[0]
     assert '| edger_fc_error_vs_oracle |  | 0.0 | 0.0 |' in main and '.L1 |' not in main  # each lab's metrics have their own table
     assert '### Within each lab' in report and '| L2 | called | 1.0 | 1.0 | 1.0 |' in report and '|  | fc_error_vs_oracle |  | 0.0 | 0.0 |' in report
-    assert 'L1: 2 A and 2 B runs; `de/lab/L1/results.tsv` SHA-256 `{}`.'.format(
+    assert 'L1: 2 A and 2 B runs, design `~group` (edgeR 4.10.7, limma 3.68.5); `de/lab/L1/results.tsv` SHA-256 `{}`.'.format(
         hashlib.sha256((bench / 'de/lab/L1/results.tsv').read_bytes()).hexdigest()) in report
+    assert '.L1' not in report.split('## Uncertainty')[1] and '\tunitas\tmirge3\t' in (bench / 'differences.tsv').read_text()
+    assert any(line.startswith('edger_fc_shift_vs_oracle.L1\tunitas\tmirge3\t') for line in (bench / 'differences.tsv').read_text().splitlines())
     summary_md = tmp_path / 'summary.md'
     result = subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'summary', '--projects', str(project), '--output', str(summary_md)],
                             capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
-    assert 'edger_fc_error_vs_oracle: unitas' in summary_md.read_text()
+    assert 'edger_fc_error_vs_oracle: unitas' in summary_md.read_text() and 'edger_fc_shift_vs_oracle: unitas' in summary_md.read_text()
 
 
 @pytest.mark.parametrize('case, message', [

@@ -89,8 +89,9 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    table it writes. `evaluate --de` stops before writing anything unless that record matches the current inputs, `de.R`
    and the results table; after new counts, run `evaluate` without `--de` (it writes the current inputs), then
    `de.smk`, which also reruns after a change to `de.R`. A project prepared before #414 or #444 enables DE, or the
-   tests within each lab, by adding its dataset's `de:` to `benchmark/dataset.yaml`. The DE files are not listed in
-   `evaluation.json`; the report gives each set's results SHA-256.
+   tests within each lab, by adding its dataset's `de:` to `benchmark/dataset.yaml`. `de.smk` reads
+   `benchmark/de/levels.tsv`, which `evaluate` writes since #444, so a project evaluated earlier needs `evaluate` once
+   more before `de.smk`. The DE files are not listed in `evaluation.json`; the report gives each set's results SHA-256.
 5. **Summary.** `benchmark.py summary` reads several evaluated projects and writes one overview, a Markdown file or a
    single self-contained HTML file (no external resources), by the output's extension:
 
@@ -313,10 +314,14 @@ miRNA), `exact` (share of miRNAs counted exactly, to within 1e-6 for the fractio
   sequences or in the wrong direction), `fc_bias` (median of sign(d) × (log2 fold change − d), negative when fold
   changes are compressed) and `offset` (median log2 fold change of the 1:1 sequences). Against the oracle's fits on
   the same runs, for each method (#444): `own_false_calls` (1:1 sequences the method calls and the oracle does not),
-  `discordant_vs_oracle` (sequences whose call, up, down or none, differs from the oracle's) and `fc_error_vs_oracle`
-  (median absolute difference of the log2 fold changes over the sequences both test). The pools' 1:1 sequences are
-  not all 1:1 in the libraries: the oracle calls some of them, and different ones in each lab of the TruSeq pools. So
-  `false_calls` measures the libraries as well as the method, and the metrics against the oracle measure the method.
+  `discordant_vs_oracle` (sequences whose call, up, down or none, differs from the oracle's), and over the sequences
+  both test `fc_shift_vs_oracle` (the median difference of the log2 fold changes, method − oracle) and
+  `fc_error_vs_oracle` (their median absolute deviation from that shift). The shift is common to all sequences and
+  comes from the library sizes, all of a method's miRNA reads against the oracle's pool reads; it also moves calls near
+  the cutoff. The error is the disagreement of the counts themselves. The pools' 1:1 sequences are not all 1:1 in the
+  libraries: the oracle calls some of them, and different ones in each lab of the TruSeq pools. So `false_calls`
+  measures the libraries as well as the method, while the metrics against the oracle compare the methods on the same
+  libraries.
   Their intervals resample the sequences on the fixed fits, on every draw: a draw without a 1:1 sequence has no
   `offset` or `false_calls` but still scores the rest, while the metrics above skip it. The declaration must leave the
   design residual degrees of freedom. The report gives the share called per designed fold change and the tools'
@@ -324,9 +329,9 @@ miRNA), `exact` (share of miRNAs counted exactly, to within 1e-6 for the fractio
 
   With `de: {within: lab}` (#444) each lab's runs are also tested on their own with `~ group`, as replicate benchmarks
   of a single-lab experiment; each lab needs at least two runs per pool. Their metrics carry the lab, e.g.
-  `edger_fc_error_vs_oracle.Lab1`. They are in `metrics.tsv` and the intervals, including the differences between
-  methods, which show whether a difference holds in each lab. The report shows them in a table of their own rather
-  than the main one.
+  `edger_fc_error_vs_oracle.Lab1`. They are in `metrics.tsv`, `metrics_ci.tsv` and `differences.tsv`, whose paired
+  differences show whether a difference between methods holds in each lab. The report shows their values in a section
+  of their own, outside the main table and the uncertainty section.
 - **Filter route.** The same exact-match count of the pool sequences after each pass of the project's filter route
   (`filter_stages.tsv`): for cutadapt after the 3' adapter, the filter (random ends, 5' adapter, length, N, expected
   errors) and the artefact pass, for fastp after the adapter and the filter pass, then the spike-in prefilter with
