@@ -10,8 +10,8 @@ between the pools stays in the fold changes, and `offset` reports it. The oracle
 and shifted pool sequences: what a method counting every pool miRNA read exactly would report. The exact test runs as in
 the McCall-lab benchmark's best configuration (library sizes as given, a common dispersion; two groups, so no
 covariates). The GLM test and voom take the covariates the dataset declares (`de: {covariates: [...]}`). The GLM test
-keeps the exact test's model otherwise (a common dispersion, estimated under that design), so the two differ by the
-covariates.
+keeps the exact test's model otherwise (a common dispersion, estimated under that design). Without covariates it calls
+nearly what the exact test calls, so the two differ mainly by the covariates.
 
 `benchmark.py evaluate` writes the inputs (input_tables) to benchmark/de/input/; de.smk writes benchmark/de/results.tsv
 and record.tsv; `evaluate --de` checks the record against the current inputs and de.R, and scores the results.

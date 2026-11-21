@@ -4,9 +4,10 @@
 # counts, library sizes and design that `benchmark.py evaluate` writes (benchmark/de/input/). Library sizes are the
 # workflow's, without TMM. The exact test runs as in the McCall-lab benchmark's best configuration (common dispersion,
 # exact test; two groups, no covariates). The GLM test is its counterpart on the design with the covariates: a common
-# dispersion estimated under the design and a likelihood-ratio test of the group, so the two differ by the covariates.
-# voom takes the same design. A sequence without reads in a row is written as NA for every test, and so is every
-# sequence of a row without reads on any of them. Each row's two common dispersions go to the log.
+# dispersion estimated under the design and a likelihood-ratio test of the group. Without covariates it calls nearly
+# what the exact test calls, so the two differ mainly by the covariates. voom takes the same design. A sequence without
+# reads in a row is written as NA for every test, and so is every sequence of a row without reads on any of them. Each
+# row's two common dispersions go to the log.
 #
 # The inputs and this script are copied when it starts; the fits read the copies and the record names their MD5s, so
 # it describes the bytes the fits used even if `evaluate` rewrites an input meanwhile. The record also names the MD5

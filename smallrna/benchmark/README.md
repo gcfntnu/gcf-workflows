@@ -303,11 +303,11 @@ miRNA), `exact` (share of miRNAs counted exactly, to within 1e-6 for the fractio
   the McCall lab's benchmark of miRNA-seq normalisation and differential expression (Aparicio-Puerta et al., bioRxiv
   2026, doi:10.64898/2026.05.08.723923): a common dispersion and the exact test, so two groups without covariates. The
   GLM test and voom take the declaration's covariates (`de: {covariates: [lab]}`: `~ lab + group`). The GLM test keeps
-  the exact test's single common dispersion but estimates it under that design, so it differs from the exact test by
-  the covariates and from voom by the method. DESeq2 is left out: it did worst there. A call is a BH-adjusted p of at
-  most 0.05. Metrics, prefixed `edger_`, `edger_glm_` and `voom_`: `called` (sequences designed at least 2-fold apart
-  called in the designed direction), `false_calls` (1:1 sequences called; a call on a sequence designed 1.5-fold apart is a true
-  one), `fdr` (the share of calls on 1:1 sequences or in the wrong direction), `fc_bias` (median of sign(d) × (log2
+  the exact test's single common dispersion but estimates it under that design. Without covariates it calls nearly what
+  the exact test calls, so it differs from the exact test mainly by the covariates, and from voom by the method. DESeq2
+  is left out: it did worst there. A call is a BH-adjusted p of at most 0.05. Metrics, prefixed `edger_`, `edger_glm_`
+  and `voom_`: `called` (sequences designed at least 2-fold apart called in the designed direction), `false_calls` (1:1
+  sequences called; a call on a sequence designed 1.5-fold apart is a true one), `fdr` (the share of calls on 1:1 sequences or in the wrong direction), `fc_bias` (median of sign(d) × (log2
   fold change − d), negative when fold changes are compressed) and `offset` (median log2 fold change of the 1:1
   sequences). Their intervals resample the sequences on the fixed fits, on every draw: a draw without a 1:1 sequence
   has no `offset` or `false_calls` but still scores the rest, while the metrics above skip it. The declaration must leave
