@@ -32,9 +32,10 @@ What it draws (all from the declaration's fixed seed):
   class has `replicates` samples, and a control has the carrier only. Probe miRNAs are truth miRNAs, so they are also
   present, canonical, in the mixed samples.
 - **Decoys** (`decoys`, #412 PR 2; decoys.py): reads of other RNA classes in the mixed samples, a probe sample per class
-  and source (`P_decoy_<unit>_<replicate>`, kind `decoy`), and probe samples of the miRBase matures that lie inside
-  other-class molecules (`P_embedded_<class>_<replicate>`), all drawn from a stream of their own after the miRNA reads,
-  so the miRNA reads are the same with or without decoys.
+  and source (`P_decoy_<unit>_<replicate>`, kind `decoy`), probe samples of the miRBase matures that lie inside
+  other-class molecules (`P_embedded_<class>_<replicate>`) and of fragments of their host molecules overlapping them
+  (`P_overlap_<class>_<replicate>`, kind `overlap`), all drawn from a stream of their own after the miRNA reads, so the
+  miRNA reads are the same with or without decoys.
 
 Reads are the insert followed by the kit's adapter (with `umi` random nucleotides at both ends of the insert when the
 kit has them). The truth has a row per sample, class and read sequence (with its number of substitutions); the design
@@ -571,6 +572,16 @@ def generate(spec, mature_fa, hairpin_fa, gff, prefix, adapter, umi, fastq_path,
                                                        ','.join(decoy.embedded[cls][r][:3])) for r in members]
                     n = write_fastq(fastq_path(sample), sample, carrier_rows + rows, adapter, umi, decoy.reads)
                     samples.append((sample, 'probe', '', 'embedded_' + cls, rep, n, '', ''))
+            for cls, (catalogue, weights) in sorted(decoy.draw_overlaps(set(carrier)).items()):
+                # fragments of the host molecules overlapping an embedded mature (no read a miRNA could give)
+                for rep in range(1, replicates + 1):
+                    sample = 'P_overlap_{}_{}'.format(cls, rep)
+                    drawn = [(catalogue[i], int(k)) for i, k in enumerate(decoy.rng.multinomial(decoy_reads, weights)) if k]
+                    truth += carrier_truth(sample) + [(sample, cls, '', '', fragment, k, 0, source, origin)
+                                                      for (fragment, origin, source), k in drawn]
+                    n = write_fastq(fastq_path(sample), sample, carrier_rows + [(fragment, k, ()) for (fragment, _, _), k in drawn],
+                                    adapter, umi, decoy.reads)
+                    samples.append((sample, 'overlap', '', cls, rep, n, '', ''))
 
     mirnas = []
     for r in sorted(set(chosen) | set(probe_of), key=lambda x: names[x]):

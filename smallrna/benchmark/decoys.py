@@ -13,8 +13,11 @@ later without new data.
   3'-end fragments; piRNAs 24-32 nt, starting with U (T) in a share `pirna_5u`; the other classes uniform fragments of
   `length`. Precursor fragments come from the hairpins outside every mature.
 - **No miRBase look-alikes:** a fragment that shares OVERLAP nucleotides with any of the organism's miRBase hairpins
-  (precursor fragments: that overlaps a mature), or equals a read a miRNA could give, is drawn again. The miRBase
-  matures that lie in other-class molecules are found instead (`embedded`) and probed from the miRNA side.
+  (precursor fragments: that overlaps a mature), or equals a read a miRNA could give, is drawn again, so these decoys
+  measure reads unrelated to miRBase. The miRBase matures that lie in other-class molecules are found instead
+  (`embedded`) and probed from both sides: their canonical reads (embedded probes), and fragments of their host
+  molecules that cover at least half the mature without being a read any miRNA could give (overlap probes; #412's
+  class of fragments overlapping a miRBase hairpin, reported on its own and not as false positives).
 - **Mixed samples:** unit u gets `load[u]` decoy reads per miRNA read of the sample, times 2^(`nuisance` x the sample's
   nuisance score), Poisson; reads carry sequencing errors as miRNA reads do.
 - **Probe samples** (`probe.reads` per unit and replicate) hold the carrier and one unit's reads, without errors.
@@ -140,6 +143,7 @@ class Decoys:
             raise ValueError('decoys: no molecules for {}'.format(', '.join(empty)))
         self.catalogue = {u: self.draw_catalogue(u) for u in self.units}
         self.embedded = self.find_embedded(universe)
+        self.matures = {rep: universe.mirnas[rep]['sequence'] for reps in self.embedded.values() for rep in reps}
 
     def lengths(self, low=None, high=None):
         lo, hi = self.spec['length']
@@ -253,6 +257,47 @@ class Decoys:
                         if rep and name not in out[cls][rep]:
                             out[cls][rep].append(name)
         return {cls: dict(reps) for cls, reps in out.items() if reps}
+
+    def draw_overlaps(self, excluded=()):
+        """{class: ([(fragment, origin, source)], weights)}: up to `fragments` distinct fragments per EMBEDDING class of the
+        host molecules of its embedded matures (not those `excluded`, the carrier), each covering at least half of the
+        mature and no read a miRNA could give; origin `<molecule>:overlap:<mature representative>`."""
+        out = {}
+        for cls in sorted(self.embedded):
+            hosts = []
+            for unit in self.units:
+                if unit_class(unit) != cls:
+                    continue
+                for name, seq, _ in self.molecules[unit]:
+                    for rep, names in self.embedded[cls].items():
+                        if rep in excluded or name not in names:
+                            continue
+                        mature = self.matures[rep]
+                        at = seq.find(mature)
+                        while at >= 0:
+                            hosts.append((name, seq, rep, at, at + len(mature), unit.rsplit('-', 1)[1]))
+                            at = seq.find(mature, at + 1)
+            if not hosts:
+                continue
+            wanted, seen, found = int(self.spec['fragments']), set(), []
+            for _ in range(50 * wanted):
+                if len(found) >= wanted:
+                    break
+                name, seq, rep, a, b, source = hosts[int(self.rng.integers(len(hosts)))]
+                length, cover = self.lengths(), (b - a + 1) // 2
+                low, high = max(0, a + cover - length), min(len(seq) - length, b - cover)
+                if high < low:
+                    continue
+                start = int(self.rng.integers(low, high + 1))
+                fragment = seq[start:start + length]
+                if fragment in seen or fragment in self.forbidden or set(fragment) - set('ACGT'):
+                    continue
+                seen.add(fragment)
+                found.append((fragment, '{}:overlap:{}'.format(name, rep), source))
+            if found:
+                weights = np.exp(self.rng.normal(0, float(self.spec['weight_sd']), len(found)))
+                out[cls] = (found, weights / weights.sum())
+        return out
 
     def draw(self, unit, n):
         """{catalogue index: reads} of n reads of a unit."""

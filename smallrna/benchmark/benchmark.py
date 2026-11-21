@@ -1461,6 +1461,12 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
             point[name]['decoy_as_mirna'] = sum(scored[u][0] * scored[u][1] for u in decoy_units) / reads if reads else float('nan')
             point[name].update({'decoy_as_mirna_' + u: scored[u][0] for u in decoy_units})
         keys += ['decoy_as_mirna'] + ['decoy_as_mirna_' + u for u in decoy_units]
+    overlap_scores = {name: ev.overlaps(name) for name in rows}  # fragments overlapping an embedded mature (#412 PR 2)
+    overlap_classes = sorted({c for v in overlap_scores.values() for c in v})
+    for name in rows:
+        for c in overlap_classes:
+            point[name]['overlap_on_mirna_' + c], point[name]['overlap_as_mirna_' + c] = overlap_scores[name][c][:2]
+    keys += [k + c for c in overlap_classes for k in ('overlap_on_mirna_', 'overlap_as_mirna_')]
     iso_rows, no_isomirs = isomir_table(args, project, bench, spec, methods, mature, gff, raw, pending)
     with_isomirs = [m for m in methods if m not in no_isomirs]
     iso_tallies, iso_classes = isomirs.synthetic_tallies(truth, iso_rows, samples, with_isomirs, isomirs.representatives(id_to_seq))
@@ -1566,6 +1572,14 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
         lines += md_table(['class', 'miRNAs'] + methods, [[c[len('embedded_'):], ', '.join(sorted(
             label(i) for i, m in ev.mirnas.items() if c in m['probe_classes'].split(',')))] + [rnd(probes[r][c][0]) for r in methods]
             for c in embedded])
+        if overlap_classes:
+            lines += ['', 'Fragments of their host molecules that cover at least half of an embedded mature but are no read a '
+                      'miRNA could give (`P_overlap_*`; not false positives, as miRBase has the mature): the share of the fragment '
+                      'reads a method counts on the mature they overlap (`overlap_on_mirna_<class>`) and on any miRNA '
+                      '(`overlap_as_mirna_<class>`), control subtracted.', '']
+            lines += md_table(['class', 'fragment reads'] + ['{}: on its miRNA / any'.format(r) for r in methods],
+                              [[c, '{:.0f}'.format(overlap_scores['truth'][c][2])] + ['{} / {}'.format(rnd(overlap_scores[r][c][0]),
+                               rnd(overlap_scores[r][c][1])) for r in methods] for c in overlap_classes])
         lines += ['', 'Their molecules: ' + '; '.join('{} ({})'.format(label(i), v) for i, v in sorted(inside.items(), key=lambda kv: label(kv[0]))
                                                        if v) + '.']
     lines += isomirs.synthetic_lines(iso, iso_classes, with_isomirs, no_isomirs)

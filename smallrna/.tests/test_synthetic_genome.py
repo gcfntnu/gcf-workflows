@@ -611,9 +611,9 @@ def test_decoys_leave_the_mirna_reads_as_they_were(tmp_path, mirbase):
     decoy_rows = [t for t in truth1 if is_decoy(t)]
     assert {'{}-{}'.format(t[1], t[7]) for t in decoy_rows} == set(decoys.UNITS) and all(t[8] for t in decoy_rows)
     kinds = collections.Counter(s[1] for s in samples1)
-    assert kinds['decoy'] == len(decoys.UNITS) and kinds['mixed'] == 6
+    assert kinds['decoy'] == len(decoys.UNITS) and kinds['mixed'] == 6 and kinds['overlap'] >= 1
     for s in samples1:  # every read of a new sample has its truth
-        if s[1] == 'decoy' or s[3].startswith('embedded_'):
+        if s[1] in ('decoy', 'overlap') or s[3].startswith('embedded_'):
             inserts = collections.Counter(r[1][:-len(ADAPTER)] for r in fastq_records(out1, s[0]))
             assert inserts == collections.Counter({t[4]: t[5] for t in truth1 if t[0] == s[0]})
     again = sg.generate(decoy_spec(), *files, 'hsa-', ADAPTER, 0, lambda s: tmp_path / 'again' / '{}_R1.fastq.gz'.format(s), sources)
@@ -647,6 +647,17 @@ def test_decoy_fragments_follow_their_class(tmp_path, mirbase):
     for fragment, origin in d.catalogue['precursor-mirbase'][0]:  # loops and flanks, never a mature
         assert not any(m in fragment or fragment in m for m in universe.mature_sequences)
     assert d.embedded == {'rRNA': {'MIMAT9000020': ['28S'], 'MIMAT9000022': ['28S']}, 'tRNA': {'MIMAT9000021': ['tRNA-Ala-AGC-1-1']}}
+    overlaps = d.draw_overlaps(excluded={'MIMAT9000022'})  # fragments of the host molecules, partly the mature
+    assert set(overlaps) == {'rRNA', 'tRNA'}
+    hosts = {name: seq for u in d.units for name, seq, _ in d.molecules[u]}
+    for cls, (catalogue, weights) in overlaps.items():
+        assert abs(weights.sum() - 1) < 1e-9
+        for fragment, origin, source in catalogue:
+            host, _, rep = origin.split(':')
+            mature = universe.mirnas[rep]['sequence']
+            a, at = hosts[host].find(mature), hosts[host].find(fragment)
+            assert rep != 'MIMAT9000022' and at >= 0 and min(at + len(fragment), a + len(mature)) - max(at, a) >= len(mature) // 2
+            assert fragment not in reads.forbidden and source == {'rRNA': 'refseq', 'tRNA': 'gtrnadb'}[cls]
 
 
 def test_decoy_loads_follow_the_declaration_and_the_nuisance(tmp_path, mirbase):
@@ -706,6 +717,15 @@ def test_decoy_scores_on_hand_made_counts(tmp_path, mirbase):
     share, reads, landed = ev.decoys('leaky')['tRNA-gtrnadb']
     assert reads == decoy_reads and share == pytest.approx(30 / decoy_reads) and landed == {x: 30.0}  # y is the control's too
     assert ev.decoys('leaky')['rRNA-refseq'][0] == 0
+    overlap = {s['probe_class']: s['sample'] for s in samples if s['kind'] == 'overlap' and s['replicate'] == '1'}
+    cls = sorted(overlap)[0]
+    target = sorted(ev.overlapped[cls])[0]
+    fragments = sum(float(t['count']) for t in truth if t['sample'] == overlap[cls] and not t['mature_id'])
+    host = gm.Evaluation(perfect + [('host', overlap[cls], '', target, 40), ('host', overlap[cls], '', x, 10)] +
+                         [('host',) + row[1:] for row in perfect], truth, samples, mirnas, ['perfect', 'host'])
+    on, anywhere, reads, landed = host.overlaps('host')[cls]
+    assert reads == fragments and on == pytest.approx(40 / fragments) and anywhere == pytest.approx(50 / fragments)
+    assert host.overlaps('perfect')[cls][:2] == (0, 0) and host.decoys('host')['tRNA-gtrnadb'][0] == 0  # not decoy probes
     probes = ev.probes('lossy')
     for cls in ('embedded_rRNA', 'embedded_tRNA'):
         if cls in probes:
@@ -722,6 +742,7 @@ def test_prepare_and_evaluate_with_decoys(tmp_path):
     assert '## Decoys counted as miRNAs' in report and '| tRNA-gtrnadb |' in report and '## miRNAs inside other RNA classes' in report
     table = {line.split('\t')[0]: line.split('\t')[1:] for line in (bench / 'metrics.tsv').read_text().splitlines()}
     assert table['decoy_as_mirna'] == ['0.0', '0.0'] and table['decoy_as_mirna_piRNA-pirnaclusterdb'] == ['0.0', '0.0']
+    assert any(k.startswith('overlap_on_mirna_') for k in table) and 'on its miRNA / any' in report
     assert table['recovered'] == ['1.0', '1.0'] and table['precision'] == ['1.0', '1.0']  # tinyrna counts the miRNA reads only
     truth = benchmark.read_tsv(bench / 'truth.tsv')
     assert {'source', 'origin'} <= set(truth[0]) and any(row['source'] == 'gtrnadb' for row in truth)

@@ -120,11 +120,14 @@ class Evaluation:
         self.mirnas = {m['mature_id']: m for m in mirnas}
         self.truth = collections.defaultdict(float)
         self.decoy_reads = collections.defaultdict(float)  # decoy reads per sample (#412 PR 2): no miRNA, not random
+        self.overlapped = collections.defaultdict(set)  # the matures an overlap probe's fragments overlap, per class
         for row in truth:
             if row['mature_id']:
                 self.truth[(row['sample'], row['mature_id'])] += float(row['count'])
             elif row.get('source'):
                 self.decoy_reads[row['sample']] += float(row['count'])
+                if ':overlap:' in row.get('origin', ''):
+                    self.overlapped[row['class']].add(row['origin'].rsplit(':', 1)[1])
         self.observed = collections.defaultdict(float)
         self.unplaced = collections.defaultdict(float)
         self.total = collections.defaultdict(float)
@@ -292,14 +295,15 @@ class Evaluation:
             out[c] = ((got - background) / t if t else float('nan'), misplaced / t if t else float('nan'), len(probe_ids))
         return out
 
-    def decoys(self, name):
+    def decoys(self, name, kind='decoy'):
         """{unit: (share, decoy reads, {miRNA: reads})} of the decoy probe samples (#412 PR 2; kind `decoy`, one class
-        and source each): the method's reads on miRNAs other than the carrier, minus the control's on them (scaled to the
-        number of samples), over the decoy reads they hold, and those reads per miRNA (above the control's)."""
+        and source each; kind `overlap`, one class each): the method's reads on miRNAs other than the carrier, minus the
+        control's on them (scaled to the number of samples), over the decoy reads they hold, and those reads per miRNA
+        (above the control's)."""
         control = [s for s, row in self.samples.items() if row['kind'] == 'control']
         by_unit = collections.defaultdict(list)
         for s, row in self.samples.items():
-            if row['kind'] == 'decoy':
+            if row['kind'] == kind:
                 by_unit[row['probe_class']].append(s)
         carriers = {i for i, m in self.mirnas.items() if 'carrier' in m['probe_classes']}
         obs = lambda s, i: self.observed.get((name, s, i), 0.0) if name != 'truth' else self.truth.get((s, i), 0.0)
@@ -310,6 +314,16 @@ class Evaluation:
             landed = {i: sum(obs(s, i) for s in samples) - sum(obs(cs, i) for cs in control) * scale for i in seen}
             reads = sum(self.decoy_reads[s] for s in samples)
             out[unit] = (sum(landed.values()) / reads if reads else float('nan'), reads, {i: v for i, v in landed.items() if v > 0})
+        return out
+
+    def overlaps(self, name):
+        """{class: (on the overlapped miRNAs, on any miRNA, fragment reads, {miRNA: reads})} of the overlap probe samples
+        (#412 PR 2): fragments of other-class molecules overlapping an embedded mature, counted as miRNAs (control
+        subtracted) on the miRNAs they overlap, and on any; not false positives."""
+        out = {}
+        for cls, (share, reads, landed) in self.decoys(name, 'overlap').items():
+            on = sum(v for i, v in landed.items() if i in self.overlapped[cls]) / reads if reads else float('nan')
+            out[cls] = (on, share, reads, landed)
         return out
 
     def unplaced_share(self, name):
