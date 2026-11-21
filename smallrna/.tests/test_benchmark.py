@@ -3018,7 +3018,7 @@ def test_gse317995_is_declared_in_full_and_per_group_takes_the_quick_run(tmp_pat
     assert len(spec['samples']) == 30 and collections.Counter(s['group'] for s in spec['samples']) == {
         'Adenomyosis': 10, 'Fertile control': 10, 'Infertile control': 10}
     assert all(sorted(run['lane'] for run in s['runs']) == [1, 2, 3, 4] for s in spec['samples'])
-    assert len(fill.targets(spec, tmp_path)) == 1 + 120
+    assert len(fill.targets(spec, tmp_path)) == 1 + 3 + 120  # mature.fa, the other_rna sources (#415), the runs
     quick = benchmark.select_per_group(spec, 2)  # the two lowest-numbered of each group, as declared before #448
     assert [s['sample'] for s in quick['samples']] == ['GSM9484173', 'GSM9484174', 'GSM9484193', 'GSM9484194', 'GSM9484183', 'GSM9484184']
     assert spec['de'] == {'null': {'splits': 50, 'seed': 1}} and 'de' not in quick   # #449: halves need 4 samples per group
@@ -3134,7 +3134,7 @@ def knockout_declaration(tmp_path, change=None):
 def test_the_knockout_declaration_lists_its_runs_and_pairs_each_knockout_with_its_set(tmp_path):
     spec = benchmark.load_dataset(BENCH / 'datasets/gse77989_hct116_knockouts.yaml')
     runs = [run for s in spec['samples'] for run in s['runs']]
-    assert len(runs) == 9 and [t[3].name for t in fill.targets(spec, tmp_path)][1:] == ['{}.fastq.gz'.format(r['run']) for r in runs]
+    assert len(runs) == 9 and [t[3].name for t in fill.targets(spec, tmp_path)][4:] == ['{}.fastq.gz'.format(r['run']) for r in runs]  # after 3 other_rna
     assert collections.Counter(s['group'] for s in spec['samples']) == {'Parental': 3, 'DROSHA KO': 2, 'XPO5 KO': 2, 'DICER KO': 2}
     assert {s['group'] for s in spec['samples'] if s['set'] == 1} == {'Parental', 'DROSHA KO'}
     table = [{'sample': s['sample'], 'library': s['sample'], 'group': s['group']} for s in spec['samples']]
