@@ -74,8 +74,10 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    undercounted most (mirflowz: 12 s recorded, 45 s measured with `/usr/bin/time`).
 
    **Differential expression** (#414). For a ratiometric pool that declares `de:`, `evaluate` also writes the inputs
-   to `benchmark/de/input/`. `de.smk` tests them with edgeR's exact and GLM tests and limma-voom (`de.R`, in the
-   `sartools` image), and `evaluate --de` adds the scores of their calls (Metrics, below):
+   to `benchmark/de/input/`. With `de: {within: lab}` (#444) it also writes each lab's inputs to
+   `benchmark/de/lab/<lab>/input/`, and lists the labs in `benchmark/de/levels.tsv`. `de.smk` tests every set it lists
+   with edgeR's exact and GLM tests and limma-voom (`de.R`, in the `sartools` image), and `evaluate --de` adds the
+   scores of their calls (Metrics, below):
 
    ```bash
    snakemake -s smallrna/benchmark/de.smk -d <project> --use-apptainer --cores 1
@@ -86,9 +88,9 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    visible in the container. `de.R` fits copies of the inputs and records their MD5s, its own and that of the results
    table it writes. `evaluate --de` stops before writing anything unless that record matches the current inputs, `de.R`
    and the results table; after new counts, run `evaluate` without `--de` (it writes the current inputs), then
-   `de.smk`, which also reruns after a change to `de.R`. A project prepared before #414 enables it by adding its
-   dataset's `de:` to `benchmark/dataset.yaml`. The DE files are not listed in `evaluation.json`; the report gives the
-   results' SHA-256.
+   `de.smk`, which also reruns after a change to `de.R`. A project prepared before #414 or #444 enables DE, or the
+   tests within each lab, by adding its dataset's `de:` to `benchmark/dataset.yaml`. The DE files are not listed in
+   `evaluation.json`; the report gives each set's results SHA-256.
 5. **Summary.** `benchmark.py summary` reads several evaluated projects and writes one overview, a Markdown file or a
    single self-contained HTML file (no external resources), by the output's extension:
 
@@ -309,11 +311,22 @@ miRNA), `exact` (share of miRNAs counted exactly, to within 1e-6 for the fractio
   and `voom_`: `called` (sequences designed at least 2-fold apart called in the designed direction), `false_calls` (1:1
   sequences called; a call on a sequence designed 1.5-fold apart is a true one), `fdr` (the share of calls on 1:1
   sequences or in the wrong direction), `fc_bias` (median of sign(d) × (log2 fold change − d), negative when fold
-  changes are compressed) and `offset` (median log2 fold change of the 1:1
-  sequences). Their intervals resample the sequences on the fixed fits, on every draw: a draw without a 1:1 sequence
-  has no `offset` or `false_calls` but still scores the rest, while the metrics above skip it. The declaration must leave
-  the design residual degrees of freedom. The report gives the share called per designed fold change and the tools'
+  changes are compressed) and `offset` (median log2 fold change of the 1:1 sequences). Against the oracle's fits on
+  the same runs, for each method (#444): `own_false_calls` (1:1 sequences the method calls and the oracle does not),
+  `discordant_vs_oracle` (sequences whose call, up, down or none, differs from the oracle's) and `fc_error_vs_oracle`
+  (median absolute difference of the log2 fold changes over the sequences both test). The pools' 1:1 sequences are
+  not all 1:1 in the libraries: the oracle calls some of them, and different ones in each lab of the TruSeq pools. So
+  `false_calls` measures the libraries as well as the method, and the metrics against the oracle measure the method.
+  Their intervals resample the sequences on the fixed fits, on every draw: a draw without a 1:1 sequence has no
+  `offset` or `false_calls` but still scores the rest, while the metrics above skip it. The declaration must leave the
+  design residual degrees of freedom. The report gives the share called per designed fold change and the tools'
   versions and settings; `de/de.log` has each row's two common dispersions.
+
+  With `de: {within: lab}` (#444) each lab's runs are also tested on their own with `~ group`, as replicate benchmarks
+  of a single-lab experiment; each lab needs at least two runs per pool. Their metrics carry the lab, e.g.
+  `edger_fc_error_vs_oracle.Lab1`. They are in `metrics.tsv` and the intervals, including the differences between
+  methods, which show whether a difference holds in each lab. The report shows them in a table of their own rather
+  than the main one.
 - **Filter route.** The same exact-match count of the pool sequences after each pass of the project's filter route
   (`filter_stages.tsv`): for cutadapt after the 3' adapter, the filter (random ends, 5' adapter, length, N, expected
   errors) and the artefact pass, for fastp after the adapter and the filter pass, then the spike-in prefilter with

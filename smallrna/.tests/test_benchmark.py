@@ -1918,6 +1918,7 @@ def test_synthetic_bootstrap_scores_and_options():
 
 import de  # noqa: E402
 import hashlib  # noqa: E402
+import re  # noqa: E402
 import math  # noqa: E402
 
 DE_RUNS = {'A1': ('A', 'L1'), 'A2': ('A', 'L2'), 'B1': ('B', 'L1'), 'B2': ('B', 'L2')}
@@ -1963,14 +1964,31 @@ def test_de_scores_call_in_the_designed_direction_and_false_calls_on_1to1_only()
                 'fdr': 0.5,           # of the calls S0, S2, S3 and S4: S0 (1:1) and S4 (wrong direction); S2, 1.5-fold, is true
                 'fc_bias': -0.5,      # median of -0.08 (S2), -0.5 (S3) and -5 (S4)
                 'offset': 0.05}       # median of S0 and S1
-    assert de.scores(results, exact, ['m']) == {'m': {'{}_{}'.format(t, k): v for t in de.TESTS for k, v in expected.items()}}
-    assert sorted(de.metric_keys()) == sorted('{}_{}'.format(t, k) for t in de.TESTS for k in expected)
+    assert de.scores(results, exact, ['m']) == {'m': {'{}_{}'.format(t, k): v for t in de.TESTS for k, v in expected.items()}}  # no oracle row
+    assert sorted(de.metric_keys()) == sorted('{}_{}'.format(t, k) for t in de.TESTS for k in list(expected) + list(de.ORACLE_KEYS))
+    assert de.metric_keys(['', '.L1']) == de.metric_keys() + ['{}.L1'.format(k) for k in de.metric_keys()]
+
+
+def test_de_scores_against_the_oracle_compare_calls_and_fold_changes_on_the_same_runs():
+    exact = de_entries((1, 1), (1, 1), (4, 1), (1, 4))  # designed log2(A/B): 0, 0, 2, -2
+    oracle = {'S0': (0.1, 0.5, 0.6), 'S1': (0.4, 0.001, 0.01), 'S2': (2.0, 0.001, 0.01), 'S3': (-1.5, 0.1, 0.2)}
+    method = {'S0': (0.3, 0.001, 0.01), 'S1': (0.5, 0.001, 0.02), 'S2': (-1.0, 0.001, 0.01), 'S3': (None, None, None)}
+    results = {(row, test, pool_id): fit for row, fits in (('oracle', oracle), ('m', method)) for test in de.TESTS for pool_id, fit in fits.items()}
+    values = de.scores(results, exact, ['oracle', 'm'], '.L1')
+    assert values['m']['edger_own_false_calls.L1'] == 0.5       # S0 of the 1:1 S0 and S1; the oracle calls S1 too
+    assert values['m']['voom_discordant_vs_oracle.L1'] == 0.5   # S0 (up, the oracle none) and S2 (down, the oracle up); S3 untested, none
+    assert values['m']['edger_glm_fc_error_vs_oracle.L1'] == 0.2  # median of 0.2, 0.1 and 3 over the sequences both test
+    assert not {'{}_{}.L1'.format(t, k) for t in de.TESTS for k in de.ORACLE_KEYS} & set(values['oracle'])
+    untested = {key: (None, None, None) if key[0] == 'm' else fit for key, fit in results.items()}
+    values = de.scores(untested, exact[2:], ['oracle', 'm'])['m']  # no 1:1 sequence, nothing tested by both
+    assert math.isnan(values['edger_own_false_calls']) and math.isnan(values['edger_fc_error_vs_oracle'])
+    assert values['edger_discordant_vs_oracle'] == 0.5  # S2: the oracle calls it, the untested method does not
 
 
 def test_de_scores_of_a_resample_are_nan_not_errors():
     results = {('m', test, 'S0'): (None, None, None) for test in de.TESTS}  # untested: no reads
     values = de.scores(results, de_entries((3, 2)), ['m'])['m']  # no 1:1 and no 2-fold sequence, no call
-    assert len(values) == len(de.metric_keys()) and all(math.isnan(v) for v in values.values())
+    assert len(values) == len(de.TESTS) * (len(de.KEYS) - len(de.ORACLE_KEYS)) and all(math.isnan(v) for v in values.values())
 
 
 def test_de_results_must_cover_every_row_test_and_sequence(tmp_path):
@@ -2015,10 +2033,27 @@ def test_de_declaration_needs_lab_with_two_levels_and_replicates(tmp_path, chang
         benchmark.load_dataset(de_declaration(tmp_path, change))
 
 
+def one_lab(spec):
+    spec['de']['covariates'] = []
+    for run in spec['runs']:
+        run['lab'] = 'Lab1'
+
+
+@pytest.mark.parametrize('change, message', [
+    (lambda s: s['de'].update(within='instrument'), "de.within must be a name from lab, got 'instrument'"),
+    (one_lab, 'de.within lab: every run needs a value of letters, digits'),
+    (lambda s: s['runs'][0].update(lab='Lab 1'), 'with at least two different ones'),
+    (lambda s: s['runs'].pop(0), 'de.within lab Lab1: differential expression needs at least two runs in each pool, got 1 A and 2 B'),
+])
+def test_de_within_needs_safe_level_names_and_replicates_in_each_level(tmp_path, change, message):
+    with pytest.raises(SystemExit, match=re.escape(message)):
+        benchmark.load_dataset(de_declaration(tmp_path, change))
+
+
 def test_shipped_ratiometric_declarations_declare_their_de_design():
     truseq = benchmark.load_dataset(BENCH / 'datasets/giraldez2018_ratiometric_truseq.yaml')
     nextflex = benchmark.load_dataset(BENCH / 'datasets/giraldez2018_ratiometric_nextflex.yaml')
-    assert truseq['de'] == {'covariates': ['lab']} and nextflex['de'] == {'covariates': []}
+    assert truseq['de'] == {'covariates': ['lab'], 'within': 'lab'} and nextflex['de'] == {'covariates': []}
     for path in BENCH.glob('datasets/*.yaml'):
         spec = yaml.safe_load(path.read_text())
         assert ('de' in spec) == (spec.get('pool') == 'ratiometric'), path.name
@@ -2030,20 +2065,28 @@ def de_snakemake(cwd, *args):
     return subprocess.run([str(Path(sys.executable).with_name('snakemake')), *args], cwd=cwd, env=env, capture_output=True, text=True, timeout=120)
 
 
-def test_de_snakefile_runs_r_in_the_sartools_image(tmp_path):
-    for name in de.INPUTS:
-        write(tmp_path / 'benchmark/de/input' / name, 'x\n')
+def test_de_snakefile_runs_r_in_the_sartools_image_for_every_set(tmp_path):
+    folders = ('', 'lab/L1/', 'lab/L2/')
+    for folder in folders:
+        for name in de.INPUTS:
+            write(tmp_path / 'benchmark/de' / (folder + 'input') / name, 'x\n')
+    result = de_snakemake(tmp_path, '-s', str(BENCH / 'de.smk'), '-n')
+    assert result.returncode != 0 and 'benchmark/de/levels.tsv not found' in result.stdout + result.stderr  # evaluate writes it
+    write(tmp_path / 'benchmark/de/levels.tsv', de.levels_text([('lab', 'L1'), ('lab', 'L2')]))
     write(tmp_path / 'Snakefile', 'include: {!r}\nimport json\nfrom pathlib import Path\n'
           'Path("rules.json").write_text(json.dumps({{r.name: r.container_img for r in workflow.rules}}))\n'.format(str(BENCH / 'de.smk')))
     result = de_snakemake(tmp_path, '--list-rules')
     assert result.returncode == 0, result.stdout + result.stderr
-    sartools = yaml.safe_load((ROOT / 'docker.config').read_text())['docker']['sartools']
-    assert json.loads((tmp_path / 'rules.json').read_text()) == {'benchmark_de': 'docker://' + sartools}
-    result = de_snakemake(tmp_path, '-s', str(BENCH / 'de.smk'), '-n', '-p', '--cores', '1')
+    sartools = 'docker://' + yaml.safe_load((ROOT / 'docker.config').read_text())['docker']['sartools']
+    assert json.loads((tmp_path / 'rules.json').read_text()) == {'all': None, 'benchmark_de': sartools, 'benchmark_de_level': sartools}
+    elsewhere = tmp_path / 'elsewhere'
+    elsewhere.mkdir()
+    result = de_snakemake(elsewhere, '-s', str(BENCH / 'de.smk'), '-d', str(tmp_path), '-n', '-p', '--cores', '1')
     assert result.returncode == 0, result.stdout + result.stderr
-    assert ('Rscript {} --counts benchmark/de/input/counts.tsv --library-sizes benchmark/de/input/library_sizes.tsv '
-            '--design benchmark/de/input/design.tsv --results benchmark/de/results.tsv --record benchmark/de/record.tsv > '
-            'benchmark/de/de.log 2>&1'.format(BENCH / 'de.R')) in result.stdout
+    for folder in folders:
+        assert ('Rscript {0} --counts benchmark/de/{1}input/counts.tsv --library-sizes benchmark/de/{1}input/library_sizes.tsv '
+                '--design benchmark/de/{1}input/design.tsv --results benchmark/de/{1}results.tsv --record benchmark/de/{1}record.tsv > '
+                'benchmark/de/{1}de.log 2>&1'.format(BENCH / 'de.R', folder)) in result.stdout
 
 
 def test_de_snakefile_passes_the_options_the_r_script_defines():
@@ -2059,57 +2102,65 @@ def test_de_r_script_writes_the_tests_de_py_reads():
     assert tests and tests.group(1) == ', '.join("'{}'".format(t) for t in de.TESTS) and len(de.TEST_NAMES) == len(de.TESTS)
 
 
-def de_project(tmp_path):
-    """A prepared and quantified ratiometric pool (RATIO: miR-1-3p 4:1, miR-199a-3p 1:1, miR-21-5p 1:8) with two runs
-    per pool over two labs, declaring `de:`; UNITAS and miRge3 outputs and the filtered reads, as quant_all --notemp
-    leaves them."""
+DE_RUNS_BY_LAB = {'A1': ('A', 'L1'), 'A2': ('A', 'L1'), 'A3': ('A', 'L2'), 'A4': ('A', 'L2'),
+                  'B1': ('B', 'L1'), 'B2': ('B', 'L1'), 'B3': ('B', 'L2'), 'B4': ('B', 'L2')}
+
+
+def de_project(tmp_path, runs=DE_RUNS, declared=None):
+    """A prepared and quantified ratiometric pool (RATIO: miR-1-3p 4:1, miR-199a-3p 1:1, miR-21-5p 1:8) with `runs`
+    ({run: (pool, lab)}; the i-th run of a pool has i more reads), declaring `de: declared` (default: covariates lab);
+    UNITAS and miRge3 outputs and the filtered reads, as quant_all --notemp leaves them."""
     ext = tmp_path / 'ext'
     data = ext / 'benchmark/smallrna/p'
     write(data / 'composition/ratio.csv', RATIO)
     write(data / 'mirbase/23.1/mature.fa', HSA)
-    reads = {'A1': [ONE] * 8 + [EQUAL] * 4 + [TWENTY_ONE], 'A2': [ONE] * 9 + [EQUAL] * 5 + [TWENTY_ONE],
-             'B1': [ONE] * 2 + [EQUAL] * 4 + [TWENTY_ONE] * 8, 'B2': [ONE] * 2 + [EQUAL] * 5 + [TWENTY_ONE] * 9}
+    index = {run: [r for r, (g, _) in runs.items() if g == group].index(run) for run, (group, _) in runs.items()}
+    amounts = {run: (8 + index[run], 4 + index[run], 1) if group == 'A' else (2, 4 + index[run], 8 + index[run])
+               for run, (group, _) in runs.items()}  # reads of miR-1-3p, miR-199a-3p and miR-21-5p
+    reads = {run: [ONE] * a + [EQUAL] * b + [TWENTY_ONE] * c for run, (a, b, c) in amounts.items()}
     for run, seqs in reads.items():
         (data / 'fastq').mkdir(parents=True, exist_ok=True)
         with gzip.open(data / 'fastq/{}.fastq.gz'.format(run), 'wt') as fh:
             fh.write(''.join('@r{}\n{}TGGAATTCTC\n+\n{}\n'.format(i, s, 'I' * (len(s) + 10)) for i, s in enumerate(seqs)))
     dataset = write(tmp_path / 'ds.yaml', yaml.safe_dump({
         'name': 'p', 'kind': 'pool', 'pool': 'ratiometric', 'organism': 'homo_sapiens', 'libprepkit': 'TruSeq Small RNA Library Prep Kit',
-        'methods': ['unitas', 'mirge3'], 'data': 'benchmark/smallrna/p', 'de': {'covariates': ['lab']},
+        'methods': ['unitas', 'mirge3'], 'data': 'benchmark/smallrna/p', 'de': declared or {'covariates': ['lab']},
         'composition': {'file': 'ratio.csv', 'url': 'unused', 'sha256': 'unused'},
         'mirbase': {'release': '23.1', 'url': 'unused', 'sha256': 'unused'},
-        'runs': [{'run': r, 'group': g, 'lab': lab, 'md5': 'unused', 'url': 'unused'} for r, (g, lab) in DE_RUNS.items()]}))
+        'runs': [{'run': r, 'group': g, 'lab': lab, 'md5': 'unused', 'url': 'unused'} for r, (g, lab) in runs.items()]}))
     project = tmp_path / 'project'
     dump = unitas_dump(ext, 'homo_sapiens', 'Human', {})
     result = subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'prepare', '--dataset', str(dataset), '--project', str(project),
                              '--ext-dir', str(ext)], capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
     quant = project / 'data/tmp/smallrna/quant'
-    write(quant / 'unitas/mir_counts.tsv', '\tA1\tA2\tB1\tB2\nmiR-1-3p\t8\t9\t2\t2\nmiR-199a-3p\t4\t5\t4\t5\nmiR-21-5p\t1\t1\t8\t9\n')
-    write(quant / 'mirge3/miR.Counts.csv', 'miRNA,A1,A2,B1,B2\nhsa-miR-1-3p,8,9,2,2\nhsa-miR-199a-3p,4,5,4,5\nhsa-miR-21-5p,1,1,8,9\n')
+    names = list(runs)
+    table = [(mirna, [amounts[run][i] for run in names]) for i, mirna in enumerate(['miR-1-3p', 'miR-199a-3p', 'miR-21-5p'])]
+    write(quant / 'unitas/mir_counts.tsv', '\t' + '\t'.join(names) + '\n' + ''.join('{}\t{}\n'.format(m, '\t'.join(map(str, v))) for m, v in table))
+    write(quant / 'mirge3/miR.Counts.csv', 'miRNA,' + ','.join(names) + '\n' + ''.join('hsa-{},{}\n'.format(m, ','.join(map(str, v))) for m, v in table))
     write_records(quant, ['unitas', 'mirge3'], dump=dump)
     for run, seqs in reads.items():
         write_stages(project, run, seqs, seqs, seqs)
     return project
 
 
-def de_outputs(project, fits, change=None, drop_last=False):
-    """de.smk's outputs as de.R writes them for the project's current inputs: every row and test gets `fits`
-    ({pool_id: (log2fc, pvalue, padj)}); `change` edits the record; `drop_last` leaves the table's last line out (a
-    table de.R recorded, but incomplete)."""
-    bench = project / 'benchmark'
-    texts = {name: (bench / 'de/input' / name).read_text() for name in de.INPUTS}
+def de_outputs(project, fits, change=None, drop_last=False, folder=''):
+    """de.smk's outputs as de.R writes them for the current inputs of the DE set in benchmark/de/`folder`: every row and
+    test gets `fits` ({pool_id: (log2fc, pvalue, padj)}); `change` edits the record; `drop_last` leaves the table's last
+    line out (a table de.R recorded, but incomplete)."""
+    base = project / 'benchmark/de' / folder
+    texts = {name: (base / 'input' / name).read_text() for name in de.INPUTS}
     rows = list(dict.fromkeys(line.split('\t')[0] for line in texts['counts.tsv'].splitlines()[1:]))
     lines = ['\t'.join(de.RESULT_HEADER)] + ['\t'.join([row, test, pool_id] + ['NA' if v is None else str(v) for v in fit])
                                              for row in rows for test in de.TESTS for pool_id, fit in fits.items()]
     results = '\n'.join(lines[:-1] if drop_last else lines) + '\n'
-    write(bench / 'de/results.tsv', results)
+    write(base / 'results.tsv', results)
     record = {'md5_' + Path(name).stem: de.md5(text) for name, text in texts.items()}
     record.update(md5_script=de.md5(de.SCRIPT.read_bytes()), md5_results=de.md5(results), R='R version 4.5.3', edgeR='4.10.7',
                   limma='3.68.5', formula='~lab + group', edger='exact test', edger_glm='GLM test', voom='voom')
     if change:
         change(record)
-    write(bench / 'de/record.tsv', 'field\tvalue\n' + ''.join('{}\t{}\n'.format(k, v) for k, v in record.items()))
+    write(base / 'record.tsv', 'field\tvalue\n' + ''.join('{}\t{}\n'.format(k, v) for k, v in record.items()))
 
 
 DE_FITS = {'hsa-miR-1-3p': (1.8, 0.001, 0.01), 'hsa-miR-199a-3p': (0.1, 0.4, 0.6), 'hsa-miR-21-5p': (-2.5, 0.001, 0.001)}
@@ -2152,6 +2203,61 @@ def test_evaluate_de_adds_metrics_intervals_and_report(tmp_path):
                             capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
     assert 'edger_called: unitas' in summary_md.read_text()
+
+
+def test_evaluate_de_within_each_lab_scores_each_lab_and_against_the_oracle(tmp_path):
+    project = de_project(tmp_path, DE_RUNS_BY_LAB, {'covariates': ['lab'], 'within': 'lab'})
+    bench = project / 'benchmark'
+    result = evaluate_cmd(project)
+    assert result.returncode == 0, result.stderr
+    assert (bench / 'de/levels.tsv').read_text() == 'column\tlevel\nlab\tL1\nlab\tL2\n'
+    assert (bench / 'de/lab/L2/input/design.tsv').read_text() == 'sample\tgroup\nA3\tA\nA4\tA\nB3\tB\nB4\tB\n'  # ~ group
+    assert (bench / 'de/lab/L2/input/library_sizes.tsv').read_text().splitlines()[1] == 'oracle\t17\t19\t18\t20'
+    assert (bench / 'de/lab/L1/input/counts.tsv').read_text().splitlines()[0] == 'row\tpool_id\tA1\tA2\tB1\tB2'
+    assert (bench / 'de/input/design.tsv').read_text().splitlines()[0] == 'sample\tgroup\tlab'  # the whole pool's stays
+    plain_ci = (bench / 'metrics_ci.tsv').read_text().splitlines()
+    for folder in ('', 'lab/L1'):
+        de_outputs(project, DE_FITS, folder=folder)
+    result = evaluate_cmd(project, '--de')
+    assert result.returncode != 0 and 'no lab/L2/results.tsv or lab/L2/record.tsv in' in result.stderr
+    de_outputs(project, DE_FITS, folder='lab/L2')
+    result = evaluate_cmd(project, '--de')
+    assert result.returncode == 0, result.stderr
+    table = {line.split('\t')[0]: line.split('\t')[1:] for line in (bench / 'metrics.tsv').read_text().splitlines()}
+    assert table['edger_called.L1'] == table['voom_called.L2'] == table['edger_glm_called'] == ['1.0'] * 3
+    assert table['edger_fc_error_vs_oracle.L2'] == table['voom_own_false_calls'] == ['', '0.0', '0.0']  # nothing for the oracle
+    ci = (bench / 'metrics_ci.tsv').read_text().splitlines()
+    assert [line for line in ci if not line.startswith(('edger_', 'voom_'))] == plain_ci  # the existing intervals are unchanged
+    assert any(line.startswith('edger_discordant_vs_oracle.L1\tunitas\t0.0\t') for line in ci)
+    report = (bench / 'report.md').read_text()
+    main = report.split('## Differential expression')[0]
+    assert '| edger_fc_error_vs_oracle |  | 0.0 | 0.0 |' in main and '.L1 |' not in main  # each lab's metrics have their own table
+    assert '### Within each lab' in report and '| L2 | called | 1.0 | 1.0 | 1.0 |' in report and '|  | fc_error_vs_oracle |  | 0.0 | 0.0 |' in report
+    assert 'L1: 2 A and 2 B runs; `de/lab/L1/results.tsv` SHA-256 `{}`.'.format(
+        hashlib.sha256((bench / 'de/lab/L1/results.tsv').read_bytes()).hexdigest()) in report
+    summary_md = tmp_path / 'summary.md'
+    result = subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'summary', '--projects', str(project), '--output', str(summary_md)],
+                            capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    assert 'edger_fc_error_vs_oracle: unitas' in summary_md.read_text()
+
+
+@pytest.mark.parametrize('case, message', [
+    ('level missing', 'no lab/L1/results.tsv or lab/L1/record.tsv in'),
+    ('level stale', 'lab/L2/results.tsv comes from other inputs or another de.R (counts)'),
+])
+def test_evaluate_de_within_each_lab_stops_before_writing(tmp_path, case, message):
+    project = de_project(tmp_path, DE_RUNS_BY_LAB, {'covariates': ['lab'], 'within': 'lab'})
+    bench = project / 'benchmark'
+    assert evaluate_cmd(project).returncode == 0
+    for folder in ('', 'lab/L2') if case == 'level missing' else ('', 'lab/L1', 'lab/L2'):
+        de_outputs(project, DE_FITS, (lambda r: r.update(md5_counts='0' * 32)) if folder == 'lab/L2' and case == 'level stale' else None, folder=folder)
+    names = ['metrics.tsv', 'report.md', 'evaluation.json', 'per_sequence.tsv', 'de/levels.tsv'] + \
+        ['de/{}input/{}'.format(folder, name) for folder in ('', 'lab/L1/', 'lab/L2/') for name in de.INPUTS]
+    before = {name: (bench / name).read_text() for name in names}
+    result = evaluate_cmd(project, '--de')
+    assert result.returncode != 0 and message in result.stderr, result.stderr
+    assert {name: (bench / name).read_text() for name in names} == before
 
 
 def no_de(project):

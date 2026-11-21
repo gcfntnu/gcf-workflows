@@ -18,9 +18,10 @@ tools itself. Steps:
 3. `evaluate` turns each method's output into one common table (adapters.py), computes the same metrics for every
    method (metrics.py, pool.py; biological.py compares methods with each other) and writes
    `<project>/benchmark/report.md` with the tables behind it. For a ratiometric pool that declares `de:` (#414) it
-   also writes the inputs of differential expression to `<project>/benchmark/de/input/`;
-   `snakemake -s <repo>/smallrna/benchmark/de.smk -d <project> --use-apptainer` tests them with edgeR's exact and GLM
-   tests and limma-voom (de.R), and `evaluate --de` adds the scores of their calls (de.py).
+   also writes the inputs of differential expression to `<project>/benchmark/de/input/`, with `within` each lab's to
+   `benchmark/de/lab/<lab>/input/` (#444); `snakemake -s <repo>/smallrna/benchmark/de.smk -d <project> --use-apptainer`
+   tests them with edgeR's exact and GLM tests and limma-voom (de.R), and `evaluate --de` adds the scores of their calls
+   (de.py).
 4. `summary` reads several evaluated projects and writes one overview, a section per dataset kind with each project's
    key metrics per method (summary.py), as Markdown or a self-contained HTML file; it writes nothing into the projects.
 
@@ -111,27 +112,46 @@ def load_dataset(path, mirbase_release=None):
 
 
 def check_de(spec, path):
-    """A ratiometric pool's `de:` (#414): covariates of the design of edgeR's GLM test and voom from de.COVARIATES, each
-    with a value for every run and at least two levels, and at least two runs in each pool."""
+    """A ratiometric pool's `de:` (#414): covariates of the design of edgeR's GLM test and voom from de.COVARIATES, and
+    `within` (#444), a column from them whose levels are also tested on their own, each with the other covariates. The
+    whole pool's design and each level's pass check_design."""
     if spec['kind'] != 'pool' or spec['pool'] != 'ratiometric':
         fail('{}: `de` (differential expression, #414) is for ratiometric pools'.format(path))
     declared = spec['de'] or {}
-    if not isinstance(declared, dict) or set(declared) - {'covariates'}:
-        fail('{}: `de` takes only `covariates`'.format(path))
+    if not isinstance(declared, dict) or set(declared) - {'covariates', 'within'}:
+        fail('{}: `de` takes only `covariates` and `within`'.format(path))
     covariates = declared.get('covariates') or []
     if not isinstance(covariates, list) or len(set(covariates)) != len(covariates) or not set(covariates) <= set(de.COVARIATES):
         fail('{}: de.covariates must be distinct names from {}, got {!r}'.format(path, ', '.join(de.COVARIATES), covariates))
+    check_design(spec['runs'], covariates, path)
+    within = declared.get('within')
+    if within is None:
+        return
+    if within not in de.COVARIATES:
+        fail('{}: de.within must be a name from {}, got {!r}'.format(path, ', '.join(de.COVARIATES), within))
+    values = [run.get(within) for run in spec['runs']]
+    if not all(isinstance(v, str) and de.LEVEL_NAME.fullmatch(v) for v in values) or len(set(values)) < 2:
+        fail('{}: de.within {}: every run needs a value of letters, digits, `.`, `_` or `-` (it names a folder and metrics), '
+             'with at least two different ones'.format(path, within))
+    for level in sorted(set(values)):
+        check_design([run for run in spec['runs'] if run[within] == level], [c for c in covariates if c != within],
+                     '{}: de.within {} {}'.format(path, within, level))
+
+
+def check_design(runs, covariates, where):
+    """A DE design's runs (#414): at least two in each pool, each covariate with a value for every run and at least two
+    different ones, and residual degrees of freedom for ~ covariates + group. `where` begins the messages."""
     for covariate in covariates:
-        values = [run.get(covariate) for run in spec['runs']]
+        values = [run.get(covariate) for run in runs]
         if not all(values) or len(set(values)) < 2:
-            fail('{}: de.covariates {}: every run needs a value, with at least two different ones'.format(path, covariate))
-    sizes = collections.Counter(run.get('group') for run in spec['runs'])
+            fail('{}: de.covariates {}: every run needs a value, with at least two different ones'.format(where, covariate))
+    sizes = collections.Counter(run.get('group') for run in runs)
     if sizes['A'] < 2 or sizes['B'] < 2:
-        fail('{}: differential expression needs at least two runs in each pool, got {} A and {} B'.format(path, sizes['A'], sizes['B']))
-    coefficients = 2 + sum(len({run[c] for run in spec['runs']}) - 1 for c in covariates)  # intercept, covariate levels, group
-    if len(spec['runs']) - coefficients < 1:
+        fail('{}: differential expression needs at least two runs in each pool, got {} A and {} B'.format(where, sizes['A'], sizes['B']))
+    coefficients = 2 + sum(len({run[c] for run in runs}) - 1 for c in covariates)  # intercept, covariate levels, group
+    if len(runs) - coefficients < 1:
         fail('{}: the design ~ {} of the GLM test and voom has {} coefficients for {} runs, so no residual degrees of freedom'.format(
-            path, ' + '.join(covariates + ['group']), coefficients, len(spec['runs'])))
+            where, ' + '.join(covariates + ['group']), coefficients, len(runs)))
 
 
 def select_mirbase(spec, release, path):
@@ -600,13 +620,14 @@ def evaluate(args):
 
 def check_de_results(project, bench, spec):
     """`evaluate --de` stops before writing anything unless the project is a ratiometric pool that declares `de:` and
-    de.smk has written its results."""
+    de.smk has written the results of each DE set (de_sets)."""
     if spec['kind'] != 'pool' or spec['pool'] != 'ratiometric':
         fail('--de (differential expression, #414) is for ratiometric pools, not this {} dataset'.format(spec.get('pool', spec['kind'])))
     if 'de' not in spec:
         fail("{} declares no `de:`; add the dataset's `de:` (datasets/{}.yaml) to it, run `benchmark.py evaluate` and de.smk, "
              "then evaluate --de".format(bench / 'dataset.yaml', spec['name']))
-    missing = [p.name for p in (bench / 'de/results.tsv', bench / 'de/record.tsv') if not p.is_file()]
+    missing = [str(Path(folder) / name) for _, folder, _ in de_sets(spec, read_tsv(bench / 'samples.tsv'))
+               for name in ('results.tsv', 'record.tsv') if not (bench / 'de' / folder / name).is_file()]
     if missing:
         fail('no {} in {}: run `benchmark.py evaluate --project {}`, then `snakemake -s {} -d {} --use-apptainer`, then evaluate '
              '--de'.format(' or '.join(missing), bench / 'de', project, Path(__file__).resolve().with_name('de.smk'), project))
@@ -783,7 +804,8 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
     shifted = pool.scored(entries, 'shifted')
     by_kind = {kind: [e for e in shifted if kinds[e['pool_id']] == kind] for kind in pool.SHIFT_KINDS}
     by_kind = {kind: group for kind, group in by_kind.items() if group}
-    de_texts = de_results = de_lines = None
+    de_texts = de_results = de_reports = table_keys = None
+    de_lines = []
     if spec['pool'] == 'equimolar':
         summary = pool.equimolar_metrics(counts, reads, oracle, entries, methods, list(sample_groups))
         keys = ['detected', 'cv', 'qcd', 'median_log2_vs_oracle', 'within_2fold', 'beyond_10fold', 'spearman_vs_oracle', 'outside', 'unplaced']
@@ -803,15 +825,23 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
                                                  for e in group if not math.isnan(observed[r][e['pool_id']])])
                            for r in observed} for kind, group in by_kind.items()}
         if 'de' in spec:
-            de_texts, de_results, de_lines = differential_expression(args, bench, spec, counts, reads, oracle, entries, rows, sample_rows)
+            de_texts, de_results, de_reports = differential_expression(args, bench, spec, counts, reads, oracle, entries, rows, sample_rows)
         if de_results:
-            for row, values in de.scores(de_results, pool.scored(entries), rows).items():
-                summary.setdefault(row, {}).update(values)
+            for suffix, results in de_results.items():
+                for row, values in de.scores(results, pool.scored(entries), rows, suffix).items():
+                    summary.setdefault(row, {}).update(values)
             keys += de.metric_keys()
+            table_keys = list(keys)  # the report's metrics table: each level's DE metrics have a section of their own
+            keys += de.metric_keys([suffix for suffix in de_results if suffix])
+            de_lines = de.report_lines(de_results[''], pool.scored(entries), rows, *de_reports[''][:2])
+            de_lines += de.level_lines((spec['de'] or {}).get('within'), [(suffix[1:], de_reports[suffix][2], de_reports[suffix][1])
+                                                                         for suffix in de_results if suffix], summary, rows)
     for path, header, table in pending:
         write_tsv(path, header, table)
     if de_texts:
-        de.write_inputs(bench / 'de' / 'input', de_texts)
+        for folder, texts in de_texts.items():
+            de.write_inputs(bench / 'de' / folder / 'input', texts)
+        de.write_changed(bench / 'de' / de.LEVELS, de.levels_text([folder.split('/') for folder in de_texts if folder]))
     metric_rows = [[k] + [summary.get(r, {}).get(k, '') for r in rows] for k in keys]
 
     groups = {g: sum(1 for e in entries if e['group'] == g) for g in pool.GROUPS}
@@ -824,7 +854,7 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
              'prefix over {} `shifted` sequences ({} left out); `oracle` is the filtered reads counted by exact match to the pool '
              'sequences.'.format(len(exact), groups['exact'] - len(exact), len(shifted), groups['shifted'] - len(shifted)), '',
              '| metric | ' + ' | '.join(rows) + ' |', '|---' * (len(rows) + 1) + '|']
-    lines += ['| {} | '.format(k) + ' | '.join(str(summary.get(r, {}).get(k, '')) for r in rows) + ' |' for k in keys]
+    lines += ['| {} | '.format(k) + ' | '.join(str(summary.get(r, {}).get(k, '')) for r in rows) + ' |' for k in table_keys or keys]
     if observed:
         designs = sorted({(e['amount_a'], e['amount_b']) for e in exact}, key=lambda ab: ab[0] / ab[1])
         lines += ['', '## Median observed log2(A/B) per designed ratio', '',
@@ -833,7 +863,7 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
             ids = [e['pool_id'] for e in exact if (e['amount_a'], e['amount_b']) == (a, b)]
             lines.append('| {:g}:{:g} | {:.2f} | {} | '.format(a, b, math.log2(a / b), len(ids)) + ' | '.join(
                 '{:.2f}'.format(statistics.median(observed[r][i] for i in ids)) for r in rows if r in observed) + ' |')
-    lines += de_lines or []
+    lines += de_lines
     lines += shifted_section(per_kind, {kind: len(group) for kind, group in by_kind.items()}, kind_keys,
                              [r for r in rows if any(r in v for v in per_kind.values())])
     lines += filter_section(*pool.filter_losses(stage_counts, entries, stage_names), stage_names, trim_route(project, next(iter(sample_groups))),
@@ -855,8 +885,8 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
                 if not de_results:
                     raise
                 result = {}
-            if de_results:  # the DE fits stay fixed: their scores resample the sequences only
-                for row, values in de.scores(de_results, ex, rows).items():
+            for suffix, results in (de_results or {}).items():  # the DE fits stay fixed: their scores resample the sequences only
+                for row, values in de.scores(results, ex, rows, suffix).items():
                     result.setdefault(row, {}).update(values)
             return result
         draw = lambda rng: (uncertainty.resample(rng, exact), uncertainty.resample(rng, shifted),
@@ -869,33 +899,57 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
     print(bench / 'report.md')
 
 
+def de_sets(spec, sample_rows):
+    """The DE sets of a ratiometric pool that declares `de:` (#414, #444): [(suffix, folder, design)], first the whole
+    pool's (suffix '', folder '' of benchmark/de), then with `within` each level's (suffix `.<level>`, folder
+    `<within>/<level>`), tested with the declared covariates other than `within`. design: [(sample, group,
+    {covariate: value})] in the order of samples.tsv."""
+    declared = spec['de'] or {}
+    covariates = list(declared.get('covariates') or [])
+    within = declared.get('within')
+
+    def design(runs, names):
+        return [(row['sample'], row['group'], {c: row[c] for c in names}) for row in runs]
+
+    sets = [('', '', design(sample_rows, covariates))]
+    if within:
+        others = [c for c in covariates if c != within]
+        sets += [('.' + level, '{}/{}'.format(within, level), design([row for row in sample_rows if row[within] == level], others))
+                 for level in sorted({row[within] for row in sample_rows})]
+    return sets
+
+
 def differential_expression(args, bench, spec, counts, reads, oracle, entries, rows, sample_rows):
-    """A ratiometric pool that declares `de:` (#414): (input texts, results, report lines). The caller writes the inputs
-    of de.smk to benchmark/de/input/ with the other tables. With --de, this first checks that de.smk's results come
-    from these inputs and the current de.R, and that the results table is the one de.R recorded; it verifies, parses
-    and reports one read of it. Without --de: (texts, None, None)."""
-    covariates = list((spec['de'] or {}).get('covariates') or [])
-    design = [(row['sample'], row['group'], {c: row[c] for c in covariates}) for row in sample_rows]
-    sizes = de.library_sizes(reads, oracle, entries, rows, [s for s, _, _ in design])
-    texts = de.input_tables(counts, oracle, entries, rows, design, sizes)
+    """A ratiometric pool that declares `de:` (#414, #444): ({folder: input texts}, {suffix: results}, {suffix: (record,
+    results SHA-256, runs)}) of each DE set (de_sets). The caller writes each set's inputs of de.smk to
+    benchmark/de/<folder>/input/, and benchmark/de/levels.tsv, with the other tables. With --de, this first checks for
+    every set that de.smk's results come from these inputs and the current de.R, and that the results table is the one
+    de.R recorded; it verifies, parses and reports one read of each. Without --de: (texts, None, None)."""
+    sets = de_sets(spec, sample_rows)
+    sizes = de.library_sizes(reads, oracle, entries, rows, [row['sample'] for row in sample_rows])
+    texts = {folder: de.input_tables(counts, oracle, entries, rows, design, sizes) for _, folder, design in sets}
     if not args.de:
         return texts, None, None
-    path = bench / 'de/results.tsv'
-    record = de.read_record(bench / 'de/record.tsv')
-    changed = de.stale(record, texts)
-    if changed:
-        fail('{} comes from other inputs or another de.R ({}); nothing was written: run `benchmark.py evaluate` without --de '
-             '(it writes the current inputs), then de.smk, then evaluate --de'.format(path, ', '.join(changed)))
-    data = path.read_bytes()
-    if de.md5(data) != record.get('md5_results'):
-        fail('{} is not the table de.R recorded in {}; nothing was written: run de.smk again, then evaluate --de'.format(
-            path, bench / 'de/record.tsv'))
     exact = pool.scored(entries)
-    try:
-        results = de.read_results(data.decode(), rows, [e['pool_id'] for e in exact], path)
-    except ValueError as error:
-        fail(str(error))
-    return texts, results, de.report_lines(results, exact, rows, record, hashlib.sha256(data).hexdigest())
+    results, reports = {}, {}
+    for suffix, folder, design in sets:
+        path, record_path = bench / 'de' / folder / 'results.tsv', bench / 'de' / folder / 'record.tsv'
+        record = de.read_record(record_path)
+        changed = de.stale(record, texts[folder])
+        if changed:
+            fail('{} comes from other inputs or another de.R ({}); nothing was written: run `benchmark.py evaluate` without --de '
+                 '(it writes the current inputs), then de.smk, then evaluate --de'.format(path, ', '.join(changed)))
+        data = path.read_bytes()
+        if de.md5(data) != record.get('md5_results'):
+            fail('{} is not the table de.R recorded in {}; nothing was written: run de.smk again, then evaluate --de'.format(
+                path, record_path))
+        try:
+            results[suffix] = de.read_results(data.decode(), rows, [e['pool_id'] for e in exact], path)
+        except ValueError as error:
+            fail(str(error))
+        groups = collections.Counter(group for _, group, _ in design)
+        reports[suffix] = (record, hashlib.sha256(data).hexdigest(), '{} A and {} B runs'.format(groups['A'], groups['B']))
+    return texts, results, reports
 
 
 SHIFT_TEXT = {'3p_shorter': "3' end shorter", '3p_longer': "3' end longer", '5p_moved': "5' end moved", 'mixed': 'mixed'}
