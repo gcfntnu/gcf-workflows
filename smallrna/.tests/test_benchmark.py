@@ -508,14 +508,16 @@ def test_concurrent_downloads_of_one_file_keep_their_own_temporary_files(tmp_pat
             if Interleaved.first:
                 Interleaved.first = False
                 with pytest.raises(ValueError, match='does not match'):
-                    fill.download('good', 'md5', '0' * 32, path, log)
-                fill.download('good', 'md5', hashlib.md5(good).hexdigest(), path, log)
+                    fill.download('https://x/good', 'md5', '0' * 32, path, log)
+                fill.download('https://x/good', 'md5', hashlib.md5(good).hexdigest(), path, log)
             return super().read(size)
 
-    def urlopen(url, timeout):
-        return Interleaved(good) if url == 'first' else io.BytesIO(good) if url == 'good' else opened(url, timeout=timeout)
+    def urlopen(request, timeout):
+        assert request.get_header('User-agent') == fill.USER_AGENT  # a client name of its own: GtRNAdb refuses Python's default
+        url = request.full_url
+        return Interleaved(good) if url == 'https://x/first' else io.BytesIO(good) if url == 'https://x/good' else opened(request, timeout=timeout)
     monkeypatch.setattr(fill.urllib.request, 'urlopen', urlopen)
-    fill.download('first', 'md5', hashlib.md5(good).hexdigest(), path, log)
+    fill.download('https://x/first', 'md5', hashlib.md5(good).hexdigest(), path, log)
     assert path.read_bytes() == good and [p.name for p in path.parent.iterdir()] == ['SRR1.fastq.gz']
 
 
