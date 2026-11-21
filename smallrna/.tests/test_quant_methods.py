@@ -366,3 +366,68 @@ def test_route_steps_write_the_benchmark_files_the_benchmark_reads(tmp_path):
     assert declared['biocore_htseq_bowtie2_index'] == {reference.format('biocore_htseq') + '/benchmarks/biocore_htseq_bowtie2_index.tsv'}
     assert declared['biocore_miraligner_db'] == {
         f'data/ext/biocore_miraligner/mirbase-23.1/mus_musculus/gff-{MIRBASE_GFF_ID}/db.v1/benchmarks/biocore_miraligner_db.tsv'}
+
+
+ALL_ROUTES = 'unitas,mirge3,mirflowz,tesmall,tinyrna,smrnaseq,biocore_htseq,biocore_miraligner'
+
+
+def settings_of(output):
+    """{route: (settings [(field, value, source)], the quant_settings command's words)} of a dry run printed with -p."""
+    import json
+    import shlex
+    out = {}
+    for block in output.split('rule quant_settings:')[1:]:
+        route = re.search(r'output: data/tmp/smallrna/quant/(\w+)/settings.tsv', block).group(1)
+        line = next(line for line in block.splitlines() if 'quant_settings.py' in line)
+        words = shlex.split(line.split('Shell command:', 1)[-1])
+        out[route] = ([tuple(row) for row in json.loads(words[words.index('--settings') + 1])], words)
+    return out
+
+
+def test_each_route_records_the_settings_its_commands_use(tmp_path):
+    """#417: quant_settings writes quant/<route>/settings.tsv for every selected route, after its count table, from the
+    same values its commands use, so the record and the run cannot differ."""
+    returncode, output = dry_run(tmp_path, ALL_ROUTES, printshell=True)
+    assert returncode == 0, output
+    settings = settings_of(output)
+    assert sorted(settings) == sorted(ALL_ROUTES.split(','))
+    fields = {route: {f: (v, s) for f, v, s in rows} for route, (rows, _) in settings.items()}
+    assert fields['tinyrna']['mismatch'] == ('0', 'quant.tinyrna.mismatch') and fields['tinyrna']['normalize_by_genomic_hits'][0] == 'True'
+    assert fields['tesmall']['order'] == ('miRNA,hairpin,structural_RNA,exon,TE,intron,piRNA_cluster', 'quant.tesmall.order')
+    assert '--crThreshold 0' in fields['mirge3']['arguments'][0] and fields['mirge3']['mir_db'] == ('miRBase', 'quant.mirge3.db')
+    assert fields['unitas']['refseq'][0] == 'none'
+    # the record holds what the commands run with
+    for route, rule, field in (('tinyrna', 'tinyrna_align', 'bowtie'), ('smrnaseq', 'smrnaseq_align', 'bowtie'),
+                               ('tesmall', 'tesmall_quant', 'arguments'), ('biocore_htseq', 'biocore_htseq_annotate', 'htseq_count'),
+                               ('biocore_miraligner', 'biocore_miraligner_align', 'miraligner')):
+        recorded = fields[route][field][0].split(' (')[0].replace('--no-trim ', '').replace(' -freq', '')
+        assert recorded in ' '.join(rule_block(output, rule).split()), (route, recorded)
+    mirflowz_words = settings['mirflowz'][1]
+    assert mirflowz_words[mirflowz_words.index('--recorded') + 1].endswith('mirflowz_config.yaml:minimum_length,overlap,max_n,max_length_reads,nh,'
+                                                                          'extension,error_rate,q_value,p_value')
+    sys.path.insert(0, str(ROOT / 'smallrna/rules/quant/scripts'))
+    import mirge3_counts
+    assert 'needs {} exact reads'.format(mirge3_counts.MIN_PROJECT_EXACT) in fields['mirge3']['project_rule'][0]
+
+
+def test_quant_settings_script_binds_the_record_to_its_table(tmp_path):
+    import json
+    script = ROOT / 'smallrna/rules/quant/scripts/quant_settings.py'
+    table = tmp_path / 'all_mirna_counts.tab'
+    table.write_text('ID\tS1\nmiR-1\t5\n')
+    run_config = tmp_path / 'mirflowz_config.yaml'
+    run_config.write_text('nh: 100\nmax_length_reads: 30\nerror_rate: 0.1\nmir_list: ["isomir", "mirna"]\n')
+    out = tmp_path / 'settings.tsv'
+    cmd = [sys.executable, str(script), '--table', str(table), '--settings', json.dumps([['adapter', 'TGGAATTC', 'kit']]),
+           '--recorded', '{}:nh,max_length_reads,error_rate'.format(run_config), '--output', str(out)]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert out.read_text() == ('field\tvalue\tsource\nadapter\tTGGAATTC\tkit\nnh\t100\tmirflowz_config.yaml\n'
+                               'max_length_reads\t30\tmirflowz_config.yaml\nerror_rate\t0.1\tmirflowz_config.yaml\n'
+                               'table_sha256\t{}\t{}\n'.format(hashlib.sha256(table.read_bytes()).hexdigest(), table))
+    for settings, recorded, message in ((json.dumps([['a', '1', 'x'], ['a', '2', 'x']]), None, 'fields must be unique'),
+                                        (json.dumps([['a', 'x\ty', 's']]), None, 'a tab or a line break'),
+                                        (json.dumps([['a', '1', 'x']]), '{}:nh,absent'.format(run_config), 'has no absent')):
+        result = subprocess.run(cmd[:4] + ['--settings', settings] + (['--recorded', recorded] if recorded else []) + ['--output', str(out)],
+                                capture_output=True, text=True)
+        assert result.returncode != 0 and message in result.stderr, result.stderr

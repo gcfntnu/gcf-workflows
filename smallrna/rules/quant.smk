@@ -1,4 +1,5 @@
 #-*- mode:snakemake -*-
+import json
 
 QUANT_METHODS = ('unitas', 'mirge3', 'mirflowz', 'tesmall', 'tinyrna', 'smrnaseq', 'biocore_htseq', 'biocore_miraligner')
 QUANT_SELECTED = [m.strip() for m in str(config['quant']['method']).split(',')]
@@ -77,6 +78,39 @@ rule quant_reference:
         "> {output:q}"
 
 
+def quant_table(route):
+    """A route's count table, which the benchmark reads (adapters.TABLES)."""
+    return {'unitas': rules.unitas_mirtable.output.counts, 'mirge3': rules.mirge3_counts.output[0], 'mirflowz': rules.mirflowz_quant.output.mirna,
+            'tesmall': rules.tesmall_counts.output[0], 'tinyrna': rules.tinyrna_counts.output[0], 'smrnaseq': rules.smrnaseq_counts.output.mirna,
+            'biocore_htseq': rules.biocore_htseq_counts.output[0], 'biocore_miraligner': rules.biocore_miraligner_counts.output[0]}[route]
+
+
+ROUTE_SETTINGS = {'unitas': unitas_settings, 'mirge3': mirge3_settings, 'mirflowz': mirflowz_settings, 'tesmall': tesmall_settings,
+                  'tinyrna': tinyrna_settings, 'smrnaseq': smrnaseq_settings, 'biocore_htseq': biocore_htseq_settings,
+                  'biocore_miraligner': biocore_miraligner_settings}
+
+
+rule quant_settings:
+    """The settings that decide a route's counting (quant/<route>/settings.tsv, #417), read by the benchmark with its
+    results: each route's *_settings() in rules/quant/<route>.smk, built from the variables its commands use, and for
+    mirflowz the keys MIRFLOWZ_RECORDED of the configuration it ran with. Written after the count table, with its SHA-256."""
+    input:
+        table = lambda wildcards: quant_table(wildcards.route),
+        config = lambda wildcards: rules.mirflowz_quant.output.config if wildcards.route == 'mirflowz' else []
+    output:
+        join(QUANT_INTERIM, '{route}', 'settings.tsv')
+    params:
+        script = src_gcf('quant/scripts/quant_settings.py'),
+        settings = lambda wildcards: json.dumps([list(row) for row in ROUTE_SETTINGS[wildcards.route]()]),
+        recorded = lambda wildcards, input: '--recorded {}:{}'.format(input.config, ','.join(MIRFLOWZ_RECORDED)) if input.config else ''
+    wildcard_constraints:
+        route = '|'.join(QUANT_METHODS)
+    container:
+        'docker://' + config['docker']['default']
+    shell:
+        'python {params.script:q} --table {input.table:q} --settings {params.settings:q} {params.recorded} --output {output:q}'
+
+
 def quant_all(wildcards):
     methods = [m.strip() for m in str(config['quant']['method']).split(',')]
     unknown = [m for m in methods if m not in QUANT_METHODS]
@@ -101,6 +135,7 @@ def quant_all(wildcards):
         elif m == 'biocore_miraligner':
             out.extend(rules.biocore_miraligner_all.input)
     out.extend(join(QUANT_INTERIM, m, 'reference.tsv') for m in methods if m in RECORDED_ROUTES)
+    out.extend(join(QUANT_INTERIM, m, 'settings.tsv') for m in methods)  # each route's counting settings (#417)
     return out
 
 rule quant_all:

@@ -237,11 +237,11 @@ def table_samples(method, quant_dir):
     return header[skip:]  # as written: the adapters score under the literal column names
 
 
-def method_record(method, quant_dir, names):
+def method_record(method, quant_dir, names, name='reference.tsv'):
     """{name: value} for the named fields of a method's quant/<method>/reference.tsv (written by unitas_reference,
     mirge3_reference and quant_reference): unique field and value columns, rows as wide as the header, and exactly one
     non-empty row per name; ValueError otherwise."""
-    path = Path(quant_dir) / method / 'reference.tsv'
+    path = Path(quant_dir) / method / name  # reference.tsv, or settings.tsv (#417)
     with open(path, newline='') as fh:
         rows = list(csv.reader(fh, delimiter='\t'))
     header = rows[0] if rows else []

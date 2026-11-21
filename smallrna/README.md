@@ -65,6 +65,7 @@ The fastp report `logs/<sample>/<sample>.fastp.json` combines both passes; each 
 | bfq | `rules/bfq/` (levels 1–3) | Collect delivery products into `bfq/` |
 
 **`quant.method` and delivery.** `quant.method` selects what the `quant_all` target builds: `unitas`, `mirge3`, `mirflowz`, `tesmall`, `tinyrna`, `smrnaseq`, `biocore_htseq`, `biocore_miraligner`, or several, comma-separated. It does not change delivery: `bfq_all` and `multiqc_report` always deliver the UNITAS products. miRge3, mirflowz, TEsmall, tiny-count, nf-core/smrnaseq, biocore_htseq and biocore_miraligner are routes to evaluate (see the [benchmark](benchmark/README.md)).
+Each route also writes `quant/<route>/settings.tsv`, the settings that decide its counting, with its count table's SHA-256 (#417).
 
 ## Quantification routes
 

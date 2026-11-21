@@ -3295,3 +3295,31 @@ def test_other_rna_declaration_and_reads_inside_molecules(tmp_path):
     loaded = benchmark.load_dataset(write(tmp_path / 'b.yaml', yaml.safe_dump(spec)))
     targets = {str(t[3]) for t in fill.targets(loaded, '/ext')}
     assert {'/ext/d/other_rna/gtrnadb.fa', '/ext/d/other_rna/ensembl_ncrna.fa.gz'} <= targets
+
+
+
+def test_each_routes_counting_settings_are_reported_with_its_results(tmp_path):
+    """#417: the settings a route recorded with its count table (quant/<route>/settings.tsv) are in the report's Routes
+    section and settings.tsv, listed in evaluation.json; a record for another table stops that route; a route without a
+    record is "not recorded"."""
+    project = knockout_project(tmp_path)
+    quant = project / 'data/tmp/smallrna/quant'
+    write(quant / 'unitas/settings.tsv', 'field\tvalue\tsource\nrefseq\tnone\tfilter.spikein\noptions\tUNITAS defaults\tfixed\n'
+          'table_sha256\t{}\tx\n'.format(adapters.table_sha256('unitas', quant)))
+    result = evaluate_cmd(project)
+    assert result.returncode == 0, result.stderr
+    bench = project / 'benchmark'
+    report = (bench / 'report.md').read_text()
+    assert '- unitas: refseq `none`; options (fixed) `UNITAS defaults`' in report and '- mirge3: not recorded (quantified before #417)' in report
+    assert (bench / 'settings.tsv').read_text() == ('route\tfield\tvalue\tsource\nunitas\trefseq\tnone\tfilter.spikein\n'
+                                                   'unitas\toptions\tUNITAS defaults\tfixed\n')
+    assert 'settings.tsv' in json.loads((bench / 'evaluation.json').read_text())
+    out = tmp_path / 'summary.md'
+    result = subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'summary', '--projects', str(project), '--output', str(out)],
+                            capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr  # read_evaluation accepts the new file
+    write(quant / 'mirge3/settings.tsv', 'field\tvalue\tsource\nmir_db\tmiRBase\tquant.mirge3.db\ntable_sha256\t{}\tx\n'.format('0' * 64))
+    result = evaluate_cmd(project)
+    assert result.returncode == 0, result.stderr
+    states = (bench / 'routes.tsv').read_text()
+    assert 'mirge3\tstopped\tsettings record was written for another count table; run `snakemake quant_all` there' in states

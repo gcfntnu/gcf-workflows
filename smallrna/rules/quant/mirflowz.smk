@@ -23,6 +23,14 @@ include:
 
 MIRFLOWZ_MIN_LENGTH = filtered_min_length() or 1
 MIRFLOWZ_OUT = join(QUANT_INTERIM, 'mirflowz')
+# Keys of the run's mirflowz_config.yaml (written by run_mirflowz.py) that decide counting, recorded as they ran (#417)
+MIRFLOWZ_RECORDED = ('minimum_length', 'overlap', 'max_n', 'max_length_reads', 'nh', 'extension', 'error_rate', 'q_value', 'p_value')
+
+
+def mirflowz_settings():
+    """The settings that decide mirflowz's counting besides MIRFLOWZ_RECORDED (quant_settings, #417)."""
+    return [('adapter', config['adapter'], 'kit'),
+            ('multimappers', 'divided between their loci by mirflowz (not configurable)', 'fixed')]
 
 rule mirflowz_quant:
     input:
