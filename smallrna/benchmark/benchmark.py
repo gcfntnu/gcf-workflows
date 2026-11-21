@@ -771,12 +771,8 @@ def publish(project, bench, spec, header, rows, lines, extra, record):
     routes = '\n'.join('\t'.join(row) for row in [('route', 'state', 'reason'), *states]) + '\n'
     setting_lines, settings = settings_lines(spec.get('route_settings') or {})
     evaluation.publish(bench, header, rows, lines + route_lines + setting_lines + resource_lines, reads,
-                       {**extra, 'routes.tsv': routes, 'settings.tsv': settings, 'resources.tsv': text}, record)
-
-
-    seed = spec['synthetic'].get('seed') if spec['kind'] == 'synthetic' else None
-    evaluation.publish(bench, header, rows, lines + route_lines + resource_lines, reads,
-                       {**extra, 'routes.tsv': routes, 'resources.tsv': text}, record, seed)
+                       {**extra, 'routes.tsv': routes, 'settings.tsv': settings, 'resources.tsv': text}, record,
+                       spec['synthetic'].get('seed') if spec['kind'] == 'synthetic' else None)  # the draw of a synthetic set (#455)
 
 
 def nonnegative(text):

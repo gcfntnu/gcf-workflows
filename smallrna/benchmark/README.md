@@ -152,8 +152,8 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    A declared route that was not evaluated shows its state, `not run` or `stopped` (#448); a metric missing from a
    project's table, or a method not declared there, is an empty cell.
    Projects of one synthetic declaration that differ only by the seed of the draw (`prepare --synthetic-seed`, #455)
-   also get a table over the seeds after their section: per key metric and route the mean and the range, and whether
-   the routes with a value in every seed rank the same way in each. The seed is read from `evaluation.json`
+   also get a table over the seeds after their section: per key metric and route the mean and the range, and how many
+   pairs of the routes with a value in every seed keep their order in every seed. Two projects with one seed stop it. The seed is read from `evaluation.json`
    (`synthetic_seed`), or from the project's `benchmark/dataset.yaml` for an earlier evaluation. It writes nothing into the
    projects; an output inside one stops it. New evaluations publish `evaluation.json` with checksums for the metrics
    and report. For an older evaluation, the metrics must match the complete metrics table embedded in the report.
