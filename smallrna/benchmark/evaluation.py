@@ -64,7 +64,7 @@ def reads_processed(project):
 EXTRA_FILES = ('metrics_ci.tsv', 'differences.tsv', 'routes.tsv', 'settings.tsv', 'resources.tsv')
 
 
-def publish(bench, header, rows, lines, reads_processed=None, extra=None, bootstrap=None):
+def publish(bench, header, rows, lines, reads_processed=None, extra=None, bootstrap=None, synthetic_seed=None):
     """Publish metrics.tsv and report.md with evaluation.json, the completion record: their SHA-256 and the reads the
     evaluated run processed (`reads_processed`, as read when evaluating; null when unknown). `extra`: {name: text} of
     EXTRA_FILES published with them (an earlier evaluation's EXTRA_FILES not in it are removed), and `bootstrap`
@@ -80,6 +80,8 @@ def publish(bench, header, rows, lines, reads_processed=None, extra=None, bootst
     record['reads_processed'] = reads_processed
     if bootstrap is not None:
         record['bootstrap'] = bootstrap
+    if synthetic_seed is not None:  # the draw of a synthetic set (#455)
+        record['synthetic_seed'] = synthetic_seed
     files['evaluation.json'] = (json.dumps(record, sort_keys=True) + '\n').encode()
     with TemporaryDirectory(dir=bench) as directory:
         stage = Path(directory)
@@ -137,7 +139,7 @@ def read_evaluation(bench):
         except ValueError:
             raise ValueError(message) from None
         digests = {'metrics.tsv': hashlib.sha256(data).hexdigest(), 'report.md': hashlib.sha256(report).hexdigest()}
-        if not isinstance(record, dict) or set(record) - {'metrics.tsv', 'report.md', 'reads_processed', 'bootstrap', *EXTRA_FILES} or \
+        if not isinstance(record, dict) or set(record) - {'metrics.tsv', 'report.md', 'reads_processed', 'bootstrap', 'synthetic_seed', *EXTRA_FILES} or \
                 {k: record.get(k) for k in digests} != digests:
             raise ValueError(message)
         for name in EXTRA_FILES:

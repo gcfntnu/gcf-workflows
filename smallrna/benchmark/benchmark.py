@@ -401,6 +401,10 @@ def prepare(args):
         fail('--lanes is for biological datasets')
     if getattr(args, 'per_group', None) is not None:
         spec = select_per_group(spec, args.per_group)
+    if getattr(args, 'synthetic_seed', None) is not None:  # another draw of a synthetic set (#455); its dataset.yaml keeps it
+        if spec['kind'] != 'synthetic':
+            fail('--synthetic-seed is for synthetic datasets')
+        spec = dict(spec, synthetic=dict(spec['synthetic'], seed=args.synthetic_seed))
     prepare_dataset = {'pool': prepare_pool, 'biological': prepare_biological, 'synthetic': prepare_synthetic}[spec['kind']]
     project.parent.mkdir(parents=True, exist_ok=True)
     with TemporaryDirectory(dir=project.parent) as temporary:
@@ -767,7 +771,8 @@ def publish(project, bench, spec, header, rows, lines, extra, record):
     routes = '\n'.join('\t'.join(row) for row in [('route', 'state', 'reason'), *states]) + '\n'
     setting_lines, settings = settings_lines(spec.get('route_settings') or {})
     evaluation.publish(bench, header, rows, lines + route_lines + setting_lines + resource_lines, reads,
-                       {**extra, 'routes.tsv': routes, 'settings.tsv': settings, 'resources.tsv': text}, record)
+                       {**extra, 'routes.tsv': routes, 'settings.tsv': settings, 'resources.tsv': text}, record,
+                       spec['synthetic'].get('seed') if spec['kind'] == 'synthetic' else None)  # the draw of a synthetic set (#455)
 
 
 def nonnegative(text):
@@ -2033,6 +2038,8 @@ def main():
                    'genome-wide synthetic dataset: the mean reads of a mixed sample')
     p.add_argument('--lanes', action='store_true', help='biological datasets: each run (lane) its own sample, for the lane-replicate metric')
     p.add_argument('--per-group', type=int, help='biological datasets: the first N samples of each group, in declared order (a quick run)')
+    p.add_argument('--synthetic-seed', type=int, help="synthetic datasets: the seed of the draw instead of the declaration's (#455); "
+                   'each seed is a project of its own, and the summary groups the seeds of one declaration')
     f = sub.add_parser('fill', help='download a public dataset into EXT_DIR (the only step that writes there)')
     f.add_argument('--dataset', required=True)
     f.add_argument('--ext-dir', required=True)
