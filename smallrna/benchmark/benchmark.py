@@ -928,7 +928,8 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
                                                                           de_reports[suffix][0]) for suffix in de_results if suffix],
                                        summary, rows)
     with_isomirs = [m for m in methods if m not in no_isomirs]
-    iso, iso_kinds = isomirs.pool_scores(iso_rows, pool.scored(entries), shifted, entries, oracle, with_isomirs, dict(mature.values()))
+    iso_tallies, iso_kinds = isomirs.pool_tallies(iso_rows, pool.scored(entries), shifted, entries, oracle, with_isomirs, dict(mature.values()))
+    iso = isomirs.pool_values(iso_tallies)
     for row, values in iso.items():
         summary.setdefault(row, {}).update(values)
     keys += isomirs.POOL_KEYS
@@ -971,6 +972,8 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
             if sh:
                 for row, values in pool.agreement(counts, oracle, sh, methods, samples).items():
                     result[row].update({'shifted_' + k: v for k, v in values.items()})
+            for row, values in isomirs.pool_values(iso_tallies, ex, sh, samples).items():  # the isomiR table's tallies (#459)
+                result.setdefault(row, {}).update(values)
             return result
         draw = lambda rng: (uncertainty.resample(rng, exact), uncertainty.resample(rng, shifted), uncertainty.resample(rng, list(sample_groups)))
         units = 'the scored pool sequences (exact and shifted) and the runs'
@@ -985,15 +988,15 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
             for suffix, results in (de_results or {}).items():  # the DE fits stay fixed: their scores resample the sequences only
                 for row, values in de.scores(results, de.pool_features(ex), rows, suffix).items():
                     result.setdefault(row, {}).update(values)
+            for row, values in isomirs.pool_values(iso_tallies, ex, sh, [sample for sample, _ in pairs]).items():  # (#459)
+                result.setdefault(row, {}).update(values)
             return result
         draw = lambda rng: (uncertainty.resample(rng, exact), uncertainty.resample(rng, shifted),
                             uncertainty.resample_groups(rng, list(sample_groups.items())))
         units = 'the scored pool sequences (exact and shifted) and the runs within each pool (A, B)'
         if de_results:
             units += '; the differential-expression metrics resample the sequences only, on the fixed fits'
-    no_ci = set(isomirs.POOL_KEYS)  # no intervals for the isomiR metrics yet (#454)
-    extra, record, ci_lines = bootstrap(args, summary, compute, draw, rows, [k for k in keys if k not in no_ci], units,
-                                        [k for k in table_keys if k not in no_ci] if table_keys else None)
+    extra, record, ci_lines = bootstrap(args, summary, compute, draw, rows, keys, units, table_keys)
     publish(project, bench, spec, ['metric'] + rows, metric_rows, lines + ci_lines, extra, record)
     print(bench / 'report.md')
 
@@ -1194,7 +1197,8 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
     keys = GENOME_KEYS + ['probe_' + c for c in classes]
     iso_rows, no_isomirs = isomir_table(args, project, bench, spec, methods, mature, gff, raw, pending)
     with_isomirs = [m for m in methods if m not in no_isomirs]
-    iso, iso_classes = isomirs.synthetic_scores(truth, iso_rows, samples, with_isomirs, isomirs.representatives(id_to_seq))
+    iso_tallies, iso_classes = isomirs.synthetic_tallies(truth, iso_rows, samples, with_isomirs, isomirs.representatives(id_to_seq))
+    iso = isomirs.synthetic_values(iso_tallies, iso_classes)
     for name, values in iso.items():
         point[name].update(values)
     keys += isomirs.synthetic_keys(iso_classes)
@@ -1281,6 +1285,8 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
 
     def compute(units, pairs, de_units, dev_units, scored):
         result = {name: ev.mixed_metrics(name, units, pairs, de_units, dev_units) for name in rows}
+        for name, values in isomirs.synthetic_values(iso_tallies, iso_classes, units).items():  # the isomiR table's tallies (#459)
+            result[name].update(values)
         for suffix, results in (de_results or {}).items():  # the DE fits stay fixed: their scores resample the scored miRNAs
             for name, values in de.scores(results, scored, rows, suffix, 'truth').items():
                 result[name].update(values)
@@ -1290,10 +1296,11 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
         args, {name: {k: rnd(v) for k, v in point[name].items()} for name in rows}, compute,
         lambda rng: (uncertainty.resample(rng, ev.units), uncertainty.resample(rng, ev.pairs), uncertainty.resample(rng, ev.de_units),
                      uncertainty.resample(rng, ev.dev_units), uncertainty.resample(de_rng, de_features) if de_features else []),
-        rows, GENOME_CI_KEYS + de_keys, 'the miRNAs (each with all mixed samples), the near-identical pairs, the miRNAs any row tests '
+        rows, GENOME_CI_KEYS + isomirs.synthetic_keys(iso_classes) + de_keys,
+        'the miRNAs (each with all mixed samples), the near-identical pairs, the miRNAs any row tests '
         'for DE and the deviation miRNAs (DE calls made once; unplaced, structure, coexpression and probes without an interval){}'.format(
             '; the metrics of the pools\' tests resample the scored miRNAs, on the fixed fits' if de_results else ''),
-        GENOME_CI_KEYS + [k for k in de_keys if k in table_keys])
+        GENOME_CI_KEYS + isomirs.synthetic_keys(iso_classes) + [k for k in de_keys if k in table_keys])
     publish(project, bench, spec, ['metric'] + rows, metric_rows, lines + ci_lines, extra, record)
     print(bench / 'report.md')
 
@@ -1356,7 +1363,11 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
         summary[m]['unplaced'] = unplaced[m]['share']
     keys = ['mirna_reads', 'unplaced', 'detected', 'detected_all_samples', 'top10_share']
     with_isomirs = [m for m in methods if m not in no_isomirs]
-    iso, iso_kinds, iso_overlap = isomirs.biological_scores(iso_rows, with_isomirs, id_to_seq, isomirs.representatives(id_to_seq))
+    iso_tallies, iso_detected, iso_kinds, iso_overlap = isomirs.biological_tallies(iso_rows, with_isomirs, id_to_seq,
+                                                                                   isomirs.representatives(id_to_seq))
+    iso = isomirs.biological_values(iso_tallies)
+    for m, count in iso_detected.items():
+        iso[m]['isomirs_detected'] = count
     for m in methods:
         summary[m].update(iso.get(m, dict.fromkeys(isomirs.BIOLOGICAL_KEYS, '')))
     keys += isomirs.BIOLOGICAL_KEYS
@@ -1443,11 +1454,16 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
     for row in table:
         lanes_of.setdefault(row['library'], []).append(row['sample'])
     libraries = sorted(lanes_of)
-    extra, record, ci_lines = bootstrap(args, summary, lambda drawn: biological.summary_of(stats, methods, drawn, all_samples=False),
+    def compute(drawn):
+        result = biological.summary_of(stats, methods, drawn, all_samples=False)
+        for m, values in isomirs.biological_values(iso_tallies, drawn).items():  # the isomiR table's tallies (#459)
+            result[m].update(values)
+        return result
+    extra, record, ci_lines = bootstrap(args, summary, compute,
                                         lambda rng: ([s for lib in uncertainty.resample(rng, libraries) for s in lanes_of[lib]],), methods,
-                                        [k for k in keys if k != 'detected_all_samples' and k not in isomirs.BIOLOGICAL_KEYS],
-                                        '{} (`detected_all_samples` without an interval: a resample repeating a sample has fewer '
-                                        'distinct samples)'.format('the libraries, each with all its lanes' if lane_mode else 'the samples'))
+                                        [k for k in keys if k not in ('detected_all_samples', 'isomirs_detected')],
+                                        '{} (`detected_all_samples` and `isomirs_detected` without an interval: a resample repeating a '
+                                        'sample has fewer distinct samples)'.format('the libraries, each with all its lanes' if lane_mode else 'the samples'))
     publish(project, bench, spec, ['metric'] + methods, metric_rows, lines + ci_lines, extra, record)
     print(bench / 'report.md')
 

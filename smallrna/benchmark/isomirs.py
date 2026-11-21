@@ -15,6 +15,8 @@ a mislabelling.
 import collections
 import math
 
+import numpy
+
 MAX_OFFSET = 3  # nt from either end of the mature sequence
 MAX_ADDED = 3  # non-templated 3' bases
 KINDS = ('canonical', 'substitution', '5p', '3p_add', '3p_longer', '3p_templated', '3p_trim', 'other')
@@ -76,6 +78,26 @@ def representatives(id_to_seq):
     return {a: min(accessions) for accessions in by_seq.values() for a in accessions}
 
 
+class Tally:
+    """Named sums per unit ({unit: {name: value}}), so a bootstrap resample of the units (repeats allowed) adds up its
+    rows; the `fixed` units count in every resample (e.g. reads on names without an accession)."""
+
+    def __init__(self, rows, names, fixed=()):
+        self.names, self.units = list(names), sorted(rows)
+        self.index = {unit: i for i, unit in enumerate(self.units)}
+        self.matrix = numpy.array([[rows[u].get(n, 0.0) for n in self.names] for u in self.units], dtype=float).reshape(len(self.units), -1)
+        self.fixed = [self.index[u] for u in fixed if u in self.index]
+
+    def sum(self, units=None):
+        """{name: sum} over `units` (default: every unit once)."""
+        if units is None:
+            totals = self.matrix.sum(axis=0)
+        else:
+            rows = [self.index[u] for u in units if u in self.index and self.index[u] not in self.fixed] + self.fixed
+            totals = self.matrix[rows].sum(axis=0)
+        return dict(zip(self.names, totals.tolist()))
+
+
 def share(part, whole):
     return round(part / whole, 4) if whole else float('nan')
 
@@ -96,6 +118,14 @@ def synthetic_scores(truth, isomirs, samples, methods, alias):
     over their reads on true sequences of the right miRNA: `isomir_as_canonical`, the share of the reads labelled
     canonical that are not canonical in the truth (an isomiR class or a substitution); `canonical_as_isomir`, the share
     of the reads labelled isomiR that are canonical in the truth."""
+    tallies, classes = synthetic_tallies(truth, isomirs, samples, methods, alias)
+    return synthetic_values(tallies, classes), classes
+
+
+def synthetic_tallies(truth, isomirs, samples, methods, alias):
+    """({method: (Tally per miRNA, labelled)}, {class: true reads}): synthetic_scores' sums per miRNA (representative
+    accession), the truth's reads under their miRNA and a method's under the miRNA it reports them on, so a resample of
+    the miRNAs scores by adding them up (synthetic_values). Reads on names without an accession count in every resample."""
     mixed = {row['sample'] for row in samples if row['kind'] == 'mixed'}
     true, in_sample = {}, set()
     for row in truth:
@@ -109,7 +139,9 @@ def synthetic_scores(truth, isomirs, samples, methods, alias):
     classes = collections.Counter()
     for count, read_class in true.values():
         classes[read_class] += count
-    out = {}
+    names = ['true:' + c for c in classes] + ['found:' + c for c in classes] + \
+        ['reads', 'elsewhere', 'absent', 'canonical', 'canonical_wrong', 'isomiR', 'isomiR_missed']
+    tallies = {}
     for method in methods:
         reported, labels = collections.defaultdict(float), collections.defaultdict(lambda: collections.defaultdict(float))
         for m, sample, _, accession, sequence, label, count in isomirs:
@@ -117,24 +149,40 @@ def synthetic_scores(truth, isomirs, samples, methods, alias):
                 key = (sample, alias.get(accession, accession), sequence)
                 reported[key] += count
                 labels[key][label] += count
-        found = collections.Counter()
+        rows = collections.defaultdict(collections.Counter)
         for key, (count, read_class) in true.items():
-            found[read_class] += min(reported.get(key, 0.0), count)
-        values = {'isomir_recovered_' + c: share(found[c], n) for c, n in classes.items()}
+            row = rows[key[1]]
+            row['true:' + read_class] += count
+            row['found:' + read_class] += min(reported.get(key, 0.0), count)
+            by_label = labels.get(key, {})
+            row['canonical'] += by_label.get('canonical', 0.0)
+            row['isomiR'] += by_label.get('isomiR', 0.0)
+            row['canonical_wrong' if read_class != 'canonical' else 'isomiR_missed'] += by_label.get(
+                'canonical' if read_class != 'canonical' else 'isomiR', 0.0)
+        for key, count in reported.items():
+            row = rows[key[1]]
+            row['reads'] += count
+            if key not in true:
+                row['elsewhere' if (key[0], key[2]) in in_sample else 'absent'] += count
+        labelled = any(label for by_label in labels.values() for label in by_label)
+        tallies[method] = (Tally(rows, names, fixed=('',)), labelled)
+    return tallies, dict(classes)
+
+
+def synthetic_values(tallies, classes, units=None):
+    """{method: {metric: value}} of synthetic_scores from synthetic_tallies, over the miRNAs `units` (a bootstrap
+    resample; default: all)."""
+    out = {}
+    for method, (tally, labelled) in tallies.items():
+        t = tally.sum(units)
+        values = {'isomir_recovered_' + c: share(t['found:' + c], t['true:' + c]) for c in classes}
         isomir_classes = [c for c in classes if c not in ('canonical', SUBSTITUTED)]
-        values['isomir_recovered'] = share(sum(found[c] for c in isomir_classes), sum(classes[c] for c in isomir_classes))
-        total = sum(reported.values())
-        elsewhere = sum(c for key, c in reported.items() if key not in true and (key[0], key[2]) in in_sample)
-        absent = sum(c for key, c in reported.items() if (key[0], key[2]) not in in_sample)
-        values.update(isomir_misassigned=share(elsewhere, total), isomir_not_in_sample=share(absent, total))
-        if any(label for by_label in labels.values() for label in by_label):
-            canonical = sum(labels[key]['canonical'] for key in true)
-            wrong = sum(labels[key]['canonical'] for key, (_, c) in true.items() if c != 'canonical')
-            isomir = sum(labels[key]['isomiR'] for key in true)
-            missed = sum(labels[key]['isomiR'] for key, (_, c) in true.items() if c == 'canonical')
-            values.update(isomir_as_canonical=share(wrong, canonical), canonical_as_isomir=share(missed, isomir))
+        values['isomir_recovered'] = share(sum(t['found:' + c] for c in isomir_classes), sum(t['true:' + c] for c in isomir_classes))
+        values.update(isomir_misassigned=share(t['elsewhere'], t['reads']), isomir_not_in_sample=share(t['absent'], t['reads']))
+        if labelled:
+            values.update(isomir_as_canonical=share(t['canonical_wrong'], t['canonical']), canonical_as_isomir=share(t['isomiR_missed'], t['isomiR']))
         out[method] = values
-    return out, dict(classes)
+    return out
 
 
 def class_order(classes):
@@ -182,34 +230,81 @@ def pool_scores(isomirs, exact, shifted, entries, oracle, methods, id_to_seq):
     (one read added to both). `artefact_share`: of the method's reads on the pool's miRNAs, the share on sequences the
     pool does not hold (library or sequencing artefacts, as all methods read the same filtered reads), with their kinds
     (variant() against the mature sequence)."""
+    tallies, kinds = pool_tallies(isomirs, exact, shifted, entries, oracle, methods, id_to_seq)
+    return pool_values(tallies), kinds
+
+
+PoolTally = collections.namedtuple('PoolTally', 'columns rows exact shifted reported truth on_pool artefacts')
+
+
+def pool_tallies(isomirs, exact, shifted, entries, oracle, methods, id_to_seq):
+    """({method: PoolTally}, {method: {kind: reads}}): pool_scores' counts per scored entry and run, so a resample of the
+    entries and runs scores by adding them up (pool_values). A method's reads on a pool miRNA count under the first
+    scored entry (exact, then shifted) that lists that miRNA."""
     sequences = {e['sequence'] for e in entries}
-    mirnas = {accession for e in exact + shifted for accession in e['mature_ids']}
-    out, kinds = {}, {}
+    scored = exact + shifted
+    rows = {e['pool_id']: i for i, e in enumerate(scored)}
+    columns = {sample: j for j, sample in enumerate(sorted(oracle))}
+    owner = {}
+    for e in scored:
+        for accession in e['mature_ids']:
+            owner.setdefault(accession, rows[e['pool_id']])
+    shape = (len(scored), len(columns))
+    truth = numpy.zeros(shape)
+    for e in scored:
+        for sample, j in columns.items():
+            truth[rows[e['pool_id']], j] = oracle[sample].get(e['sequence'], 0)
+    tallies, kinds = {}, {}
     for method in methods:
         reported = collections.defaultdict(float)
         for m, sample, _, accession, sequence, _, count in isomirs:
-            if m == method and sequence:
+            if m == method and sequence and sample in columns:
                 reported[(sample, accession, sequence)] += count
+        counts, on_pool, artefacts = numpy.zeros(shape), numpy.zeros(shape), numpy.zeros(shape)
+        for e in scored:
+            for sample, j in columns.items():
+                counts[rows[e['pool_id']], j] = sum(reported.get((sample, a, e['sequence']), 0.0) for a in e['mature_ids'])
+        by_kind = collections.Counter()
+        for (sample, accession, sequence), c in reported.items():
+            if accession in owner:
+                on_pool[owner[accession], columns[sample]] += c
+                if sequence not in sequences:
+                    artefacts[owner[accession], columns[sample]] += c
+                    by_kind[kind(variant(sequence, id_to_seq.get(accession, '')), templated_known=False)] += c
+        tallies[method] = PoolTally(columns, rows, [rows[e['pool_id']] for e in exact], [rows[e['pool_id']] for e in shifted],
+                                    counts, truth, on_pool, artefacts)
+        kinds[method] = dict(by_kind)
+    return tallies, kinds
 
-        def count(sample, entry):
-            return sum(reported.get((sample, a, entry['sequence']), 0.0) for a in entry['mature_ids'])
 
-        def recovered(group):
-            pairs = [(count(s, e), oracle[s].get(e['sequence'], 0)) for e in group for s in oracle]
-            return share(sum(min(r, o) for r, o in pairs), sum(o for _, o in pairs))
+def pool_values(tallies, exact=None, shifted=None, samples=None):
+    """{method: {metric: value}} of pool_scores from pool_tallies, over the scored entries `exact` and `shifted` and the
+    runs `samples` (a bootstrap resample, repeats allowed; default: all)."""
+    out = {}
+    for method, t in tallies.items():
+        ex = t.exact if exact is None else [t.rows[e['pool_id']] for e in exact]
+        sh = t.shifted if shifted is None else [t.rows[e['pool_id']] for e in shifted]
+        cols = sorted(t.columns.values()) if samples is None else [t.columns[s] for s in samples]
 
-        within = [0.5 <= (sum(count(s, e) for s in oracle) + 1) / (sum(oracle[s].get(e['sequence'], 0) for s in oracle) + 1) <= 2
-                  for e in shifted]
-        on_pool = {key: c for key, c in reported.items() if key[1] in mirnas}
-        artefacts = collections.Counter()
-        for (_, accession, sequence), c in on_pool.items():
-            if sequence not in sequences:
-                artefacts[kind(variant(sequence, id_to_seq.get(accession, '')), templated_known=False)] += c
-        out[method] = {'exact_sequence_recovered': recovered(exact), 'shifted_isomir_recovered': recovered(shifted),
+        def total(matrix, rows):
+            return float(matrix[numpy.ix_(rows, cols)].sum()) if rows and cols else 0.0
+
+        def recovered(rows):
+            if not rows or not cols:
+                return float('nan')
+            r, o = t.reported[numpy.ix_(rows, cols)], t.truth[numpy.ix_(rows, cols)]
+            return share(float(numpy.minimum(r, o).sum()), float(o.sum()))
+
+        if sh and cols:
+            r, o = t.reported[numpy.ix_(sh, cols)].sum(axis=1), t.truth[numpy.ix_(sh, cols)].sum(axis=1)
+            within = [0.5 <= (a + 1) / (b + 1) <= 2 for a, b in zip(r.tolist(), o.tolist())]
+        else:
+            within = []
+        both = list(ex) + list(sh)
+        out[method] = {'exact_sequence_recovered': recovered(ex), 'shifted_isomir_recovered': recovered(sh),
                        'shifted_isomir_within_2fold': share(sum(within), len(within)),
-                       'artefact_share': share(sum(artefacts.values()), sum(on_pool.values()))}
-        kinds[method] = dict(artefacts)
-    return out, kinds
+                       'artefact_share': share(total(t.artefacts, both), total(t.on_pool, both))}
+    return out
 
 
 def kind_table(kinds, methods):
@@ -242,20 +337,44 @@ def biological_scores(isomirs, methods, id_to_seq, alias):
     `isomir_share`, the share of a method's reads on miRNAs with a known sequence that are not the mature sequence;
     `isomirs_detected`, the sequences with at least MIN_DETECTED reads over all samples (per miRNA, identical mature
     sequences as one); their overlap between methods (Jaccard)."""
-    out, kinds, detected = {}, {}, {}
+    tallies, detected, kinds, overlap = biological_tallies(isomirs, methods, id_to_seq, alias)
+    values = biological_values(tallies)
+    for method, count in detected.items():
+        values[method]['isomirs_detected'] = count
+    return values, kinds, overlap
+
+
+def biological_tallies(isomirs, methods, id_to_seq, alias):
+    """({method: Tally per sample of reads and canonical reads}, {method: isomiRs detected}, {method: {kind: reads}},
+    {(a, b): Jaccard}) for biological_scores: `isomir_share` from the tallies, so a resample of the samples scores by
+    adding them up (biological_values); the detected isomiRs and their overlap are counts over the dataset."""
+    tallies, detected_sets, kinds = {}, {}, {}
     for method in methods:
         totals, by_kind = collections.defaultdict(float), collections.Counter()
-        for m, _, _, accession, sequence, _, count in isomirs:
+        per_sample = collections.defaultdict(collections.Counter)
+        for m, sample, _, accession, sequence, _, count in isomirs:
             if m == method and sequence and accession in id_to_seq:
                 totals[(alias.get(accession, accession), sequence)] += count
-                by_kind[kind(variant(sequence, id_to_seq[accession]), templated_known=False)] += count
-        reads = sum(totals.values())
-        detected[method] = {key for key, c in totals.items() if c >= MIN_DETECTED}
-        out[method] = {'isomir_share': share(reads - by_kind['canonical'], reads), 'isomirs_detected': len(detected[method])}
+                k = kind(variant(sequence, id_to_seq[accession]), templated_known=False)
+                by_kind[k] += count
+                per_sample[sample]['reads'] += count
+                per_sample[sample]['canonical'] += count if k == 'canonical' else 0.0
+        detected_sets[method] = {key for key, c in totals.items() if c >= MIN_DETECTED}
+        tallies[method] = Tally(per_sample, ['reads', 'canonical'])
         kinds[method] = dict(by_kind)
-    overlap = {(a, b): share(len(detected[a] & detected[b]), len(detected[a] | detected[b]))
+    overlap = {(a, b): share(len(detected_sets[a] & detected_sets[b]), len(detected_sets[a] | detected_sets[b]))
                for i, a in enumerate(methods) for b in methods[i + 1:]}
-    return out, kinds, overlap
+    return tallies, {m: len(d) for m, d in detected_sets.items()}, kinds, overlap
+
+
+def biological_values(tallies, samples=None):
+    """{method: {'isomir_share': value}} from biological_tallies over the samples `samples` (a bootstrap resample, repeats
+    allowed; default: all)."""
+    out = {}
+    for method, tally in tallies.items():
+        t = tally.sum(samples)
+        out[method] = {'isomir_share': share(t['reads'] - t['canonical'], t['reads'])}
+    return out
 
 
 def biological_lines(values, kinds, overlap, methods, without):

@@ -671,7 +671,10 @@ def test_prepare_and_evaluate_a_pool(tmp_path):
     assert table['metric'] == ['oracle', 'unitas', 'mirge3'] and table['artefact_share'] == ['', '0.0', '0.0']
     assert table['exact_sequence_recovered'][0] == '' and all(0 < float(v) <= 1 for v in table['exact_sequence_recovered'][1:])
     assert '## isomiRs' in report and 'Without isomiR output' not in report
-    assert not any(line.split('\t')[0] in isomirs.POOL_KEYS for line in (project / 'benchmark/metrics_ci.tsv').read_text().splitlines())
+    ci = {(r[0], r[1]): r[2:] for r in (line.split('\t') for line in (project / 'benchmark/metrics_ci.tsv').read_text().splitlines())}
+    for method in ('unitas', 'mirge3'):  # #459: intervals from the isomiR tallies, around the value
+        value, low, high = ci[('exact_sequence_recovered', method)]
+        assert low != '' and float(low) <= float(value) <= float(high)
     assert '| metric | oracle | unitas | mirge3 |' in report and '| called | 1.0 | 1.0 | 1.0 |' in report
     assert '| 1:8 | -3.00 | 1 |' in report
     per_sequence = (project / 'benchmark/per_sequence.tsv').read_text().splitlines()
@@ -1079,7 +1082,9 @@ def test_evaluate_a_biological_dataset_in_lanes(tmp_path):
         'unitas\tquant\tunitas_mirtable\t\t1\t\t']
     assert '| unplaced | 0.0024 | 0.0 |' in report and 'unitas: `miR-325-3p` (5)' in report      # median of 5/1036 and 0/1040
     assert '| isomir_share |' in report and '## isomiRs' in report and '| unitas / mirge3 |' in report.split('## isomiRs')[1]
-    assert not any(line.split('\t')[0] in isomirs.BIOLOGICAL_KEYS for line in (project / 'benchmark/metrics_ci.tsv').read_text().splitlines())
+    ci = {(r[0], r[1]): r[2:] for r in (line.split('\t') for line in (project / 'benchmark/metrics_ci.tsv').read_text().splitlines())}
+    value, low, high = ci[('isomir_share', 'unitas')]  # #459: resampled samples; the detected count has no interval
+    assert low != '' and float(low) <= float(value) <= float(high) and not any(k == 'isomirs_detected' for k, _ in ci)
     assert '| miR-451a | 485.0 | 0.0 |' in report     # median CPM of the blocked miRNA: 1 of 1031 placed reads in L1, none in L2
     assert '| GSM1_L1 | 100 | 95 | 1 | 7 | 0 | 2 | 2 | 1 | 87 |' in report                   # the filtering table
     assert '| GSM1_L1 | 10 | 10.00% | 40.0 | 14.0 |' in report                       # 1 of 10 top-miRNA reads has another first base
@@ -2672,3 +2677,20 @@ def test_isomir_biological_scores_describe_the_routes():
     assert values == {'m': {'isomir_share': 0.2222, 'isomirs_detected': 2}, 'n': {'isomir_share': 0.2, 'isomirs_detected': 2}}
     assert kinds['m'] == {'canonical': 35, '3p_trim': 10} and kinds['n'] == {'canonical': 40, '3p_longer': 10}
     assert overlap == {('m', 'n'): 0.3333}  # the mature sequence of the 3 detected
+
+
+def test_isomir_tallies_add_up_a_bootstrap_draw():
+    """#459: a resample of the units (repeats allowed) adds up their tallies; fixed units count in every draw."""
+    tally = isomirs.Tally({'a': {'x': 1}, 'b': {'x': 2}, '': {'x': 10}}, ['x'], fixed=('',))
+    assert tally.sum() == {'x': 13} and tally.sum(['a', 'a']) == {'x': 12} and tally.sum(['b', 'not-a-unit']) == {'x': 12}
+    exact = [{'pool_id': 'E1', 'sequence': LET7, 'mature_ids': ['A']}]
+    shifted = [{'pool_id': 'H1', 'sequence': 'TAGCTTATCAGACTGATGTTG', 'mature_ids': ['B']}]
+    oracle = {'S1': {LET7: 10, 'TAGCTTATCAGACTGATGTTG': 4}, 'S2': {LET7: 6}}
+    rows = [('m', 'S1', 'a', 'A', LET7, '', 8), ('m', 'S2', 'a', 'A', LET7, '', 6), ('m', 'S1', 'b', 'B', 'TAGCTTATCAGACTGATGTTG', '', 5),
+            ('m', 'S1', 'a', 'A', LET7 + 'A', '', 2)]
+    tallies, _ = isomirs.pool_tallies(rows, exact, shifted, exact + shifted, oracle, ['m'], {'A': LET7})
+    assert isomirs.pool_values(tallies) == isomirs.pool_scores(rows, exact, shifted, exact + shifted, oracle, ['m'], {'A': LET7})[0]
+    assert isomirs.pool_values(tallies, exact * 2, shifted, ['S1']) == {'m': {
+        'exact_sequence_recovered': 0.8,          # 8 of the oracle's 10, twice
+        'shifted_isomir_recovered': 1.0, 'shifted_isomir_within_2fold': 1.0,
+        'artefact_share': 0.16}}                  # 2 + 2 of the 10 + 10 + 5 reads on pool miRNAs in S1

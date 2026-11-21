@@ -428,7 +428,8 @@ def test_isomirs_in_genome_mode(tmp_path):
     assert metrics['isomir_misassigned'] == metrics['isomir_as_canonical'] == metrics['canonical_as_isomir'] == ['', '', '0.0']
     assert metrics['isomir_recovered_substituted'] == ['', '', '1.0'] and (bench / 'isomirs.tsv').is_file()
     assert '## isomiRs' in report and 'Without isomiR output (features only): tinyrna.' in report
-    assert not any(line.startswith('isomir_') for line in (bench / 'metrics_ci.tsv').read_text().splitlines())  # no intervals yet
+    ci = {(r[0], r[1]): r[2:] for r in (line.split('\t') for line in (bench / 'metrics_ci.tsv').read_text().splitlines())}
+    assert [float(v) for v in ci[('isomir_recovered', 'smrnaseq')]] == [1.0] * 3 and ('isomir_recovered', 'tinyrna') not in ci  # #459
 
 
 def test_differential_expression_uses_the_pools_tests_in_genome_mode(tmp_path):
