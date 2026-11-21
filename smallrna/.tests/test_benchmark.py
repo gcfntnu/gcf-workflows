@@ -2174,11 +2174,11 @@ def test_a_biological_declaration_names_its_contrast_and_covariates(tmp_path):
     assert whole.design == [('S0', 'case', {'patient': 'P0'}), ('S1', 'case', {'patient': 'P1'}), ('S2', 'control', {'patient': 'P0'}),
                             ('S3', 'control', {'patient': 'P1'})]  # the third group's samples are not in the set
     assert whole.samples == '2 case and 2 control samples' and whole.model == de.model_text('case', 'control', (), 10)  # detected miRNAs
-    for de_spec, message in (({}, 'de.contrast must name two different groups of the samples'),
+    for de_spec, message in (({}, 'needs a `contrast`, `null` comparisons (#449) or both'),
                              ({'contrast': ['case', 'absent']}, 'de.contrast must name two different groups of the samples'),
                              ({'contrast': ['case', 'case']}, 'de.contrast must name two different groups'),
                              ({'contrast': ['case', 'control'], 'covariates': ['age']}, 'de.covariates age: every sample needs a value'),
-                             ({'contrast': ['case', 'control'], 'test': 'deseq2'}, 'takes only `contrast`, `covariates` and `within`')):
+                             ({'contrast': ['case', 'control'], 'test': 'deseq2'}, 'takes only `contrast`, `covariates`, `within` and `null`')):
         with pytest.raises(SystemExit, match=re.escape(message)):
             benchmark.load_dataset(biological_declaration(tmp_path, de_spec))
     with pytest.raises(SystemExit, match='at least two samples in each group, got 1 case and 2 control'):
@@ -2225,6 +2225,16 @@ def test_de_snakefile_runs_r_in_the_sartools_image_for_every_set(tmp_path):
         assert ('Rscript {0} --counts benchmark/de/{1}input/counts.tsv --library-sizes benchmark/de/{1}input/library_sizes.tsv '
                 '--design benchmark/de/{1}input/design.tsv --model benchmark/de/{1}input/model.tsv --results benchmark/de/{1}results.tsv '
                 '--record benchmark/de/{1}record.tsv > benchmark/de/{1}de.log 2>&1'.format(BENCH / 'de.R', folder)) in result.stdout
+    nulls = tmp_path / 'nulls'  # null comparisons only (#449): no whole set
+    for name in de.INPUTS:
+        write(nulls / 'benchmark/de/null/case-1/input' / name, 'x\n')
+    write(nulls / 'benchmark/de/levels.tsv', de.levels_text([]))
+    result = de_snakemake(nulls, '-s', str(BENCH / 'de.smk'), '-n', '--cores', '1')
+    assert result.returncode != 0 and 'has no DE set' in result.stdout + result.stderr
+    write(nulls / 'benchmark/de/levels.tsv', de.levels_text([('null', 'case-1')]))
+    result = de_snakemake(nulls, '-s', str(BENCH / 'de.smk'), '-n', '-p', '--cores', '1')
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert '--results benchmark/de/null/case-1/results.tsv' in result.stdout and '--results benchmark/de/results.tsv' not in result.stdout
 
 
 def test_de_snakefile_passes_the_options_the_r_script_defines():
@@ -2694,3 +2704,149 @@ def test_isomir_tallies_add_up_a_bootstrap_draw():
         'exact_sequence_recovered': 0.8,          # 8 of the oracle's 10, twice
         'shifted_isomir_recovered': 1.0, 'shifted_isomir_within_2fold': 1.0,
         'artefact_share': 0.16}}                  # 2 + 2 of the 10 + 10 + 5 reads on pool miRNAs in S1
+
+
+# Null comparisons (#449): the samples of one group split in two, so every call is false.
+
+def test_null_splits_halve_each_group_balanced_on_the_design():
+    units = [('S{}'.format(i), 'case' if i < 6 else 'ctrl', {'lab': 'L1' if i % 2 else 'L2'}) for i in range(10)]
+    units += [('T0', 'tiny', {'lab': 'L1'}), ('T1', 'tiny', {'lab': 'L2'})]
+    splits = de.null_splits(units, 50, 1, ['lab'])
+    assert splits == de.null_splits(units, 50, 1, ['lab']) and de.null_splits(units, 3, 1, ['lab']) != de.null_splits(units, 3, 2, ['lab'])
+    assert set(splits) == {'case', 'ctrl'}  # tiny has fewer than 4 samples
+    assert len(splits['case']) == 9 and len(splits['ctrl']) == 2  # every distinct balanced split: 3 x 3, and 2 x 2 halved by mirroring
+    lab = {s: f['lab'] for s, _, f in units}
+    for x, y in splits['case']:  # two odd strata (3 L1, 3 L2): their odd samples go to the halves in turn
+        assert sorted(x + y) == ['S{}'.format(i) for i in range(6)] and sorted(lab[s] for s in x) == ['L1', 'L2', 'L2']
+    assert len({tuple(sorted([tuple(x), tuple(y)])) for x, y in splits['ctrl']}) == 2  # never a split and its mirror
+    assert len(de.null_splits(units, 3, 1)['case']) == 3  # without columns: plain random halves
+
+
+def test_null_scores_count_every_call_as_false():
+    features = ['F1', 'F2', 'F3']
+
+    def results(fits):
+        return {('m', test, f): fit for test in de.TESTS for f, fit in fits.items()}
+
+    splits = [(results({'F1': (1.0, 0.001, 0.01), 'F2': (0.1, 0.04, 0.3), 'F3': (None, None, None)}), features),  # 1 of 2 tested called
+              (results({'F1': (0.2, 0.5, 0.9), 'F2': (0.1, 0.6, 0.9), 'F3': (0.0, 0.9, 0.9)}), features)]          # nothing called
+    values, spread, called = de.null_scores(splits, ['m'])
+    assert values['m']['edger_null_called'] == 0.25 and spread['m']['voom'] == (0.0, 0.5)  # the median of 1/2 and 0/3
+    assert values['m']['voom_null_any'] == 0.5 and values['m']['edger_glm_null_p05'] == 0.4  # 2 of the 5 tested p-values
+    assert called['edger'] == {('m', 'F1'): 1} and sorted(de.null_keys())[:3] == ['edger_glm_null_any', 'edger_glm_null_called', 'edger_glm_null_p05']
+    lines = de.null_lines(values, spread, called, ['m'], [('case', 6, 2)], lambda f: 'name-' + f, lambda row, f: 12.0)
+    assert '| null_called (range) | 0.25 (0.0–0.5) |' in lines and '| name-F1 | 1/1/1 (12) |' in lines and 'case (6 samples) 2' in lines[3]
+
+
+def test_null_comparisons_in_a_declaration(tmp_path):
+    groups = ('case',) * 4 + ('control',) * 4 + ('other',)
+    spec = benchmark.load_dataset(biological_declaration(tmp_path, {'null': {'splits': 5, 'seed': 1}, 'covariates': ['patient']}, groups))
+    assert benchmark.de_contrast(spec) is None  # null comparisons only
+    rows = [{'sample': s['sample'], 'library': s['sample'], 'group': str(s['group']), 'lane': 'merged'} for s in spec['samples']]
+    sets = benchmark.de_sets(spec, benchmark.de_units(spec, rows))
+    assert [s.folder for s in sets] == ['null/case-1', 'null/case-2', 'null/control-1', 'null/control-2']  # other: one sample
+    assert sorted(g for _, g, _ in sets[0].design) == ['x', 'x', 'y', 'y'] and sets[0].samples == '2 x and 2 y samples of case'
+    assert sets[0].design[0][2] == {'patient': 'P0'} and sets[0].model == de.model_text('x', 'y', (), biological.MIN_READS)
+    for declared, message in (({'null': {'splits': 0, 'seed': 1}}, 'de.null takes `splits`'), ({'null': {'splits': 5}}, 'de.null takes `splits`'),
+                              ({'null': {'splits': 5, 'seed': 1}}, 'de.null needs a group with at least 4 samples')):
+        with pytest.raises(SystemExit, match=re.escape(message)):
+            benchmark.load_dataset(biological_declaration(tmp_path, declared))
+    spec = benchmark.load_dataset(biological_declaration(tmp_path, {'null': {'splits': 5, 'seed': 1}, 'within': 'patient'}, groups))
+    (first, *_) = benchmark.de_sets(spec, benchmark.de_units(spec, rows))
+    assert first.design[0][2] == {} and sorted(g for s, g, _ in first.design if s in ('S0', 'S2')) == ['x', 'y']  # within balances only
+    members = [('S0', 'case', {'site': 'A', 'patient': 'P0'}), ('S1', 'case', {'site': 'A', 'patient': 'P1'})]
+    assert benchmark.null_covariates(members, ['site', 'patient']) == ['patient']  # the group's samples share a site
+
+
+def biological_de_project(tmp_path, declared):
+    """A prepared biological project whose `de:` is `declared`: GSM1-GSM9, 4 case, 4 control and 1 other, over labs L1 and
+    L2, with UNITAS and miRge3 counts and the filtered reads."""
+    ext = tmp_path / 'ext'
+    data = ext / 'benchmark/smallrna/bio'
+    write(data / 'mirbase/23.1/mature.fa', BLOOD)
+    reads = ['TAGCAGCACGTAAATATTGGCG'] * 6 + ['TAGCTTATCAGACTGATGTTGA'] * 3
+    names = ['GSM{}'.format(i) for i in range(1, 10)]
+    groups = dict(zip(names, ['case'] * 4 + ['control'] * 4 + ['other']))
+    labs = dict(zip(names, ['L1', 'L1', 'L2', 'L2'] * 2 + ['L1']))
+    for i, name in enumerate(names):
+        (data / 'fastq').mkdir(parents=True, exist_ok=True)
+        with gzip.open(data / 'fastq/SRR{}.fastq.gz'.format(i), 'wt') as fh:
+            fh.write(''.join('@SRR{}.{} NB1:1:FC:1:11101:1:{}/1\n{}TGGAATTCTC\n+\n{}\n'.format(i, j, j, s, 'I' * (len(s) + 10))
+                             for j, s in enumerate(reads)))
+    dataset = write(tmp_path / 'bio.yaml', yaml.safe_dump({
+        'name': 'bio', 'kind': 'biological', 'organism': 'homo_sapiens', 'libprepkit': 'Bioo Scientific NEXTflex Small RNA-Seq Kit v4',
+        'methods': ['unitas', 'mirge3'], 'data': 'benchmark/smallrna/bio', 'mirbase': {'release': '23.1', 'url': 'unused', 'sha256': 'unused'},
+        'de': declared, 'samples': [{'sample': name, 'group': groups[name], 'lab': labs[name],
+                                     'runs': [{'run': 'SRR{}'.format(i), 'lane': 1, 'md5': 'unused', 'url': 'unused'}]} for i, name in enumerate(names)]}))
+    project = tmp_path / 'project'
+    result = subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'prepare', '--dataset', str(dataset), '--project', str(project),
+                             '--ext-dir', str(ext)], capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    samples = list(yaml.safe_load((project / 'config.yaml').read_text())['samples'])
+    quant = project / 'data/tmp/smallrna/quant'
+    rows = [('miR-16-5p', [700 + 10 * k for k in range(len(samples))]), ('miR-21-5p', [300 - 10 * k for k in range(len(samples))]),
+            ('miR-451a', [1] * len(samples))]
+    write(quant / 'unitas/mir_counts.tsv', '\t' + '\t'.join(samples) + '\n' + ''.join('{}\t{}\n'.format(n, '\t'.join(map(str, v))) for n, v in rows))
+    write(quant / 'mirge3/miR.Counts.csv', 'miRNA,' + ','.join(samples) + '\n' + ''.join('hsa-{},{}\n'.format(n, ','.join(map(str, v)))
+                                                                                     for n, v in rows[:2]))
+    isomir_outputs(quant)
+    write_records(quant, ['unitas', 'mirge3'], dump=unitas_dump(ext, 'homo_sapiens', 'Human', {}))
+    for sample in samples:
+        write(project / 'data/tmp/smallrna/filter/cutadapt/{}_R1.fastq'.format(sample),
+              ''.join('@r{}\n{}\n+\n{}\n'.format(j, s, 'I' * len(s)) for j, s in enumerate(reads)))
+        write_cutadapt_reports(project / 'data/tmp/smallrna/filter/cutadapt_stages', sample, 100)
+    return project
+
+
+def test_evaluate_reports_null_comparisons(tmp_path):
+    project = biological_de_project(tmp_path, {'contrast': ['case', 'control'], 'covariates': ['lab'], 'within': 'lab',
+                                               'null': {'splits': 3, 'seed': 1}})
+    bench = project / 'benchmark'
+    result = evaluate_cmd(project)
+    assert result.returncode == 0, result.stderr
+    nulls = ['null/case-1', 'null/case-2', 'null/control-1', 'null/control-2']  # labs halved: 2 distinct splits of each group
+    assert (bench / 'de/levels.tsv').read_text() == 'column\tlevel\nlab\tL1\nlab\tL2\n' + ''.join('{}\t{}\n'.format(*f.split('/')) for f in nulls)
+    design = (bench / 'de/null/case-1/input/design.tsv').read_text().splitlines()
+    assert design[0] == 'sample\tgroup\tlab' and sorted(line.split('\t')[1] for line in design[1:]) == ['x', 'x', 'y', 'y']
+    assert {line.split('\t')[2] for line in design[1:] if line.split('\t')[1] == 'x'} == {'L1', 'L2'}  # one of each lab in a half
+    assert (bench / 'de/null/case-1/input/model.tsv').read_text() == de.model_text('x', 'y', (), biological.MIN_READS)
+    assert (bench / 'de/input/design.tsv').read_text().splitlines()[:2] == ['sample\tgroup\tlab', 'GSM1\tcase\tL1']  # the contrast's, as before
+    fits = {'MIMAT0000069': (0.4, 0.001, 0.01), 'MIMAT0000076': (-0.6, 0.3, 0.6), 'MIMAT0001631': (None, None, None)}
+    for folder in ['', 'lab/L1', 'lab/L2'] + nulls[:-1]:
+        de_outputs(project, fits, folder=folder)
+    before = (bench / 'metrics.tsv').read_text()
+    result = evaluate_cmd(project, '--de')
+    assert result.returncode != 0 and 'null/control-2/results.tsv' in result.stderr and (bench / 'metrics.tsv').read_text() == before
+    de_outputs(project, fits, folder=nulls[-1])
+    result = evaluate_cmd(project, '--de')
+    assert result.returncode == 0, result.stderr
+    table = {line.split('\t')[0]: line.split('\t')[1:] for line in (bench / 'metrics.tsv').read_text().splitlines()}
+    assert table['edger_null_called'] == ['0.5', '0.5'] and table['voom_null_any'] == ['1.0', '1.0']  # 1 of 2 tested, in every split
+    assert table['edger_glm_null_p05'] == ['0.5', '0.5'] and not any(line.split('\t')[0].endswith(('_null_called', '_null_any'))
+                                                                    for line in (bench / 'metrics_ci.tsv').read_text().splitlines())
+    report = (bench / 'report.md').read_text()
+    assert '## Null comparisons' in report and 'case (4 samples) 2; control (4 samples) 2' in report
+    assert '| null_called (range) | 0.5 (0.5–0.5) | 0.5 (0.5–0.5) |' in report and '| hsa-miR-16-5p | 4/4/4 (' in report
+    assert '## Differential expression' in report  # the contrast is still described
+    summary_md = tmp_path / 'summary.md'
+    result = subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'summary', '--projects', str(project), '--output', str(summary_md)],
+                            capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    assert 'edger_null_called: unitas' in summary_md.read_text()
+
+
+def test_evaluate_null_comparisons_without_a_contrast(tmp_path):
+    project = biological_de_project(tmp_path, {'null': {'splits': 1, 'seed': 7}})
+    bench = project / 'benchmark'
+    result = evaluate_cmd(project)
+    assert result.returncode == 0, result.stderr
+    assert not (bench / 'de/input').exists() and (bench / 'de/levels.tsv').read_text() == 'column\tlevel\nnull\tcase-1\nnull\tcontrol-1\n'
+    assert (bench / 'de/null/case-1/input/design.tsv').read_text().splitlines()[0] == 'sample\tgroup'  # no covariates declared
+    for folder in ('null/case-1', 'null/control-1'):
+        de_outputs(project, {'MIMAT0000069': (0.1, 0.5, 0.9), 'MIMAT0000076': (0.2, 0.04, 0.9), 'MIMAT0001631': (None, None, None)}, folder=folder)
+    result = evaluate_cmd(project, '--de')
+    assert result.returncode == 0, result.stderr
+    report = (bench / 'report.md').read_text()
+    assert '## Differential expression' not in report and 'No route called any miRNA in any split.' in report
+    table = {line.split('\t')[0]: line.split('\t')[1:] for line in (bench / 'metrics.tsv').read_text().splitlines()}
+    assert table['voom_null_called'] == ['0.0', '0.0'] and table['edger_null_p05'] == ['0.5', '0.5']

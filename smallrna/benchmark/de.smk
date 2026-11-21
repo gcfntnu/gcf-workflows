@@ -1,7 +1,9 @@
 #-*- mode:snakemake -*-
 """Differential expression on a benchmark evaluation (#414, #447): de.R in the `sartools` image of docker.config, for
 the whole dataset's DE set and for each other set that `benchmark.py evaluate` listed in benchmark/de/levels.tsv (the
-levels of a pool's `within`, #444; the synthetic dataset's set with the nuisance covariate).
+levels of a pool's `within`, #444; the synthetic dataset's set with the nuisance covariate; a biological dataset's null
+comparisons, #449). A biological dataset that declares null comparisons only has no whole set: evaluate writes no
+benchmark/de/input/.
 
 Run in the evaluated project after `benchmark.py evaluate` has written benchmark/de/, with the same container settings
 as the project's `quant_all` (the repository holding de.R must be visible in the container):
@@ -24,13 +26,17 @@ if not LEVELS_TABLE.is_file():
     raise WorkflowError('{} not found in {}: run `benchmark.py evaluate` in the project first; it writes the inputs of '
                         'differential expression'.format(LEVELS_TABLE, Path.cwd()))
 LEVELS = [line.split('\t') for line in LEVELS_TABLE.read_text().splitlines()[1:] if line]  # [column, level]
+WHOLE = Path(DE_INPUT, 'model.tsv').is_file()  # absent with null comparisons only (#449); evaluate --de checks every set it declared
+if not WHOLE and not LEVELS:
+    raise WorkflowError('{} has no DE set: neither {} nor a level in {}; run `benchmark.py evaluate` in the project '
+                        'first'.format(Path.cwd(), DE_INPUT, LEVELS_TABLE))
 COMMAND = ('Rscript {params.script:q} --counts {input.counts:q} --library-sizes {input.library_sizes:q} --design {input.design:q} '
            '--model {input.model:q} --results {output.results:q} --record {output.record:q} > {log:q} 2>&1')
 
 
 rule all:
     input:
-        DE + '/results.tsv',
+        [DE + '/results.tsv'] if WHOLE else [],
         ['{}/{}/{}/results.tsv'.format(DE, column, level) for column, level in LEVELS]
 
 

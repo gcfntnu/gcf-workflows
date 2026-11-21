@@ -22,8 +22,10 @@ exact test calls, so the two differ mainly by the covariates.
 whole dataset's to benchmark/de/levels.tsv; de.smk writes results.tsv and record.tsv beside each input folder;
 `evaluate --de` checks each record against the current inputs and de.R, and scores the results.
 """
+import collections
 import hashlib
 import math
+import random
 import re
 import statistics
 from pathlib import Path
@@ -353,4 +355,118 @@ def call_lines(sets, features, rows, numerator, denominator):
     lines += [''] + ['{}: least mean count {}; design `{}`. edgeR {}, limma {}; {}. `de/{}results.tsv` SHA-256 `{}`.'.format(
         name or 'All samples', record.get('min_mean', '?'), record.get('formula', '?'), record.get('edgeR', '?'), record.get('limma', '?'),
         record.get('R', '?'), folder + '/' if folder else '', sha) for name, folder, _, _, record, sha in sets]
+    return lines
+
+
+# Null comparisons (#449): the samples of one group split in two, so every call is false.
+NULL = 'null'  # their sets' folders: benchmark/de/null/<group>-<k>
+NULL_KEYS = ('null_called', 'null_any', 'null_p05')
+NULL_MIN = 4  # samples a group needs: two in each half
+NULL_TOP = 10  # the miRNAs called most often, in the report
+
+
+def null_keys():
+    """The null comparisons' metrics in metrics.tsv: `<test>_null_called`, `_null_any` and `_null_p05`."""
+    return ['{}_{}'.format(test, key) for test in TESTS for key in NULL_KEYS]
+
+
+def folder_name(group):
+    """A group's name as a folder name: characters other than letters, digits, `.`, `_` and `-` become `_`."""
+    name = re.sub(r'[^A-Za-z0-9._-]', '_', group)
+    return name if LEVEL_NAME.fullmatch(name) else 'g' + name
+
+
+def null_splits(units, splits, seed, columns=()):
+    """{group: [(x samples, y samples)]} of the null comparisons (#449): within each group of `units` ([(sample, group,
+    {column: value})]) that has at least NULL_MIN samples, up to `splits` distinct random halvings drawn from
+    random.Random(seed). Each stratum (the samples with the same values of `columns`, the design's columns) is halved, a
+    stratum's odd sample going to the halves in turn, so the halves are balanced on the design. A split and its mirror
+    are one split; when fewer distinct splits exist than asked for, the drawing stops after 100 draws per split asked
+    for, with all or nearly all of them. Groups and samples are taken in sorted order, so the splits depend on the seed
+    and the units only."""
+    rng = random.Random(seed)
+    groups = collections.defaultdict(list)
+    for sample, group, fields in units:
+        groups[group].append((sample, fields))
+    out = {}
+    for group in sorted(groups):
+        members = sorted(groups[group], key=lambda member: member[0])
+        if len(members) < NULL_MIN:
+            continue
+        strata = collections.defaultdict(list)
+        for sample, fields in members:
+            strata[tuple(str(fields.get(c)) for c in columns)].append(sample)
+        everyone, seen, found = [sample for sample, _ in members], set(), []
+        for _ in range(100 * splits):
+            x, odd = [], 0
+            for key in sorted(strata):
+                stratum = list(strata[key])
+                rng.shuffle(stratum)
+                x += stratum[:len(stratum) // 2 + (odd % 2 if len(stratum) % 2 else 0)]
+                odd += len(stratum) % 2
+            y = [sample for sample in everyone if sample not in x]
+            split = tuple(sorted([tuple(sorted(x)), tuple(y)]))
+            if split not in seen:
+                seen.add(split)
+                found.append((sorted(x), y))
+                if len(found) == splits:
+                    break
+        out[group] = found
+    return out
+
+
+def null_scores(splits, rows):
+    """({row: {<test>_<metric>: value}}, {row: {test: (lowest, highest) share called}}, {test: {(row, feature): splits
+    called}}) of the null comparisons, `splits` [(results, features)] of every split of every group. Per row and test:
+    `null_called`, the median over the splits of the share of tested features called (BH-adjusted p <= FDR), and its
+    range; `null_any`, the share of splits with a call; `null_p05`, the share of tested p-values of at most 0.05, pooled
+    over the splits (0.05 if they are uniform)."""
+    values, spread, called = {}, {}, {test: collections.Counter() for test in TESTS}
+    for row in rows:
+        values[row], spread[row] = {}, {}
+        for test in TESTS:
+            shares, any_call, low_p, tested_total = [], [], 0, 0
+            for results, features in splits:
+                fits = [(feature, results[(row, test, feature)]) for feature in features]
+                tested = [fit for _, fit in fits if fit[1] is not None]
+                calls = [feature for feature, fit in fits if significant(fit)]
+                called[test].update((row, feature) for feature in calls)
+                shares.append(len(calls) / len(tested) if tested else float('nan'))
+                any_call.append(bool(calls))
+                low_p += sum(1 for fit in tested if fit[1] <= 0.05)
+                tested_total += len(tested)
+            finite = [v for v in shares if not math.isnan(v)]
+            values[row].update({test + '_null_called': median(finite), test + '_null_any': share(any_call),
+                                test + '_null_p05': round(low_p / tested_total, 4) if tested_total else float('nan')})
+            spread[row][test] = (round(min(finite), 4), round(max(finite), 4)) if finite else None
+    return values, spread, called
+
+
+def null_lines(values, spread, called, rows, groups, label, mean):
+    """report.md's section on the null comparisons (#449): per test, each row's metrics with the range of `null_called`
+    over the splits; the splits per group; the features called in the most splits. `groups`: [(group, samples, splits)];
+    `label(feature)`: its name; `mean(row, feature)`: the row's mean count of it."""
+    lines = ['', '## Null comparisons', '',
+             'The samples of one group split in two at random, balanced on the design, and tested against each other with the tests '
+             'of the ratiometric pools (#449): every call is false. Per route and test, over the splits: `null_called`, the median '
+             'share of the tested miRNAs called (BH-adjusted p of at most {}), with its range; `null_any`, the share of splits '
+             'with a call; `null_p05`, the share of tested p-values of at most 0.05 (5% when they are uniform). Splits: {}.'.format(
+                 FDR, '; '.join('{} ({} samples) {}'.format(group, samples, n) for group, samples, n in groups))]
+    for test in TESTS:
+        lines += ['', '**{}**'.format(TEST_NAMES[test]), '', '| metric | ' + ' | '.join(rows) + ' |', '|---' * (len(rows) + 1) + '|',
+                  '| null_called (range) | ' + ' | '.join('{} ({}–{})'.format(text(values[r][test + '_null_called']), *spread[r][test])
+                                                           if spread[r][test] else '' for r in rows) + ' |']
+        lines += ['| {} | '.format(key) + ' | '.join(text(values[r]['{}_{}'.format(test, key)]) for r in rows) + ' |'
+                  for key in NULL_KEYS[1:]]
+    totals = collections.Counter()
+    for test in TESTS:
+        for (_, feature), n in called[test].items():
+            totals[feature] += n
+    if not totals:
+        return lines + ['', 'No route called any miRNA in any split.']
+    lines += ['', 'The miRNAs called in the most splits: per route, the splits in which edgeR\'s exact test, its GLM test and voom '
+              'call it, and the route\'s mean count.', '', '| miRNA | ' + ' | '.join(rows) + ' |', '|---' * (len(rows) + 1) + '|']
+    for feature, _ in sorted(totals.items(), key=lambda kv: (-kv[1], kv[0]))[:NULL_TOP]:
+        lines.append('| {} | '.format(label(feature)) + ' | '.join('{} ({:.0f})'.format(
+            '/'.join(str(called[test][(r, feature)]) for test in TESTS), mean(r, feature)) for r in rows) + ' |')
     return lines

@@ -107,7 +107,7 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    |---|---|---|---|
    | ratiometric pool | `covariates`, `within` | pool A against pool B | every scored sequence with reads |
    | genome-wide synthetic | nothing (`de: {}`) | the group the designed fold changes raise against the other | miRNAs with at least 10 reads on average |
-   | biological | `contrast: [numerator, denominator]`, `covariates`, `within` | two of the samples' groups; samples of other groups are left out | miRNAs with at least 10 reads on average |
+   | biological | `contrast: [numerator, denominator]`, `covariates`, `within`, `null` (#449) | two of the samples' groups; samples of other groups are left out | miRNAs with at least 10 reads on average |
 
    A covariate is any field of the declaration's runs (pools) or samples (biological), e.g. `lab`, `patient` or
    `mouse`; each needs a value for every run or sample of the contrast, and the design must leave residual degrees of
@@ -115,6 +115,16 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    with a single feature to test is not tested: one feature gives no common dispersion. A biological dataset prepared
    with `--lanes` has no DE: the lanes of one library are no replicates. Its calls are reported, not scored, since no
    change is known; with `within`, the report has a table for the whole contrast and one for each level.
+
+   **Null comparisons** (#449, `de: {null: {splits: 50, seed: 1}}`): the samples of one group split in two at random
+   and tested against each other, so every call is false: the false-call rate under real variance. Each group with at
+   least 4 samples gets up to `splits` distinct splits drawn from the seed (a split and its mirror are one), each a DE
+   set (`benchmark/de/null/<group>-<k>/`) with pseudo-groups `x` and `y`. A split halves each stratum of the declared
+   covariates and `within`, so the halves are balanced on the design; a covariate the group's samples share is left out
+   of its splits. Per method and test, over all splits: `<test>_null_called` (the median share of tested miRNAs
+   called, the report adds its range), `<test>_null_any` (the share of splits with a call) and `<test>_null_p05` (the
+   share of tested p-values of at most 0.05, 5% when they are uniform); the report also lists the miRNAs called in the
+   most splits. Their spread over the splits is their uncertainty, so the sample bootstrap leaves them out.
 5. **Summary.** `benchmark.py summary` reads several evaluated projects and writes one overview, a Markdown file or a
    single self-contained HTML file (no external resources), by the output's extension:
 
