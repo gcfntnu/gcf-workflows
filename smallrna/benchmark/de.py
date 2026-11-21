@@ -359,17 +359,17 @@ def level_lines(column, levels, values, rows):
                      [(level, '{}/{}'.format(column, level), runs, sha, record) for level, runs, sha, record in levels], values, rows)
 
 
-def call_lines(sets, features, rows, numerator, denominator):
+def call_lines(sets, features, rows, numerator, denominator, library='all the miRNA reads a method reported in a sample'):
     """report.md's DE section of a dataset without known changes (biological samples): for each DE set and test, the
     features each row tests and those it calls up and down, then each set's design and results. Descriptive: no call
     is scored. `sets`: [(name, folder, samples, results, record, results_sha256)], the whole contrast's first (name
     ''), then each level of `within`."""
     lines = ['', '## Differential expression', '',
              '{} against {} over the {} miRNAs any method reports (identical sequences as one), with the tests of the '
-             'ratiometric pools (de.R, #447). Library sizes are all the miRNA reads a method reported in a sample; no TMM. A '
+             'ratiometric pools (de.R, #447). Library sizes are {}; no TMM. A '
              'row tests the miRNAs with at least the mean count below in its own counts; a call is a BH-adjusted p of at most '
              '{}. Nothing is known about the true changes, so the calls are not scored: `up` is more in {}.'.format(
-                 numerator, denominator, len(features), FDR, numerator)]
+                 numerator, denominator, len(features), library, FDR, numerator)]
     for name, _, samples, results, _, _ in sets:
         lines += ['', '**{}** ({})'.format(name or 'All samples of the contrast', samples), '',
                   '| test | count | ' + ' | '.join(rows) + ' |', '|---' * (len(rows) + 2) + '|']
