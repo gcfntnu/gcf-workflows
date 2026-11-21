@@ -538,7 +538,8 @@ def test_a_download_the_server_cuts_is_resumed_from_where_it_stopped(tmp_path, m
             self.headers = {'Content-Length': str(announced)}
 
     def urlopen(request, timeout):
-        start = int(request.headers['Range'][len('bytes='):-1]) if not isinstance(request, str) else 0
+        assert request.get_header('User-agent') == fill.USER_AGENT  # on the first request and the resumed ones (#412)
+        start = int(request.get_header('Range')[len('bytes='):-1]) if request.get_header('Range') else 0
         asked.append(start)
         return Response(good[start:start + cut], start, len(good) - start)  # at most `cut` bytes, then the connection closes
     monkeypatch.setattr(fill.urllib.request, 'urlopen', urlopen)
