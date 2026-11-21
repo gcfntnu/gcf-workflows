@@ -6,10 +6,10 @@
 # for miRNA counts (#452). Each knockout sample is compared with the parental cells of its set. XPO5 knockout lowers
 # miRNAs only partly; it is reported, but the surviving miRNAs are listed for the DROSHA knockout.
 # The study normalised the DROSHA and XPO5 knockouts to miR-320a-3p (made without DROSHA) and the DICER knockouts to
-# rRNA and tRNA reads; the benchmark uses reads per million filtered reads. The study (abstract): canonical miRNAs are
-# abolished without DROSHA, apart from a few DROSHA-independent ones (among them miR-7706, miR-3615 and miR-1254);
-# without DICER many are still detected at reduced levels, from pre-miRNAs loaded onto AGO and trimmed at the 3' end,
-# so 5p miRNAs.
+# rRNA and tRNA reads; the benchmark uses reads per million filtered reads. The study: canonical miRNAs are abolished
+# without DROSHA, apart from a few made without it (Fig. 3B: the 5' capped miR-320a-3p, miR-320b-3p, miR-484, miR-7706-3p
+# and miR-3615-3p, the mirtron miR-877-5p, and miR-1254-5p from an Alu element); without DICER many are still detected at
+# reduced levels, from pre-miRNAs loaded onto AGO and trimmed at the 3' end, so 5p miRNAs.
 name: gse77989_hct116_knockouts
 kind: biological
 organism: homo_sapiens
@@ -39,6 +39,7 @@ knockout:                   # #452: every other group against the parental cells
   control: Parental
   survival: DROSHA KO       # the knockout whose surviving miRNAs are listed
   within: set
+  expected: knockout_expected_hsa.tsv   # #478, made without DROSHA: the study's Fig. 3B and mirtronDB's mirtrons (knockout_expected.py)
 samples:
   - sample: GSM2064270       # Parental cells (set 1) replicate 1
     group: Parental

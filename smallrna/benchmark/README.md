@@ -315,6 +315,18 @@ with the controls of its own level. GSE77989 has `within: set`: the DROSHA knock
 libraries (set 1), the XPO5 and DICER knockouts with one (set 2). Its knockout clones are 2 libraries each, shallow, from
 one cell line after gel selection; XPO5 knockout lowers miRNAs only partly, so it is reported but not used for the list.
 
+`knockout.expected` (#478) names a list of the miRNAs made without DROSHA, a file next to the declaration that `prepare`
+copies into the project's `benchmark/`. GSE77989's `knockout_expected_hsa.tsv` is written by `knockout_expected.py` from
+two sources, each recorded in its header:
+- **Kim et al. 2016, Fig. 3B:** the study's own list of the miRNAs its DROSHA knockout keeps, among the 200 most
+  abundant: the 5' capped miR-320a-3p, miR-320b-3p, miR-484 (miRBase's hsa-miR-484-5p), miR-7706-3p and miR-3615-3p,
+  and the mirtron miR-877-5p. Its miR-1254-5p, from an Alu element, is not in miRBase 23.1.
+- **mirtronDB version 2:** every miRBase mature that lies exactly inside one of its 607 human mirtron precursors (469
+  matures), with the PubMed IDs of the papers behind them. Most are predictions from small RNA data, not tested in
+  these cells.
+
+With `other_rna` declared, the flagged miRNAs (inside another RNA class) are expected too.
+
 A biological dataset may declare `other_rna:` (#415), the sources of molecules of other RNA classes: `refseq_rrna`,
 `gtrnadb` and `ensembl_ncrna`, each with url and sha256, the same files as the synthetic decoys, filled into
 `<data>/other_rna/`. Its miRBase entries whose mature lies exactly inside such a molecule (rRNA, tRNA, Y RNA, snoRNA,
@@ -573,6 +585,12 @@ miRNA reads):
     each method's ratio, those every method lists, and per method those only it lists (`only`) with their reads.
     Surviving miRNAs common to every method are biology (e.g. mirtrons) or annotation; those that differ are
     quantification. `knockout.tsv` has every tested miRNA of every knockout group.
+  - With `knockout.expected` (#478): the miRNAs expected to survive, made without DROSHA (the list) or inside another RNA
+    class (`other_rna`). `knockout.tsv` gives each one's reason.
+    - The report counts per method the expected miRNAs it tests and those that survive (`knockout_surviving_expected`),
+      and names those tested but not surviving.
+    - It splits `only` into the expected, those another method tests without listing them (it measures them lower),
+      and those no other method tests. `knockout_only_unexpected` counts the last two.
 - **Accessions.** miRNAs with the same mature sequence count as one (the lowest accession), since the methods credit
   their reads to different members (miRge3 to its merge group's first name; UNITAS and mirflowz to either, e.g.
   hsa-miR-199a-3p and hsa-miR-199b-3p). Reads on names without a miRBase accession are left out of every metric and
