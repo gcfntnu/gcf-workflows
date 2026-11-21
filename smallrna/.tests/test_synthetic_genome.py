@@ -750,3 +750,24 @@ def test_prepare_and_evaluate_with_decoys(tmp_path):
     result = subprocess.run(cmd + ['summary', '--projects', str(project), '--output', str(out)], capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stderr
     assert 'decoy_as_mirna' in out.read_text()
+
+
+def test_abundant_mirnas_change_first(mirbase):
+    """#453's unbalanced scenario: structure.group.abundant makes the most abundant chosen miRNAs change, the rest as
+    before; without it the draws are those of the declaration, so the existing synthetic set does not change."""
+    files, _ = mirbase
+    u = sg.Universe(*files, 'hsa-')
+    chosen = sorted(u.mirnas)[:20]
+    base = {r: float(100 - k) for k, r in enumerate(chosen)}  # the first two chosen are the most abundant
+    spec = copy.deepcopy(SPEC)
+    spec['structure']['group'] = {'fraction': 0.25, 'log2': [1, 2]}
+    _, plain = sg.structure(chosen, base, u, spec, {'a': 3, 'b': 3}, np.random.default_rng(5))
+    spec['structure']['group']['abundant'] = 0
+    assert sg.structure(chosen, base, u, spec, {'a': 3, 'b': 3}, np.random.default_rng(5))[1] == plain  # abundant: 0 changes nothing
+    spec['structure']['group']['abundant'] = 2
+    _, loadings = sg.structure(chosen, base, u, spec, {'a': 3, 'b': 3}, np.random.default_rng(5))
+    changed = [r for r, (fold, _) in loadings.items() if fold]
+    assert len(changed) == 5 and chosen[0] in changed and chosen[1] in changed and all(loadings[r][0] > 0 for r in changed)
+    spec['structure']['group']['abundant'] = 6
+    with pytest.raises(ValueError, match='more than the miRNAs that change'):
+        sg.structure(chosen, base, u, spec, {'a': 3, 'b': 3}, np.random.default_rng(5))

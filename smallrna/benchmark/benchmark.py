@@ -76,10 +76,28 @@ def fail(message):
     sys.exit('benchmark.py: ' + message)
 
 
+def merged(base, change):
+    """`base` with `change` applied: mappings merged key by key, anything else (lists included) replaced."""
+    out = dict(base)
+    for key, value in change.items():
+        out[key] = merged(out[key], value) if isinstance(value, dict) and isinstance(out.get(key), dict) else value
+    return out
+
+
 def load_dataset(path, mirbase_release=None):
     """The declaration, with `mirbase` the release a run uses: the declared one, or with `mirbase_release` one of those
     listed under `mirbase_releases` (#431)."""
     spec = yaml.safe_load(Path(path).read_text())
+    if 'extends' in spec:  # a scenario (#453): another declaration of the same folder with some values changed
+        base_path = Path(path).parent / str(spec['extends'])
+        if not base_path.is_file():
+            fail('{}: extends {}, which is not a declaration beside it'.format(path, spec['extends']))
+        base = yaml.safe_load(base_path.read_text())
+        if 'extends' in base:
+            fail('{}: extends {}, which extends another; one level only'.format(path, spec['extends']))
+        if 'name' not in spec or spec['name'] == base.get('name'):
+            fail('{}: a declaration that extends another needs a name of its own'.format(path))
+        spec = merged(base, {k: v for k, v in spec.items() if k != 'extends'})
     for key in ('name', 'kind', 'organism', 'libprepkit', 'methods'):
         if key not in spec:
             fail('{}: missing {!r}'.format(path, key))

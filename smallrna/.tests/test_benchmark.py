@@ -3,6 +3,7 @@ on synthetic tables."""
 import collections
 import gzip
 import json
+import math
 import os
 import statistics
 from pathlib import Path
@@ -1898,7 +1899,7 @@ def test_every_method_the_shipped_datasets_declare_is_checked_before_scoring():
     """The declarations' default method lists (e.g. smrnaseq in the synthetic and Giraldez pools) must all be known to
     the preflight, or evaluation of a fully quantified project stops."""
     for path in sorted((BENCH / 'datasets').glob('*.yaml')):
-        methods = yaml.safe_load(path.read_text())['methods']
+        methods = benchmark.load_dataset(path)['methods']  # a scenario (#453) takes its base's
         assert set(methods) <= set(adapters.TABLES), (path.name, set(methods) - set(adapters.TABLES))
         assert set(methods) <= set(adapters.ADAPTERS), path.name
 
@@ -2065,7 +2066,8 @@ def test_de_scores_call_in_the_designed_direction_and_false_calls_on_1to1_only()
                 'false_calls': 0.5,   # S0 of the 1:1 S0 and S1
                 'fdr': 0.5,           # of the calls S0, S2, S3 and S4: S0 (1:1) and S4 (wrong direction); S2, 1.5-fold, is true
                 'fc_bias': -0.5,      # median of -0.08 (S2), -0.5 (S3) and -5 (S4)
-                'offset': 0.05}       # median of S0 and S1
+                'offset': 0.05,       # median of S0 and S1
+                'false_calls_against': 0.0}  # 2 of the 3 changes go up (ONE_WAY); S0 is called up, not against
     assert de.scores(results, de.pool_features(exact), ['m']) == {'m': {'{}_{}'.format(t, k): v for t in de.TESTS for k, v in expected.items()}}  # no oracle row
     assert sorted(de.metric_keys()) == sorted('{}_{}'.format(t, k) for t in de.TESTS for k in list(expected) + list(de.ORACLE_KEYS))
     assert de.metric_keys(['', '.L1']) == de.metric_keys() + ['{}.L1'.format(k) for k in de.metric_keys()]
@@ -3127,3 +3129,40 @@ def test_evaluate_a_knockout_dataset(tmp_path):
     tsv = (bench / 'knockout.tsv').read_text().splitlines()
     assert tsv[0] == 'method\tgroup\tmature_id\tmirna\tcontrol_reads\tknockout_reads\tratio\tsurviving'
     assert 'unitas\tDROSHA KO\tMIMAT0000076\thsa-miR-21-5p\t40.0\t20.0\t0.5\t1' in tsv and len(tsv) == 1 + 4   # miR-451a not tested
+
+
+# Scenarios of the genome-wide synthetic set (#453)
+
+def test_a_scenario_extends_its_base_declaration(tmp_path):
+    base = benchmark.load_dataset(BENCH / 'datasets/synthetic_hsa_genome.yaml')
+    null = benchmark.load_dataset(BENCH / 'datasets/synthetic_hsa_genome_null.yaml')
+    unbalanced = benchmark.load_dataset(BENCH / 'datasets/synthetic_hsa_genome_unbalanced.yaml')
+    for scenario in (null, unbalanced):
+        assert {k for k in scenario if scenario[k] != base[k]} == {'name', 'synthetic'} and 'extends' not in scenario
+        assert {k for k in scenario['synthetic'] if scenario['synthetic'][k] != base['synthetic'][k]} == {'structure'}
+        assert scenario['synthetic']['structure']['nuisance'] == base['synthetic']['structure']['nuisance']  # merged key by key
+    assert null['synthetic']['structure']['group']['fraction'] == 0
+    assert all(f > 0 for f in unbalanced['synthetic']['structure']['group']['log2']) and unbalanced['synthetic']['structure']['group']['abundant'] == 5
+    assert benchmark.merged({'a': {'b': 1, 'c': [1, 2]}, 'd': 1}, {'a': {'c': [3]}}) == {'a': {'b': 1, 'c': [3]}, 'd': 1}  # lists are replaced
+    write(tmp_path / 'base.yaml', yaml.safe_dump(dict(base, data='x')))
+    for change, message in (({'extends': 'base.yaml'}, 'needs a name of its own'),
+                            ({'extends': 'base.yaml', 'name': base['name']}, 'needs a name of its own'),
+                            ({'extends': 'absent.yaml', 'name': 'n'}, 'which is not a declaration beside it'),
+                            ({'extends': 'chained.yaml', 'name': 'n'}, 'one level only')):
+        write(tmp_path / 'chained.yaml', yaml.safe_dump({'extends': 'base.yaml', 'name': 'c'}))
+        with pytest.raises(SystemExit, match=message):
+            benchmark.load_dataset(write(tmp_path / 'scenario.yaml', yaml.safe_dump(change)))
+
+
+def test_false_calls_against_the_changes_need_them_mostly_one_way():
+    """#453: unchanged features called opposite to the known changes, when at least two thirds go one way."""
+    features = [('U1', 0.0), ('U2', 0.0), ('U3', 0.0), ('C1', 1.0), ('C2', 2.0), ('C3', 1.0)]
+    fit = {'U1': (-0.4, 0.001, 0.01), 'U2': (-0.3, 0.2, 0.3), 'U3': (0.3, 0.001, 0.01), 'C1': (1.0, 0.001, 0.01), 'C2': (2.0, 0.001, 0.01),
+           'C3': (1.0, 0.001, 0.01), 'C4': (-1.0, 0.001, 0.01)}
+    results = {('m', test, f): v for test in de.TESTS for f, v in fit.items()}
+    values = de.scores(results, features, ['m'])['m']
+    assert values['voom_false_calls_against'] == 0.3333 and values['voom_false_calls'] == 0.6667  # U1 against, U3 with
+    balanced = [('U1', 0.0), ('U2', 0.0), ('U3', 0.0), ('C1', 1.0), ('C2', 2.0), ('C3', 1.0), ('C4', -1.0)]
+    assert de.scores(results, balanced, ['m'])['m']['edger_false_calls_against'] == 0.3333  # 3 of 4 up: one way
+    balanced[1] = ('C2', -2.0)
+    assert math.isnan(de.scores(results, balanced, ['m'])['m']['edger_false_calls_against'])  # 2 up, 2 down: no direction
