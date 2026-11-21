@@ -2182,7 +2182,8 @@ def test_shipped_ratiometric_declarations_declare_their_de_design():
     assert genome['de'] == {} and benchmark.de_kind(genome) == 'synthetic' and benchmark.de_contrast(truseq) == ('A', 'B')
     for path in BENCH.glob('datasets/*.yaml'):
         spec = yaml.safe_load(path.read_text())
-        assert ('de' in spec) == (spec.get('pool') == 'ratiometric' or spec['name'] in ('synthetic_hsa_genome', 'gse317995_nextflex_v4')), path.name
+        assert ('de' in spec) == (spec.get('pool') == 'ratiometric' or spec['name'] in ('synthetic_hsa_genome', 'gse317995_nextflex_v4') or
+                                  spec['kind'] == 'mixture'), path.name
 
 
 def test_de_sets_take_any_column_of_the_runs_as_a_covariate(tmp_path):

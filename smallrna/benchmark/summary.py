@@ -75,6 +75,17 @@ SECTIONS = [
      'when one group\'s samples, split in two at random, are tested against each other (every call is false). A dataset with '
      'knockout cells (#452): `knockout_mirna_share`, the miRNA reads per million filtered reads in the knockout that should '
      'remove miRNAs (DROSHA) relative to its control cells, and `knockout_surviving`, the miRNAs that keep more than 25% there.'),
+    ('mixture', 'Tissue mixtures', ['mirna_reads', 'detected', 'linearity_error', 'replicate_error', 'within_1_5fold', 'monotonic',
+                                    'edger_glm_called', 'edger_glm_wrong_direction', 'edger_glm_called_shared'],
+     'Total RNA of two tissues of each subject mixed at known fractions (#451). No known composition: each mixture is predicted '
+     'from the method\'s own counts of the subject\'s two pure samples, with a content ratio fitted per method and subject, so the scores '
+     'show linear and consistent counting, not correct assignment. `linearity_error` is the median |log2(observed / predicted)| '
+     'over miRNA-sample pairs with at least 10 predicted reads and `within_1_5fold` the share within 1.5-fold; '
+     '`replicate_error`, the same error between technical replicates, is its floor. `monotonic`: tissue-specific miRNAs whose '
+     'subject series never move against the trend. Differential expression between the mixtures\' fractions, paired by subject '
+     '(`evaluate --de`), with edgeR\'s GLM test: `edger_glm_called` (miRNAs the method expects at least 2-fold apart, called in '
+     'that direction), `edger_glm_wrong_direction` (the share of its calls against the expected direction) and '
+     '`edger_glm_called_shared` (`called` over the miRNAs every method expects at least 2-fold apart).'),
 ]
 FIXED = ['project', 'dataset', 'kit', 'samples', 'reads processed', 'methods']
 
@@ -93,7 +104,7 @@ def read_project(project, out_dir):
     spec = yaml.safe_load((bench / 'dataset.yaml').read_text())
     kind = spec.get('pool') if spec.get('kind') == 'pool' else spec.get('kind')
     if kind not in [s[0] for s in SECTIONS]:
-        raise ValueError('{}: dataset kind {!r} (pool {!r}) is not one of synthetic, pool (equimolar, ratiometric), biological'.format(
+        raise ValueError('{}: dataset kind {!r} (pool {!r}) is not one of synthetic, pool (equimolar, ratiometric), biological, mixture'.format(
             project, spec.get('kind'), spec.get('pool')))
     table, record, intervals, routes = evaluation.read_evaluation(bench)
     columns = table[0][1:]
