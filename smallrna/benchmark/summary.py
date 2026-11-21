@@ -68,7 +68,7 @@ SECTIONS = [
     ('biological', 'Biological samples', ['mirna_reads', 'unplaced', 'detected', 'detected_all_samples', 'top10_share', 'isomir_share',
                                           'edger_null_called', 'voom_null_called',
                                           'knockout_mirna_share', 'knockout_surviving', 'knockout_surviving_expected',
-                                          'knockout_only_unexpected', 'detected_unflagged', 'read_in_other_class'],
+                                          'knockout_surviving_unexpected', 'detected_unflagged', 'read_in_other_class'],
      'No known composition: `mirna_reads` is the rounded median per sample of reads assigned to a miRBase accession. '
      'The other metrics describe the share on names without a miRBase accession, '
      'miRNAs detected (at least 10 reads; median over samples) and in every sample, and the share of the 10 most abundant. '
@@ -79,8 +79,8 @@ SECTIONS = [
      'knockout cells (#452): `knockout_mirna_share`, the miRNA reads per million filtered reads in the knockout that should '
      'remove miRNAs (DROSHA) relative to its control cells, and `knockout_surviving`, the miRNAs that keep more than 25% there; '
      'with the miRNAs expected to survive declared (#478; made without DROSHA, or inside another RNA class), '
-     '`knockout_surviving_expected`, those of them that survive, and `knockout_only_unexpected`, the surviving miRNAs only '
-     'that method lists and not expected. '
+     '`knockout_surviving_expected`, those of them that survive, and `knockout_surviving_unexpected`, the surviving miRNAs '
+     'not expected. '
      'With the other RNA classes declared (#415): `detected_unflagged`, `detected` without the miRBase entries whose mature lies '
      'inside a tRNA, rRNA, Y RNA, snoRNA or other ncRNA, and `read_in_other_class`, the share of a method\'s miRNA reads (isomiR '
      'output) whose read lies inside such a molecule.'),

@@ -3385,13 +3385,13 @@ def test_evaluate_a_knockout_dataset_with_an_expected_list(tmp_path):
     assert result.returncode == 0, result.stderr
     bench = project / 'benchmark'
     section = (bench / 'report.md').read_text().split('## Knockouts (#452)')[1].split('\n## ')[0]
-    assert "Expected to survive (`knockout.expected`, #478): 2 miRNAs of this miRBase release (1 5' capped, 1 mirtron)." in section
+    assert "Expected to survive (`knockout.expected`, #478): 2 miRNAs (1 5' capped, 1 mirtron); 2 of the 3 listed are in this miRBase release." in section
     for row in ('| expected tested | 1 | 1 |', '| expected surviving | 1 | 0 |', '| only: expected | 1 | 0 |', '| only: tested elsewhere | 0 | 0 |',
                 '| only_unexpected_reads | 0.0 | 0.0 |', '| hsa-miR-21-5p | 1 | mirtron | **0.50** | 0.05 |'):
         assert row in section, row
     assert 'Expected miRNAs tested but not surviving, per method (most control reads first): mirge3: hsa-miR-21-5p.' in section
     metrics = {row.split('\t')[0]: row.split('\t')[1:] for row in (bench / 'metrics.tsv').read_text().splitlines()[1:]}
-    assert metrics['knockout_surviving_expected'] == ['1', '0'] and metrics['knockout_only_unexpected'] == ['0', '0']
+    assert metrics['knockout_surviving_expected'] == ['1', '0'] and metrics['knockout_surviving_unexpected'] == ['0', '0']
     tsv = (bench / 'knockout.tsv').read_text().splitlines()
     assert tsv[0].endswith('\tsurviving\texpected') and 'unitas\tDROSHA KO\tMIMAT0000076\thsa-miR-21-5p\t40.0\t20.0\t0.5\t1\tmirtron' in tsv
     assert 'unitas\tDROSHA KO\tMIMAT0000069\thsa-miR-16-5p\t600.0\t3.0\t0.005\t0\t' in tsv
@@ -3399,7 +3399,7 @@ def test_evaluate_a_knockout_dataset_with_an_expected_list(tmp_path):
     result = subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'summary', '--projects', str(project), '--output', str(out)],
                             capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
-    assert 'knockout_surviving_expected' in out.read_text() and 'knockout_only_unexpected' in out.read_text()
+    assert 'knockout_surviving_expected' in out.read_text() and 'knockout_surviving_unexpected' in out.read_text()
     flagged = knockout_project(tmp_path / 'flagged', OTHER_RNA, {'miR-16-5p': 'TAGCAGCACGTAAATATTGGCG', 'miR-21-5p': MIR21},
                                EXPECTED_HEADER + "MIMAT0001631\thsa-miR-451a\t5' capped\tx\n")
     result = evaluate_cmd(flagged)

@@ -194,7 +194,8 @@ def check_knockout(spec, path):
         if not isinstance(expected, str) or not expected or Path(expected).name != expected:
             fail('{}: knockout.expected names a file next to the declaration, got {!r}'.format(path, expected))
         if not (Path(path).parent / expected).is_file():
-            fail('{}: knockout.expected: {} not found'.format(path, Path(path).parent / expected))
+            fail('{}: knockout.expected: {} not found; prepare copies the list next to a project\'s dataset.yaml (for a project '
+                 'prepared before #478, copy it from smallrna/benchmark/datasets/)'.format(path, Path(path).parent / expected))
         knockout_expected.read_list(Path(path).parent / expected)
 
 
@@ -1863,13 +1864,16 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
         expected = None
         if spec['knockout'].get('expected'):  # by the accession a method's reads count under, as biological.collapse
             representative, reasons = isomirs.representatives(id_to_seq), collections.defaultdict(set)
-            for accession, (_, reason, _) in knockout_expected.read_list(bench / spec['knockout']['expected']).items():
+            listed = knockout_expected.read_list(bench / spec['knockout']['expected'])
+            for accession, (_, reason, _) in listed.items():
                 if accession in representative:  # a mature of another release is left out
                     reasons[representative[accession]].add(reason)
             for accession in flag or {}:
                 reasons[accession].add(OTHER_CLASS)
             expected = {accession: '; '.join(sorted(r)) for accession, r in reasons.items()}
-        ko_rows, knockout_lines = knockout_section(bench, spec, table, common, methods, filt, id_to_name, flag, expected)
+            in_release = (sum(accession in representative for accession in listed), len(listed))
+        ko_rows, knockout_lines = knockout_section(bench, spec, table, common, methods, filt, id_to_name, flag, expected,
+                                                   in_release if expected is not None else None)
         metric_rows += ko_rows
     pairs = biological.agreement(common, methods, samples)
     pair_keys = list(next(iter(pairs.values()), {}))
@@ -1976,12 +1980,13 @@ OTHER_CLASS = 'inside another RNA class (#415)'  # a reason a miRNA is expected 
 OTHER_RNA_KEYS = ['flagged_reads', 'flagged_detected', 'detected_unflagged', 'read_in_other_class']  # #415
 
 
-def knockout_section(bench, spec, table, common, methods, filt, id_to_name, flag=None, expected=None):
+def knockout_section(bench, spec, table, common, methods, filt, id_to_name, flag=None, expected=None, in_release=None):
     """The knockout comparison of a biological dataset (#452): its metrics.tsv rows and report lines; writes
     benchmark/knockout.tsv (every method, knockout group and tested miRNA). With `flag` (#415, {accession: [(class,
     molecules)]}), the surviving miRNAs inside molecules of other RNA classes too. With `expected` ({accession:
     reason}, #478: `knockout.expected` and the flagged miRNAs), the miRNAs expected to survive: knockout.tsv gives each one's
-    reason, and each method's surviving miRNAs are split by it."""
+    reason, and each method's surviving miRNAs are split by it; `in_release`: (the list's entries in the project's miRBase
+    release, its entries)."""
     declared = spec['knockout']
     control, survival = str(declared['control']), str(declared['survival'])
     units = knockout_units(spec, table)
@@ -2006,7 +2011,7 @@ def knockout_section(bench, spec, table, common, methods, filt, id_to_name, flag
     split = biological.expected_split(result, per, methods, survival, set(expected)) if expected is not None else None
     if split:
         rows += [['knockout_surviving_expected'] + [len(split[m]['surviving_expected']) for m in methods],
-                 ['knockout_only_unexpected'] + [len(split[m]['only_tested_elsewhere'] | split[m]['only_untested_elsewhere']) for m in methods]]
+                 ['knockout_surviving_unexpected'] + [len(per[m]['surviving'] - set(expected)) for m in methods]]  # whichever methods run
     within = declared.get('within')
     lines = ['', '## Knockouts (#452)', '',
              'Canonical miRNAs need DROSHA and DICER, so in those knockouts their reads should fall to near zero. The miRNA reads a',
@@ -2037,10 +2042,11 @@ def knockout_section(bench, spec, table, common, methods, filt, id_to_name, flag
               '`only`: the surviving miRNAs no other method lists, and their reads (mean per {} sample).'.format(survival)]
     if split:
         reasons = collections.Counter(r for value in expected.values() for r in value.split('; '))
-        lines += ['Expected to survive (`knockout.expected`, #478): {} miRNAs of this miRBase release ({}). `only` is split into the'.format(
-                      len(expected), ', '.join('{} {}'.format(n, r) for r, n in sorted(reasons.items(), key=lambda kv: (-kv[1], kv[0])))),
-                  'expected, those another method tests without listing them (it measures them lower) and those no other method',
-                  'tests; `only_unexpected_reads`: the reads of the last two.']
+        lines += ['Expected to survive (`knockout.expected`, #478): {} miRNAs ({}); {} of the {} listed are in this miRBase release.'.format(
+                      len(expected), ', '.join('{} {}'.format(n, r) for r, n in sorted(reasons.items(), key=lambda kv: (-kv[1], kv[0]))),
+                      *in_release),
+                  '`only` is split into the expected, those another method tests without listing them (it measures them lower) and',
+                  'those no other method tests; `only_unexpected_reads`: the reads of the last two.']
     split_rows = [] if not split else [
         ['expected tested'] + [len(split[m]['tested_expected']) for m in methods],
         ['expected surviving'] + [len(split[m]['surviving_expected']) for m in methods]]
@@ -2062,6 +2068,10 @@ def knockout_section(bench, spec, table, common, methods, filt, id_to_name, flag
         if any(split[m]['tested_expected'] - per[m]['surviving'] for m in methods):
             lines += ['', 'Expected miRNAs tested but not surviving, per method (most control reads first): ' + '; '.join(
                 '{}: {}'.format(m, missed(m)) for m in methods if split[m]['tested_expected'] - per[m]['surviving']) + '.']
+        candidates = sorted(id_to_name.get(i, i) for i in common_set - set(expected))
+        if candidates:  # every method agreeing is evidence about the miRNA, not about a method
+            lines += ['', '{} of the {} miRNAs surviving in every method are not expected: candidates for the list (made without DROSHA, or'
+                      ' from another RNA), not false counts: {}.'.format(len(candidates), len(common_set), ', '.join(candidates))]
     if flag is not None and any(per[m]['surviving'] & set(flag) for m in methods):
         lines += ['', 'Surviving miRNAs that lie inside molecules of other RNA classes (#415), per method: ' + '; '.join(
             '{}: {}'.format(m, ', '.join(sorted(id_to_name.get(i, i) for i in per[m]['surviving'] & set(flag))))

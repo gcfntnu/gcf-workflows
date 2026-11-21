@@ -590,7 +590,9 @@ miRNA reads):
     - The report counts per method the expected miRNAs it tests and those that survive (`knockout_surviving_expected`),
       and names those tested but not surviving.
     - It splits `only` into the expected, those another method tests without listing them (it measures them lower),
-      and those no other method tests. `knockout_only_unexpected` counts the last two.
+      and those no other method tests. That split depends on which methods run; `knockout_surviving_unexpected`, the
+      surviving miRNAs not expected, does not.
+    - It names the miRNAs surviving in every method that are not expected: candidates for the list, not false counts.
 - **Accessions.** miRNAs with the same mature sequence count as one (the lowest accession), since the methods credit
   their reads to different members (miRge3 to its merge group's first name; UNITAS and mirflowz to either, e.g.
   hsa-miR-199a-3p and hsa-miR-199b-3p). Reads on names without a miRBase accession are left out of every metric and
