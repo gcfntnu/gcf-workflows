@@ -1959,6 +1959,10 @@ def test_de_model_names_the_contrast_numeric_covariates_and_the_least_mean_count
     known = re.search(r"unknown <- setdiff\(settings\$field, c\(([^)]*)\)\)", script)
     assert known and known.group(1) == "'numerator', 'denominator', 'min_mean', 'numeric'"  # the fields model_text writes
     assert "levels = c(denominator, numerator)" in script and 'coefficient <- ncol(model)' in script  # log2(numerator / denominator)
+    assert "sprintf('`%s`', c(covariates, 'group'))" in script  # names quoted in the formula: `repeat` is a valid column, and an R keyword
+    assert 'na.strings = character()' in script                 # a group called NA is a label, not a missing value
+    assert "deparse(formula, width.cutoff = 500L), collapse = ' ')" in script and script.count('deparse(') == 1  # one string in the record
+    assert benchmark.de.NAME.fullmatch('repeat') and not benchmark.de.NAME.fullmatch('a`b')
 
 
 def test_de_inputs_are_rewritten_only_when_changed(tmp_path):
@@ -2040,6 +2044,11 @@ def test_de_results_must_cover_every_row_test_and_sequence(tmp_path):
     write(path, 'row\ttest\tpool_id\tlogFC\n')
     with pytest.raises(ValueError, match='columns'):
         read(['S0', 'S1'])
+    write(path, '\t'.join(de.RESULT_HEADER) + '\n')  # no feature in any row: de.R writes the header alone
+    assert read([]) == {}
+    write(path, '')
+    with pytest.raises(ValueError, match='columns'):
+        read([])
 
 
 def de_declaration(tmp_path, change):
@@ -2139,6 +2148,18 @@ def test_a_biological_declaration_names_its_contrast_and_covariates(tmp_path):
             benchmark.load_dataset(biological_declaration(tmp_path, de_spec))
     with pytest.raises(SystemExit, match='at least two samples in each group, got 1 case and 2 control'):
         benchmark.load_dataset(biological_declaration(tmp_path, {'contrast': ['case', 'control']}, ('case', 'control', 'control')))
+    # Group labels that YAML reads as numbers (a dose of 100 against 0): samples.tsv has them as text, and so has the contrast.
+    spec = benchmark.load_dataset(biological_declaration(tmp_path, {'contrast': [100, 0]}, (100, 100, 0, 0, 10, 10)))
+    assert benchmark.de_contrast(spec) == ('100', '0')
+    rows = [{'sample': s['sample'], 'library': s['sample'], 'group': str(s['group']), 'lane': 'merged'} for s in spec['samples']]
+    (whole,) = benchmark.de_sets(spec, benchmark.de_units(spec, rows))
+    assert [(sample, group) for sample, group, _ in whole.design] == [('S0', '100'), ('S1', '100'), ('S2', '0'), ('S3', '0')]
+    assert whole.model == de.model_text('100', '0', (), 10) and whole.samples == '2 100 and 2 0 samples'
+    with pytest.raises(SystemExit, match=re.escape('benchmark/samples.tsv has 1 100 and 2 0 sample(s) for the DE set of the whole dataset')):
+        benchmark.de_sets(spec, benchmark.de_units(spec, rows[1:]))  # a project prepared from another declaration
+    for contrast in ([100, None], ['', 0], [[100], 0]):
+        with pytest.raises(SystemExit, match='de.contrast must name two different groups'):
+            benchmark.load_dataset(biological_declaration(tmp_path, {'contrast': contrast}, (100, 100, 0, 0)))
 
 
 def de_snakemake(cwd, *args):
@@ -2397,8 +2418,9 @@ def test_a_biological_dataset_goes_through_the_de_step_without_scores(tmp_path):
     data = ext / 'benchmark/smallrna/bio'
     write(data / 'mirbase/23.1/mature.fa', BLOOD)
     reads = ['TAGCAGCACGTAAATATTGGCG'] * 6 + ['TAGCTTATCAGACTGATGTTGA'] * 3
-    names = ['GSM1', 'GSM2', 'GSM3', 'GSM4', 'GSM5']
-    groups = dict(zip(names, ['case', 'case', 'control', 'control', 'other']))
+    names = ['GSM{}'.format(i) for i in range(1, 10)]
+    groups = dict(zip(names, ['case'] * 4 + ['control'] * 4 + ['other']))
+    labs = dict(zip(names, ['L1', 'L1', 'L2', 'L2'] * 2 + ['L1']))
     for i, name in enumerate(names):
         (data / 'fastq').mkdir(parents=True, exist_ok=True)
         with gzip.open(data / 'fastq/SRR{}.fastq.gz'.format(i), 'wt') as fh:
@@ -2407,8 +2429,8 @@ def test_a_biological_dataset_goes_through_the_de_step_without_scores(tmp_path):
     dataset = write(tmp_path / 'bio.yaml', yaml.safe_dump({
         'name': 'bio', 'kind': 'biological', 'organism': 'homo_sapiens', 'libprepkit': 'Bioo Scientific NEXTflex Small RNA-Seq Kit v4',
         'methods': ['unitas', 'mirge3'], 'data': 'benchmark/smallrna/bio', 'mirbase': {'release': '23.1', 'url': 'unused', 'sha256': 'unused'},
-        'de': {'contrast': ['case', 'control'], 'covariates': ['patient']},
-        'samples': [{'sample': name, 'group': groups[name], 'patient': 'P{}'.format(i % 2),
+        'de': {'contrast': ['case', 'control'], 'covariates': ['lab'], 'within': 'lab'},
+        'samples': [{'sample': name, 'group': groups[name], 'lab': labs[name],
                      'runs': [{'run': 'SRR{}'.format(i), 'lane': 1, 'md5': 'unused', 'url': 'unused'}]} for i, name in enumerate(names)]}))
     cmd = [sys.executable, str(BENCH / 'benchmark.py')]
 
@@ -2435,25 +2457,35 @@ def test_a_biological_dataset_goes_through_the_de_step_without_scores(tmp_path):
     bench = project / 'benchmark'
     result = evaluate_cmd(project)
     assert result.returncode == 0, result.stderr
-    assert (bench / 'de/input/design.tsv').read_text() == ('sample\tgroup\tpatient\nGSM1\tcase\tP0\nGSM2\tcase\tP1\n'
-                                                           'GSM3\tcontrol\tP0\nGSM4\tcontrol\tP1\n')  # GSM5 is in neither group
+    design = (bench / 'de/input/design.tsv').read_text().splitlines()
+    assert design[:3] == ['sample\tgroup\tlab', 'GSM1\tcase\tL1', 'GSM2\tcase\tL1'] and len(design) == 9  # GSM9 is in neither group
     assert (bench / 'de/input/model.tsv').read_text() == de.model_text('case', 'control', (), 10)
-    assert (bench / 'de/levels.tsv').read_text() == 'column\tlevel\n'
+    assert (bench / 'de/levels.tsv').read_text() == 'column\tlevel\nlab\tL1\nlab\tL2\n'
+    assert (bench / 'de/lab/L2/input/design.tsv').read_text() == 'sample\tgroup\nGSM3\tcase\nGSM4\tcase\nGSM7\tcontrol\nGSM8\tcontrol\n'
     counts = (bench / 'de/input/counts.tsv').read_text().splitlines()
-    assert counts[0] == 'row\tfeature\tGSM1\tGSM2\tGSM3\tGSM4' and 'unitas\tMIMAT0000069\t700\t710\t720\t730' in counts
-    assert 'mirge3\tMIMAT0001631\t0\t0\t0\t0' in counts  # a miRNA only UNITAS reports: every row lists every feature
-    assert (bench / 'de/input/library_sizes.tsv').read_text() == ('row\tGSM1\tGSM2\tGSM3\tGSM4\nunitas\t1001.0\t1001.0\t1001.0\t1001.0\n'
-                                                                  'mirge3\t1000.0\t1000.0\t1000.0\t1000.0\n')
+    assert counts[0] == 'row\tfeature\t' + '\t'.join(names[:8]) and 'unitas\tMIMAT0000069\t' + '\t'.join(str(700 + 10 * k) for k in range(8)) in counts
+    assert 'mirge3\tMIMAT0001631' + '\t0' * 8 in counts  # a miRNA only UNITAS reports: every row lists every feature
+    assert (bench / 'de/input/library_sizes.tsv').read_text() == ('row\t' + '\t'.join(names[:8]) + '\nunitas' + '\t1001.0' * 8 + '\n'
+                                                                  'mirge3' + '\t1000.0' * 8 + '\n')
     assert '## Differential expression' not in (bench / 'report.md').read_text()
     metrics_before = (bench / 'metrics.tsv').read_text()
     result = evaluate_cmd(project, '--de')
     assert result.returncode != 0 and 'no results.tsv or record.tsv' in result.stderr
-    de_outputs(project, {'MIMAT0000069': (0.4, 0.001, 0.01), 'MIMAT0000076': (-0.6, 0.001, 0.02), 'MIMAT0001631': (None, None, None)})
+    fits = {'MIMAT0000069': (0.4, 0.001, 0.01), 'MIMAT0000076': (-0.6, 0.001, 0.02), 'MIMAT0001631': (None, None, None)}
+    de_outputs(project, fits)
+    de_outputs(project, fits, folder='lab/L1')
+    de_outputs(project, dict(fits, MIMAT0000076=(-0.6, 0.2, 0.3)), folder='lab/L2')  # in L2, miR-21-5p is not called
     result = evaluate_cmd(project, '--de')
     assert result.returncode == 0, result.stderr
     report = (bench / 'report.md').read_text()
     assert '## Differential expression' in report and 'case against control over the 3 miRNAs any method reports' in report
-    assert "| edgeR's exact test | tested | 2 | 2 |" in report and '|  | up | 1 | 1 |' in report and '|  | down | 1 | 1 |' in report
+    whole, lab1, lab2 = report.split('## Differential expression')[1].split('\n**')[1:4]  # a table per DE set, each lab's too
+    assert whole.startswith('All samples of the contrast** (4 case and 4 control samples)') and lab2.startswith('L2** (2 case and 2 control samples)')
+    assert "| edgeR's exact test | tested | 2 | 2 |" in whole and '|  | up | 1 | 1 |' in whole and '|  | down | 1 | 1 |' in whole
+    assert '|  | down | 1 | 1 |' in lab1 and '|  | down | 0 | 0 |' in lab2 and '|  | up | 1 | 1 |' in lab2
+    for folder in ('', 'lab/L1/', 'lab/L2/'):
+        sha = hashlib.sha256((bench / 'de' / folder / 'results.tsv').read_bytes()).hexdigest()
+        assert '`de/{}results.tsv` SHA-256 `{}`'.format(folder, sha) in report
     assert (bench / 'metrics.tsv').read_text() == metrics_before  # the calls are reported, not scored
     lanes = prepared('lanes', '--lanes')
     assert evaluate_cmd(lanes).returncode == 0 and not (lanes / 'benchmark/de').exists()  # lanes of one library are no replicates

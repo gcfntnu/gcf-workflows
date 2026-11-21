@@ -136,7 +136,7 @@ def de_contrast(spec, units=None):
     if kind == 'pool':
         return 'A', 'B'
     if kind == 'biological':
-        return tuple((spec['de'] or {})['contrast'])
+        return tuple(str(group) for group in (spec['de'] or {})['contrast'])  # as text, as samples.tsv has the groups
     signs = {group: {float(fields['factor_group']) > 0 for _, g, fields in units if g == group} for _, group, _ in units}
     if len(signs) != 2 or sorted(signs.values(), key=sorted) != [{False}, {True}]:
         fail('benchmark/samples.tsv: the mixed samples need two groups, one with a positive and one with a negative factor_group')
@@ -161,11 +161,14 @@ def check_de(spec, path):
     if kind == 'synthetic':
         return
     unit = 'run' if kind == 'pool' else 'sample'
-    units = [(u.get('group'), u) for u in (spec['runs'] if kind == 'pool' else spec['samples'])]
+    # Groups as text: samples.tsv, which the evaluation reads, has them as text, and YAML may give numbers (100, 0).
+    units = [(None if u.get('group') is None else str(u['group']), u) for u in (spec['runs'] if kind == 'pool' else spec['samples'])]
     if kind == 'biological':
         contrast = declared.get('contrast')
         present = {group for group, _ in units}
-        if not isinstance(contrast, list) or len(contrast) != 2 or contrast[0] == contrast[1] or not set(contrast) <= present:
+        labels = [str(group) for group in contrast] if isinstance(contrast, list) and None not in contrast else []
+        if len(labels) != 2 or labels[0] == labels[1] or not set(labels) <= present or \
+                any(not label.strip() or set(label) & set('\t\n') for label in labels):
             fail('{}: de.contrast must name two different groups of the samples, [numerator, denominator], got {!r}'.format(path, contrast))
     contrast = de_contrast(spec)
     units = [(group, fields) for group, fields in units if group in contrast]
@@ -1001,6 +1004,10 @@ def de_sets(spec, units):
 
     def de_set(suffix, folder, members, names, numeric=()):
         sizes = collections.Counter(group for _, group, _ in members)
+        if min(sizes[numerator], sizes[denominator]) < 2:  # e.g. a project prepared from another declaration
+            fail('benchmark/samples.tsv has {} {} and {} {} sample(s) for the DE set {}; differential expression needs at least '
+                 'two in each group: prepare the project again from its declaration'.format(
+                     sizes[numerator], numerator, sizes[denominator], denominator, folder or 'of the whole dataset'))
         return DeSet(suffix, folder, [(sample, group, {c: fields[c] for c in names}) for sample, group, fields in members],
                      de.model_text(numerator, denominator, numeric, min_mean),
                      '{} {} and {} {} {}'.format(sizes[numerator], numerator, sizes[denominator], denominator,
@@ -1299,7 +1306,8 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
         de_texts = {s.folder: de.input_tables(count, methods, features, s.design, sizes, s.model) for s in sets}
         de_results, de_reports = differential_expression(args, bench, sets, de_texts, methods, features)
         if de_results:
-            de_lines = de.call_lines(de_results[''], features, methods, *de_contrast(spec), *de_reports[''][:2])
+            de_lines = de.call_lines([(s.suffix[1:], s.folder, s.samples, de_results[s.suffix], *de_reports[s.suffix][:2]) for s in sets],
+                                     features, methods, *de_contrast(spec))
             de_lines += ['', rounding_line(count, methods, features, tested, 'miRNAs')]
     for path, header, rows in pending:
         write_tsv(path, header, rows)

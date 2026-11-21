@@ -110,8 +110,11 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
 
    A covariate is any field of the declaration's runs (pools) or samples (biological), e.g. `lab`, `patient` or
    `mouse`; each needs a value for every run or sample of the contrast, and the design must leave residual degrees of
-   freedom. A biological dataset prepared with `--lanes` has no DE: the lanes of one library are no replicates. Its
-   calls are reported, not scored, since no change is known.
+   freedom. Group labels and covariate values are text, whatever YAML makes of them (a dose `100` against `0`, a
+   group `NA`), and a covariate may have any column name of letters, digits and `_`. A row with a single feature to
+   test is not tested: one feature gives no common dispersion. A biological dataset prepared with `--lanes` has no
+   DE: the lanes of one library are no replicates. Its calls are reported, not scored, since no change is known; with
+   `within`, the report has a table for the whole contrast and one for each level.
 5. **Summary.** `benchmark.py summary` reads several evaluated projects and writes one overview, a Markdown file or a
    single self-contained HTML file (no external resources), by the output's extension:
 

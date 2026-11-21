@@ -330,23 +330,27 @@ def level_lines(column, levels, values, rows):
                      [(level, '{}/{}'.format(column, level), runs, sha, record) for level, runs, sha, record in levels], values, rows)
 
 
-def call_lines(results, features, rows, numerator, denominator, record, results_sha256):
-    """report.md's DE section of a dataset without known changes (biological samples): for each test and row, the
-    features tested and those called up and down. Descriptive: no call is scored."""
+def call_lines(sets, features, rows, numerator, denominator):
+    """report.md's DE section of a dataset without known changes (biological samples): for each DE set and test, the
+    features each row tests and those it calls up and down, then each set's design and results. Descriptive: no call
+    is scored. `sets`: [(name, folder, samples, results, record, results_sha256)], the whole contrast's first (name
+    ''), then each level of `within`."""
     lines = ['', '## Differential expression', '',
              '{} against {} over the {} miRNAs any method reports (identical sequences as one), with the tests of the '
              'ratiometric pools (de.R, #447). Library sizes are all the miRNA reads a method reported in a sample; no TMM. A '
              'row tests the miRNAs with at least the mean count below in its own counts; a call is a BH-adjusted p of at most '
              '{}. Nothing is known about the true changes, so the calls are not scored: `up` is more in {}.'.format(
-                 numerator, denominator, len(features), FDR, numerator), '',
-             '| test | count | ' + ' | '.join(rows) + ' |', '|---' * (len(rows) + 2) + '|']
-    for test in TESTS:
-        fits = {row: [results[(row, test, feature)] for feature in features] for row in rows}
-        for i, (name, counted) in enumerate((('tested', lambda f: f[1] is not None), ('up', lambda f: call(f) > 0),
-                                             ('down', lambda f: call(f) < 0))):
-            lines.append('| {} | {} | '.format(TEST_NAMES[test] if i == 0 else '', name) +
-                         ' | '.join(str(sum(1 for f in fits[row] if counted(f))) for row in rows) + ' |')
-    lines += ['', 'Least mean count {}; design `{}`. edgeR {}, limma {}; {}. `de/results.tsv` SHA-256 `{}`.'.format(
-        record.get('min_mean', '?'), record.get('formula', '?'), record.get('edgeR', '?'), record.get('limma', '?'),
-        record.get('R', '?'), results_sha256)]
+                 numerator, denominator, len(features), FDR, numerator)]
+    for name, _, samples, results, _, _ in sets:
+        lines += ['', '**{}** ({})'.format(name or 'All samples of the contrast', samples), '',
+                  '| test | count | ' + ' | '.join(rows) + ' |', '|---' * (len(rows) + 2) + '|']
+        for test in TESTS:
+            fits = {row: [results[(row, test, feature)] for feature in features] for row in rows}
+            for i, (label, counted) in enumerate((('tested', lambda f: f[1] is not None), ('up', lambda f: call(f) > 0),
+                                                  ('down', lambda f: call(f) < 0))):
+                lines.append('| {} | {} | '.format(TEST_NAMES[test] if i == 0 else '', label) +
+                             ' | '.join(str(sum(1 for f in fits[row] if counted(f))) for row in rows) + ' |')
+    lines += [''] + ['{}: least mean count {}; design `{}`. edgeR {}, limma {}; {}. `de/{}results.tsv` SHA-256 `{}`.'.format(
+        name or 'All samples', record.get('min_mean', '?'), record.get('formula', '?'), record.get('edgeR', '?'), record.get('limma', '?'),
+        record.get('R', '?'), folder + '/' if folder else '', sha) for name, folder, _, _, record, sha in sets]
     return lines
