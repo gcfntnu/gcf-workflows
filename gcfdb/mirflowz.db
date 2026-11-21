@@ -13,8 +13,14 @@ load against the Ensembl lookup table and again against the downloaded GFF's `ge
 - The chromosome map (UCSC names of the GFF to genome names) is built from the files and stops on any unmapped GFF
   chromosome (scripts/mirflowz_chr_map.py), except those in `MIRFLOWZ_GFF_REMOVE`, which belong to no sequence of the
   assembly and are removed from the annotation.
-- mirflowz's own preparation rules (segemehl indexes, processed genome, transcriptome and annotations) run once into
-  `<reference>/prepared/` (scripts/mirflowz_prepare.py), recorded in `<reference>/mirflowz_reference.tsv`.
+- mirflowz's own preparation rules run in two parts (scripts/mirflowz_prepare.py): the genome part (segemehl
+  indexes, processed genome and transcriptome) once into `<reference>/prepared/`, recorded in
+  `<reference>/mirflowz_reference.tsv`; the annotation part (the extended miRNA annotations) into
+  `<reference>/gff-<ID>/annotation/`, recorded in `<reference>/gff-<ID>/mirflowz_annotation.tsv`.
+- Everything built from the miRNA GFF (the chromosome map and the annotation part here; tiny-count's GFF, the TEsmall
+  database) is in `gff-<ID>` (MIRFLOWZ_ANNO, #440): the corrected miRBase GFF3's identity (MIRBASE_GFF_ID,
+  gcfdb/mirbase.db), or `custom` for a `db.mirflowz.custom` reference, whose GFF is the project's own. Two code
+  versions with different corrections in one EXT_DIR then each use their own; the genome part is shared.
 
 Reference directory: `EXT_DIR/mirflowz/mirbase-<release>_ensembl-<release>/<organism>/` or
 `EXT_DIR/mirflowz/custom-<name>/<organism>/`. Checks stop the workflow only when the mirflowz route is selected
@@ -75,6 +81,8 @@ else:
                 MIRFLOWZ_RELEASE, ORG, ensembl_assembly or 'an unknown assembly (no gcfdb lookup table)',
                 MIRFLOWZ_MIRBASE, MIRFLOWZ_ASSEMBLY))
     MIRFLOWZ_REF = join(EXT_DIR, 'mirflowz', 'mirbase-{}_ensembl-{}'.format(MIRFLOWZ_MIRBASE, MIRFLOWZ_RELEASE), ORG)
+MIRFLOWZ_GFF_ID = 'custom' if MIRFLOWZ_CUSTOM else MIRBASE_GFF_ID
+MIRFLOWZ_ANNO = join(MIRFLOWZ_REF, 'gff-{}'.format(MIRFLOWZ_GFF_ID))
 
 # The project's Ensembl genome and GTF are reused when they are mirflowz's release and assembly.
 MIRFLOWZ_REUSE_ENSEMBL = (not MIRFLOWZ_CUSTOM and config['db'].get('reference_db') == 'ensembl'
@@ -124,7 +132,7 @@ rule mirflowz_chr_map:
     input:
         unpack(lambda wildcards: mirflowz_sources())
     output:
-        join(MIRFLOWZ_REF, 'chr_map.tsv')
+        join(MIRFLOWZ_ANNO, 'chr_map.tsv')
     params:
         script = src_gcf('scripts/mirflowz_chr_map.py'),
         checks = '' if MIRFLOWZ_CUSTOM else ' '.join(['--assembly {}'.format(MIRFLOWZ_ASSEMBLY)] +
@@ -135,8 +143,8 @@ rule mirflowz_chr_map:
 
 rule mirflowz_prepare:
     input:
-        unpack(lambda wildcards: mirflowz_sources()),
-        chr_map = rules.mirflowz_chr_map.output
+        genome = lambda wildcards: mirflowz_sources()['genome'],
+        gtf = lambda wildcards: mirflowz_sources()['gtf']
     output:
         prepared = directory(join(MIRFLOWZ_REF, 'prepared')),
         record = join(MIRFLOWZ_REF, 'mirflowz_reference.tsv')
@@ -154,6 +162,30 @@ rule mirflowz_prepare:
     container:
         'docker://' + config['docker']['mirflowz']
     shell:
-        'python {params.script} --genome {input.genome} --gtf {input.gtf} --mirna-gff {input.mirna_gff} '
-        '--chr-map {input.chr_map} --mirbase-release {params.mirbase} --ensembl-release {params.release} '
-        '--assembly {params.assembly} --threads {threads} --mem-mb {resources.mem_mb} --output {output.prepared} --record {output.record}'
+        'python {params.script} genome --genome {input.genome} --gtf {input.gtf} --mirbase-release {params.mirbase} '
+        '--ensembl-release {params.release} --assembly {params.assembly} --threads {threads} --mem-mb {resources.mem_mb} '
+        '--output {output.prepared} --record {output.record}'
+
+
+rule mirflowz_annotation:
+    input:
+        mirna_gff = lambda wildcards: mirflowz_sources()['mirna_gff'],
+        chr_map = rules.mirflowz_chr_map.output,
+        prepared = rules.mirflowz_prepare.output.prepared
+    output:
+        annotation = directory(join(MIRFLOWZ_ANNO, 'annotation')),
+        record = join(MIRFLOWZ_ANNO, 'mirflowz_annotation.tsv')
+    params:
+        script = src_gcf('scripts/mirflowz_prepare.py'),
+        mirbase = MIRFLOWZ_MIRBASE
+    threads:
+        1
+    resources:
+        mem_mb = 4000
+    benchmark:
+        join(MIRFLOWZ_ANNO, 'benchmarks', 'mirflowz_annotation.tsv')
+    container:
+        'docker://' + config['docker']['mirflowz']
+    shell:
+        'python {params.script} annotation --mirna-gff {input.mirna_gff} --chr-map {input.chr_map} '
+        '--chr-size {input.prepared}/chr_size.tsv --mirbase-release {params.mirbase} --output {output.annotation} --record {output.record}'

@@ -11,7 +11,7 @@ import sys
 import pytest
 import yaml
 
-from test_quant_methods import MIRBASE_GFF, dry_run, rule_block
+from test_quant_methods import MIRBASE_GFF, MIRBASE_GFF_ID, dry_run, rule_block
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / 'smallrna/rules/quant/scripts/tinyrna.py'
@@ -29,8 +29,8 @@ def test_route_plans_reference_and_counting_and_delivery_stays_on_unitas(tmp_pat
     assert 'rule unitas_mirtable:' in output and output.count('rule tinyrna_count:') == 4
     gff = rule_block(output, 'tinyrna_gff')
     assert (f'--mirna-gff {MIRBASE_GFF} '
-            '--chr-map data/ext/mirflowz/mirbase-23.1_ensembl-116/mus_musculus/chr_map.tsv') in gff
-    assert '--output data/ext/tinyrna/mirbase-23.1_ensembl-116/mus_musculus/mirna.v2.gff3' in gff
+            f'--chr-map data/ext/mirflowz/mirbase-23.1_ensembl-116/mus_musculus/gff-{MIRBASE_GFF_ID}/chr_map.tsv') in gff
+    assert f'--output data/ext/tinyrna/mirbase-23.1_ensembl-116/mus_musculus/gff-{MIRBASE_GFF_ID}/mirna.v2.gff3' in gff  # named by the GFF3 (#440)
     assert 'input: data/ext/ensembl/release-116/mus_musculus/GRCm39/fasta/genome.fa' in rule_block(output, 'tesmall_genome')
     assert 'rule tesmall_db:' not in output  # only the shared genome index, not the TEsmall database
     assert 'features --offsets=-1,0,1 --extension 4 --length 16-28 --strand sense' in rule_block(output, 'tinyrna_features')
@@ -41,7 +41,7 @@ def test_route_plans_reference_and_counting_and_delivery_stays_on_unitas(tmp_pat
     assert 'mem_mb=2000' in align.replace(' ', '')             # the index in memory, so --resources caps parallel jobs
     assert 'bowtie -x {}/bowtie_index/genome -f {}/SR0'.format(GENOME, OUT) in align
     count = rule_block(output, 'tinyrna_count')
-    assert '--gff data/ext/tinyrna/mirbase-23.1_ensembl-116/mus_musculus/mirna.v2.gff3 --features {}/features.csv'.format(OUT) in count
+    assert f'--gff data/ext/tinyrna/mirbase-23.1_ensembl-116/mus_musculus/gff-{MIRBASE_GFF_ID}/mirna.v2.gff3 --features {OUT}/features.csv' in count
     assert '--normalize-by-genomic-hits T --normalize-by-feature-hits T' in count
     assert '--samples SR01 SR02 SR03 SR04' in rule_block(output, 'tinyrna_counts')
     for name in ('assigned_nt_len_dist.csv', 'mapped_nt_len_dist.csv', 'config'):  # declared, so a rerun restores them
@@ -78,7 +78,7 @@ def test_settings_reach_the_script_as_written(tmp_path):
 def test_rat_uses_its_mirflowz_reference(tmp_path):
     returncode, output = dry_run(tmp_path, 'tinyrna', lambda s: s.update(organism='rattus_norvegicus'), printshell=True)
     assert returncode == 0, output
-    assert '--output data/ext/tinyrna/mirbase-23.1_ensembl-104/rattus_norvegicus/mirna.v2.gff3' in rule_block(output, 'tinyrna_gff')
+    assert f'--output data/ext/tinyrna/mirbase-23.1_ensembl-104/rattus_norvegicus/gff-{MIRBASE_GFF_ID}/mirna.v2.gff3' in rule_block(output, 'tinyrna_gff')
 
 
 def test_guards_stop_at_load(tmp_path):

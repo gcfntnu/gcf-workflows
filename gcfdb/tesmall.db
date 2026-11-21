@@ -17,10 +17,11 @@ Layout under `EXT_DIR/tesmall/<mirflowz reference>/` (TESMALL_REF):
 
 - `sources/` and `genome/` (the genome FASTA and its Bowtie 1 index, built from the genome alone), shared by every
   database on this reference;
-- `unitas-<db.unitas release>/` (TESMALL_DUMP_REF), one per UNITAS reference dump, as the piRNA clusters come from
-  it: the database TEsmall reads with `--dbfolder TESMALL_DB -g TESMALL_NAME`, `db/genomes/TESMALL_NAME/`
-  (`annotation/`, `sequence/` with relative links to the shared genome files, `sequence/bowtie_index/`), and
-  `tesmall_reference.tsv` recording sources, checksums and counts.
+- `gff-<ID>/unitas-<db.unitas release>/` (TESMALL_DUMP_REF), one per miRNA GFF (its identity, MIRFLOWZ_GFF_ID,
+  #440) and UNITAS reference dump, as the miRNA annotation and the piRNA clusters come from them: the database
+  TEsmall reads with `--dbfolder TESMALL_DB -g TESMALL_NAME`, `db/genomes/TESMALL_NAME/` (`annotation/`, `sequence/`
+  with relative links to the shared genome files, `sequence/bowtie_index/`), and `tesmall_reference.tsv` recording
+  sources, checksums and counts.
 
 TESMALL_NAME is not one of TEsmall's built-in genome names, so a database that fails TEsmall's own checks stops the
 run instead of starting a download.
@@ -45,7 +46,7 @@ def tesmall_fail(message):
 
 TESMALL_REF = join(EXT_DIR, 'tesmall', os.path.relpath(MIRFLOWZ_REF, join(EXT_DIR, 'mirflowz')))
 TESMALL_GENOME = join(TESMALL_REF, 'genome')
-TESMALL_DUMP_REF = join(TESMALL_REF, 'unitas-{}'.format(UNITAS_RELEASE))
+TESMALL_DUMP_REF = join(TESMALL_REF, 'gff-{}'.format(MIRFLOWZ_GFF_ID), 'unitas-{}'.format(UNITAS_RELEASE))
 TESMALL_DB = join(TESMALL_DUMP_REF, 'db')
 TESMALL_GENOME_DIR = join(TESMALL_DB, 'genomes', TESMALL_NAME)
 if ORG not in TESMALL_ORGANISMS:

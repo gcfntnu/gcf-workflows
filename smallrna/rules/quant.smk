@@ -34,16 +34,17 @@ RECORDED_ROUTES = ('mirflowz', 'tesmall', 'tinyrna', 'smrnaseq', 'biocore_htseq'
 
 
 def quant_reference_record(route):
-    """(miRNA database, release, source, reference) a route annotated with: the mirflowz reference's for mirflowz, TEsmall,
-    tiny-count and biocore_htseq (db.mirbase.release, or NA for a db.mirflowz.custom reference, whose annotation is the project's
-    own), gcfdb's miRBase files for nf-core/smrnaseq, and the database written from them for biocore_miraligner."""
+    """(miRNA database, release, source, reference, GFF identity) a route annotated with: the mirflowz reference's for mirflowz,
+    TEsmall, tiny-count and biocore_htseq (db.mirbase.release, or NA for a db.mirflowz.custom reference, whose annotation is the
+    project's own), gcfdb's miRBase files for nf-core/smrnaseq, and the database written from them for biocore_miraligner. The
+    GFF identity names the files built from the miRNA GFF (#440): the corrected miRBase GFF3's, or `custom`."""
     if route == 'smrnaseq':
-        return 'mirbase', MIRBASE_RELEASE, 'db.mirbase.release', MIRBASE_EXT
+        return 'mirbase', MIRBASE_RELEASE, 'db.mirbase.release', MIRBASE_EXT, MIRBASE_GFF_ID
     if route == 'biocore_miraligner':
-        return 'mirbase', MIRBASE_RELEASE, 'db.mirbase.release', BIOCORE_MIRALIGNER_DB
+        return 'mirbase', MIRBASE_RELEASE, 'db.mirbase.release', BIOCORE_MIRALIGNER_DB, MIRBASE_GFF_ID
     if MIRFLOWZ_CUSTOM:
-        return 'NA', 'NA', 'db.mirflowz.custom', MIRFLOWZ_REF
-    return 'mirbase', MIRFLOWZ_MIRBASE, 'db.mirbase.release', MIRFLOWZ_REF
+        return 'NA', 'NA', 'db.mirflowz.custom', MIRFLOWZ_REF, MIRFLOWZ_GFF_ID
+    return 'mirbase', MIRFLOWZ_MIRBASE, 'db.mirbase.release', MIRFLOWZ_REF, MIRFLOWZ_GFF_ID
 
 
 rule quant_reference:
@@ -62,15 +63,18 @@ rule quant_reference:
         database = lambda wildcards: quant_reference_record(wildcards.route)[0],
         release = lambda wildcards: quant_reference_record(wildcards.route)[1],
         source = lambda wildcards: quant_reference_record(wildcards.route)[2],
-        reference = lambda wildcards: quant_reference_record(wildcards.route)[3]
+        reference = lambda wildcards: quant_reference_record(wildcards.route)[3],
+        gff_id = lambda wildcards: quant_reference_record(wildcards.route)[4]
     wildcard_constraints:
         route = '|'.join(RECORDED_ROUTES)
     container:
         'docker://' + config['docker']['default']
     shell:
         "sha=$(sha256sum {input:q} | cut -d ' ' -f 1) && "
-        "printf 'field\\tvalue\\tsource\\nmirna_database\\t%s\\t%s\\nmirna_release\\t%s\\t%s\\nreference\\t%s\\tconfiguration\\ntable_sha256\\t%s\\t%s\\n' "
-        "{params.database:q} {params.source:q} {params.release:q} {params.source:q} {params.reference:q} \"$sha\" {input:q} > {output:q}"
+        "printf 'field\\tvalue\\tsource\\nmirna_database\\t%s\\t%s\\nmirna_release\\t%s\\t%s\\nreference\\t%s\\tconfiguration\\n"
+        "mirna_gff_id\\t%s\\tconfiguration\\ntable_sha256\\t%s\\t%s\\n' "
+        "{params.database:q} {params.source:q} {params.release:q} {params.source:q} {params.reference:q} {params.gff_id:q} \"$sha\" {input:q} "
+        "> {output:q}"
 
 
 def quant_all(wildcards):

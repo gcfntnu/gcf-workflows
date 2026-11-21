@@ -4,7 +4,8 @@
 The script writes a small Snakefile that includes `$MIRFLOWZ_DIR/workflow/rules/map.smk` and `quantify.smk` (not
 mirflowz's top-level Snakefile, which deletes its intermediates directory, and not its preparation rules), a
 configuration and a sample table, and runs it in a work directory next to `--output`. The work directory's
-intermediates directory links the files of the prepared reference, so they are read, never rebuilt or removed.
+intermediates directory links the files of the prepared reference, the genome part (`--prepared`) and the extended
+annotations of the miRNA GFF (`--annotation`, #440), so they are read, never rebuilt or removed.
 
 mirflowz's read preprocessing is set so it does not filter the already filtered reads again: reads are passed as
 FASTA, which skips mirflowz's quality filter (it only filters FASTQ, then converts to FASTA itself), `overlap` equal to
@@ -41,7 +42,7 @@ all samples.
 Outputs in `--output`: `all_mirna_counts.tab` (miRNAs and isomiRs), `all_pri-mir_counts.tab`, `alignments/<sample>/`
 (mirflowz's per-sample SAM and BAM files) and the generated `mirflowz_config.yaml` and `mirflowz_samples.tsv`.
 
-Usage: run_mirflowz.py --prepared DIR --adapter SEQ --minimum-length N --threads N --mem-mb N --output DIR SAMPLE=FASTQ ...
+Usage: run_mirflowz.py --prepared DIR --annotation DIR --adapter SEQ --minimum-length N --threads N --mem-mb N --output DIR SAMPLE=FASTQ ...
 """
 import argparse
 import gzip
@@ -55,9 +56,10 @@ import sys
 import tempfile
 
 EXTENSION = 6
+# The files of the prepared reference's two parts (gcfdb/scripts/mirflowz_prepare.py) that mapping and quantification read.
 PREPARED = ('genome_processed.fa', 'segemehl_genome_index.idx', 'transcriptome_trimmed_id.fa',
-            'segemehl_transcriptome_index.idx', 'exons.bed', 'genome_header.sam', 'chr_size.tsv',
-            'extended_mirna_annotation_{}_nt.gff3'.format(EXTENSION), 'extended_primir_annotation_{}_nt.gff3'.format(EXTENSION))
+            'segemehl_transcriptome_index.idx', 'exons.bed', 'genome_header.sam', 'chr_size.tsv')
+ANNOTATION = ('extended_mirna_annotation_{}_nt.gff3'.format(EXTENSION), 'extended_primir_annotation_{}_nt.gff3'.format(EXTENSION))
 TABLES = ('all_mirna_counts.tab', 'all_pri-mir_counts.tab')
 # Parts of the image's parallel oligomap per step (OLIGOMAP_JOBS), at most.
 OLIGOMAP_PARTS = 16
@@ -161,7 +163,8 @@ def mirflowz_config(work, prepared, mirflowz_dir, adapter, minimum_length):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
-    parser.add_argument('--prepared', required=True, type=Path, help='prepared mirflowz reference (gcfdb/mirflowz.db)')
+    parser.add_argument('--prepared', required=True, type=Path, help="the prepared mirflowz reference's genome part (gcfdb/mirflowz.db)")
+    parser.add_argument('--annotation', required=True, type=Path, help="its extended annotations of the miRNA GFF (gcfdb/mirflowz.db)")
     parser.add_argument('--adapter', required=True, help="the kit's 3' adapter")
     parser.add_argument('--minimum-length', required=True, type=int)
     parser.add_argument('--threads', type=int, default=1)
@@ -173,9 +176,10 @@ def main():
     mirflowz_dir = Path(os.environ.get('MIRFLOWZ_DIR', ''))
     if not (mirflowz_dir / 'workflow/rules/map.smk').is_file():
         fail('MIRFLOWZ_DIR does not hold mirflowz ({}); run in the mirflowz image'.format(mirflowz_dir))
-    missing = [name for name in PREPARED if not (args.prepared / name).is_file()]
-    if missing:
-        fail('prepared mirflowz reference {} lacks {}'.format(args.prepared, ', '.join(missing)))
+    for folder, files in ((args.prepared, PREPARED), (args.annotation, ANNOTATION)):
+        missing = [name for name in files if not (folder / name).is_file()]
+        if missing:
+            fail('prepared mirflowz reference {} lacks {}'.format(folder, ', '.join(missing)))
     names = [name for name, _ in args.samples]
     if len(set(names)) != len(names):
         fail('sample names are not unique')
@@ -186,8 +190,9 @@ def main():
     with tempfile.TemporaryDirectory(prefix='.mirflowz-run-', dir=args.output) as work:
         work = Path(work).resolve()
         (work / 'intermediates').mkdir()
-        for name in PREPARED:
-            os.symlink((args.prepared / name).resolve(), work / 'intermediates' / name)
+        for folder, files in ((args.prepared, PREPARED), (args.annotation, ANNOTATION)):
+            for name in files:
+                os.symlink((folder / name).resolve(), work / 'intermediates' / name)
         (work / 'reads').mkdir()
         rows, internal, queries = [], {}, 0
         for i, (name, path) in enumerate(args.samples, 1):

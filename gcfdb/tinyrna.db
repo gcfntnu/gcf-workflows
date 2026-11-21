@@ -8,7 +8,8 @@ tiny-count, mirflowz, TEsmall and the benchmark share one genome and miRBase rel
 - the genome FASTA and Bowtie 1 index are TEsmall's shared ones (`tesmall_genome` in gcfdb/tesmall.db,
   `EXT_DIR/tesmall/<mirflowz reference>/genome/`), not a second index of the same genome;
 - the miRBase GFF3 is renamed to the genome's sequence names with mirflowz's chromosome map (scripts/tinyrna_gff.py),
-  into `EXT_DIR/tinyrna/<mirflowz reference>/mirna.v<TINYRNA_GFF_VERSION>.gff3` (TINYRNA_REF).
+  into `EXT_DIR/tinyrna/<mirflowz reference>/gff-<ID>/mirna.v<TINYRNA_GFF_VERSION>.gff3`, named by the GFF's identity
+  as the mirflowz reference's files built from it are (MIRFLOWZ_GFF_ID, #440).
 
 Checks of the mirflowz reference stop the workflow when this route is selected (`TINYRNA_SELECTED`, set in
 smallrna/rules/quant.smk).
@@ -26,7 +27,7 @@ rule tinyrna_gff:
         mirna_gff = lambda wildcards: mirflowz_sources()['mirna_gff'],
         chr_map = rules.mirflowz_chr_map.output
     output:
-        gff = join(TINYRNA_REF, 'mirna.v{}.gff3'.format(TINYRNA_GFF_VERSION))
+        gff = join(TINYRNA_REF, 'gff-{}'.format(MIRFLOWZ_GFF_ID), 'mirna.v{}.gff3'.format(TINYRNA_GFF_VERSION))
     params:
         script = src_gcf('scripts/tinyrna_gff.py')
     container:

@@ -3,18 +3,19 @@ genome shared), run settings, guards and the joined table."""
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import time
 
 import pytest
 
-from test_quant_methods import MIRBASE_GFF, configure, dry_run, rule_block, snakemake
+from test_quant_methods import MIRBASE_GFF, MIRBASE_GFF_ID, configure, dry_run, mirbase_gff_id, rule_block, snakemake
 
 ROOT = Path(__file__).resolve().parents[2]
 REF = 'data/ext/tesmall/mirbase-23.1_ensembl-116/mus_musculus'
 GENOME = REF + '/genome'
-DUMP = REF + '/unitas-20-11-2026'
+DUMP = REF + f'/gff-{MIRBASE_GFF_ID}/unitas-20-11-2026'  # one database per miRNA GFF (#440) and UNITAS dump
 DB = DUMP + '/db/genomes/gcf'
 CLASSES = ('structural_RNA', 'miRNA', 'hairpin', 'exon', 'TE', 'intron', 'piRNA_cluster')
 INDEX = ('1.ebwt', '2.ebwt', '3.ebwt', '4.ebwt', 'rev.1.ebwt', 'rev.2.ebwt')
@@ -29,7 +30,7 @@ def test_route_plans_database_and_runs_and_delivery_stays_on_unitas(tmp_path):
     assert re.search(rf'bowtie-build -q --threads \d+ {GENOME}/genome.fa {GENOME}/bowtie_index/genome', genome)
     assert f'ln -sfr' in rule_block(output, 'tesmall_genome_links') and f'link={DB}/sequence/${{target#{GENOME}/}}' in output
     db = rule_block(output, 'tesmall_db')
-    assert '--chr-map data/ext/mirflowz/mirbase-23.1_ensembl-116/mus_musculus/chr_map.tsv' in db
+    assert f'--chr-map data/ext/mirflowz/mirbase-23.1_ensembl-116/mus_musculus/gff-{MIRBASE_GFF_ID}/chr_map.tsv' in db
     assert '--pirna-clusters data/ext/unitas/20-11-2026/UNITAS_refdump_mus_musculus/piRclDB' in db
     assert f'--trna-archive {REF}/sources/mm39-tRNAs.tar.gz --rmsk {REF}/sources/rmsk.txt.gz' in db
     assert f'--genome-index {GENOME}/bowtie_index/genome' in db and f'--record {DUMP}/tesmall_reference.tsv' in db
@@ -55,7 +56,7 @@ def test_each_unitas_dump_has_its_own_database_on_the_shared_genome(tmp_path):
     assert returncode == 0, output
     db = rule_block(output, 'tesmall_db')
     assert '--pirna-clusters data/ext/unitas/01-01-2027/UNITAS_refdump_mus_musculus/piRclDB' in db
-    assert f'--record {REF}/unitas-01-01-2027/tesmall_reference.tsv' in db and f'{DUMP}/' not in output
+    assert f'--record {REF}/gff-{MIRBASE_GFF_ID}/unitas-01-01-2027/tesmall_reference.tsv' in db and f'{DUMP}/' not in output
     assert f'--genome-index {GENOME}/bowtie_index/genome' in db
 
 
@@ -221,3 +222,65 @@ def test_a_newer_mirna_gff_or_gtf_does_not_rebuild_the_shared_genome_indexes(tmp
     planned = set(re.findall(r'^(?:local)?rule (\w+):', output, re.M))
     assert {'tesmall_db', 'mirflowz_chr_map', 'tinyrna_gff'} <= planned, output
     assert not planned & {'tesmall_genome', 'biocore_htseq_bowtie2_index'}, output
+
+
+def planned_outputs(output):
+    """{rule: {output paths}} of a dry run's jobs."""
+    planned = {}
+    for block in re.split(r'^(?:local)?rule ', output, flags=re.M)[1:]:
+        match = re.search(r'^    output: (.+)$', block, re.M)
+        if match:
+            planned.setdefault(block.split(':', 1)[0], set()).update(match.group(1).split(', '))
+    return planned
+
+
+def test_two_correction_sets_in_one_ext_dir_each_use_their_own_derived_files(tmp_path):
+    """#440: two checkouts whose miRBase GFF3 corrections differ share one EXT_DIR. Everything built from the corrected
+    GFF3 is named by its identity, so each plans and keeps its own; what is built from the genome alone is shared."""
+    other = tmp_path / 'other'  # a second checkout, with one more byte in the correction table
+    for name in subprocess.run(['git', 'ls-files'], cwd=ROOT, capture_output=True, text=True, check=True).stdout.splitlines():
+        (other / name).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ROOT / name, other / name)
+    table = other / 'gcfdb/tables/mirbase_gff_corrections.tsv'
+    table.write_bytes(table.read_bytes() + b'\n')
+    ids = {'a': MIRBASE_GFF_ID, 'b': mirbase_gff_id(other)}
+    assert ids['a'] != ids['b']
+    ext = tmp_path / 'ext'
+    derived = ('mirbase_genes', 'mirflowz_chr_map', 'mirflowz_annotation', 'tinyrna_gff', 'tesmall_db', 'biocore_miraligner_db')
+    genome = ('mirflowz_prepare', 'tesmall_genome', 'biocore_htseq_bowtie2_index')
+    for name, root in (('a', ROOT), ('b', other)):
+        configure(tmp_path / name, 'mirflowz,tesmall,tinyrna,biocore_htseq,biocore_miraligner', lambda s: s.update(ext_dir=str(ext)))
+        (tmp_path / name / 'Snakefile').write_text('configfile: "config.yaml"\npepfile: "pep/pep_config.yaml"\n'
+                                                   f'include: {str(root / "smallrna/smallrna.smk")!r}\n')
+    plans = {}
+    for name in ids:
+        returncode, output = snakemake(tmp_path / name, '-n', *derived, *genome)
+        assert returncode == 0, output
+        plans[name] = planned_outputs(output)
+    for rule in derived:  # each checkout's own files, named by its corrections
+        for name, gff_id in ids.items():
+            assert all(f'gff-{gff_id}/' in path or f'genes.{gff_id}.' in path for path in plans[name][rule]), (rule, plans[name][rule])
+    for rule in genome:  # one copy for both
+        assert plans['a'][rule] == plans['b'][rule] and not any('gff-' in path for path in plans['a'][rule]), rule
+
+    def build(name, when):
+        returncode, output = snakemake(tmp_path / name, '-n', *derived, *genome)
+        assert returncode == 0, output
+        made = {p for line in re.findall(r'^    (?:output|log|benchmark): (.+)$', output, re.M) for p in line.split(', ')}
+        for path in map(Path, made):
+            if any(other.startswith(str(path) + '/') for other in made) or path.name in ('prepared', 'annotation'):
+                path.mkdir(parents=True, exist_ok=True)
+            else:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.touch()
+            os.utime(path, (when, when))
+        return set(re.findall(r'^(?:local)?rule (\w+):', output, re.M))
+
+    earlier = time.time() - 86400
+    assert set(derived) | set(genome) <= build('a', earlier)
+    returncode, output = snakemake(tmp_path / 'a', '-n', *derived, *genome)
+    assert returncode == 0 and 'Nothing to be done' in output, output
+    planned = build('b', earlier + 3600)  # the other corrections, built later in the same EXT_DIR
+    assert set(derived) <= planned and not planned & set(genome), planned
+    returncode, output = snakemake(tmp_path / 'a', '-n', *derived, *genome)
+    assert returncode == 0 and 'Nothing to be done' in output, output  # a keeps its own files, older than b's

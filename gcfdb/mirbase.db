@@ -76,7 +76,9 @@ rule mirbase_gff_download:
 # (scripts/mirbase_gff_correct.py, #429).
 # It and its record are named by a digest of the table and the script (MIRBASE_GFF_ID, #438). A change to either gives
 # new files, which an EXT_DIR then builds, and the consumers rebuild through the new path; unchanged files are never
-# rebuilt. The table is therefore an ancient() input: a checkout gives it the checkout time, which would otherwise
+# rebuilt. The shared files built from it carry the same identity (#440): genes.<ID>.tsv here, and `gff-<ID>` in the
+# mirflowz, tiny-count, TEsmall and biocore_miraligner references, so two code versions with different corrections in
+# one EXT_DIR each use their own. The table is therefore an ancient() input: a checkout gives it the checkout time, which would otherwise
 # rebuild the same file, and everything built from it, in every new project.
 def mirbase_gff_id():
     """The first 12 hex digits of a SHA-256 over the SHA-256 of the correction table and of the correction script."""
@@ -115,7 +117,7 @@ rule mirbase_genes:
     params:
         script = src_gcf('scripts/mirbase_gff2genes.py')
     output:
-        join(MIRBASE_EXT, 'anno', 'genes.tsv')
+        join(MIRBASE_EXT, 'anno', 'genes.{}.tsv'.format(MIRBASE_GFF_ID))
     container:
         'docker://' + config['docker']['default']
     shell:

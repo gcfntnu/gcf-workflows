@@ -9,11 +9,11 @@ from pathlib import Path
 
 import pytest
 
-from test_quant_methods import MIRBASE_GFF, dry_run, rule_block
+from test_quant_methods import MIRBASE_GFF, MIRBASE_GFF_ID, dry_run, rule_block
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / 'smallrna/rules/quant/scripts/miraligner_counts.py'
-DB = 'data/ext/biocore_miraligner/mirbase-23.1/mus_musculus/db.v1'
+DB = f'data/ext/biocore_miraligner/mirbase-23.1/mus_musculus/gff-{MIRBASE_GFF_ID}/db.v1'  # named by the corrected GFF3 (#440)
 OUT = 'data/tmp/smallrna/quant/biocore_miraligner'
 
 spec = importlib.util.spec_from_file_location('biocore_miraligner_counts', SCRIPT)

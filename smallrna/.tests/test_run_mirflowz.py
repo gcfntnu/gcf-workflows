@@ -14,8 +14,8 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / 'smallrna/rules/quant/scripts/run_mirflowz.py'
 ADAPTER = 'TGGAATTCTCGGGTGCCAAGG'
 PREPARED = ('genome_processed.fa', 'segemehl_genome_index.idx', 'transcriptome_trimmed_id.fa',
-            'segemehl_transcriptome_index.idx', 'exons.bed', 'genome_header.sam', 'chr_size.tsv',
-            'extended_mirna_annotation_6_nt.gff3', 'extended_primir_annotation_6_nt.gff3')
+            'segemehl_transcriptome_index.idx', 'exons.bed', 'genome_header.sam', 'chr_size.tsv')
+ANNOTATION = ('extended_mirna_annotation_6_nt.gff3', 'extended_primir_annotation_6_nt.gff3')  # in gff-<ID>/annotation/ (#440)
 
 # Records the call, the sample table and the reads as mirflowz sees them, and writes mirflowz's outputs. Like mirflowz,
 # it reads the sample table with pandas type inference and looks samples up by their string wildcard.
@@ -63,6 +63,9 @@ def setup(tmp_path):
     prepared.mkdir(parents=True)
     for name in PREPARED:
         (prepared / name).write_text(name)
+    (prepared.parent / 'gff-abc/annotation').mkdir(parents=True)
+    for name in ANNOTATION:
+        (prepared.parent / 'gff-abc/annotation' / name).write_text(name)
     (tmp_path / 'S1_R1.fastq').write_text('@r1\nTGAGGTAGTAGGTTGTATAGTT\n+\nIIIIIIIIIIIIIIIIIIIIII\n')
     (tmp_path / 'S2_R1.fastq.gz').write_bytes(gzip.compress(b'@r2\nTAGCTTATCAGACTGATGTTGA\n+\nIIIIIIIIIIIIIIIIIIIIII\n'))
     env = dict(os.environ, PATH='{}:{}'.format(tmp_path / 'bin', os.environ['PATH']), MIRFLOWZ_DIR=str(mirflowz),
@@ -75,7 +78,9 @@ def run(setup, fail=False, prepared=None, samples=None, threads='3', mem_mb='128
     env = dict(env, FAIL='1' if fail else '')
     out = tmp_path / 'quant/mirflowz'
     samples = samples or ['S1={}'.format(tmp_path / 'S1_R1.fastq'), 'S2={}'.format(tmp_path / 'S2_R1.fastq.gz')]
-    result = subprocess.run([sys.executable, str(SCRIPT), '--prepared', str(prepared or default_prepared), '--adapter', ADAPTER,
+    prepared = prepared or default_prepared
+    result = subprocess.run([sys.executable, str(SCRIPT), '--prepared', str(prepared), '--annotation', str(prepared.parent / 'gff-abc/annotation'),
+                             '--adapter', ADAPTER,
                              '--minimum-length', '16', '--threads', threads, '--mem-mb', mem_mb, '--output', str(out), *samples],
                             capture_output=True, text=True, env=env, timeout=60)
     call = json.loads((tmp_path / 'call.json').read_text()) if (tmp_path / 'call.json').exists() else None
@@ -90,7 +95,9 @@ def test_mapping_and_quantification_use_the_linked_reference_and_keep_the_output
     assert call['snakefile'].startswith("include: '{}'\ninclude: '{}'\n".format(rules / 'map.smk', rules / 'quantify.smk'))
     assert 'prepare.smk' not in call['snakefile'] and 'rule gcf_mirflowz_all:' in call['snakefile']
     assert call['args'][call['args'].index('--nolock') + 3] == 'gcf_mirflowz_all' and call['args'][call['args'].index('--cores') + 1] == '3'
-    assert call['links'] == {name: str((prepared / name).resolve()) for name in PREPARED}
+    annotation = prepared.parent / 'gff-abc/annotation'
+    assert call['links'] == dict({name: str((prepared / name).resolve()) for name in PREPARED},
+                                 **{name: str((annotation / name).resolve()) for name in ANNOTATION})
     assert [row[0] for row in call['rows']] == ['sample', 'gcf_sample_1', 'gcf_sample_2']
     assert all(row[2:] == [ADAPTER, 'fa'] for row in call['rows'][1:])
     # FASTA input skips mirflowz's quality filter; names and sequences are kept.
@@ -199,8 +206,9 @@ def test_queries_are_distinct_reads_of_at_most_30_nt(tmp_path):
 
 def test_memory_budget_below_one_gb_is_rejected(setup):
     tmp_path, _, prepared, env = setup
-    result = subprocess.run([sys.executable, str(SCRIPT), '--prepared', str(prepared), '--adapter', ADAPTER, '--minimum-length', '16',
-                             '--threads', '2', '--mem-mb', '512', '--output', str(tmp_path / 'out'), 'S1={}'.format(tmp_path / 'S1_R1.fastq')],
+    result = subprocess.run([sys.executable, str(SCRIPT), '--prepared', str(prepared), '--annotation', str(prepared.parent / 'gff-abc/annotation'),
+                             '--adapter', ADAPTER, '--minimum-length', '16', '--threads', '2', '--mem-mb', '512',
+                             '--output', str(tmp_path / 'out'), 'S1={}'.format(tmp_path / 'S1_R1.fastq')],
                             capture_output=True, text=True, env=env, timeout=60)
     assert result.returncode != 0 and 'below 1 GB' in result.stderr
 
@@ -212,6 +220,10 @@ def test_incomplete_prepared_reference_fails_before_running(setup):
     assert result.returncode != 0
     assert 'lacks segemehl_genome_index.idx' in result.stderr
     assert call is None
+    (prepared / 'segemehl_genome_index.idx').write_text('x')
+    (prepared.parent / 'gff-abc/annotation' / ANNOTATION[0]).unlink()
+    result, out, call = run(setup)
+    assert result.returncode != 0 and '/gff-abc/annotation lacks ' + ANNOTATION[0] in result.stderr and call is None
 
 
 def test_failed_run_shows_the_tool_log_and_leaves_no_outputs(setup):
