@@ -277,13 +277,24 @@ def structure(chosen, base, universe, spec, groups, rng):
     group = st['group']
     n_de = int(round(float(group['fraction']) * len(chosen)))
     include = set(group.get('include') or [])
-    special = [r for r in chosen if ('near_identical' in include and universe.near[r]) or
+    # The group design draws from a stream of its own (#453): a scenario that changes it keeps the base set's nuisance
+    # loadings, which follow on the main stream.
+    grng = np.random.default_rng(np.random.SeedSequence(int(spec.get('seed', 1)), spawn_key=(2,)))
+    # `abundant` (#453's unbalanced scenario): the most abundant chosen miRNAs change first, so the composition shifts
+    abundant = group.get('abundant') or 0
+    if isinstance(abundant, bool) or not isinstance(abundant, int) or not 0 <= abundant <= n_de:
+        raise ValueError('structure.group.abundant must be a whole number from 0 to the miRNAs that change ({}), got {!r}'.format(n_de, abundant))
+    top = sorted(chosen, key=lambda r: (-base[r], r))[:abundant]
+    rest = [r for r in chosen if r not in top]
+    special = [r for r in rest if ('near_identical' in include and universe.near[r]) or
                ('multi_locus' in include and universe.mirnas[r]['loci'] > 1)]
-    others = [r for r in chosen if r not in special]
-    k = min(len(special), n_de // 4)
-    de = rng.permutation(np.array(special, dtype=object)).tolist()[:k]
-    de += rng.permutation(np.array(others, dtype=object)).tolist()[:n_de - k]
-    fold = {r: float(rng.choice(group['log2'])) for r in de}
+    others = [r for r in rest if r not in special]
+    k = min(len(special), (n_de - len(top)) // 4)
+    special = grng.permutation(np.array(special, dtype=object)).tolist()
+    others = grng.permutation(np.array(others, dtype=object)).tolist()
+    de = top + special[:k] + others[:n_de - len(top) - k]
+    de += special[k:k + n_de - len(de)]  # too few others: the rest from the special miRNAs, in their drawn order
+    fold = {r: float(grng.choice(group['log2'])) for r in de}
     sd = float(st['nuisance'].get('sd', 0.5))
     shared = float((spec.get('coregulate') or {}).get('shared', 0))
     cluster_effect = {}
@@ -462,7 +473,9 @@ def generate(spec, mature_fa, hairpin_fa, gff, prefix, adapter, umi, fastq_path,
     groups = spec['groups']
     scores, loadings = structure(chosen, base, universe, spec, groups, rng)
     table, library, phi = counts(chosen, base, loadings, scores, spec, rng)
-    reads = Reads(universe, chosen, spec, rng, umi)
+    # the isomiR design and the reads' errors draw from a stream of their own (#453): the counts' draws take a varying
+    # number of random numbers, so a scenario would otherwise change every miRNA's isomiRs
+    reads = Reads(universe, chosen, spec, np.random.default_rng(np.random.SeedSequence(int(spec.get('seed', 1)), spawn_key=(4,))), umi)
     decoy = None
     if spec.get('decoys'):  # after every miRNA draw, on a stream of its own
         decoy = decoys.Decoys(spec['decoys'], decoy_sources or {}, universe, hairpin_records(hairpin_fa, prefix, universe), reads,
@@ -504,10 +517,13 @@ def generate(spec, mature_fa, hairpin_fa, gff, prefix, adapter, umi, fastq_path,
     probes = spec.get('probes') or {}
     probe_of = collections.defaultdict(list)
     if probes:
+        # the probe samples draw from a stream of their own (#453), so they are the same whatever the mixed samples' design
+        prng = np.random.default_rng(np.random.SeedSequence(int(spec.get('seed', 1)), spawn_key=(3,)))
+        preads = reads.fork(prng)
         taken = set(chosen) | absent
         carrier_pool = [r for r in universe.annotated() if r not in taken and not universe.near[r]
                         and len(universe.mirnas[r]['accessions']) == 1]
-        carrier = rng.permutation(np.array(carrier_pool, dtype=object)).tolist()[:int(probes['carrier']['mirnas'])]
+        carrier = prng.permutation(np.array(carrier_pool, dtype=object)).tolist()[:int(probes['carrier']['mirnas'])]
         carrier_reads = int(probes['carrier']['reads'])
         floor = 20.0  # per million: present, canonical, in every mixed sample (miRge3's project rule)
         eligible = [r for r in chosen if not universe.near[r] and base[r] >= floor]
@@ -515,7 +531,7 @@ def generate(spec, mature_fa, hairpin_fa, gff, prefix, adapter, umi, fastq_path,
         plan = [('control', 1, [])]
         for c in PROBE_CLASSES:
             pool = [r for r in eligible if (c == 'errors' or c in reads.reads[r])]
-            members = rng.permutation(np.array(pool, dtype=object)).tolist()[:probe_n]
+            members = prng.permutation(np.array(pool, dtype=object)).tolist()[:probe_n]
             for r in members:
                 probe_of[r].append(c)
             plan.append((c, int(probes.get('replicates', 1)), members))
@@ -530,7 +546,7 @@ def generate(spec, mature_fa, hairpin_fa, gff, prefix, adapter, umi, fastq_path,
                     if c == 'errors':
                         out = collections.Counter()
                         for _ in range(probe_reads):
-                            read, hits = reads.substitute(universe.mirnas[r]['sequence'], at_least_one=True)
+                            read, hits = preads.substitute(universe.mirnas[r]['sequence'], at_least_one=True)
                             out[(read, tuple(hits))] += 1
                         for (read, hits), k in out.items():
                             rows.append((read, k, hits))
@@ -538,7 +554,7 @@ def generate(spec, mature_fa, hairpin_fa, gff, prefix, adapter, umi, fastq_path,
                     else:
                         rows.append((reads.reads[r][c], probe_reads, ()))
                         truth.append((sample, c, names[r], r, reads.reads[r][c], probe_reads, 0, 'mirbase', ''))
-                n = write_fastq(fastq_path(sample), sample, rows, adapter, umi, reads)
+                n = write_fastq(fastq_path(sample), sample, rows, adapter, umi, preads)
                 samples.append((sample, 'control' if c == 'control' else 'probe', '', '' if c == 'control' else c,
                                 rep if c != 'control' else '', n, '', ''))
         for r in carrier:

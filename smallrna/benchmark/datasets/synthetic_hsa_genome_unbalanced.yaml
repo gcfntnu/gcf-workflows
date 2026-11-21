@@ -1,0 +1,10 @@
+# The genome-wide synthetic set with every designed change going one way, the most abundant miRNAs among them (#453):
+# the composition shifts, so library sizes made of all miRNA reads (the workflow's) move the unchanged miRNAs the
+# other way and the tests call some of them (`false_calls_against`). The normalisation arms show how much of that
+# `fixed` (the filtered reads) and `tmm` remove. 15% of the miRNAs change, up 1.5-, 2- or 4-fold, the 5 most
+# abundant (about half the miRNA reads) always. Everything else is synthetic_hsa_genome's (same seed, same data folder).
+extends: synthetic_hsa_genome.yaml
+name: synthetic_hsa_genome_unbalanced
+synthetic:
+  structure:
+    group: {fraction: 0.15, log2: [0.585, 1, 2], abundant: 5, include: [near_identical, multi_locus]}

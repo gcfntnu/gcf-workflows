@@ -37,7 +37,8 @@ from pathlib import Path
 TESTS = ('edger', 'edger_glm', 'voom')  # as de.R's tests
 TEST_NAMES = {'edger': "edgeR's exact test", 'edger_glm': "edgeR's GLM likelihood-ratio test", 'voom': 'limma-voom'}
 FDR = 0.05
-DESIGN_KEYS = ('called', 'false_calls', 'fdr', 'fc_bias', 'offset')  # against the known changes
+DESIGN_KEYS = ('called', 'false_calls', 'fdr', 'fc_bias', 'offset', 'false_calls_against')  # against the known changes
+ONE_WAY = 2 / 3  # false_calls_against needs at least this share of the known changes in one direction (#453)
 NAME = re.compile(r'[A-Za-z][A-Za-z0-9_]*')  # a covariate: a column of the design and a term of de.R's formula
 LEVEL_NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]*')  # a group, or a level of `within`: it names a folder and a metric suffix
 LEVELS = 'levels.tsv'  # benchmark/de/levels.tsv: the sets de.smk tests besides the whole dataset's, in <column>/<level>
@@ -203,7 +204,16 @@ def median(values):
     return round(statistics.median(values), 4) if values else float('nan')
 
 
-def scores(results, features, rows, suffix='', reference='oracle'):
+def direction(features):
+    """+1 or -1 when at least ONE_WAY of the known changes in `features` ([(feature, log2 fold change)]) go that way,
+    else 0: the direction `false_calls_against` measures against (#453)."""
+    up = [d > 0 for _, d in features if d != 0]
+    if not up:
+        return 0
+    return 1 if sum(up) >= ONE_WAY * len(up) else -1 if len(up) - sum(up) >= ONE_WAY * len(up) else 0
+
+
+def scores(results, features, rows, suffix='', reference='oracle', way=None):
     """{row: {<test>_<metric><suffix>: value}} of one set's fits over `features` ([(feature, known log2 fold change)],
     0 for a feature known not to change; a bootstrap resample repeats some), with the fits fixed; NaN where a metric has
     no features, never ValueError.
@@ -213,7 +223,9 @@ def scores(results, features, rows, suffix='', reference='oracle'):
     features called; a call on a feature 1.5-fold apart in its direction is a true one. `fdr`: share of all calls that
     are on unchanged features or in the wrong direction. `fc_bias`: median of sign(d) * (log2fc - d) over the tested
     features with a known change d, negative when fold changes are compressed. `offset`: median log2fc of the unchanged
-    features.
+    features. `false_calls_against` (#453): share of the unchanged features called in the direction opposite to the
+    known changes, when at least ONE_WAY of them go one way (NaN otherwise): the shift that library sizes made of all
+    miRNA reads give the unchanged features when most changes go one way.
 
     Against the reference row's fits on the same samples, for each method when `rows` holds `reference`
     (reference_keys, #444): `own_false_calls`, share of the unchanged features the method calls and the reference does
@@ -224,6 +236,7 @@ def scores(results, features, rows, suffix='', reference='oracle'):
     `fc_error_vs_<reference>`, their median absolute deviation from that shift, the disagreement of the counts
     themselves. The shift also moves calls near the cutoff, so the two call metrics include it."""
     own, discordant, fc_shift, fc_error = reference_keys(reference)
+    way = direction(features) if way is None else way  # a bootstrap passes the full design's, so every draw counts one event
     out = {}
     for row in rows:
         values = {}
@@ -238,7 +251,10 @@ def scores(results, features, rows, suffix='', reference='oracle'):
                            test + '_false_calls': share([significant(f) for f in null]),
                            test + '_fdr': share([d == 0 or not f[0] * d > 0 for f, d in calls]),
                            test + '_fc_bias': median(bias),
-                           test + '_offset': median(offsets)})
+                           test + '_offset': median(offsets),
+                           # unchanged features called against the changes' direction, when most go one way (#453):
+                           # the composition shift the workflow's library sizes turn into false calls
+                           test + '_false_calls_against': share([significant(f) and f[0] * way < 0 for f in null]) if way else float('nan')})
             if row != reference and reference in rows:
                 pairs = [(f, results[(reference, test, feature)], d) for (f, d), (feature, _) in zip(fits, features)]
                 differences = [f[0] - o[0] for f, o, _ in pairs if f[0] is not None and o[0] is not None]

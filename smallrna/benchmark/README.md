@@ -209,6 +209,22 @@ files the declaration fills into `EXT_DIR/<data>/mirbase/23.1/` (`benchmark.py f
   - **Precursor:** miRBase hairpin loops and flanks outside the matures.
 
   The sources are filled with checksums into `<data>/decoys/`.
+
+**Scenarios** (#453): a declaration can extend another of the same folder (`extends: <file>`) and change some of its
+values (mappings are merged key by key, anything else replaced; one level only, with a name of its own). A scenario
+keeps only its changes, so a later edit of its base (a new route, another release) applies to it too; it may change
+the design (`synthetic.structure`, `de`, `methods`), not the dataset or its references (`kind`, `organism`, `libprepkit`,
+`data`, `mirbase`, `synthetic.mode`, `synthetic.decoys`). The generator draws the group design, the isomiR design and
+read errors, and the probe samples from streams of their own, so a scenario keeps its base set's miRNAs, abundances,
+nuisance loadings, isomiRs and probe samples at the same seed; only the mixed samples' counts follow its design. The
+genome-wide synthetic set has two, with the same seed, data folder, decoys and probe samples:
+- `synthetic_hsa_genome_null`: no miRNA designed to change (`structure.group.fraction: 0`), so every DE call is false:
+  each route's, test's and normalisation arm's false-call rate under the generator's variance alone;
+- `synthetic_hsa_genome_unbalanced`: every change goes up (1.5-, 2- or 4-fold), and the 5 most abundant miRNAs (about
+  half the miRNA reads) always change (`structure.group.abundant: 5`, which makes the most abundant miRNAs change
+  first; without it the draws are the base set's). The composition shifts, so library sizes made of all miRNA reads move
+  the unchanged miRNAs the other way; `false_calls_against` counts the calls that makes, and the normalisation arms
+  show how much `fixed` and `tmm` remove.
   - **Fragments:** each unit draws a fixed catalogue of fragments with lognormal weights.
   - **No look-alikes:** a fragment sharing 18 nt with a miRBase hairpin is drawn again, so these decoys measure reads
     unrelated to miRBase.
@@ -536,6 +552,9 @@ miRNA), `exact` (share of miRNAs counted exactly, to within 1e-6 for the fractio
     cutadapt route's kept reads, the same for every method, so what a method counts as miRNA no longer changes it;
   - `tmm` (folder `de/arm/tmm`, metrics `.tmm`): edgeR's TMM factors (`calcNormFactors`) on the workflow's library
     sizes, for all three tests (voom on the normalised sizes).
+  `false_calls_against` (all DE sets, #453): the share of the unchanged features called in the direction opposite to
+  the known changes, when at least two thirds of them go one way (empty otherwise, as in the pools and the balanced
+  synthetic set).
   The main metrics stay the workflow's. An `offset` that differs between the arms is the normalisation's, not the
   method's. Biological datasets have no arms: no change is known to score them against. The `fixed` arm reads the
   cutadapt route's reports (the kits' default), so `evaluate` of a pool or synthetic project that declares `de:` on
