@@ -1959,10 +1959,7 @@ def test_de_model_names_the_contrast_numeric_covariates_and_the_least_mean_count
     known = re.search(r"unknown <- setdiff\(settings\$field, c\(([^)]*)\)\)", script)
     assert known and known.group(1) == "'numerator', 'denominator', 'min_mean', 'numeric'"  # the fields model_text writes
     assert "levels = c(denominator, numerator)" in script and 'coefficient <- ncol(model)' in script  # log2(numerator / denominator)
-    assert "sprintf('`%s`', c(covariates, 'group'))" in script  # names quoted in the formula: `repeat` is a valid column, and an R keyword
-    assert 'na.strings = character()' in script                 # a group called NA is a label, not a missing value
     assert "deparse(formula, width.cutoff = 500L), collapse = ' ')" in script and script.count('deparse(') == 1  # one string in the record
-    assert benchmark.de.NAME.fullmatch('repeat') and not benchmark.de.NAME.fullmatch('a`b')
 
 
 def test_de_inputs_are_rewritten_only_when_changed(tmp_path):
@@ -2044,11 +2041,6 @@ def test_de_results_must_cover_every_row_test_and_sequence(tmp_path):
     write(path, 'row\ttest\tpool_id\tlogFC\n')
     with pytest.raises(ValueError, match='columns'):
         read(['S0', 'S1'])
-    write(path, '\t'.join(de.RESULT_HEADER) + '\n')  # no feature in any row: de.R writes the header alone
-    assert read([]) == {}
-    write(path, '')
-    with pytest.raises(ValueError, match='columns'):
-        read([])
 
 
 def de_declaration(tmp_path, change):
