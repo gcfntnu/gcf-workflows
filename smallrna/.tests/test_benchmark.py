@@ -551,6 +551,14 @@ def test_a_download_the_server_cuts_is_resumed_from_where_it_stopped(tmp_path, m
         fill.download('https://example.org/SRR1.fastq.gz', 'md5', hashlib.md5(good).hexdigest(), path, messages.append)
     assert len(asked) == fill.CONNECTIONS and list(path.parent.iterdir()) == []
 
+    class Full:  # a local write error is not a cut transfer: one connection, and the error ends the download
+        def write(self, block):
+            raise OSError(28, 'No space left on device')
+    cut, asked[:] = 4000, []
+    with pytest.raises(OSError, match='No space left'):
+        fill.transfer('https://example.org/SRR1.fastq.gz', Full(), hashlib.md5(), messages.append)
+    assert asked == [0]
+
 
 def test_filtered_fastq_follows_the_project_filter_route(tmp_path):
     """The oracle reads the route's filtered reads: the trimming route's (cutadapt by default), or the spike-in

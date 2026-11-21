@@ -62,23 +62,33 @@ def transfer(url, out, checksum, log=print):
             time.sleep(min(PAUSE * connection, 300))
         request = urllib.request.Request(url, headers={'Range': 'bytes={}-'.format(received)}) if received else url
         try:
-            with urllib.request.urlopen(request, timeout=600) as response:
-                if received and getattr(response, 'status', None) != 206:
-                    raise ValueError('{}: no partial content for a resumed download (HTTP {})'.format(url, getattr(response, 'status', None)))
-                length = getattr(response, 'headers', None) and response.headers.get('Content-Length')
-                if length is not None:
-                    total = received + int(length)
-                for block in iter(lambda: response.read(CHUNK), b''):
-                    checksum.update(block)
-                    out.write(block)
-                    received += len(block)
+            response = urllib.request.urlopen(request, timeout=600)
         except urllib.error.HTTPError:
             raise
-        except (OSError, http.client.HTTPException) as error:  # a reset or timed-out connection, an incomplete read
-            if not received and total is None:
-                raise  # nothing arrived at all: not a cut transfer
+        except (OSError, http.client.HTTPException) as error:  # no connection: retried only for a transfer under way
+            if not received:
+                raise
             log('{}: {}'.format(url, error))
             continue
+        with response:
+            if received and getattr(response, 'status', None) != 206:
+                raise ValueError('{}: no partial content for a resumed download (HTTP {})'.format(url, getattr(response, 'status', None)))
+            length = getattr(response, 'headers', None) and response.headers.get('Content-Length')
+            if length is not None:
+                total = received + int(length)
+            while True:
+                try:
+                    block = response.read(CHUNK)
+                except (OSError, http.client.HTTPException) as error:  # a reset or timed-out connection, an incomplete read
+                    if total is None:
+                        raise  # no announced length to resume against
+                    log('{}: {}'.format(url, error))
+                    break
+                if not block:
+                    break
+                out.write(block)  # a local error (e.g. a full disk) is not a cut transfer: it ends the download
+                checksum.update(block)
+                received += len(block)
         if total is None or received >= total:
             return
     raise ValueError('{}: incomplete after {} connections ({} of {} bytes)'.format(url, CONNECTIONS, received, total))
