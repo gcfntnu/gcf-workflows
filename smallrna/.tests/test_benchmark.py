@@ -1939,10 +1939,27 @@ def test_de_inputs_use_the_workflow_library_sizes_and_whole_counts():
     oracle = {'A1': {'SEQ0': 7, 'SEQ1': 2, 'SEQSH': 1, 'OTHER': 50}, 'B1': {'SEQ0': 1, 'SEQ1': 2, 'SEQSH': 0}}
     sizes = de.library_sizes(reads, oracle, entries, ['oracle', 'm'], ['A1', 'B1'])
     assert sizes == {('oracle', 'A1'): 10, ('oracle', 'B1'): 3, ('m', 'A1'): 1234.5, ('m', 'B1'): 100}  # oracle: exact + shifted reads
-    texts = de.input_tables(counts, oracle, entries, ['oracle', 'm'], [('A1', 'A', {'lab': 'L1'}), ('B1', 'B', {'lab': 'L2'})], sizes)
-    assert texts['counts.tsv'] == 'row\tpool_id\tA1\tB1\noracle\tS0\t7\t1\noracle\tS1\t2\t2\nm\tS0\t0\t2\nm\tS1\t2\t3\n'  # half to even
+    count = de.pool_count(counts, oracle, entries)
+    assert de.pool_features(entries[:2]) == [('S0', 2.0), ('S1', 0.0)]  # the scored sequences with their designed log2(A / B)
+    texts = de.input_tables(count, ['oracle', 'm'], ['S0', 'S1'], [('A1', 'A', {'lab': 'L1'}), ('B1', 'B', {'lab': 'L2'})], sizes,
+                            de.model_text('A', 'B'))
+    assert list(texts) == list(de.INPUTS)
+    assert texts['counts.tsv'] == 'row\tfeature\tA1\tB1\noracle\tS0\t7\t1\noracle\tS1\t2\t2\nm\tS0\t0\t2\nm\tS1\t2\t3\n'  # half to even
     assert texts['library_sizes.tsv'] == 'row\tA1\tB1\noracle\t10\t3\nm\t1234.5\t100\n'
     assert texts['design.tsv'] == 'sample\tgroup\tlab\nA1\tA\tL1\nB1\tB\tL2\n'
+    assert texts['model.tsv'] == 'field\tvalue\nnumerator\tA\ndenominator\tB\nmin_mean\t0\n'  # pool A against pool B, every sequence with reads
+    assert de.fractional_share(count, 'oracle', ['S0', 'S1'], ['A1', 'B1']) == 0.0
+    assert de.fractional_share(count, 'm', ['S0', 'S1'], ['A1', 'B1']) == 1.0  # both sequences have a count that is rounded
+
+
+def test_de_model_names_the_contrast_numeric_covariates_and_the_least_mean_count():
+    assert de.model_text('case', 'Fertile control', ['nuisance'], 10) == (
+        'field\tvalue\nnumerator\tcase\ndenominator\tFertile control\nmin_mean\t10\nnumeric\tnuisance\n')
+    script = (BENCH / 'de.R').read_text()
+    known = re.search(r"unknown <- setdiff\(settings\$field, c\(([^)]*)\)\)", script)
+    assert known and known.group(1) == "'numerator', 'denominator', 'min_mean', 'numeric'"  # the fields model_text writes
+    assert "levels = c(denominator, numerator)" in script and 'coefficient <- ncol(model)' in script  # log2(numerator / denominator)
+    assert "deparse(formula, width.cutoff = 500L), collapse = ' ')" in script and script.count('deparse(') == 1  # one string in the record
 
 
 def test_de_inputs_are_rewritten_only_when_changed(tmp_path):
@@ -1964,7 +1981,7 @@ def test_de_scores_call_in_the_designed_direction_and_false_calls_on_1to1_only()
                 'fdr': 0.5,           # of the calls S0, S2, S3 and S4: S0 (1:1) and S4 (wrong direction); S2, 1.5-fold, is true
                 'fc_bias': -0.5,      # median of -0.08 (S2), -0.5 (S3) and -5 (S4)
                 'offset': 0.05}       # median of S0 and S1
-    assert de.scores(results, exact, ['m']) == {'m': {'{}_{}'.format(t, k): v for t in de.TESTS for k, v in expected.items()}}  # no oracle row
+    assert de.scores(results, de.pool_features(exact), ['m']) == {'m': {'{}_{}'.format(t, k): v for t in de.TESTS for k, v in expected.items()}}  # no oracle row
     assert sorted(de.metric_keys()) == sorted('{}_{}'.format(t, k) for t in de.TESTS for k in list(expected) + list(de.ORACLE_KEYS))
     assert de.metric_keys(['', '.L1']) == de.metric_keys() + ['{}.L1'.format(k) for k in de.metric_keys()]
 
@@ -1974,14 +1991,20 @@ def test_de_scores_against_the_oracle_compare_calls_and_fold_changes_on_the_same
     oracle = {'S0': (0.1, 0.5, 0.6), 'S1': (0.4, 0.001, 0.01), 'S2': (2.0, 0.001, 0.01), 'S3': (-1.5, 0.1, 0.2)}
     method = {'S0': (0.3, 0.001, 0.01), 'S1': (0.5, 0.001, 0.02), 'S2': (-1.0, 0.001, 0.01), 'S3': (None, None, None)}
     results = {(row, test, pool_id): fit for row, fits in (('oracle', oracle), ('m', method)) for test in de.TESTS for pool_id, fit in fits.items()}
-    values = de.scores(results, exact, ['oracle', 'm'], '.L1')
+    values = de.scores(results, de.pool_features(exact), ['oracle', 'm'], '.L1')
     assert values['m']['edger_own_false_calls.L1'] == 0.5       # S0 of the 1:1 S0 and S1; the oracle calls S1 too
     assert values['m']['voom_discordant_vs_oracle.L1'] == 0.5   # S0 (up, the oracle none) and S2 (down, the oracle up); S3 untested, none
     assert values['m']['edger_fc_shift_vs_oracle.L1'] == 0.1      # median of the differences 0.2, 0.1 and -3 over the sequences both test
     assert values['m']['edger_glm_fc_error_vs_oracle.L1'] == 0.1  # median of their distances from that shift: 0.1, 0 and 3.1
     assert not {'{}_{}.L1'.format(t, k) for t in de.TESTS for k in de.ORACLE_KEYS} & set(values['oracle'])
+    # the synthetic dataset's reference row is the truth: the same metrics under its name
+    renamed = {('truth' if row == 'oracle' else row, test, feature): fit for (row, test, feature), fit in results.items()}
+    against_truth = de.scores(renamed, de.pool_features(exact), ['truth', 'm'], '.adjusted', 'truth')
+    assert against_truth['m']['voom_discordant_vs_truth.adjusted'] == 0.5 and against_truth['m']['edger_fc_shift_vs_truth.adjusted'] == 0.1
+    assert de.reference_keys('truth')[1:] == ('discordant_vs_truth', 'fc_shift_vs_truth', 'fc_error_vs_truth')
+    assert 'voom_fc_error_vs_truth.adjusted' in de.metric_keys(['', '.adjusted'], 'truth')
     untested = {key: (None, None, None) if key[0] == 'm' else fit for key, fit in results.items()}
-    values = de.scores(untested, exact[2:], ['oracle', 'm'])['m']  # no 1:1 sequence, nothing tested by both
+    values = de.scores(untested, de.pool_features(exact[2:]), ['oracle', 'm'])['m']  # no 1:1 sequence, nothing tested by both
     assert math.isnan(values['edger_own_false_calls']) and math.isnan(values['edger_fc_error_vs_oracle']) and math.isnan(values['edger_fc_shift_vs_oracle'])
     assert values['edger_discordant_vs_oracle'] == 0.5  # S2: the oracle calls it, the untested method does not
 
@@ -1991,13 +2014,13 @@ def test_de_fold_change_shift_against_the_oracle_is_not_counted_as_error():
     oracle = {'S0': (0.1, 0.5, 0.6), 'S1': (2.1, 0.001, 0.01), 'S2': (-1.9, 0.001, 0.01), 'S3': (0.8, 0.01, 0.02)}
     method = {pool_id: (lfc - 0.25, p, padj) for pool_id, (lfc, p, padj) in oracle.items()}  # other library sizes: every log2fc 0.25 lower
     results = {(row, test, pool_id): fit for row, fits in (('oracle', oracle), ('m', method)) for test in de.TESTS for pool_id, fit in fits.items()}
-    values = de.scores(results, exact, ['oracle', 'm'])['m']
+    values = de.scores(results, de.pool_features(exact), ['oracle', 'm'])['m']
     assert values['voom_fc_shift_vs_oracle'] == -0.25 and values['voom_fc_error_vs_oracle'] == 0.0
 
 
 def test_de_scores_of_a_resample_are_nan_not_errors():
     results = {('m', test, 'S0'): (None, None, None) for test in de.TESTS}  # untested: no reads
-    values = de.scores(results, de_entries((3, 2)), ['m'])['m']  # no 1:1 and no 2-fold sequence, no call
+    values = de.scores(results, de.pool_features(de_entries((3, 2))), ['m'])['m']  # no 1:1 and no 2-fold sequence, no call
     assert len(values) == len(de.TESTS) * (len(de.KEYS) - len(de.ORACLE_KEYS)) and all(math.isnan(v) for v in values.values())
 
 
@@ -2028,8 +2051,11 @@ def de_declaration(tmp_path, change):
 
 @pytest.mark.parametrize('change, message', [
     (lambda s: s.update(pool='equimolar'), 'is for ratiometric pools'),
-    (lambda s: s.update(de={'covariates': ['batch']}), 'distinct names from lab'),
-    (lambda s: s.update(de={'covariates': ['lab', 'lab']}), 'distinct names from lab'),
+    (lambda s: s.update(de={'covariates': ['batch']}), 'de.covariates batch: every run needs a value'),  # no such column of the runs
+    (lambda s: s.update(de={'covariates': ['lab', 'lab']}), 'distinct column names'),
+    (lambda s: s.update(de={'covariates': ['lab+group']}), 'distinct column names'),  # a term of de.R's formula
+    (lambda s: s.update(de={'covariates': ['group']}), 'distinct column names'),
+    (lambda s: s.update(de={'contrast': ['B', 'A']}), 'takes only `covariates` and `within`'),  # a pool is A against B, as its design
     (lambda s: s.update(de={'covariates': ['lab'], 'test': 'deseq2'}), 'takes only `covariates`'),
     (lambda s: [run.update(lab='Lab1') for run in s['runs']], 'at least two different ones'),
     (lambda s: s['runs'][0].pop('lab'), 'every run needs a value'),
@@ -2050,12 +2076,13 @@ def one_lab(spec):
 
 
 @pytest.mark.parametrize('change, message', [
-    (lambda s: s['de'].update(within='instrument'), "de.within must be a name from lab, got 'instrument'"),
+    (lambda s: s['de'].update(within='instrument'), 'de.within instrument: every run needs a value that starts with a letter or digit'),  # HiSeq 4000
+    (lambda s: s['de'].update(within='the lab'), "de.within must be a column name"),
     (one_lab, 'de.within lab: every run needs a value that starts with a letter or digit'),
     (lambda s: s['runs'][0].update(lab='Lab 1'), 'with at least two different ones'),
     (lambda s: s['runs'][0].update(lab='..'), 'de.within lab: every run needs a value that starts with a letter or digit'),  # not a folder of its own
     (lambda s: s['runs'][0].update(lab='lab1'), 'values that differ only in case would share a folder: Lab1, Lab5, lab1'),
-    (lambda s: s['runs'].pop(0), 'de.within lab Lab1: differential expression needs at least two runs in each pool, got 1 A and 2 B'),
+    (lambda s: s['runs'].pop(0), 'de.within lab Lab1: differential expression needs at least two runs in each group, got 1 A and 2 B'),
 ])
 def test_de_within_needs_safe_level_names_and_replicates_in_each_level(tmp_path, change, message):
     with pytest.raises(SystemExit, match=re.escape(message)):
@@ -2066,9 +2093,65 @@ def test_shipped_ratiometric_declarations_declare_their_de_design():
     truseq = benchmark.load_dataset(BENCH / 'datasets/giraldez2018_ratiometric_truseq.yaml')
     nextflex = benchmark.load_dataset(BENCH / 'datasets/giraldez2018_ratiometric_nextflex.yaml')
     assert truseq['de'] == {'covariates': ['lab'], 'within': 'lab'} and nextflex['de'] == {'covariates': []}
+    genome = benchmark.load_dataset(BENCH / 'datasets/synthetic_hsa_genome.yaml')
+    assert genome['de'] == {} and benchmark.de_kind(genome) == 'synthetic' and benchmark.de_contrast(truseq) == ('A', 'B')
     for path in BENCH.glob('datasets/*.yaml'):
         spec = yaml.safe_load(path.read_text())
-        assert ('de' in spec) == (spec.get('pool') == 'ratiometric'), path.name
+        assert ('de' in spec) == (spec.get('pool') == 'ratiometric' or spec['name'] == 'synthetic_hsa_genome'), path.name
+
+
+def test_de_sets_take_any_column_of_the_runs_as_a_covariate(tmp_path):
+    """A covariate other than `lab` (#447): the instrument, from the declaration's runs, not from samples.tsv."""
+    spec = benchmark.load_dataset(de_declaration(tmp_path, lambda s: s.update(de={'covariates': ['instrument']})))
+    rows = [{'sample': run['run'], 'group': run['group'], 'lab': run['lab'], 'reads': ''} for run in spec['runs']]
+    (whole,) = benchmark.de_sets(spec, benchmark.de_units(spec, rows))
+    assert whole.design[0] == ('SRR5234383', 'A', {'instrument': 'HiSeq 4000'}) and whole.design[-1][2] == {'instrument': 'HiSeq 2500'}
+    assert (whole.suffix, whole.folder, whole.samples) == ('', '', '4 A and 4 B runs') and whole.model == de.model_text('A', 'B')
+    sets = benchmark.de_sets(benchmark.load_dataset(BENCH / 'datasets/giraldez2018_ratiometric_truseq.yaml'), benchmark.de_units(spec, rows))
+    assert [(s.suffix, s.folder, s.samples, list(s.design[0][2])) for s in sets] == [
+        ('', '', '4 A and 4 B runs', ['lab']), ('.Lab1', 'lab/Lab1', '2 A and 2 B runs', []), ('.Lab5', 'lab/Lab5', '2 A and 2 B runs', [])]
+
+
+def biological_declaration(tmp_path, de_spec, groups=('case', 'case', 'control', 'control', 'other', 'other')):
+    spec = {'name': 'bio', 'kind': 'biological', 'organism': 'homo_sapiens', 'libprepkit': 'TruSeq Small RNA Library Prep Kit',
+            'methods': ['unitas'], 'data': 'benchmark/smallrna/bio', 'mirbase': {'release': '23.1', 'url': 'unused', 'sha256': 'unused'},
+            'samples': [{'sample': 'S{}'.format(i), 'group': group, 'patient': 'P{}'.format(i % 2), 'runs': [{'run': 'R{}'.format(i)}]}
+                        for i, group in enumerate(groups)]}
+    if de_spec is not None:
+        spec['de'] = de_spec
+    return write(tmp_path / 'bio.yaml', yaml.safe_dump(spec))
+
+
+def test_a_biological_declaration_names_its_contrast_and_covariates(tmp_path):
+    """`de:` for biological datasets (#447): a contrast of two of the samples' groups, with covariates such as the patient."""
+    spec = benchmark.load_dataset(biological_declaration(tmp_path, {'contrast': ['case', 'control'], 'covariates': ['patient']}))
+    assert benchmark.de_contrast(spec) == ('case', 'control')
+    rows = [{'sample': s['sample'], 'library': s['sample'], 'group': s['group'], 'lane': 'merged'} for s in spec['samples']]
+    (whole,) = benchmark.de_sets(spec, benchmark.de_units(spec, rows))
+    assert whole.design == [('S0', 'case', {'patient': 'P0'}), ('S1', 'case', {'patient': 'P1'}), ('S2', 'control', {'patient': 'P0'}),
+                            ('S3', 'control', {'patient': 'P1'})]  # the third group's samples are not in the set
+    assert whole.samples == '2 case and 2 control samples' and whole.model == de.model_text('case', 'control', (), 10)  # detected miRNAs
+    for de_spec, message in (({}, 'de.contrast must name two different groups of the samples'),
+                             ({'contrast': ['case', 'absent']}, 'de.contrast must name two different groups of the samples'),
+                             ({'contrast': ['case', 'case']}, 'de.contrast must name two different groups'),
+                             ({'contrast': ['case', 'control'], 'covariates': ['age']}, 'de.covariates age: every sample needs a value'),
+                             ({'contrast': ['case', 'control'], 'test': 'deseq2'}, 'takes only `contrast`, `covariates` and `within`')):
+        with pytest.raises(SystemExit, match=re.escape(message)):
+            benchmark.load_dataset(biological_declaration(tmp_path, de_spec))
+    with pytest.raises(SystemExit, match='at least two samples in each group, got 1 case and 2 control'):
+        benchmark.load_dataset(biological_declaration(tmp_path, {'contrast': ['case', 'control']}, ('case', 'control', 'control')))
+    # Group labels that YAML reads as numbers (a dose of 100 against 0): samples.tsv has them as text, and so has the contrast.
+    spec = benchmark.load_dataset(biological_declaration(tmp_path, {'contrast': [100, 0]}, (100, 100, 0, 0, 10, 10)))
+    assert benchmark.de_contrast(spec) == ('100', '0')
+    rows = [{'sample': s['sample'], 'library': s['sample'], 'group': str(s['group']), 'lane': 'merged'} for s in spec['samples']]
+    (whole,) = benchmark.de_sets(spec, benchmark.de_units(spec, rows))
+    assert [(sample, group) for sample, group, _ in whole.design] == [('S0', '100'), ('S1', '100'), ('S2', '0'), ('S3', '0')]
+    assert whole.model == de.model_text('100', '0', (), 10) and whole.samples == '2 100 and 2 0 samples'
+    with pytest.raises(SystemExit, match=re.escape('benchmark/samples.tsv has 1 100 and 2 0 sample(s) for the DE set of the whole dataset')):
+        benchmark.de_sets(spec, benchmark.de_units(spec, rows[1:]))  # a project prepared from another declaration
+    for contrast in ([100, None], ['', 0], [[100], 0]):
+        with pytest.raises(SystemExit, match='de.contrast must name two different groups'):
+            benchmark.load_dataset(biological_declaration(tmp_path, {'contrast': contrast}, (100, 100, 0, 0)))
 
 
 def de_snakemake(cwd, *args):
@@ -2097,15 +2180,15 @@ def test_de_snakefile_runs_r_in_the_sartools_image_for_every_set(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
     for folder in folders:
         assert ('Rscript {0} --counts benchmark/de/{1}input/counts.tsv --library-sizes benchmark/de/{1}input/library_sizes.tsv '
-                '--design benchmark/de/{1}input/design.tsv --results benchmark/de/{1}results.tsv --record benchmark/de/{1}record.tsv > '
-                'benchmark/de/{1}de.log 2>&1'.format(BENCH / 'de.R', folder)) in result.stdout
+                '--design benchmark/de/{1}input/design.tsv --model benchmark/de/{1}input/model.tsv --results benchmark/de/{1}results.tsv '
+                '--record benchmark/de/{1}record.tsv > benchmark/de/{1}de.log 2>&1'.format(BENCH / 'de.R', folder)) in result.stdout
 
 
 def test_de_snakefile_passes_the_options_the_r_script_defines():
     import re
     defined = set(re.findall(r"make_option\('(--[a-z-]+)'", (BENCH / 'de.R').read_text()))
     passed = set(re.findall(r"(--[a-z-]+) \{", (BENCH / 'de.smk').read_text()))
-    assert defined == passed == {'--counts', '--library-sizes', '--design', '--results', '--record'}
+    assert defined == passed == {'--counts', '--library-sizes', '--design', '--model', '--results', '--record'}
 
 
 def test_de_r_script_writes_the_tests_de_py_reads():
@@ -2210,6 +2293,7 @@ def test_evaluate_de_adds_metrics_intervals_and_report(tmp_path):
     assert '## Differential expression' in report and '| 4× | 1 | 1.00 | 1.00 | 1.00 |' in report and '| 1× | 1 | 0.00 |' in report
     assert 'design `~lab + group`' in report and hashlib.sha256((bench / 'de/results.tsv').read_bytes()).hexdigest() in report
     assert "**edgeR's GLM likelihood-ratio test**" in report and 'GLM test: GLM test, design `~lab + group`' in report
+    assert 'share of its sequences with reads that have a fractional count: unitas 0.0, mirge3 0.0.' in report
     summary_md = tmp_path / 'summary.md'
     result = subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'summary', '--projects', str(project), '--output', str(summary_md)],
                             capture_output=True, text=True, timeout=60)
@@ -2225,7 +2309,8 @@ def test_evaluate_de_within_each_lab_scores_each_lab_and_against_the_oracle(tmp_
     assert (bench / 'de/levels.tsv').read_text() == 'column\tlevel\nlab\tL1\nlab\tL2\n'
     assert (bench / 'de/lab/L2/input/design.tsv').read_text() == 'sample\tgroup\nA3\tA\nA4\tA\nB3\tB\nB4\tB\n'  # ~ group
     assert (bench / 'de/lab/L2/input/library_sizes.tsv').read_text().splitlines()[1] == 'oracle\t17\t19\t18\t20'
-    assert (bench / 'de/lab/L1/input/counts.tsv').read_text().splitlines()[0] == 'row\tpool_id\tA1\tA2\tB1\tB2'
+    assert (bench / 'de/lab/L1/input/counts.tsv').read_text().splitlines()[0] == 'row\tfeature\tA1\tA2\tB1\tB2'
+    assert (bench / 'de/lab/L1/input/model.tsv').read_text() == (bench / 'de/input/model.tsv').read_text() == de.model_text('A', 'B')
     assert (bench / 'de/input/design.tsv').read_text().splitlines()[0] == 'sample\tgroup\tlab'  # the whole pool's stays
     plain_ci = (bench / 'metrics_ci.tsv').read_text().splitlines()
     for folder in ('', 'lab/L1'):
@@ -2288,7 +2373,7 @@ def equimolar(project):
 
 
 @pytest.mark.parametrize('case, message', [
-    ('equimolar', 'is for ratiometric pools, not this equimolar dataset'),
+    ('equimolar', 'biological datasets, not this equimolar dataset'),
     ('undeclared', "declares no `de:`"),
     ('no results', 'no results.tsv or record.tsv'),
     ('other inputs', 'comes from other inputs or another de.R (counts)'),
@@ -2316,3 +2401,85 @@ def test_evaluate_de_stops_early(tmp_path, case, message):
     result = evaluate_cmd(project, '--de')
     assert result.returncode != 0 and message in result.stderr, result.stderr
     assert {name: (bench / name).read_text() for name in names} == before  # nothing published, no supporting table rewritten
+
+
+def test_a_biological_dataset_goes_through_the_de_step_without_scores(tmp_path):
+    """#447: a biological dataset that declares `de:` gets the inputs of de.smk for its contrast, with a covariate, and
+    `evaluate --de` reports what each method tests and calls; nothing is scored, since no change is known."""
+    ext = tmp_path / 'ext'
+    data = ext / 'benchmark/smallrna/bio'
+    write(data / 'mirbase/23.1/mature.fa', BLOOD)
+    reads = ['TAGCAGCACGTAAATATTGGCG'] * 6 + ['TAGCTTATCAGACTGATGTTGA'] * 3
+    names = ['GSM{}'.format(i) for i in range(1, 10)]
+    groups = dict(zip(names, ['case'] * 4 + ['control'] * 4 + ['other']))
+    labs = dict(zip(names, ['L1', 'L1', 'L2', 'L2'] * 2 + ['L1']))
+    for i, name in enumerate(names):
+        (data / 'fastq').mkdir(parents=True, exist_ok=True)
+        with gzip.open(data / 'fastq/SRR{}.fastq.gz'.format(i), 'wt') as fh:
+            fh.write(''.join('@SRR{}.{} NB1:1:FC:1:11101:1:{}/1\n{}TGGAATTCTC\n+\n{}\n'.format(i, j, j, s, 'I' * (len(s) + 10))
+                             for j, s in enumerate(reads)))
+    dataset = write(tmp_path / 'bio.yaml', yaml.safe_dump({
+        'name': 'bio', 'kind': 'biological', 'organism': 'homo_sapiens', 'libprepkit': 'Bioo Scientific NEXTflex Small RNA-Seq Kit v4',
+        'methods': ['unitas', 'mirge3'], 'data': 'benchmark/smallrna/bio', 'mirbase': {'release': '23.1', 'url': 'unused', 'sha256': 'unused'},
+        'de': {'contrast': ['case', 'control'], 'covariates': ['lab'], 'within': 'lab'},
+        'samples': [{'sample': name, 'group': groups[name], 'lab': labs[name],
+                     'runs': [{'run': 'SRR{}'.format(i), 'lane': 1, 'md5': 'unused', 'url': 'unused'}]} for i, name in enumerate(names)]}))
+    cmd = [sys.executable, str(BENCH / 'benchmark.py')]
+
+    def prepared(folder, *options):
+        project = tmp_path / folder
+        result = subprocess.run(cmd + ['prepare', '--dataset', str(dataset), '--project', str(project), '--ext-dir', str(ext), *options],
+                                capture_output=True, text=True, timeout=60)
+        assert result.returncode == 0, result.stderr
+        samples = list(yaml.safe_load((project / 'config.yaml').read_text())['samples'])
+        quant = project / 'data/tmp/smallrna/quant'
+        rows = [('miR-16-5p', [700 + 10 * k for k in range(len(samples))]), ('miR-21-5p', [300 - 10 * k for k in range(len(samples))]),
+                ('miR-451a', [1] * len(samples))]
+        write(quant / 'unitas/mir_counts.tsv', '\t' + '\t'.join(samples) + '\n' + ''.join('{}\t{}\n'.format(n, '\t'.join(map(str, v))) for n, v in rows))
+        write(quant / 'mirge3/miR.Counts.csv', 'miRNA,' + ','.join(samples) + '\n' + ''.join('hsa-{},{}\n'.format(n, ','.join(map(str, v)))
+                                                                                         for n, v in rows[:2]))
+        write_records(quant, ['unitas', 'mirge3'], dump=unitas_dump(ext, 'homo_sapiens', 'Human', {}))
+        for sample in samples:
+            write(project / 'data/tmp/smallrna/filter/cutadapt/{}_R1.fastq'.format(sample),
+                  ''.join('@r{}\n{}\n+\n{}\n'.format(j, s, 'I' * len(s)) for j, s in enumerate(reads)))
+            write_cutadapt_reports(project / 'data/tmp/smallrna/filter/cutadapt_stages', sample, 100)
+        return project
+
+    project = prepared('merged')
+    bench = project / 'benchmark'
+    result = evaluate_cmd(project)
+    assert result.returncode == 0, result.stderr
+    design = (bench / 'de/input/design.tsv').read_text().splitlines()
+    assert design[:3] == ['sample\tgroup\tlab', 'GSM1\tcase\tL1', 'GSM2\tcase\tL1'] and len(design) == 9  # GSM9 is in neither group
+    assert (bench / 'de/input/model.tsv').read_text() == de.model_text('case', 'control', (), 10)
+    assert (bench / 'de/levels.tsv').read_text() == 'column\tlevel\nlab\tL1\nlab\tL2\n'
+    assert (bench / 'de/lab/L2/input/design.tsv').read_text() == 'sample\tgroup\nGSM3\tcase\nGSM4\tcase\nGSM7\tcontrol\nGSM8\tcontrol\n'
+    counts = (bench / 'de/input/counts.tsv').read_text().splitlines()
+    assert counts[0] == 'row\tfeature\t' + '\t'.join(names[:8]) and 'unitas\tMIMAT0000069\t' + '\t'.join(str(700 + 10 * k) for k in range(8)) in counts
+    assert 'mirge3\tMIMAT0001631' + '\t0' * 8 in counts  # a miRNA only UNITAS reports: every row lists every feature
+    assert (bench / 'de/input/library_sizes.tsv').read_text() == ('row\t' + '\t'.join(names[:8]) + '\nunitas' + '\t1001.0' * 8 + '\n'
+                                                                  'mirge3' + '\t1000.0' * 8 + '\n')
+    assert '## Differential expression' not in (bench / 'report.md').read_text()
+    metrics_before = (bench / 'metrics.tsv').read_text()
+    result = evaluate_cmd(project, '--de')
+    assert result.returncode != 0 and 'no results.tsv or record.tsv' in result.stderr
+    fits = {'MIMAT0000069': (0.4, 0.001, 0.01), 'MIMAT0000076': (-0.6, 0.001, 0.02), 'MIMAT0001631': (None, None, None)}
+    de_outputs(project, fits)
+    de_outputs(project, fits, folder='lab/L1')
+    de_outputs(project, dict(fits, MIMAT0000076=(-0.6, 0.2, 0.3)), folder='lab/L2')  # in L2, miR-21-5p is not called
+    result = evaluate_cmd(project, '--de')
+    assert result.returncode == 0, result.stderr
+    report = (bench / 'report.md').read_text()
+    assert '## Differential expression' in report and 'case against control over the 3 miRNAs any method reports' in report
+    whole, lab1, lab2 = report.split('## Differential expression')[1].split('\n**')[1:4]  # a table per DE set, each lab's too
+    assert whole.startswith('All samples of the contrast** (4 case and 4 control samples)') and lab2.startswith('L2** (2 case and 2 control samples)')
+    assert "| edgeR's exact test | tested | 2 | 2 |" in whole and '|  | up | 1 | 1 |' in whole and '|  | down | 1 | 1 |' in whole
+    assert '|  | down | 1 | 1 |' in lab1 and '|  | down | 0 | 0 |' in lab2 and '|  | up | 1 | 1 |' in lab2
+    for folder in ('', 'lab/L1/', 'lab/L2/'):
+        sha = hashlib.sha256((bench / 'de' / folder / 'results.tsv').read_bytes()).hexdigest()
+        assert '`de/{}results.tsv` SHA-256 `{}`'.format(folder, sha) in report
+    assert (bench / 'metrics.tsv').read_text() == metrics_before  # the calls are reported, not scored
+    lanes = prepared('lanes', '--lanes')
+    assert evaluate_cmd(lanes).returncode == 0 and not (lanes / 'benchmark/de').exists()  # lanes of one library are no replicates
+    result = evaluate_cmd(lanes, '--de')
+    assert result.returncode != 0 and 'was prepared with --lanes' in result.stderr

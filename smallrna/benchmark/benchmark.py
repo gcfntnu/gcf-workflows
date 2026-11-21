@@ -17,11 +17,12 @@ tools itself. Steps:
    filtered reads (and the filtering table its cutadapt reports).
 3. `evaluate` turns each method's output into one common table (adapters.py), computes the same metrics for every
    method (metrics.py, pool.py; biological.py compares methods with each other) and writes
-   `<project>/benchmark/report.md` with the tables behind it. For a ratiometric pool that declares `de:` (#414) it
-   also writes the inputs of differential expression to `<project>/benchmark/de/input/`, with `within` each lab's to
-   `benchmark/de/lab/<lab>/input/` (#444); `snakemake -s <repo>/smallrna/benchmark/de.smk -d <project> --use-apptainer`
-   tests them with edgeR's exact and GLM tests and limma-voom (de.R), and `evaluate --de` adds the scores of their calls
-   (de.py).
+   `<project>/benchmark/report.md` with the tables behind it. For a dataset that declares `de:` (a ratiometric pool,
+   #414; the genome-wide synthetic dataset or a biological dataset, #447) it also writes the inputs of differential
+   expression to `<project>/benchmark/de/input/`, and those of its other DE sets to folders beside it (with `within`
+   each lab's to `benchmark/de/lab/<lab>/input/`, #444); `snakemake -s <repo>/smallrna/benchmark/de.smk -d <project>
+   --use-apptainer` tests them with edgeR's exact and GLM tests and limma-voom (de.R), and `evaluate --de` adds the
+   scores of their calls (de.py).
 4. `summary` reads several evaluated projects and writes one overview, a section per dataset kind with each project's
    key metrics per method (summary.py), as Markdown or a self-contained HTML file; it writes nothing into the projects.
 
@@ -42,6 +43,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
+import random
 import shlex
 import statistics
 import sys
@@ -111,49 +113,103 @@ def load_dataset(path, mirbase_release=None):
     return spec
 
 
+DE_KINDS = 'ratiometric pools, the genome-wide synthetic dataset and biological datasets'
+DeSet = collections.namedtuple('DeSet', 'suffix folder design model samples')
+
+
+def de_kind(spec):
+    """How a dataset can declare `de:` (#414, #447): 'pool' (a ratiometric pool), 'synthetic' (the genome-wide synthetic
+    dataset) or 'biological'; None for the others."""
+    if spec['kind'] == 'pool':
+        return 'pool' if spec['pool'] == 'ratiometric' else None
+    if spec['kind'] == 'synthetic':
+        return 'synthetic' if synthetic_mode(spec) == 'genome' else None
+    return 'biological'
+
+
+def de_contrast(spec, units=None):
+    """(numerator, denominator) of a dataset's DE contrast, so that a positive log2 fold change is more in the
+    numerator: pool A against pool B; a biological dataset's declared `de.contrast`; for the synthetic dataset, from its
+    `units` (de_units), the group with the positive score of the group factor against the other, as its designed fold
+    changes are."""
+    kind = de_kind(spec)
+    if kind == 'pool':
+        return 'A', 'B'
+    if kind == 'biological':
+        return tuple(str(group) for group in (spec['de'] or {})['contrast'])  # as text, as samples.tsv has the groups
+    signs = {group: {float(fields['factor_group']) > 0 for _, g, fields in units if g == group} for _, group, _ in units}
+    if len(signs) != 2 or sorted(signs.values(), key=sorted) != [{False}, {True}]:
+        fail('benchmark/samples.tsv: the mixed samples need two groups, one with a positive and one with a negative factor_group')
+    return tuple(sorted(signs, key=lambda group: signs[group] == {False}))
+
+
 def check_de(spec, path):
-    """A ratiometric pool's `de:` (#414): covariates of the design of edgeR's GLM test and voom from de.COVARIATES, and
-    `within` (#444), a column from them whose levels are also tested on their own, each with the other covariates. The
-    whole pool's design and each level's pass check_design."""
-    if spec['kind'] != 'pool' or spec['pool'] != 'ratiometric':
-        fail('{}: `de` (differential expression, #414) is for ratiometric pools'.format(path))
+    """A dataset's `de:` (#414, #447). A ratiometric pool and a biological dataset take `covariates`, columns of their
+    runs or samples for the design of edgeR's GLM test and voom, and `within` (#444), a column whose levels are also
+    tested on their own, each with the other covariates; a biological dataset names its `contrast`, [numerator,
+    denominator] of its samples' groups. The genome-wide synthetic dataset takes no option: its contrast and sets come
+    from its design (de_contrast, de_sets). The whole dataset's design and each level's pass check_design."""
+    kind = de_kind(spec)
+    if kind is None:
+        fail('{}: `de` (differential expression, #414) is for {}'.format(path, DE_KINDS))
     declared = spec['de'] or {}
-    if not isinstance(declared, dict) or set(declared) - {'covariates', 'within'}:
-        fail('{}: `de` takes only `covariates` and `within`'.format(path))
+    options = {'pool': ['covariates', 'within'], 'synthetic': [], 'biological': ['contrast', 'covariates', 'within']}[kind]
+    if not isinstance(declared, dict) or set(declared) - set(options):
+        names = ['`{}`'.format(o) for o in options]
+        fail('{}: `de` takes {}'.format(path, 'only ' + ' and '.join([', '.join(names[:-1])] * (len(names) > 1) + names[-1:]) if names else
+                                        'no options for the synthetic dataset (`de: {}`): its design gives the contrast'))
+    if kind == 'synthetic':
+        return
+    unit = 'run' if kind == 'pool' else 'sample'
+    # Groups as text: samples.tsv, which the evaluation reads, has them as text, and YAML may give numbers (100, 0).
+    units = [(None if u.get('group') is None else str(u['group']), u) for u in (spec['runs'] if kind == 'pool' else spec['samples'])]
+    if kind == 'biological':
+        contrast = declared.get('contrast')
+        present = {group for group, _ in units}
+        labels = [str(group) for group in contrast] if isinstance(contrast, list) and None not in contrast else []
+        if len(labels) != 2 or labels[0] == labels[1] or not set(labels) <= present or \
+                any(not label.strip() or set(label) & set('\t\n') for label in labels):
+            fail('{}: de.contrast must name two different groups of the samples, [numerator, denominator], got {!r}'.format(path, contrast))
+    contrast = de_contrast(spec)
+    units = [(group, fields) for group, fields in units if group in contrast]
     covariates = declared.get('covariates') or []
-    if not isinstance(covariates, list) or len(set(covariates)) != len(covariates) or not set(covariates) <= set(de.COVARIATES):
-        fail('{}: de.covariates must be distinct names from {}, got {!r}'.format(path, ', '.join(de.COVARIATES), covariates))
-    check_design(spec['runs'], covariates, path)
+    if not isinstance(covariates, list) or len(set(covariates)) != len(covariates) or \
+            not all(isinstance(c, str) and de.NAME.fullmatch(c) and c not in ('sample', 'group', 'row') for c in covariates):
+        fail('{}: de.covariates must be distinct column names (letters, digits and `_`, starting with a letter; not sample, group '
+             'or row), got {!r}'.format(path, covariates))
+    check_design(units, contrast, covariates, path, unit)
     within = declared.get('within')
     if within is None:
         return
-    if within not in de.COVARIATES:
-        fail('{}: de.within must be a name from {}, got {!r}'.format(path, ', '.join(de.COVARIATES), within))
-    values = [run.get(within) for run in spec['runs']]
+    if not isinstance(within, str) or not de.NAME.fullmatch(within):
+        fail('{}: de.within must be a column name (letters, digits and `_`, starting with a letter), got {!r}'.format(path, within))
+    values = [fields.get(within) for _, fields in units]
     if not all(isinstance(v, str) and de.LEVEL_NAME.fullmatch(v) for v in values) or len(set(values)) < 2:
-        fail('{}: de.within {}: every run needs a value that starts with a letter or digit and has only letters, digits, `.`, '
-             '`_` or `-` (it names a folder and metrics), with at least two different ones'.format(path, within))
+        fail('{}: de.within {}: every {} needs a value that starts with a letter or digit and has only letters, digits, `.`, '
+             '`_` or `-` (it names a folder and metrics), with at least two different ones'.format(path, within, unit))
     if len({value.lower() for value in values}) != len(set(values)):
         fail('{}: de.within {}: values that differ only in case would share a folder: {}'.format(path, within, ', '.join(sorted(set(values)))))
     for level in sorted(set(values)):
-        check_design([run for run in spec['runs'] if run[within] == level], [c for c in covariates if c != within],
-                     '{}: de.within {} {}'.format(path, within, level))
+        check_design([(group, fields) for group, fields in units if fields[within] == level], contrast, [c for c in covariates if c != within],
+                     '{}: de.within {} {}'.format(path, within, level), unit)
 
 
-def check_design(runs, covariates, where):
-    """A DE design's runs (#414): at least two in each pool, each covariate with a value for every run and at least two
-    different ones, and residual degrees of freedom for ~ covariates + group. `where` begins the messages."""
+def check_design(units, contrast, covariates, where, unit='run'):
+    """A DE design's runs or samples (#414), `units`: [(group, {column: value})] of the two groups of `contrast`: at
+    least two in each group, each covariate with a value for every one and at least two different ones, and residual
+    degrees of freedom for ~ covariates + group. `where` begins the messages."""
     for covariate in covariates:
-        values = [run.get(covariate) for run in runs]
-        if not all(values) or len(set(values)) < 2:
-            fail('{}: de.covariates {}: every run needs a value, with at least two different ones'.format(where, covariate))
-    sizes = collections.Counter(run.get('group') for run in runs)
-    if sizes['A'] < 2 or sizes['B'] < 2:
-        fail('{}: differential expression needs at least two runs in each pool, got {} A and {} B'.format(where, sizes['A'], sizes['B']))
-    coefficients = 2 + sum(len({run[c] for run in runs}) - 1 for c in covariates)  # intercept, covariate levels, group
-    if len(runs) - coefficients < 1:
-        fail('{}: the design ~ {} of the GLM test and voom has {} coefficients for {} runs, so no residual degrees of freedom'.format(
-            where, ' + '.join(covariates + ['group']), coefficients, len(runs)))
+        values = [fields.get(covariate) for _, fields in units]
+        if not all(v is not None and str(v).strip() and not set(str(v)) & set('\t\n') for v in values) or len(set(values)) < 2:
+            fail('{}: de.covariates {}: every {} needs a value, with at least two different ones'.format(where, covariate, unit))
+    sizes = collections.Counter(group for group, _ in units)
+    if min(sizes[group] for group in contrast) < 2:
+        fail('{}: differential expression needs at least two {}s in each group, got {} {} and {} {}'.format(
+            where, unit, sizes[contrast[0]], contrast[0], sizes[contrast[1]], contrast[1]))
+    coefficients = 2 + sum(len({fields[c] for _, fields in units}) - 1 for c in covariates)  # intercept, covariate levels, group
+    if len(units) - coefficients < 1:
+        fail('{}: the design ~ {} of the GLM test and voom has {} coefficients for {} {}s, so no residual degrees of freedom'.format(
+            where, ' + '.join(covariates + ['group']), coefficients, len(units), unit))
 
 
 def select_mirbase(spec, release, path):
@@ -624,15 +680,18 @@ def evaluate(args):
 
 
 def check_de_results(project, bench, spec):
-    """`evaluate --de` stops before writing anything unless the project is a ratiometric pool that declares `de:` and
-    de.smk has written the results of each DE set (de_sets)."""
-    if spec['kind'] != 'pool' or spec['pool'] != 'ratiometric':
-        fail('--de (differential expression, #414) is for ratiometric pools, not this {} dataset'.format(spec.get('pool', spec['kind'])))
+    """`evaluate --de` stops before writing anything unless the project's dataset can and does declare `de:` and de.smk
+    has written the results of each DE set (de_sets)."""
+    if de_kind(spec) is None:
+        fail('--de (differential expression, #414) is for {}, not this {} dataset'.format(DE_KINDS, spec.get('pool', spec['kind'])))
     if 'de' not in spec:
         fail("{} declares no `de:`; add the dataset's `de:` (datasets/{}.yaml) to it, run `benchmark.py evaluate` and de.smk, "
              "then evaluate --de".format(bench / 'dataset.yaml', spec['name']))
-    missing = [str(Path(folder) / name) for _, folder, _ in de_sets(spec, read_tsv(bench / 'samples.tsv'))
-               for name in ('results.tsv', 'record.tsv') if not (bench / 'de' / folder / name).is_file()]
+    sample_rows = read_tsv(bench / 'samples.tsv')
+    if de_kind(spec) == 'biological' and any(row['lane'] != 'merged' for row in sample_rows):
+        fail('--de needs the samples\' merged runs: {} was prepared with --lanes, whose samples are lanes of one library'.format(project))
+    missing = [str(Path(s.folder) / name) for s in de_sets(spec, de_units(spec, sample_rows))
+               for name in ('results.tsv', 'record.tsv') if not (bench / 'de' / s.folder / name).is_file()]
     if missing:
         fail('no {} in {}: run `benchmark.py evaluate --project {}`, then `snakemake -s {} -d {} --use-apptainer`, then evaluate '
              '--de'.format(' or '.join(missing), bench / 'de', project, Path(__file__).resolve().with_name('de.smk'), project))
@@ -830,24 +889,29 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
                                                  for e in group if not math.isnan(observed[r][e['pool_id']])])
                            for r in observed} for kind, group in by_kind.items()}
         if 'de' in spec:
-            de_texts, de_results, de_reports = differential_expression(args, bench, spec, counts, reads, oracle, entries, rows, sample_rows)
+            sets = de_sets(spec, de_units(spec, sample_rows))
+            sizes = de.library_sizes(reads, oracle, entries, rows, list(sample_groups))
+            count = de.pool_count(counts, oracle, entries)
+            de_features = de.pool_features(pool.scored(entries))
+            de_ids = [feature for feature, _ in de_features]
+            de_texts = {s.folder: de.input_tables(count, rows, de_ids, s.design, sizes, s.model) for s in sets}
+            de_results, de_reports = differential_expression(args, bench, sets, de_texts, rows, de_ids)
         if de_results:
             for suffix, results in de_results.items():
-                for row, values in de.scores(results, pool.scored(entries), rows, suffix).items():
+                for row, values in de.scores(results, de_features, rows, suffix).items():
                     summary.setdefault(row, {}).update(values)
             keys += de.metric_keys()
             table_keys = list(keys)  # the report's metrics table: each level's DE metrics have a section of their own
             keys += de.metric_keys([suffix for suffix in de_results if suffix])
-            de_lines = de.report_lines(de_results[''], pool.scored(entries), rows, *de_reports[''][:2])
+            de_lines = de.report_lines(de_results[''], de_features, rows, *de_reports[''][:2], de.POOL_INTRO.format(len(de_features), de.FDR))
+            de_lines += ['', rounding_line(count, methods, de_ids, list(sample_groups), 'sequences')]
             de_lines += de.level_lines((spec['de'] or {}).get('within'), [(suffix[1:], de_reports[suffix][2], de_reports[suffix][1],
                                                                           de_reports[suffix][0]) for suffix in de_results if suffix],
                                        summary, rows)
     for path, header, table in pending:
         write_tsv(path, header, table)
     if de_texts:
-        for folder, texts in de_texts.items():
-            de.write_inputs(bench / 'de' / folder / 'input', texts)
-        de.write_changed(bench / 'de' / de.LEVELS, de.levels_text([folder.split('/') for folder in de_texts if folder]))
+        write_de_inputs(bench, de_texts)
     metric_rows = [[k] + [summary.get(r, {}).get(k, '') for r in rows] for k in keys]
 
     groups = {g: sum(1 for e in entries if e['group'] == g) for g in pool.GROUPS}
@@ -892,7 +956,7 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
                     raise
                 result = {}
             for suffix, results in (de_results or {}).items():  # the DE fits stay fixed: their scores resample the sequences only
-                for row, values in de.scores(results, ex, rows, suffix).items():
+                for row, values in de.scores(results, de.pool_features(ex), rows, suffix).items():
                     result.setdefault(row, {}).update(values)
             return result
         draw = lambda rng: (uncertainty.resample(rng, exact), uncertainty.resample(rng, shifted),
@@ -905,43 +969,75 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
     print(bench / 'report.md')
 
 
-def de_sets(spec, sample_rows):
-    """The DE sets of a ratiometric pool that declares `de:` (#414, #444): [(suffix, folder, design)], first the whole
-    pool's (suffix '', folder '' of benchmark/de), then with `within` each level's (suffix `.<level>`, folder
-    `<within>/<level>`), tested with the declared covariates other than `within`. design: [(sample, group,
-    {covariate: value})] in the order of samples.tsv."""
+def de_units(spec, sample_rows):
+    """[(sample, group, {column: value})] of a dataset that declares `de:`, in the order of benchmark/samples.tsv: a
+    pool's runs and a biological dataset's samples with the fields of their declaration, the synthetic dataset's mixed
+    samples with the true scores of its two factors (`nuisance`, a covariate of its adjusted set; `factor_group`, which
+    gives the contrast)."""
+    kind = de_kind(spec)
+    if kind == 'synthetic':
+        return [(row['sample'], row['group'], {'nuisance': row['factor_nuisance'], 'factor_group': row['factor_group']})
+                for row in sample_rows if row['kind'] == 'mixed']
+    if kind == 'pool':
+        fields = {run['run']: run for run in spec['runs']}
+        return [(row['sample'], row['group'], fields[row['sample']]) for row in sample_rows]
+    fields = {s['sample']: s for s in spec['samples']}
+    return [(row['sample'], row['group'], fields[row['library']]) for row in sample_rows]
+
+
+def de_sets(spec, units):
+    """The DE sets (DeSet) of a dataset that declares `de:` (#414, #444, #447), over the `units` (de_units) of the
+    contrast's two groups: first the whole dataset's (suffix '', folder '' of benchmark/de), then the others, each with
+    a metric suffix and a folder `<column>/<level>`:
+    - with `within`, each level's (suffix `.<level>`, folder `<within>/<level>`), tested with the declared covariates
+      other than `within`;
+    - for the synthetic dataset, the one with the true nuisance scores as a numeric covariate (suffix `.adjusted`,
+      folder `adjusted/nuisance`).
+    design: [(sample, group, {covariate: value})]; model: de.model_text, with the least mean count a row tests (none for
+    a pool's designed sequences; the synthetic and biological datasets' detection thresholds); samples: the set's
+    samples per group, for the report."""
+    kind = de_kind(spec)
     declared = spec['de'] or {}
+    numerator, denominator = de_contrast(spec, units)
+    units = [unit for unit in units if unit[1] in (numerator, denominator)]
+    min_mean = {'pool': 0, 'synthetic': genome_metrics.DE_MIN, 'biological': biological.MIN_READS}[kind]
+
+    def de_set(suffix, folder, members, names, numeric=()):
+        sizes = collections.Counter(group for _, group, _ in members)
+        if min(sizes[numerator], sizes[denominator]) < 2:  # e.g. a project prepared from another declaration
+            fail('benchmark/samples.tsv has {} {} and {} {} sample(s) for the DE set {}; differential expression needs at least '
+                 'two in each group: prepare the project again from its declaration'.format(
+                     sizes[numerator], numerator, sizes[denominator], denominator, folder or 'of the whole dataset'))
+        return DeSet(suffix, folder, [(sample, group, {c: fields[c] for c in names}) for sample, group, fields in members],
+                     de.model_text(numerator, denominator, numeric, min_mean),
+                     '{} {} and {} {} {}'.format(sizes[numerator], numerator, sizes[denominator], denominator,
+                                                 'runs' if kind == 'pool' else 'samples'))
+
+    if kind == 'synthetic':
+        return [de_set('', '', units, []), de_set('.adjusted', 'adjusted/nuisance', units, ['nuisance'], ['nuisance'])]
     covariates = list(declared.get('covariates') or [])
     within = declared.get('within')
-
-    def design(runs, names):
-        return [(row['sample'], row['group'], {c: row[c] for c in names}) for row in runs]
-
-    sets = [('', '', design(sample_rows, covariates))]
+    sets = [de_set('', '', units, covariates)]
     if within:
         others = [c for c in covariates if c != within]
-        sets += [('.' + level, '{}/{}'.format(within, level), design([row for row in sample_rows if row[within] == level], others))
-                 for level in sorted({row[within] for row in sample_rows})]
+        sets += [de_set('.' + level, '{}/{}'.format(within, level), [unit for unit in units if unit[2][within] == level], others)
+                 for level in sorted({fields[within] for _, _, fields in units})]
     return sets
 
 
-def differential_expression(args, bench, spec, counts, reads, oracle, entries, rows, sample_rows):
-    """A ratiometric pool that declares `de:` (#414, #444): ({folder: input texts}, {suffix: results}, {suffix: (record,
-    results SHA-256, runs)}) of each DE set (de_sets). The caller writes each set's inputs of de.smk to
-    benchmark/de/<folder>/input/, and benchmark/de/levels.tsv, with the other tables. With --de, this first checks for
-    every set that de.smk's results come from these inputs and the current de.R, and that the results table is the one
-    de.R recorded; it verifies, parses and reports one read of each. Without --de: (texts, None, None)."""
-    sets = de_sets(spec, sample_rows)
-    sizes = de.library_sizes(reads, oracle, entries, rows, [row['sample'] for row in sample_rows])
-    texts = {folder: de.input_tables(counts, oracle, entries, rows, design, sizes) for _, folder, design in sets}
+def differential_expression(args, bench, sets, texts, rows, features):
+    """With --de, the results of each DE set (de_sets): ({suffix: results}, {suffix: (record, results SHA-256, the set's
+    samples)}), after checking for every set that de.smk's results come from its inputs `texts[folder]` and the current
+    de.R, and that the results table is the one de.R recorded, with a line for every row, test and feature; it verifies,
+    parses and reports one read of each. Without --de: (None, None). The caller writes each set's inputs of de.smk to
+    benchmark/de/<folder>/input/, and benchmark/de/levels.tsv, with its other tables (write_de_inputs)."""
     if not args.de:
-        return texts, None, None
-    exact = pool.scored(entries)
+        return None, None
     results, reports = {}, {}
-    for suffix, folder, design in sets:
-        path, record_path = bench / 'de' / folder / 'results.tsv', bench / 'de' / folder / 'record.tsv'
+    for de_set in sets:
+        path, record_path = bench / 'de' / de_set.folder / 'results.tsv', bench / 'de' / de_set.folder / 'record.tsv'
         record = de.read_record(record_path)
-        changed = de.stale(record, texts[folder])
+        changed = de.stale(record, texts[de_set.folder])
         if changed:
             fail('{} comes from other inputs or another de.R ({}); nothing was written: run `benchmark.py evaluate` without --de '
                  '(it writes the current inputs), then de.smk, then evaluate --de'.format(path, ', '.join(changed)))
@@ -950,12 +1046,26 @@ def differential_expression(args, bench, spec, counts, reads, oracle, entries, r
             fail('{} is not the table de.R recorded in {}; nothing was written: run de.smk again, then evaluate --de'.format(
                 path, record_path))
         try:
-            results[suffix] = de.read_results(data.decode(), rows, [e['pool_id'] for e in exact], path)
+            results[de_set.suffix] = de.read_results(data.decode(), rows, features, path)
         except ValueError as error:
             fail(str(error))
-        groups = collections.Counter(group for _, group, _ in design)
-        reports[suffix] = (record, hashlib.sha256(data).hexdigest(), '{} A and {} B runs'.format(groups['A'], groups['B']))
-    return texts, results, reports
+        reports[de_set.suffix] = (record, hashlib.sha256(data).hexdigest(), de_set.samples)
+    return results, reports
+
+
+def write_de_inputs(bench, texts):
+    """Each DE set's inputs of de.smk ({folder: input texts}) and benchmark/de/levels.tsv, the sets besides the whole
+    dataset's."""
+    for folder, inputs in texts.items():
+        de.write_inputs(bench / 'de' / folder / 'input', inputs)
+    de.write_changed(bench / 'de' / de.LEVELS, de.levels_text([folder.split('/') for folder in texts if folder]))
+
+
+def rounding_line(count, rows, features, samples, what):
+    """A report line: the share of each row's `what` with reads that have a fractional count, rounded for the tests."""
+    shares = ['{} {}'.format(row, de.text(de.fractional_share(count, row, features, samples))) for row in rows]
+    return ('Counts are rounded to whole numbers for the tests (a method that divides a read between names reports fractions); the '
+            'share of its {} with reads that have a fractional count: {}.'.format(what, ', '.join(shares)))
 
 
 SHIFT_TEXT = {'3p_shorter': "3' end shorter", '3p_longer': "3' end longer", '5p_moved': "5' end moved", 'mixed': 'mixed'}
@@ -1037,7 +1147,8 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
     id_to_name = {accession: name for name, (accession, _) in mature.items()}
     methods = list(spec['methods'])
     gff = args.mirflowz_gff or (mirflowz_annotation(ext_dir, spec) if 'mirflowz' in methods else None)
-    raw = common_table(args, project, bench, spec, ext_dir, methods, mature, gff)
+    pending = []  # tables written once the differential-expression checks (evaluate --de) have passed
+    raw = common_table(args, project, bench, spec, ext_dir, methods, mature, gff, pending)
     common, _ = biological.collapse(raw, id_to_seq)
     truth, samples, mirnas = (read_tsv(bench / n) for n in ('truth.tsv', 'samples.tsv', 'mirnas.tsv'))
     ev = genome_metrics.Evaluation(common, truth, samples, mirnas, methods)
@@ -1052,23 +1163,61 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
         for c in classes:
             point[name]['probe_' + c] = probes[name].get(c, (float('nan'),))[0]
     keys = GENOME_KEYS + ['probe_' + c for c in classes]
+    de_texts = de_results = None
+    de_keys, de_lines, de_features = [], [], []
+    if 'de' in spec:  # the tests of the ratiometric pools (de.R) on the mixed samples (#447)
+        units = de_units(spec, samples)
+        sets = de_sets(spec, units)
+        column = {sample: k for k, sample in enumerate(ev.mixed)}
+        count = lambda row, sample, unit: float(ev.counts(row)[ev.index[unit], column[sample]])
+        sizes = {(row, sample): float(ev.t[:, k].sum()) if row == 'truth' else ev.total[(row, sample)]
+                 for row in rows for sample, k in column.items()}
+        de_texts = {s.folder: de.input_tables(count, rows, ev.units, s.design, sizes, s.model) for s in sets}
+        de_results, de_reports = differential_expression(args, bench, sets, de_texts, rows, ev.units)
+    if de_results:
+        de_features = ev.de_features()
+        for suffix, results in de_results.items():
+            for name, values in de.scores(results, de_features, rows, suffix, 'truth').items():
+                point[name].update(values)
+        de_keys = de.metric_keys(list(de_results), 'truth')
+        numerator, denominator = de_contrast(spec, units)
+        de_lines = de.report_lines(de_results[''], de_features, rows, *de_reports[''][:2], de.SYNTHETIC_INTRO.format(
+            numerator=numerator, denominator=denominator, features=len(de_features), changed=sum(1 for _, d in de_features if d),
+            min_mean=genome_metrics.DE_MIN, fdr=de.FDR))
+        de_lines += ['', rounding_line(count, methods, ev.units, ev.mixed, 'miRNAs')]
+        de_lines += de.set_lines(
+            'Adjusted for the nuisance factor',
+            'The same samples with the nuisance factor\'s true sample scores as a covariate of the GLM test and voom (the exact test '
+            'takes no covariates, so its values equal those above), scored as above. In metrics.tsv the metrics carry `.adjusted`, '
+            'e.g. `voom_called.adjusted`; their intervals and the differences between methods are in metrics_ci.tsv and '
+            'differences.tsv, not in the uncertainty section below. The metrics against the truth are empty for the truth.',
+            'set', [(suffix[1:], next(s.folder for s in sets if s.suffix == suffix), de_reports[suffix][2], de_reports[suffix][1],
+                     de_reports[suffix][0]) for suffix in de_results if suffix], point, rows, 'truth')
+    table_keys = keys + de.metric_keys(reference='truth') if de_results else keys  # the report's table: other sets have their section
+    keys = keys + de_keys
     rnd = lambda v: round(v, 4) if isinstance(v, float) and not math.isnan(v) else ('' if isinstance(v, float) else v)
     metric_rows = [[k] + [rnd(point[name].get(k, float('nan'))) for name in rows] for k in keys]
     per = []
     for i in ev.units:
         k = ev.index[i]
         per.append([label(i), i, rnd(float(ev.t[k].sum()))] + [rnd(float(ev.o[name][k].sum())) for name in methods])
-    write_tsv(bench / 'per_mirna.tsv', ['mature_name', 'mature_id', 'truth'] + methods, per)
+    for path, header, table in pending + [(bench / 'per_mirna.tsv', ['mature_name', 'mature_id', 'truth'] + methods, per)]:
+        write_tsv(path, header, table)
+    if de_texts:
+        write_de_inputs(bench, de_texts)
     mixed = len(ev.mixed)
     lines = ['# {}'.format(spec['name']), '',
              '{} ({}), genome-wide synthetic reads (#412): {} mixed samples in two groups, {} probe samples; {} truth miRNAs, '
              'identical sequences counted as one. `truth` is the truth counts analysed as a method: the best the design allows.'.format(
                  spec['organism'], spec['libprepkit'], mixed, len(samples) - mixed,
                  sum(1 for m in mirnas if float(m['base_per_million']) > 0)), '',
-             '## Metrics', '', 'Mixed samples (definitions in genome_metrics.py). DE: each row tests the miRNAs with at least {} '
-             'reads on average in its own counts, as an analysis of them would (`de_tested`); {} miRNAs are truly DE, and a call on '
-             'any other miRNA is false. `probe_*`: probe samples, recovery per read class.'.format(
-                 genome_metrics.DE_MIN, len(ev.true_de)), ''] + md_table(['metric'] + rows, metric_rows)
+             '## Metrics', '', 'Mixed samples (definitions in genome_metrics.py). DE, the built-in check (`de_*`): each row tests '
+             'the miRNAs with at least {} reads on average in its own counts, as an analysis of them would (`de_tested`); {} miRNAs '
+             'are truly DE, and a call on any other miRNA is false. {} `probe_*`: probe samples, recovery per read class.'.format(
+                 genome_metrics.DE_MIN, len(ev.true_de),
+                 'DE with the tests of the ratiometric pools (`edger_*`, `edger_glm_*`, `voom_*`): the section below.' if de_results else
+                 'DE with the tests of the ratiometric pools: run de.smk, then `evaluate --de` (#447).' if 'de' in spec else ''), '']
+    lines += md_table(['metric'] + rows, [row for row in metric_rows if row[0] in table_keys])
     strata = {name: ev.strata(name) for name in rows}
     names = sorted({k for v in strata.values() for k in v})
     lines += ['', '## Recovery by stratum', ''] + md_table(
@@ -1092,13 +1241,23 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
                   'row\'s counts, and the estimated log2 fold change.', '']
         lines += ['- {}: '.format(name) + ', '.join('{} ({:.1f} → {:.1f} reads, {:+.2f})'.format(label(i), tm, om, est)
                                                     for i, tm, om, est in calls) for name, calls in false if calls]
+    lines += de_lines
+
+    def compute(units, pairs, de_units, dev_units, scored):
+        result = {name: ev.mixed_metrics(name, units, pairs, de_units, dev_units) for name in rows}
+        for suffix, results in (de_results or {}).items():  # the DE fits stay fixed: their scores resample the scored miRNAs
+            for name, values in de.scores(results, scored, rows, suffix, 'truth').items():
+                result[name].update(values)
+        return result
+    de_rng = random.Random(args.seed)  # its own generator: the other metrics' resamples are the same with and without --de
     extra, record, ci_lines = bootstrap(
-        args, {name: {k: rnd(v) for k, v in point[name].items()} for name in rows},
-        lambda units, pairs, de_units, dev_units: {name: ev.mixed_metrics(name, units, pairs, de_units, dev_units) for name in rows},
+        args, {name: {k: rnd(v) for k, v in point[name].items()} for name in rows}, compute,
         lambda rng: (uncertainty.resample(rng, ev.units), uncertainty.resample(rng, ev.pairs), uncertainty.resample(rng, ev.de_units),
-                     uncertainty.resample(rng, ev.dev_units)),
-        rows, GENOME_CI_KEYS, 'the miRNAs (each with all mixed samples), the near-identical pairs, the miRNAs any row tests for DE '
-        'and the deviation miRNAs (DE calls made once; unplaced, structure, coexpression and probes without an interval)')
+                     uncertainty.resample(rng, ev.dev_units), uncertainty.resample(de_rng, de_features) if de_features else []),
+        rows, GENOME_CI_KEYS + de_keys, 'the miRNAs (each with all mixed samples), the near-identical pairs, the miRNAs any row tests '
+        'for DE and the deviation miRNAs (DE calls made once; unplaced, structure, coexpression and probes without an interval){}'.format(
+            '; the metrics of the pools\' tests resample the scored miRNAs, on the fixed fits' if de_results else ''),
+        GENOME_CI_KEYS + [k for k in de_keys if k in table_keys])
     publish(project, bench, spec, ['metric'] + rows, metric_rows, lines + ci_lines, extra, record)
     print(bench / 'report.md')
 
@@ -1130,9 +1289,30 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
         fail(str(e))
 
     gff = args.mirflowz_gff or (mirflowz_annotation(ext_dir, spec) if 'mirflowz' in methods else None)
-    raw = common_table(args, project, bench, spec, ext_dir, methods, mature, gff)
+    pending = []  # tables written once the differential-expression checks (evaluate --de) have passed
+    raw = common_table(args, project, bench, spec, ext_dir, methods, mature, gff, pending)
     common, groups = biological.collapse(raw, id_to_seq)
     unplaced = biological.unplaced(raw, methods, samples)
+    de_texts, de_lines = None, []
+    if 'de' in spec and not lane_mode:  # the tests of the ratiometric pools (de.R) between two groups of samples (#447); not scored
+        sets = de_sets(spec, de_units(spec, table))
+        by = biological.counts_by(common)
+        tested = [sample for sample, _, _ in sets[0].design]
+        features = sorted({i for m in methods for s in tested for i in by.get((m, s), {})})
+        count = lambda row, sample, feature: by.get((row, sample), {}).get(feature, 0.0)
+        sizes = collections.Counter()
+        for method, sample, _, _, value in raw:  # every miRNA read the method reported, as the workflow scales counts per million
+            sizes[(method, sample)] += float(value)
+        de_texts = {s.folder: de.input_tables(count, methods, features, s.design, sizes, s.model) for s in sets}
+        de_results, de_reports = differential_expression(args, bench, sets, de_texts, methods, features)
+        if de_results:
+            de_lines = de.call_lines([(s.suffix[1:], s.folder, s.samples, de_results[s.suffix], *de_reports[s.suffix][:2]) for s in sets],
+                                     features, methods, *de_contrast(spec))
+            de_lines += ['', rounding_line(count, methods, features, tested, 'miRNAs')]
+    for path, header, rows in pending:
+        write_tsv(path, header, rows)
+    if de_texts:
+        write_de_inputs(bench, de_texts)
 
     summary = biological.method_summary(common, methods, samples)
     for m in methods:
@@ -1211,6 +1391,7 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
         if listed:
             lines += ['', 'Most often overdispersed: ' + '; '.join(listed)]
 
+    lines += de_lines
     stats = biological.sample_stats(common, raw, methods, samples)
     # The unit is the library: the lanes of one library are technical replicates, so a drawn library brings all its
     # lanes (a merged sample is its own library). detected_all_samples has no interval: a resample repeating a sample
@@ -1262,8 +1443,8 @@ def main():
     f.add_argument('--mirbase-release', help="a miRBase release the declaration lists under mirbase_releases (default: its mirbase)")
     e = sub.add_parser('evaluate')
     e.add_argument('--project', required=True)
-    e.add_argument('--de', action='store_true', help="ratiometric pools that declare `de:`: score de.smk's differential "
-                   'expression (#414); its results must come from the inputs this evaluation writes')
+    e.add_argument('--de', action='store_true', help="datasets that declare `de:`: score de.smk's differential "
+                   'expression (#414, #447); its results must come from the inputs this evaluation writes')
     e.add_argument('--bootstrap', type=nonnegative, default=uncertainty.RESAMPLES, metavar='N',
                    help='bootstrap resamples for the metrics\' 95%% intervals (#413); 0 for none (default %(default)s)')
     e.add_argument('--seed', type=int, default=uncertainty.SEED, help='seed of the bootstrap (default %(default)s)')

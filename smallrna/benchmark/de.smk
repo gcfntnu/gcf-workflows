@@ -1,6 +1,7 @@
 #-*- mode:snakemake -*-
-"""Differential expression on a ratiometric pool's evaluation (#414): de.R in the `sartools` image of docker.config, for
-the whole pool and for each level of `within` (#444) that `benchmark.py evaluate` listed in benchmark/de/levels.tsv.
+"""Differential expression on a benchmark evaluation (#414, #447): de.R in the `sartools` image of docker.config, for
+the whole dataset's DE set and for each other set that `benchmark.py evaluate` listed in benchmark/de/levels.tsv (the
+levels of a pool's `within`, #444; the synthetic dataset's set with the nuisance covariate).
 
 Run in the evaluated project after `benchmark.py evaluate` has written benchmark/de/, with the same container settings
 as the project's `quant_all` (the repository holding de.R must be visible in the container):
@@ -24,7 +25,7 @@ if not LEVELS_TABLE.is_file():
                         'differential expression'.format(LEVELS_TABLE, Path.cwd()))
 LEVELS = [line.split('\t') for line in LEVELS_TABLE.read_text().splitlines()[1:] if line]  # [column, level]
 COMMAND = ('Rscript {params.script:q} --counts {input.counts:q} --library-sizes {input.library_sizes:q} --design {input.design:q} '
-           '--results {output.results:q} --record {output.record:q} > {log:q} 2>&1')
+           '--model {input.model:q} --results {output.results:q} --record {output.record:q} > {log:q} 2>&1')
 
 
 rule all:
@@ -38,6 +39,7 @@ rule benchmark_de:
         counts = DE_INPUT + '/counts.tsv',
         library_sizes = DE_INPUT + '/library_sizes.tsv',
         design = DE_INPUT + '/design.tsv',
+        model = DE_INPUT + '/model.tsv',
         script = str(HERE / 'de.R')  # an edit to de.R reruns the fits, as evaluate --de checks its MD5
     output:
         results = DE + '/results.tsv',
@@ -61,6 +63,7 @@ rule benchmark_de_level:
         counts = DE + '/{column}/{level}/input/counts.tsv',
         library_sizes = DE + '/{column}/{level}/input/library_sizes.tsv',
         design = DE + '/{column}/{level}/input/design.tsv',
+        model = DE + '/{column}/{level}/input/model.tsv',
         script = str(HERE / 'de.R')
     output:
         results = DE + '/{column}/{level}/results.tsv',
