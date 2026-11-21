@@ -10,13 +10,14 @@ tools itself. Steps:
 1. `prepare` builds a smallrna project from a dataset declaration (`datasets/<name>.yaml`): configuration, sample
    table, reads (generated for synthetic datasets; linked, or the first `--reads` copied, for pool and biological
    datasets) and the truth (`truth.tsv` per read for synthetic data; `pool.tsv` with truth groups for pools, pool.py;
-   none for biological samples), kept in `<project>/benchmark/`. A biological sample's runs (e.g. the lanes of one
+   none for biological samples and tissue mixtures), kept in `<project>/benchmark/`. A biological sample's runs (e.g. the lanes of one
    library) are merged by the workflow; with `--lanes` each run is its own sample, for the lane-replicate metric.
 2. Run `snakemake quant_all` in the project as for any project on that machine (containers, cores, resources); for a
    pool or biological dataset, with `--notemp`, since the oracle count and the first-base check read the workflow's
    filtered reads (and the filtering table its cutadapt reports).
 3. `evaluate` turns each method's output into one common table (adapters.py), computes the same metrics for every
-   method (metrics.py, pool.py; biological.py compares methods with each other) and writes
+   method (metrics.py, pool.py; biological.py compares methods with each other; mixture.py scores each method on
+   tissue mixtures against its own counts of the pure samples, #451) and writes
    `<project>/benchmark/report.md` with the tables behind it. For a dataset that declares `de:` (a ratiometric pool,
    #414; the genome-wide synthetic dataset or a biological dataset, #447) it also writes the inputs of differential
    expression to `<project>/benchmark/de/input/`, and those of its other DE sets to folders beside it (with `within`
@@ -61,6 +62,7 @@ import fill as filler  # noqa: E402
 import genome_metrics  # noqa: E402
 import isomirs  # noqa: E402
 import metrics  # noqa: E402
+import mixture  # noqa: E402
 import pool  # noqa: E402
 import resources  # noqa: E402
 import summary as summarizer  # noqa: E402
@@ -85,11 +87,12 @@ def load_dataset(path, mirbase_release=None):
             fail('{}: missing {!r}'.format(path, key))
     if spec['organism'] not in PREFIX:
         fail('{}: organism must be one of {}'.format(path, ', '.join(PREFIX)))
-    if spec['kind'] not in ('synthetic', 'pool', 'biological'):
-        fail('{}: kind must be synthetic, pool or biological, got {!r}'.format(path, spec['kind']))
+    if spec['kind'] not in ('synthetic', 'pool', 'biological', 'mixture'):
+        fail('{}: kind must be synthetic, pool, biological or mixture, got {!r}'.format(path, spec['kind']))
     genome = spec['kind'] == 'synthetic' and synthetic_mode(spec) == 'genome'
     required = {'synthetic': ('adapter', 'synthetic') + (('data', 'mirbase') if genome else ('reference',)),
-                'pool': ('pool', 'data', 'composition', 'mirbase', 'runs'), 'biological': ('data', 'mirbase', 'samples')}[spec['kind']]
+                'pool': ('pool', 'data', 'composition', 'mirbase', 'runs'), 'biological': ('data', 'mirbase', 'samples'),
+                'mixture': ('data', 'mirbase', 'samples', 'mixture')}[spec['kind']]
     for key in required:
         if key not in spec:
             fail('{}: a {} dataset needs {!r}'.format(path, spec['kind'], key))
@@ -101,11 +104,19 @@ def load_dataset(path, mirbase_release=None):
         check_decoys(spec['synthetic'], path)
     if spec['kind'] == 'pool' and spec['pool'] not in ('equimolar', 'ratiometric'):
         fail('{}: pool must be equimolar or ratiometric, got {!r}'.format(path, spec['pool']))
+    if spec['kind'] == 'mixture':  # #451: two tissues of each subject mixed at known fractions
+        components = (spec['mixture'] or {}).get('components')
+        if not isinstance(components, list) or len(components) != 2 or len({str(c) for c in components}) != 2:
+            fail('{}: mixture.components must name the two tissues, the one at fraction 0 first'.format(path))
+        try:
+            mixture.Design(spec['samples'])
+        except ValueError as error:
+            fail('{}: {}'.format(path, error))
     if 'de' in spec:
         check_de(spec, path)
     if 'knockout' in spec:
         check_knockout(spec, path)
-    if spec['kind'] == 'biological':
+    if spec['kind'] in ('biological', 'mixture'):
         names = [s['sample'] for s in spec['samples']]
         if len(set(names)) != len(names) or any(not s.get('runs') for s in spec['samples']):
             fail('{}: samples need unique names and at least one run each'.format(path))
@@ -119,18 +130,18 @@ def load_dataset(path, mirbase_release=None):
     return spec
 
 
-DE_KINDS = 'ratiometric pools, the genome-wide synthetic dataset and biological datasets'
+DE_KINDS = 'ratiometric pools, the genome-wide synthetic dataset, mixtures and biological datasets'
 DeSet = collections.namedtuple('DeSet', 'suffix folder design model samples arm', defaults=(None,))  # arm: de.ARMS (#453), else None
 
 
 def de_kind(spec):
     """How a dataset can declare `de:` (#414, #447): 'pool' (a ratiometric pool), 'synthetic' (the genome-wide synthetic
-    dataset) or 'biological'; None for the others."""
+    dataset), 'biological' or 'mixture'; None for the others."""
     if spec['kind'] == 'pool':
         return 'pool' if spec['pool'] == 'ratiometric' else None
     if spec['kind'] == 'synthetic':
         return 'synthetic' if synthetic_mode(spec) == 'genome' else None
-    return 'biological'
+    return spec['kind']  # biological, mixture
 
 
 def de_contrast(spec, units=None):
@@ -188,21 +199,22 @@ def check_de(spec, path):
     runs or samples for the design of edgeR's GLM test and voom, and `within` (#444), a column whose levels are also
     tested on their own, each with the other covariates; a biological dataset names its `contrast`, [numerator,
     denominator] of its samples' groups, and `null` (#449), {splits, seed} of null comparisons within its groups (a
-    contrast, null comparisons or both). The genome-wide synthetic dataset takes no option: its contrast and sets come
-    from its design (de_contrast, de_sets). The whole dataset's design, each level's and each null split's pass
-    check_design."""
+    contrast, null comparisons or both). The genome-wide synthetic dataset and a mixture take no option: their
+    contrasts and sets come from their design (de_contrast and de_sets; mixture_de_sets). The whole dataset's design,
+    each level's and each null split's pass check_design."""
     kind = de_kind(spec)
     if kind is None:
         fail('{}: `de` (differential expression, #414) is for {}'.format(path, DE_KINDS))
     declared = spec['de'] or {}
-    options = {'pool': ['covariates', 'within'], 'synthetic': [], 'biological': ['contrast', 'covariates', 'within', 'null']}[kind]
+    options = {'pool': ['covariates', 'within'], 'synthetic': [], 'mixture': [],
+               'biological': ['contrast', 'covariates', 'within', 'null']}[kind]
     if isinstance(declared, dict) and None in declared and 'null' in options:  # YAML reads a bare `null:` key as null (None)
         fail("{}: `de` has a key that YAML reads as null; write the null comparisons' key quoted, `'null':` (#449)".format(path))
     if not isinstance(declared, dict) or set(declared) - set(options):
         names = ['`{}`'.format(o) for o in options]
         fail('{}: `de` takes {}'.format(path, 'only ' + ' and '.join([', '.join(names[:-1])] * (len(names) > 1) + names[-1:]) if names else
-                                        'no options for the synthetic dataset (`de: {}`): its design gives the contrast'))
-    if kind == 'synthetic':
+                                        'no options for this dataset (`de: {}`): its design gives the contrasts'))
+    if kind in ('synthetic', 'mixture'):
         return
     unit = 'run' if kind == 'pool' else 'sample'
     # Groups as text: samples.tsv, which the evaluation reads, has them as text, and YAML may give numbers (100, 0).
@@ -399,7 +411,8 @@ def prepare(args):
         fail('--lanes is for biological datasets')
     if getattr(args, 'per_group', None) is not None:
         spec = select_per_group(spec, args.per_group)
-    prepare_dataset = {'pool': prepare_pool, 'biological': prepare_biological, 'synthetic': prepare_synthetic}[spec['kind']]
+    prepare_dataset = {'pool': prepare_pool, 'biological': prepare_biological, 'mixture': prepare_biological,
+                       'synthetic': prepare_synthetic}[spec['kind']]
     project.parent.mkdir(parents=True, exist_ok=True)
     with TemporaryDirectory(dir=project.parent) as temporary:
         staged = Path(temporary) / 'project'
@@ -819,6 +832,8 @@ def evaluate(args):
         return evaluate_pool(args, project, bench, spec, ext_dir)
     if spec['kind'] == 'biological':
         return evaluate_biological(args, project, bench, spec, ext_dir)
+    if spec['kind'] == 'mixture':
+        return evaluate_mixture(args, project, bench, spec, ext_dir)
     if synthetic_mode(spec) == 'genome':
         return evaluate_synthetic_genome(args, project, bench, spec, ext_dir)
     prefix = PREFIX[spec['organism']]
@@ -883,7 +898,8 @@ def check_de_results(project, bench, spec):
     sample_rows = read_tsv(bench / 'samples.tsv')
     if de_kind(spec) == 'biological' and any(row['lane'] != 'merged' for row in sample_rows):
         fail('--de needs the samples\' merged runs: {} was prepared with --lanes, whose samples are lanes of one library'.format(project))
-    missing = [str(Path(s.folder) / name) for s in de_sets(spec, de_units(spec, sample_rows))
+    sets = [s for s, *_ in mixture_de_sets(spec)] if de_kind(spec) == 'mixture' else de_sets(spec, de_units(spec, sample_rows))
+    missing = [str(Path(s.folder) / name) for s in sets
                for name in ('results.tsv', 'record.tsv') if not (bench / 'de' / s.folder / name).is_file()]
     if missing:
         fail('no {} in {}: run `benchmark.py evaluate --project {}`, then `snakemake -s {} -d {} --use-apptainer`, then evaluate '
@@ -1874,6 +1890,176 @@ def knockout_section(bench, spec, table, common, methods, filt, id_to_name):
             [[id_to_name.get(i, i), sum(i in per[m]['surviving'] for m in methods)] + [cell(m, i) for m in methods]
              for i in order[:KNOCKOUT_LISTED]])
     return rows, lines
+
+
+def mixture_de_sets(spec, design=None):
+    """The DE sets of a mixture (#451): [(DeSet, numerator fraction, denominator fraction, between mixtures)] for
+    mixture.contrasts, each paired by subject (`~ subject + group`) over the subjects whose series has both fractions,
+    the groups named by the fraction in percent. The pure samples' contrast is the whole dataset's set (folder ''); a
+    contrast between two mixtures' fractions is in `contrast/<numerator>_vs_<denominator>`. A row tests the miRNAs
+    with at least biological.MIN_READS reads on average."""
+    design = design or mixture.Design(spec['samples'])
+    sets = []
+    for numerator, denominator, between in mixture.contrasts(design):
+        up, down = dict(design.at(numerator)), dict(design.at(denominator))
+        subjects = sorted(set(up) & set(down))
+        high, low = mixture.label(numerator), mixture.label(denominator)
+        name = '{}_vs_{}'.format(high, low)
+        if len(subjects) < 2:
+            fail('the mixture contrast {} has {} subject(s) with both fractions; the paired design needs at least two'.format(name, len(subjects)))
+        members = [(up[s], high, {'subject': s}) for s in subjects] + [(down[s], low, {'subject': s}) for s in subjects]
+        sets.append((DeSet('.' + name if between else '', 'contrast/' + name if between else '', members,
+                           de.model_text(high, low, (), biological.MIN_READS),
+                           '{0} {1} and {0} {2} samples of {0} subjects'.format(len(subjects), high, low)), numerator, denominator, between))
+    return sets
+
+
+MIXTURE_DE_KEYS = ('called', 'wrong_direction', 'fc_bias', 'called_shared')
+
+
+def mixture_de_scores(results, expected, methods):
+    """({method: {<test>_<metric>: value}}, {suffix: {method: (scored, share called)}}) of a mixture's contrasts between
+    its mixtures' fractions (#451). `results`: {suffix: de.read_results}; `expected`: {method: {suffix: {feature:
+    expected log2 fold change}}} (mixture.expected_changes), each method's own.
+
+    A method is scored on the miRNAs it tests in a contrast whose expected change is at least mixture.MIN_EXPECTED
+    (log2), all contrasts together, with de.scores: `called`, the share of those expected at least 2-fold apart that
+    are significant in the expected direction; `wrong_direction`, the share of its calls against the expected
+    direction; `fc_bias`, the median of sign(d) * (log2fc - d), negative when fold changes are compressed.
+    `called_shared`: `called` over the miRNAs that every method expects at least 2-fold apart in the same direction in
+    that contrast (an untested one is not called), so the methods are compared on the same miRNAs. The second value
+    gives, per contrast and method, the miRNAs scored for `called` and their share called by edgeR's GLM test."""
+    strong = [{(suffix, feature): math.copysign(1, d) for suffix, changes in expected[m].items() for feature, d in changes.items()
+               if abs(d) >= 1} for m in methods]
+    shared = [key for key, sign in strong[0].items() if all(other.get(key) == sign for other in strong[1:])] if strong else []
+    out, per_contrast = {}, collections.defaultdict(dict)
+    for m in methods:
+        fits = {(m, test, suffix + '|' + feature): fit for suffix in expected[m]
+                for (row, test, feature), fit in results[suffix].items() if row == m}
+        scored = [(suffix + '|' + feature, d) for suffix, changes in expected[m].items() for feature, d in changes.items()
+                  if abs(d) >= mixture.MIN_EXPECTED and fits[(m, de.TESTS[0], suffix + '|' + feature)][1] is not None]
+        values = de.scores(fits, scored, [m])[m]
+        together = de.scores(fits, [(suffix + '|' + feature, expected[m][suffix][feature]) for suffix, feature in shared], [m])[m]
+        out[m] = {}
+        for test in de.TESTS:
+            out[m].update({test + '_called': values[test + '_called'], test + '_wrong_direction': values[test + '_fdr'],
+                           test + '_fc_bias': values[test + '_fc_bias'], test + '_called_shared': together[test + '_called']})
+        for suffix in expected[m]:
+            strongly = [(key, d) for key, d in scored if key.startswith(suffix + '|') and abs(d) >= 1]
+            called = [de.significant(fits[(m, 'edger_glm', key)]) and fits[(m, 'edger_glm', key)][0] * d > 0 for key, d in strongly]
+            per_contrast[suffix][m] = (len(strongly), de.share(called))
+    return out, dict(per_contrast)
+
+
+def evaluate_mixture(args, project, bench, spec, ext_dir):
+    """A mixture dataset (#451): mixture.py's linearity scores of each method against its own pure samples, and, with
+    `de:`, de.R on the contrasts between fractions (mixture_de_sets), scored against each method's expected changes."""
+    mature_fa, _ = biological_paths(spec, ext_dir)
+    mature = synthetic.read_mature(mature_fa, PREFIX[spec['organism']])
+    id_to_seq = {accession: seq for _, (accession, seq) in mature.items()}
+    methods = list(spec['methods'])
+    first, second = (str(c) for c in spec['mixture']['components'])
+    design = mixture.Design(spec['samples'])
+    samples = [row['sample'] for row in read_tsv(bench / 'samples.tsv')]
+    if set(samples) != set(design.samples):
+        fail('benchmark/samples.tsv does not hold the declaration\'s samples; prepare the project again (a mixture has no --lanes)')
+    gff = args.mirflowz_gff or (mirflowz_annotation(ext_dir, spec) if 'mirflowz' in methods else None)
+    pending = []  # tables written once the differential-expression checks (evaluate --de) have passed
+    raw = common_table(args, project, bench, spec, ext_dir, methods, mature, gff, pending)
+    common, _ = biological.collapse(raw, id_to_seq)
+    by = biological.counts_by(common)
+    features = sorted({feature for counts in by.values() for feature in counts})
+    counts = {m: mixture.Counts({s: by.get((m, s), {}) for s in design.samples}, design.samples, features) for m in methods}
+    scores = {m: mixture.Scores(counts[m], design) for m in methods}
+    described = biological.method_summary(common, methods, samples)
+    point = {m: dict(mirna_reads=described[m]['mirna_reads'], detected=described[m]['detected'], **scores[m].values()) for m in methods}
+    keys = ['mirna_reads', 'detected'] + list(mixture.KEYS)
+    rnd = lambda v: '' if isinstance(v, float) and math.isnan(v) else v
+
+    de_texts = de_results = None
+    de_lines = []
+    if 'de' in spec:
+        sets = mixture_de_sets(spec, design)
+        count = lambda row, sample, feature: by.get((row, sample), {}).get(feature, 0.0)
+        sizes = collections.Counter()
+        for method, sample, _, _, value in raw:  # every miRNA read the method reported, as the workflow scales counts per million
+            sizes[(method, sample)] += float(value)
+        de_texts = {s.folder: de.input_tables(count, methods, features, s.design, sizes, s.model) for s, *_ in sets}
+        de_results, de_reports = differential_expression(args, bench, [s for s, *_ in sets], de_texts, methods, features)
+    if de_results:
+        between = [(s, numerator, denominator) for s, numerator, denominator, inner in sets if inner]
+        expected = {m: {s.suffix: mixture.expected_changes(counts[m], design, scores[m].k, numerator, denominator)
+                        for s, numerator, denominator in between} for m in methods}
+        de_point, per_contrast = mixture_de_scores(de_results, expected, methods)
+        for m in methods:
+            point[m].update(de_point[m])
+        keys += ['{}_{}'.format(test, key) for test in de.TESTS for key in MIXTURE_DE_KEYS]
+        pure = sets[0][0]
+        de_lines = de.call_lines([('', pure.folder, pure.samples, de_results[''], *de_reports[''][:2])], features, methods,
+                                 'pure {} ({})'.format(second, mixture.label(1.0)), 'pure {} ({})'.format(first, mixture.label(0.0)))
+        de_lines += ['', '### Between the mixtures', '',
+                     'The contrasts between two fractions of {second}, each paired by subject (`~ subject + group`), the higher '
+                     'fraction against the lower. A method\'s expected change of a miRNA is the mean over the subjects of '
+                     'log2(prediction at one fraction / prediction at the other), from its own pure samples, which are in none of '
+                     'these contrasts. Scored over the miRNAs a method tests with an expected change of at least {least} log2, all '
+                     'contrasts together: `called`, those expected at least 2-fold apart that are called in the expected '
+                     'direction; `wrong_direction`, the share of its calls against it; `fc_bias`, the median of sign(d) × (log2 '
+                     'fold change − d), negative when fold changes are compressed; `called_shared`, `called` over the miRNAs every '
+                     'method expects at least 2-fold apart in the same direction. The metrics have no bootstrap interval.'.format(
+                         second=second, least=mixture.MIN_EXPECTED), '']
+        de_lines += md_table(['metric'] + methods, [['{}_{}'.format(test, key)] + [rnd(point[m]['{}_{}'.format(test, key)]) for m in methods]
+                                                    for test in de.TESTS for key in MIXTURE_DE_KEYS])
+        de_lines += ['', 'Per contrast, edgeR\'s GLM test: the miRNAs a method tests that it expects at least 2-fold apart, and the share '
+                     'called in the expected direction.', ''] + md_table(
+            ['contrast', 'samples'] + methods,
+            [[s.suffix[1:].replace('_vs_', ' against '), s.samples] + ['{} / {}'.format(n, rnd(share)) for n, share in
+                                                                       (per_contrast[s.suffix][m] for m in methods)] for s, _, _ in between])
+        de_lines += ['', rounding_line(count, methods, features, design.samples, 'miRNAs')]
+        de_lines += [''] + ['{}: design `{}` (edgeR {}, limma {}); `de/{}/results.tsv` SHA-256 `{}`.'.format(
+            s.suffix[1:], de_reports[s.suffix][0].get('formula', '?'), de_reports[s.suffix][0].get('edgeR', '?'),
+            de_reports[s.suffix][0].get('limma', '?'), s.folder, de_reports[s.suffix][1]) for s, _, _ in between]
+    for path, header, rows in pending:
+        write_tsv(path, header, rows)
+    if de_texts:
+        write_de_inputs(bench, de_texts)
+
+    metric_rows = [[k] + [rnd(point[m].get(k, float('nan'))) for m in methods] for k in keys]
+    percent = lambda fraction: '{}%'.format(mixture.label(fraction))
+    lines = ['# {}'.format(spec['name']), '',
+             '{} ({}), {} samples: total RNA of {} and {} of {} subjects, mixed per subject at {} {} (#451). No known '
+             'composition: each mixture is predicted from the method\'s own counts of the subject\'s two pure samples, so the '
+             'scores show how linear and consistent a method counts across samples, not whether it assigns reads to the right '
+             'miRNA.'.format(spec['organism'], spec['libprepkit'], len(samples), first, second, len(design.series),
+                             ', '.join(percent(f) for f in design.fractions), second), '',
+             '{} technical replicate pair(s){}.'.format(len(design.replicates), '; outside the series (e.g. a pool of several '
+                                                        'subjects): ' + ', '.join(design.unused) if design.unused else ''), '',
+             '## Linearity', '',
+             'A mixture\'s share of miRNA reads from {second} is w = f k / (f k + 1 − f) for its fraction f, with one content ratio k '
+             'per method (`content_ratio`: the miRNA reads per unit of RNA of {second} over {first}, as the method counts them; '
+             '`content_ratio_spread`: the median |log2| deviation of the mixtures\' own ratios from it). Over the miRNA-sample pairs '
+             'with at least {reads} predicted reads: `linearity_error`, the median |log2(observed / predicted)|; `within_1_5fold`, '
+             'the share within 1.5-fold. `monotonic`: of the tissue-specific miRNAs (at least {specific:g}-fold apart between the pure '
+             'samples), the share of subject series that never move against the trend. `replicate_error`: the median |log2 ratio| '
+             'between technical replicates, the error two libraries of one RNA have, so the floor for `linearity_error`.'.format(
+                 first=first, second=second, reads=mixture.MIN_READS, specific=2 ** mixture.SPECIFIC), ''] + md_table(
+        ['metric'] + methods, [row for row in metric_rows if row[0] in ('mirna_reads', 'detected') + mixture.KEYS])
+    lines += ['', '`linearity_error` per subject (an outlying subject points to its samples, not to a method):', ''] + md_table(
+        ['subject'] + methods, [[subject] + [rnd(scores[m].values(subjects=[subject])['linearity_error']) for m in methods]
+                                for subject in sorted(design.series)])
+    abundance = {m: scores[m].by_abundance() for m in methods}
+    lines += ['', '`linearity_error` by predicted reads (pairs / error):', ''] + md_table(
+        ['predicted reads'] + methods, [[abundance[methods[0]][i][0]] + ['{} / {}'.format(abundance[m][i][1], rnd(abundance[m][i][2]))
+                                                                         for m in methods] for i in range(len(mixture.BINS))])
+    lines += de_lines
+    index = list(range(len(features)))
+    subjects = sorted(design.series)
+    extra, record, ci_lines = bootstrap(
+        args, {m: {k: rnd(v) for k, v in point[m].items()} for m in methods},
+        lambda drawn, people: {m: scores[m].values(drawn, people) for m in methods},
+        lambda rng: (uncertainty.resample(rng, index), uncertainty.resample(rng, subjects)), methods, list(mixture.SCORE_KEYS),
+        'the miRNAs and the subjects, on the fitted content ratios (the differential-expression metrics without an interval)')
+    publish(project, bench, spec, ['metric'] + methods, metric_rows, lines + ci_lines, extra, record)
+    print(bench / 'report.md')
 
 
 def fill(args):

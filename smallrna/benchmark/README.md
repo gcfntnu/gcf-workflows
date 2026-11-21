@@ -115,6 +115,7 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    | ratiometric pool | `covariates`, `within` | pool A against pool B | every scored sequence with reads |
    | genome-wide synthetic | nothing (`de: {}`) | the group the designed fold changes raise against the other | miRNAs with at least 10 reads on average |
    | biological | `contrast: [numerator, denominator]`, `covariates`, `within`, `null` (#449) | two of the samples' groups; samples of other groups are left out | miRNAs with at least 10 reads on average |
+   | mixture | nothing (`de: {}`) | the pure samples against each other, and each pair of the mixtures' fractions, the higher against the lower; each paired by subject | miRNAs with at least 10 reads on average |
 
    A covariate is any field of the declaration's runs (pools) or samples (biological), e.g. `lab`, `patient` or
    `mouse`; each needs a value for every run or sample of the contrast, and the design must leave residual degrees of
@@ -282,6 +283,27 @@ one cell line after gel selection; XPO5 knockout lowers miRNAs only partly, so i
 GSE317995 is the only public NEXTflex v4 dataset found. Its lanes are one library each, so they replicate sequencing
 only; library-preparation reproducibility needs separate libraries of one sample (e.g. the Giraldez 2018 plasma pool
 made in several labs). `blockers: [blood miRNA]` is inferred, not recorded: miR-486-5p and miR-451a are nearly absent.
+
+**Tissue mixtures** (`kind: mixture`, #451): biological runs of a known structure. Total RNA of two tissues
+(`mixture: {components: [first, second]}`) of each subject is mixed at known fractions. A declaration lists `samples`
+as a biological one does, each with:
+- `subject`: the animal or donor whose two tissues were mixed;
+- `fraction`: the share of the second tissue in the total RNA, from 0 to 1; 0 and 1 are the subject's pure samples;
+- `replicate` (optional, from 2): a further library of the same subject and fraction, a technical replicate.
+
+A subject's series is its two pure samples and its mixtures. A sample of a subject without both pure samples, such as
+a pool of several subjects' RNA, is outside the series and not scored. The composition of no sample is known, but each
+mixture is the weighted sum of its subject's pure samples, so every method is scored against its own counts (Metrics,
+below). The project is prepared and quantified as a biological one, without `--lanes` and without `--notemp`: the
+evaluation reads only the count tables.
+
+| Declaration | Samples | Runs |
+|---|---|---|
+| `srp697344_liver_spleen_nebnext` | mouse liver and spleen of five mice, each at 0, 20, 40, 60, 80 and 100% spleen, with a technical replicate at each fraction that has spleen and a pool of the five livers; NEBNext (SRA SRP697344; Aparicio-Puerta et al., bioRxiv 2026, doi:10.64898/2026.05.08.723923, a preprint) | 36, one per library, 17–40M reads |
+
+The study's own truth table is not used: it is derived from one tool's counts and would favour methods that count
+like it. The authors note pancreas RNA in mouse 3; the report gives the error per subject, so an outlying subject
+shows.
 
 ## Methods
 
@@ -528,6 +550,38 @@ miRNA reads):
   method's values, and most for abundant miRNAs, whose sampling noise is small: a share above 3 that grows with
   abundance is a multiplicative lane effect (e.g. an error rate that differs by lane), not a method's. Compare the
   methods with each other rather than with the sampling values.
+
+**Tissue mixtures** (`mixture.py`, #451), per method, against its own counts of the pure samples:
+
+- **The model.** With `fraction` f of the total RNA from the second tissue, the share of a mixture's miRNA reads from
+  it is w = f k / (f k + 1 − f). The content ratio k is the second tissue's miRNA reads per unit of RNA over the
+  first's, as the method counts them; it is fitted per method (each mixture's weight by least squares of its
+  proportions on the subject's two pure profiles, turned into k; the median over the mixtures). A per-miRNA bias that
+  is the same in every sample changes k and nothing else, so the kit's bias does not enter the scores.
+- **`linearity_error`**: the median |log2(observed / predicted)| over the miRNA-sample pairs of the mixtures with at
+  least 10 predicted reads; **`within_1_5fold`**: the share within 1.5-fold. The report also gives the error per
+  subject and by predicted reads.
+- **`monotonic`**: of the tissue-specific miRNAs (at least 4-fold apart between a subject's pure samples, 10 predicted
+  reads in every mixture), the share of subject series that never move against the trend over the fractions.
+- **`replicate_error`**: the median |log2 ratio| of the proportions of technical replicates, miRNAs with at least 10
+  reads on average in the pair. Two libraries of one RNA differ by this much, so it is the floor for
+  `linearity_error`.
+- **`content_ratio`** and **`content_ratio_spread`** (the median |log2| deviation of the mixtures' own ratios from k):
+  a description of the fit, not a score.
+- **What it shows.** Linear and consistent counting across samples. It does not show correct assignment: a method that
+  puts a read on the wrong miRNA in every sample still passes. The pools and the synthetic dataset score assignment.
+- **Differential expression** (`de: {}` and `evaluate --de`), with the pools' tests, each contrast paired by subject
+  (`~ subject + group`):
+  - the pure samples, second tissue against first: what each method tests and calls, as for biological samples; not
+    scored, since the pure samples define the expectation;
+  - each pair of the mixtures' fractions: a method's expected change of a miRNA is the mean over the subjects of
+    log2(prediction at one fraction / prediction at the other), from pure samples that are in none of these
+    contrasts. Over the miRNAs a method tests with an expected change of at least 0.2 log2, all contrasts together,
+    prefixed `edger_`, `edger_glm_` and `voom_`: `called` (expected at least 2-fold apart and called in the expected
+    direction), `wrong_direction` (the share of its calls against it), `fc_bias` (as for the pools) and
+    `called_shared` (`called` over the miRNAs every method expects at least 2-fold apart in the same direction, so
+    the methods are compared on the same miRNAs).
+- **Intervals** resample the miRNAs and the subjects on the fitted content ratios; the DE metrics have none.
 
 On the mouse chr19 dataset, UNITAS and miRge3 count every miRNA exactly. mirflowz counts a third of
 `mmu-miR-146b-5p`, whose sequence occurs three times on chr19: it divides a read that maps equally well to several loci
