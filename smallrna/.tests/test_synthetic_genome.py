@@ -3,6 +3,7 @@ benchmark's prepare and evaluate in genome mode, on a small fake miRBase with ea
 import collections
 import copy
 import gzip
+import json
 import math
 from pathlib import Path
 import random
@@ -750,3 +751,24 @@ def test_prepare_and_evaluate_with_decoys(tmp_path):
     result = subprocess.run(cmd + ['summary', '--projects', str(project), '--output', str(out)], capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stderr
     assert 'decoy_as_mirna' in out.read_text()
+
+
+def test_a_synthetic_seed_is_set_at_prepare_and_recorded(tmp_path):
+    """#455: `prepare --synthetic-seed` draws another set from the same declaration; the project's dataset.yaml and the
+    evaluation record keep the seed."""
+    project, cmd = genome_project(tmp_path)
+    result = subprocess.run(cmd + ['evaluate', '--project', str(project), '--bootstrap', '0'], capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    assert json.loads((project / 'benchmark/evaluation.json').read_text())['synthetic_seed'] == SPEC['seed']
+    other = tmp_path / 'seed7'
+    result = subprocess.run(cmd + ['prepare', '--dataset', str(tmp_path / 'ds.yaml'), '--project', str(other), '--ext-dir', str(tmp_path / 'ext'),
+                                   '--synthetic-seed', '7'], capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    assert yaml.safe_load((other / 'benchmark/dataset.yaml').read_text())['synthetic']['seed'] == 7
+    assert (other / 'benchmark/mirnas.tsv').read_text() != (project / 'benchmark/mirnas.tsv').read_text()  # another draw
+    bad = tmp_path / 'bio.yaml'
+    bad.write_text(yaml.safe_dump({'name': 'b', 'kind': 'biological', 'organism': 'homo_sapiens', 'libprepkit': 'k', 'methods': ['unitas'],
+                                   'data': 'd', 'mirbase': {'release': '23.1', 'url': 'u', 'sha256': 'a'}, 'samples': [{'sample': 'S', 'runs': [{'run': 'R'}]}]}))
+    result = subprocess.run(cmd + ['prepare', '--dataset', str(bad), '--project', str(tmp_path / 'b'), '--ext-dir', str(tmp_path / 'ext'),
+                                   '--synthetic-seed', '7'], capture_output=True, text=True, timeout=120)
+    assert result.returncode != 0 and '--synthetic-seed is for synthetic datasets' in result.stderr

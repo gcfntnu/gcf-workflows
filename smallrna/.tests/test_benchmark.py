@@ -3323,3 +3323,26 @@ def test_each_routes_counting_settings_are_reported_with_its_results(tmp_path):
     assert result.returncode == 0, result.stderr
     states = (bench / 'routes.tsv').read_text()
     assert 'mirge3\tstopped\tsettings record was written for another count table; run `snakemake quant_all` there' in states
+
+
+def test_the_summary_groups_the_seeds_of_one_synthetic_declaration(tmp_path):
+    """#455: projects of one synthetic declaration that differ only by the seed of the draw (or by the routes selected)
+    get a table over the seeds: mean and range per key metric and route, and whether the routes rank the same in each."""
+    import summary
+    root = tmp_path / 'projects'
+    base = {'libprepkit': 'Kit A', 'name': 'synthetic_set', 'kind': 'synthetic', 'methods': ['unitas', 'tesmall']}
+    values = {1: ('0.9', '0.8', '0.5', '0.6'), 2: ('0.95', '0.85', '0.7', '0.6'), 3: ('0.92', '0.7', '0.6', '0.65')}
+    projects = [summary_project(root, 'seed{}'.format(n), dict(base, synthetic={'mode': 'reduced', 'seed': n}),
+                                [['metric', 'unitas', 'tesmall'], ['recovered', a, b], ['exact', c, d]], truth=[('S01', 60)])
+                for n, (a, b, c, d) in values.items()]
+    projects.append(summary_project(root, 'other', dict(base, synthetic={'mode': 'reduced', 'seed': 4, 'mirnas': 10}),  # another set
+                                    [['metric', 'unitas', 'tesmall'], ['recovered', '0.1', '0.2'], ['exact', '0.1', '0.2']], truth=[('S01', 60)]))
+    out = tmp_path / 'summary.md'
+    summary.write(projects, out)
+    text = out.read_text()
+    table = text.split('### synthetic_set over seeds 1, 2, 3')[1]
+    assert '| recovered | 0.9233 (0.9–0.95) | 0.7833 (0.7–0.85) | same in every seed |' in table  # unitas above tesmall in each
+    assert '| exact | 0.6 (0.5–0.7) | 0.6167 (0.6–0.65) | differs |' in table                 # tesmall first in seed 1 only
+    assert 'over seeds 1, 2, 3, 4' not in text and text.count('over seeds') == 1               # the other declaration stays apart
+    summary.write(projects, tmp_path / 'summary.html')
+    assert 'synthetic_set over seeds 1, 2, 3' in (tmp_path / 'summary.html').read_text()

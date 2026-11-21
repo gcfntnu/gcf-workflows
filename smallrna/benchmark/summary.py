@@ -10,10 +10,12 @@ from collections import deque
 from contextlib import contextmanager
 import csv
 import html
+import json
 import os
 from pathlib import Path
 import re
 import secrets
+import statistics
 import urllib.parse
 
 import evaluation
@@ -119,11 +121,17 @@ def read_project(project, out_dir):
             samples = '{} lanes of {} samples'.format(samples, len(libraries))
     # declared routes not evaluated (#448): their state fills their cells; none for evaluations before routes.tsv
     status = {row['route']: row['state'] for row in routes if row['state'] != 'evaluated'}
+    # one draw of a synthetic set (#455): the declaration without its seed and route selection identifies the set
+    synthetic = dict(spec.get('synthetic') or {})
+    seed = record.get('synthetic_seed', synthetic.pop('seed', None))
+    synthetic.pop('seed', None)
+    declaration = json.dumps(dict({k: v for k, v in spec.items() if k not in ('methods', 'not_selected')}, synthetic=synthetic),
+                             sort_keys=True, default=str) if spec.get('kind') == 'synthetic' else None
     report = os.path.relpath((bench / 'report.md').resolve(), out_dir)
     return kind, {'project': project.resolve().name, 'link': urllib.parse.quote(report), 'dataset': spec['name'], 'kit': spec['libprepkit'],
                   'samples': samples, 'reads processed': '' if record.get('reads_processed') is None else '{:,}'.format(record['reads_processed']),
                   'methods': ', '.join(c for c in columns if c not in ('oracle', 'truth')), 'columns': columns, 'values': values,
-                  'status': status}
+                  'status': status, 'seed': seed, 'declaration': declaration}
 
 
 def resolve_with_links(path):
@@ -167,8 +175,45 @@ def summarize(projects, out_dir):
         for row in rows:
             row['values'].update({(k, m): state for k in keys for m, state in row['status'].items()})
         metrics = [(k, [m for m in methods if any((k, m) in row['values'] for row in rows)]) for k in keys]
-        sections.append((title, note, [(k, ms) for k, ms in metrics if ms], rows))
+        metrics = [(k, ms) for k, ms in metrics if ms]
+        sections.append((title, note, metrics, rows, over_seeds(rows, metrics)))
     return sections
+
+
+def number(value):
+    """The value of a metric cell without its interval, or None (empty, a route state)."""
+    try:
+        return float(str(value).split(' ')[0])
+    except ValueError:
+        return None
+
+
+def over_seeds(rows, metrics):
+    """Projects of one synthetic declaration that differ only by the seed of the draw (#455), two seeds or more:
+    [(dataset, seeds, [(metric, {method: (mean, low, high)}, order)])], `order` whether the methods with a value in
+    every seed rank the same in each (by value, ties by name), '' with fewer than two such methods."""
+    groups = {}
+    for row in rows:
+        if row['declaration'] is not None and row['seed'] is not None:
+            groups.setdefault(row['declaration'], []).append(row)
+    out = []
+    for members in groups.values():
+        seeds = sorted({row['seed'] for row in members})
+        if len(seeds) < 2:
+            continue
+        lines = []
+        for k, ms in metrics:
+            values = {m: [number(row['values'].get((k, m))) for row in members] for m in ms}
+            complete = {m: v for m, v in values.items() if v and None not in v}
+            spread = {m: (statistics.mean(v), min(v), max(v)) for m, v in complete.items()}
+            ranks = {tuple(sorted(complete, key=lambda m: (-complete[m][i], m))) for i in range(len(members))}
+            lines.append((k, spread, ('same in every seed' if len(ranks) == 1 else 'differs') if len(complete) > 1 else ''))
+        out.append((members[0]['dataset'], seeds, lines))
+    return out
+
+
+def seed_cell(spread):
+    return '' if spread is None else '{:.4g} ({:.4g}–{:.4g})'.format(*spread)
 
 
 INTRO = ('Key metrics of each evaluated project, from its `metrics.tsv`; its `report.md` has them all, and '
@@ -183,6 +228,11 @@ INTRO = ('Key metrics of each evaluated project, from its `metrics.tsv`; its `re
          'from the evaluation (`metrics_ci.tsv`; differences between methods are in each report).')
 
 
+SEEDS_NOTE = ('The projects of this synthetic declaration that differ only by the seed of the draw (#455): per key metric '
+              'and route, the mean over the seeds and their range in parentheses; `order`, whether the routes with a '
+              'value in every seed rank the same way in each.')
+
+
 def markdown_cell(value):
     # Character references stay inside a GFM cell, including inside a link label.
     text = html.escape(str(value)).replace('\r', ' ').replace('\n', ' ')
@@ -194,12 +244,18 @@ def markdown_cell(value):
 
 def markdown(sections):
     lines = ['# Small-RNA benchmark summary', '', INTRO]
-    for title, note, metrics, rows in sections:
+    for title, note, metrics, rows, seeds in sections:
         header = FIXED + ['{}: {}'.format(k, m) for k, ms in metrics for m in ms]
         lines += ['', '## ' + title, '', note, '', '| ' + ' | '.join(map(markdown_cell, header)) + ' |', '|---' * len(header) + '|']
         for row in rows:
             cells = ['[{}]({})'.format(markdown_cell(row['project']), row['link'])] + [markdown_cell(row[k]) for k in FIXED[1:]]
             lines.append('| ' + ' | '.join(cells + [markdown_cell(row['values'].get((k, m), '')) for k, ms in metrics for m in ms]) + ' |')
+        for dataset, used, table in seeds:
+            methods = list(dict.fromkeys(m for _, spread, _ in table for m in spread))
+            lines += ['', '### {} over seeds {}'.format(markdown_cell(dataset), ', '.join(map(str, used))), '', SEEDS_NOTE, '',
+                      '| metric | ' + ' | '.join(map(markdown_cell, methods)) + ' | order |', '|---' * (len(methods) + 2) + '|']
+            lines += ['| ' + ' | '.join([markdown_cell(k)] + [markdown_cell(seed_cell(spread.get(m))) for m in methods] + [order]) + ' |'
+                      for k, spread, order in table]
     return '\n'.join(lines) + '\n'
 
 
@@ -229,7 +285,7 @@ def inline_code(text):
 
 def html_page(sections):
     body = ['<h1>Small-RNA benchmark summary</h1>', '<p>{}</p>'.format(inline_code(INTRO))]
-    for title, note, metrics, rows in sections:
+    for title, note, metrics, rows, seeds in sections:
         top = ''.join('<th rowspan="2">{}</th>'.format(k) for k in FIXED)
         top += ''.join('<th colspan="{}">{}</th>'.format(len(ms), html.escape(k)) for k, ms in metrics)
         sub = ''.join('<th>{}</th>'.format(html.escape(m)) for _, ms in metrics for m in ms)
@@ -241,6 +297,14 @@ def html_page(sections):
             trs.append('<tr>{}</tr>'.format(''.join(cells)))
         body += ['<h2>{}</h2>'.format(html.escape(title)), '<p>{}</p>'.format(inline_code(note)),
                  '<div class="scroll"><table><thead><tr>{}</tr><tr>{}</tr></thead><tbody>'.format(top, sub)] + trs + ['</tbody></table></div>']
+        for dataset, used, table in seeds:
+            methods = list(dict.fromkeys(m for _, spread, _ in table for m in spread))
+            head = ''.join('<th>{}</th>'.format(html.escape(m)) for m in ['metric'] + methods + ['order'])
+            trs = ['<tr><td>{}</td>{}<td>{}</td></tr>'.format(html.escape(k), ''.join('<td class="num">{}</td>'.format(
+                html.escape(seed_cell(spread.get(m)))) for m in methods), html.escape(order)) for k, spread, order in table]
+            body += ['<h3>{} over seeds {}</h3>'.format(html.escape(dataset), html.escape(', '.join(map(str, used)))),
+                     '<p>{}</p>'.format(inline_code(SEEDS_NOTE)),
+                     '<div class="scroll"><table><thead><tr>{}</tr></thead><tbody>'.format(head)] + trs + ['</tbody></table></div>']
     return ('<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
             '<meta name="viewport" content="width=device-width, initial-scale=1">\n<title>Small-RNA benchmark summary</title>\n'
             '<style>{}</style>\n</head>\n<body>\n{}\n</body>\n</html>\n'.format(STYLE, '\n'.join(body)))
