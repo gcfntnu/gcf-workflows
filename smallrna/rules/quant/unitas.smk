@@ -67,6 +67,10 @@ rule unitas:
         args = unitas_args
     threads:
         2
+    resources:
+        # Peak 1.3-4.0 GB per sample at 8-18M filtered reads (0.9-1.6 GB of FASTQ), public plasma (GSE317995; #386);
+        # it grows with a sample's distinct sequences, so the reservation scales with its filtered reads.
+        mem_mb = mem_from_reads(6000, 4)
     log:
         join(QUANT_INTERIM, 'unitas', 'logs', '{sample}.log')
     benchmark:

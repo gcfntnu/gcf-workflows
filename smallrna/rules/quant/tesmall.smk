@@ -57,6 +57,10 @@ rule tesmall_quant:
         script = src_gcf('scripts/tesmall_check.py')
     threads:
         1
+    resources:
+        # Peak 4.7-6.6 GB per sample at 8-18M filtered reads (0.9-2.0 GB of FASTQ), public plasma (GSE317995; #386);
+        # about 4 GB plus a share that grows with the reads, so the reservation scales with them.
+        mem_mb = mem_from_reads(10000, 2.5, base_mb=4000)
     log:
         join(TESMALL_OUT, '{sample}', 'tesmall.log')
     benchmark:
