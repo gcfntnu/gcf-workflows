@@ -2002,7 +2002,7 @@ def knockout_section(bench, spec, table, common, methods, filt, id_to_name, flag
             ['knockout_surviving'] + [len(per[m]['surviving']) for m in methods]]
     other = lambda i: ';'.join('{}:{}'.format(cls, ','.join(names[:3])) for cls, names in (flag or {}).get(i, []))
     tsv = [[m, g, i, id_to_name.get(i, i), round(c, 2), round(k, 2), round(r, 4), int(r > biological.SURVIVING)] +
-           ([other(i)] if flag is not None else []) + ([expected.get(i, '')] if expected is not None else [])
+           ([other(i)] if flag is not None else []) + ([expected.get(i, '') if g == survival else ''] if expected is not None else [])
            for m in methods for g in groups for i, (c, k, r) in result[m]['ratios'][g].items()]
     write_tsv(bench / 'knockout.tsv', ['method', 'group', 'mature_id', 'mirna', 'control_reads', 'knockout_reads', 'ratio', 'surviving'] +
               (['other_class'] if flag is not None else []) + (['expected'] if expected is not None else []), tsv)
@@ -2069,9 +2069,10 @@ def knockout_section(bench, spec, table, common, methods, filt, id_to_name, flag
             lines += ['', 'Expected miRNAs tested but not surviving, per method (most control reads first): ' + '; '.join(
                 '{}: {}'.format(m, missed(m)) for m in methods if split[m]['tested_expected'] - per[m]['surviving']) + '.']
         candidates = sorted(id_to_name.get(i, i) for i in common_set - set(expected))
-        if candidates:  # every method agreeing is evidence about the miRNA, not about a method
-            lines += ['', '{} of the {} miRNAs surviving in every method are not expected: candidates for the list (made without DROSHA, or'
-                      ' from another RNA), not false counts: {}.'.format(len(candidates), len(common_set), ', '.join(candidates))]
+        if candidates and len(methods) > 1:  # methods agreeing is evidence about the miRNA, not about one method
+            lines += ['', '{} of the {} miRNAs surviving in every method are not expected: candidates to check for the list (made without'
+                      ' DROSHA, or from another RNA) rather than one method\'s false counts, though the methods may share a'
+                      ' misassignment: {}.'.format(len(candidates), len(common_set), ', '.join(candidates))]
     if flag is not None and any(per[m]['surviving'] & set(flag) for m in methods):
         lines += ['', 'Surviving miRNAs that lie inside molecules of other RNA classes (#415), per method: ' + '; '.join(
             '{}: {}'.format(m, ', '.join(sorted(id_to_name.get(i, i) for i in per[m]['surviving'] & set(flag))))
