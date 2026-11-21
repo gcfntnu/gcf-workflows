@@ -1,0 +1,8 @@
+# The genome-wide synthetic set with no miRNA designed to change (#453): every DE call is false, so the false-call
+# rate of each route, test and normalisation arm under the generator's variance alone. Everything else, the reads of
+# other RNA classes and the probe samples included, is synthetic_hsa_genome's (same seed, same data folder).
+extends: synthetic_hsa_genome.yaml
+name: synthetic_hsa_genome_null
+synthetic:
+  structure:
+    group: {fraction: 0, log2: [1], include: []}

@@ -277,12 +277,17 @@ def structure(chosen, base, universe, spec, groups, rng):
     group = st['group']
     n_de = int(round(float(group['fraction']) * len(chosen)))
     include = set(group.get('include') or [])
-    special = [r for r in chosen if ('near_identical' in include and universe.near[r]) or
+    # `abundant` (#453's unbalanced scenario): the most abundant chosen miRNAs change first, so the composition shifts
+    top = sorted(chosen, key=lambda r: (-base[r], r))[:int(group.get('abundant') or 0)]
+    if len(top) > n_de:
+        raise ValueError('structure.group.abundant ({}) is more than the miRNAs that change ({})'.format(len(top), n_de))
+    rest = [r for r in chosen if r not in top]
+    special = [r for r in rest if ('near_identical' in include and universe.near[r]) or
                ('multi_locus' in include and universe.mirnas[r]['loci'] > 1)]
-    others = [r for r in chosen if r not in special]
-    k = min(len(special), n_de // 4)
-    de = rng.permutation(np.array(special, dtype=object)).tolist()[:k]
-    de += rng.permutation(np.array(others, dtype=object)).tolist()[:n_de - k]
+    others = [r for r in rest if r not in special]
+    k = min(len(special), (n_de - len(top)) // 4)
+    de = top + rng.permutation(np.array(special, dtype=object)).tolist()[:k]
+    de += rng.permutation(np.array(others, dtype=object)).tolist()[:n_de - len(top) - k]
     fold = {r: float(rng.choice(group['log2'])) for r in de}
     sd = float(st['nuisance'].get('sd', 0.5))
     shared = float((spec.get('coregulate') or {}).get('shared', 0))
