@@ -29,6 +29,7 @@ CONNECTIONS = 20   # per file: the first, and one for each time the transfer is 
 PAUSE = 30         # seconds before a resuming connection, times its number, at most 300
 UMASK = os.umask(0)
 os.umask(UMASK)
+USER_AGENT = 'gcf-workflows-benchmark'  # the client name downloads send
 
 
 def targets(spec, ext_dir):
@@ -62,7 +63,9 @@ def transfer(url, out, checksum, log=print):
         if connection:
             log('{}: cut at {} of {} bytes; resuming'.format(url, received, total if total is not None else 'unknown'))
             time.sleep(min(PAUSE * connection, 300))
-        request = urllib.request.Request(url, headers={'Range': 'bytes={}-'.format(received)}) if received else url
+        # a client name of its own on every request: some servers (GtRNAdb) refuse Python's default
+        headers = dict({'User-Agent': USER_AGENT}, **({'Range': 'bytes={}-'.format(received)} if received else {}))
+        request = urllib.request.Request(url, headers=headers)
         try:
             response = urllib.request.urlopen(request, timeout=600)
         except urllib.error.HTTPError:
