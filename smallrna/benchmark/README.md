@@ -246,7 +246,9 @@ not.
 - **UNITAS:** `isomir_counts.tsv`, the name without the modification UNITAS appends to a read with a substitution, as
   `mir_counts.tsv` counts it.
 - **miRge3:** `mapped.csv`, names folded by the project library's merge file, and only miRNAs with at least 2 exact
-  reads in the project (as `miR.Counts.csv`); a read under `exact miRNA` is canonical.
+  reads in the project (as `miR.Counts.csv`); a read under `exact miRNA` is labelled canonical. miRge3's exact class
+  holds reads matching its library's sequences, not only the miRBase mature: 82% are the mature sequence on the
+  genome-wide synthetic set, the rest mostly 3′ shorter or longer, so its label metrics describe that class.
 - **mirflowz:** its isomiR rows. A plain row counts the reads matching mirflowz's annotated mature exactly; the table
   does not give their sequence, so they cannot be matched by sequence.
 - **nf-core/smrnaseq:** `joined_samples_mirtop.tsv`, the first row of each UID; `Variant` NA is canonical.
@@ -356,7 +358,7 @@ miRNA), `exact` (share of miRNAs counted exactly, to within 1e-6 for the fractio
   `edger_fc_error_vs_oracle.Lab1`. They are in `metrics.tsv`, `metrics_ci.tsv` and `differences.tsv`, whose paired
   differences show whether a difference between methods holds in each lab. The report shows their values in a section
   of their own, outside the main table and the uncertainty section.
-- **isomiRs** (#454, no intervals yet). Against the oracle, per run: `canonical_isomir_recovered` and
+- **isomiRs** (#454; no intervals yet, so they are left out of the uncertainty files). Against the oracle, per run: `exact_sequence_recovered` and
   `shifted_isomir_recovered`, the share of the oracle's reads of the scored `exact` and `shifted` sequences a method
   reports as that sequence on the entry's miRNA, and `shifted_isomir_within_2fold`. A synthetic pool holds only its
   designed sequences, so a method's reads on other sequences of its miRNAs are library or sequencing artefacts

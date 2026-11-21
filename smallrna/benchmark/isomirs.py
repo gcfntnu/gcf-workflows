@@ -6,7 +6,11 @@ the routes need no shared isomiR naming. variant() describes a sequence relative
 offsets, non-templated 3' bases, a substitution); the synthetic scores use the truth's own read classes instead.
 Accessions of identical mature sequences count as one (representatives, as biological.collapse).
 
-Rows without a sequence (mirflowz's plain rows, adapters.py) cannot be matched by sequence and are left out here.
+Rows without a sequence (a mirflowz plain row whose accession has no miRBase mature, adapters.py) cannot be matched by
+sequence and are left out here. A route's label is its own category: miRge3's `exact miRNA`, labelled canonical, holds
+reads matching its library's sequences, not only the miRBase mature (on the genome-wide synthetic set 82% are the
+mature sequence, the rest mostly 3' shorter or longer), so its `isomir_as_canonical` describes that class rather than
+a mislabelling.
 """
 import collections
 import math
@@ -17,7 +21,7 @@ KINDS = ('canonical', 'substitution', '5p', '3p_add', '3p_longer', '3p_templated
 MIN_DETECTED = 10  # reads over all samples for a biological isomiR to count as detected
 SUBSTITUTED = 'substituted'  # truth reads with a substitution, whatever their class
 SYNTHETIC_KEYS = ['isomir_recovered', 'isomir_misassigned', 'isomir_not_in_sample', 'isomir_as_canonical', 'canonical_as_isomir']
-POOL_KEYS = ['canonical_isomir_recovered', 'shifted_isomir_recovered', 'shifted_isomir_within_2fold', 'artefact_share']
+POOL_KEYS = ['exact_sequence_recovered', 'shifted_isomir_recovered', 'shifted_isomir_within_2fold', 'artefact_share']
 BIOLOGICAL_KEYS = ['isomir_share', 'isomirs_detected']
 
 Variant = collections.namedtuple('Variant', 'start end added substitutions')
@@ -156,7 +160,9 @@ def synthetic_lines(values, classes, methods, without):
              'isomirs.tsv), up to the true count; `substituted` are reads with a substitution, whatever their class. Over a '
              'method\'s reads: `isomir_misassigned` on a sequence the sample has under another miRNA or as a random read, '
              '`isomir_not_in_sample` on sequences the sample does not have. Its own labels against the truth: '
-             '`isomir_as_canonical` (of its reads labelled canonical), `canonical_as_isomir` (of those labelled isomiR).', '',
+             '`isomir_as_canonical` (of its reads labelled canonical), `canonical_as_isomir` (of those labelled isomiR); a label is '
+             'the method\'s own category, and miRge3\'s `exact miRNA` holds reads matching its library\'s sequences, shorter and '
+             'longer ones among them, not only the miRBase mature.', '',
              '| class | true reads | ' + ' | '.join(methods) + ' |', '|---' * (len(methods) + 2) + '|']
     for c in class_order(classes):
         if c in classes:
@@ -170,7 +176,7 @@ def synthetic_lines(values, classes, methods, without):
 def pool_scores(isomirs, exact, shifted, entries, oracle, methods, id_to_seq):
     """({method: {metric: value}}, {method: {kind: reads}}) of a pool against its oracle, over all runs.
 
-    `canonical_isomir_recovered` and `shifted_isomir_recovered`: of the oracle's reads of each scored exact (shifted)
+    `exact_sequence_recovered` and `shifted_isomir_recovered`: of the oracle's reads of each scored exact (shifted)
     sequence, the share the method reports as that sequence on the entry's miRNA, per run up to the oracle's count;
     `shifted_isomir_within_2fold`: the share of shifted sequences whose summed count is within 2-fold of the oracle's
     (one read added to both). `artefact_share`: of the method's reads on the pool's miRNAs, the share on sequences the
@@ -199,7 +205,7 @@ def pool_scores(isomirs, exact, shifted, entries, oracle, methods, id_to_seq):
         for (_, accession, sequence), c in on_pool.items():
             if sequence not in sequences:
                 artefacts[kind(variant(sequence, id_to_seq.get(accession, '')), templated_known=False)] += c
-        out[method] = {'canonical_isomir_recovered': recovered(exact), 'shifted_isomir_recovered': recovered(shifted),
+        out[method] = {'exact_sequence_recovered': recovered(exact), 'shifted_isomir_recovered': recovered(shifted),
                        'shifted_isomir_within_2fold': share(sum(within), len(within)),
                        'artefact_share': share(sum(artefacts.values()), sum(on_pool.values()))}
         kinds[method] = dict(artefacts)
@@ -220,7 +226,7 @@ def pool_lines(values, kinds, methods, without):
     """report.md's isomiR section of a pool."""
     lines = ['', '## isomiRs', '',
              'Against the oracle (exact matches of the pool sequences in the filtered reads), per run: the share of its reads of '
-             'the scored `exact` (`canonical_isomir_recovered`) and `shifted` sequences (`shifted_isomir_recovered`) that a method '
+             'the scored `exact` (`exact_sequence_recovered`) and `shifted` sequences (`shifted_isomir_recovered`) that a method '
              'reports as that sequence on the entry\'s miRNA; `shifted_isomir_within_2fold`, the shifted sequences within 2-fold of '
              'the oracle. A synthetic pool holds only its designed sequences, so a method\'s reads on other sequences of its miRNAs '
              'are library or sequencing artefacts (`artefact_share`); as all methods read the same filtered reads, the differences '

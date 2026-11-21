@@ -927,7 +927,9 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
         units = 'the scored pool sequences (exact and shifted) and the runs within each pool (A, B)'
         if de_results:
             units += '; the differential-expression metrics resample the sequences only, on the fixed fits'
-    extra, record, ci_lines = bootstrap(args, summary, compute, draw, rows, keys, units, table_keys)
+    no_ci = set(isomirs.POOL_KEYS)  # no intervals for the isomiR metrics yet (#454)
+    extra, record, ci_lines = bootstrap(args, summary, compute, draw, rows, [k for k in keys if k not in no_ci], units,
+                                        [k for k in table_keys if k not in no_ci] if table_keys else None)
     publish(project, bench, spec, ['metric'] + rows, metric_rows, lines + ci_lines, extra, record)
     print(bench / 'report.md')
 
@@ -1262,7 +1264,7 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
     libraries = sorted(lanes_of)
     extra, record, ci_lines = bootstrap(args, summary, lambda drawn: biological.summary_of(stats, methods, drawn, all_samples=False),
                                         lambda rng: ([s for lib in uncertainty.resample(rng, libraries) for s in lanes_of[lib]],), methods,
-                                        [k for k in keys if k != 'detected_all_samples'],
+                                        [k for k in keys if k != 'detected_all_samples' and k not in isomirs.BIOLOGICAL_KEYS],
                                         '{} (`detected_all_samples` without an interval: a resample repeating a sample has fewer '
                                         'distinct samples)'.format('the libraries, each with all its lanes' if lane_mode else 'the samples'))
     publish(project, bench, spec, ['metric'] + methods, metric_rows, lines + ci_lines, extra, record)

@@ -669,8 +669,9 @@ def test_prepare_and_evaluate_a_pool(tmp_path):
     assert 'mirge3\tSRRA\thsa-miR-1-3p\tMIMAT0000416\tTGGAATGTAAAGAAGTATGTAT\tcanonical\t8.0' in isomir_lines
     table = {line.split('\t')[0]: line.split('\t')[1:] for line in (project / 'benchmark/metrics.tsv').read_text().splitlines()}
     assert table['metric'] == ['oracle', 'unitas', 'mirge3'] and table['artefact_share'] == ['', '0.0', '0.0']
-    assert table['canonical_isomir_recovered'][0] == '' and all(0 < float(v) <= 1 for v in table['canonical_isomir_recovered'][1:])
+    assert table['exact_sequence_recovered'][0] == '' and all(0 < float(v) <= 1 for v in table['exact_sequence_recovered'][1:])
     assert '## isomiRs' in report and 'Without isomiR output' not in report
+    assert not any(line.split('\t')[0] in isomirs.POOL_KEYS for line in (project / 'benchmark/metrics_ci.tsv').read_text().splitlines())
     assert '| metric | oracle | unitas | mirge3 |' in report and '| called | 1.0 | 1.0 | 1.0 |' in report
     assert '| 1:8 | -3.00 | 1 |' in report
     per_sequence = (project / 'benchmark/per_sequence.tsv').read_text().splitlines()
@@ -1078,6 +1079,7 @@ def test_evaluate_a_biological_dataset_in_lanes(tmp_path):
         'unitas\tquant\tunitas_mirtable\t\t1\t\t']
     assert '| unplaced | 0.0024 | 0.0 |' in report and 'unitas: `miR-325-3p` (5)' in report      # median of 5/1036 and 0/1040
     assert '| isomir_share |' in report and '## isomiRs' in report and '| unitas / mirge3 |' in report.split('## isomiRs')[1]
+    assert not any(line.split('\t')[0] in isomirs.BIOLOGICAL_KEYS for line in (project / 'benchmark/metrics_ci.tsv').read_text().splitlines())
     assert '| miR-451a | 485.0 | 0.0 |' in report     # median CPM of the blocked miRNA: 1 of 1031 placed reads in L1, none in L2
     assert '| GSM1_L1 | 100 | 95 | 1 | 7 | 0 | 2 | 2 | 1 | 87 |' in report                   # the filtering table
     assert '| GSM1_L1 | 10 | 10.00% | 40.0 | 14.0 |' in report                       # 1 of 10 top-miRNA reads has another first base
@@ -2489,7 +2491,7 @@ def test_isomir_pool_scores_against_the_oracle_and_the_artefact_floor():
     rows = [('m', 'S1', 'a', 'A', LET7, '', 8), ('m', 'S2', 'a', 'A', LET7, '', 6), ('m', 'S1', 'b', 'B', 'TAGCTTATCAGACTGATGTTG', '', 5),
             ('m', 'S1', 'a', 'A', LET7 + 'A', '', 2), ('m', 'S1', 'c', 'C', 'TTTTTTTTTTTTTTTTTTTT', '', 9), ('m', 'S1', 'a', 'A', '', '', 7)]
     values, kinds = isomirs.pool_scores(rows, exact, shifted, exact + shifted, oracle, ['m'], {'A': LET7, 'B': 'TAGCTTATCAGACTGATGTTGA'})
-    assert values['m'] == {'canonical_isomir_recovered': 0.875, 'shifted_isomir_recovered': 1.0, 'shifted_isomir_within_2fold': 1.0,
+    assert values['m'] == {'exact_sequence_recovered': 0.875, 'shifted_isomir_recovered': 1.0, 'shifted_isomir_within_2fold': 1.0,
                            'artefact_share': 0.0952}  # 14 of 16; 4 of 4; 6/5; 2 of the 21 reads on pool miRNAs
     assert kinds['m'] == {'3p_longer': 2}
 

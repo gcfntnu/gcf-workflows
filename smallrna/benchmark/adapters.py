@@ -36,7 +36,8 @@ table (check_isomirs). `label` is the method's own call, canonical or isomiR (em
   (`miR-548x-3p(1T->A)`), as mir_counts.tsv counts it, and placed as in the common table;
 - miRge3: mapped.csv, as rules/quant/scripts/mirge3_counts.py counts miR.Counts.csv: names folded by the project
   library's merge file, a merge group's reads on its first member, and only miRNAs with at least MIRGE3_MIN_EXACT exact
-  reads in the project; a read under `exact miRNA` is canonical;
+  reads in the project; a read under `exact miRNA` is labelled canonical, though miRge3's exact class holds reads
+  matching its library's sequences, not only the miRBase mature (82% of them on the genome-wide synthetic set);
 - mirflowz: the `name|5' shift|3' shift|CIGAR|MD|sequence` rows are isomiRs, their sequence in genome orientation, so a
   locus on the minus strand (its annotation) gives the reverse complement of the read. A plain row counts the reads that
   match mirflowz's annotated mature exactly: the miRBase mature sequence of its accession, which the table does not give
