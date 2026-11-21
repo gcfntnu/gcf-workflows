@@ -23,6 +23,8 @@ FASTP_PRESETS = {
     'Bioo Scientific NEXTflex Small RNA-Seq Kit v3 SE': '-f 4 -t 4 -l 16 -q 15 -u 40 -n 5 -e 0 --low_complexity_filter --complexity_threshold 30',
     'Bioo Scientific NEXTflex Small RNA-Seq Kit v4 SE': '-l 15 -q 15 -u 40 -n 5 -e 0 --low_complexity_filter --complexity_threshold 30',
     'TruSeq Small RNA Library Prep Kit SE': '-l 15 -q 15 -u 40 -n 5 -e 0 --low_complexity_filter --complexity_threshold 30'}
+# kits added after #350: no project of theirs predates the cutadapt default, so none carries fastp settings
+NO_FASTP_PRESET = {'NEBNext Multiplex Small RNA Library Prep Kit SE'}  # #450
 ADAPTER = 'TGGAATTCTCGGGTGCCAAGG'
 INSERT = 'ACGTACGTACGTACGTA'
 
@@ -39,7 +41,7 @@ reports = load('merge_fastp')
 
 
 def test_kits_no_longer_set_fastp():
-    assert set(FASTP_PRESETS) <= set(SMALLRNA)  # kits added after #350 (NEBNext, #450) never had a fastp preset
+    assert set(FASTP_PRESETS) | NO_FASTP_PRESET == set(SMALLRNA) and not set(FASTP_PRESETS) & NO_FASTP_PRESET
     assert all('fastp' not in kit['filter']['trim'] and kit['filter']['trim']['quantifier'] == 'cutadapt' for kit in SMALLRNA.values())
 
 
@@ -134,7 +136,7 @@ def run_stages(binary, work, records, args, nextseq=False):
     return intermediate, retained, first, final
 
 
-@pytest.mark.parametrize('name', SMALLRNA)
+@pytest.mark.parametrize('name', FASTP_PRESETS)
 def test_read_outcomes_and_reconciled_reports(fastp, tmp_path, name):
     v3 = 'v3' in name
     def raw(insert):
@@ -187,7 +189,7 @@ def test_disabled_length_retains_nonempty_reads_only(fastp, tmp_path, length):
     assert final['filtering_result']['too_short_reads'] == 0
 
 
-@pytest.mark.parametrize('name', [name for name in SMALLRNA if 'v3' not in name])
+@pytest.mark.parametrize('name', [name for name in FASTP_PRESETS if 'v3' not in name])
 def test_other_kits_match_previous_route_and_one_pass_changes_polyg(fastp, tmp_path, name):
     records = [('polyg', 'ACGTACGTACGTACGT' + 'G' * 12 + ADAPTER, None),
                ('normal', INSERT + ADAPTER, None), ('short', INSERT[:14] + ADAPTER, None), ('empty', ADAPTER, None)]

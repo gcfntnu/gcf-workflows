@@ -135,7 +135,9 @@ def test_three_prime_artefact_fasta_lists_adapter_primer_and_p7_pieces():
 @pytest.mark.parametrize('adapter3, read_through', [
     (ADAPTER3, ADAPTER3 + 'AACTCCAGTCAC'),                   # TruSeq/NEXTflex RA3: the primer follows
     (ADAPTER3_NEB, ADAPTER3_NEB),                             # NEBNext: the adapter already runs into the primer
-    (ADAPTER3_NEB[:-6], ADAPTER3_NEB)])                       # an adapter ending inside the primer start: joined there
+    (ADAPTER3_NEB[:-6], ADAPTER3_NEB),                        # an adapter ending in 6 nt of the primer start: joined there
+    (ADAPTER3 + 'A', ADAPTER3 + 'AAACTCCAGTCAC'),             # ends in A by chance: the primer appended whole
+    (ADAPTER3 + 'AACTC', ADAPTER3 + 'AACTCAACTCCAGTCAC')])    # 5 nt of the primer start: appended whole
 def test_adapter_read_through_joins_the_index_primer_once(adapter3, read_through):
     assert policy.adapter_read_through(adapter3) == read_through
 

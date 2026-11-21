@@ -86,6 +86,7 @@ THREE_PRIME_ARTEFACT_PIECE = 16
 THREE_PRIME_ARTEFACT_RECORD, REAGENT_OLIGO_RECORD = 'three_prime_artefact_', 'reagent_oligo_'  # record name prefixes, read by merge_cutadapt.py
 REAGENT_OLIGO_MIN_OVERLAP = 14  # in TruSeq plasma: 7 STP-miRNA chimeras of 5.8 M reads discarded at 14 nt, 43 at 10 (#380)
 ILLUMINA_INDEX_PRIMER_START = 'AACTCCAGTCAC'
+READ_THROUGH_MIN_OVERLAP = 6  # a kit adapter ending in a shorter piece of the primer start ends there by chance
 ILLUMINA_P7 = 'ATCTCGTATGCCGTCTTCTGCTTG'
 DNA = re.compile(r'^[ACGT]+\Z')  # \Z, not $: '$' also matches before a trailing newline
 
@@ -183,13 +184,14 @@ def artefact_args():
 
 def adapter_read_through(adapter3):
     """The read through adapter3 into Illumina's index-read primer: adapter3 followed by ILLUMINA_INDEX_PRIMER_START,
-    joined where they overlap. A kit's `adapter` may already run into the primer (NEBNext:
-    AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC, the read through as NEB gives it for trimming); then it is that adapter up to
-    the primer start's end."""
+    joined where they overlap by at least READ_THROUGH_MIN_OVERLAP nt. A kit's `adapter` may already run into the
+    primer (NEBNext: AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC, the read through as NEB gives it for trimming); then it is
+    that adapter up to the primer start's end. A shorter overlap is taken for chance and the primer appended whole:
+    an adapter ending in A would otherwise lose a base against the primer's AA."""
     primer = ILLUMINA_INDEX_PRIMER_START
     if primer in adapter3:
         return adapter3[:adapter3.index(primer) + len(primer)]
-    overlap = max((k for k in range(1, len(primer)) if adapter3.endswith(primer[:k])), default=0)
+    overlap = max((k for k in range(READ_THROUGH_MIN_OVERLAP, len(primer)) if adapter3.endswith(primer[:k])), default=0)
     return adapter3 + primer[overlap:]
 
 
