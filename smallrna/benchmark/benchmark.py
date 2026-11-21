@@ -216,6 +216,8 @@ def check_de(spec, path):
         names = ['`{}`'.format(o) for o in options]
         fail('{}: `de` takes {}'.format(path, 'only ' + ' and '.join([', '.join(names[:-1])] * (len(names) > 1) + names[-1:]) if names else
                                         'no options for this dataset (`de: {}`): its design gives the contrasts'))
+    if kind == 'mixture':
+        mixture_de_sets(spec)  # every paired contrast needs two subjects with both fractions: checked here, before a run
     if kind in ('synthetic', 'mixture'):
         return
     unit = 'run' if kind == 'pool' else 'sample'
@@ -2141,7 +2143,7 @@ def evaluate_mixture(args, project, bench, spec, ext_dir):
                      'pair the samples by subject (`~ subject + group`); the exact test takes no covariates and compares the two '
                      'groups as they are. A method\'s expected change of a miRNA is the mean over the subjects of '
                      'log2(prediction at one fraction / prediction at the other), from its own pure samples, which are in none of '
-                     'these contrasts. Scored over the miRNAs a method tests with an expected change of at least {least} log2, all '
+                     'these contrasts, and the subject\'s content ratio, one number fitted on all its mixtures. Scored over the miRNAs a method tests with an expected change of at least {least} log2, all '
                      'contrasts together: `called`, those expected at least 2-fold apart that are called in the expected '
                      'direction; `wrong_direction`, the share of its calls against it; `fc_bias`, the median of sign(d) × (log2 '
                      'fold change − d), negative when fold changes are compressed; `called_shared`, `called` over the miRNAs every '
