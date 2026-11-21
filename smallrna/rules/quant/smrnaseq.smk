@@ -83,8 +83,7 @@ rule smrnaseq_collapse:
     output:
         join(SMRNASEQ_OUT, 'collapsed', '{sample}.fastq')
     params:
-        work = join(SMRNASEQ_OUT, 'collapsed', '{sample}.work'),
-        collapse = SMRNASEQ_COLLAPSE
+        work = join(SMRNASEQ_OUT, 'collapsed', '{sample}.work')
     log:
         join(SMRNASEQ_OUT, 'collapsed', '{sample}.log')
     benchmark:
@@ -93,7 +92,7 @@ rule smrnaseq_collapse:
         'docker://' + config['docker']['smrnaseq_seqcluster']
     shell:
         # seqcluster names its output after the input file (<name>_trimmed.fastq), so each sample gets its own directory.
-        'rm -rf {params.work:q} && seqcluster collapse {params.collapse} -f {input:q} -o {params.work:q} > {log:q} 2>&1 && '
+        'rm -rf {params.work:q} && seqcluster collapse ' + SMRNASEQ_COLLAPSE + ' -f {input:q} -o {params.work:q} > {log:q} 2>&1 && '
         'mv {params.work:q}/*_trimmed.fastq {output:q} && rm -r {params.work:q}'
 
 
@@ -130,7 +129,6 @@ rule smrnaseq_mirtop:
         gff = join(SMRNASEQ_OUT, 'mirtop', '{sample}', 'mirtop.gff'),
         counts = join(SMRNASEQ_OUT, 'mirtop', '{sample}', 'counts', 'mirtop.tsv')
     params:
-        mirtop = SMRNASEQ_MIRTOP,
         out = join(SMRNASEQ_OUT, 'mirtop', '{sample}'),
         species = SMRNASEQ_SPS
     log:
@@ -141,7 +139,7 @@ rule smrnaseq_mirtop:
         'docker://' + config['docker']['smrnaseq_mirtop']
     shell:
         'mirtop gff --sps {params.species} --hairpin {input.hairpin:q} --gtf {input.gff:q} -o {params.out:q} {input.bam:q} > {log:q} 2>&1 && '
-        'mirtop counts {params.mirtop} --hairpin {input.hairpin:q} --gtf {input.gff:q} --sps {params.species} --gff {output.gff:q} '
+        'mirtop counts ' + SMRNASEQ_MIRTOP + ' --hairpin {input.hairpin:q} --gtf {input.gff:q} --sps {params.species} --gff {output.gff:q} '
         '-o {params.out:q}/counts >> {log:q} 2>&1'
 
 

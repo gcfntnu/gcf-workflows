@@ -104,8 +104,7 @@ rule tinyrna_align:
         join(TINYRNA_OUT, '{sample}', '{sample}.bam')
     params:
         index = TINYRNA_INDEX,
-        mismatch = tinyrna_mismatch,
-        bowtie = TINYRNA_BOWTIE
+        mismatch = tinyrna_mismatch
     # One thread: Bowtie 1.3.1 with --reorder and more than one thread deadlocks on a full human genome index, and a
     # sample's unique sequences align in seconds. A single thread writes the reads in input order, each read's
     # alignments together, as tiny-count needs.
@@ -123,7 +122,7 @@ rule tinyrna_align:
         'docker://' + config['docker']['tiny-count']
     shell:
         # --no-PG keeps Bowtie as the last program in the header, which tiny-count checks.
-        'bowtie -x {params.index:q} -f {input.reads:q} -v {params.mismatch} {params.bowtie} '
+        'bowtie -x {params.index:q} -f {input.reads:q} -v {params.mismatch} ' + TINYRNA_BOWTIE + ' '
         '2> {log:q} | samtools view -b --no-PG -o {output:q} -'
 
 

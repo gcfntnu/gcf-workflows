@@ -58,7 +58,6 @@ rule biocore_miraligner_align:
     output:
         join(BIOCORE_MIRALIGNER_OUT, '{sample}', '{sample}.mirna')
     params:
-        args = BIOCORE_MIRALIGNER_ARGS,
         prefix = join(BIOCORE_MIRALIGNER_OUT, '{sample}', '{sample}'),
         db = BIOCORE_MIRALIGNER_DB,
         species = MIR_ORG[ORG]
@@ -73,7 +72,7 @@ rule biocore_miraligner_align:
         'docker://' + config['docker']['seqbuster']
     shell:
         # miraligner stops on an empty table: a sample without sequences gets the output's header only.
-        'if [ -s {input.reads:q} ]; then miraligner -Xmx3g {params.args} -s {params.species} -freq -i {input.reads:q} '
+        'if [ -s {input.reads:q} ]; then miraligner -Xmx3g ' + BIOCORE_MIRALIGNER_ARGS + ' -s {params.species} -freq -i {input.reads:q} '
         '-db {params.db:q} -o {params.prefix:q} > {log:q} 2>&1; '
         "else printf 'seq\\tname\\tfreq\\tmir\\tstart\\tend\\tmism\\tadd\\tt5\\tt3\\ts5\\ts3\\tDB\\tprecursor\\tambiguity\\n' > {output:q}; "
         'echo "no sequences" > {log:q}; fi'

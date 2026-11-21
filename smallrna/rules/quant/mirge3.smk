@@ -119,7 +119,7 @@ rule mirge3_quant:
         collect = src_gcf('scripts/mirge3_collect.py'),
         # Names other rules own in the miRge3 folder; miRge3 writing one of them stops the job (mirge3_collect.py)
         reserved = ' '.join(os.path.basename(p) for p in (MIRGE3_FASTQ_DIR, MIRGE3_PROJECT_LIB, join(QUANT_INTERIM, 'mirge3', MIRGE3_DB),
-                            'spikein.tsv', 'reference.tsv', 'settings.tsv', 'miR.Counts.mirge3.csv', 'unmapped.fasta'))
+                            'spikein.tsv', 'reference.tsv', 'miR.Counts.mirge3.csv', 'unmapped.fasta'))
     threads:
         8
     benchmark:

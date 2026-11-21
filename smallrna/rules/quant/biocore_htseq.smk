@@ -81,8 +81,6 @@ rule biocore_htseq_align:
     output:
         join(BIOCORE_HTSEQ_OUT, '{sample}', 'alignments.sam.gz')
     params:
-        min_length = BIOCORE_HTSEQ_MIN_LENGTH,
-        bowtie2 = BIOCORE_HTSEQ_BOWTIE2,
         index = BIOCORE_HTSEQ_INDEX
     threads:
         4
@@ -97,8 +95,8 @@ rule biocore_htseq_align:
         'docker://' + config['docker']['biocore_htseq_bowtie2']
     shell:
         # fastx_collapser writes each sequence on one line after its name.
-        "awk 'NR % 2 == 1 {{name = $0; next}} length($0) >= {params.min_length} {{print name; print}}' {input.reads:q} | "
-        'bowtie2 -p {threads} {params.bowtie2} -x {params.index:q} -U - 2> {log:q} | gzip > {output:q}'
+        "awk 'NR % 2 == 1 {{name = $0; next}} length($0) >= " + str(BIOCORE_HTSEQ_MIN_LENGTH) + " {{print name; print}}' {input.reads:q} | "
+        'bowtie2 -p {threads} ' + BIOCORE_HTSEQ_BOWTIE2 + ' -x {params.index:q} -U - 2> {log:q} | gzip > {output:q}'
 
 
 rule biocore_htseq_annotate:
@@ -108,7 +106,6 @@ rule biocore_htseq_annotate:
     output:
         join(BIOCORE_HTSEQ_OUT, '{sample}', 'annotated.sam.gz')
     params:
-        htseq_count = BIOCORE_HTSEQ_COUNT,
         samout = join(BIOCORE_HTSEQ_OUT, '{sample}', 'annotated.sam')
     resources:
         mem_mb = 1000
@@ -121,7 +118,7 @@ rule biocore_htseq_annotate:
     shell:
         # The uncompressed samout is not a declared output: removed if htseq-count fails, compressed if it succeeds.
         '(gzip -dc {input.alignments:q} | '
-        'htseq-count {params.htseq_count} '
+        'htseq-count ' + BIOCORE_HTSEQ_COUNT + ' '
         '--samout {params.samout:q} - {input.gff:q} > {log:q} 2>&1) || {{ rm -f {params.samout:q}; exit 1; }}; '
         'gzip -f {params.samout:q}'
 
