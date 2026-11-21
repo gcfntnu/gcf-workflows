@@ -250,6 +250,9 @@ class DropTests(unittest.TestCase):
         self.assertIn(ROWS['m1'], out)
         self.assertIn(ROWS['h5'], out)  # a hairpin row stays unless the table drops it too
         hairpin = table_row('MI0000005', 'hsa-mir-1b', 'chr1:101-140:+', '-', check='none')
+        orphan, _, _ = run(lines, [hairpin])  # the hairpin without its mature row: the GFF would name a missing parent
+        self.assertNotEqual(orphan.returncode, 0)
+        self.assertIn('drops hairpin MI0000005 but keeps mature rows that derive from it: MIMAT0000001 at chr1:104-113:+', orphan.stderr)
         both, out_both, _ = run(lines, [drop, hairpin])
         self.assertEqual(both.returncode, 0, both.stderr)
         self.assertNotIn(ROWS['h5'], out_both)

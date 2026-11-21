@@ -168,6 +168,11 @@ def apply(rows, entries, table):
             continue
         found[0].move(*parse_position(entry['new'], where))
         found[0].check = entry['check']
+    gone = {r.id for r in rows if r.dropped and r.type == HAIRPIN}
+    orphans = [r for r in rows if not r.dropped and r.type == MATURE and r.parent in gone]
+    if orphans:  # a dropped hairpin takes its mature rows along, or the GFF names a parent it no longer has
+        fail('{} drops hairpin {} but keeps mature rows that derive from it: {}; drop them too'.format(
+            table, ', '.join(sorted({r.parent for r in orphans})), ', '.join('{} at {}'.format(r.id, r.position()) for r in orphans)))
     merged = [key for key, n in identities(rows, hairpin_ids).items() if n > 1 and n > before.get(key, 0)]
     if merged:
         fail('{} moves rows onto another row of the same miRNA and hairpin, merging two loci: {}'.format(
