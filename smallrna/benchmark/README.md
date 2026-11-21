@@ -248,6 +248,28 @@ although the trimmed reads it starts from remain; the trimmed reads with native 
 read), and the filter-route count reads those after each of the route's passes. Reads left by two trimming routes stop
 `evaluate`.
 
+**Runs from SRA instead of ENA.** ENA serves a client one slow connection and may cut or refuse transfers (`fill`
+resumes a cut one). NCBI's copy of the Sequence Read Archive on AWS takes many requests at once:
+
+```bash
+python smallrna/benchmark/benchmark.py fill --dataset <declaration> --ext-dir "$EXT_DIR" --source sra \
+    --fasterq-dump "apptainer exec --contain --bind $EXT_DIR docker://quay.io/biocontainers/sra-tools:3.2.1--h4304569_1 fasterq-dump"
+```
+
+- **What a run needs:** `sra: {md5: ..., bytes: ...}` in its entry, the SRA file's checksum and size from NCBI's
+  locator (`https://locate.ncbi.nlm.nih.gov/sdl/2/retrieve?acc=<run>`: the file of type `sra` named as the run).
+  A run without it stops the fill; runs already in place are skipped, whatever their source.
+- **What happens:** the SRA file is downloaded in parts (`--connections` at a time, `--jobs` runs at a time),
+  checked against its MD5, converted with `fasterq-dump` (`--fasterq-dump`: the command; sra-tools 3.2.1, as 3.4.1's
+  image crashes) and written as `fastq/<run>.fastq.gz`, with `fastq/<run>.sra.json` recording the source, the
+  checksums and the tool version.
+- **How it is checked:** the reads are those of ENA's file in the same order, with other read names, so the file's
+  bytes and MD5 differ from the declared ENA `md5`. The check is the number of reads (`reads`) and, when the run
+  declares it, `content_md5`: the MD5 over the sequence and quality lines, which is the same for a file from either
+  archive (`fill.file_content` computes it for a file in place). A fill without a declared `content_md5` prints the
+  value to declare.
+- **Limits:** single-end runs only. `prepare` cannot check a declared lane against read names from SRA and says so.
+
 **Another miRBase release** (#431). A declaration lists other releases under `mirbase_releases`, each with `url` and
 `sha256` (and `hairpin` and `gff` for the genome-wide synthetic set); the human declarations list miRBase 22.
 - `fill --mirbase-release 22` fetches that release's files into `EXT_DIR/<data>/mirbase/22/`.
