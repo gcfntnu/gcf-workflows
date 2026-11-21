@@ -237,9 +237,6 @@ class ShippedTableTests(unittest.TestCase):
                 keys.add(key)
 
 
-if __name__ == '__main__':
-    unittest.main()
-
 
 class DropTests(unittest.TestCase):
     def test_a_row_the_table_drops_is_left_out_and_recorded(self):
@@ -264,9 +261,14 @@ class DropTests(unittest.TestCase):
         self.assertIn('a dropped row has check none', result.stderr)
 
 
-def test_the_mouse_table_drops_mir_669a_under_mir_669a_4():
-    with open(TABLE, newline='') as fh:
-        rows = list(csv.DictReader([line for line in fh if not line.startswith('#')], delimiter='\t'))
-    dropped = sorted((r['organism'], r['id'], r['parent']) for r in rows if r['new'] == '-')
-    assert dropped == [('mus_musculus', 'MI0014054', ''), ('mus_musculus', 'MIMAT0003477', 'MI0014054'), ('mus_musculus', 'MIMAT0017243', 'MI0014054')]
-    assert all(r['check'] == 'none' for r in rows if r['new'] == '-')
+    def test_the_mouse_table_drops_mir_669a_4_and_its_two_matures(self):
+        with open(TABLE, newline='') as fh:
+            rows = list(csv.DictReader([line for line in fh if not line.startswith('#')], delimiter='\t'))
+        dropped = sorted((r['organism'], r['id'], r['parent']) for r in rows if r['new'] == '-')
+        self.assertEqual(dropped, [('mus_musculus', 'MI0014054', ''), ('mus_musculus', 'MIMAT0003477', 'MI0014054'),
+                                   ('mus_musculus', 'MIMAT0017243', 'MI0014054')])
+        self.assertTrue(all(r['check'] == 'none' for r in rows if r['new'] == '-'))
+
+
+if __name__ == '__main__':
+    unittest.main()
