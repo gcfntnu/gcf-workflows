@@ -32,7 +32,8 @@ for r in rows[1:]:
     table.loc[r[0]]  # KeyError when pandas turned the ID into a number
 call = {'args': args, 'config': config, 'snakefile': Path(args[args.index('-s') + 1]).read_text(), 'rows': rows,
         'links': {p.name: os.readlink(p) for p in inter.iterdir() if p.is_symlink()},
-        'reads': {r[0]: gzip.open(r[1], 'rt').read() for r in rows[1:]}}
+        'reads': {r[0]: gzip.open(r[1], 'rt').read() for r in rows[1:]},
+        'env': {k: os.environ.get(k) for k in ('OLIGOMAP_JOBS', 'OLIGOMAP_SPLIT_DIR')}}
 Path(os.environ['CALL_COPY']).write_text(json.dumps(call))
 if os.environ.get('FAIL'):
     Path(config['local_log']).mkdir(parents=True); (Path(config['local_log']) / 'remove_adapters_S1.log').write_text('cutadapt broke')
@@ -67,13 +68,13 @@ def setup(tmp_path):
     return tmp_path, mirflowz, prepared, env
 
 
-def run(setup, fail=False, prepared=None, samples=None):
+def run(setup, fail=False, prepared=None, samples=None, threads='3', mem_mb='12800'):
     tmp_path, _, default_prepared, env = setup
     env = dict(env, FAIL='1' if fail else '')
     out = tmp_path / 'quant/mirflowz'
     samples = samples or ['S1={}'.format(tmp_path / 'S1_R1.fastq'), 'S2={}'.format(tmp_path / 'S2_R1.fastq.gz')]
     result = subprocess.run([sys.executable, str(SCRIPT), '--prepared', str(prepared or default_prepared), '--adapter', ADAPTER,
-                             '--minimum-length', '16', '--threads', '3', '--mem-mb', '12800', '--output', str(out), *samples],
+                             '--minimum-length', '16', '--threads', threads, '--mem-mb', mem_mb, '--output', str(out), *samples],
                             capture_output=True, text=True, env=env, timeout=60)
     call = json.loads((tmp_path / 'call.json').read_text()) if (tmp_path / 'call.json').exists() else None
     return result, out, call
@@ -131,12 +132,32 @@ def test_nested_resources_stay_within_the_outer_budget(setup):
     args = call['args']
     set_threads = args[args.index('--set-threads') + 1:args.index('--set-resources')]
     set_resources = args[args.index('--set-resources') + 1:args.index('--resources')]
-    assert 'remove_adapters=3' in set_threads and 'filter_by_indels=3' in set_threads
+    assert 'remove_adapters=3' in set_threads and 'map_genome_segemehl=3' in set_threads
     assert all(int(item.split('=')[1]) <= 3 for item in set_threads)
     assert 'map_genome_segemehl:threads=3' in set_resources and 'map_genome_segemehl:mem=12' in set_resources
     assert 'map_transcriptome_segemehl:mem=10' in set_resources
     assert args[args.index('--resources') + 1:args.index('--resources') + 3] == ['threads=3', 'mem=12']
     assert args[args.index('--cores') + 1] == '3'
+
+
+@pytest.mark.parametrize('threads', ['3', '16'])
+def test_oligomap_maps_in_parallel_parts(setup, threads):
+    """The image's oligomap runs OLIGOMAP_JOBS parts in parallel: the nested run sets it to the job's threads, gives
+    both oligomap rules all of them and a few GB, keeps the parts in the work directory, and gives the
+    single-threaded remove_inferiors and filter_by_indels one thread."""
+    _, _, call = run(setup, threads=threads, mem_mb='61440')
+    args = call['args']
+    set_threads = args[args.index('--set-threads') + 1:args.index('--set-resources')]
+    set_resources = args[args.index('--set-resources') + 1:args.index('--resources')]
+    assert call['env']['OLIGOMAP_JOBS'] == threads
+    split_dir = Path(call['env']['OLIGOMAP_SPLIT_DIR'])
+    assert split_dir.name == 'oligomap_parts' and split_dir.parent.name.startswith('.mirflowz-run-')
+    assert split_dir.parent == Path(call['config']['intermediates_dir']).parent
+    for rule in ('map_genome_oligomap', 'map_transcriptome_oligomap'):
+        assert '{}={}'.format(rule, threads) in set_threads and '{}:threads={}'.format(rule, threads) in set_resources
+    assert 'map_genome_oligomap:mem=4' in set_resources and 'map_transcriptome_oligomap:mem=2' in set_resources
+    assert 'remove_inferiors=1' in set_threads and 'filter_by_indels=1' in set_threads
+    assert 'map_genome_segemehl={}'.format(min(8, int(threads))) in set_threads
 
 
 def test_memory_budget_below_one_gb_is_rejected(setup):

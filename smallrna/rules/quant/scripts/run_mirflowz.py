@@ -17,8 +17,17 @@ collide). Samples are therefore passed to mirflowz as `gcf_sample_<n>` and given
 table headers and alignment directories; `mirflowz_samples.tsv` keeps both.
 
 mirflowz declares its threads and memory (GB) as custom resources (`resources: threads=8, mem=50`), which `--cores`
-does not limit. Each rule's `threads` and `mem` are capped at `--threads` and `--mem-mb` (the outer job's allocation, in whole GB), Snakemake's core count is
-set to the same threads, and `--resources` limits the totals, so concurrent jobs stay within the outer rule's budget.
+does not limit. Each rule's `threads` and `mem` are capped at `--threads` and `--mem-mb` (the outer job's allocation,
+in whole GB), Snakemake's core count is set to the same threads, and `--resources` limits the totals, so concurrent
+jobs stay within the outer rule's budget.
+
+oligomap is single-threaded and each run scans its whole target, most of mirflowz's time on a human genome. The image
+(gcfntnu/mirflowz from 0.10.0-1) runs it in parallel: with `OLIGOMAP_JOBS` set, its oligomap splits the target into
+that many parts of consecutive sequences, maps every part with all queries and joins the results, the same bytes as
+one run. The nested run sets `OLIGOMAP_JOBS` to `--threads` and gives both oligomap rules all of them (one runs at a
+time), with a few GB of memory: one whole-genome oligomap peaks below 0.5 GB, far below the 50 GB mirflowz declares.
+`OLIGOMAP_SPLIT_DIR` keeps the parts in the work directory, so a project's targets are split once for all samples.
+`remove_inferiors` and `filter_by_indels` run on one core whatever they declare, so they get one thread.
 
 Outputs in `--output`: `all_mirna_counts.tab` (miRNAs and isomiRs), `all_pri-mir_counts.tab`, `alignments/<sample>/`
 (mirflowz's per-sample SAM and BAM files) and the generated `mirflowz_config.yaml` and `mirflowz_samples.tsv`.
@@ -40,10 +49,12 @@ PREPARED = ('genome_processed.fa', 'segemehl_genome_index.idx', 'transcriptome_t
             'segemehl_transcriptome_index.idx', 'exons.bed', 'genome_header.sam', 'chr_size.tsv',
             'extended_mirna_annotation_{}_nt.gff3'.format(EXTENSION), 'extended_primir_annotation_{}_nt.gff3'.format(EXTENSION))
 TABLES = ('all_mirna_counts.tab', 'all_pri-mir_counts.tab')
-# Resources (threads, mem in GB) that mirflowz 0.10.0's mapping and quantification rules declare.
+# Resources (threads, mem in GB) for mirflowz 0.10.0's mapping and quantification rules: what they declare, except
+# that the two oligomap rules get every thread (None; the image's oligomap runs that many parts) and a few GB, and
+# that remove_inferiors and filter_by_indels (single-threaded scripts) get one thread.
 RESOURCES = {'remove_adapters': (8, None), 'map_genome_segemehl': (8, 50), 'map_transcriptome_segemehl': (8, 10),
-             'map_genome_oligomap': (8, 50), 'map_transcriptome_oligomap': (8, 10), 'sort_genome_oligomap': (8, None),
-             'sort_transcriptome_oligomap': (8, None), 'remove_inferiors': (4, 15), 'filter_by_indels': (4, 15)}
+             'map_genome_oligomap': (None, 4), 'map_transcriptome_oligomap': (None, 2), 'sort_genome_oligomap': (8, None),
+             'sort_transcriptome_oligomap': (8, None), 'remove_inferiors': (1, 15), 'filter_by_indels': (1, 15)}
 TARGET = '''
 rule gcf_mirflowz_all:
     input:
@@ -88,10 +99,11 @@ def mem_budget_gb(mem_mb):
 
 
 def resource_args(resources, threads, mem_gb):
-    """Snakemake options that cap each rule's declared threads and memory and limit their totals."""
+    """Snakemake options that cap each rule's declared threads (None: all of them) and memory and limit their
+    totals."""
     set_threads, set_resources = [], []
     for rule, (rule_threads, rule_mem) in resources.items():
-        capped = min(rule_threads, threads)
+        capped = threads if rule_threads is None else min(rule_threads, threads)
         set_threads.append('{}={}'.format(rule, capped))
         set_resources.append('{}:threads={}'.format(rule, capped))
         if rule_mem is not None:
@@ -157,7 +169,9 @@ def main():
         (work / 'config.yaml').write_text(''.join('{}: {}\n'.format(k, json.dumps(v)) for k, v in config.items()))
         rules = mirflowz_dir / 'workflow/rules'
         (work / 'Snakefile').write_text('include: {!r}\ninclude: {!r}\n'.format(str(rules / 'map.smk'), str(rules / 'quantify.smk')) + TARGET)
-        env = dict(os.environ, XDG_CACHE_HOME=str(work / '.cache'))
+        # The image's oligomap runs OLIGOMAP_JOBS parts in parallel and keeps them in OLIGOMAP_SPLIT_DIR.
+        env = dict(os.environ, XDG_CACHE_HOME=str(work / '.cache'), OLIGOMAP_JOBS=str(args.threads),
+                   OLIGOMAP_SPLIT_DIR=str(work / 'oligomap_parts'))
         result = subprocess.run(['snakemake', '-s', str(work / 'Snakefile'), '--configfile', str(work / 'config.yaml'),
                                  '--directory', str(work), '--cores', str(args.threads), '--nolock', '--workflow-profile', 'none', 'gcf_mirflowz_all',
                                  # The work directory is removed afterwards, so no metadata is kept; Snakemake then also
