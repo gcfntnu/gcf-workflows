@@ -376,6 +376,9 @@ def genome_project(tmp_path, declared=None, methods=('tinyrna',)):
     # the record quant_reference writes (#407): the miRBase release, bound to this count table
     (quant / 'reference.tsv').write_text('field\tvalue\tsource\nmirna_database\tmirbase\tx\nmirna_release\t23.1\tx\n'
                                          'table_sha256\t{}\tx\n'.format(adapters.table_sha256('tinyrna', quant.parent)))
+    from test_benchmark import write_cutadapt_reports
+    for k, sample in enumerate(samples):  # the cutadapt reports: the `fixed` normalisation arm's library sizes (#453)
+        write_cutadapt_reports(project / 'data/tmp/smallrna/filter/cutadapt_stages', sample, 1000 + 10 * k)
     return project, cmd
 
 
@@ -456,7 +459,8 @@ def test_differential_expression_uses_the_pools_tests_in_genome_mode(tmp_path):
     assert result.returncode == 0, result.stderr
     samples = {row['sample']: row for row in benchmark.read_tsv(bench / 'samples.tsv') if row['kind'] == 'mixed'}
     mirnas = {row['mature_id']: row for row in benchmark.read_tsv(bench / 'mirnas.tsv')}
-    assert (bench / 'de/levels.tsv').read_text() == 'column\tlevel\nadjusted\tnuisance\n'
+    assert (bench / 'de/levels.tsv').read_text() == 'column\tlevel\nadjusted\tnuisance\narm\tfixed\narm\ttmm\n'  # #453: the arms
+    assert (bench / 'de/arm/tmm/input/model.tsv').read_text() == de.model_text('case', 'control', (), 10, 'tmm')
     assert (bench / 'de/input/model.tsv').read_text() == de.model_text('case', 'control', (), 10)
     assert (bench / 'de/adjusted/nuisance/input/model.tsv').read_text() == de.model_text('case', 'control', ['nuisance'], 10)
     design = (bench / 'de/input/design.tsv').read_text().splitlines()
@@ -498,6 +502,10 @@ def test_differential_expression_uses_the_pools_tests_in_genome_mode(tmp_path):
     assert result.returncode != 0 and 'no adjusted/nuisance/results.tsv or adjusted/nuisance/record.tsv' in result.stderr
     outputs('adjusted/nuisance', '~nuisance + group')
     result = evaluate('--de')
+    assert result.returncode != 0 and 'no arm/fixed/results.tsv or arm/fixed/record.tsv' in result.stderr
+    for arm in de.ARMS:
+        outputs('arm/' + arm, '~group')
+    result = evaluate('--de')
     assert result.returncode == 0, result.stderr
     table = {line.split('\t')[0]: line.split('\t')[1:] for line in (bench / 'metrics.tsv').read_text().splitlines()}
     assert table['metric'] == ['truth', 'tinyrna']
@@ -516,7 +524,8 @@ def test_differential_expression_uses_the_pools_tests_in_genome_mode(tmp_path):
     assert '### Adjusted for the nuisance factor' in report and '| adjusted | called | 1.0 | 1.0 |' in report
     assert 'adjusted: 3 case and 3 control samples, design `~nuisance + group` (edgeR 4.10.7, limma 3.68.5); `de/adjusted/nuisance/results.tsv`' in report
     assert 'share of its miRNAs with reads that have a fractional count: tinyrna 0.0.' in report
-    assert '.adjusted' not in report.split('## Uncertainty')[1]
+    assert '.adjusted' not in report.split('## Uncertainty')[1] and '.fixed' not in report.split('## Uncertainty')[1]
+    assert '### Normalisation arms' in report and '| tmm | called | 1.0 | 1.0 |' in report and table['edger_offset.fixed'] == ['0.05', '0.05']
     out = tmp_path / 'summary.md'
     result = subprocess.run(cmd + ['summary', '--projects', str(project), '--output', str(out)], capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stderr

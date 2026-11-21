@@ -4,7 +4,9 @@
 # and limma-voom, on the counts, library sizes, design and model that `benchmark.py evaluate` writes
 # (benchmark/de/input/). The model names the contrast (`numerator` against `denominator`, so a positive log2 fold
 # change is more in the numerator), the covariates that are numbers (`numeric`; the others are factors) and the least
-# mean count of a feature a row tests (`min_mean`). Library sizes are the workflow's, without TMM. The exact test runs
+# mean count of a feature a row tests (`min_mean`), and optionally `normalisation: tmm` (#453): edgeR's TMM factors
+# (calcNormFactors) on the given library sizes, used by all three tests (voom on the normalised library sizes);
+# without it, the library sizes as given, no normalisation factors. The exact test runs
 # as in the McCall-lab benchmark's best configuration (common dispersion, exact test; two groups, no covariates). The
 # GLM test is its counterpart on the design with the covariates: a common dispersion estimated under the design and a
 # likelihood-ratio test of the group. Without covariates it calls nearly what the exact test calls, so the two differ
@@ -56,7 +58,10 @@ if (length(numerator) != 1 || length(denominator) != 1 || numerator == denominat
 min_mean <- if (length(setting('min_mean'))) suppressWarnings(as.numeric(setting('min_mean'))) else 0
 if (length(min_mean) != 1 || is.na(min_mean) || min_mean < 0) stop(opt$model, ': min_mean must be one number of 0 or more')
 numeric <- setting('numeric')
-unknown <- setdiff(settings$field, c('numerator', 'denominator', 'min_mean', 'numeric'))
+normalisation <- setting('normalisation')
+if (length(normalisation) > 1 || (length(normalisation) == 1 && normalisation != 'tmm')) stop(opt$model, ': normalisation must be tmm, or absent')
+tmm <- length(normalisation) == 1
+unknown <- setdiff(settings$field, c('numerator', 'denominator', 'min_mean', 'numeric', 'normalisation'))
 if (length(unknown)) stop(opt$model, ': unknown field ', paste(unknown, collapse = ', '))
 if (!identical(colnames(design)[1:2], c('sample', 'group'))) stop(opt$design, ': the first columns must be sample and group')
 if (any(!nzchar(design$sample)) || any(!nzchar(design$group))) stop(opt$design, ': every sample needs a name and a group')
@@ -105,6 +110,7 @@ for (row in unique(counts$row)) {
   tested <- values[keep, , drop = FALSE]
 
   y <- DGEList(counts = tested, lib.size = size, group = frame$group)
+  if (tmm) y <- calcNormFactors(y, method = 'TMM')
   y <- estimateCommonDisp(y)
   exact <- exactTest(y, pair = c(denominator, numerator), dispersion = 'common')$table
   edger <- data.frame(feature = rownames(exact), log2fc = exact$logFC, pvalue = exact$PValue, padj = p.adjust(exact$PValue, 'BH'))
@@ -115,7 +121,7 @@ for (row in unique(counts$row)) {
   message(sprintf('%s: %d features tested; common dispersion %.4g for the exact test, %.4g for the GLM test', row, nrow(tested),
                   y$common.dispersion, common))
 
-  fit <- eBayes(lmFit(voom(tested, model, lib.size = size), model))
+  fit <- eBayes(lmFit(voom(tested, model, lib.size = size * y$samples$norm.factors), model))  # factors are 1 without TMM
   top <- topTable(fit, coef = coefficient, number = Inf, sort.by = 'none', adjust.method = 'BH')
   voomed <- data.frame(feature = rownames(top), log2fc = top$logFC, pvalue = top$P.Value, padj = top$adj.P.Val)
 
@@ -131,12 +137,15 @@ write.table(table, opt$results, sep = '\t', quote = FALSE, row.names = FALSE, na
 
 record <- data.frame(
   field = c('md5_counts', 'md5_library_sizes', 'md5_design', 'md5_model', 'md5_script', 'md5_results', 'R', 'edgeR', 'limma', 'formula',
-            'contrast', 'min_mean', 'edger', 'edger_glm', 'voom'),
+            'contrast', 'min_mean', 'normalisation', 'edger', 'edger_glm', 'voom'),
   value = c(md5(copies$counts), md5(copies$library_sizes), md5(copies$design), md5(copies$model), md5(copies$script), md5(opt$results),
             R.version.string, as.character(packageVersion('edgeR')), as.character(packageVersion('limma')), formula_text,
             paste(numerator, 'against', denominator), as.character(min_mean),
-            sprintf('DGEList with the library sizes and no normalisation factors, estimateCommonDisp, exactTest of %s against %s', numerator, denominator),
+            if (tmm) 'TMM factors (calcNormFactors) on the library sizes' else 'none: the library sizes as given',
+            sprintf('DGEList with the library sizes and %s, estimateCommonDisp, exactTest of %s against %s',
+                    if (tmm) 'TMM normalisation factors' else 'no normalisation factors', numerator, denominator),
             sprintf('the same DGEList, estimateGLMCommonDisp under the design, glmFit with that common dispersion, glmLRT of coefficient %s',
                     colnames(model)[coefficient]),
-            sprintf('voom with the library sizes, lmFit, eBayes, coefficient %s', colnames(model)[coefficient])))
+            sprintf('voom with the library sizes%s, lmFit, eBayes, coefficient %s', if (tmm) ' times the TMM factors' else '',
+                    colnames(model)[coefficient])))
 write.table(record, opt$record, sep = '\t', quote = FALSE, row.names = FALSE)

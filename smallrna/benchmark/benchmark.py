@@ -117,7 +117,7 @@ def load_dataset(path, mirbase_release=None):
 
 
 DE_KINDS = 'ratiometric pools, the genome-wide synthetic dataset and biological datasets'
-DeSet = collections.namedtuple('DeSet', 'suffix folder design model samples')
+DeSet = collections.namedtuple('DeSet', 'suffix folder design model samples arm', defaults=(None,))  # arm: de.ARMS (#453), else None
 
 
 def de_kind(spec):
@@ -1067,7 +1067,8 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
             count = de.pool_count(counts, oracle, entries)
             de_features = de.pool_features(pool.scored(entries))
             de_ids = [feature for feature, _ in de_features]
-            de_texts = {s.folder: de.input_tables(count, rows, de_ids, s.design, sizes, s.model) for s in sets}
+            set_sizes = filtered_sizes(project, sets, rows, sizes)
+            de_texts = {s.folder: de.input_tables(count, rows, de_ids, s.design, set_sizes[s.folder], s.model) for s in sets}
             de_results, de_reports = differential_expression(args, bench, sets, de_texts, rows, de_ids)
         if de_results:
             for suffix, results in de_results.items():
@@ -1078,9 +1079,11 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
             keys += de.metric_keys([suffix for suffix in de_results if suffix])
             de_lines = de.report_lines(de_results[''], de_features, rows, *de_reports[''][:2], de.POOL_INTRO.format(len(de_features), de.FDR))
             de_lines += ['', rounding_line(count, methods, de_ids, list(sample_groups), 'sequences')]
-            de_lines += de.level_lines((spec['de'] or {}).get('within'), [(suffix[1:], de_reports[suffix][2], de_reports[suffix][1],
-                                                                          de_reports[suffix][0]) for suffix in de_results if suffix],
+            de_lines += de.level_lines((spec['de'] or {}).get('within'), [(s.suffix[1:], de_reports[s.suffix][2], de_reports[s.suffix][1],
+                                                                          de_reports[s.suffix][0]) for s in sets if s.suffix and s.arm is None],
                                        summary, rows)
+            de_lines += de.arm_lines([(s.suffix[1:], s.folder, de_reports[s.suffix][2], de_reports[s.suffix][1], de_reports[s.suffix][0])
+                                      for s in sets if s.suffix == '' or s.arm], summary, rows)
     with_isomirs = [m for m in methods if m not in no_isomirs]
     iso_tallies, iso_kinds = isomirs.pool_tallies(iso_rows, pool.scored(entries), shifted, entries, oracle, with_isomirs, dict(mature.values()))
     iso = isomirs.pool_values(iso_tallies)
@@ -1178,7 +1181,10 @@ def de_sets(spec, units):
     - with `within`, each level's (suffix `.<level>`, folder `<within>/<level>`), tested with the declared covariates
       other than `within`;
     - for the synthetic dataset, the one with the true nuisance scores as a numeric covariate (suffix `.adjusted`,
-      folder `adjusted/nuisance`).
+      folder `adjusted/nuisance`);
+    - for pools and the synthetic dataset, the whole design again in each normalisation arm (#453, de.ARMS: suffix
+      `.<arm>`, folder `arm/<arm>`; `fixed` gets the samples' filtered reads as library sizes from the caller, `tmm`
+      a model with `normalisation: tmm`).
     design: [(sample, group, {covariate: value})]; model: de.model_text, with the least mean count a row tests (none for
     a pool's designed sequences; the synthetic and biological datasets' detection thresholds); samples: the set's
     samples per group, for the report."""
@@ -1195,25 +1201,27 @@ def de_sets(spec, units):
     numerator, denominator = contrast
     units = [unit for unit in units if unit[1] in (numerator, denominator)]
 
-    def de_set(suffix, folder, members, names, numeric=()):
+    def de_set(suffix, folder, members, names, numeric=(), arm=None):
         sizes = collections.Counter(group for _, group, _ in members)
         if min(sizes[numerator], sizes[denominator]) < 2:  # e.g. a project prepared from another declaration
             fail('benchmark/samples.tsv has {} {} and {} {} sample(s) for the DE set {}; differential expression needs at least '
                  'two in each group: prepare the project again from its declaration'.format(
                      sizes[numerator], numerator, sizes[denominator], denominator, folder or 'of the whole dataset'))
         return DeSet(suffix, folder, [(sample, group, {c: fields[c] for c in names}) for sample, group, fields in members],
-                     de.model_text(numerator, denominator, numeric, min_mean),
+                     de.model_text(numerator, denominator, numeric, min_mean, 'tmm' if arm == 'tmm' else None),
                      '{} {} and {} {} {}'.format(sizes[numerator], numerator, sizes[denominator], denominator,
-                                                 'runs' if kind == 'pool' else 'samples'))
+                                                 'runs' if kind == 'pool' else 'samples'), arm)
 
+    whole = [] if kind == 'synthetic' else covariates
+    arms = [de_set('.' + arm, 'arm/' + arm, units, whole, arm=arm) for arm in de.ARMS] if kind in ('pool', 'synthetic') else []
     if kind == 'synthetic':
-        return [de_set('', '', units, []), de_set('.adjusted', 'adjusted/nuisance', units, ['nuisance'], ['nuisance'])]
+        return [de_set('', '', units, []), de_set('.adjusted', 'adjusted/nuisance', units, ['nuisance'], ['nuisance'])] + arms
     sets = [de_set('', '', units, covariates)]
     if within:
         others = [c for c in covariates if c != within]
         sets += [de_set('.' + level, '{}/{}'.format(within, level), [unit for unit in units if unit[2][within] == level], others)
                  for level in sorted({fields[within] for _, _, fields in units})]
-    return sets + nulls
+    return sets + arms + nulls
 
 
 def null_sets(declared, units, covariates, strata, min_mean):
@@ -1266,6 +1274,27 @@ def differential_expression(args, bench, sets, texts, rows, features):
             fail(str(error))
         reports[de_set.suffix] = (record, hashlib.sha256(data).hexdigest(), de_set.samples)
     return results, reports
+
+
+def filtered_sizes(project, sets, rows, sizes):
+    """{folder: library sizes} of each DE set: the given `sizes` ({(row, sample): size}), except for the `fixed` arm
+    (#453), every row's library size the sample's filtered reads, from the cutadapt route's reports."""
+    fixed = [s for s in sets if s.arm == 'fixed']
+    if not fixed:
+        return {s.folder: sizes for s in sets}
+    samples = [sample for sample, _, _ in fixed[0].design]
+    stages = project / 'data/tmp/smallrna/filter/cutadapt_stages'
+    paths = {s: {k: stages / '{}.{}.json'.format(s, k) for k in biological.CUTADAPT_PASSES} for s in samples}
+    missing = [str(p) for ps in paths.values() for p in ps.values() if not p.is_file()]
+    if missing:
+        fail('the `fixed` normalisation arm (#453) takes each sample\'s filtered reads from the cutadapt route\'s reports: {} '
+             'missing; run `snakemake quant_all --notemp`'.format(', '.join(missing[:3]) + (' ...' if len(missing) > 3 else '')))
+    try:
+        kept = {s: float(biological.filtering(p)['kept']) for s, p in paths.items()}
+    except ValueError as error:
+        fail(str(error))
+    by_row = {(row, s): kept[s] for row in rows for s in samples}
+    return {s.folder: by_row if s.arm == 'fixed' else sizes for s in sets}
 
 
 def write_de_inputs(bench, texts):
@@ -1394,7 +1423,8 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
         count = lambda row, sample, unit: float(ev.counts(row)[ev.index[unit], column[sample]])
         sizes = {(row, sample): float(ev.t[:, k].sum()) if row == 'truth' else ev.total[(row, sample)]
                  for row in rows for sample, k in column.items()}
-        de_texts = {s.folder: de.input_tables(count, rows, ev.units, s.design, sizes, s.model) for s in sets}
+        set_sizes = filtered_sizes(project, sets, rows, sizes)
+        de_texts = {s.folder: de.input_tables(count, rows, ev.units, s.design, set_sizes[s.folder], s.model) for s in sets}
         de_results, de_reports = differential_expression(args, bench, sets, de_texts, rows, ev.units)
     if de_results:
         de_features = ev.de_features()
@@ -1413,8 +1443,10 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
             'takes no covariates, so its values equal those above), scored as above. In metrics.tsv the metrics carry `.adjusted`, '
             'e.g. `voom_called.adjusted`; their intervals and the differences between methods are in metrics_ci.tsv and '
             'differences.tsv, not in the uncertainty section below. The metrics against the truth are empty for the truth.',
-            'set', [(suffix[1:], next(s.folder for s in sets if s.suffix == suffix), de_reports[suffix][2], de_reports[suffix][1],
-                     de_reports[suffix][0]) for suffix in de_results if suffix], point, rows, 'truth')
+            'set', [(s.suffix[1:], s.folder, de_reports[s.suffix][2], de_reports[s.suffix][1], de_reports[s.suffix][0])
+                    for s in sets if s.suffix and s.arm is None], point, rows, 'truth')
+        de_lines += de.arm_lines([(s.suffix[1:], s.folder, de_reports[s.suffix][2], de_reports[s.suffix][1], de_reports[s.suffix][0])
+                                  for s in sets if s.suffix == '' or s.arm], point, rows, 'truth')
     table_keys = keys + de.metric_keys(reference='truth') if de_results else keys  # the report's table: other sets have their section
     keys = keys + de_keys
     rnd = lambda v: round(v, 4) if isinstance(v, float) and not math.isnan(v) else ('' if isinstance(v, float) else v)
