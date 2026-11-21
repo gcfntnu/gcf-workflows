@@ -14,6 +14,9 @@ trims N bases at read ends (cutadapt --trim-n; it has no option to turn that off
 MIRFLOWZ_SELECTED = 'mirflowz' in [m.strip() for m in str(config['quant']['method']).split(',')]
 
 MIRFLOWZ_MEM_GB = int(config['quant']['mirflowz']['mem_gb'])
+MIRFLOWZ_THREADS = int(config['quant']['mirflowz']['threads'])
+if MIRFLOWZ_THREADS < 1:
+    raise ValueError('quant.mirflowz.threads must be at least 1, got {}'.format(MIRFLOWZ_THREADS))
 
 include:
     join(GCFDB_DIR, 'mirflowz.db')
@@ -38,7 +41,7 @@ rule mirflowz_quant:
         min_length = MIRFLOWZ_MIN_LENGTH,
         out = MIRFLOWZ_OUT
     threads:
-        8
+        MIRFLOWZ_THREADS
     resources:
         mem_mb = MIRFLOWZ_MEM_GB * 1024
     benchmark:
