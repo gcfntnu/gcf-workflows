@@ -158,6 +158,8 @@ def check_de(spec, path):
         fail('{}: `de` (differential expression, #414) is for {}'.format(path, DE_KINDS))
     declared = spec['de'] or {}
     options = {'pool': ['covariates', 'within'], 'synthetic': [], 'biological': ['contrast', 'covariates', 'within', 'null']}[kind]
+    if isinstance(declared, dict) and None in declared and 'null' in options:  # YAML reads a bare `null:` key as null (None)
+        fail("{}: `de` has a key that YAML reads as null; write the null comparisons' key quoted, `'null':` (#449)".format(path))
     if not isinstance(declared, dict) or set(declared) - set(options):
         names = ['`{}`'.format(o) for o in options]
         fail('{}: `de` takes {}'.format(path, 'only ' + ' and '.join([', '.join(names[:-1])] * (len(names) > 1) + names[-1:]) if names else

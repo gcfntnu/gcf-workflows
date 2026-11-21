@@ -2935,3 +2935,14 @@ def test_routes_not_evaluated_get_a_state_in_the_report_and_the_summary(tmp_path
     write(bench / 'not_run.tsv', 'route\treason\nmirflowz\tnot declared here\n')
     result = evaluate_cmd(project)
     assert result.returncode != 0 and 'not_run.tsv: mirflowz not declared for this project' in result.stderr
+
+
+def test_a_bare_null_key_in_a_declaration_is_named(tmp_path):
+    """#449: YAML reads `null:` as YAML's null, not as the key `null`; the declaration says to quote it."""
+    groups = ('case',) * 4 + ('control',) * 4
+    quoted = biological_declaration(tmp_path, {'null': {'splits': 2, 'seed': 1}}, groups)
+    assert "'null':" in quoted.read_text()  # as PyYAML writes it, and as a declaration must
+    assert benchmark.load_dataset(quoted)['de']['null'] == {'splits': 2, 'seed': 1}
+    bare = write(tmp_path / 'bare.yaml', quoted.read_text().replace("'null':", 'null:'))
+    with pytest.raises(SystemExit, match=re.escape("`de` has a key that YAML reads as null; write the null comparisons' key quoted, `'null':`")):
+        benchmark.load_dataset(bare)
