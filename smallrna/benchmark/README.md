@@ -555,9 +555,10 @@ miRNA reads):
 
 - **The model.** With `fraction` f of the total RNA from the second tissue, the share of a mixture's miRNA reads from
   it is w = f k / (f k + 1 − f). The content ratio k is the second tissue's miRNA reads per unit of RNA over the
-  first's, as the method counts them; it is fitted per method (each mixture's weight by least squares of its
-  proportions on the subject's two pure profiles, turned into k; the median over the mixtures). A per-miRNA bias that
-  is the same in every sample changes k and nothing else, so the kit's bias does not enter the scores.
+  first's, as the method counts them; it is fitted per method and subject, since each subject's tissue samples have
+  their own RNA content (each mixture's weight by least squares of its proportions on the subject's two pure
+  profiles, turned into k; the median over the subject's mixtures). A per-miRNA bias that is the same in every sample
+  changes k and nothing else, so the kit's bias does not enter the scores.
 - **`linearity_error`**: the median |log2(observed / predicted)| over the miRNA-sample pairs of the mixtures with at
   least 10 predicted reads; **`within_1_5fold`**: the share within 1.5-fold. The report also gives the error per
   subject and by predicted reads.
@@ -566,22 +567,26 @@ miRNA reads):
 - **`replicate_error`**: the median |log2 ratio| of the proportions of technical replicates, miRNAs with at least 10
   reads on average in the pair. Two libraries of one RNA differ by this much, so it is the floor for
   `linearity_error`.
-- **`content_ratio`** and **`content_ratio_spread`** (the median |log2| deviation of the mixtures' own ratios from k):
-  a description of the fit, not a score.
+- **`content_ratio`** (the median of the subjects' k) and **`content_ratio_spread`** (the median |log2| deviation of
+  the subjects from it): a description of the fit, not a score. The report gives each subject's k.
 - **What it shows.** Linear and consistent counting across samples. It does not show correct assignment: a method that
   puts a read on the wrong miRNA in every sample still passes. The pools and the synthetic dataset score assignment.
-- **Differential expression** (`de: {}` and `evaluate --de`), with the pools' tests, each contrast paired by subject
-  (`~ subject + group`):
+- **Differential expression** (`de: {}` and `evaluate --de`), with the pools' tests. The GLM test and voom pair the
+  samples by subject (`~ subject + group`); the exact test takes no covariates. Library sizes are a method's reads on
+  miRNAs with an accession, the total its proportions and so its expected changes use:
   - the pure samples, second tissue against first: what each method tests and calls, as for biological samples; not
     scored, since the pure samples define the expectation;
   - each pair of the mixtures' fractions: a method's expected change of a miRNA is the mean over the subjects of
     log2(prediction at one fraction / prediction at the other), from pure samples that are in none of these
     contrasts. Over the miRNAs a method tests with an expected change of at least 0.2 log2, all contrasts together,
     prefixed `edger_`, `edger_glm_` and `voom_`: `called` (expected at least 2-fold apart and called in the expected
-    direction), `wrong_direction` (the share of its calls against it), `fc_bias` (as for the pools) and
+    direction), `wrong_direction` (the share of its calls against it), `fc_bias` (as for the pools),
     `called_shared` (`called` over the miRNAs every method expects at least 2-fold apart in the same direction, so
-    the methods are compared on the same miRNAs).
-- **Intervals** resample the miRNAs and the subjects on the fitted content ratios; the DE metrics have none.
+    the methods are compared on the same miRNAs) and `unchanged_called` (the share called of the miRNAs with a
+    smaller expected change than 0.2 log2; hardly any miRNA is truly unchanged between two mixtures, so it compares
+    the methods and is not a false-call rate).
+- **Intervals** resample the miRNAs and the subjects on the fitted content ratios (`replicate_error`: the miRNAs
+  only); the DE metrics have none.
 
 On the mouse chr19 dataset, UNITAS and miRge3 count every miRNA exactly. mirflowz counts a third of
 `mmu-miR-146b-5p`, whose sequence occurs three times on chr19: it divides a read that maps equally well to several loci
