@@ -32,7 +32,7 @@ corrections, below), is miRBase's file
 (`sources/<code>.gff3`) corrected with the reviewed rows of
 [`tables/mirbase_gff_corrections.tsv`](tables/mirbase_gff_corrections.tsv) and checked by
 [`mirbase_gff_correct.py`](scripts/mirbase_gff_correct.py) ([#429](https://github.com/gcfntnu/gcf-workflows/issues/429)).
-Its consumers are UNITAS's annotation and `genes.tsv`, the genome routes, smrnaseq's mirtop and biocore_miraligner.
+Its consumers are UNITAS's annotation and `genes.<id>.tsv`, the genome routes, smrnaseq's mirtop and biocore_miraligner.
 
 - **Table rows:** each names a GFF3 row by ID, `Derives_from` and old position, and gives its new position, how it is
   checked and the reason. A row not found at that position stops the build, so a changed download or a stale table is
@@ -49,9 +49,11 @@ Its consumers are UNITAS's annotation and `genes.tsv`, the genome routes, smrnas
 - **Name:** `<id>` (`MIRBASE_GFF_ID`) is a digest of the table and `mirbase_gff_correct.py`, so any change to either
   gives new files, which an `EXT_DIR` then builds, and the consumers rebuild through the new path. Unchanged files are
   never rebuilt: the table is an `ancient()` input, since a checkout gives it the checkout time
-  ([#438](https://github.com/gcfntnu/gcf-workflows/issues/438)). The files built from the GFF3 keep their paths, so
-  code versions with different corrections should not share an `EXT_DIR`
-  ([#440](https://github.com/gcfntnu/gcf-workflows/issues/440)).
+  ([#438](https://github.com/gcfntnu/gcf-workflows/issues/438)). The shared files built from the GFF3 carry the same
+  identity ([#440](https://github.com/gcfntnu/gcf-workflows/issues/440)): `anno/genes.<id>.tsv`, and a `gff-<id>`
+  folder in the mirflowz (chromosome map, extended annotations), tiny-count, TEsmall and biocore_miraligner
+  references. Code versions with different corrections can therefore share an `EXT_DIR`, each using its own; the
+  files built from the genome alone (the genome FASTA and its indexes, mirflowz's segemehl indexes) are shared.
 
 **miRBase 23.1's corrections:**
 - hairpin rows that cover only the stem, with their matures placed from them; some of these rows have no strand;

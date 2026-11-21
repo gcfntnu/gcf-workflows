@@ -62,7 +62,7 @@ class MirbaseGenesTests(unittest.TestCase):
         self.assertEqual([(row[0], row[9]) for row in rows], [('miR-1a-5p', 'MIMAT0000001'), ('miR-1a-1-5p', 'MIMAT0000002')])
 
 def dry_run(release, organism='homo_sapiens', work=None):
-    """A dry run of mirbase_db_all and genes.tsv in a new project: `work`, or an empty temporary folder."""
+    """A dry run of mirbase_db_all and mirbase_genes in a new project: `work`, or an empty temporary folder."""
     if work is None:
         with tempfile.TemporaryDirectory() as directory:
             return dry_run(release, organism, Path(directory))
@@ -72,8 +72,7 @@ def dry_run(release, organism='homo_sapiens', work=None):
                                     f'include: {str(ROOT / "utils.py")!r}\n'
                                     f'include: {str(ROOT / "gcfdb/mirbase.db")!r}\n')
     env = {k: v for k, v in os.environ.items() if not k.startswith('GCF_')}
-    result = subprocess.run([sys.executable, '-m', 'snakemake', '-n', '-p', '--cores', '1', 'mirbase_db_all',
-                             'data/ext/mirbase/{}/release-{}/anno/genes.tsv'.format(organism, release)],
+    result = subprocess.run([sys.executable, '-m', 'snakemake', '-n', '-p', '--cores', '1', 'mirbase_db_all', 'mirbase_genes'],
                             cwd=work, env=env, capture_output=True, text=True, timeout=60)
     return result.returncode, result.stdout + result.stderr
 
@@ -114,7 +113,7 @@ class MirbaseRuleTests(unittest.TestCase):
             ext = work / 'data/ext/mirbase/homo_sapiens/release-23.1'
             gff = ext / 'anno' / f'genes.{corrected_id()}.gff3'
             built = [ext / 'fasta/hairpin.fa', ext / 'fasta/mature.fa', ext / 'sources/hsa.gff3', gff,
-                     ext / f'logs/gff_corrections.{corrected_id()}.tsv', ext / 'anno/genes.tsv']
+                     ext / f'logs/gff_corrections.{corrected_id()}.tsv', ext / f'anno/genes.{corrected_id()}.tsv']
             before = (ROOT / 'gcfdb/tables/mirbase_gff_corrections.tsv').stat().st_mtime - 86400
             for n, path in enumerate(built):  # in build order, all before the table's file time
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -138,7 +137,9 @@ class MirbaseRuleTests(unittest.TestCase):
         self.assertEqual(returncode, 0, output)
         self.assertIn(f'release-23.1/anno/genes.{corrected_id()}.gff3', output)
         self.assertIn(f'release-23.1/logs/gff_corrections.{corrected_id()}.tsv', output)
+        self.assertIn(f'release-23.1/anno/genes.{corrected_id()}.tsv', output)  # and UNITAS's feature table built from it (#440)
         self.assertNotIn('anno/genes.gff3', output)
+        self.assertNotIn('anno/genes.tsv', output)
 
     def test_release_that_miRBase_does_not_serve_fails_at_load(self):
         for release in ('19', '23', 'CURRENT'):

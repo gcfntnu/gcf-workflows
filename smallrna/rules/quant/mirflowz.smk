@@ -28,7 +28,9 @@ rule mirflowz_quant:
     input:
         fastq = expand(get_filtered_fastq(None)['R1'], sample=SAMPLES),
         prepared = rules.mirflowz_prepare.output.prepared,
-        reference = rules.mirflowz_prepare.output.record
+        reference = rules.mirflowz_prepare.output.record,
+        annotation = rules.mirflowz_annotation.output.annotation,
+        annotation_record = rules.mirflowz_annotation.output.record
     output:
         mirna = join(MIRFLOWZ_OUT, 'all_mirna_counts.tab'),
         primir = join(MIRFLOWZ_OUT, 'all_pri-mir_counts.tab'),
@@ -49,7 +51,7 @@ rule mirflowz_quant:
     container:
         'docker://' + config['docker']['mirflowz']
     shell:
-        'python {params.script} --prepared {input.prepared} --adapter {params.adapter} '
+        'python {params.script} --prepared {input.prepared} --annotation {input.annotation} --adapter {params.adapter} '
         '--minimum-length {params.min_length} --threads {threads} --mem-mb {resources.mem_mb} --output {params.out} {params.samples}'
 
 rule mirflowz_all:

@@ -1,7 +1,7 @@
 """Dry-run contract for the mirflowz route: selection, reference planning, assembly checks and read settings."""
 import pytest
 
-from test_quant_methods import MIRBASE_GFF, configure, dry_run, rule_block, snakemake
+from test_quant_methods import MIRBASE_GFF, MIRBASE_GFF_ID, configure, dry_run, rule_block, snakemake
 
 REF_116 = 'data/ext/mirflowz/mirbase-23.1_ensembl-116'
 
@@ -34,11 +34,16 @@ def test_mouse_reference_reuses_the_project_ensembl_files(tmp_path):
     returncode, output = dry_run(tmp_path, 'mirflowz', printshell=True)
     assert returncode == 0, output
     prepare = rule_block(output, 'mirflowz_prepare')
-    assert ('--genome data/ext/ensembl/release-116/mus_musculus/GRCm39/fasta/genome.fa '
-            '--gtf data/ext/ensembl/release-116/mus_musculus/GRCm39/anno/mus_musculus.GRCm39.116.gtf '
-            f'--mirna-gff {MIRBASE_GFF}') in prepare
+    assert ('genome --genome data/ext/ensembl/release-116/mus_musculus/GRCm39/fasta/genome.fa '
+            '--gtf data/ext/ensembl/release-116/mus_musculus/GRCm39/anno/mus_musculus.GRCm39.116.gtf ') in prepare
     assert f'--output {REF_116}/mus_musculus/prepared --record {REF_116}/mus_musculus/mirflowz_reference.tsv' in prepare
-    assert '--assembly GRCm39 --output' in rule_block(output, 'mirflowz_chr_map')
+    assert '--mirna-gff' not in prepare  # the genome part does not read the GFF (#440)
+    # What is built from the GFF is named by the corrected GFF3's identity, so other corrections never share it (#440).
+    anno = f'{REF_116}/mus_musculus/gff-{MIRBASE_GFF_ID}'
+    assert f'--assembly GRCm39 --output {anno}/chr_map.tsv' in rule_block(output, 'mirflowz_chr_map')
+    assert (f'annotation --mirna-gff {MIRBASE_GFF} --chr-map {anno}/chr_map.tsv --chr-size {REF_116}/mus_musculus/prepared/chr_size.tsv '
+            f'--mirbase-release 23.1 --output {anno}/annotation --record {anno}/mirflowz_annotation.tsv') in rule_block(output, 'mirflowz_annotation')
+    assert f'--prepared {REF_116}/mus_musculus/prepared --annotation {anno}/annotation ' in rule_block(output, 'mirflowz_quant')
     assert 'rule mirflowz_ensembl_genome:' not in output
 
 
@@ -64,9 +69,11 @@ def test_custom_reference_replaces_the_downloads(tmp_path):
                                  printshell=True)
     assert returncode == 0, output
     prepare = rule_block(output, 'mirflowz_prepare')
-    assert f'--genome {refs}/chr19.fa.gz --gtf {refs}/chr19.gtf --mirna-gff {refs}/chr19.gff3' in prepare
+    assert f'--genome {refs}/chr19.fa.gz --gtf {refs}/chr19.gtf ' in prepare
     assert '--output data/ext/mirflowz/custom-mm-chr19/mus_musculus/prepared' in prepare
     assert '--assembly' not in rule_block(output, 'mirflowz_chr_map')
+    assert (f'--mirna-gff {refs}/chr19.gff3 --chr-map data/ext/mirflowz/custom-mm-chr19/mus_musculus/gff-custom/chr_map.tsv '
+            in rule_block(output, 'mirflowz_annotation'))  # a custom reference's GFF is its own
     assert 'rule ensembl_genome:' not in output and 'rule mirbase_gff:' not in output
 
 

@@ -14,12 +14,21 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def corrected_mirbase_gff(ext='data/ext', organism='mus_musculus', release='23.1'):
-    """The corrected miRBase GFF3, named after the correction table and script (MIRBASE_GFF_ID in gcfdb/mirbase.db, #438)."""
+def mirbase_gff_id(root=ROOT):
+    """MIRBASE_GFF_ID (gcfdb/mirbase.db, #438) of the checkout at `root`: a digest of the correction table and script, which
+    names the corrected GFF3 and the shared files built from it (#440)."""
     digest = hashlib.sha256()
     for name in ('gcfdb/tables/mirbase_gff_corrections.tsv', 'gcfdb/scripts/mirbase_gff_correct.py'):
-        digest.update(hashlib.sha256((ROOT / name).read_bytes()).digest())
-    return f'{ext}/mirbase/{organism}/release-{release}/anno/genes.{digest.hexdigest()[:12]}.gff3'
+        digest.update(hashlib.sha256((Path(root) / name).read_bytes()).digest())
+    return digest.hexdigest()[:12]
+
+
+MIRBASE_GFF_ID = mirbase_gff_id()
+
+
+def corrected_mirbase_gff(ext='data/ext', organism='mus_musculus', release='23.1'):
+    """The corrected miRBase GFF3, named after the correction table and script (MIRBASE_GFF_ID in gcfdb/mirbase.db, #438)."""
+    return f'{ext}/mirbase/{organism}/release-{release}/anno/genes.{MIRBASE_GFF_ID}.gff3'
 
 
 MIRBASE_GFF = corrected_mirbase_gff()
@@ -252,7 +261,7 @@ def test_invalid_mirge3_selection_fails_at_load(tmp_path, update, message):
 
 
 @pytest.mark.parametrize('mirna_db, feature_info', [
-    ('mirbase', 'data/ext/mirbase/mus_musculus/release-23.1/anno/genes.tsv'),
+    ('mirbase', f'data/ext/mirbase/mus_musculus/release-23.1/anno/genes.{MIRBASE_GFF_ID}.tsv'),
     ('mirgenedb', 'data/ext/unitas/20-11-2026-mirgenedb/anno/mirgenedb_genes_mus_musculus.tsv')])
 def test_unitas_mirna_feature_info_follows_the_dump(tmp_path, mirna_db, feature_info):
     """A MirGeneDB dump names miRNAs as MirGeneDB does, so the AnnData annotation comes from the dump's GFF."""
@@ -308,9 +317,12 @@ def test_recorded_routes_write_their_mirbase_release_and_table_checksum(tmp_path
         table = f'data/tmp/smallrna/quant/{tables[route]}'
         assert f'input: {table}' in block  # written after its count table
         assert f'sha=$(sha256sum {table} | cut' in block and f'"$sha" {table} > data/tmp/smallrna/quant/{route}/reference.tsv' in block
-        reference = {'smrnaseq': 'data/ext/mirbase/mus_musculus/release-23.1', 'biocore_miraligner': 'data/ext/biocore_miraligner/mirbase-23.1/mus_musculus/db.v1'}.get(
+        reference = {'smrnaseq': 'data/ext/mirbase/mus_musculus/release-23.1',
+                     'biocore_miraligner': f'data/ext/biocore_miraligner/mirbase-23.1/mus_musculus/gff-{MIRBASE_GFF_ID}/db.v1'}.get(
             route, 'data/ext/mirflowz/mirbase-23.1_ensembl-116/mus_musculus')
-        assert f"mirbase db.mirbase.release 23.1 db.mirbase.release {reference} " in block
+        # and the identity of the GFF its annotation was built from (#440), which names its gff-<ID> files
+        assert f'mirbase db.mirbase.release 23.1 db.mirbase.release {reference} {MIRBASE_GFF_ID} "$sha"' in block
+        assert "reference\\t%s\\tconfiguration\\nmirna_gff_id\\t%s\\tconfiguration" in block
     refs = tmp_path / 'refs'
     refs.mkdir()
     files = {key: refs / name for key, name in (('genome', 'genome.fa.gz'), ('gtf', 'genes.gtf.gz'), ('mirna_gff', 'mirna.gff3'))}
@@ -319,7 +331,7 @@ def test_recorded_routes_write_their_mirbase_release_and_table_checksum(tmp_path
     custom = lambda s: s.setdefault('db', {}).setdefault('mirflowz', {}).update(custom=dict(name='reduced', **{k: str(v) for k, v in files.items()}))
     returncode, output = dry_run(tmp_path, 'tinyrna', custom, printshell=True)
     assert returncode == 0, output
-    assert 'NA db.mirflowz.custom NA db.mirflowz.custom data/ext/mirflowz/custom-reduced/mus_musculus ' in rule_block(output, 'quant_reference')
+    assert 'NA db.mirflowz.custom NA db.mirflowz.custom data/ext/mirflowz/custom-reduced/mus_musculus custom "$sha"' in rule_block(output, 'quant_reference')
     returncode, output = dry_run(tmp_path, 'unitas,mirge3')
     assert returncode == 0, output
     assert 'quant_reference' not in output
@@ -348,7 +360,9 @@ def test_route_steps_write_the_benchmark_files_the_benchmark_reads(tmp_path):
     # shared builds: in the reference they built, so a file never describes another reference
     reference = 'data/ext/{}/mirbase-23.1_ensembl-116/mus_musculus'
     assert declared['mirflowz_prepare'] == {reference.format('mirflowz') + '/benchmarks/mirflowz_prepare.tsv'}
+    assert declared['mirflowz_annotation'] == {reference.format('mirflowz') + f'/gff-{MIRBASE_GFF_ID}/benchmarks/mirflowz_annotation.tsv'}
     assert declared['tesmall_genome'] == {reference.format('tesmall') + '/benchmarks/tesmall_genome.tsv'}
-    assert declared['tesmall_db'] == {reference.format('tesmall') + '/unitas-20-11-2026/benchmarks/tesmall_db.tsv'}
+    assert declared['tesmall_db'] == {reference.format('tesmall') + f'/gff-{MIRBASE_GFF_ID}/unitas-20-11-2026/benchmarks/tesmall_db.tsv'}
     assert declared['biocore_htseq_bowtie2_index'] == {reference.format('biocore_htseq') + '/benchmarks/biocore_htseq_bowtie2_index.tsv'}
-    assert declared['biocore_miraligner_db'] == {'data/ext/biocore_miraligner/mirbase-23.1/mus_musculus/db.v1/benchmarks/biocore_miraligner_db.tsv'}
+    assert declared['biocore_miraligner_db'] == {
+        f'data/ext/biocore_miraligner/mirbase-23.1/mus_musculus/gff-{MIRBASE_GFF_ID}/db.v1/benchmarks/biocore_miraligner_db.tsv'}

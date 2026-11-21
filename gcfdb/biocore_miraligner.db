@@ -7,14 +7,15 @@ miraligner reads `hairpin.fa` and `miRNA.str` from one folder. miRBase does not 
 its sequence lies in the hairpin's sequence, guided by the release's GFF3 (for miRBase 22, identical to miRBase's own
 miRNA.str). The record lists the rows whose GFF3 position disagrees with the sequences: with gcfdb's corrected GFF3
 (gcfdb/mirbase.db, #429), those the correction checks for placement only or not at all. Folder:
-`EXT_DIR/biocore_miraligner/mirbase-<release>/<organism>/db.v<BIOCORE_MIRALIGNER_DB_VERSION>/` (BIOCORE_MIRALIGNER_DB), with the record
-`miraligner_db.tsv`.
+`EXT_DIR/biocore_miraligner/mirbase-<release>/<organism>/gff-<ID>/db.v<BIOCORE_MIRALIGNER_DB_VERSION>/` (BIOCORE_MIRALIGNER_DB),
+named by the corrected GFF3's identity (MIRBASE_GFF_ID, #440), with the record `miraligner_db.tsv`.
 """
 
 # Raise when miraligner_db.py writes different files from the same sources, so a database written by an earlier version
 # is not used.
 BIOCORE_MIRALIGNER_DB_VERSION = 1
-BIOCORE_MIRALIGNER_DB = join(EXT_DIR, 'biocore_miraligner', 'mirbase-{}'.format(MIRBASE_RELEASE), ORG, 'db.v{}'.format(BIOCORE_MIRALIGNER_DB_VERSION))
+BIOCORE_MIRALIGNER_DB = join(EXT_DIR, 'biocore_miraligner', 'mirbase-{}'.format(MIRBASE_RELEASE), ORG, 'gff-{}'.format(MIRBASE_GFF_ID),
+                             'db.v{}'.format(BIOCORE_MIRALIGNER_DB_VERSION))
 
 
 rule biocore_miraligner_db:

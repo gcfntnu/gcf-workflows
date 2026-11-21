@@ -306,7 +306,7 @@ def test_tesmall_or_tinyrna_only_project_keeps_the_reduced_reference(tmp_path, r
     assert 'input: {}'.format(ref / 'genome.fa.gz') in genome and 'tesmall/custom-mmu-test/mus_musculus/genome/genome.fa' in genome
     if method in ('tinyrna', 'biocore_htseq'):
         gff = output.split('rule tinyrna_gff:', 1)[1].split('\nrule ', 1)[0]
-        assert 'input: {}'.format(ref / 'mirna.gff3') in gff and 'tinyrna/custom-mmu-test/mus_musculus/mirna.v2.gff3' in gff
+        assert 'input: {}'.format(ref / 'mirna.gff3') in gff and 'tinyrna/custom-mmu-test/mus_musculus/gff-custom/mirna.v2.gff3' in gff
     if method == 'biocore_htseq':
         index = output.split('rule biocore_htseq_bowtie2_index:', 1)[1].split('\nrule ', 1)[0]
         assert 'tesmall/custom-mmu-test/mus_musculus/genome/genome.fa' in index
@@ -2850,3 +2850,21 @@ def test_evaluate_null_comparisons_without_a_contrast(tmp_path):
     assert '## Differential expression' not in report and 'No route called any miRNA in any split.' in report
     table = {line.split('\t')[0]: line.split('\t')[1:] for line in (bench / 'metrics.tsv').read_text().splitlines()}
     assert table['voom_null_called'] == ['0.0', '0.0'] and table['edger_null_p05'] == ['0.5', '0.5']
+
+
+def test_mirflowz_annotation_is_the_one_the_project_run_recorded(tmp_path):
+    """#440: the extended annotation is in the mirflowz reference's gff-<ID> folder that quant_reference records; a
+    record written before #440 has no mirna_gff_id, and its run read the annotation from the reference's prepared/."""
+    project, reference = tmp_path / 'project', tmp_path / 'ext/mirflowz/mirbase-23.1_ensembl-116/mus_musculus'
+    record = project / 'data/tmp/smallrna/quant/mirflowz/reference.tsv'
+    name = 'extended_mirna_annotation_6_nt.gff3'
+    with pytest.raises(SystemExit, match='--mirflowz-gff'):
+        benchmark.mirflowz_annotation(project)
+    write(record, 'field\tvalue\tsource\nmirna_database\tmirbase\tx\nreference\t{}\tconfiguration\nmirna_gff_id\tabc123\tconfiguration\n'.format(reference))
+    with pytest.raises(SystemExit, match=re.escape('no mirflowz annotation at {}'.format(reference / 'gff-abc123/annotation' / name))):
+        benchmark.mirflowz_annotation(project)
+    for folder in ('gff-abc123/annotation', 'gff-other/annotation', 'prepared'):  # other corrections' and the old layout's too
+        write(reference / folder / name, '')
+    assert benchmark.mirflowz_annotation(project) == reference / 'gff-abc123/annotation' / name
+    write(record, 'field\tvalue\tsource\nmirna_database\tmirbase\tx\nreference\t{}\tconfiguration\n'.format(reference))
+    assert benchmark.mirflowz_annotation(project) == reference / 'prepared' / name

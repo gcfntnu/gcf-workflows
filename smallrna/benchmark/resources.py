@@ -17,7 +17,7 @@ A benchmark file is an output of its job, rewritten whenever the job runs, so ea
 that job's current output. After a partial rerun a method's jobs can therefore come from different runs, possibly on
 different machines; a benchmark project quantified from scratch has them from one run.
 
-The shared reference builds under EXT_DIR (gcfdb/mirflowz.db's mirflowz_prepare, gcfdb/tesmall.db's tesmall_genome
+The shared reference builds under EXT_DIR (gcfdb/mirflowz.db's mirflowz_prepare and mirflowz_annotation, gcfdb/tesmall.db's tesmall_genome
 and tesmall_db, gcfdb/biocore_htseq.db's biocore_htseq_bowtie2_index, gcfdb/biocore_miraligner.db's biocore_miraligner_db) are not reported here: their
 benchmark files are in the reference they built (`<reference>/benchmarks/<rule>.tsv`), whichever project built it.
 """

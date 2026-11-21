@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from test_quant_methods import dry_run, rule_block
+from test_quant_methods import MIRBASE_GFF_ID, dry_run, rule_block
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / 'smallrna/rules/quant/scripts/htseq_counts.py'
@@ -42,7 +42,7 @@ def test_route_plans_reference_and_counting_and_delivery_stays_on_unitas(tmp_pat
             '--samout {0}/SR0'.format(OUT)) in annotate
     assert f' - {OUT}/mirna.gff3 > ' in annotate  # tiny-count's renamed GFF without rows that have no strand
     assert '|| { rm -f ' in annotate  # a failed htseq-count leaves no uncompressed samout behind
-    gff = 'gff --input data/ext/tinyrna/mirbase-23.1_ensembl-116/mus_musculus/mirna.v2.gff3 > {}/mirna.gff3'.format(OUT)
+    gff = f'gff --input data/ext/tinyrna/mirbase-23.1_ensembl-116/mus_musculus/gff-{MIRBASE_GFF_ID}/mirna.v2.gff3 > {OUT}/mirna.gff3'
     assert gff in rule_block(output, 'biocore_htseq_gff')
     assert '--species mmu --collapsed' in rule_block(output, 'biocore_htseq_count')
     assert '--samples SR01 SR02 SR03 SR04' in rule_block(output, 'biocore_htseq_counts')

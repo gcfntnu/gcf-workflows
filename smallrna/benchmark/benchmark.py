@@ -665,10 +665,7 @@ def evaluate(args):
     prefix = PREFIX[spec['organism']]
     mature = synthetic.read_mature(reference_dir(spec, ext_dir) / 'mature.fa', prefix)
     name_to_id = {name: accession for name, (accession, _) in mature.items()}
-    gff = args.mirflowz_gff
-    if gff is None and 'mirflowz' in spec['methods']:
-        gff = ext_dir / 'mirflowz' / 'custom-{}'.format(spec['reference']['name']) / spec['organism'] / 'prepared' / \
-            'extended_mirna_annotation_{}_nt.gff3'.format(EXTENSION)
+    gff = args.mirflowz_gff or (mirflowz_annotation(project) if 'mirflowz' in spec['methods'] else None)
     common = common_table(args, project, bench, spec, ext_dir, spec['methods'], mature, gff)
 
     truth = {}
@@ -795,14 +792,21 @@ def isomir_table(args, project, bench, spec, methods, mature, gff, common, pendi
     return rows, without
 
 
-def mirflowz_annotation(ext_dir, spec):
-    """mirflowz's extended annotation for the organism's full reference; fails unless exactly one is prepared."""
-    found = sorted(Path(ext_dir).glob('mirflowz/mirbase-{}_ensembl-*/{}/prepared/extended_mirna_annotation_{}_nt.gff3'.format(
-        spec['mirbase']['release'], spec['organism'], EXTENSION)))
-    if len(found) != 1:
-        fail('{} prepared mirflowz references for {} under {}; name one with --mirflowz-gff'.format(
-            len(found), spec['organism'], Path(ext_dir) / 'mirflowz'))
-    return found[0]
+def mirflowz_annotation(project):
+    """mirflowz's extended annotation that the project's mirflowz run counted with, from its quant/mirflowz/reference.tsv:
+    `<reference>/gff-<mirna_gff_id>/annotation/` (#440); a record written before #440 has no mirna_gff_id, and its run
+    read the annotation from the reference's `prepared/`."""
+    quant = project / 'data/tmp/smallrna/quant'
+    try:
+        reference = Path(adapters.method_record('mirflowz', quant, ('reference',))['reference'])
+    except (OSError, ValueError) as e:
+        fail('{}; name the annotation with --mirflowz-gff'.format(e))
+    ids = [row['value'] for row in read_tsv(quant / 'mirflowz/reference.tsv') if row['field'] == 'mirna_gff_id']
+    name = 'extended_mirna_annotation_{}_nt.gff3'.format(EXTENSION)
+    path = reference / 'gff-{}'.format(ids[0]) / 'annotation' / name if ids else reference / 'prepared' / name
+    if not path.is_file():
+        fail('no mirflowz annotation at {}, where the project\'s mirflowz run read it; name one with --mirflowz-gff'.format(path))
+    return path
 
 
 # The reads the oracle counts (rules/filter/cliptrim.smk): with Bowtie spike-ins (filter.spikein.ref lists sets, a
@@ -901,7 +905,7 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
     mature = synthetic.read_mature(mature_fa, prefix)
     name_to_id = {name: accession for name, (accession, _) in mature.items()}
     methods = list(spec['methods'])
-    gff = args.mirflowz_gff or (mirflowz_annotation(ext_dir, spec) if 'mirflowz' in methods else None)
+    gff = args.mirflowz_gff or (mirflowz_annotation(project) if 'mirflowz' in methods else None)
     pending = []  # tables written once the differential-expression checks (evaluate --de) have passed
     common = common_table(args, project, bench, spec, ext_dir, methods, mature, gff, pending)
     iso_rows, no_isomirs = isomir_table(args, project, bench, spec, methods, mature, gff, common, pending)
@@ -1243,7 +1247,7 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
     id_to_seq = {accession: seq for accession, seq in mature.values()}
     id_to_name = {accession: name for name, (accession, _) in mature.items()}
     methods = list(spec['methods'])
-    gff = args.mirflowz_gff or (mirflowz_annotation(ext_dir, spec) if 'mirflowz' in methods else None)
+    gff = args.mirflowz_gff or (mirflowz_annotation(project) if 'mirflowz' in methods else None)
     pending = []  # tables written once the differential-expression checks (evaluate --de) have passed
     raw = common_table(args, project, bench, spec, ext_dir, methods, mature, gff, pending)
     common, _ = biological.collapse(raw, id_to_seq)
@@ -1396,7 +1400,7 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
     except ValueError as e:
         fail(str(e))
 
-    gff = args.mirflowz_gff or (mirflowz_annotation(ext_dir, spec) if 'mirflowz' in methods else None)
+    gff = args.mirflowz_gff or (mirflowz_annotation(project) if 'mirflowz' in methods else None)
     pending = []  # tables written once the differential-expression checks (evaluate --de) have passed
     raw = common_table(args, project, bench, spec, ext_dir, methods, mature, gff, pending)
     iso_rows, no_isomirs = isomir_table(args, project, bench, spec, methods, mature, gff, raw, pending)
@@ -1589,7 +1593,7 @@ def main():
     e.add_argument('--bootstrap', type=nonnegative, default=uncertainty.RESAMPLES, metavar='N',
                    help='bootstrap resamples for the metrics\' 95%% intervals (#413); 0 for none (default %(default)s)')
     e.add_argument('--seed', type=int, default=uncertainty.SEED, help='seed of the bootstrap (default %(default)s)')
-    e.add_argument('--mirflowz-gff', type=Path, help="mirflowz's extended miRNA annotation; default from the declaration")
+    e.add_argument('--mirflowz-gff', type=Path, help="mirflowz's extended miRNA annotation; default the one the project's mirflowz run recorded")
     e.add_argument('--unitas-ref', type=Path, help="UNITAS reference dump (its miRBase hairpins place locus names); default the "
                    "dump the project's UNITAS run recorded")
     s = sub.add_parser('summary', help='one overview of several evaluated projects (Markdown or HTML by the extension)')
