@@ -299,3 +299,69 @@ def lane_replicates(common, methods, lanes):
                   'overdispersed_by_mean': {k: (sum(v), len(v)) for k, v in sorted(bins.items())},
                   'overdispersed_mirnas': [k for k, _ in sorted(high.items(), key=lambda kv: (-kv[1], kv[0]))[:5]]}
     return out
+
+
+KNOCKOUT_MIN_READS = 10  # a miRNA gets a knockout-to-control ratio with at least this many reads on average in the controls
+SURVIVING = 0.25         # a miRNA survives a knockout that keeps more than this share of its control level (#452)
+
+
+def knockout(common, methods, kept, units, control):
+    """Knockout cells against their controls (#452): miRNA reads per million filtered reads (`kept`: {sample: the reads
+    the filter kept}), not per million miRNA reads, which the knockout changes. `units`: [(sample, group, level)]; each
+    knockout sample is compared with the `control` samples of its level (e.g. the parental cells sequenced in the same
+    set). Per method:
+    - 'control_rpm': the controls' mean miRNA reads per million filtered reads;
+    - 'share': {group: the mean over its samples of their miRNA RPM over the mean RPM of their level's controls}
+      ('' when those controls have no miRNA reads);
+    - 'ratios': {group: {accession: (control reads, knockout reads, ratio)}} for the miRNAs with at least
+      KNOCKOUT_MIN_READS reads on average in the controls of every level of the group's samples: the mean reads of
+      those controls (levels averaged) and of the group's samples, and the mean over the group's samples of the
+      miRNA's RPM over that of its level's controls."""
+    by = counts_by(common)
+    controls = collections.defaultdict(list)
+    for sample, group, level in units:
+        if group == control:
+            controls[level].append(sample)
+    knockouts = collections.defaultdict(list)
+    for sample, group, level in units:
+        if group != control:
+            knockouts[group].append((sample, level))
+    mean = lambda values: sum(values) / len(values)
+    out = {}
+    for m in methods:
+        counts = {s: by.get((m, s), {}) for s, _, _ in units}
+        rpm = {s: 1e6 * sum(c.values()) / kept[s] for s, c in counts.items()}
+        level_rpm = {level: mean([rpm[s] for s in samples]) for level, samples in controls.items()}
+        level_reads = {level: collections.Counter() for level in controls}
+        level_mirna = {level: collections.Counter() for level in controls}
+        for level, samples in controls.items():
+            for s in samples:
+                for i, v in counts[s].items():
+                    level_reads[level][i] += v / len(samples)
+                    level_mirna[level][i] += 1e6 * v / kept[s] / len(samples)
+        share, ratios = {}, {}
+        for group, members in knockouts.items():
+            fractions = [rpm[s] / level_rpm[level] for s, level in members if level_rpm[level]]
+            share[group] = mean(fractions) if len(fractions) == len(members) else ''
+            levels = sorted({level for _, level in members}, key=str)
+            eligible = set.intersection(*({i for i, v in level_reads[level].items() if v >= KNOCKOUT_MIN_READS} for level in levels))
+            ratios[group] = {i: (mean([level_reads[level][i] for level in levels]),
+                                 mean([counts[s].get(i, 0.0) for s, _ in members]),
+                                 mean([1e6 * counts[s].get(i, 0.0) / kept[s] / level_mirna[level][i] for s, level in members]))
+                             for i in sorted(eligible)}
+        out[m] = {'control_rpm': mean([rpm[s] for samples in controls.values() for s in samples]), 'share': share, 'ratios': ratios}
+    return out
+
+
+def survivors(result, methods, group):
+    """The miRNAs surviving `group` (ratio above SURVIVING) per method in a knockout() result: {method: {'tested',
+    'surviving' (a set), 'only' (those no other method lists), 'only_reads' (their mean reads per knockout sample)}},
+    and those every method lists."""
+    surviving = {m: {i for i, (_, _, ratio) in result[m]['ratios'].get(group, {}).items() if ratio > SURVIVING} for m in methods}
+    out = {}
+    for m in methods:
+        others = set().union(*(surviving[o] for o in methods if o != m))
+        only = surviving[m] - others
+        out[m] = {'tested': len(result[m]['ratios'].get(group, {})), 'surviving': surviving[m], 'only': only,
+                  'only_reads': sum((result[m]['ratios'][group][i][1] for i in only), 0.0)}
+    return out, set.intersection(*surviving.values()) if methods else set()

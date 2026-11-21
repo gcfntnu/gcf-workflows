@@ -248,6 +248,13 @@ whole numbers; a lane is checked against the first 1,000 read names when they ca
 | Declaration | Samples | Runs |
 |---|---|---|
 | `gse317995_nextflex_v4` | human plasma, NEXTflex v4 (GEO GSE317995): all 30 samples, 10 in each of three groups (#448); `prepare --per-group 2` takes the two lowest-numbered of each, the quick run | 4 per sample: the 4 lanes of one NextSeq 500 run |
+| `gse77989_hct116_knockouts` | HCT116 cells, TruSeq Small RNA (GEO GSE77989, Kim et al. 2016): parental cells (3), DROSHA (2), XPO5 (2) and DICER (2) knockouts, in two sets of libraries | 1 per sample (MiSeq) |
+
+A biological dataset with knockout cells declares `knockout:` (#452): the `control` group, the knockout whose
+surviving miRNAs are listed (`survival`), and optionally `within`, a field of the samples that pairs each knockout sample
+with the controls of its own level. GSE77989 has `within: set`: the DROSHA knockout was sequenced with two parental
+libraries (set 1), the XPO5 and DICER knockouts with one (set 2). Its knockout clones are 2 libraries each, shallow, from
+one cell line after gel selection; XPO5 knockout lowers miRNAs only partly, so it is reported but not used for the list.
 
 GSE317995 is the only public NEXTflex v4 dataset found. Its lanes are one library each, so they replicate sequencing
 only; library-preparation reproducibility needs separate libraries of one sample (e.g. the Giraldez 2018 plasma pool
@@ -436,6 +443,16 @@ miRNA reads):
   gives what each method tests and calls up and down per test. No change is known, so nothing is scored and
   `metrics.tsv` gets no DE metrics.
 
+- **Knockouts** (#452; `knockout:`): canonical miRNAs need DROSHA and DICER, so their reads should nearly vanish in
+  those knockouts. Reads per million filtered reads (the cutadapt route's kept reads, not miRNA reads, which the
+  knockout changes); each knockout sample against the control samples of its `within` level, merged samples only.
+  - `knockout_mirna_share`: the survival knockout's miRNA reads per million filtered reads over its controls' (mean
+    over its samples); the report has it for every knockout group, and the controls' miRNA reads per million.
+  - Per miRNA with at least 10 reads on average in the controls: the knockout's reads per million over the controls';
+    it survives above 25%. `knockout_surviving` counts those of the survival knockout; the report lists them with
+    each method's ratio, those every method lists, and per method those only it lists (`only`) with their reads.
+    Surviving miRNAs common to every method are biology (e.g. mirtrons) or annotation; those that differ are
+    quantification. `knockout.tsv` has every tested miRNA of every knockout group.
 - **Accessions.** miRNAs with the same mature sequence count as one (the lowest accession), since the methods credit
   their reads to different members (miRge3 to its merge group's first name; UNITAS and mirflowz to either, e.g.
   hsa-miR-199a-3p and hsa-miR-199b-3p). Reads on names without a miRBase accession are left out of every metric and
