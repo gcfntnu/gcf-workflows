@@ -312,6 +312,9 @@ metrics.tsv then give, per method:
 - `read_in_other_class`: the share of its miRNA reads (isomiR output, #454) whose read sequence lies exactly inside
   another class's molecule.
 
+Both the flag and `read_in_other_class` are lower bounds: they cover five classes (no mRNA, introns or repeats) and
+exact matches only, so a read with a non-templated end or a sequencing error does not match.
+
 With knockouts, `knockout.tsv` names each tested miRNA's other class, and `knockout_surviving_flagged` counts the
 surviving miRNAs that are flagged. Both human biological declarations have `other_rna`.
 
