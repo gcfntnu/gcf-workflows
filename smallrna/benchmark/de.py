@@ -11,7 +11,11 @@ dataset adds the true nuisance scores as a covariate, suffix `.adjusted`).
 
 Normalisation is the workflow's: a sample's library size is every miRNA read the method reported in it (all its rows of
 common.tsv), as smallrna's report figures scale counts per million. There is no TMM and no centring, so an offset
-between the groups stays in the fold changes, and `offset` reports it. The oracle's library size is its reads of the
+between the groups stays in the fold changes, and `offset` reports it. Two normalisation arms (#453) test the pools'
+and the synthetic dataset's whole design again, side by side: `fixed` (suffix `.fixed`, folder `arm/fixed`), each
+sample's filtered reads as its library size for every row, so a route's miRNA calls no longer change it; and `tmm`
+(suffix `.tmm`, folder `arm/tmm`), edgeR's TMM factors on the workflow's library sizes. The main metrics stay the
+workflow's. The oracle's library size is its reads of the
 exact and shifted pool sequences, the truth's its miRNA reads: what a method counting every miRNA read exactly would
 report. The exact test runs as in the McCall-lab benchmark's best configuration (library sizes as given, a common
 dispersion; two groups, so no covariates). The GLM test and voom take the set's covariates. The GLM test keeps the exact
@@ -38,6 +42,7 @@ NAME = re.compile(r'[A-Za-z][A-Za-z0-9_]*')  # a covariate: a column of the desi
 LEVEL_NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]*')  # a group, or a level of `within`: it names a folder and a metric suffix
 LEVELS = 'levels.tsv'  # benchmark/de/levels.tsv: the sets de.smk tests besides the whole dataset's, in <column>/<level>
 INPUTS = ('counts.tsv', 'library_sizes.tsv', 'design.tsv', 'model.tsv')
+ARMS = ('fixed', 'tmm')  # normalisation arms besides the workflow's (#453): the DE sets' `arm`, folder arm/<arm>, suffix .<arm>
 RESULT_HEADER = ['row', 'test', 'feature', 'log2fc', 'pvalue', 'padj']
 SCRIPT = Path(__file__).resolve().with_name('de.R')
 
@@ -78,10 +83,15 @@ def library_sizes(reads, oracle, entries, rows, samples):
             for row in rows for s in samples}
 
 
-def model_text(numerator, denominator, numeric=(), min_mean=0):
+def model_text(numerator, denominator, numeric=(), min_mean=0, normalisation=None):
     """model.tsv: the contrast (a positive log2 fold change is more in `numerator`), the covariates that are numbers
-    (the others are factors) and the least mean count of a feature a row tests."""
+    (the others are factors), the least mean count of a feature a row tests and, for the `tmm` arm (#453),
+    `normalisation: tmm` (edgeR's TMM factors on the library sizes; without the field, none)."""
     fields = [('numerator', numerator), ('denominator', denominator), ('min_mean', '{:g}'.format(min_mean))] + [('numeric', c) for c in numeric]
+    if normalisation is not None:
+        if normalisation != 'tmm':
+            raise ValueError('normalisation must be tmm or None, got {!r}'.format(normalisation))
+        fields.append(('normalisation', normalisation))
     return 'field\tvalue\n' + ''.join('{}\t{}\n'.format(*field) for field in fields)
 
 
@@ -297,27 +307,44 @@ def text(value):
     return '' if value is None or (isinstance(value, float) and math.isnan(value)) else str(value)
 
 
-def set_lines(title, intro, label, sets, values, rows, reference='oracle'):
-    """report.md's section on the DE sets besides the whole dataset's: for each test, LEVEL_KEYS and the reference keys
-    of every set and row from `values` ({row: {metric: value}}, the sets' metrics with their suffix), then each set's
-    samples, the design and tool versions de.R recorded, and the SHA-256 of its results. `sets`: [(name, folder,
-    samples, results_sha256, record)], `name` the metric suffix without its dot, `samples` describing the set's
-    samples; `label` heads the table's first column."""
+def set_lines(title, intro, label, sets, values, rows, reference='oracle', keys=LEVEL_KEYS):
+    """report.md's section on DE sets: for each test, `keys` (default LEVEL_KEYS) and the reference keys of every set
+    and row from `values` ({row: {metric: value}}, the sets' metrics with their suffix), then each set's samples, the
+    design and tool versions de.R recorded, and the SHA-256 of its results. `sets`: [(name, folder, samples,
+    results_sha256, record)], `name` the metric suffix without its dot ('' for the whole dataset's set, shown as
+    `workflow`), `samples` describing the set's samples; `label` heads the table's first column."""
     if not sets:
         return []
-    keys = LEVEL_KEYS + reference_keys(reference)
+    keys = tuple(keys) + reference_keys(reference)
     lines = ['', '### ' + title, '', intro]
     for test in TESTS:
         lines += ['', '**{}**'.format(TEST_NAMES[test]), '', '| {} | metric | '.format(label) + ' | '.join(rows) + ' |',
                   '|---' * (len(rows) + 2) + '|']
         for name, _, _, _, _ in sets:
-            lines += ['| {} | {} | '.format(name if i == 0 else '', key) +
-                      ' | '.join(text(values.get(row, {}).get('{}_{}.{}'.format(test, key, name))) for row in rows) + ' |'
+            lines += ['| {} | {} | '.format((name or 'workflow') if i == 0 else '', key) +
+                      ' | '.join(text(values.get(row, {}).get('{}_{}{}'.format(test, key, '.' + name if name else ''))) for row in rows) + ' |'
                       for i, key in enumerate(keys)]
-    lines += [''] + ['{}: {}, design `{}` (edgeR {}, limma {}); `de/{}/results.tsv` SHA-256 `{}`.'.format(
-        name, samples, record.get('formula', '?'), record.get('edgeR', '?'), record.get('limma', '?'), folder, sha)
+    lines += [''] + ['{}: {}, design `{}`{} (edgeR {}, limma {}); `{}` SHA-256 `{}`.'.format(
+        name or 'workflow', samples, record.get('formula', '?'),
+        ', TMM factors' if record.get('normalisation', '').startswith('TMM') else '',
+        record.get('edgeR', '?'), record.get('limma', '?'), '/'.join(p for p in ('de', folder, 'results.tsv') if p), sha)
         for name, folder, samples, sha, record in sets]
     return lines
+
+
+def arm_lines(sets, values, rows, reference='oracle'):
+    """report.md's section on the normalisation arms (#453): the whole dataset's set (`workflow`) and each arm, with
+    DESIGN_KEYS and the reference keys. `sets` as for set_lines, the whole dataset's first."""
+    if len(sets) < 2:
+        return []
+    intro = ('The whole design tested again with other library sizes (#453): `workflow` is the main result above (a sample\'s '
+             'library size is every miRNA read the route reported); `fixed` gives every row the same library size, the sample\'s '
+             'filtered reads (the cutadapt route\'s kept reads), so what a route counts as miRNA no longer changes it; `tmm` '
+             'applies edgeR\'s TMM factors to the workflow\'s library sizes (all three tests, voom on the normalised sizes). '
+             'A shift in the unchanged features (`offset`) that differs between arms is the normalisation\'s, not the route\'s. '
+             'In metrics.tsv the metrics carry `.fixed` and `.tmm`; their intervals and the differences between methods are in '
+             'metrics_ci.tsv and differences.tsv. The metrics against the {} are empty for the {}.'.format(reference, reference))
+    return set_lines('Normalisation arms', intro, 'arm', sets, values, rows, reference, DESIGN_KEYS)
 
 
 def level_lines(column, levels, values, rows):

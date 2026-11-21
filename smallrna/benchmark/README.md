@@ -414,6 +414,18 @@ miRNA), `exact` (share of miRNAs counted exactly, to within 1e-6 for the fractio
   design residual degrees of freedom. The report gives the share called per designed fold change and the tools'
   versions and settings; `de/de.log` has each row's two common dispersions.
 
+  **Normalisation arms** (#453): the whole design is tested again in two other normalisations, for the pools and the
+  genome-wide synthetic set, and the report's Normalisation arms section shows them beside the workflow's:
+  - `fixed` (folder `de/arm/fixed`, metrics `.fixed`): every row's library size is the sample's filtered reads, the
+    cutadapt route's kept reads, the same for every method, so what a method counts as miRNA no longer changes it;
+  - `tmm` (folder `de/arm/tmm`, metrics `.tmm`): edgeR's TMM factors (`calcNormFactors`) on the workflow's library
+    sizes, for all three tests (voom on the normalised sizes).
+  The main metrics stay the workflow's. An `offset` that differs between the arms is the normalisation's, not the
+  method's. Biological datasets have no arms: no change is known to score them against. The `fixed` arm reads the
+  cutadapt route's reports (the kits' default), so `evaluate` of a pool or synthetic project that declares `de:` on
+  another filter route stops and names the missing reports. On the pools `false_calls` is a share of their 25 1:1
+  sequences and, with dispersions near 0.002, follows the offset, so read the arms by their `offset`.
+
   With `de: {within: lab}` (#444) each lab's runs are also tested on their own with `~ group`, as replicate benchmarks
   of a single-lab experiment; each lab needs at least two runs per pool. Their metrics carry the lab, e.g.
   `edger_fc_error_vs_oracle.Lab1`. They are in `metrics.tsv`, `metrics_ci.tsv` and `differences.tsv`, whose paired

@@ -1996,7 +1996,9 @@ def test_de_model_names_the_contrast_numeric_covariates_and_the_least_mean_count
         'field\tvalue\nnumerator\tcase\ndenominator\tFertile control\nmin_mean\t10\nnumeric\tnuisance\n')
     script = (BENCH / 'de.R').read_text()
     known = re.search(r"unknown <- setdiff\(settings\$field, c\(([^)]*)\)\)", script)
-    assert known and known.group(1) == "'numerator', 'denominator', 'min_mean', 'numeric'"  # the fields model_text writes
+    assert known and known.group(1) == "'numerator', 'denominator', 'min_mean', 'numeric', 'normalisation'"  # the fields model_text writes
+    assert de.model_text('A', 'B', (), 0, 'tmm').endswith('normalisation\ttmm\n') and 'calcNormFactors(y, method = \'TMM\')' in script
+    assert 'lib.size = size * y$samples$norm.factors' in script  # voom on the TMM-normalised library sizes
     assert "levels = c(denominator, numerator)" in script and 'coefficient <- ncol(model)' in script  # log2(numerator / denominator)
     assert "deparse(formula, width.cutoff = 500L), collapse = ' ')" in script and script.count('deparse(') == 1  # one string in the record
 
@@ -2143,12 +2145,16 @@ def test_de_sets_take_any_column_of_the_runs_as_a_covariate(tmp_path):
     """A covariate other than `lab` (#447): the instrument, from the declaration's runs, not from samples.tsv."""
     spec = benchmark.load_dataset(de_declaration(tmp_path, lambda s: s.update(de={'covariates': ['instrument']})))
     rows = [{'sample': run['run'], 'group': run['group'], 'lab': run['lab'], 'reads': ''} for run in spec['runs']]
-    (whole,) = benchmark.de_sets(spec, benchmark.de_units(spec, rows))
+    whole, fixed, tmm = benchmark.de_sets(spec, benchmark.de_units(spec, rows))
     assert whole.design[0] == ('SRR5234383', 'A', {'instrument': 'HiSeq 4000'}) and whole.design[-1][2] == {'instrument': 'HiSeq 2500'}
-    assert (whole.suffix, whole.folder, whole.samples) == ('', '', '4 A and 4 B runs') and whole.model == de.model_text('A', 'B')
+    assert (whole.suffix, whole.folder, whole.samples, whole.arm) == ('', '', '4 A and 4 B runs', None) and whole.model == de.model_text('A', 'B')
+    # the normalisation arms (#453): the whole design again; tmm says so in its model, fixed gets other library sizes
+    assert (fixed.suffix, fixed.folder, fixed.arm, tmm.suffix, tmm.folder, tmm.arm) == ('.fixed', 'arm/fixed', 'fixed', '.tmm', 'arm/tmm', 'tmm')
+    assert fixed.design == tmm.design == whole.design and fixed.model == whole.model and tmm.model == de.model_text('A', 'B', (), 0, 'tmm')
     sets = benchmark.de_sets(benchmark.load_dataset(BENCH / 'datasets/giraldez2018_ratiometric_truseq.yaml'), benchmark.de_units(spec, rows))
     assert [(s.suffix, s.folder, s.samples, list(s.design[0][2])) for s in sets] == [
-        ('', '', '4 A and 4 B runs', ['lab']), ('.Lab1', 'lab/Lab1', '2 A and 2 B runs', []), ('.Lab5', 'lab/Lab5', '2 A and 2 B runs', [])]
+        ('', '', '4 A and 4 B runs', ['lab']), ('.Lab1', 'lab/Lab1', '2 A and 2 B runs', []), ('.Lab5', 'lab/Lab5', '2 A and 2 B runs', []),
+        ('.fixed', 'arm/fixed', '4 A and 4 B runs', ['lab']), ('.tmm', 'arm/tmm', '4 A and 4 B runs', ['lab'])]
 
 
 def biological_declaration(tmp_path, de_spec, groups=('case', 'case', 'control', 'control', 'other', 'other')):
@@ -2286,13 +2292,19 @@ def de_project(tmp_path, runs=DE_RUNS, declared=None):
     write_records(quant, ['unitas', 'mirge3'], dump=dump)
     for run, seqs in reads.items():
         write_stages(project, run, seqs, seqs, seqs)
+        write_cutadapt_reports(project / 'data/tmp/smallrna/filter/cutadapt_stages', run, 100 + 10 * index[run])  # the `fixed` arm's sizes (#453)
     return project
 
 
-def de_outputs(project, fits, change=None, drop_last=False, folder=''):
+def de_outputs(project, fits, change=None, drop_last=False, folder='', formula=None):
     """de.smk's outputs as de.R writes them for the current inputs of the DE set in benchmark/de/`folder`: every row and
     test gets `fits` ({pool_id: (log2fc, pvalue, padj)}); `change` edits the record; `drop_last` leaves the table's last
-    line out (a table de.R recorded, but incomplete)."""
+    line out (a table de.R recorded, but incomplete). The whole dataset's set (folder '') brings its normalisation arms
+    (#453) with the same fits, written first, so that a check fails on the whole dataset's set as before."""
+    if folder == '':
+        for arm in de.ARMS:
+            if (project / 'benchmark/de/arm' / arm / 'input').is_dir():
+                de_outputs(project, fits, folder='arm/' + arm, formula='~lab + group')
     base = project / 'benchmark/de' / folder
     texts = {name: (base / 'input' / name).read_text() for name in de.INPUTS}
     rows = list(dict.fromkeys(line.split('\t')[0] for line in texts['counts.tsv'].splitlines()[1:]))
@@ -2302,7 +2314,7 @@ def de_outputs(project, fits, change=None, drop_last=False, folder=''):
     write(base / 'results.tsv', results)
     record = {'md5_' + Path(name).stem: de.md5(text) for name, text in texts.items()}
     record.update(md5_script=de.md5(de.SCRIPT.read_bytes()), md5_results=de.md5(results), R='R version 4.5.3', edgeR='4.10.7',
-                  limma='3.68.5', formula='~group' if folder else '~lab + group', edger='exact test', edger_glm='GLM test', voom='voom')
+                  limma='3.68.5', formula=formula or ('~group' if folder else '~lab + group'), edger='exact test', edger_glm='GLM test', voom='voom')
     if change:
         change(record)
     write(base / 'record.tsv', 'field\tvalue\n' + ''.join('{}\t{}\n'.format(k, v) for k, v in record.items()))
@@ -2356,7 +2368,13 @@ def test_evaluate_de_within_each_lab_scores_each_lab_and_against_the_oracle(tmp_
     bench = project / 'benchmark'
     result = evaluate_cmd(project)
     assert result.returncode == 0, result.stderr
-    assert (bench / 'de/levels.tsv').read_text() == 'column\tlevel\nlab\tL1\nlab\tL2\n'
+    assert (bench / 'de/levels.tsv').read_text() == 'column\tlevel\nlab\tL1\nlab\tL2\narm\tfixed\narm\ttmm\n'
+    # #453: the fixed arm gives every row each run's filtered reads (the reports' kept reads); tmm keeps the workflow's sizes
+    fixed = [line.split('\t') for line in (bench / 'de/arm/fixed/input/library_sizes.tsv').read_text().splitlines()]
+    assert fixed[0] == ['row', 'A1', 'A2', 'A3', 'A4', 'B1', 'B2', 'B3', 'B4'] and fixed[1][1:] == fixed[2][1:] == fixed[3][1:]
+    assert fixed[1][1:3] == ['87.0', '97.0']   # 100 and 110 reads in, 13 discarded by the passes
+    assert (bench / 'de/arm/tmm/input/library_sizes.tsv').read_text() == (bench / 'de/input/library_sizes.tsv').read_text()
+    assert (bench / 'de/arm/tmm/input/model.tsv').read_text() == de.model_text('A', 'B', (), 0, 'tmm')
     assert (bench / 'de/lab/L2/input/design.tsv').read_text() == 'sample\tgroup\nA3\tA\nA4\tA\nB3\tB\nB4\tB\n'  # ~ group
     assert (bench / 'de/lab/L2/input/library_sizes.tsv').read_text().splitlines()[1] == 'oracle\t17\t19\t18\t20'
     assert (bench / 'de/lab/L1/input/counts.tsv').read_text().splitlines()[0] == 'row\tfeature\tA1\tA2\tB1\tB2'
@@ -2383,6 +2401,9 @@ def test_evaluate_de_within_each_lab_scores_each_lab_and_against_the_oracle(tmp_
     assert 'L1: 2 A and 2 B runs, design `~group` (edgeR 4.10.7, limma 3.68.5); `de/lab/L1/results.tsv` SHA-256 `{}`.'.format(
         hashlib.sha256((bench / 'de/lab/L1/results.tsv').read_bytes()).hexdigest()) in report
     assert '.L1' not in report.split('## Uncertainty')[1] and '\tunitas\tmirge3\t' in (bench / 'differences.tsv').read_text()
+    arms = report.split('### Normalisation arms')[1]   # the whole design side by side in the three normalisations (#453)
+    assert '| workflow | called | 1.0 | 1.0 | 1.0 |' in arms and '| fixed | called |' in arms and '| tmm | called |' in arms and '|  | offset |' in arms
+    assert table['voom_offset.fixed'] and '### Within each lab' in report.split('### Normalisation arms')[0]
     assert any(line.startswith('edger_fc_shift_vs_oracle.L1\tunitas\tmirge3\t') for line in (bench / 'differences.tsv').read_text().splitlines())
     summary_md = tmp_path / 'summary.md'
     result = subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'summary', '--projects', str(project), '--output', str(summary_md)],
