@@ -450,7 +450,7 @@ def test_differential_expression_uses_the_pools_tests_in_genome_mode(tmp_path):
                                     'methods': ['tinyrna'], 'data': 'd', 'synthetic': copy.deepcopy(SPEC), 'de': {'covariates': ['nuisance']},
                                     'mirbase': {'release': '23.1', 'url': 'u', 'sha256': 'a' * 64, 'hairpin': {'url': 'u', 'sha256': 'b' * 64},
                                                 'gff': {'url': 'u', 'sha256': 'c' * 64}}}))
-    with pytest.raises(SystemExit, match=re.escape('`de` takes no options for the synthetic dataset')):
+    with pytest.raises(SystemExit, match=re.escape('`de` takes no options for this dataset')):
         benchmark.load_dataset(path)
     project, cmd = genome_project(tmp_path, {})
     units = benchmark.de_units(benchmark.load_dataset(project / 'benchmark/dataset.yaml'), benchmark.read_tsv(project / 'benchmark/samples.tsv'))

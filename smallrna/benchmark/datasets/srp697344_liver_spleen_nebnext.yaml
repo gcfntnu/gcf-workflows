@@ -1,0 +1,62 @@
+# SRA SRP697344: mouse liver and spleen total RNA mixed per mouse (Aparicio-Puerta et al., "An assessment of normalization and
+# differential expression methods for miRNA-seq analysis using a realistic benchmark dataset", bioRxiv 2026,
+# doi:10.64898/2026.05.08.723923; a preprint). Five mice, each at 0, 20, 40, 60, 80 and 100% spleen; one technical
+# replicate per fraction with spleen (`replicate: 2`), and a pool of the five livers (subject `pool`, outside the series).
+# NEBNext Multiplex Small RNA libraries, NovaSeq 6000, single end; 36 runs of 17-40M reads. The library names in SRA
+# carry the design (`20_3S_80_3L`: 20% spleen and 80% liver of mouse 3; `_2`: the replicate); samples are named
+# M<mouse>_S<percent spleen>. The authors note pancreas RNA in mouse 3 (high miR-7a) and kept it. No known composition
+# (kind: mixture, #451): each mixture is predicted from its mouse's two pure samples.
+name: srp697344_liver_spleen_nebnext
+kind: mixture
+organism: mus_musculus
+libprepkit: NEBNext Multiplex Small RNA Library Prep Kit
+methods: [unitas, mirge3, mirflowz, tesmall, tinyrna, smrnaseq, biocore_htseq, biocore_miraligner]
+data: benchmark/smallrna/srp697344   # relative to EXT_DIR
+mirbase:                    # mature miRNAs of the release the methods use: names and accessions
+  release: '23.1'
+  url: https://www.mirbase.org/download_version_files/23.1/mature.fa
+  sha256: 52d69eeb3c23c5ed0f66c8c9f24e1ad2cd94cc34e72e4fc376c0dd438d2779ff
+mirbase_releases:           # other releases a run can select: fill and prepare --mirbase-release (#431)
+  '22':
+    url: https://www.mirbase.org/download_version_files/22/mature.fa
+    sha256: 3c521fc9bea3c7993e71cf188b11caf73e2d40ac83454e32876455317cc6d342
+mixture:
+  components: [liver, spleen]   # `fraction` is the share of the second in the total RNA; 0 and 1 are the pure samples
+de: {}                      # differential expression (#451): the pure tissues, and each pair of mixture fractions, paired by mouse
+samples:
+  - {sample: M1_S000, subject: M1, fraction: 0, library: 1L, runs: [{run: SRR38381422, reads: 27031589, md5: 9a59dc4bf0b4d3c4a043483be8ba7a9a, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR383/022/SRR38381422/SRR38381422.fastq.gz}]}
+  - {sample: M1_S020, subject: M1, fraction: 0.2, library: 20_1S_80_1L, runs: [{run: SRR38381419, reads: 34892075, md5: 0ccb9db5d50a34be97efd02fdaad5daf, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR383/019/SRR38381419/SRR38381419.fastq.gz}]}
+  - {sample: M1_S040, subject: M1, fraction: 0.4, library: 40_1S_60_1L, runs: [{run: SRR38381413, reads: 28720642, md5: bcfb34c5c05ada59d60e1ef76037f4a9, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR383/013/SRR38381413/SRR38381413.fastq.gz}]}
+  - {sample: M1_S060, subject: M1, fraction: 0.6, library: 60_1S_40_1L, runs: [{run: SRR38381406, reads: 24241567, md5: fea1c1eb65f6eebdc0a3774beddb6c8e, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR383/006/SRR38381406/SRR38381406.fastq.gz}]}
+  - {sample: M1_S080, subject: M1, fraction: 0.8, library: 80_1S_20_1L, runs: [{run: SRR38381399, reads: 26115814, md5: 5aa6017a08821188fb105e3d48aaff24, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR383/099/SRR38381399/SRR38381399.fastq.gz}]}
+  - {sample: M1_S100, subject: M1, fraction: 1, library: 1S, runs: [{run: SRR38381400, reads: 24741560, md5: 7066cc0954fa4662601beb862ff83ba7, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR383/000/SRR38381400/SRR38381400.fastq.gz}]}
+  - {sample: M1_S100_r2, subject: M1, fraction: 1, replicate: 2, library: 1S_2, runs: [{run: SRR38381411, reads: 30628610, md5: e5d5f088f417053448f48ed4fd6651d3, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR383/011/SRR38381411/SRR38381411.fastq.gz}]}
+  - {sample: M2_S000, subject: M2, fraction: 0, library: 2L, runs: [{run: SRR38381393, reads: 28316235, md5: 746ea2f9ba01787d07199c6e1a35a165, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR383/093/SRR38381393/SRR38381393.fastq.gz}]}
+  - {sample: M2_S020, subject: M2, fraction: 0.2, library: 20_2S_80_2L, runs: [{run: SRR38381418, reads: 21171103, md5: 58e32dd4396ee43adb544119eb7add7a, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR383/018/SRR38381418/SRR38381418.fastq.gz}]}
+  - {sample: M2_S040, subject: M2, fraction: 0.4, library: 40_2S_60_2L, runs: [{run: SRR38381412, reads: 29282052, md5: 539d18e883d4d5f00cab61f48381e04a, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR383/012/SRR38381412/SRR38381412.fastq.gz}]}
+  - {sample: M2_S060, subject: M2, fraction: 0.6, library: 60_2S_40_2L, runs: [{run: SRR38381405, reads: 29125323, md5: af4427e44bfdcbc9c585062991e49719, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR383/005/SRR38381405/SRR38381405.fastq.gz}]}
+  - {sample: M2_S080, subject: M2, fraction: 0.8, library: 80_2S_20_2L_1, runs: [{run: SRR38381398, reads: 18253710, md5: 8af11919ecbd224af8b4dae42af27ad7, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR383/098/SRR38381398/SRR38381398.fastq.gz}]}
+  - {sample: M2_S080_r2, subject: M2, fraction: 0.8, replicate: 2, library: 80_2S_20_2L_2, runs: [{run: SRR38381397, reads: 27910738, md5: a9853dc2006614041fa5d8c35f52f027, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR383/097/SRR38381397/SRR38381397.fastq.gz}]}
+  - {sample: M2_S100, subject: M2, fraction: 1, library: 2S, runs: [{run: SRR38381392, reads: 25070636, md5: 6c41c6586cc52ecc0c6c26ce93f5336b, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR383/092/SRR38381392/SRR38381392.fastq.gz}]}
+  - {sample: M3_S000, subject: M3, fraction: 0, library: 3L, runs: [{run: SRR38381391, reads: 17168633, md5: 9d07d6d0c3c8c569cead94b4586d05cc, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR383/091/SRR38381391/SRR38381391.fastq.gz}]}
+  - {sample: M3_S020, subject: M3, fraction: 0.2, library: 20_3S_80_3L, runs: [{run: SRR38381417, reads: 21234167, md5: fa1a91fe6d3ba8fe692fb9f909605fab, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR383/017/SRR38381417/SRR38381417.fastq.gz}]}
+  - {sample: M3_S040, subject: M3, fraction: 0.4, library: 40_3S_60_3L, runs: [{run: SRR38381410, reads: 21231968, md5: 0447cd52e4b7329f98fd0972cc845599, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR383/010/SRR38381410/SRR38381410.fastq.gz}]}
+  - {sample: M3_S060, subject: M3, fraction: 0.6, library: 60_3S_40_3L_1, runs: [{run: SRR38381404, reads: 20309990, md5: 8fbd4d79cd49a12cf6f4f73fcb947807, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR383/004/SRR38381404/SRR38381404.fastq.gz}]}
+  - {sample: M3_S060_r2, subject: M3, fraction: 0.6, replicate: 2, library: 60_3S_40_3L_2, runs: [{run: SRR38381403, reads: 20603156, md5: 5dd6c5492e6a2ec6887479d0b66c0ac8, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR383/003/SRR38381403/SRR38381403.fastq.gz}]}
+  - {sample: M3_S080, subject: M3, fraction: 0.8, library: 80_3S_20_3L, runs: [{run: SRR38381396, reads: 20516687, md5: 111148e6fbdf731869818b596749d25e, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR383/096/SRR38381396/SRR38381396.fastq.gz}]}
+  - {sample: M3_S100, subject: M3, fraction: 1, library: 3S, runs: [{run: SRR38381390, reads: 20879056, md5: e5a366b43794d73479f6b964c41ce10b, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR383/090/SRR38381390/SRR38381390.fastq.gz}]}
+  - {sample: M4_S000, subject: M4, fraction: 0, library: 4L, runs: [{run: SRR38381389, reads: 33129733, md5: 44cef25bd35d69b56c9ae24611d62037, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR383/089/SRR38381389/SRR38381389.fastq.gz}]}
+  - {sample: M4_S020, subject: M4, fraction: 0.2, library: 20_4S_80_4L, runs: [{run: SRR38381416, reads: 18377267, md5: e0845b9a2599247aa64e74aa8552b47c, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR383/016/SRR38381416/SRR38381416.fastq.gz}]}
+  - {sample: M4_S040, subject: M4, fraction: 0.4, library: 40_4S_60_4L_1, runs: [{run: SRR38381409, reads: 29544829, md5: 3b705c6519db13ee6220763b5aa9ebe2, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR383/009/SRR38381409/SRR38381409.fastq.gz}]}
+  - {sample: M4_S040_r2, subject: M4, fraction: 0.4, replicate: 2, library: 40_4S_60_4L_2, runs: [{run: SRR38381408, reads: 24850966, md5: 207c3dd29999e37d143da6ffcab08304, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR383/008/SRR38381408/SRR38381408.fastq.gz}]}
+  - {sample: M4_S060, subject: M4, fraction: 0.6, library: 60_4S_40_4L, runs: [{run: SRR38381402, reads: 26309871, md5: b57d1bdf209c211468f6538ac1214adb, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR383/002/SRR38381402/SRR38381402.fastq.gz}]}
+  - {sample: M4_S080, subject: M4, fraction: 0.8, library: 80_4S_20_4L, runs: [{run: SRR38381395, reads: 25412278, md5: a9169a1461bf011842a95aa1c02a4164, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR383/095/SRR38381395/SRR38381395.fastq.gz}]}
+  - {sample: M4_S100, subject: M4, fraction: 1, library: 4S, runs: [{run: SRR38381388, reads: 21751261, md5: ca01a9486d0f417eedc873633508620d, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR383/088/SRR38381388/SRR38381388.fastq.gz}]}
+  - {sample: M5_S000, subject: M5, fraction: 0, library: 5L, runs: [{run: SRR38381421, reads: 35415897, md5: 19887527d99894ee834868092ad18f07, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR383/021/SRR38381421/SRR38381421.fastq.gz}]}
+  - {sample: M5_S020, subject: M5, fraction: 0.2, library: 20_5S_80_5L_1, runs: [{run: SRR38381415, reads: 39450173, md5: 02df1f86e1a6c01fc02f9e7b4c589d36, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR383/015/SRR38381415/SRR38381415.fastq.gz}]}
+  - {sample: M5_S020_r2, subject: M5, fraction: 0.2, replicate: 2, library: 20_5S_80_5L_2, runs: [{run: SRR38381414, reads: 32218852, md5: 53172ffa75e5827dcde74561c602f0bb, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR383/014/SRR38381414/SRR38381414.fastq.gz}]}
+  - {sample: M5_S040, subject: M5, fraction: 0.4, library: 40_5S_60_5L, runs: [{run: SRR38381407, reads: 32026661, md5: f2c611583579353be481fb5073bb2dfe, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR383/007/SRR38381407/SRR38381407.fastq.gz}]}
+  - {sample: M5_S060, subject: M5, fraction: 0.6, library: 60_5S_40_5L, runs: [{run: SRR38381401, reads: 38680781, md5: a72e138525782f8f45b50d07215f0d5a, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR383/001/SRR38381401/SRR38381401.fastq.gz}]}
+  - {sample: M5_S080, subject: M5, fraction: 0.8, library: 80_5S_20_5L, runs: [{run: SRR38381394, reads: 28551679, md5: baf0d0bddc030c216a84146a20c7eba5, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR383/094/SRR38381394/SRR38381394.fastq.gz}]}
+  - {sample: M5_S100, subject: M5, fraction: 1, library: 5S, runs: [{run: SRR38381420, reads: 25235482, md5: 9a44b2bb08cf421f8a1debc3f595c0e4, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR383/020/SRR38381420/SRR38381420.fastq.gz}]}
+  - {sample: pool_S000, subject: pool, fraction: 0, library: 1L_2L_3L_4L_5L, runs: [{run: SRR38381423, reads: 27589305, md5: 39b21191425eb9d16b3e671846d2a3ad, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR383/023/SRR38381423/SRR38381423.fastq.gz}]}
