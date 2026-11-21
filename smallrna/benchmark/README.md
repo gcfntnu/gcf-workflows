@@ -211,7 +211,8 @@ files the declaration fills into `EXT_DIR/<data>/mirbase/23.1/` (`benchmark.py f
   The sources are filled with checksums into `<data>/decoys/`.
 
 **Scenarios** (#453): a declaration can extend another of the same folder (`extends: <file>`) and change some of its
-values (mappings are merged key by key, anything else replaced; one level only, with a name of its own). The
+values (mappings are merged key by key, anything else replaced; one level only, with a name of its own). A scenario
+keeps only its changes, so a later edit of its base (a new route, another release) applies to it too. The
 genome-wide synthetic set has two, with the same seed, data folder, decoys and probe samples:
 - `synthetic_hsa_genome_null`: no miRNA designed to change (`structure.group.fraction: 0`), so every DE call is false:
   each route's, test's and normalisation arm's false-call rate under the generator's variance alone;

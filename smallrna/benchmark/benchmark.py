@@ -1645,9 +1645,13 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
                 point[name].update(values)
         de_keys = de.metric_keys(list(de_results), 'truth')
         numerator, denominator = de_contrast(spec, units)
-        de_lines = de.report_lines(de_results[''], de_features, rows, *de_reports[''][:2], de.SYNTHETIC_INTRO.format(
-            numerator=numerator, denominator=denominator, features=len(de_features), changed=sum(1 for _, d in de_features if d),
-            min_mean=genome_metrics.DE_MIN, fdr=de.FDR))
+        changed = sum(1 for _, d in de_features if d)
+        intro = de.SYNTHETIC_INTRO.format(numerator=numerator, denominator=denominator, features=len(de_features), changed=changed,
+                                          min_mean=genome_metrics.DE_MIN, fdr=de.FDR)
+        if not changed:  # a null scenario (#453)
+            intro += (' No miRNA is designed to change here, so every call is false: the false-call rate under the generator\'s '
+                      'variance alone, not the workflow\'s on real samples (for that, the null comparisons of biological datasets, #449).')
+        de_lines = de.report_lines(de_results[''], de_features, rows, *de_reports[''][:2], intro)
         de_lines += ['', rounding_line(count, methods, ev.units, ev.mixed, 'miRNAs')]
         de_lines += de.set_lines(
             'Adjusted for the nuisance factor',
