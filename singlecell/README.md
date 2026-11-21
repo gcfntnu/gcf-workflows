@@ -74,6 +74,7 @@ BFQ also delivers `summaries/all_samples*.html` as a separate web summary ([READ
 | `quant.aggregate`, `quant.cellbender`, `quant.doublet_detection`, `quant.demultiplex` | See file | `singlecell.config`; [rules/quant/multiplex.config](rules/quant/multiplex.config) when demultiplexing |
 | `preprocessing.*`, `celltype_annotation.*`, `qc.*`, `pseudobulk.*` | See file | `singlecell.config` |
 | `db.reference_db` | Per kit | Kit entry, releases in [main.config](../main.config) |
+| `ref_dir` | Configured provider | Top-level project directory with the genome FASTA and matching GTF. See [Cell Ranger reference selection](../gcfdb/README.md#project-reference-for-cell-ranger) |
 | `docker.*` | Pinned images, for example `splitpipe_immune` | [docker.config](../docker.config) |
 
 Precedence between these sources is described in [docs/configuration.md](../docs/configuration.md#effective-precedence).
@@ -88,7 +89,7 @@ No chromosome conversion is applied implicitly. Supporting a different naming sc
 ## Tests
 
 - `singlecell/.tests`: synthetic dry-run fixture (10x 3' v3, `mus_musculus`, two samples). CI runs `snakemake -n -p --cores 1 multiqc_report` there (`test-single-cell.yaml`).
-- In CI: `test_metadata.py`, `test_bfq_delivery.py`, `test_velocity.py`, `test_demultiplexing_profiles.py`, `test_tenx_reference.py`, `test_containers.py`, `test_doublet_seeds.py`, `test_lightweight_encoding.py`, `test_cellbender_presence.py`.
+- In CI: `test_metadata.py`, `test_bfq_delivery.py`, `test_velocity.py`, `test_demultiplexing_profiles.py`, `test_tenx_reference.py`, `test_reference_selection.py`, `test_containers.py`, `test_doublet_seeds.py`, `test_lightweight_encoding.py`, `test_cellbender_presence.py`.
 - Not in CI: `test_tcr_workflow.py`, `test_immune_config.py`.
 - Commands and environments: [development guide](../docs/development.md#run-the-checks). These checks do not run quantifiers or containers.
 

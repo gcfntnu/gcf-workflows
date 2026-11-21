@@ -30,8 +30,9 @@ rule souporcell_run:
     input:
         bam = rules.cellranger_quant.output.bam,
         barcodes = rules.souporcell_barcodes.output,
-        genome = join(CR_REF_DIR, 'fasta', 'genome.fa')
+        reference = CR_REFERENCE_INPUTS
     params:
+        genome = join(CR_REF_DIR, 'fasta', 'genome.fa'),
         k = config.get('souporcell',{}).get('num_mixed', 4),
         out_dir = join(SPC_INTERIM, '{sample}')
     output:
@@ -44,7 +45,7 @@ rule souporcell_run:
         'souporcell_pipeline.py -'
         'i {input.bam} '
         '-b {input.barcodes} '
-        '-f {input.genome} '
+        '-f {params.genome:q} '
         '-t {threads} '
         '-o {params.out_dir} '
         '-k {params.k} '

@@ -108,29 +108,32 @@ rule txgenomics_whitelist_v4:
         """
 
 
+STARSOLO_INDEX_DIR = join(QUANT_SOURCE_DIR, 'index', 'genome', 'starsolo', f'r_{READ_LENGTH}')
+
+
 rule starsolo_genome_index:
     input:
-        genome = join(REF_DIR, 'fasta', 'genome.fa'),
-        gtf = join(REF_DIR, 'anno', 'genes.gtf')
+        genome = join(QUANT_SOURCE_DIR, 'fasta', 'genome.fa'),
+        gtf = join(QUANT_SOURCE_DIR, 'anno', 'genes.gtf')
     output:
-        join(REF_DIR, 'index', 'genome', 'starsolo', 'r_{}'.format(READ_LENGTH), 'SA')
+        join(STARSOLO_INDEX_DIR, 'SA')
     params:
-        index_dir = join(REF_DIR, 'index', 'genome', 'starsolo', 'r_{}'.format(READ_LENGTH)),
+        index_dir = STARSOLO_INDEX_DIR
     threads:
         64
     log:
-        join(REF_DIR, 'logs', 'STAR.index.log')
+        join(QUANT_SOURCE_DIR, 'logs', 'STAR.index.log')
     container:
         'docker://' + config['docker']['star']
     shell:
         'STAR '
         '--runThreadN {threads} '
         '--runMode genomeGenerate '
-        '--genomeDir {params.index_dir} '
-        '--genomeFastaFiles {input.genome} '
-        '--sjdbGTFfile {input.gtf} '
+        '--genomeDir {params.index_dir:q} '
+        '--genomeFastaFiles {input.genome:q} '
+        '--sjdbGTFfile {input.gtf:q} '
         '--sjdbOverhang {READ_LENGTH} '
-        '&& mv Log.out {log} '
+        '&& mv Log.out {log:q} '
 
 
 rule starsolo_convert_umitools_whitelist:
@@ -150,9 +153,9 @@ rule starsolo_convert_umitools_whitelist:
 
 if config['db']['reference_db'] == '10xgenomics':
     # rebuild genome to match current star version
-    REF_GENOME = join(REF_DIR, 'index', 'genome', 'starsolo', 'r_{}'.format(READ_LENGTH), 'SA')
+    REF_GENOME = join(STARSOLO_INDEX_DIR, 'SA')
 else:
-    REF_GENOME = join(REF_DIR, 'index', 'genome', 'star', 'r_{}'.format(READ_LENGTH), 'SA')
+    REF_GENOME = join(QUANT_SOURCE_DIR, 'index', 'genome', 'star', f'r_{READ_LENGTH}', 'SA')
 
 if config['libprepkit'].startswith('10x'):
     WHITELIST = join(EXT_DIR, config['quant']['starsolo']['whitelist'])
@@ -200,7 +203,7 @@ rule starsolo_quant:
         'STAR '
         '--soloCBwhitelist {input.whitelist} '
         '--readFilesIn {params.R2} {params.R1} '
-        '--genomeDir {params.genome_dir} '
+        '--genomeDir {params.genome_dir:q} '
         '--outFileNamePrefix {params.outdir} '
         '--runThreadN {threads} '
         '{params.starsolo_args} '
@@ -272,4 +275,4 @@ rule starsolo_clean_shmem:
     container:
         'docker://' + config['docker']['star']
     shell:
-        'STAR --genomeDir {params.genome_dir} --genomeLoad Remove || echo "no shared mem"'
+        'STAR --genomeDir {params.genome_dir:q} --genomeLoad Remove || echo "no shared mem"'

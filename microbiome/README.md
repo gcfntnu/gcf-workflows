@@ -34,7 +34,6 @@ The `QIAseq 16S ITS Region Panels` kit is routed to [metagenome](../metagenome/R
 
 - The `phyloseq_filter` notebook sources `microfiltR` code that is not in the repository ([#231](https://github.com/gcfntnu/gcf-workflows/issues/231)).
 - QIIME2 report support is deprecated for the MultiQC migration ([gcf-multiqc](https://github.com/gcfntnu/gcf-multiqc)).
-- `ref_dir`/`GCF_REFDIR` resolve in a different order here than in most workflows ([#240](https://github.com/gcfntnu/gcf-workflows/issues/240)).
 
 ## Outputs in `bfq/`
 
@@ -58,6 +57,18 @@ region_demultiplexed_fastq/<sample>_R1.fastq.gz, <sample>_R2.fastq.gz
 | `quant.method` | `qiime2` | [microbiome.config](microbiome.config), kit entry |
 | `db.reference_db`, `db.primers`, `db.classifier_level` | Per kit | Kit entry |
 | `db.silva.*`, `db.unite.*`, `db.greengenes.*` | Releases | [main.config](../main.config) |
+| `ref_dir` | Configured provider | Optional project directory containing `qiime2/classifiers/export/` for the selected primers and classifier level |
+
+For a project reference, supply a classifier archive for each region the selected kit can classify.
+SILVA and Greengenes use the kit’s `V*` regions. UNITE uses its `ITS*` regions.
+The archive path includes the configured classifier level and the forward–reverse **primer pair** from the kit’s `db.primers` in `libprep.config`.
+
+```text
+<ref_dir>/qiime2/classifiers/export/<level>_<forward>-<reverse>/sklearn_pipeline.tar
+```
+
+The QIIME2 checkpoint tracks each archive so that planning names any missing file and a newer classifier triggers reclassification.
+For a project reference, planning resolves the export directory once. The checkpoint keeps using that directory if a project symlink moves, and a later invocation resolves the new target.
 
 ## Tests
 

@@ -407,7 +407,7 @@ def get_barcode_info_list(wc, include_autoqc=True):
 
 
 def get_feature_info_list(wildcards):
-    feature_info_list = [join(REF_DIR, 'anno', 'genes.tsv')]
+    feature_info_list = [gene_table_for_quantifier(wildcards)]
     ortholog_org = config.get('celltype_annotation', {}).get('orthologs', '')
     if ANNO_ENABLED and ortholog_org:
         ortho_fn = join(QUANT_INTERIM, 'aggregate', wildcards.method, wildcards.aggr_id + '_orthologs.tsv')
@@ -530,7 +530,7 @@ def scanpy_aggr_inputs(wc):
 rule tmp_lightweight_raw:
     input:
         unpack(get_raw_mtx),
-        feature_info = join(REF_DIR, 'anno', 'genes.tsv')
+        feature_info = gene_table_for_quantifier
     output:
         anndata = temp('_tmp/{quantifier}/raw/{sample}/anndata.light.h5ad'),
         mtx = temp('_tmp/{quantifier}/raw/{sample}/anndata.mtx_v2/matrix.mtx')
@@ -545,7 +545,7 @@ rule tmp_lightweight_raw:
     shell:
         'python {params.script} '
         '{input.mtx} '
-        '--feature-info {input.feature_info} '
+        '--feature-info {input.feature_info:q} '
         '--barcode-rename skip '
         '--no-zero-cell-rm '
         '-o {params.base} '
@@ -563,7 +563,7 @@ def lightweight_filtered_barcode_info(wildcards):
 rule tmp_lightweight_filtered:
     input:
         unpack(get_filtered_mtx),
-        feature_info = join(REF_DIR, 'anno', 'genes.tsv'),
+        feature_info = gene_table_for_quantifier,
         barcode_info = lightweight_filtered_barcode_info
     output:
         anndata = temp('_tmp/{quantifier}/filtered/{sample}/anndata.light.h5ad'),
@@ -580,7 +580,7 @@ rule tmp_lightweight_filtered:
     shell:
         'python {params.script} '
         '{input.mtx} '
-        '--feature-info {input.feature_info} '
+        '--feature-info {input.feature_info:q} '
         '{params.barcode_info_flag} {input.barcode_info:q} '
         '--barcode-rename skip '
         '-o {params.base} '
@@ -618,7 +618,7 @@ SCANPY_AGGR_SHELL = (
     '{input.inputs} '
     '-f {params.input_format} '
     '--barcode-rename {params.bc_type} '
-    '--feature-info {input.feature_info} '
+    '--feature-info {input.feature_info:q} '
     '--barcode-info {input.barcode_info} '
     '--sample-info {input.sample_info} '
     '--library-info {input.library_info} '

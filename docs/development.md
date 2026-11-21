@@ -41,10 +41,9 @@ If Python 3.14 is not available, the small-RNA AnnData test can be left to CI; s
 
 Run from the repository root.
 Clear the GCF environment variables first, so a personal environment cannot change what the checks resolve.
-`GCF_REFDIR` matters too: when set, the reference readers use it and fixture dry runs fail with missing reference files.
 
 ```bash
-unset GCF_EXT GCF_INTERIM GCF_FASTQ GCF_SECRET GCF_REFDIR
+unset GCF_EXT GCF_INTERIM GCF_FASTQ GCF_SECRET
 ```
 
 **Parallel pytest.** Add `-n auto` (`pytest-xdist`) to any `.dev/ci/bin/python -m pytest` command below to run its tests in parallel.
@@ -59,7 +58,7 @@ The `unittest discover` commands are unaffected, and CI runs the tests serially.
 | Configuration loading, kit selection, download-rule and workflow-level containers, `src_gcf` script paths and `test-all.sh` failure handling | `.dev/ci/bin/python -m unittest discover -s .tests -p 'test_*.py' -v` | `.dev/ci` |
 | Shared Kraken2 screening, including empty FASTQs | `.dev/ci/bin/python -m unittest discover -s .tests -p 'test_kraken*.py' -v` | `.dev/ci`; Bash/gzip/awk, mocked classifier |
 | MultiQC configuration and provenance | `.dev/ci/bin/python -m unittest discover -s misc/multiqc/.tests -p 'test_*.py' -v` | `.dev/ci` |
-| Single-cell regressions (CI selection) | `.dev/ci/bin/python -m pytest -q singlecell/.tests/test_metadata.py singlecell/.tests/test_bfq_delivery.py singlecell/.tests/test_velocity.py singlecell/.tests/test_splitpipe_velo.py singlecell/.tests/test_demultiplexing_profiles.py singlecell/.tests/test_tenx_reference.py singlecell/.tests/test_containers.py singlecell/.tests/test_doublet_seeds.py singlecell/.tests/test_lightweight_encoding.py singlecell/.tests/test_cellbender_presence.py` | `.dev/ci` |
+| Single-cell regressions (CI selection) | `.dev/ci/bin/python -m pytest -q singlecell/.tests/test_metadata.py singlecell/.tests/test_augmented_gene_metadata.py singlecell/.tests/test_bfq_delivery.py singlecell/.tests/test_velocity.py singlecell/.tests/test_splitpipe_velo.py singlecell/.tests/test_demultiplexing_profiles.py singlecell/.tests/test_tenx_reference.py singlecell/.tests/test_reference_selection.py singlecell/.tests/test_containers.py singlecell/.tests/test_doublet_seeds.py singlecell/.tests/test_lightweight_encoding.py singlecell/.tests/test_cellbender_presence.py` | `.dev/ci` |
 | Single-cell TCR and assay configuration (not in CI) | `.dev/ci/bin/python -m pytest -q singlecell/.tests/test_tcr_workflow.py singlecell/.tests/test_immune_config.py` | `.dev/ci` |
 | QIAseq demultiplexing | `.dev/ci/bin/python -m pytest -q common/.tests/test_qiaseq_demultiplex.py` | `.dev/ci` |
 | Metagenome reference and Bracken paths | `.dev/ci/bin/python -m unittest discover -s metagenome/.tests -p 'test_*.py' -v` | `.dev/ci` |

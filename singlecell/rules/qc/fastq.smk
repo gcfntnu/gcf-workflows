@@ -41,6 +41,7 @@ if config['libprepkit'].startswith("10X Genomics"):
             png = join(QC_INTERIM, 'fastq_screen', '{sample}_screen.png'),
             html = join(QC_INTERIM, 'fastq_screen', '{sample}_screen.html'),
         params:
+            project_setup = project_screen_setup,
             args = '-q --force',
             subset = 400000,
             outdir = join(QC_INTERIM, 'fastq_screen')
@@ -53,7 +54,7 @@ if config['libprepkit'].startswith("10X Genomics"):
         priority:
             20
         shell:
-            'fastq_screen '
+            '{params.project_setup}fastq_screen '
             '--subset {params.subset} '
             '--aligner bowtie2 '
             '--threads {threads} '

@@ -84,6 +84,7 @@ def get_gencode_url(wildcards, sub='genome'):
     
 rule gencode_genome:
     params:
+        publisher = join(GCFDB_DIR, 'scripts', 'publish_reference.sh'),
         url = lambda wildcards: get_gencode_url(wildcards, sub='genome'),
         release = DB_CONF['release'],
         proxy = config.get('proxy', {}).get('wget', ''),
@@ -95,8 +96,8 @@ rule gencode_genome:
         join(EXT_DIR, 'gencode', 'release-{release}', '{organism}', '{assembly}', 'logs', 'gencode.dna.log')
     shell: 
         """
-        wget {params.proxy} -O- {params.url} | gunzip -c  > {output}
-        echo 'Gencode DNA,release-{params.release},{params.url},`date -I`' > {log}
+        bash {params.publisher:q} {output:q} gzip {params.proxy} -- {params.url:q}
+        echo 'Gencode DNA,release-{params.release},{params.url},`date -I`' > {log:q}
         """
 
 rule gencode_noncoding:
@@ -135,6 +136,7 @@ rule gencode_gff:
 
 rule gencode_gtf:
     params:
+        publisher = join(GCFDB_DIR, 'scripts', 'publish_reference.sh'),
         release = DB_CONF['release'],
         proxy = config.get('proxy', {}).get('wget', ''),
         url = lambda wildcards, input: get_gencode_url(wildcards, 'gtf')
@@ -146,6 +148,6 @@ rule gencode_gtf:
         join(EXT_DIR, 'gencode', 'release-{release}', '{organism}', '{assembly}', 'logs', 'gtf.log')
     shell: 
         """
-        wget {params.proxy} -O- {params.url} | gunzip -c > {output}
-        echo 'Gencode GTF,release-{params.release},{params.url},`date -I`' > {log}
+        bash {params.publisher:q} {output:q} gzip {params.proxy} -- {params.url:q}
+        echo 'Gencode GTF,release-{params.release},{params.url},`date -I`' > {log:q}
         """ 

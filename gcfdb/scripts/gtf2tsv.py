@@ -2,13 +2,12 @@
 """
 
 import sys
-from collections import defaultdict
+from inspect import signature
 import argparse
 
 from gtfparse import read_gtf
 import pandas as pd
 from Bio.SeqIO.FastaIO import SimpleFastaParser, FastaIterator
-from Bio.SeqUtils import GC
 
 DISCARD = {'gene': ['score', 'frame', 'feature', 'transcript_id', 'transcript_version',
                     'transcript_name', 'transcript_source', 'transcript_biotype', 'tag',
@@ -17,8 +16,44 @@ DISCARD = {'gene': ['score', 'frame', 'feature', 'transcript_id', 'transcript_ve
            'transcript': ['score', 'frame', 'feature', 'gene_name', 'gene_source', 'gene_biotype', 'exon_number', 'exon_id',
                     'exon_version', 'protein_id', 'protein_version']}
 
+def include_exon_only_genes(df, genes):
+    # Cell Ranger accepts exons with gene_id and transcript_id even without a gene record.
+    missing = (df.feature == 'exon') & df.gene_id.notna() & (df.gene_id != '') & ~df.gene_id.isin(genes.gene_id)
+    exons = df.loc[missing]
+    if exons.empty:
+        return genes
+
+    invalid = exons.loc[(exons.start < 1) | (exons.end < exons.start)]
+    if not invalid.empty:
+        exon = invalid.iloc[0]
+        raise ValueError(f'Invalid exon coordinates for gene {exon.gene_id}: {exon.seqname}:{exon.start}-{exon.end}')
+
+    # Only inherit unambiguous gene-level attributes. An isoform's own attributes describe that transcript.
+    columns = [c for c in exons if c not in DISCARD['gene'] and c not in ('gene_id', 'start', 'end')
+               and not c.startswith(('transcript_', 'exon_', 'protein_'))]
+    attributes = exons[columns].mask(exons[columns].isin(['', '.']))
+    # Legacy parsers may represent an unspecified strand as a literal "nan".
+    attributes['strand'] = attributes.strand.where(attributes.strand.isin(['+', '-']))
+    grouped = attributes.groupby(exons.gene_id, sort=False, observed=True)
+    conflicts = grouped.nunique() > 1
+    incompatible = conflicts[['seqname', 'strand']].any(axis=1)
+    if incompatible.any():
+        gene = incompatible[incompatible].index[0]
+        raise ValueError(f'Cannot infer a single locus for gene {gene}: exons disagree on contig or strand')
+    inferred = grouped.first().mask(conflicts)
+    spans = exons.groupby('gene_id', sort=False, observed=True)
+    inferred['start'] = spans.start.min()
+    inferred['end'] = spans.end.max()
+    inferred['strand'] = inferred['strand'].astype(object).fillna('.')
+    if 'gene_name' in inferred:
+        inferred['gene_name'] = inferred.gene_name.fillna(inferred.index.to_series())
+    else:
+        inferred['gene_name'] = inferred.index
+    return pd.concat([genes, inferred.reset_index()], ignore_index=True)
+
+
 def extract_genes(df, args):
-    df_gene = df[df['feature'] == args.feature].copy()
+    df_gene = include_exon_only_genes(df, df[df['feature'] == args.feature].copy())
     df_gene = df_gene.set_index('gene_id')
     df_gene.insert(0, 'gene_id', df_gene.index.values)
     # add mitochondrial_protein_coding as a biotype category
@@ -49,36 +84,33 @@ def extract_transcripts(df, args):
     df_tx['gc_content'] = 0.0
     return df_tx
 
+def gc_bases(sequence):
+    # Match Biopython's historical GC percentage, including S and retaining ambiguous bases in the denominator.
+    return sum(sequence.count(base) for base in 'GCgcSs')
+
+
 def add_gc_content(df, df_sub, args):
     if args.feature == 'gene':
-        fasta = {c[0]:c[1] for c in SimpleFastaParser(args.fasta)}
-        gene2exon_indx = df.groupby(['gene_id', 'feature'])
-        exons = defaultdict(str)
-        gene_ids = set(df.gene_id)
-        for gene in gene_ids:
-            idx = gene2exon_indx.groups[(gene, 'exon')]
-            nn = 0
-            for ii, row in df.iloc[idx,:].iterrows():
-                exon_key = '{}:{}-{}'.format(row['seqname'], row['start']-1, row['end'])
-                seq = fasta.get(exon_key)
-                if seq:
-                    exons[gene] += seq
-        for gene_id in df_sub.index:
-            if gene_id in exons:
-                seq = exons.get(gene_id)
-                if seq:
-                    gc_content = GC(seq)
-                else:
-                    gc_content = 0
-                df_sub.at[gene_id, 'gc_content'] = gc_content
+        fasta = {name: (len(seq), gc_bases(seq)) for name, seq in SimpleFastaParser(args.fasta)}
+        exons = df.loc[df.feature == 'exon', ['gene_id', 'seqname', 'start', 'end']]
+        for gene_id, group in exons.groupby('gene_id', sort=False, observed=True):
+            if gene_id not in df_sub.index:
+                continue
+            length = gc = 0
+            for exon in group.itertuples(index=False):
+                # bedtools getfasta uses the BED interval as the name; repeated transcript exons count per record.
+                size, count = fasta.get(f'{exon.seqname}:{exon.start - 1}-{exon.end}', (0, 0))
+                length += size
+                gc += count
+            if length:
+                df_sub.loc[gene_id, 'gc_content'] = 100.0 * gc / length
             else:
-                print("missing gene_id in exons dict:")
-                print(gene_id)
+                print(f'missing gene_id in exons dict:\n{gene_id}')
     elif args.feature == 'transcript':
         tx_ids = set(df['transcript_id'].values)
         for rec in FastaIterator(args.fasta):
             if rec.id in tx_ids:
-                gc_content = GC(rec.seq)
+                gc_content = 100.0 * gc_bases(rec.seq) / len(rec.seq) if rec.seq else 0.0
                 df_sub.loc[rec.id, 'gc_content'] = gc_content
             else:
                 print(rec.id)
@@ -111,7 +143,9 @@ if __name__ == '__main__':
     parser.add_argument('--output', help="Output filename")
     args = parser.parse_args(sys.argv[1:])
     
-    df = read_gtf(args.gtf)
+    # gtfparse 1.x returns pandas directly; later releases allow selecting the result type.
+    reader_options = {'result_type': 'pandas'} if 'result_type' in signature(read_gtf).parameters else {}
+    df = read_gtf(args.gtf, **reader_options)
 
     if args.feature == 'gene':
         df_sub = extract_genes(df, args)                

@@ -405,7 +405,7 @@ rule preprocess_annotation_input:
 rule preprocess_plan:
     input:
         anndata = get_filtered_anndata,
-        gene_metadata = join(REF_DIR, 'anno', 'genes.tsv')
+        gene_metadata = gene_table_for_quantifier
     output:
         cells = PREPROCESS_CELLS,
         genes = PREPROCESS_GENES,
@@ -430,7 +430,7 @@ rule preprocess_plan:
     shell:
         'python {params.script} '
         '--anndata {input.anndata} '
-        '--gene-metadata {input.gene_metadata} '
+        '--gene-metadata {input.gene_metadata:q} '
         '--cells {output.cells} '
         '--genes {output.genes} '
         '--obs {output.obs} '

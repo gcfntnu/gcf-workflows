@@ -219,7 +219,8 @@ Reference getters in [gcfdb/](gcfdb/) download and build databases, genomes and 
 
 Getters and rules must not hardcode another root. `gcfdb/.tests/test_reference_roots.py` checks this.
 Releases and assemblies are selected in `main.config` and the project configuration.
-[gcfdb/README.md](gcfdb/README.md) describes resource identity and how to override reduced test resources.
+A project can set a top-level `ref_dir` in `config.yaml` to select its own reference for analysis.
+See the [augmented-genome example](gcfdb/README.md#project-reference-for-cell-ranger) and [resource identity and test overrides](gcfdb/README.md#resource-identity-and-test-overrides).
 
 ## Branches, versions and production
 

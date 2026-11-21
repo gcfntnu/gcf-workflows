@@ -1,11 +1,13 @@
 #-*- mode:snakemake -*-
 
+include: 'kraken_settings.smk'
+
 PROTOCOL = 'https://'
 
 NCBI_16S_RELEASE = config['db']['ncbi_16s']['release']
 NCBI_16S_ASSEMBLY = config['db']['ncbi_16s']['assembly']
 
-NCBI_BRACKEN_N_MERS = [100, 150, 200, 250]
+NCBI_BRACKEN_N_MERS = bracken_read_lengths("ncbi_16s", NCBI_16S_ASSEMBLY)
 
 NCBI_16S_DB = join(EXT_DIR, 'ncbi_16s', 'release-{}'.format(NCBI_16S_RELEASE), 'metagenome', NCBI_16S_ASSEMBLY)
 
@@ -15,7 +17,7 @@ rule get_ncbi_16s_fasta:
         bact = join(NCBI_16S_DB, 'bacteria.16SrRNA.fna'),
         arch = join(NCBI_16S_DB, 'archaea.16SrRNA.fna'),
     params:
-        url = join(config['winecellar']['url'], 'ncbi_16s', 'release-{}'.format(NCBI_16S_RELEASE), 'TargetedLoci'),
+        url = lambda wc: join(config['winecellar']['url'], 'ncbi_16s', 'release-{}'.format(NCBI_16S_RELEASE), 'TargetedLoci'),
     threads:
         1
     shell:

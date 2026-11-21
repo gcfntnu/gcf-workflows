@@ -127,7 +127,7 @@ rule exon_gtf:
     container:
         'docker://' + config['docker']['default']        
     shell:
-        """awk '$3=="exon"' {input} > {output}"""
+        """awk '$3=="exon"' {input:q} > {output:q}"""
 
 rule exon_bed:
     input:
@@ -137,7 +137,7 @@ rule exon_bed:
     container:
         'docker://' + config['docker']['default']        
     shell:
-        """awk '$3 == "exon" {{OFS="\t"; print $1, $4-1, $5, $9, ".", $7}}'  {input} > {output}"""
+        """awk '$3 == "exon" {{OFS="\t"; print $1, $4-1, $5, $9, ".", $7}}'  {input:q} > {output:q}"""
         
 rule exon_fasta:
     input:
@@ -148,7 +148,7 @@ rule exon_fasta:
     container:
         'docker://' + config['docker']['gcf-bio']        
     shell:
-        'bedtools getfasta -fi {input.genome} -fo {output} -bed {input.bed} '    
+        'bedtools getfasta -fi {input.genome:q} -fo {output:q} -bed {input.bed:q}'
 
         
 rule convert_gtf2gene_info:
@@ -163,9 +163,9 @@ rule convert_gtf2gene_info:
         'docker://' + config['docker']['gcf-bio']
     shell:
         'python {params.script} '
-        '--gtf {input.gtf} '
-        '--fasta {input.fasta} '
-        '--output {output.tsv} '
+        '--gtf {input.gtf:q} '
+        '--fasta {input.fasta:q} '
+        '--output {output.tsv:q} '
         '--feature gene '
         '--add-gc-content '
         

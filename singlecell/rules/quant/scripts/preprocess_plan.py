@@ -188,19 +188,21 @@ def configured_metadata_columns(cfg: dict) -> list[str]:
 
 
 def read_gene_metadata(path: str) -> pd.DataFrame:
-    frame = pd.read_csv(path, sep="\t")
-    columns_lower = {str(column).lower(): column for column in frame.columns}
+    headers = pd.read_csv(path, sep="\t", nrows=0).columns
+    columns_lower = {column.lower(): column for column in headers}
     if "gene_id" not in columns_lower:
         raise ValueError(f"{path} is missing required column 'gene_id'")
 
     gene_id_column = columns_lower["gene_id"]
+    text_fields = {"gene_id", "gene_name", "gene_names", "gene_symbol", "gene_symbols", "names", "name", "symbols", "symbol"}
+    converters = {col: lambda value: value or None for col in headers if col.lower() in text_fields}
+    frame = pd.read_csv(path, sep="\t", converters=converters)
     if gene_id_column != "gene_id":
         frame = frame.rename(columns={gene_id_column: "gene_id"})
 
     if frame["gene_id"].isna().any():
         raise ValueError(f"{path} contains missing gene_id values")
-    frame["gene_id"] = frame["gene_id"].astype(str).str.strip()
-    if frame["gene_id"].eq("").any():
+    if frame["gene_id"].str.strip().eq("").any():
         raise ValueError(f"{path} contains empty gene_id values")
 
     frame = frame.set_index("gene_id")

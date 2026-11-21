@@ -5,18 +5,10 @@ support.10xgenomics.com/single-cell-gene-expression/software/downloads
 
 """
 
-_ASSEMBLY = {'homo_sapiens': 'GRCh38',
-             'mus_musculus': 'GRCm38',
-             'homo_sapiens__mus_musculus': 'GRCh38_GRCm38'}
-
-# config
-ORG = config['organism']
-if ORG not in ['homo_sapiens', 'mus_musculus', 'homo_sapiens__mus_musculus']:
-    logger.warning('No 10x prebuild for org: {}'.format(ORG))
-
-DB_CONF = config['db'].get('10xgenomics', {})
-TX_RELEASE = DB_CONF.get('release', '2020-A')
-TX_ASSEMBLY = config['db']['assembly'] = DB_CONF['assembly'] = _ASSEMBLY.get(ORG, '')
+TX_RELEASE = config['db']['10xgenomics'].get('release')
+if not isinstance(TX_RELEASE, str) or not TX_RELEASE.strip():
+    raise ValueError(f"{ORG}: 10xgenomics requires a nonempty db.10xgenomics.release for the vendor prebuilt")
+config['db']['assembly'] = config['db']['10xgenomics']['assembly'] = TENX_ASSEMBLIES[ORG]
 
 def get_10x_url(wildcards):
     base = 'https://cf.10xgenomics.com/supp/cell-exp'
@@ -30,7 +22,7 @@ def get_10x_url(wildcards):
         assembly = 'mm10'
         fn = 'refdata-gex-{}-{}.tar.gz'.format(assembly, wildcards.release)
     elif wildcards.organism == 'homo_sapiens__mus_musculus':
-        fn = 'refdata-gex-GRCh38-and-mm10-2020-A.tar.gz'
+        fn = f'refdata-gex-GRCh38-and-mm10-{wildcards.release}.tar.gz'
     else:
         raise ValueError('`{}` is not a supported organism for 10x prebuilds'.format(wildcards.organism))
     return join(base, fn)

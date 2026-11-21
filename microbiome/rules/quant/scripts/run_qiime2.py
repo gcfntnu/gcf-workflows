@@ -24,20 +24,10 @@ from qiime2.plugins import metadata, feature_table, alignment, phylogeny, divers
 
 import pandas as pd
 
+from qiime2_classifiers import classifier_primers, classifier_export_dir
+
 __doc__ = "Analysis of microbiome fastq files with QIIME2"
 __version__ = '0.1'
-
-def available_primers(libprep_conf):
-    primers = {}
-    with open(libprep_conf) as fh:
-        c = yaml.load(fh, Loader=Loader)
-    for libprepkit, conf in c.items():
-        if 'primers' in conf.get('db', {}):
-            libprep_name = conf['libprep_name']
-            primers[libprep_name] = {}
-            for region, seq in conf['db']['primers'].items():
-                primers[libprep_name][region] = seq
-    return primers
 
 def dada2_denoise_params(libprep_conf, libprep):
     with open(libprep_conf) as fh:
@@ -252,8 +242,7 @@ def dada2_summary(tables, sequences, stats):
 def taxonomy_classify(sequences, classifier_dir, primers, level='99', threads=4):
     taxas = {}
     for region, repseq in sequences.items():
-        clf_name = '{}_{}'.format(level, primers[region])
-        clf_pth = join(classifier_dir, clf_name)
+        clf_pth = classifier_export_dir(classifier_dir, level, primers[region])
         write_message('loading classifier: {}'.format(clf_pth))
         classifier = qiime2.Artifact.import_data('TaxonomicClassifier', clf_pth)
         write_message('starting classifier for region: {}'.format(region))
@@ -483,28 +472,10 @@ if __name__ == '__main__':
     parser = get_parser()
     args = parser.parse_args()
     args.classifier_dir  = os.path.abspath(args.classifier_dir)
-    PRIMERS = available_primers(args.libprep_config)
-    if args.libprep in PRIMERS:
-        all_primers = PRIMERS[args.libprep]
-        available_regions = list(all_primers.keys())
-        if args.taxonomy_db in ['silva', 'greengenes']:
-            regions = [r for r in available_regions if r.startswith('V')]
-        elif args.taxonomy_db == 'unite':
-            regions = [r for r in available_regions if r.startswith('ITS')]
-        else:
-            raise ValueError('provided taxonomy-db {} is not supported!'.format(args.taxonomy_db))
-        primers = {k:v for k, v in all_primers.items() if k in regions}
-    else:
-        available = ', '.join(PRIMERS.keys())
-        msg = 'asked for: {}. Available libprep options: {}'.format(args.libprep, available)
-        raise ValueError(msg)
-
+    with open(args.libprep_config) as fh:
+        primers = classifier_primers(yaml.load(fh, Loader=Loader), args.libprep, args.taxonomy_db)
     if args.regions is None or args.regions == 'None':
-        if regions:
-            args.regions = regions
-        else:
-            raise ValueError('Failed to identify correctly named regions (V* / ITS*)')
-
+        args.regions = list(primers)
     else:
         args.regions = args.regions.split(',')
         for r in args.regions:

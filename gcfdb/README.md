@@ -14,6 +14,87 @@ private fixtures, provenance and storage locations belong in the operator's
 private configuration/runbook. Changing a test override does not change the
 suite's scientific defaults.
 
+### Project reference for Cell Ranger
+
+For a genome augmented by a reporter sequence, point the project's `config.yaml` at the prepared directory.
+
+```yaml
+ref_dir: refs/panel-v1
+```
+
+The project reference directory can have any name and must contain the augmented FASTA and its matching annotation. Relative paths start at the project working directory.
+
+| File | Contents |
+| --- | --- |
+| `refs/panel-v1/fasta/genome.fa` | Genome sequences including the reporter contig |
+| `refs/panel-v1/anno/genes.gtf` | Gene annotation including the reporter feature with the same contig name and coordinates |
+
+For a single-exon reporter spanning a 720-base FASTA contig named `reporter`, this tab-delimited GTF record supplies the matching annotation.
+
+```text
+reporter	custom	exon	1	720	.	+	.	gene_id "REPORTER"; transcript_id "REPORTER-T1";
+```
+
+When a gene has only exon records, the report derives one row in `genes.tsv` from its exons and joins it to the AnnData feature with the same `gene_id`.
+Gene IDs are matched as text, preserving literal identifiers such as `NA` and `001`. Supplied gene records keep their coordinates and attributes.
+
+The builder copies the selected FASTA and GTF into a private working directory, verifies their checksums and runs
+`cellranger mkref --fasta refs/panel-v1/fasta/genome.fa --genes refs/panel-v1/anno/genes.gtf` there.
+Absolute project paths and paths containing `..` are mapped into that private directory. The published index retains the verified originals in `gcf-source/`.
+Count passes its workdir’s `index` symlink to `--transcriptome`. The link pins the published generation in `refs/panel-v1/cellranger/builds/<source-digest>/<build-key>`.
+When `ref_dir` is a symlink, the workflow resolves the selected directory before building. Changing the symlink later cannot redirect a planned count.
+A second project may select a published generation’s `gcf-source/` as `ref_dir`, directly or through a symlink.
+Before planning derived jobs, the importer compares the SHA-256 checksum of each frozen source file with the owner’s `gcf-mkref.json`.
+A missing or invalid manifest, or a checksum mismatch, stops the import and identifies the affected path.
+In a single-cell importer, the verified FASTA and GTF are staged under `<QUANT_INTERIM>/reference/imported/<source-path-key>/<source-digest>/`.
+Split-Pipe builds its index under `index/genome/splitpipe/` there and uses it for counting. The report derives its exon files and gene table from the same staged pair.
+Request derived targets such as `anno/exons.gtf` under the importing workdir’s staged reference. Planning rejects writes inside a published generation.
+For Cell Ranger, a matching recipe reuses and verifies the existing generation. A different genome identifier or image builds under the importing workdir’s `QUANT_INTERIM/reference/cellranger/builds/`.
+The source digest covers the SHA-256 checksums of both files. The build key covers the normalized Cell Ranger genome identifier, configured image and recipe version.
+Workdir receipts distinguish the canonical cache directory, so changing to another prepared directory selects its own index even if the inputs are identical.
+Each complete index is published with a manifest recording every file's size and SHA-256 checksum.
+When a target uses the pinned generation, planning in a retained workdir checks its files against that manifest, including on dry runs.
+This reads the full published index and its frozen FASTA and GTF once per check, which can add substantial I/O for a large STAR index.
+A forced publisher or a second project verifies the generation before pinning it for count. A workdir pin can be reused only for its original generation.
+If a managed source is missing, the workflow fetches it and creates a fresh local pin. Once both sources exist, a rebuild must match the input digest from planning.
+Changing either source, the genome identifier or the image selects a separate directory. Existing counts can continue reading their original index.
+Legacy indexes directly under `ref_dir/cellranger` lack this identity and require a fresh build.
+The report derives its gene metadata and exon sequences in the project workdir under `<QUANT_INTERIM>/reference/<source-digest>/` from the same input pair.
+On a resumed report, the workflow checks the workdir FASTA and GTF against the selected source checksums.
+If either staged file has changed or is missing from a previously used copy, the workflow stages both files under `<staging-directory>.repairs/<n>/` and rebuilds the exon files and gene table there.
+Later reports reuse that copy and the existing Cell Ranger count and index.
+The configured provider and annotation settings still apply.
+
+With the standard 10x kit and no project reference directory, the workflow selects the reference by organism.
+
+- For human, mouse and the combined human–mouse reference, it uses the supported 10x prebuilt.
+  Omit `db.10xgenomics.release` in the project to inherit the configured default. An empty or null effective release stops planning.
+- For an organism with an Ensembl reference and no supported prebuilt, the workflow selects Ensembl for the build, count and gene metadata.
+  For example, `salmo_salar` at Ensembl release 116 uses assembly `Ssal_v3.1` under `<EXT_DIR>/ensembl/release-116/salmo_salar/Ssal_v3.1/`.
+  For organisms in an Ensembl Genomes division, the workflow uses `db.ensemblgenomes.release` for the archives and reports the division.
+  For example, `arabidopsis_thaliana` uses the release 56 Ensembl Plants FASTA and annotation under
+  `<EXT_DIR>/ensemblgenomes/release-56/plants/arabidopsis_thaliana/TAIR10/`.
+  Projects selecting `db.reference_db: ensembl` and projects using the 10x fallback share this division- and release-specific cache.
+  On first use, the workflow fetches these archives even if the older `ensembl/release-<main-release>/` layout contains a nonvertebrate genome. That path cannot establish the Ensembl Genomes release. An explicit `ref_dir` can still select a prepared directory there.
+  These routes and the explicit-directory route work independently of the 10x release.
+
+To select a managed custom assembly, set `db.reference_db: custom_reference` and `db.custom_reference.assembly`.
+When Ensembl is selected and its lookup table lacks the organism, the workflow warns before falling back to the configured custom assembly.
+See [Reduced custom references](#reduced-custom-references).
+
+For managed Cell Ranger builds, including Ensembl and custom assemblies, the workflow checksums a cached FASTA/GTF pair during planning.
+With an empty cache it plans retrieval, building, counting and reporting together. Each managed FASTA or GTF download is staged in a temporary file beside its destination and published by atomic rename once complete.
+The builder records the checksums once the files arrive.
+The workdir pins the completed index for count. Cell Ranger reporting copies the verified original FASTA and GTF from that same index’s `gcf-source/`.
+The gene table and exon intermediates live under the workdir pin’s `annotations/<source-digest>/` directory, reached through its `annotation` symlink.
+A resumed run reuses the initial pin while the source pair matches. Replacing either source selects another generation even if its timestamp is preserved.
+
+In a project using both Cell Ranger and STARsolo, STARsolo reads `<REF_DIR>/anno/genes.tsv` from its managed provider directory.
+With an explicit `ref_dir`, both quantifiers read the workdir gene table derived from the checksum-verified project FASTA and GTF.
+STARsolo builds its read-length-specific index under that snapshot’s `index/genome/` directory using the same FASTA and GTF.
+Replacing either file selects a new index and reruns STARsolo counting and AnnData conversion, even when the replacement keeps the original timestamp.
+Cell Ranger index verification runs only for targets that consume its pin, so STARsolo-only targets can run independently.
+
 ### Download dates in logs
 
 Reference rules write their source and download date to the rule's log (e.g.
@@ -152,9 +233,12 @@ to audit them, run `md5sum --check /absolute/path/to/the/matching/manifest.md5`
 from the database directory.
 
 RAM copies now use
-`/dev/shm/langmead/release-<release>/metagenome/<assembly>/`. Both shared Kraken
-screening and metagenome classification obtain that location from the producer,
-so neither can silently use another release's RAM copy. Old disk and RAM paths
+`/dev/shm/langmead/release-<release>/metagenome/<assembly>/`. Shared Kraken screening
+and metagenome classification with a getter-managed database obtain that location from the producer.
+With a project `ref_dir`, metagenome resolves the absolute database path during planning and passes it to both Kraken and Bracken.
+For the required index files and read-length distribution, see the [metagenome configuration](../metagenome/README.md#key-configuration).
+
+Old disk and RAM paths
 are left intact; do not remove them while retained or active workflows need
 them. New workdirs use the new default; explicit overrides and retained workflow
 copies keep their configured release. RAM capacity must accommodate the selected
