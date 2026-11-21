@@ -193,7 +193,7 @@ def fetch_parts(url, size, path, connections, log=print):
             if attempt:
                 time.sleep(min(PAUSE * attempt, 300))
             try:
-                request = urllib.request.Request(url, headers={'Range': 'bytes={}-{}'.format(start, end)})
+                request = urllib.request.Request(url, headers={'User-Agent': USER_AGENT, 'Range': 'bytes={}-{}'.format(start, end)})
                 with urllib.request.urlopen(request, timeout=300) as response:
                     if getattr(response, 'status', None) != 206:
                         raise ValueError('{}: no partial content for bytes {}-{} (HTTP {})'.format(url, start, end, getattr(response, 'status', None)))
