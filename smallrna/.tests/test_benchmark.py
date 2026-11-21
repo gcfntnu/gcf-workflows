@@ -3343,6 +3343,10 @@ def test_depth_series_thins_every_method_alike_and_finds_saturation():
     assert points[-1][1]['a']['replicate_cv'] == 0.0 and points[-1][2][('a', 'b')]['spearman_either'] == 1.0   # identical tables
     reached = depth.saturation(points, ['a', 'b'], 1_000_000)
     assert 100_000 < reached['a'][0.9] < 1_000_000 and reached['a'][0.9] <= reached['a'][0.95]
+    rising = depth.rise(points, ['a', 'b'], 1_000_000)   # the last step, 100k to 1M: (12 - detected at 100k) / 12 per doubling
+    assert rising['a'] == round((12 - points[-2][1]['a']['detected_10']) / math.log2(10) / 12, 4) > 0
+    fixed = depth.cv_sets(common, ['a'], {'A': ['A1', 'A2']})
+    assert len(fixed[('a', 'A')]) == 12 and depth.rise(points[-1:], ['a'], 1_000_000) == {'a': ''}
     rows, pairs = depth.tables(points, ['a', 'b'])
     assert ['a', 'full', 'detected_10', 12] in rows and ['a', 'b', '1k', 'spearman_either', points[0][2][('a', 'b')]['spearman_either']] in pairs
 
@@ -3361,6 +3365,7 @@ def test_depth_of_an_evaluated_knockout_project(tmp_path):
     assert (out / 'depth.tsv').read_text().startswith('method\tdepth\tmetric\tvalue\n') and (out / 'depth.png').stat().st_size > 0
     report = (out / 'depth.md').read_text()
     assert 'Left out, above the shallowest sample: 1k.' in report and '| full |' in report and '**sequences**' in report
+    assert 'a lower bound' in report and '| method | 90% | 95% | rise per doubling |' in report
     assert 'unitas\tmirge3\t20\tspearman_either' in (out / 'depth_agreement.tsv').read_text()
     assert not (project / 'benchmark/depth').exists()
 

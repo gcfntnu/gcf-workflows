@@ -2398,13 +2398,13 @@ def depth(args):
         isomir_rows = [tuple(r[k] for k in adapters.ISOMIR_COLUMNS[:-1]) + (float(r['count']),) for r in read_tsv(bench / 'isomirs.tsv')]
     points, skipped = depth_series.series(common, methods, samples, reads_in, groups, depths, args.seed, isomir_rows)
     full = round(statistics.median(reads_in.values()))
-    reached = depth_series.saturation(points, methods, full)
+    reached, rising = depth_series.saturation(points, methods, full), depth_series.rise(points, methods, full)
     out = Path(args.output) if args.output else bench / 'depth'
     out.mkdir(parents=True, exist_ok=True)
     rows, pairs = depth_series.tables(points, methods)
     write_tsv(out / 'depth.tsv', ['method', 'depth', 'metric', 'value'], rows)
     write_tsv(out / 'depth_agreement.tsv', ['method_a', 'method_b', 'depth', 'metric', 'value'], pairs)
-    lines = depth_series.report(spec['name'], points, methods, skipped, reached, reads_in, args.seed, md_table)
+    lines = depth_series.report(spec['name'], points, methods, skipped, reached, rising, reads_in, args.seed, md_table)
     (out / 'depth.md').write_text('\n'.join(lines) + '\n')
     depth_series.plot(points, methods, full, out / 'depth.png')
     print(out / 'depth.md')
