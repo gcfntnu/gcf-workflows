@@ -584,6 +584,8 @@ def test_runs_filled_from_sra_are_checked_by_their_reads_not_their_file(tmp_path
         fill.content([fastq[:-40]])
     with pytest.raises(ValueError, match='not FASTQ'):
         fill.content([b'>seq\nACGT\n>seq2\nACGT\n'])
+    with pytest.raises(ValueError, match='one quality per base'):
+        fill.content([b'@r\nACGT\n+\nIII\n'])
 
     sra = bytes(range(256)) * 100  # the "SRA file"; the fake fasterq-dump ignores it and prints the FASTQ
     (tmp_path / 'reads.fastq').write_bytes(fastq)
@@ -613,7 +615,8 @@ def test_runs_filled_from_sra_are_checked_by_their_reads_not_their_file(tmp_path
     (folder / 'mirbase/23.1').mkdir(parents=True)
     (folder / 'mirbase/23.1/mature.fa').write_text('>x\nACGT\n')
     messages = []
-    assert fill.fill(spec, tmp_path / 'ext', log=messages.append, source='sra', connections=3, fasterq_dump=str(dump)) == 1
+    monkeypatch.chdir(tmp_path)  # a relative EXT_DIR: the command, run in the temporary folder, still finds the file
+    assert fill.fill(spec, Path('ext'), log=messages.append, source='sra', connections=3, fasterq_dump=str(dump)) == 1
     target = folder / 'fastq/SRR1.fastq.gz'
     assert sorted(p.name for p in target.parent.iterdir()) == ['SRR1.fastq.gz', 'SRR1.sra.json']
     assert fill.file_content(target) == (300, digest) and gzip.open(target, 'rt').read().split('\n')[2] == '+'

@@ -159,6 +159,8 @@ def content(lines, out=None):
             continue
         if any(not name.startswith(b'@') for name in rows[0::4]) or any(not plus.startswith(b'+') for plus in rows[2::4]):
             raise ValueError('not FASTQ: a record without `@` or `+` at read {}'.format(reads + 1))
+        if any(not seq or len(seq) != len(quality) for seq, quality in zip(rows[1::4], rows[3::4])):
+            raise ValueError('not FASTQ: a record without bases, or with other than one quality per base, after read {}'.format(reads))
         pairs = [None] * (whole // 2)
         pairs[0::2], pairs[1::2] = rows[1::4], rows[3::4]
         digest.update(b'\n'.join(pairs) + b'\n')
@@ -233,7 +235,7 @@ def sra_run(run, path, connections=8, fasterq_dump='fasterq-dump', threads=4, lo
         raise ValueError('{}: a run filled from SRA declares `reads` and `sra: {{md5, bytes}}`; fill it from ENA, or declare them'.format(name))
     url = SRA_URL.format(run=name)
     path.parent.mkdir(parents=True, exist_ok=True)
-    work = Path(tempfile.mkdtemp(prefix='.partial-{}.sra.'.format(name), dir=path.parent))
+    work = Path(tempfile.mkdtemp(prefix='.partial-{}.sra.'.format(name), dir=path.parent)).resolve()  # fasterq-dump runs inside it
     try:
         sra = work / '{}.sra'.format(name)  # fasterq-dump names the reads after the file
         fetch_parts(url, int(declared['bytes']), sra, connections, log)
@@ -270,8 +272,8 @@ def sra_run(run, path, connections=8, fasterq_dump='fasterq-dump', threads=4, lo
         note.write_text(json.dumps(record, indent=1) + '\n')
         for item in (packed, note):
             os.chmod(item, 0o666 & ~UMASK)
+        os.replace(packed, path)  # the reads first: a record never stands beside a file it does not describe
         os.replace(note, path.parent / '{}.sra.json'.format(name))
-        os.replace(packed, path)
     finally:
         shutil.rmtree(work, ignore_errors=True)
     log('{}: from SRA, {} reads, content md5 {}{}'.format(path, reads, digest, '' if run.get('content_md5') else ' (not declared)'))
