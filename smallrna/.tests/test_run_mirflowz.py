@@ -140,22 +140,23 @@ def test_nested_resources_stay_within_the_outer_budget(setup):
     assert args[args.index('--cores') + 1] == '3'
 
 
-@pytest.mark.parametrize('threads', ['3', '16'])
-def test_oligomap_maps_in_parallel_parts(setup, threads):
-    """The image's oligomap runs OLIGOMAP_JOBS parts in parallel: the nested run sets it to the job's threads, gives
-    both oligomap rules all of them and a few GB, keeps the parts in the work directory, and gives the
-    single-threaded remove_inferiors and filter_by_indels one thread."""
+@pytest.mark.parametrize('threads, parts', [('3', '3'), ('16', '16'), ('32', '16')])
+def test_oligomap_maps_in_parallel_parts(setup, threads, parts):
+    """The image's oligomap runs OLIGOMAP_JOBS parts in parallel: the nested run sets it to the job's threads, at most
+    16, gives both oligomap rules as many (32 threads: two oligomap steps at once) and a few GB, keeps the parts in the
+    work directory, and gives the single-threaded remove_inferiors and filter_by_indels one thread."""
     _, _, call = run(setup, threads=threads, mem_mb='61440')
     args = call['args']
     set_threads = args[args.index('--set-threads') + 1:args.index('--set-resources')]
     set_resources = args[args.index('--set-resources') + 1:args.index('--resources')]
-    assert call['env']['OLIGOMAP_JOBS'] == threads
+    assert call['env']['OLIGOMAP_JOBS'] == parts
     split_dir = Path(call['env']['OLIGOMAP_SPLIT_DIR'])
     assert split_dir.name == 'oligomap_parts' and split_dir.parent.name.startswith('.mirflowz-run-')
     assert split_dir.parent == Path(call['config']['intermediates_dir']).parent
     for rule in ('map_genome_oligomap', 'map_transcriptome_oligomap'):
-        assert '{}={}'.format(rule, threads) in set_threads and '{}:threads={}'.format(rule, threads) in set_resources
-    assert 'map_genome_oligomap:mem=4' in set_resources and 'map_transcriptome_oligomap:mem=2' in set_resources
+        assert '{}={}'.format(rule, parts) in set_threads and '{}:threads={}'.format(rule, parts) in set_resources
+    assert 'map_genome_oligomap:mem=8' in set_resources and 'map_transcriptome_oligomap:mem=4' in set_resources
+    assert args[args.index('--resources') + 1] == 'threads={}'.format(threads)
     assert 'remove_inferiors=1' in set_threads and 'filter_by_indels=1' in set_threads
     assert 'map_genome_segemehl={}'.format(min(8, int(threads))) in set_threads
 
