@@ -1980,9 +1980,9 @@ def test_de_results_must_cover_every_row_test_and_sequence(tmp_path):
     read = lambda pool_ids: de.read_results(path.read_text(), ['m'], pool_ids, path)
     table = read(['S0', 'S1'])
     assert table[('m', 'edger', 'S0')] == (1.5, 0.01, 0.02) and table[('m', 'voom', 'S1')] == (1.5, 0.01, None)
-    with pytest.raises(ValueError, match='and 2 unexpected'):  # S1 in both tests
+    with pytest.raises(ValueError, match='and {} unexpected'.format(len(de.TESTS))):  # S1 in every test
         read(['S0'])
-    with pytest.raises(ValueError, match='2 expected lines missing'):
+    with pytest.raises(ValueError, match='{} expected lines missing'.format(len(de.TESTS))):  # S2 in every test
         read(['S0', 'S1', 'S2'])
     write(path, '\n'.join(lines + [lines[1]]) + '\n')
     with pytest.raises(ValueError, match='repeated'):
@@ -2053,6 +2053,12 @@ def test_de_snakefile_passes_the_options_the_r_script_defines():
     assert defined == passed == {'--counts', '--library-sizes', '--design', '--results', '--record'}
 
 
+def test_de_r_script_writes_the_tests_de_py_reads():
+    import re
+    tests = re.search(r"^tests <- c\(([^)]*)\)", (BENCH / 'de.R').read_text(), re.M)
+    assert tests and tests.group(1) == ', '.join("'{}'".format(t) for t in de.TESTS) and len(de.TEST_NAMES) == len(de.TESTS)
+
+
 def de_project(tmp_path):
     """A prepared and quantified ratiometric pool (RATIO: miR-1-3p 4:1, miR-199a-3p 1:1, miR-21-5p 1:8) with two runs
     per pool over two labs, declaring `de:`; UNITAS and miRge3 outputs and the filtered reads, as quant_all --notemp
@@ -2100,7 +2106,7 @@ def de_outputs(project, fits, change=None, drop_last=False):
     write(bench / 'de/results.tsv', results)
     record = {'md5_' + Path(name).stem: de.md5(text) for name, text in texts.items()}
     record.update(md5_script=de.md5(de.SCRIPT.read_bytes()), md5_results=de.md5(results), R='R version 4.5.3', edgeR='4.10.7',
-                  limma='3.68.5', formula='~lab + group', edger='exact test', voom='voom')
+                  limma='3.68.5', formula='~lab + group', edger='exact test', edger_glm='GLM test', voom='voom')
     if change:
         change(record)
     write(bench / 'de/record.tsv', 'field\tvalue\n' + ''.join('{}\t{}\n'.format(k, v) for k, v in record.items()))
@@ -2130,7 +2136,7 @@ def test_evaluate_de_adds_metrics_intervals_and_report(tmp_path):
     assert result.returncode == 0, result.stderr
     table = {line.split('\t')[0]: line.split('\t')[1:] for line in (bench / 'metrics.tsv').read_text().splitlines()}
     assert table['metric'] == ['oracle', 'unitas', 'mirge3']
-    assert table['edger_called'] == table['voom_called'] == ['1.0'] * 3
+    assert table['edger_called'] == table['edger_glm_called'] == table['voom_called'] == ['1.0'] * 3
     assert table['edger_false_calls'] == ['0.0'] * 3 and table['edger_offset'] == ['0.1'] * 3
     assert table['edger_fc_bias'] == ['-0.35'] * 3  # median of 1.8 - 2 and -(-2.5 + 3)
     ci = (bench / 'metrics_ci.tsv').read_text().splitlines()
@@ -2140,6 +2146,7 @@ def test_evaluate_de_adds_metrics_intervals_and_report(tmp_path):
     report = (bench / 'report.md').read_text()
     assert '## Differential expression' in report and '| 4× | 1 | 1.00 | 1.00 | 1.00 |' in report and '| 1× | 1 | 0.00 |' in report
     assert 'design `~lab + group`' in report and hashlib.sha256((bench / 'de/results.tsv').read_bytes()).hexdigest() in report
+    assert "**edgeR's GLM likelihood-ratio test**" in report and 'GLM test: GLM test, design `~lab + group`' in report
     summary_md = tmp_path / 'summary.md'
     result = subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'summary', '--projects', str(project), '--output', str(summary_md)],
                             capture_output=True, text=True, timeout=60)

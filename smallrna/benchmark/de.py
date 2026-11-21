@@ -1,14 +1,17 @@
 """Differential expression on the ratiometric pools (#414).
 
 Each row (the oracle and each method) is tested pool A against pool B over the scored exact sequences with edgeR's exact
-test and limma-voom (de.R, which de.smk runs in the `sartools` image), and the calls are scored against the design.
+test, edgeR's GLM likelihood-ratio test and limma-voom (de.R, which de.smk runs in the `sartools` image), and the calls
+are scored against the design.
 
 Normalisation is the workflow's: a sample's library size is every miRNA read the method reported in it (all its rows of
 common.tsv), as smallrna's report figures scale counts per million. There is no TMM and no centring, so an offset
 between the pools stays in the fold changes, and `offset` reports it. The oracle's library size is its reads of the exact
-and shifted pool sequences: what a method counting every pool miRNA read exactly would report. edgeR runs as in the
-McCall-lab benchmark's best configuration (library sizes as given, a common dispersion, the exact test; two groups, so
-no covariates); voom takes the covariates the dataset declares (`de: {covariates: [...]}`).
+and shifted pool sequences: what a method counting every pool miRNA read exactly would report. The exact test runs as in
+the McCall-lab benchmark's best configuration (library sizes as given, a common dispersion; two groups, so no
+covariates). The GLM test and voom take the covariates the dataset declares (`de: {covariates: [...]}`). The GLM test
+keeps the exact test's model otherwise (a common dispersion, estimated under that design). Without covariates it calls
+nearly what the exact test calls, so the two differ mainly by the covariates.
 
 `benchmark.py evaluate` writes the inputs (input_tables) to benchmark/de/input/; de.smk writes benchmark/de/results.tsv
 and record.tsv; `evaluate --de` checks the record against the current inputs and de.R, and scores the results.
@@ -20,8 +23,8 @@ from pathlib import Path
 
 import pool
 
-TESTS = ('edger', 'voom')
-TEST_NAMES = {'edger': "edgeR's exact test", 'voom': 'limma-voom'}
+TESTS = ('edger', 'edger_glm', 'voom')  # as de.R's tests
+TEST_NAMES = {'edger': "edgeR's exact test", 'edger_glm': "edgeR's GLM likelihood-ratio test", 'voom': 'limma-voom'}
 FDR = 0.05
 KEYS = ('called', 'false_calls', 'fdr', 'fc_bias', 'offset')
 COVARIATES = ('lab',)  # design columns of samples.tsv a declaration may name
@@ -184,7 +187,8 @@ def report_lines(results, exact, rows, record, results_sha256):
             lines.append('| {:g}× | {} | '.format(value, len(group)) + ' | '.join(cells) + ' |')
         tested = [share([results[(row, test, e['pool_id'])][1] is not None for e in exact]) for row in rows]
         lines.append('| tested | {} | '.format(len(exact)) + ' | '.join('{:.2f}'.format(t) for t in tested) + ' |')
-    lines += ['', 'edgeR {}: {}. limma {}: {}, design `{}`. Both: BH within each row and test. {}. `de/results.tsv` SHA-256 '
-              '`{}`.'.format(record.get('edgeR', '?'), record.get('edger', '?'), record.get('limma', '?'), record.get('voom', '?'),
-                             record.get('formula', '?'), record.get('R', '?'), results_sha256)]
+    lines += ['', 'edgeR {}, exact test: {}; GLM test: {}, design `{}`. limma {}: {}, design `{}`. BH within each row and test. '
+              '{}. `de/results.tsv` SHA-256 `{}`.'.format(record.get('edgeR', '?'), record.get('edger', '?'), record.get('edger_glm', '?'),
+                                                          record.get('formula', '?'), record.get('limma', '?'), record.get('voom', '?'),
+                                                          record.get('formula', '?'), record.get('R', '?'), results_sha256)]
     return lines
