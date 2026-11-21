@@ -4,7 +4,7 @@
 # GRCm39 by the flanking GRCm38 sequence. A row is named by id, parent (its Derives_from, empty for a
 # hairpin) and old position. check: sequence (the row must match its sequences), placement (a mature whose
 # sequence cannot match this hairpin: it must lie in the hairpin, on its strand, with the sequence's length)
-# or none (a reviewed anomaly). Positions: chrom:start-end:strand, as in the GFF3.
+# or none (a reviewed anomaly). Positions: chrom:start-end:strand, as in the GFF3. new `-` drops the row.
 release	organism	id	parent	name	old	new	check	reason
 23.1	homo_sapiens	MI0046424		hsa-mir-13168	chr1:156103047-156103105:.	chr1:156103017-156103135:-	sequence	hairpin row covered the stem only, without a strand: set to the hairpin sequence in GRCh38
 23.1	homo_sapiens	MIMAT0071374	MI0046424	hsa-miR-13168-5p	chr1:156103077-156103099:.	chr1:156103083-156103105:-	sequence	placed from the stem-only hairpin row: set to its sequence in the hairpin
@@ -196,3 +196,6 @@ release	organism	id	parent	name	old	new	check	reason
 22	rattus_norvegicus	MIMAT0035742	MI0030359	rno-miR-3084b-3p	chr6:91633048-91633069:-	chr6:91633048-91633069:-	placement	accession not in the release's mature.fa
 22	rattus_norvegicus	MIMAT0035742_1	MI0031762	rno-miR-3084b-3p	chr6:91645148-91645169:-	chr6:91645148-91645169:-	placement	accession not in the release's mature.fa
 22	rattus_norvegicus	MIMAT0035745	MI0030361	rno-miR-3084d	chr7:66663845-66663866:-	chr7:66663845-66663866:-	placement	accession not in the release's mature.fa
+23.1	mus_musculus	MI0014054		mmu-mir-669a-4	2:10481668-10481754:+	-	none	hairpin entry inside the locus of mmu-mir-669a-1 (MI0004523, 2:10481664-10481760:+), with the same two matures at the same positions: mirflowz's annotation emits a mature once per hairpin that holds it and stops on the repeated ID, so dropped with its two mature rows
+23.1	mus_musculus	MIMAT0003477	MI0014054	mmu-miR-669a-5p	2:10481683-10481706:+	-	none	the same mature, ID and position as under mmu-mir-669a-1 (MI0004523), whose hairpin row covers the same locus: listed twice, so dropped here and kept there
+23.1	mus_musculus	MIMAT0017243	MI0014054	mmu-miR-669a-3p	2:10481719-10481741:+	-	none	the same mature, ID and position as under mmu-mir-669a-1 (MI0004523), whose hairpin row covers the same locus: listed twice, so dropped here and kept there
