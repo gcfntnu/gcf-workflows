@@ -18,7 +18,8 @@ applies the length and N filters, so per-record match counts of a combined pass 
 Its records (three_prime_artefact_fasta) are every piece of at least THREE_PRIME_ARTEFACT_PIECE nt of the kit's 3'
 adapter followed by the start of Illumina's index-read primer (ILLUMINA_INDEX_PRIMER_START, as in the read:
 `...TGGAATTCTCGGGTGCCAAGG` `AACTCCAGTCAC` `<index>` `ATCTCGTATGCCGTCTTCTGCTTG`), and of Illumina's P7 sequence
-(ILLUMINA_P7); the index between them differs per sample and is not used. The Illumina sequences are the same for every
+(ILLUMINA_P7); the index between them differs per sample and is not used. A kit adapter that already runs into the
+primer (NEBNext's, #450) is joined to it where they overlap (adapter_read_through). The Illumina sequences are the same for every
 kit, so they are constants rather than kit settings. A read with both a 5' artefact and 3' artefact sequence counts as
 a 5' artefact (pass 2 removes it first). The 16-nt minimum is essential: with 14-nt pieces (10% errors), pieces at the
 adapter's end matched human 18S rRNA (around position 400), hsa-miR-2116-3p and a misc_RNA; from 16 nt no human mature
@@ -85,6 +86,7 @@ THREE_PRIME_ARTEFACT_PIECE = 16
 THREE_PRIME_ARTEFACT_RECORD, REAGENT_OLIGO_RECORD = 'three_prime_artefact_', 'reagent_oligo_'  # record name prefixes, read by merge_cutadapt.py
 REAGENT_OLIGO_MIN_OVERLAP = 14  # in TruSeq plasma: 7 STP-miRNA chimeras of 5.8 M reads discarded at 14 nt, 43 at 10 (#380)
 ILLUMINA_INDEX_PRIMER_START = 'AACTCCAGTCAC'
+READ_THROUGH_MIN_OVERLAP = 6  # a kit adapter ending in a shorter piece of the primer start ends there by chance
 ILLUMINA_P7 = 'ATCTCGTATGCCGTCTTCTGCTTG'
 DNA = re.compile(r'^[ACGT]+\Z')  # \Z, not $: '$' also matches before a trailing newline
 
@@ -180,12 +182,25 @@ def artefact_args():
     return '--action=none --discard-trimmed'
 
 
+def adapter_read_through(adapter3):
+    """The read through adapter3 into Illumina's index-read primer: adapter3 followed by ILLUMINA_INDEX_PRIMER_START,
+    joined where they overlap by at least READ_THROUGH_MIN_OVERLAP nt. A kit's `adapter` may already run into the
+    primer (NEBNext: AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC, the read through as NEB gives it for trimming); then it is
+    that adapter up to the primer start's end. A shorter overlap is taken for chance and the primer appended whole:
+    an adapter ending in A would otherwise lose a base against the primer's AA."""
+    primer = ILLUMINA_INDEX_PRIMER_START
+    if primer in adapter3:
+        return adapter3[:adapter3.index(primer) + len(primer)]
+    overlap = max((k for k in range(READ_THROUGH_MIN_OVERLAP, len(primer)) if adapter3.endswith(primer[:k])), default=0)
+    return adapter3 + primer[overlap:]
+
+
 def three_prime_artefact_fasta(adapter3):
-    """cutadapt adapter FASTA of the third pass: every piece of at least THREE_PRIME_ARTEFACT_PIECE nt of adapter3 plus
-    ILLUMINA_INDEX_PRIMER_START, and of ILLUMINA_P7, matched when complete anywhere in the read, with
+    """cutadapt adapter FASTA of the third pass: every piece of at least THREE_PRIME_ARTEFACT_PIECE nt of adapter3 read
+    through into ILLUMINA_INDEX_PRIMER_START (adapter_read_through), and of ILLUMINA_P7, matched when complete anywhere in the read, with
     FIVE_PRIME_MAX_ERROR_RATE."""
     records = []
-    for tag, sequence in (('adapter', adapter3 + ILLUMINA_INDEX_PRIMER_START), ('p7', ILLUMINA_P7)):
+    for tag, sequence in (('adapter', adapter_read_through(adapter3)), ('p7', ILLUMINA_P7)):
         pieces = sorted({sequence[i:i + n] for n in range(THREE_PRIME_ARTEFACT_PIECE, len(sequence) + 1)
                          for i in range(len(sequence) - n + 1)}, key=lambda p: (-len(p), sequence.index(p)))
         records += ['>{}{}_{}_{}\n{};min_overlap={};max_error_rate={}\n'.format(

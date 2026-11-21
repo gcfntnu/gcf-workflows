@@ -24,7 +24,9 @@ KITS = yaml.safe_load((ROOT / 'libprep.config').read_text())
 V3 = 'Bioo Scientific NEXTflex Small RNA-Seq Kit v3'
 V4 = 'Bioo Scientific NEXTflex Small RNA-Seq Kit v4'
 TRUSEQ = 'TruSeq Small RNA Library Prep Kit'
+NEB = 'NEBNext Multiplex Small RNA Library Prep Kit'
 ADAPTER3 = 'TGGAATTCTCGGGTGCCAAGG'
+ADAPTER3_NEB = 'AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC'  # NEB 3' SR Adapter read through into the index-read primer (#450)
 ADAPTER5 = 'GTTCAGAGTTCTACAGTCCGACGATC'
 ADAPTER5_V4 = 'TCTTTCCCTACACGACGCTCTTCCGATCT'  # NEXTflex 5' Adapter v4 (manual, Appendix A), Illumina Read 1 sequence
 STP = 'GAATTCCACCACGTTCCCGTGG'  # TruSeq Small RNA Stop Oligo (UniVec NGB00791.1)
@@ -60,6 +62,10 @@ def test_kit_presets():
     assert v3['adapter5'] == truseq['adapter5'] == ADAPTER5 and v4['adapter5'] == ADAPTER5_V4
     assert all(KITS[kit + ' SE']['filter']['trim']['quantifier'] == 'cutadapt' for kit in (V3, V4, TRUSEQ))
     assert truseq['reagent_oligos'] == [STP] and v3['reagent_oligos'] == v4['reagent_oligos'] == []
+    neb = policy.cutadapt_settings(kit_config(NEB))
+    assert policy.filter_args(neb) == policy.filter_args(truseq) and neb['five_prime_piece'] == 14
+    assert neb['adapter5'] == ADAPTER5 and neb['reagent_oligos'] == [] and KITS[NEB + ' SE']['filter']['trim']['quantifier'] == 'cutadapt'
+    assert policy.adapter_args(neb) == "-a '{};min_overlap=5'".format(ADAPTER3_NEB)
     config = kit_config(TRUSEQ, reagent_oligos=None)
     assert policy.cutadapt_settings(config)['reagent_oligos'] == []                                     # null: none
     del config['filter']['trim']['cutadapt']['reagent_oligos']
@@ -124,6 +130,22 @@ def test_three_prime_artefact_fasta_lists_adapter_primer_and_p7_pieces():
     result = subprocess.run(['python', str(SCRIPTS / 'cutadapt_config.py'), 'artefact-fasta', ADAPTER3],
                             capture_output=True, text=True, timeout=30)
     assert result.returncode == 0 and result.stdout == policy.three_prime_artefact_fasta(ADAPTER3)
+
+
+@pytest.mark.parametrize('adapter3, read_through', [
+    (ADAPTER3, ADAPTER3 + 'AACTCCAGTCAC'),                   # TruSeq/NEXTflex RA3: the primer follows
+    (ADAPTER3_NEB, ADAPTER3_NEB),                             # NEBNext: the adapter already runs into the primer
+    (ADAPTER3_NEB[:-6], ADAPTER3_NEB),                        # an adapter ending in 6 nt of the primer start: joined there
+    (ADAPTER3 + 'A', ADAPTER3 + 'AAACTCCAGTCAC'),             # ends in A by chance: the primer appended whole
+    (ADAPTER3 + 'AACTC', ADAPTER3 + 'AACTCAACTCCAGTCAC')])    # 5 nt of the primer start: appended whole
+def test_adapter_read_through_joins_the_index_primer_once(adapter3, read_through):
+    assert policy.adapter_read_through(adapter3) == read_through
+
+
+def test_three_prime_artefact_fasta_for_nebnext_has_no_doubled_primer():
+    sequences = [r.split(';')[0] for r in policy.three_prime_artefact_fasta(ADAPTER3_NEB).splitlines()[1::2]]
+    assert sequences[0] == ADAPTER3_NEB and 'CCAGTCACAACTCCAG' not in ''.join(sequences)
+    assert len(sequences) == 19 * 20 // 2 + 9 * 10 // 2      # 34-nt read through and 24-nt P7, pieces of 16 nt and more
 
 
 def test_artefact_records_are_named_as_the_merge_counts_them():
@@ -229,7 +251,7 @@ def test_route_sets_the_minimum_length_of_the_quantifiers(tmp_path):
     assert 'artefact-fasta TGGAATTCTCGGGTGCCAAGG ' + STP + ' > ' in rule_block(output, 'smallrna_artefact_fasta')  # the Stop Oligo
 
 
-@pytest.mark.parametrize('kit', [V3, V4, TRUSEQ])
+@pytest.mark.parametrize('kit', [V3, V4, TRUSEQ, NEB])
 def test_cutadapt_is_the_default(tmp_path, kit):
     returncode, output = dry_run(tmp_path, 'unitas', lambda s: s.update(libprepkit=kit), printshell=True, target='multiqc_report')
     assert returncode == 0, output
@@ -285,7 +307,7 @@ def run_kit(tmp_path, kit, inserts):
     raw = tmp_path / 'raw.fastq.gz'
     with gzip.open(raw, 'wt') as fh:
         for i, insert in enumerate(inserts):
-            read = (ends + insert + ends[::-1] + ADAPTER3 + 'ATCTCGTATG')[:75]
+            read = (ends + insert + ends[::-1] + policy.adapter_read_through(settings['adapter3']) + 'CGATGTATCTCGTATG')[:75]
             fh.write('@r{}\n{}\n+\n{}\n'.format(i, read, 'I' * len(read)))
     (tmp_path / 'five.fa').write_text(policy.five_prime_fasta(settings['adapter5'], settings['five_prime_piece']))
     (tmp_path / 'artefacts.fa').write_text(policy.artefact_fasta(settings['adapter3'], settings['reagent_oligos']))
@@ -302,7 +324,7 @@ def run_kit(tmp_path, kit, inserts):
     return kept, merger.merge(reports['adapter'], reports['filter'], reports['artefacts'], 'S1', PATHS)
 
 
-@pytest.mark.parametrize('kit', [V3, TRUSEQ])
+@pytest.mark.parametrize('kit', [V3, TRUSEQ, NEB])
 def test_artefacts_go_and_real_mirnas_stay(tmp_path, kit):
     """miR-22-5p and miR-139-5p begin like part of the 5' adapter (one mismatch over 11 nt): kept with the 12-nt overlap."""
     inserts = [MIR22_5P] * 3 + [MIR139_5P] * 2 + [MIR21_5P] + ARTEFACTS + ['']  # '' is an adapter dimer
@@ -362,6 +384,26 @@ def test_three_prime_artefacts_are_discarded(tmp_path):
     assert result.returncode == 0, result.stderr
     assert result.stdout.splitlines()[1::4] == THREE_PRIME_KEPT
     assert json.loads((tmp_path / 'x.json').read_text())['read_counts']['filtered']['discard_trimmed'] == len(THREE_PRIME_DISCARDED)
+
+
+# NEBNext (#450): its 3' adapter runs into the index-read primer; artefacts of that read through, as for the RA3 above
+NEB_DISCARDED = ['AGATCGGAAGAGCACGTCTGAACTCCAGTCACCGATGTATCTCGTATGCCGTC',   # adapter dimer, adapter with a deletion
+                 'TAGCTTATCAGACTGATGTTGAAGATCGGTAGAGCTCACGTCTGAACTCCAG',    # miR-21-5p + adapter with 3 errors
+                 'GGGGGGGGGGATCTCGTATGCCGTCTTCTGCTTGGGG']                  # P7 after other bases
+NEB_KEPT = [MIR21_5P, MIR22_5P, 'AAAAGTCTGAACTCCAGAAAA']                 # 13 nt of adapter end + primer, flanks differ
+
+
+def test_nebnext_three_prime_artefacts_are_discarded(tmp_path):
+    cutadapt = cutadapt_52()
+    if not cutadapt:
+        pytest.skip('cutadapt 5.2 not on PATH')
+    reads = NEB_KEPT + NEB_DISCARDED
+    (tmp_path / 'artefacts.fa').write_text(policy.three_prime_artefact_fasta(ADAPTER3_NEB))
+    (tmp_path / 'r.fastq').write_text(''.join('@r{}\n{}\n+\n{}\n'.format(i, r, 'I' * len(r)) for i, r in enumerate(reads)))
+    result = subprocess.run([cutadapt, '-g', 'file:' + str(tmp_path / 'artefacts.fa'), *shlex.split(policy.artefact_args()),
+                             str(tmp_path / 'r.fastq')], capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines()[1::4] == NEB_KEPT
 
 
 # TruSeq Stop Oligo reads (#380), as in public TruSeq plasma data after the 3' adapter pass: the oligo and its 5'-truncated

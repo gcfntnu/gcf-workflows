@@ -18,11 +18,13 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / 'smallrna/rules/filter/scripts'
 KITS = yaml.safe_load((ROOT / 'libprep.config').read_text())
 SMALLRNA = {name: kit for name, kit in KITS.items() if kit['workflow'] == 'smallrna'}
-# filter.trim.fastp.args of the kit entries before #350 (v3: #215)
+# filter.trim.fastp.args of the kit entries before #350 (v3: #215); NEBNext (#450), added after it, with TruSeq's: no
+# random bases, minimum 15 nt
 FASTP_PRESETS = {
     'Bioo Scientific NEXTflex Small RNA-Seq Kit v3 SE': '-f 4 -t 4 -l 16 -q 15 -u 40 -n 5 -e 0 --low_complexity_filter --complexity_threshold 30',
     'Bioo Scientific NEXTflex Small RNA-Seq Kit v4 SE': '-l 15 -q 15 -u 40 -n 5 -e 0 --low_complexity_filter --complexity_threshold 30',
-    'TruSeq Small RNA Library Prep Kit SE': '-l 15 -q 15 -u 40 -n 5 -e 0 --low_complexity_filter --complexity_threshold 30'}
+    'TruSeq Small RNA Library Prep Kit SE': '-l 15 -q 15 -u 40 -n 5 -e 0 --low_complexity_filter --complexity_threshold 30',
+    'NEBNext Multiplex Small RNA Library Prep Kit SE': '-l 15 -q 15 -u 40 -n 5 -e 0 --low_complexity_filter --complexity_threshold 30'}
 ADAPTER = 'TGGAATTCTCGGGTGCCAAGG'
 INSERT = 'ACGTACGTACGTACGTA'
 
@@ -64,7 +66,7 @@ def test_explicit_final_length_overrides(args):
     assert policy.final_fastp_args({'args': args, 'params': ''}) == args
 
 
-@pytest.mark.parametrize('name', SMALLRNA)
+@pytest.mark.parametrize('name', FASTP_PRESETS)
 def test_resolved_workflow_commands(tmp_path, name):
     shutil.copytree(ROOT / 'smallrna/.tests', tmp_path, dirs_exist_ok=True,
                     ignore=shutil.ignore_patterns('.snakemake', '__pycache__'))
@@ -86,6 +88,7 @@ def test_resolved_workflow_commands(tmp_path, name):
     for args in commands:
         paths.extend([args[args.index('--json') + 1], args[args.index('--html') + 1]])
         if '--adapter_sequence' in args:
+            assert args[args.index('--adapter_sequence') + 1] == SMALLRNA[name]['adapter']  # the kit's own (#450)
             assert all(flag in args for flag in ('-Q', '-L', '-G'))
             assert '-f' not in args and '-l' not in args and '-A' not in args
         else:
@@ -125,29 +128,29 @@ def run_fastp(binary, work, name, source, args):
     return out, reads, json.loads(report.read_text())
 
 
-def run_stages(binary, work, records, args, nextseq=False):
+def run_stages(binary, work, records, args, nextseq=False, adapter=ADAPTER):
     raw = work / 'input.fq'
     write_reads(raw, records, nextseq=nextseq)
     trimmed, intermediate, first = run_fastp(binary, work, 'adapter', raw,
-                                            policy.ADAPTER_ONLY_ARGS + ' --adapter_sequence ' + ADAPTER)
+                                            policy.ADAPTER_ONLY_ARGS + ' --adapter_sequence ' + adapter)
     _, retained, final = run_fastp(binary, work, 'filter', trimmed, args + ' -A')
     return intermediate, retained, first, final
 
 
-@pytest.mark.parametrize('name', SMALLRNA)
+@pytest.mark.parametrize('name', FASTP_PRESETS)
 def test_read_outcomes_and_reconciled_reports(fastp, tmp_path, name):
-    v3 = 'v3' in name
+    v3, adapter = 'v3' in name, SMALLRNA[name]['adapter']  # each kit's own 3' adapter (NEBNext's differs, #450)
     def raw(insert):
-        return ('TGCA' + insert + 'CATG' if v3 else insert) + ADAPTER
+        return ('TGCA' + insert + 'CATG' if v3 else insert) + adapter
     records = [(str(n), raw(INSERT[:n]), None) for n in (14, 15, 16, 17)]
-    records += [('empty', ADAPTER, None), ('lowcomplexity', raw('A' * 20), None),
+    records += [('empty', adapter, None), ('lowcomplexity', raw('A' * 20), None),
                 ('N6', raw('ACGTNNNNNNACGTACGT'), None), ('N5', raw('ACGTNNNNNACGTACGT'), None),
                 ('lowquality', raw(INSERT), '!' * len(raw(INSERT))),
                 ('short', raw('ACGT'), None)]
     if v3:
         # N bases and poor quality in the random ends must not discard a valid insert in pass one.
-        records += [('tags', 'NNNN' + INSERT + 'NNNN' + ADAPTER, '!!!!' + 'I' * 17 + '!!!!' + 'I' * len(ADAPTER))]
-    intermediate, retained, first, final = run_stages(fastp, tmp_path, records, FASTP_PRESETS[name])
+        records += [('tags', 'NNNN' + INSERT + 'NNNN' + adapter, '!!!!' + 'I' * 17 + '!!!!' + 'I' * len(adapter))]
+    intermediate, retained, first, final = run_stages(fastp, tmp_path, records, FASTP_PRESETS[name], adapter=adapter)
     expected = {'16', '17', 'N5'} | ({'tags'} if v3 else {'15'})
     assert set(retained) == expected
     for n in ('16', '17'):
@@ -187,19 +190,20 @@ def test_disabled_length_retains_nonempty_reads_only(fastp, tmp_path, length):
     assert final['filtering_result']['too_short_reads'] == 0
 
 
-@pytest.mark.parametrize('name', [name for name in SMALLRNA if 'v3' not in name])
+@pytest.mark.parametrize('name', [name for name in FASTP_PRESETS if 'v3' not in name])
 def test_other_kits_match_previous_route_and_one_pass_changes_polyg(fastp, tmp_path, name):
-    records = [('polyg', 'ACGTACGTACGTACGT' + 'G' * 12 + ADAPTER, None),
-               ('normal', INSERT + ADAPTER, None), ('short', INSERT[:14] + ADAPTER, None), ('empty', ADAPTER, None)]
+    adapter = SMALLRNA[name]['adapter']
+    records = [('polyg', 'ACGTACGTACGTACGT' + 'G' * 12 + adapter, None),
+               ('normal', INSERT + adapter, None), ('short', INSERT[:14] + adapter, None), ('empty', adapter, None)]
     args = FASTP_PRESETS[name]
-    _, retained, first, final = run_stages(fastp, tmp_path, records, args, nextseq=True)
+    _, retained, first, final = run_stages(fastp, tmp_path, records, args, nextseq=True, adapter=adapter)
     old_trim, _, old_first = run_fastp(fastp, tmp_path, 'old_adapter', tmp_path / 'input.fq',
-                                      '-Q -n 0 -l 0 -G --adapter_sequence ' + ADAPTER)
+                                      '-Q -n 0 -l 0 -G --adapter_sequence ' + adapter)
     _, old_retained, old_final = run_fastp(fastp, tmp_path, 'old_filter', old_trim, '--low_complexity_filter -A')
     assert retained == old_retained
     assert first['filtering_result'] == old_first['filtering_result']
     assert final['filtering_result'] == old_final['filtering_result']
-    _, one_pass, _ = run_fastp(fastp, tmp_path, 'one_pass', tmp_path / 'input.fq', args + ' --adapter_sequence ' + ADAPTER)
+    _, one_pass, _ = run_fastp(fastp, tmp_path, 'one_pass', tmp_path / 'input.fq', args + ' --adapter_sequence ' + adapter)
     assert 'polyg' in one_pass and 'polyg' not in retained
 
 
