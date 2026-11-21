@@ -23,6 +23,13 @@ include:
     join(GCFDB_DIR, 'biocore_miraligner.db')
 
 BIOCORE_MIRALIGNER_OUT = join(QUANT_INTERIM, 'biocore_miraligner')
+BIOCORE_MIRALIGNER_ARGS = '-sub 1 -trim 3 -add 3'
+
+
+def biocore_miraligner_settings():
+    """The settings that decide the biocore_miraligner route's counting, recorded with its table (quant_settings, #417)."""
+    return [('miraligner', BIOCORE_MIRALIGNER_ARGS + ' -freq', 'fixed'),
+            ('counting', 'rows weighted freq / ambiguity, mismatches 0 only (miraligner_counts.py)', 'fixed')]
 
 
 rule biocore_miraligner_collapse:
@@ -51,6 +58,7 @@ rule biocore_miraligner_align:
     output:
         join(BIOCORE_MIRALIGNER_OUT, '{sample}', '{sample}.mirna')
     params:
+        args = BIOCORE_MIRALIGNER_ARGS,
         prefix = join(BIOCORE_MIRALIGNER_OUT, '{sample}', '{sample}'),
         db = BIOCORE_MIRALIGNER_DB,
         species = MIR_ORG[ORG]
@@ -65,7 +73,7 @@ rule biocore_miraligner_align:
         'docker://' + config['docker']['seqbuster']
     shell:
         # miraligner stops on an empty table: a sample without sequences gets the output's header only.
-        'if [ -s {input.reads:q} ]; then miraligner -Xmx3g -sub 1 -trim 3 -add 3 -s {params.species} -freq -i {input.reads:q} '
+        'if [ -s {input.reads:q} ]; then miraligner -Xmx3g {params.args} -s {params.species} -freq -i {input.reads:q} '
         '-db {params.db:q} -o {params.prefix:q} > {log:q} 2>&1; '
         "else printf 'seq\\tname\\tfreq\\tmir\\tstart\\tend\\tmism\\tadd\\tt5\\tt3\\ts5\\ts3\\tDB\\tprecursor\\tambiguity\\n' > {output:q}; "
         'echo "no sequences" > {log:q}; fi'

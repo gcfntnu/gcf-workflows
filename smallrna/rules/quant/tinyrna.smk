@@ -31,6 +31,7 @@ include:
     join(GCFDB_DIR, 'tinyrna.db')
 
 TINYRNA_OUT = join(QUANT_INTERIM, 'tinyrna')
+TINYRNA_BOWTIE = '--all --best --strata --no-unal --sam --seed 0'  # after -v <quant.tinyrna.mismatch>
 
 
 def tinyrna_flag(key):
@@ -55,6 +56,13 @@ def tinyrna_normalize(wildcards):
 if TINYRNA_SELECTED:
     tinyrna_mismatch(None)
     tinyrna_normalize(None)
+
+
+def tinyrna_settings():
+    """The settings that decide tiny-count's counting, recorded with its table (quant_settings, #417)."""
+    keys = ('mismatch', 'five_prime_offsets', 'three_prime_extension', 'strand', 'length', 'normalize_by_genomic_hits', 'normalize_by_feature_hits')
+    return [(key, str(TINYRNA_CONF[key]), 'quant.tinyrna.' + key) for key in keys] + \
+        [('bowtie', '-v {} {}'.format(tinyrna_mismatch(None), TINYRNA_BOWTIE), 'quant.tinyrna.mismatch and fixed')]
 
 
 rule tinyrna_features:
@@ -96,7 +104,8 @@ rule tinyrna_align:
         join(TINYRNA_OUT, '{sample}', '{sample}.bam')
     params:
         index = TINYRNA_INDEX,
-        mismatch = tinyrna_mismatch
+        mismatch = tinyrna_mismatch,
+        bowtie = TINYRNA_BOWTIE
     # One thread: Bowtie 1.3.1 with --reorder and more than one thread deadlocks on a full human genome index, and a
     # sample's unique sequences align in seconds. A single thread writes the reads in input order, each read's
     # alignments together, as tiny-count needs.
@@ -114,7 +123,7 @@ rule tinyrna_align:
         'docker://' + config['docker']['tiny-count']
     shell:
         # --no-PG keeps Bowtie as the last program in the header, which tiny-count checks.
-        'bowtie -x {params.index:q} -f {input.reads:q} -v {params.mismatch} --all --best --strata --no-unal --sam --seed 0 '
+        'bowtie -x {params.index:q} -f {input.reads:q} -v {params.mismatch} {params.bowtie} '
         '2> {log:q} | samtools view -b --no-PG -o {output:q} -'
 
 

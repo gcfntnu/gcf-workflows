@@ -29,6 +29,17 @@ SMRNASEQ_INDEX = ('1.ebwt', '2.ebwt', '3.ebwt', '4.ebwt', 'rev.1.ebwt', 'rev.2.e
 if SMRNASEQ_SELECTED and config['organism'] not in SMRNASEQ_SPECIES:
     raise ValueError('quant.method smrnaseq supports organism {}, got {!r}'.format(', '.join(SMRNASEQ_SPECIES), config['organism']))
 SMRNASEQ_SPS = SMRNASEQ_SPECIES.get(config['organism'], '')
+SMRNASEQ_COLLAPSE = '-m 1 --min_size 15'
+SMRNASEQ_BOWTIE = '-t -k 50 --best --strata -e 99999 --chunkmbs 2048'
+SMRNASEQ_MIRTOP = '--add-extra'
+
+
+def smrnaseq_settings():
+    """The settings that decide the smrnaseq route's counting, recorded with its table (quant_settings, #417)."""
+    return [('collapse', 'seqcluster collapse ' + SMRNASEQ_COLLAPSE, 'fixed'),
+            ('bowtie', SMRNASEQ_BOWTIE + " (Bowtie's -n 2 mode: up to 2 mismatches in a 28-nt seed)", 'fixed'),
+            ('mirtop', 'mirtop counts ' + SMRNASEQ_MIRTOP, 'fixed'),
+            ('several_mirnas', 'a read annotated to several miRNAs counts for the first row (smrnaseq_counts.py)', 'fixed')]
 
 
 rule smrnaseq_hairpin:
@@ -72,7 +83,8 @@ rule smrnaseq_collapse:
     output:
         join(SMRNASEQ_OUT, 'collapsed', '{sample}.fastq')
     params:
-        work = join(SMRNASEQ_OUT, 'collapsed', '{sample}.work')
+        work = join(SMRNASEQ_OUT, 'collapsed', '{sample}.work'),
+        collapse = SMRNASEQ_COLLAPSE
     log:
         join(SMRNASEQ_OUT, 'collapsed', '{sample}.log')
     benchmark:
@@ -81,7 +93,7 @@ rule smrnaseq_collapse:
         'docker://' + config['docker']['smrnaseq_seqcluster']
     shell:
         # seqcluster names its output after the input file (<name>_trimmed.fastq), so each sample gets its own directory.
-        'rm -rf {params.work:q} && seqcluster collapse -m 1 --min_size 15 -f {input:q} -o {params.work:q} > {log:q} 2>&1 && '
+        'rm -rf {params.work:q} && seqcluster collapse {params.collapse} -f {input:q} -o {params.work:q} > {log:q} 2>&1 && '
         'mv {params.work:q}/*_trimmed.fastq {output:q} && rm -r {params.work:q}'
 
 
@@ -94,7 +106,7 @@ rule smrnaseq_align:
         join(SMRNASEQ_OUT, 'bam', '{sample}.bam')
     params:
         index = rules.smrnaseq_hairpin_index.params.prefix,
-        args = '-t -k 50 --best --strata -e 99999 --chunkmbs 2048'
+        args = SMRNASEQ_BOWTIE
     threads:
         4
     log:
@@ -118,6 +130,7 @@ rule smrnaseq_mirtop:
         gff = join(SMRNASEQ_OUT, 'mirtop', '{sample}', 'mirtop.gff'),
         counts = join(SMRNASEQ_OUT, 'mirtop', '{sample}', 'counts', 'mirtop.tsv')
     params:
+        mirtop = SMRNASEQ_MIRTOP,
         out = join(SMRNASEQ_OUT, 'mirtop', '{sample}'),
         species = SMRNASEQ_SPS
     log:
@@ -128,7 +141,7 @@ rule smrnaseq_mirtop:
         'docker://' + config['docker']['smrnaseq_mirtop']
     shell:
         'mirtop gff --sps {params.species} --hairpin {input.hairpin:q} --gtf {input.gff:q} -o {params.out:q} {input.bam:q} > {log:q} 2>&1 && '
-        'mirtop counts --add-extra --hairpin {input.hairpin:q} --gtf {input.gff:q} --sps {params.species} --gff {output.gff:q} '
+        'mirtop counts {params.mirtop} --hairpin {input.hairpin:q} --gtf {input.gff:q} --sps {params.species} --gff {output.gff:q} '
         '-o {params.out:q}/counts >> {log:q} 2>&1'
 
 

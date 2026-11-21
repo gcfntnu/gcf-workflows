@@ -41,6 +41,14 @@ def unitas_args(wildcards, input):
     return '-refseq {}'.format(abspath(input.refseq)) if input.refseq else ''
 
 
+def unitas_settings():
+    """The settings that decide UNITAS's counting, recorded with its table (quant_settings, #417)."""
+    refseq = [os.path.basename(str(f)) for f in get_unitas_refseq_fasta()]
+    return [('refseq', ','.join(refseq) or 'none', 'filter.spikein, filter.contaminants'),
+            ('options', 'UNITAS defaults: no counting option is passed', 'fixed'),
+            ('several_annotations', 'not split: the simplified miR table (unitas_mirtable.py)', 'fixed')]
+
+
 # Outputs are the files UNITAS always writes. unitas.piRcandidates-tails_<species>.txt is written only when the dump has a
 # piRNA cluster database and some reads have no annotation; it is delivered with the sample directory when present.
 rule unitas:

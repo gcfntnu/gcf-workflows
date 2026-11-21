@@ -62,6 +62,12 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    recorded by hand in `benchmark/not_run.tsv` with the columns `route` and `reason`) or `stopped` (a check above
    failed, with the check's message). `routes.tsv` and the report's Routes section list them, and the summary shows
    the state in the route's cells.
+   **Counting settings** (#417): each route records the settings that decide its counting with its count table
+   (`quant/<route>/settings.tsv`, written by the workflow's `quant_settings` rule from the values its commands use, with
+   the table's SHA-256): e.g. tiny-count's mismatches and hit normalisations, TEsmall's class order, miRge3's
+   arguments and project rule, mirflowz's run configuration. The report's Routes section lists them per evaluated
+   route (`fixed` ones set in the rule or script), and `settings.tsv` holds them all. A record written for another
+   table stops the route; a project quantified before #417 has none ("not recorded").
    The last section of `report.md` is each method's runtime and memory (#386, `resources.py`), from the Snakemake
    benchmark files its rules write under `quant/benchmarks/`. Per method:
    - the wall time and CPU time of its quantification jobs, summed;

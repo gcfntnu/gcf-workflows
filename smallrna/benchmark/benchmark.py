@@ -735,6 +735,26 @@ def run_resources(project, bench, spec, reads):
         fail(str(error))
 
 
+def route_settings(project, route):
+    """[(field, value, source)] of a route's counting settings, recorded with its count table by quant_settings
+    (quant/<route>/settings.tsv, #417), or None for a project quantified before they were recorded."""
+    path = project / 'data/tmp/smallrna/quant' / route / 'settings.tsv'
+    if not path.is_file():
+        return None
+    return [(row['field'], row['value'], row['source']) for row in read_tsv(path) if row['field'] != 'table_sha256']
+
+
+def settings_lines(settings):
+    """report.md's lines on the evaluated routes' counting settings (#417), and settings.tsv's text."""
+    lines = ['', 'Counting settings (#417), as each route recorded them with its count table (`quant/<route>/settings.tsv`; all in '
+             '`settings.tsv`); `fixed` ones are set in the rule or script, the others by the configuration or the kit:', '']
+    for route, rows in settings.items():
+        lines.append('- {}: {}'.format(route, 'not recorded (quantified before #417)' if rows is None else '; '.join(
+            '{}{} `{}`'.format(field, ' (fixed)' if source == 'fixed' else '', value) for field, value, source in rows)))
+    text = 'route\tfield\tvalue\tsource\n' + ''.join('{}\t{}\t{}\t{}\n'.format(route, *row) for route, rows in settings.items() for row in rows or [])
+    return lines, text
+
+
 def publish(project, bench, spec, header, rows, lines, extra, record):
     """evaluation.publish with the run's reads processed, the declared routes' states (#448) and the methods' runtime
     and memory as the last report sections, with routes.tsv and resources.tsv."""
@@ -745,8 +765,9 @@ def publish(project, bench, spec, header, rows, lines, extra, record):
                    '`benchmark/not_run.tsv`; `stopped`, a check before scoring failed, and the other routes are scored without it.',
                    ''] + md_table(['route', 'state', 'reason'], [list(s) for s in states])
     routes = '\n'.join('\t'.join(row) for row in [('route', 'state', 'reason'), *states]) + '\n'
-    evaluation.publish(bench, header, rows, lines + route_lines + resource_lines, reads,
-                       {**extra, 'routes.tsv': routes, 'resources.tsv': text}, record)
+    setting_lines, settings = settings_lines(spec.get('route_settings') or {})
+    evaluation.publish(bench, header, rows, lines + route_lines + setting_lines + resource_lines, reads,
+                       {**extra, 'routes.tsv': routes, 'settings.tsv': settings, 'resources.tsv': text}, record)
 
 
 def nonnegative(text):
@@ -828,6 +849,13 @@ def check_methods(project, spec, config):
             expected = str(spec['mirbase']['release'])
             if database != 'mirbase' or release != expected:
                 problems.append('annotated with {} {}, but the dataset declares miRBase {}'.format(database, release, expected))
+        settings = quant / method / 'settings.tsv'  # the route's counting settings (#417), bound to its table like the record
+        if settings.is_file():
+            try:
+                if adapters.method_record(method, quant, ('table_sha256',), 'settings.tsv')['table_sha256'] != adapters.table_sha256(method, quant):
+                    problems.append('settings record was written for another count table; run `snakemake quant_all` there')
+            except ValueError as e:
+                problems.append(str(e))
         if problems:
             stopped[method] = '; '.join(problems)
     return stopped
@@ -876,7 +904,8 @@ def evaluate(args):
     scored = [route for route, state, _ in states if state == 'evaluated']
     if not scored:
         fail('no route can be scored: {}'.format('; '.join('{}: {}'.format(r, why) for r, _, why in states)))
-    spec = dict(spec, methods=scored, route_states=states)  # the stopped routes are left out of every table
+    spec = dict(spec, methods=scored, route_states=states,  # the stopped routes are left out of every table
+                route_settings={route: route_settings(project, route) for route in scored})
     for route, state, reason in states:  # visible to a script that reads only exit codes and the last lines
         if state == 'stopped':
             print('benchmark.py: {} stopped, scored without it: {}'.format(route, reason), file=sys.stderr)

@@ -28,6 +28,16 @@ TESMALL_OUT = join(QUANT_INTERIM, 'tesmall')
 TESMALL_MIN_LENGTH = filtered_min_length() or 1  # no shared minimum: none of TEsmall's own either
 TESMALL_CLASSES = ('structural_RNA', 'miRNA', 'hairpin', 'exon', 'TE', 'intron', 'piRNA_cluster')
 TESMALL_ORDER = [c.strip() for c in str(TESMALL_CONF['order']).split(',') if c.strip()]
+TESMALL_ARGS = '-m {} -M {} --mismatch {} --maxaln {} -o {}'.format(TESMALL_MIN_LENGTH, TESMALL_CONF['max_length'],
+                                                                   TESMALL_CONF['mismatch'], TESMALL_CONF['maxaln'], ' '.join(TESMALL_ORDER))
+
+
+def tesmall_settings():
+    """The settings that decide TEsmall's counting, recorded with its table (quant_settings, #417)."""
+    return [('order', ','.join(TESMALL_ORDER), 'quant.tesmall.order'), ('max_length', str(TESMALL_CONF['max_length']), 'quant.tesmall.max_length'),
+            ('mismatch', str(TESMALL_CONF['mismatch']), 'quant.tesmall.mismatch'), ('maxaln', str(TESMALL_CONF['maxaln']), 'quant.tesmall.maxaln'),
+            ('minimum_length', str(TESMALL_MIN_LENGTH), 'kit'), ('arguments', '--no-trim ' + TESMALL_ARGS, 'fixed and the above'),
+            ('multimappers', 'split equally within a class; counts rounded by TEsmall', 'fixed')]
 
 if TESMALL_SELECTED:
     dotted = [s for s in SAMPLES if '.' in s]
@@ -52,8 +62,7 @@ rule tesmall_quant:
         work = join(TESMALL_OUT, '{sample}'),
         db = TESMALL_DB,
         name = TESMALL_NAME,
-        args = '-m {} -M {} --mismatch {} --maxaln {} -o {}'.format(TESMALL_MIN_LENGTH, TESMALL_CONF['max_length'],
-                                                                   TESMALL_CONF['mismatch'], TESMALL_CONF['maxaln'], ' '.join(TESMALL_ORDER)),
+        args = TESMALL_ARGS,
         script = src_gcf('scripts/tesmall_check.py')
     threads:
         1

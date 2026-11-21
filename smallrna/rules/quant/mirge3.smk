@@ -16,6 +16,8 @@ if MIRGE3_DB not in MIRGE3_DATABASES:
 import shlex
 
 MIRGE3_MIN_LENGTH = filtered_min_length() or 1
+# --crThreshold 0: miRge3 otherwise zeroes miRNAs whose exact reads are at most 10% of their isomiR reads (#347)
+MIRGE3_ARGS = '--gff-out --isoform-entropy --AtoI --crThreshold 0 '
 
 def get_args(wildcards):
     args = ''
@@ -24,6 +26,14 @@ def get_args(wildcards):
     if SPIKEIN_NATIVE:
         args += ' --spikeIn '
     return args
+
+
+def mirge3_settings():
+    """The settings that decide miRge3's counting, recorded with its table (quant_settings, #417)."""
+    return [('mir_db', MIRGE3_DATABASES[MIRGE3_DB], 'quant.mirge3.db'), ('minimum_length', str(MIRGE3_MIN_LENGTH), 'kit'),
+            ('arguments', ' '.join((MIRGE3_ARGS + get_args(None)).split()), 'fixed'),
+            ('identical_sequences', 'folded by the library merge file {}_merges_{}.csv'.format(MIRGE_ORG, MIRGE3_DATABASES[MIRGE3_DB]), 'fixed'),
+            ('project_rule', 'a miRNA needs 2 exact reads in the project (mirge3_counts.py MIN_PROJECT_EXACT)', 'fixed')]
 
 def mirge3_links(wildcards, input):
     """Links named <sample>.fastq, so miRge3 names its columns by sample; made inside the job because the filtered
@@ -102,15 +112,14 @@ rule mirge3_quant:
         lib = MIRGE3_PROJECT_LIB,
         org = MIRGE_ORG,
         db = MIRGE3_DATABASES[MIRGE3_DB],
-        # --crThreshold 0: miRge3 otherwise zeroes miRNAs whose exact reads are at most 10% of their isomiR reads (#347)
-        args = '--gff-out --isoform-entropy --AtoI --crThreshold 0 ',
+        args = MIRGE3_ARGS,
         specific_args = get_args,
         tmp_out = join(QUANT_INTERIM, 'mirge3', MIRGE3_DB),
         out = join(QUANT_INTERIM, 'mirge3'),
         collect = src_gcf('scripts/mirge3_collect.py'),
         # Names other rules own in the miRge3 folder; miRge3 writing one of them stops the job (mirge3_collect.py)
         reserved = ' '.join(os.path.basename(p) for p in (MIRGE3_FASTQ_DIR, MIRGE3_PROJECT_LIB, join(QUANT_INTERIM, 'mirge3', MIRGE3_DB),
-                            'spikein.tsv', 'reference.tsv', 'miR.Counts.mirge3.csv', 'unmapped.fasta'))
+                            'spikein.tsv', 'reference.tsv', 'settings.tsv', 'miR.Counts.mirge3.csv', 'unmapped.fasta'))
     threads:
         8
     benchmark:
