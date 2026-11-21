@@ -2910,19 +2910,24 @@ def test_routes_not_evaluated_get_a_state_in_the_report_and_the_summary(tmp_path
     assert routes == ['route\tstate\treason', 'unitas\tevaluated\t',
                       'mirge3\tstopped\tcount table missing (mirge3/miR.Counts.csv); run `snakemake quant_all` there',
                       'tinyrna\tnot run\tnot selected at prepare']
+    assert 'benchmark.py: mirge3 stopped, scored without it: count table missing' in result.stderr
     report = (bench / 'report.md').read_text()
     assert '## Routes' in report and '| tinyrna | not run | not selected at prepare |' in report
     assert (bench / 'metrics.tsv').read_text().splitlines()[0] == 'metric\tunitas'   # scored without the stopped route
     write(bench / 'not_run.tsv', 'route\treason\nmirge3\tneeds more memory than the run had\n')
     result = evaluate_cmd(project)
     assert result.returncode == 0, result.stderr
-    assert 'mirge3\tnot run\tneeds more memory than the run had' in (bench / 'routes.tsv').read_text()
+    assert 'mirge3\tnot run\tneeds more memory than the run had' in (bench / 'routes.tsv').read_text() and 'stopped' not in result.stderr
     summary_md = tmp_path / 'summary.md'
     result = subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'summary', '--projects', str(project), '--output', str(summary_md)],
                             capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
     row = next(line for line in summary_md.read_text().splitlines() if line.startswith('| [project]'))
     assert row.count('not run') == 2 * 6 and 'stopped' not in row   # mirge3 and tinyrna in each of the 6 key metrics
+    write(bench / 'routes.tsv', 'route\tstate\treason\nunitas\tstopped\tedited\n')   # not the published file: the summary refuses it
+    result = subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'summary', '--projects', str(project), '--output', str(summary_md)],
+                            capture_output=True, text=True, timeout=60)
+    assert result.returncode != 0 and 'incomplete or inconsistent evaluation' in result.stderr
     write(bench / 'not_run.tsv', 'route\treason\nmirflowz\tnot declared here\n')
     result = evaluate_cmd(project)
     assert result.returncode != 0 and 'not_run.tsv: mirflowz not declared for this project' in result.stderr

@@ -721,6 +721,9 @@ def evaluate(args):
     if not scored:
         fail('no route can be scored: {}'.format('; '.join('{}: {}'.format(r, why) for r, _, why in states)))
     spec = dict(spec, methods=scored, route_states=states)  # the stopped routes are left out of every table
+    for route, state, reason in states:  # visible to a script that reads only exit codes and the last lines
+        if state == 'stopped':
+            print('benchmark.py: {} stopped, scored without it: {}'.format(route, reason), file=sys.stderr)
     if args.de:
         check_de_results(project, bench, spec)
     run_resources(project, bench, spec, None)  # benchmark files checked before any scoring table is written
