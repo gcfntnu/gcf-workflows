@@ -30,7 +30,7 @@ isomiR table (#454): for the methods that report read sequences, one row per met
 sequence (ISOMIR_COLUMNS), counted by the method's own rule, so that a miRNA's rows add up to its count in the common
 table (check_isomirs). `label` is the method's own call, canonical or isomiR (empty for UNITAS, which has none):
 
-- UNITAS: each sample's unitas.miR-table_<organism>.txt, whose sequence is the read without its non-templated 3' tail,
+- UNITAS: each sample's unitas.miR-table_<organism>.txt (not the non-<organism> one), whose sequence is the read without its non-templated 3' tail,
   with the reads split by tail (`+N0-3'` none, `A-tailed_reads`, `AA-tailed_reads`, ...): each read is rebuilt as the
   sequence plus its tail. The name is taken without the modification UNITAS appends to a read with a substitution
   (`miR-548x-3p(1T->A)`), as mir_counts.tsv counts it, and placed as in the common table;
@@ -296,9 +296,11 @@ MIRTOP_ANNOTATION = ('UID', 'Read', 'miRNA', 'Variant', 'iso_5p', 'iso_3p', 'iso
 def unitas_isomirs(quant_dir, name_to_id, prefix, unitas_hairpins=None, mature=None, **_):
     rows, placed = [], {}
     for sample in table_samples('unitas', quant_dir):
-        found = sorted((Path(quant_dir) / 'unitas' / 'unitas' / sample).glob('unitas.miR-table_*.txt'))
+        found = [path for path in sorted((Path(quant_dir) / 'unitas' / 'unitas' / sample).glob('unitas.miR-table_*.txt'))
+                 if not path.name.startswith('unitas.miR-table_non-')]  # other species' miRNAs, not counted by the route
         if len(found) != 1:
-            raise ValueError('{}: expected one unitas.miR-table_<organism>.txt, found {}'.format(Path(quant_dir) / 'unitas' / 'unitas' / sample, len(found)))
+            raise ValueError('{}: expected one unitas.miR-table_<organism>.txt (besides the non-<organism> one), found {}'.format(
+                Path(quant_dir) / 'unitas' / 'unitas' / sample, len(found)))
         with open(found[0], newline='') as fh:
             reader = csv.reader(fh, delimiter='\t')
             header = next(reader, [])

@@ -2374,6 +2374,7 @@ def native_isomir_outputs(quant):
     write(quant / 'unitas/unitas/S01/unitas.miR-table_Mouse.txt', UNITAS_MIR_TABLE + 'miR-192-5p\t{0}\t40\t35\t5\t0\t5\t0\n'
           'miR-192-5p(5C->T) \t{2}\t5\t5\t0\t0\t0\t0\nmiR-194-2-5p\t{1}\t5\t5\t0\t0\t0\t0\n'.format(MMU_192, MMU_194, MMU_192_T))
     write(quant / 'unitas/unitas/S02/unitas.miR-table_Mouse.txt', UNITAS_MIR_TABLE + 'miR-192-5p\t{}\t45\t45\t0\t0\t0\t0\n'.format(MMU_192))
+    write(quant / 'unitas/unitas/S02/unitas.miR-table_non-Mouse.txt', UNITAS_MIR_TABLE + 'miR-192-5p\t{}\t9\t9\t0\t0\t0\t0\n'.format(MMU_192))
     write(quant / 'mirge3/miR.Counts.csv', 'miRNA,S01,S02\nmmu-miR-192-5p,45,45\nmmu-miR-194-5p/204-5p,25,25\nmmu-miR-9999-5p,0,0\n')
     write(quant / 'mirge3/mapped.csv', 'Sequence,annotFlag,exact miRNA,hairpin miRNA,mature tRNA,primary tRNA,snoRNA,rRNA,ncrna others,'
           'mRNA,isomiR miRNA,S01,S02\n'
