@@ -314,7 +314,7 @@ the best the design allows) as a column:
   a variant of another mature beyond these classes (a 2-nt 3′ trim of miR-320d-3p is the 5′ 17 nt of the miR-320
   family). The truth keeps its origin, which no counting method can know, so a method may count such reads on a
   relative.
-- **isomiRs** (#454, mixed samples, no intervals yet): a true read counts as reported when the method reports its own
+- **isomiRs** (#454; mixed samples; intervals resample the miRNAs, #459): a true read counts as reported when the method reports its own
   sequence on its miRNA, up to the true count. `isomir_recovered_<class>` per read class (`canonical`, the isomiR
   classes, and `substituted` for reads with a substitution), and `isomir_recovered` over the isomiR classes. Over a
   method's reads: `isomir_misassigned` (on a sequence the sample has under another miRNA or as a random read) and
@@ -392,7 +392,7 @@ miRNA), `exact` (share of miRNAs counted exactly, to within 1e-6 for the fractio
   `edger_fc_error_vs_oracle.Lab1`. They are in `metrics.tsv`, `metrics_ci.tsv` and `differences.tsv`, whose paired
   differences show whether a difference between methods holds in each lab. The report shows their values in a section
   of their own, outside the main table and the uncertainty section.
-- **isomiRs** (#454; no intervals yet, so they are left out of the uncertainty files). Against the oracle, per run: `exact_sequence_recovered` and
+- **isomiRs** (#454; intervals resample the scored sequences and the runs, #459). Against the oracle, per run: `exact_sequence_recovered` and
   `shifted_isomir_recovered`, the share of the oracle's reads of the scored `exact` and `shifted` sequences a method
   reports as that sequence on the entry's miRNA, and `shifted_isomir_within_2fold`. A synthetic pool holds only its
   designed sequences, so a method's reads on other sequences of its miRNAs are library or sequencing artefacts
@@ -422,8 +422,9 @@ miRNA reads):
   reported as `unplaced`, with the names that have most.
 - **Per method:** miRNA reads, `unplaced`, miRNAs detected per sample and in every sample, and the share of the 10 most abundant.
 - **isomiRs** (#454), a description: `isomir_share` (the share of a method's miRNA reads that are not the mature
-  sequence) and `isomirs_detected` (sequences with at least 10 reads over all samples); the report adds each method's
-  reads by kind and the overlap of detected isomiRs between methods (Jaccard).
+  sequence; its interval resamples the samples, #459) and `isomirs_detected` (sequences with at least 10 reads over all
+  samples; no interval, as `detected_all_samples`); the report adds each method's reads by kind and the overlap of
+  detected isomiRs between methods (Jaccard).
 - **Between methods**, per pair (medians over samples): Spearman of log2(CPM + 1) over the miRNAs either detects
   and over those both detect, median |log2 CPM ratio| over those both detect, overlap of the 100 most abundant, and miRNAs only one detects
   (`only_a` and `only_b` for the first and second method of the pair).
