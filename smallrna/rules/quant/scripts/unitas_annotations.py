@@ -9,6 +9,39 @@ warnings.filterwarnings("ignore", message="numpy.dtype size changed")
 
 import pandas as pd
 
+import unitas_misc_rna
+
+
+def move_y_rna(df, moved, source):
+    """The sample's class table with the Y RNA that Ensembl files under another class moved to misc_RNA (#423): `moved`
+    is {class: reads} from its hits_per_target table (unitas_misc_rna.y_rna_by_class). The classes still add up; a
+    class left without reads (rat's Y_RNA) is dropped."""
+    moved = {name: reads for name, reads in moved.items() if reads > 0}
+    if not moved:
+        return df
+    df = df.copy()
+    df['Count'] = df['Count'].astype(float)
+    top = (df.Level2 == '') & (df.Level3 == '')
+    for name, reads in moved.items():
+        rows = df.index[top & (df.Level1 == name)]
+        if len(rows) != 1 or df.loc[rows[0], 'Count'] < reads * (1 - unitas_misc_rna.TOTAL_REL_TOL):
+            raise ValueError('{}: its {} targets that are Y RNA have {!r} reads, but the summary has {} for the class'.format(
+                source, name, reads, 'no single row' if len(rows) != 1 else repr(float(df.loc[rows[0], 'Count']))))
+        left = df.loc[rows[0], 'Count'] - reads
+        if left <= reads * unitas_misc_rna.TOTAL_REL_TOL:
+            df = df[df.Level1 != name]
+            top = (df.Level2 == '') & (df.Level3 == '')
+        else:
+            df.loc[rows[0], 'Count'] = left
+    total = sum(moved.values())
+    rows = df.index[top & (df.Level1 == 'misc_RNA')]
+    if len(rows):
+        df.loc[rows[0], 'Count'] += total
+    else:
+        df = pd.concat([df, pd.DataFrame([{'Level1': 'misc_RNA', 'Level2': '', 'Level3': '', 'Count': total}])], ignore_index=True)
+    return df
+
+
 def samplesheet_ids(fn, sep='\t'):
     sample_ids = []
     with open(fn) as fh:
@@ -64,6 +97,8 @@ def argparser():
     parser = argparse.ArgumentParser(description='Aggregate unitas tables')
     parser.add_argument('--sample-sheet', help='Optional sample sheet. Will subset aggregated table if needed', dest='samples')
     parser.add_argument('-o ', '--output', help='Output prefix')
+    parser.add_argument('--hits-per-target', nargs='+', default=[], dest='hits',
+                        help="each sample's unitas.hits_per_target.txt: its Y RNA outside the misc_RNA class is moved there (#423)")
     parser.add_argument('filenames', nargs='+')
     args = parser.parse_args()
     return args
@@ -77,9 +112,15 @@ if __name__ == '__main__':
     
 
     
+    hits = {os.path.dirname(fn).split(os.path.sep)[-1]: fn for fn in args.hits}
     for fn in args.filenames:
         sample_id = os.path.dirname(fn).split(os.path.sep)[-1]
         df = file2pandas(fn)
+        if sample_id in hits:
+            try:
+                df = move_y_rna(df, unitas_misc_rna.y_rna_by_class(hits[sample_id]), hits[sample_id])
+            except (OSError, ValueError) as error:
+                sys.exit('unitas_annotations.py: {}'.format(error))
         df['Sample_ID'] = [sample_id] * df.shape[0]
         df_list.append(df)
     DF = pd.concat(df_list, axis=0, join='outer', sort=False)
