@@ -144,7 +144,11 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    `report.md`, and the kind's key metrics from its `metrics.tsv` per method (and the oracle, where it has values),
    each with its bootstrap interval in parentheses when the evaluation has one.
    A declared route that was not evaluated shows its state, `not run` or `stopped` (#448); a metric missing from a
-   project's table, or a method not declared there, is an empty cell. It writes nothing into the
+   project's table, or a method not declared there, is an empty cell.
+   Projects of one synthetic declaration that differ only by the seed of the draw (`prepare --synthetic-seed`, #455)
+   also get a table over the seeds after their section: per key metric and route the mean and the range, and how many
+   pairs of the routes with a value in every seed keep their order in every seed. Two projects with one seed stop it. The seed is read from `evaluation.json`
+   (`synthetic_seed`), or from the project's `benchmark/dataset.yaml` for an earlier evaluation. It writes nothing into the
    projects; an output inside one stops it. New evaluations publish `evaluation.json` with checksums for the metrics
    and report. For an older evaluation, the metrics must match the complete metrics table embedded in the report.
    New evaluations coordinate readers and writers through a regular lock file in the benchmark directory. Legacy
@@ -240,7 +244,10 @@ python smallrna/benchmark/benchmark.py fill --dataset smallrna/benchmark/dataset
 
 `prepare` links the runs into the project, or copies the first `--reads N` reads of each for a quick run; `--methods`
 picks a subset of the declared methods (mirflowz and TEsmall on human need the full human reference), and, for a
-biological dataset, `--per-group N` the first N samples of each group in declared order. Every declaration lists the
+biological dataset, `--per-group N` the first N samples of each group in declared order; for a synthetic dataset,
+`--synthetic-seed N` another draw of the same declaration (#455: the miRNAs chosen, their abundances and changes, the
+counts and, for the genome-wide set, the decoys), each seed a project of its own, recorded in its
+`benchmark/dataset.yaml` and in `evaluation.json`. Every declaration lists the
 eight routes (#448); the ones left out at `prepare` are `not run` in the evaluation. Run `quant_all` with
 `--notemp`: the oracle count reads the workflow's filtered reads, those of the project's filter route (`filter/cutadapt/`
 with the kit default; the spike-in prefilter's when the project's `filter.spikein.ref` lists sets removed by Bowtie,

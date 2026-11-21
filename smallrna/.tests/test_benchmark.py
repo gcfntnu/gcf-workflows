@@ -3127,3 +3127,30 @@ def test_evaluate_a_knockout_dataset(tmp_path):
     tsv = (bench / 'knockout.tsv').read_text().splitlines()
     assert tsv[0] == 'method\tgroup\tmature_id\tmirna\tcontrol_reads\tknockout_reads\tratio\tsurviving'
     assert 'unitas\tDROSHA KO\tMIMAT0000076\thsa-miR-21-5p\t40.0\t20.0\t0.5\t1' in tsv and len(tsv) == 1 + 4   # miR-451a not tested
+
+
+def test_the_summary_groups_the_seeds_of_one_synthetic_declaration(tmp_path):
+    """#455: projects of one synthetic declaration that differ only by the seed of the draw (or by the routes selected)
+    get a table over the seeds: mean and range per key metric and route, and whether the routes rank the same in each."""
+    import summary
+    root = tmp_path / 'projects'
+    base = {'libprepkit': 'Kit A', 'name': 'synthetic_set', 'kind': 'synthetic', 'methods': ['unitas', 'tesmall']}
+    values = {1: ('0.9', '0.8', '0.5', '0.6'), 2: ('0.95', '0.85', '0.7', '0.6'), 3: ('0.92', '0.7', '0.6', '0.65')}
+    projects = [summary_project(root, 'seed{}'.format(n), dict(base, synthetic={'mode': 'reduced', 'seed': n}),
+                                [['metric', 'unitas', 'tesmall'], ['recovered', a, b], ['exact', c, d]], truth=[('S01', 60)])
+                for n, (a, b, c, d) in values.items()]
+    projects.append(summary_project(root, 'other', dict(base, synthetic={'mode': 'reduced', 'seed': 4, 'mirnas': 10}),  # another set
+                                    [['metric', 'unitas', 'tesmall'], ['recovered', '0.1', '0.2'], ['exact', '0.1', '0.2']], truth=[('S01', 60)]))
+    out = tmp_path / 'summary.md'
+    summary.write(projects, out)
+    text = out.read_text()
+    table = text.split('### synthetic_set over seeds 1, 2, 3')[1]
+    assert '| recovered | 0.9233 (0.9–0.95) | 0.7833 (0.7–0.85) | 1 of 1 pairs |' in table  # unitas above tesmall in each
+    assert '| exact | 0.6 (0.5–0.7) | 0.6167 (0.6–0.65) | 0 of 1 pairs |' in table          # tesmall first in seed 1 only
+    assert 'over seeds 1, 2, 3, 4' not in text and text.count('over seeds') == 1               # the other declaration stays apart
+    summary.write(projects, tmp_path / 'summary.html')
+    assert 'synthetic_set over seeds 1, 2, 3' in (tmp_path / 'summary.html').read_text()
+    twice = summary_project(root, 'seed2_again', dict(base, synthetic={'mode': 'reduced', 'seed': 2}),
+                            [['metric', 'unitas', 'tesmall'], ['recovered', '0.9', '0.8']], truth=[('S01', 60)])
+    with pytest.raises(ValueError, match='with the same seed 2'):
+        summary.write(projects + [twice], tmp_path / 'again.md')
