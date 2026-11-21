@@ -137,7 +137,8 @@ def de_contrast(spec, units=None):
     if kind == 'pool':
         return 'A', 'B'
     if kind == 'biological':
-        return tuple(str(group) for group in (spec['de'] or {})['contrast'])  # as text, as samples.tsv has the groups
+        contrast = (spec['de'] or {}).get('contrast')  # None with null comparisons only (#449)
+        return tuple(str(group) for group in contrast) if contrast else None  # as text, as samples.tsv has the groups
     signs = {group: {float(fields['factor_group']) > 0 for _, g, fields in units if g == group} for _, group, _ in units}
     if len(signs) != 2 or sorted(signs.values(), key=sorted) != [{False}, {True}]:
         fail('benchmark/samples.tsv: the mixed samples need two groups, one with a positive and one with a negative factor_group')
@@ -148,13 +149,15 @@ def check_de(spec, path):
     """A dataset's `de:` (#414, #447). A ratiometric pool and a biological dataset take `covariates`, columns of their
     runs or samples for the design of edgeR's GLM test and voom, and `within` (#444), a column whose levels are also
     tested on their own, each with the other covariates; a biological dataset names its `contrast`, [numerator,
-    denominator] of its samples' groups. The genome-wide synthetic dataset takes no option: its contrast and sets come
-    from its design (de_contrast, de_sets). The whole dataset's design and each level's pass check_design."""
+    denominator] of its samples' groups, and `null` (#449), {splits, seed} of null comparisons within its groups (a
+    contrast, null comparisons or both). The genome-wide synthetic dataset takes no option: its contrast and sets come
+    from its design (de_contrast, de_sets). The whole dataset's design, each level's and each null split's pass
+    check_design."""
     kind = de_kind(spec)
     if kind is None:
         fail('{}: `de` (differential expression, #414) is for {}'.format(path, DE_KINDS))
     declared = spec['de'] or {}
-    options = {'pool': ['covariates', 'within'], 'synthetic': [], 'biological': ['contrast', 'covariates', 'within']}[kind]
+    options = {'pool': ['covariates', 'within'], 'synthetic': [], 'biological': ['contrast', 'covariates', 'within', 'null']}[kind]
     if not isinstance(declared, dict) or set(declared) - set(options):
         names = ['`{}`'.format(o) for o in options]
         fail('{}: `de` takes {}'.format(path, 'only ' + ' and '.join([', '.join(names[:-1])] * (len(names) > 1) + names[-1:]) if names else
@@ -164,6 +167,20 @@ def check_de(spec, path):
     unit = 'run' if kind == 'pool' else 'sample'
     # Groups as text: samples.tsv, which the evaluation reads, has them as text, and YAML may give numbers (100, 0).
     units = [(None if u.get('group') is None else str(u['group']), u) for u in (spec['runs'] if kind == 'pool' else spec['samples'])]
+    if kind == 'biological' and 'contrast' not in declared and 'null' not in declared:
+        fail('{}: a biological dataset\'s `de` needs a `contrast`, `null` comparisons (#449) or both'.format(path))
+    covariates = declared.get('covariates') or []
+    if not isinstance(covariates, list) or len(set(covariates)) != len(covariates) or \
+            not all(isinstance(c, str) and de.NAME.fullmatch(c) and c not in ('sample', 'group', 'row') for c in covariates):
+        fail('{}: de.covariates must be distinct column names (letters, digits and `_`, starting with a letter; not sample, group '
+             'or row), got {!r}'.format(path, covariates))
+    within = declared.get('within')
+    if within is not None and (not isinstance(within, str) or not de.NAME.fullmatch(within)):
+        fail('{}: de.within must be a column name (letters, digits and `_`, starting with a letter), got {!r}'.format(path, within))
+    if kind == 'biological' and 'null' in declared:
+        check_null(declared['null'], units, covariates, covariates + ([within] if within and within not in covariates else []), path)
+    if kind == 'biological' and 'contrast' not in declared:
+        return
     if kind == 'biological':
         contrast = declared.get('contrast')
         present = {group for group, _ in units}
@@ -173,17 +190,9 @@ def check_de(spec, path):
             fail('{}: de.contrast must name two different groups of the samples, [numerator, denominator], got {!r}'.format(path, contrast))
     contrast = de_contrast(spec)
     units = [(group, fields) for group, fields in units if group in contrast]
-    covariates = declared.get('covariates') or []
-    if not isinstance(covariates, list) or len(set(covariates)) != len(covariates) or \
-            not all(isinstance(c, str) and de.NAME.fullmatch(c) and c not in ('sample', 'group', 'row') for c in covariates):
-        fail('{}: de.covariates must be distinct column names (letters, digits and `_`, starting with a letter; not sample, group '
-             'or row), got {!r}'.format(path, covariates))
     check_design(units, contrast, covariates, path, unit)
-    within = declared.get('within')
     if within is None:
         return
-    if not isinstance(within, str) or not de.NAME.fullmatch(within):
-        fail('{}: de.within must be a column name (letters, digits and `_`, starting with a letter), got {!r}'.format(path, within))
     values = [fields.get(within) for _, fields in units]
     if not all(isinstance(v, str) and de.LEVEL_NAME.fullmatch(v) for v in values) or len(set(values)) < 2:
         fail('{}: de.within {}: every {} needs a value that starts with a letter or digit and has only letters, digits, `.`, '
@@ -193,6 +202,33 @@ def check_de(spec, path):
     for level in sorted(set(values)):
         check_design([(group, fields) for group, fields in units if fields[within] == level], contrast, [c for c in covariates if c != within],
                      '{}: de.within {} {}'.format(path, within, level), unit)
+
+
+def null_covariates(members, covariates):
+    """The covariates of a group's null comparisons (#449): those that vary within the group; one the group's samples
+    share carries nothing about its halves, and would leave the design without full rank."""
+    return [c for c in covariates if len({str(fields.get(c)) for _, _, fields in members}) > 1]
+
+
+def check_null(declared, units, covariates, strata, path):
+    """A biological dataset's `de.null` (#449): {splits: 1 to 500, seed: a whole number}, at least one group with
+    de.NULL_MIN samples, and every split (balanced on the `strata` columns) passing check_design with the covariates
+    that vary in its group."""
+    whole = lambda v: isinstance(v, int) and not isinstance(v, bool)
+    if not isinstance(declared, dict) or set(declared) != {'splits', 'seed'} or not whole(declared['seed']) or \
+            not whole(declared['splits']) or not 1 <= declared['splits'] <= 500:
+        fail('{}: de.null takes `splits` (a whole number from 1 to 500) and `seed` (a whole number), got {!r}'.format(path, declared))
+    members = [(fields['sample'], group, fields) for group, fields in units if group is not None]
+    splits = de.null_splits(members, declared['splits'], declared['seed'], strata)
+    if not splits:
+        fail('{}: de.null needs a group with at least {} samples, two in each half'.format(path, de.NULL_MIN))
+    for group, halves in splits.items():
+        in_group = [m for m in members if m[1] == group]
+        names = null_covariates(in_group, covariates)
+        fields = {sample: f for sample, _, f in in_group}
+        for x, y in halves:
+            check_design([('x', fields[s]) for s in x] + [('y', fields[s]) for s in y], ('x', 'y'), names,
+                         '{}: de.null, a split of {}'.format(path, group), 'sample')
 
 
 def check_design(units, contrast, covariates, where, unit='run'):
@@ -1030,9 +1066,16 @@ def de_sets(spec, units):
     samples per group, for the report."""
     kind = de_kind(spec)
     declared = spec['de'] or {}
-    numerator, denominator = de_contrast(spec, units)
-    units = [unit for unit in units if unit[1] in (numerator, denominator)]
     min_mean = {'pool': 0, 'synthetic': genome_metrics.DE_MIN, 'biological': biological.MIN_READS}[kind]
+    covariates = list(declared.get('covariates') or [])
+    within = declared.get('within')
+    nulls = null_sets(declared['null'], units, covariates, covariates + ([within] if within and within not in covariates else []), min_mean) \
+        if kind == 'biological' and 'null' in declared else []
+    contrast = de_contrast(spec, units)
+    if contrast is None:
+        return nulls
+    numerator, denominator = contrast
+    units = [unit for unit in units if unit[1] in (numerator, denominator)]
 
     def de_set(suffix, folder, members, names, numeric=()):
         sizes = collections.Counter(group for _, group, _ in members)
@@ -1047,13 +1090,34 @@ def de_sets(spec, units):
 
     if kind == 'synthetic':
         return [de_set('', '', units, []), de_set('.adjusted', 'adjusted/nuisance', units, ['nuisance'], ['nuisance'])]
-    covariates = list(declared.get('covariates') or [])
-    within = declared.get('within')
     sets = [de_set('', '', units, covariates)]
     if within:
         others = [c for c in covariates if c != within]
         sets += [de_set('.' + level, '{}/{}'.format(within, level), [unit for unit in units if unit[2][within] == level], others)
                  for level in sorted({fields[within] for _, _, fields in units})]
+    return sets + nulls
+
+
+def null_sets(declared, units, covariates, strata, min_mean):
+    """The DE sets of a biological dataset's null comparisons (#449): each split of de.null_splits, within a group of
+    `units`, balanced on the `strata` columns (the covariates and `within`), as pseudo-groups x and y with the
+    covariates that vary in the group; suffix `.null.<group>-<k>`, folder `null/<group>-<k>` (de.folder_name), k from 1,
+    zero-padded."""
+    splits = de.null_splits(units, declared['splits'], declared['seed'], strata)
+    names = {group: de.folder_name(group) for group in splits}
+    if len(set(names.values())) != len(names):
+        fail('benchmark/samples.tsv: groups {} share a folder name for their null comparisons'.format(', '.join(sorted(names))))
+    sets = []
+    for group, halves in splits.items():
+        in_group = [unit for unit in units if unit[1] == group]
+        fields = {sample: f for sample, _, f in in_group}
+        names_used = null_covariates(in_group, covariates)
+        width = len(str(len(halves)))
+        for k, (x, y) in enumerate(halves, 1):
+            design = [(s, 'x' if s in x else 'y', {c: fields[s][c] for c in names_used}) for s, _, _ in in_group]
+            level = '{}-{}'.format(names[group], str(k).zfill(width))
+            sets.append(DeSet('.null.' + level, '{}/{}'.format(de.NULL, level), design, de.model_text('x', 'y', (), min_mean),
+                              '{} x and {} y samples of {}'.format(len(x), len(y), group)))
     return sets
 
 
@@ -1067,6 +1131,7 @@ def differential_expression(args, bench, sets, texts, rows, features):
         return None, None
     results, reports = {}, {}
     for de_set in sets:
+        set_features = features[de_set.folder] if isinstance(features, dict) else features
         path, record_path = bench / 'de' / de_set.folder / 'results.tsv', bench / 'de' / de_set.folder / 'record.tsv'
         record = de.read_record(record_path)
         changed = de.stale(record, texts[de_set.folder])
@@ -1078,7 +1143,7 @@ def differential_expression(args, bench, sets, texts, rows, features):
             fail('{} is not the table de.R recorded in {}; nothing was written: run de.smk again, then evaluate --de'.format(
                 path, record_path))
         try:
-            results[de_set.suffix] = de.read_results(data.decode(), rows, features, path)
+            results[de_set.suffix] = de.read_results(data.decode(), rows, set_features, path)
         except ValueError as error:
             fail(str(error))
         reports[de_set.suffix] = (record, hashlib.sha256(data).hexdigest(), de_set.samples)
@@ -1337,22 +1402,35 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
     iso_rows, no_isomirs = isomir_table(args, project, bench, spec, methods, mature, gff, raw, pending)
     common, groups = biological.collapse(raw, id_to_seq)
     unplaced = biological.unplaced(raw, methods, samples)
-    de_texts, de_lines = None, []
+    de_texts, de_lines, null_values = None, [], {}
     if 'de' in spec and not lane_mode:  # the tests of the ratiometric pools (de.R) between two groups of samples (#447); not scored
         sets = de_sets(spec, de_units(spec, table))
+        nulls = [s for s in sets if s.folder.startswith(de.NULL + '/')]  # null comparisons within a group (#449)
+        contrasts = [s for s in sets if s not in nulls]
         by = biological.counts_by(common)
-        tested = [sample for sample, _, _ in sets[0].design]
-        features = sorted({i for m in methods for s in tested for i in by.get((m, s), {})})
+        reported = lambda design: sorted({i for m in methods for sample, _, _ in design for i in by.get((m, sample), {})})
+        features = {s.folder: reported(s.design) for s in nulls}  # each null split's own; the contrast's sets share the whole contrast's
+        features.update({s.folder: reported(contrasts[0].design) for s in contrasts})
         count = lambda row, sample, feature: by.get((row, sample), {}).get(feature, 0.0)
         sizes = collections.Counter()
         for method, sample, _, _, value in raw:  # every miRNA read the method reported, as the workflow scales counts per million
             sizes[(method, sample)] += float(value)
-        de_texts = {s.folder: de.input_tables(count, methods, features, s.design, sizes, s.model) for s in sets}
+        de_texts = {s.folder: de.input_tables(count, methods, features[s.folder], s.design, sizes, s.model) for s in sets}
         de_results, de_reports = differential_expression(args, bench, sets, de_texts, methods, features)
-        if de_results:
-            de_lines = de.call_lines([(s.suffix[1:], s.folder, s.samples, de_results[s.suffix], *de_reports[s.suffix][:2]) for s in sets],
-                                     features, methods, *de_contrast(spec))
-            de_lines += ['', rounding_line(count, methods, features, tested, 'miRNAs')]
+        if de_results and contrasts:
+            tested = [sample for sample, _, _ in contrasts[0].design]
+            de_lines = de.call_lines([(s.suffix[1:], s.folder, s.samples, de_results[s.suffix], *de_reports[s.suffix][:2]) for s in contrasts],
+                                     features[contrasts[0].folder], methods, *de_contrast(spec))
+            de_lines += ['', rounding_line(count, methods, features[contrasts[0].folder], tested, 'miRNAs')]
+        if de_results and nulls:
+            null_values, spread, called = de.null_scores([(de_results[s.suffix], features[s.folder]) for s in nulls], methods)
+            group_of = {row['sample']: row['group'] for row in table}
+            splits = collections.Counter(group_of[s.design[0][0]] for s in nulls)
+            in_splits = sorted({sample for s in nulls for sample, _, _ in s.design})
+            de_lines += de.null_lines(null_values, spread, called, methods,
+                                      [(g, sum(1 for r in table if r['group'] == g), splits[g]) for g in sorted(splits)],
+                                      lambda feature: id_to_name.get(feature, feature),
+                                      lambda row, feature: statistics.mean(count(row, sample, feature) for sample in in_splits))
     for path, header, rows in pending:
         write_tsv(path, header, rows)
     if de_texts:
@@ -1362,6 +1440,10 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
     for m in methods:
         summary[m]['unplaced'] = unplaced[m]['share']
     keys = ['mirna_reads', 'unplaced', 'detected', 'detected_all_samples', 'top10_share']
+    if null_values:  # the null comparisons' false calls (#449), with their spread over the splits in the report
+        for m in methods:
+            summary[m].update(null_values[m])
+        keys += de.null_keys()
     with_isomirs = [m for m in methods if m not in no_isomirs]
     iso_tallies, iso_detected, iso_kinds, iso_overlap = isomirs.biological_tallies(iso_rows, with_isomirs, id_to_seq,
                                                                                    isomirs.representatives(id_to_seq))
@@ -1461,7 +1543,7 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
         return result
     extra, record, ci_lines = bootstrap(args, summary, compute,
                                         lambda rng: ([s for lib in uncertainty.resample(rng, libraries) for s in lanes_of[lib]],), methods,
-                                        [k for k in keys if k not in ('detected_all_samples', 'isomirs_detected')],
+                                        [k for k in keys if k not in ('detected_all_samples', 'isomirs_detected') + tuple(de.null_keys())],
                                         '{} (`detected_all_samples` and `isomirs_detected` without an interval: a resample repeating a '
                                         'sample has fewer distinct samples)'.format('the libraries, each with all its lanes' if lane_mode else 'the samples'))
     publish(project, bench, spec, ['metric'] + methods, metric_rows, lines + ci_lines, extra, record)
