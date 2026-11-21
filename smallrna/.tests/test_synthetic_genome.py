@@ -340,7 +340,7 @@ def test_prepare_and_evaluate_in_genome_mode(tmp_path):
     ext = tmp_path / 'ext'
     files, _ = fake_mirbase(ext / 'benchmark/smallrna/syn_genome/mirbase/23.1')
     spec = {'name': 'syn_genome', 'kind': 'synthetic', 'organism': 'homo_sapiens', 'libprepkit': 'Bioo Scientific NEXTflex Small RNA-Seq Kit v4',
-            'adapter': ADAPTER, 'umi': 0, 'methods': ['tinyrna'], 'data': 'benchmark/smallrna/syn_genome', 'synthetic': copy.deepcopy(SPEC),
+            'adapter': ADAPTER, 'umi': 0, 'methods': ['tinyrna', 'smrnaseq'], 'data': 'benchmark/smallrna/syn_genome', 'synthetic': copy.deepcopy(SPEC),
             'mirbase': {'release': '23.1', 'url': 'u', 'sha256': 'a' * 64, 'hairpin': {'url': 'u', 'sha256': 'b' * 64},
                         'gff': {'url': 'u', 'sha256': 'c' * 64}}}
     dataset = tmp_path / 'ds.yaml'
@@ -370,14 +370,40 @@ def test_prepare_and_evaluate_in_genome_mode(tmp_path):
     # the record quant_reference writes (#407): the miRBase release, bound to this count table
     (quant / 'reference.tsv').write_text('field\tvalue\tsource\nmirna_database\tmirbase\tx\nmirna_release\t23.1\tx\n'
                                          'table_sha256\t{}\tx\n'.format(adapters.table_sha256('tinyrna', quant.parent)))
+    # nf-core/smrnaseq as a perfect isomiR route (#454): every true read on its miRNA as its own sequence, labelled canonical
+    # when it is a canonical read without a substitution
+    reads = collections.defaultdict(lambda: collections.defaultdict(float))
+    for row in truth:
+        if row['mature_id']:
+            label = 'NA' if row['class'] == 'canonical' and row['errors'] == '0' else 'iso_3p:-1'
+            reads[(row['mature_name'], row['sequence'], label)][row['sample']] += float(row['count'])
+    mirtop = ['\t'.join(list(adapters.MIRTOP_ANNOTATION) + samples)]
+    mirtop += ['\t'.join(['iso-{}'.format(i), seq, name, label] + ['0'] * 8 + ['{:g}'.format(c.get(s, 0)) for s in samples])
+               for i, ((name, seq, label), c) in enumerate(sorted(reads.items()))]
+    mirnas = collections.defaultdict(lambda: collections.defaultdict(float))
+    for (name, _, _), c in reads.items():
+        for s, v in c.items():
+            mirnas[name][s] += v
+    smrnaseq = project / 'data/tmp/smallrna/quant/smrnaseq'
+    smrnaseq.mkdir(parents=True)
+    (smrnaseq / 'joined_samples_mirtop.tsv').write_text('\n'.join(mirtop) + '\n')
+    (smrnaseq / 'mirna.tsv').write_text('miRNA\t' + '\t'.join(samples) + '\n' + ''.join(
+        name + '\t' + '\t'.join('{:g}'.format(c.get(s, 0)) for s in samples) + '\n' for name, c in sorted(mirnas.items())))
+    (smrnaseq / 'reference.tsv').write_text('field\tvalue\tsource\nmirna_database\tmirbase\tx\nmirna_release\t23.1\tx\n'
+                                            'table_sha256\t{}\tx\n'.format(adapters.table_sha256('smrnaseq', smrnaseq.parent)))
     result = subprocess.run(cmd + ['evaluate', '--project', str(project), '--bootstrap', '20'], capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stderr
     report = (bench / 'report.md').read_text()
+    metrics = {line.split('\t')[0]: line.split('\t')[1:] for line in (bench / 'metrics.tsv').read_text().splitlines()}
+    assert metrics['metric'] == ['truth', 'tinyrna', 'smrnaseq'] and metrics['isomir_recovered'] == ['', '', '1.0']
+    assert metrics['isomir_misassigned'] == metrics['isomir_as_canonical'] == metrics['canonical_as_isomir'] == ['', '', '0.0']
+    assert metrics['isomir_recovered_substituted'] == ['', '', '1.0'] and (bench / 'isomirs.tsv').is_file()
+    assert '## isomiRs' in report and 'Without isomiR output (features only): tinyrna.' in report
     assert '| recovered | 1.0 | 1.0 |' in report and '| precision | 1.0 | 1.0 |' in report and '| near_spill | 0.0 | 0.0 |' in report
     assert '## Recovery by stratum' in report and '## Probe samples' in report and '| 3p_add_A |' in report
-    assert (bench / 'metrics_ci.tsv').is_file() and (bench / 'per_mirna.tsv').read_text().startswith('mature_name\tmature_id\ttruth\ttinyrna\n')
+    assert (bench / 'metrics_ci.tsv').is_file() and (bench / 'per_mirna.tsv').read_text().startswith('mature_name\tmature_id\ttruth\ttinyrna\tsmrnaseq\n')
     out = tmp_path / 'summary.md'
     result = subprocess.run(cmd + ['summary', '--projects', str(project), '--output', str(out)], capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stderr
     row = next(line for line in out.read_text().splitlines() if line.startswith('| [project]'))
-    assert '| 6 mixed, 9 probe |' in row and '| tinyrna |' in row
+    assert '| 6 mixed, 9 probe |' in row and '| tinyrna, smrnaseq |' in row

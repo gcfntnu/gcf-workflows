@@ -25,7 +25,27 @@ by name, because the methods name miRNAs differently:
 
 Adding a method means adding one function to ADAPTERS that reads its output directory, and its count table to TABLES:
 before scoring, benchmark.py checks that table's samples and the miRBase release in the method's reference.tsv (#407).
+
+isomiR table (#454): for the methods that report read sequences, one row per method, sample, reported miRNA and read
+sequence (ISOMIR_COLUMNS), counted by the method's own rule, so that a miRNA's rows add up to its count in the common
+table (check_isomirs). `label` is the method's own call, canonical or isomiR (empty for UNITAS, which has none):
+
+- UNITAS: isomir_counts.tsv (`sequence|name`, unitas_isomirtable.py), the name without the modification UNITAS appends
+  to a read with a substitution (`miR-548x-3p(1T->A)`), as mir_counts.tsv counts it; names placed as in the common table;
+- miRge3: mapped.csv, as rules/quant/scripts/mirge3_counts.py counts miR.Counts.csv: names folded by the project
+  library's merge file, a merge group's reads on its first member, and only miRNAs with at least MIRGE3_MIN_EXACT exact
+  reads in the project; a read under `exact miRNA` is canonical;
+- mirflowz: the `name|5' shift|3' shift|CIGAR|MD|sequence` rows are isomiRs; a plain row counts the reads that match
+  mirflowz's annotated mature exactly, whose sequence the table does not give (empty);
+- nf-core/smrnaseq: joined_samples_mirtop.tsv, the first row of each UID (rules/quant/scripts/smrnaseq_counts.py);
+  `Variant` NA is canonical;
+- biocore_miraligner: each sample's isomir.tsv (`<miRNA>_<sequence>_<mism;add;t5;t3>`, a sequence's reads already
+  divided by its ambiguity), the rows without a substitution, as its mature table counts them; canonical when it has no
+  addition and no 5' or 3' trimming.
+
+TEsmall, tiny-count and biocore_htseq report features only.
 """
+import collections
 import csv
 import hashlib
 import math
@@ -255,3 +275,154 @@ def common_table(methods, quant_dir, name_to_id, prefix, mirflowz_gff=None, unit
     for method in methods:
         rows += ADAPTERS[method](quant_dir, name_to_id, prefix=prefix, mirflowz_gff=mirflowz_gff, unitas_hairpins=unitas_hairpins, mature=mature)
     return [row for row in rows if row[4]]
+
+
+# isomiR table (#454)
+ISOMIR_COLUMNS = ('method', 'sample', 'mature_name', 'mature_id', 'sequence', 'label', 'count')
+CANONICAL, ISOMIR = 'canonical', 'isomiR'
+UNITAS_MODIFICATION = re.compile(r'(.*)\(.*\)\s*$')
+MIRGE3_DATABASES = {'mirbase': 'miRBase', 'mirgenedb': 'MirGeneDB'}  # the merge files' names (rules/quant/mirge3.smk)
+MIRGE3_MIN_EXACT = 2  # MIN_PROJECT_EXACT of rules/quant/scripts/mirge3_counts.py
+MIRGE3_ANNOTATION = {'Sequence', 'annotFlag', 'exact miRNA', 'hairpin miRNA', 'mature tRNA', 'primary tRNA', 'snoRNA', 'rRNA',
+                     'ncrna others', 'mRNA', 'isomiR miRNA', 'spike-in'}  # mapped.csv's columns other than the samples
+MIRTOP_ANNOTATION = ('UID', 'Read', 'miRNA', 'Variant', 'iso_5p', 'iso_3p', 'iso_add3p', 'iso_snp', 'iso_5p_nt', 'iso_3p_nt',
+                     'iso_add3p_nt', 'iso_snp_nt')
+
+
+def unitas_isomirs(quant_dir, name_to_id, prefix, unitas_hairpins=None, mature=None, **_):
+    rows, placed = [], {}
+    for feature, counts in read_matrix(Path(quant_dir) / 'unitas' / 'isomir_counts.tsv', '\t').items():
+        sequence, name = feature.split('|', 1)
+        modified = UNITAS_MODIFICATION.match(name)
+        name = (modified.group(1) if modified else name).strip()
+        if name not in placed:
+            placed[name] = unitas_place(name, name_to_id, prefix, unitas_hairpins or {}, mature or {})[0]
+        rows += [('unitas', s, name, placed[name], sequence, '', c) for s, c in counts.items()]
+    return rows
+
+
+def mirge3_isomirs(quant_dir, name_to_id, **_):
+    base = Path(quant_dir) / 'mirge3'
+    database = method_record('mirge3', quant_dir, ('mirna_database',))['mirna_database']
+    merge_files = sorted(base.glob('lib/*/annotation.Libs/*_merges_{}.csv'.format(MIRGE3_DATABASES.get(database.lower(), database))))
+    if len(merge_files) != 1:
+        raise ValueError('{}: expected one merge file of the {} library under lib/*/annotation.Libs, found {}'.format(
+            base, database, len(merge_files)))
+    groups = {}
+    with open(merge_files[0]) as fh:
+        for line in fh:
+            fields = line.strip().split(',')
+            groups.update((member, fields[0]) for member in fields[1:])
+    rows, exact = [], collections.Counter()
+    with open(base / 'mapped.csv', newline='') as fh:
+        reader = csv.DictReader(fh)
+        samples = [c for c in reader.fieldnames or [] if c not in MIRGE3_ANNOTATION]
+        for row in reader:
+            exact_name, isomir_name = row['exact miRNA'], row['isomiR miRNA']
+            if exact_name and isomir_name:
+                raise ValueError('{}: read {} has both an exact ({}) and an isomiR ({}) miRNA'.format(
+                    base / 'mapped.csv', row['Sequence'], exact_name, isomir_name))
+            if not (exact_name or isomir_name):
+                continue
+            name = groups.get(exact_name or isomir_name, exact_name or isomir_name)
+            for sample in samples:
+                count = float(row[sample])
+                if exact_name:
+                    exact[name] += count
+                if count:
+                    rows.append(('mirge3', sample, name, name_to_id.get(name.split('/')[0], ''), row['Sequence'],
+                                 CANONICAL if exact_name else ISOMIR, count))
+    return [row for row in rows if exact[row[2]] >= MIRGE3_MIN_EXACT]
+
+
+def mirflowz_isomirs(quant_dir, name_to_id, mirflowz_gff=None, **_):
+    locus_names = mirflowz_names(mirflowz_gff) if mirflowz_gff else {}
+    rows = []
+    for feature, counts in read_matrix(Path(quant_dir) / 'mirflowz' / 'all_mirna_counts.tab', '\t').items():
+        fields = feature.split('|')
+        name = fields[0]
+        sequence, label = ('', CANONICAL) if len(fields) == 1 else (fields[-1], ISOMIR)
+        accession = locus_names.get(name) or name_to_id.get(name, '')
+        rows += [('mirflowz', s, name, accession, sequence, label, c) for s, c in counts.items()]
+    return rows
+
+
+def smrnaseq_isomirs(quant_dir, name_to_id, **_):
+    path = Path(quant_dir) / 'smrnaseq' / 'joined_samples_mirtop.tsv'
+    rows, seen = [], set()
+    with open(path, newline='') as fh:
+        reader = csv.reader(fh, delimiter='\t')
+        header = next(reader, [])
+        if tuple(header[:len(MIRTOP_ANNOTATION)]) != MIRTOP_ANNOTATION or len(header) == len(MIRTOP_ANNOTATION):
+            raise ValueError('{}: expected the columns {} and the samples, got {}'.format(path, ', '.join(MIRTOP_ANNOTATION), header))
+        samples = header[len(MIRTOP_ANNOTATION):]
+        for i, row in enumerate(reader, 2):
+            if not row:
+                continue
+            if len(row) != len(header):
+                raise ValueError('{}:{}: {} fields, expected {}'.format(path, i, len(row), len(header)))
+            if row[0] in seen:  # one collapsed read annotated twice: the route counts its first row only
+                continue
+            seen.add(row[0])
+            label = CANONICAL if row[3] == 'NA' else ISOMIR
+            rows += [('smrnaseq', s, row[2], name_to_id.get(row[2], ''), row[1], label, float(c))
+                     for s, c in zip(samples, row[len(MIRTOP_ANNOTATION):])]
+    return rows
+
+
+def biocore_miraligner_isomirs(quant_dir, name_to_id, **_):
+    rows = []
+    for sample in table_samples('biocore_miraligner', quant_dir):
+        path = Path(quant_dir) / 'biocore_miraligner' / sample / 'isomir.tsv'
+        totals = collections.defaultdict(float)
+        with open(path) as fh:
+            header = fh.readline().rstrip('\n').split('\t')
+            if header != ['isomiR', 'count']:
+                raise ValueError('{}: expected the columns isomiR, count, got {}'.format(path, header))
+            for i, line in enumerate(fh, 2):
+                fields = line.rstrip('\n').split('\t')
+                parts = fields[0].rsplit('_', 2)
+                variant = parts[-1].split(';')
+                if len(fields) != 2 or len(parts) != 3 or len(variant) != 4:
+                    raise ValueError('{}:{}: expected `<miRNA>_<sequence>_<mism;add;t5;t3>` and a count, got {!r}'.format(path, i, line[:100]))
+                if variant[0] != '0':  # a substitution: the route leaves it out of its mature table
+                    continue
+                label = CANONICAL if variant[1:] == ['0', '0', '0'] else ISOMIR
+                totals[(parts[0], parts[1], label)] += float(fields[1])
+        rows += [('biocore_miraligner', sample, name, name_to_id.get(name, ''), sequence, label, count)
+                 for (name, sequence, label), count in totals.items()]
+    return rows
+
+
+ISOMIR_ADAPTERS = {'unitas': unitas_isomirs, 'mirge3': mirge3_isomirs, 'mirflowz': mirflowz_isomirs, 'smrnaseq': smrnaseq_isomirs,
+                   'biocore_miraligner': biocore_miraligner_isomirs}
+
+
+def isomir_table(methods, quant_dir, name_to_id, prefix, mirflowz_gff=None, unitas_hairpins=None, mature=None):
+    """(rows of ISOMIR_COLUMNS, methods without isomiR output): the rows of each method in ISOMIR_ADAPTERS, summed per
+    method, sample, name, accession, sequence and label, without zero counts."""
+    totals = collections.defaultdict(float)
+    for method in methods:
+        if method in ISOMIR_ADAPTERS:
+            for *key, count in ISOMIR_ADAPTERS[method](quant_dir, name_to_id, prefix=prefix, mirflowz_gff=mirflowz_gff,
+                                                        unitas_hairpins=unitas_hairpins, mature=mature):
+                totals[tuple(key)] += count
+    return [key + (count,) for key, count in totals.items() if count], [m for m in methods if m not in ISOMIR_ADAPTERS]
+
+
+def check_isomirs(isomirs, common, methods):
+    """ValueError unless, for each of `methods`, the isomiR rows of each sample and reported miRNA add up to its count
+    in the common table (relative tolerance 1e-6): the isomiR table must be the method's own counting."""
+    sums, counts = collections.defaultdict(float), collections.defaultdict(float)
+    for method, sample, name, _, _, _, count in isomirs:
+        sums[(method, sample, name)] += count
+    for method, sample, name, _, count in common:
+        if method in methods:
+            counts[(method, sample, name)] += float(count)
+    wrong = sorted(key for key in set(sums) | set(counts) if not math.isclose(sums[key], counts[key], rel_tol=1e-6, abs_tol=1e-6))
+    if wrong:
+        method, sample, name = wrong[0]
+        raise ValueError('{} isomiR rows do not add up to the common table ({} of {} method, sample and miRNA), e.g. {} {} {}: {:g} in '
+                         'the isomiR rows, {:g} in the common table'.format(', '.join(sorted({w[0] for w in wrong})), len(wrong),
+                                                                           len(set(sums) | set(counts)), method, sample, name,
+                                                                           sums[wrong[0]], counts[wrong[0]]))

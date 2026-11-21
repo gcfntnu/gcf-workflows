@@ -56,6 +56,7 @@ import de  # noqa: E402
 import evaluation  # noqa: E402
 import fill as filler  # noqa: E402
 import genome_metrics  # noqa: E402
+import isomirs  # noqa: E402
 import metrics  # noqa: E402
 import pool  # noqa: E402
 import resources  # noqa: E402
@@ -682,6 +683,23 @@ def common_table(args, project, bench, spec, ext_dir, methods, mature, gff, pend
     return common
 
 
+def isomir_table(args, project, bench, spec, methods, mature, gff, common, pending=None):
+    """The isomiR table of the methods that report read sequences (adapters.isomir_table, #454), checked against their
+    counts in the common table and written to isomirs.tsv (with `pending`, added to it): (rows, methods without isomiR
+    output)."""
+    write = write_tsv if pending is None else lambda *table: pending.append(table)
+    name_to_id = {name: accession for name, (accession, _) in mature.items()}
+    hairpins = adapters.unitas_hairpins(args.unitas_ref or unitas_refdump(project)) if 'unitas' in methods else None
+    try:
+        rows, without = adapters.isomir_table(methods, project / 'data/tmp/smallrna/quant', name_to_id, PREFIX[spec['organism']], gff,
+                                              hairpins, mature)
+        adapters.check_isomirs(rows, common, [m for m in methods if m not in without])
+    except (OSError, ValueError) as error:
+        fail(str(error))
+    write(bench / 'isomirs.tsv', adapters.ISOMIR_COLUMNS, sorted(rows))
+    return rows, without
+
+
 def mirflowz_annotation(ext_dir, spec):
     """mirflowz's extended annotation for the organism's full reference; fails unless exactly one is prepared."""
     found = sorted(Path(ext_dir).glob('mirflowz/mirbase-{}_ensembl-*/{}/prepared/extended_mirna_annotation_{}_nt.gff3'.format(
@@ -791,6 +809,7 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
     gff = args.mirflowz_gff or (mirflowz_annotation(ext_dir, spec) if 'mirflowz' in methods else None)
     pending = []  # tables written once the differential-expression checks (evaluate --de) have passed
     common = common_table(args, project, bench, spec, ext_dir, methods, mature, gff, pending)
+    iso_rows, no_isomirs = isomir_table(args, project, bench, spec, methods, mature, gff, common, pending)
     entries = pool.read_pool(bench / 'pool.tsv')
     kinds = pool.shift_kinds(entries, dict(mature.values()))
     sample_rows = read_tsv(bench / 'samples.tsv')
@@ -842,6 +861,13 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
             de_lines += de.level_lines((spec['de'] or {}).get('within'), [(suffix[1:], de_reports[suffix][2], de_reports[suffix][1],
                                                                           de_reports[suffix][0]) for suffix in de_results if suffix],
                                        summary, rows)
+    with_isomirs = [m for m in methods if m not in no_isomirs]
+    iso, iso_kinds = isomirs.pool_scores(iso_rows, pool.scored(entries), shifted, entries, oracle, with_isomirs, dict(mature.values()))
+    for row, values in iso.items():
+        summary.setdefault(row, {}).update(values)
+    keys += isomirs.POOL_KEYS
+    if table_keys is not None:
+        table_keys += isomirs.POOL_KEYS
     for path, header, table in pending:
         write_tsv(path, header, table)
     if de_texts:
@@ -872,6 +898,7 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
     lines += de_lines
     lines += shifted_section(per_kind, {kind: len(group) for kind, group in by_kind.items()}, kind_keys,
                              [r for r in rows if any(r in v for v in per_kind.values())])
+    lines += isomirs.pool_lines(iso, iso_kinds, with_isomirs, no_isomirs)
     lines += filter_section(*pool.filter_losses(stage_counts, entries, stage_names), stage_names, trim_route(project, next(iter(sample_groups))),
                             next(iter(stages.values()))[0][2])
     if spec['pool'] == 'equimolar':
@@ -1052,6 +1079,12 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
         for c in classes:
             point[name]['probe_' + c] = probes[name].get(c, (float('nan'),))[0]
     keys = GENOME_KEYS + ['probe_' + c for c in classes]
+    iso_rows, no_isomirs = isomir_table(args, project, bench, spec, methods, mature, gff, raw)
+    with_isomirs = [m for m in methods if m not in no_isomirs]
+    iso, iso_classes = isomirs.synthetic_scores(truth, iso_rows, samples, with_isomirs, isomirs.representatives(id_to_seq))
+    for name, values in iso.items():
+        point[name].update(values)
+    keys += isomirs.synthetic_keys(iso_classes)
     rnd = lambda v: round(v, 4) if isinstance(v, float) and not math.isnan(v) else ('' if isinstance(v, float) else v)
     metric_rows = [[k] + [rnd(point[name].get(k, float('nan'))) for name in rows] for k in keys]
     per = []
@@ -1078,6 +1111,7 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
               'and reads landing on other miRNAs (`misplaced`, relative to the same truth).', ''] + md_table(
         ['class', 'miRNAs'] + ['{}: recovery / misplaced'.format(r) for r in methods],
         [[c, probes['truth'][c][2]] + ['{} / {}'.format(rnd(probes[r][c][0]), rnd(probes[r][c][1])) for r in methods] for c in classes])
+    lines += isomirs.synthetic_lines(iso, iso_classes, with_isomirs, no_isomirs)
     absent = []
     for name in methods:
         k = [(float(ev.o[name][ev.index[i]].sum()), i) for i in ev.units if float(ev.t[ev.index[i]].sum()) == 0]
@@ -1138,6 +1172,12 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
     for m in methods:
         summary[m]['unplaced'] = unplaced[m]['share']
     keys = ['mirna_reads', 'unplaced', 'detected', 'detected_all_samples', 'top10_share']
+    iso_rows, no_isomirs = isomir_table(args, project, bench, spec, methods, mature, gff, raw)
+    with_isomirs = [m for m in methods if m not in no_isomirs]
+    iso, iso_kinds, iso_overlap = isomirs.biological_scores(iso_rows, with_isomirs, id_to_seq, isomirs.representatives(id_to_seq))
+    for m in methods:
+        summary[m].update(iso.get(m, dict.fromkeys(isomirs.BIOLOGICAL_KEYS, '')))
+    keys += isomirs.BIOLOGICAL_KEYS
     metric_rows = [[k] + [summary[m][k] for m in methods] for k in keys]
     pairs = biological.agreement(common, methods, samples)
     pair_keys = list(next(iter(pairs.values()), {}))
@@ -1160,6 +1200,7 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
             '{}: {}'.format(m, ', '.join('`{}` ({:.0f})'.format(n, c) for mm, n, c in named if mm == m)) for m in methods if unplaced[m]['names'])]
     lines += ['', '## Agreement between methods (medians over samples)', ''] + md_table(
         ['methods'] + pair_keys, [['{} / {}'.format(a, b)] + [v.get(k, '') for k in pair_keys] for (a, b), v in pairs.items()])
+    lines += isomirs.biological_lines(iso, iso_kinds, iso_overlap, with_isomirs, no_isomirs)
 
     targets = {n: acc for n, acc in BLOCKED.items() if acc in id_to_name} if spec['organism'] == 'homo_sapiens' else {}
     if targets:
