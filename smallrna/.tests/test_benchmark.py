@@ -3483,7 +3483,11 @@ def test_a_scenario_extends_its_base_declaration(tmp_path):
     for change, message in (({'extends': 'base.yaml'}, 'needs a name of its own'),
                             ({'extends': 'base.yaml', 'name': base['name']}, 'needs a name of its own'),
                             ({'extends': 'absent.yaml', 'name': 'n'}, 'which is not a declaration beside it'),
-                            ({'extends': 'chained.yaml', 'name': 'n'}, 'one level only')):
+                            ({'extends': 'chained.yaml', 'name': 'n'}, 'one level only'),
+                            ({'extends': '../datasets/base.yaml', 'name': 'n'}, 'by its file name'),
+                            ({'extends': 'base.yaml', 'name': 'n', 'mirbase': {'release': '22'}}, 'keeps its dataset and references; it changes mirbase'),
+                            ({'extends': 'base.yaml', 'name': 'n', 'data': 'other'}, 'it changes data'),
+                            ({'extends': 'base.yaml', 'name': 'n', 'synthetic': {'decoys': {}}}, 'it changes synthetic.decoys')):
         write(tmp_path / 'chained.yaml', yaml.safe_dump({'extends': 'base.yaml', 'name': 'c'}))
         with pytest.raises(SystemExit, match=message):
             benchmark.load_dataset(write(tmp_path / 'scenario.yaml', yaml.safe_dump(change)))
@@ -3499,5 +3503,7 @@ def test_false_calls_against_the_changes_need_them_mostly_one_way():
     assert values['voom_false_calls_against'] == 0.3333 and values['voom_false_calls'] == 0.6667  # U1 against, U3 with
     balanced = [('U1', 0.0), ('U2', 0.0), ('U3', 0.0), ('C1', 1.0), ('C2', 2.0), ('C3', 1.0), ('C4', -1.0)]
     assert de.scores(results, balanced, ['m'])['m']['edger_false_calls_against'] == 0.3333  # 3 of 4 up: one way
-    balanced[1] = ('C2', -2.0)
+    balanced[4] = ('C2', -2.0)
     assert math.isnan(de.scores(results, balanced, ['m'])['m']['edger_false_calls_against'])  # 2 up, 2 down: no direction
+    assert de.scores(results, balanced, ['m'], way=1)['m']['edger_false_calls_against'] == 0.3333  # a bootstrap draw: the full design's way
+    assert de.direction(features) == 1 and de.direction(balanced) == 0

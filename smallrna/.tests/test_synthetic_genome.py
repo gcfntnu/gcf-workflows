@@ -790,6 +790,32 @@ def test_abundant_mirnas_change_first(mirbase):
     _, loadings = sg.structure(chosen, base, u, spec, {'a': 3, 'b': 3}, np.random.default_rng(5))
     changed = [r for r, (fold, _) in loadings.items() if fold]
     assert len(changed) == 5 and chosen[0] in changed and chosen[1] in changed and all(loadings[r][0] > 0 for r in changed)
-    spec['structure']['group']['abundant'] = 6
-    with pytest.raises(ValueError, match='more than the miRNAs that change'):
-        sg.structure(chosen, base, u, spec, {'a': 3, 'b': 3}, np.random.default_rng(5))
+    for bad in (6, -1, 1.5, True):
+        spec['structure']['group']['abundant'] = bad
+        with pytest.raises(ValueError, match='a whole number from 0 to the miRNAs that change'):
+            sg.structure(chosen, base, u, spec, {'a': 3, 'b': 3}, np.random.default_rng(5))
+    spec['structure']['group'] = {'fraction': 0.25, 'log2': [1], 'abundant': 5}   # every change forced: still 5 in all
+    assert sum(1 for fold, _ in sg.structure(chosen, base, u, spec, {'a': 3, 'b': 3}, np.random.default_rng(5))[1].values() if fold) == 5
+
+
+MIRNA_INDEX = {c: i for i, c in enumerate(sg.MIRNA_COLUMNS)}
+
+
+def test_a_scenario_keeps_the_base_sets_nuisance_and_probes(tmp_path, mirbase):
+    """#453 review: the group design and the probe samples draw from streams of their own, so a scenario that changes
+    only the design (here none changing, and every change up with the most abundant first) keeps the base set's miRNAs,
+    abundances, nuisance loadings and probe samples."""
+    files, _ = mirbase
+    runs = {}
+    for name, group in (('base', None), ('null', {'fraction': 0, 'log2': [1]}), ('up', {'fraction': 0.25, 'log2': [1, 2], 'abundant': 2})):
+        spec = copy.deepcopy(SPEC)
+        if group:
+            spec['structure']['group'] = group
+        truth, samples, mirnas, _ = generate(tmp_path / name, files, spec)
+        by_id = {row[0]: row for row in mirnas}
+        loading = MIRNA_INDEX['nuisance_loading']
+        runs[name] = ({i: (row[MIRNA_INDEX['base_per_million']], row[loading]) for i, row in by_id.items()},
+                      sorted(row for row in truth if row[0].startswith('P_')))
+    for name in ('null', 'up'):
+        assert runs[name][0] == runs['base'][0], name   # the same miRNAs, abundances and nuisance loadings
+        assert runs[name][1] == runs['base'][1], name   # the same probe samples, read for read

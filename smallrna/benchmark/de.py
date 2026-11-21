@@ -204,7 +204,16 @@ def median(values):
     return round(statistics.median(values), 4) if values else float('nan')
 
 
-def scores(results, features, rows, suffix='', reference='oracle'):
+def direction(features):
+    """+1 or -1 when at least ONE_WAY of the known changes in `features` ([(feature, log2 fold change)]) go that way,
+    else 0: the direction `false_calls_against` measures against (#453)."""
+    up = [d > 0 for _, d in features if d != 0]
+    if not up:
+        return 0
+    return 1 if sum(up) >= ONE_WAY * len(up) else -1 if len(up) - sum(up) >= ONE_WAY * len(up) else 0
+
+
+def scores(results, features, rows, suffix='', reference='oracle', way=None):
     """{row: {<test>_<metric><suffix>: value}} of one set's fits over `features` ([(feature, known log2 fold change)],
     0 for a feature known not to change; a bootstrap resample repeats some), with the fits fixed; NaN where a metric has
     no features, never ValueError.
@@ -227,6 +236,7 @@ def scores(results, features, rows, suffix='', reference='oracle'):
     `fc_error_vs_<reference>`, their median absolute deviation from that shift, the disagreement of the counts
     themselves. The shift also moves calls near the cutoff, so the two call metrics include it."""
     own, discordant, fc_shift, fc_error = reference_keys(reference)
+    way = direction(features) if way is None else way  # a bootstrap passes the full design's, so every draw counts one event
     out = {}
     for row in rows:
         values = {}
@@ -237,8 +247,6 @@ def scores(results, features, rows, suffix='', reference='oracle'):
             calls = [(f, d) for f, d in fits if significant(f)]
             bias = [math.copysign(1, d) * (f[0] - d) for f, d in fits if d != 0 and f[0] is not None]
             offsets = [f[0] for f in null if f[0] is not None]
-            up = [d > 0 for _, d in features if d != 0]
-            way = (1 if sum(up) >= ONE_WAY * len(up) else -1 if len(up) - sum(up) >= ONE_WAY * len(up) else 0) if up else 0
             values.update({test + '_called': share(right),
                            test + '_false_calls': share([significant(f) for f in null]),
                            test + '_fdr': share([d == 0 or not f[0] * d > 0 for f, d in calls]),

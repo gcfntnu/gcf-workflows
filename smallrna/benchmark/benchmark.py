@@ -93,6 +93,12 @@ def load_dataset(path, mirbase_release=None):
     listed under `mirbase_releases` (#431)."""
     spec = yaml.safe_load(Path(path).read_text())
     if 'extends' in spec:  # a scenario (#453): another declaration of the same folder with some values changed
+        if Path(str(spec['extends'])).name != str(spec['extends']):
+            fail('{}: extends {}: name a declaration in the same folder by its file name'.format(path, spec['extends']))
+        fixed = sorted(set(spec) & {'kind', 'organism', 'libprepkit', 'data', 'mirbase', 'mirbase_releases'} |
+                       {'synthetic.' + k for k in (spec.get('synthetic') or {}) if k in ('mode', 'decoys')})
+        if fixed:  # the data and references are the base's: a scenario changes the design only
+            fail('{}: a declaration that extends another keeps its dataset and references; it changes {}'.format(path, ', '.join(fixed)))
         base_path = Path(path).parent / str(spec['extends'])
         if not base_path.is_file():
             fail('{}: extends {}, which is not a declaration beside it'.format(path, spec['extends']))
@@ -1264,6 +1270,7 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
             count = de.pool_count(counts, oracle, entries)
             de_features = de.pool_features(pool.scored(entries))
             de_ids = [feature for feature, _ in de_features]
+            de_way = de.direction(de_features)  # the full design's, for every bootstrap draw (#453)
             set_sizes = filtered_sizes(project, sets, rows, sizes)
             de_texts = {s.folder: de.input_tables(count, rows, de_ids, s.design, set_sizes[s.folder], s.model) for s in sets}
             de_results, de_reports = differential_expression(args, bench, sets, de_texts, rows, de_ids)
@@ -1340,7 +1347,7 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
                     raise
                 result = {}
             for suffix, results in (de_results or {}).items():  # the DE fits stay fixed: their scores resample the sequences only
-                for row, values in de.scores(results, de.pool_features(ex), rows, suffix).items():
+                for row, values in de.scores(results, de.pool_features(ex), rows, suffix, way=de_way).items():
                     result.setdefault(row, {}).update(values)
             for row, values in isomirs.pool_values(iso_tallies, ex, sh, [sample for sample, _ in pairs]).items():  # (#459)
                 result.setdefault(row, {}).update(values)
@@ -1628,6 +1635,7 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
     keys += isomirs.synthetic_keys(iso_classes)
     de_texts = de_results = None
     de_keys, de_lines, de_features = [], [], []
+    de_way = 0
     if 'de' in spec:  # the tests of the ratiometric pools (de.R) on the mixed samples (#447)
         units = de_units(spec, samples)
         sets = de_sets(spec, units)
@@ -1640,6 +1648,7 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
         de_results, de_reports = differential_expression(args, bench, sets, de_texts, rows, ev.units)
     if de_results:
         de_features = ev.de_features()
+        de_way = de.direction(de_features)  # the full design's, for every bootstrap draw (#453)
         for suffix, results in de_results.items():
             for name, values in de.scores(results, de_features, rows, suffix, 'truth').items():
                 point[name].update(values)
@@ -1648,7 +1657,7 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
         changed = sum(1 for _, d in de_features if d)
         intro = de.SYNTHETIC_INTRO.format(numerator=numerator, denominator=denominator, features=len(de_features), changed=changed,
                                           min_mean=genome_metrics.DE_MIN, fdr=de.FDR)
-        if not changed:  # a null scenario (#453)
+        if not any(m.get('de') == '1' for m in ev.mirnas.values()):  # a null scenario (#453): the design, not only the scored
             intro += (' No miRNA is designed to change here, so every call is false: the false-call rate under the generator\'s '
                       'variance alone, not the workflow\'s on real samples (for that, the null comparisons of biological datasets, #449).')
         de_lines = de.report_lines(de_results[''], de_features, rows, *de_reports[''][:2], intro)
@@ -1760,7 +1769,7 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
         for name, values in isomirs.synthetic_values(iso_tallies, iso_classes, units).items():  # the isomiR table's tallies (#459)
             result[name].update(values)
         for suffix, results in (de_results or {}).items():  # the DE fits stay fixed: their scores resample the scored miRNAs
-            for name, values in de.scores(results, scored, rows, suffix, 'truth').items():
+            for name, values in de.scores(results, scored, rows, suffix, 'truth', way=de_way).items():
                 result[name].update(values)
         return result
     de_rng = random.Random(args.seed)  # its own generator: the other metrics' resamples are the same with and without --de
