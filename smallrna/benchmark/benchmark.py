@@ -38,6 +38,7 @@ Usage: benchmark.py fill --dataset YAML --ext-dir DIR [--mirbase-release R]
 """
 import argparse
 import collections
+import copy
 import csv
 import errno
 import gzip
@@ -384,7 +385,7 @@ def write_project(project, spec, ext_dir, samples, read_length, methods, mirflow
         ref = mirflowz_reference
         config['db'] = {'mirflowz': {'custom': {'name': spec['reference']['name'], 'genome': str(ref / 'genome.fa.gz'),
                                                 'gtf': str(ref / 'genes.gtf.gz'), 'mirna_gff': str(ref / 'mirna.gff3')}}}
-    config.update(spec.get('config') or {})
+    config.update(copy.deepcopy(spec.get('config') or {}))  # a variant below must not reach the saved declaration
     for key, value in (spec.get('variant') or {}).items():  # a settings variant (#417); the workflow fills in the other settings
         _, route, setting = key.split('.')
         config['quant'].setdefault(route, {})[setting] = value
@@ -411,6 +412,21 @@ def write_project(project, spec, ext_dir, samples, read_length, methods, mirflow
         saved['not_selected'] = left_out
     (bench / 'dataset.yaml').write_text(yaml.safe_dump(saved, sort_keys=False))
     return bench
+
+
+def check_variant(spec):
+    """A settings variant (#417) is scored only when its route's settings record, bound to the count table, has the
+    setting at the variant's value: the record's row whose source is the setting's key."""
+    for key, value in (spec.get('variant') or {}).items():
+        route = key.split('.')[1]
+        if route not in spec['route_settings']:
+            fail('settings variant {}: {} is not scored'.format(key, route))
+        rows = spec['route_settings'][route]
+        if rows is None:
+            fail('settings variant {}: {} has no settings record (quant/{}/settings.tsv), so its setting cannot be confirmed'.format(key, route, route))
+        recorded = [v for _, v, source in rows if source == key]
+        if [str(v).strip().lower() for v in recorded] != [str(value).strip().lower()]:
+            fail('settings variant {}: {} counted with {}, not {}'.format(key, route, ', '.join(recorded) or 'no such setting recorded', value))
 
 
 def settings_variant(assignments, methods):
@@ -995,6 +1011,7 @@ def evaluate(args):
         fail('no route can be scored: {}'.format('; '.join('{}: {}'.format(r, why) for r, _, why in states)))
     spec = dict(spec, methods=scored, route_states=states,  # the stopped routes are left out of every table
                 route_settings={route: route_settings(project, route) for route in scored})
+    check_variant(spec)
     for route, state, reason in states:  # visible to a script that reads only exit codes and the last lines
         if state == 'stopped':
             print('benchmark.py: {} stopped, scored without it: {}'.format(route, reason), file=sys.stderr)

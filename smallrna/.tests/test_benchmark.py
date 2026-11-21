@@ -3269,8 +3269,15 @@ def test_prepare_set_takes_route_settings_of_the_workflow():
                                  (['quant.tinyrna.mismatch=1', 'quant.tinyrna.mismatch=2'], 'set twice')):
         with pytest.raises(SystemExit, match=re.escape(message)):
             benchmark.settings_variant(assignments, ['tinyrna', 'unitas'])
-    lines, _ = benchmark.settings_lines({}, {'quant.mirge3.cr_threshold': 0.1})
-    assert '**A settings variant** (`prepare --set`): quant.mirge3.cr_threshold `0.1`.' in lines[2]
+    lines, _ = benchmark.settings_lines({}, {'quant.tinyrna.mismatch': 1})
+    assert '**A settings variant** (`prepare --set`): quant.tinyrna.mismatch `1`.' in lines[2]
+    spec = {'variant': {'quant.tinyrna.normalize_by_genomic_hits': False}, 'route_settings': {'tinyrna': [
+        ('mismatch', '0', 'quant.tinyrna.mismatch'), ('normalize_by_genomic_hits', 'False', 'quant.tinyrna.normalize_by_genomic_hits')]}}
+    benchmark.check_variant(spec)                                                   # the record confirms it
+    for settings, message in (({'tinyrna': [('normalize_by_genomic_hits', 'True', 'quant.tinyrna.normalize_by_genomic_hits')]},
+                               'counted with True, not False'), ({'tinyrna': None}, 'has no settings record'), ({}, 'tinyrna is not scored')):
+        with pytest.raises(SystemExit, match=re.escape(message)):
+            benchmark.check_variant(dict(spec, route_settings=settings))
 
 
 def test_a_settings_variant_is_compared_with_the_defaults_in_the_summary(tmp_path):
@@ -3278,31 +3285,38 @@ def test_a_settings_variant_is_compared_with_the_defaults_in_the_summary(tmp_pat
     compares its route with the project of the same dataset run with the defaults, and names the routes it passes."""
     import summary
     default = knockout_project(tmp_path / 'd', name='defaults')
-    variant = knockout_project(tmp_path / 'v', name='cr-threshold', prepare=['--set', 'quant.mirge3.cr_threshold=0.1'])
-    assert yaml.safe_load((variant / 'benchmark/dataset.yaml').read_text())['variant'] == {'quant.mirge3.cr_threshold': 0.1}
-    assert yaml.safe_load((variant / 'config.yaml').read_text())['quant']['mirge3'] == {'cr_threshold': 0.1}
+    # any setting smallrna.config has for a route serves here; miRge3's database is its only one
+    variant = knockout_project(tmp_path / 'v', name='other-db', prepare=['--set', 'quant.mirge3.db=mirgenedb'])
+    assert yaml.safe_load((variant / 'benchmark/dataset.yaml').read_text())['variant'] == {'quant.mirge3.db': 'mirgenedb'}
+    assert yaml.safe_load((variant / 'config.yaml').read_text())['quant']['mirge3'] == {'db': 'mirgenedb'}
     quant = variant / 'data/tmp/smallrna/quant'   # with the setting, miRge3 keeps half of miR-21-5p's reads in the knockout
     write(quant / 'mirge3/miR.Counts.csv', 'miRNA,P1,P2,K1,K2\nhsa-miR-16-5p,600,600,3,3\nhsa-miR-21-5p,40,40,20,20\n')
     write_records(quant, ['unitas', 'mirge3'], dump=unitas_dump(tmp_path / 'v/ext', 'homo_sapiens', 'Human', {}))
     isomir_outputs(quant)
+    record = lambda db: write(quant / 'mirge3/settings.tsv', 'field\tvalue\tsource\nmir_db\t{}\tquant.mirge3.db\ntable_sha256\t{}\tx\n'.format(
+        db, adapters.table_sha256('mirge3', quant)))
+    record('miRBase')
+    result = evaluate_cmd(variant)
+    assert result.returncode != 0 and 'settings variant quant.mirge3.db: mirge3 counted with miRBase, not mirgenedb' in result.stderr
+    record('MirGeneDB')
     for project in (default, variant):
         result = evaluate_cmd(project)
         assert result.returncode == 0, result.stderr
-    assert '**A settings variant** (`prepare --set`): quant.mirge3.cr_threshold `0.1`.' in (variant / 'benchmark/report.md').read_text()
+    assert '**A settings variant** (`prepare --set`): quant.mirge3.db `mirgenedb`.' in (variant / 'benchmark/report.md').read_text()
     for name in ('summary.md', 'summary.html'):
         result = subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'summary', '--projects', str(default), str(variant),
                                  '--output', str(tmp_path / name)], capture_output=True, text=True, timeout=60)
         assert result.returncode == 0, result.stderr
     text = (tmp_path / 'summary.md').read_text()
     assert '### ko: settings against defaults' in text
-    assert '| knockout_surviving | mirge3 | quant.mirge3.cr_threshold 0.1 (cr-threshold) | 0 | 1 | unitas 1 |' in text   # 0 < 1, then 1 = 1
+    assert '| knockout_surviving | mirge3 | quant.mirge3.db mirgenedb (other-db) | 0 | 1 | unitas 1 |' in text   # 0 < 1, then 1 = 1
     assert '<h3>ko: settings against defaults</h3>' in (tmp_path / 'summary.html').read_text()
     alone = subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'summary', '--projects', str(variant), '--output', str(tmp_path / 'alone.md')],
                            capture_output=True, text=True, timeout=60)
-    assert alone.returncode == 0 and 'settings variant cr-threshold (ko) has no project of the same dataset' in alone.stderr
+    assert alone.returncode == 0 and 'settings variant other-db (ko) has no project of the same dataset' in alone.stderr
     rows = [{'project': p, 'dataset': 'ko', 'variant': {}, 'identity': 'x', 'values': {}} for p in ('a', 'b')]
     with pytest.raises(ValueError, match='projects a, b run ko with the defaults'):
-        summary.settings_variants(rows + [{'project': 'c', 'dataset': 'ko', 'variant': {'quant.mirge3.cr_threshold': 0.1}, 'identity': 'x',
+        summary.settings_variants(rows + [{'project': 'c', 'dataset': 'ko', 'variant': {'quant.mirge3.db': 'mirgenedb'}, 'identity': 'x',
                                            'values': {}}], [])
 
 

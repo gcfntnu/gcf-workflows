@@ -142,10 +142,12 @@ def read_project(project, out_dir):
     seed = record.get('synthetic_seed', synthetic.pop('seed', None))
     synthetic.pop('seed', None)
     declaration = json.dumps(dict({k: v for k, v in spec.items() if k not in ('methods', 'not_selected')}, synthetic=synthetic),
-                             sort_keys=True, default=str) if spec.get('kind') == 'synthetic' else None  # a variant is its own set
-    # a settings variant (#417) is compared with the project of the same dataset, samples and draw run with the defaults
+                             sort_keys=True, default=str) if spec.get('kind') == 'synthetic' and not spec.get('variant') else None
+    # a settings variant (#417) is compared with the project of the same dataset, samples, draw and reads processed (a read
+    # cap at prepare changes them) run with the defaults
     base = {k: v for k, v in spec.items() if k not in ('methods', 'not_selected', 'variant')}
-    identity = json.dumps([dict(base, synthetic=synthetic) if spec.get('kind') == 'synthetic' else base, seed, samples], sort_keys=True, default=str)
+    identity = json.dumps([dict(base, synthetic=synthetic) if spec.get('kind') == 'synthetic' else base, seed, samples,
+                           record.get('reads_processed')], sort_keys=True, default=str)
     report = os.path.relpath((bench / 'report.md').resolve(), out_dir)
     return kind, {'project': project.resolve().name, 'link': urllib.parse.quote(report), 'dataset': spec['name'], 'kit': spec['libprepkit'],
                   'samples': samples, 'reads processed': '' if record.get('reads_processed') is None else '{:,}'.format(record['reads_processed']),
@@ -240,8 +242,9 @@ def over_seeds(rows, metrics):
 
 def settings_variants(rows, metrics):
     """Projects run with route settings changed (#417, `prepare --set`), each against the project of the same dataset,
-    samples and draw run with the defaults: [(dataset, default project, [(variant project, setting, route, [(metric,
-    default value, variant value, flipped)])])]. `flipped`: [(route, value)] of the default project's other routes whose
+    samples, draw and reads processed run with the defaults (metrics scored over the routes' shared features left
+    out): [(dataset, default project, [(variant project, setting, route, [(metric, default value, variant value,
+    flipped)])])]. `flipped`: [(route, value)] of the default project's other routes whose
     order with the varied route (higher, lower or equal) the setting changes. A variant without such a project is left
     out with a line on stderr; two such projects stop it."""
     defaults = {}
@@ -265,6 +268,8 @@ def settings_variants(rows, metrics):
         for route in sorted({key.split('.')[1] for key in row['variant']}):
             lines = []
             for k, ms in metrics:
+                if '_shared' in k:  # scored over the features every route shares, so it depends on which routes ran
+                    continue
                 default, changed = number(base['values'].get((k, route))), number(row['values'].get((k, route)))
                 if default is None or changed is None:
                     continue
