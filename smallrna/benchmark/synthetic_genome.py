@@ -31,6 +31,11 @@ What it draws (all from the declaration's fixed seed):
   relatives) plus one read class of other miRNAs: each isomiR class, or canonical reads with at least one error. Each
   class has `replicates` samples, and a control has the carrier only. Probe miRNAs are truth miRNAs, so they are also
   present, canonical, in the mixed samples.
+- **Decoys** (`decoys`, #412 PR 2; decoys.py): reads of other RNA classes in the mixed samples, a probe sample per class
+  and source (`P_decoy_<unit>_<replicate>`, kind `decoy`), probe samples of the miRBase matures that lie inside
+  other-class molecules (`P_embedded_<class>_<replicate>`) and of fragments of their host molecules overlapping them
+  (`P_overlap_<class>_<replicate>`, kind `overlap`), all drawn from a stream of their own after the miRNA reads, so the
+  miRNA reads are the same with or without decoys.
 
 Reads are the insert followed by the kit's adapter (with `umi` random nucleotides at both ends of the insert when the
 kit has them). The truth has a row per sample, class and read sequence (with its number of substitutions); the design
@@ -45,13 +50,15 @@ import re
 
 import numpy as np
 
+import decoys
+
 ISOMIR_CLASSES = ('3p_trim_1', '3p_trim_2', '3p_templated_1', '3p_templated_2', '3p_add_A', '3p_add_U', '5p_shift')
 READ_CLASSES = ('canonical',) + ISOMIR_CLASSES
 PROBE_CLASSES = ISOMIR_CLASSES + ('errors',)
-TRUTH_COLUMNS = ('sample', 'class', 'mature_name', 'mature_id', 'sequence', 'count', 'errors')
+TRUTH_COLUMNS = ('sample', 'class', 'mature_name', 'mature_id', 'sequence', 'count', 'errors', 'source', 'origin')
 SAMPLE_COLUMNS = ('sample', 'kind', 'group', 'probe_class', 'replicate', 'reads', 'factor_group', 'factor_nuisance')
 MIRNA_COLUMNS = ('mature_id', 'mature_name', 'accessions', 'sequence', 'base_per_million', 'log2fc', 'de', 'nuisance_loading',
-                 'dispersion', 'cluster', 'loci', 'near_identical', 'near_role', 'probe_classes')
+                 'dispersion', 'cluster', 'loci', 'near_identical', 'near_role', 'probe_classes', 'inside')
 MIN_LENGTH = 15  # the filter's minimum read length (every kit)
 
 
@@ -389,6 +396,13 @@ class Reads:
         rows = [(seq, n - k, ())] if n - k else []
         return rows + [(read, c, hits) for (read, hits), c in out.items()]
 
+    def fork(self, rng):
+        """The same error and quality model drawing from another stream (decoys.py), with qualities of its own."""
+        other = object.__new__(Reads)
+        other.__dict__.update(self.__dict__)
+        other.rng, other.pool = rng, {}
+        return other
+
     def quality(self, length, error_positions=()):
         """A quality string: correct bases from a pool of 256 drawn strings per length, substituted bases drawn anew."""
         if length not in self.pool:
@@ -405,30 +419,43 @@ class Reads:
         return q
 
 
-def write_fastq(path, sample, rows, adapter, umi, reads):
-    """Gzipped FASTQ of one sample: rows [(insert, count, error positions)]; [umi]insert[umi]adapter."""
+def write_fastq(path, sample, rows, adapter, umi, reads, more=()):
+    """Gzipped FASTQ of one sample: rows [(insert, count, error positions)]; [umi]insert[umi]adapter. `more` [(rows,
+    reads)] follow, their UMIs and qualities drawn from their own Reads (the decoys' stream)."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    rng = reads.rng
     n = 0
     with gzip.open(path, 'wt', compresslevel=1) as fh:
         chunk = []
-        for insert, count, positions in rows:
-            for _ in range(count):
-                left = ''.join(rng.choice(list('ACGT'), umi)) if umi else ''
-                right = ''.join(rng.choice(list('ACGT'), umi)) if umi else ''
-                seq = left + insert + right + adapter
-                qual = reads.quality(len(seq), [p + umi for p in positions])
-                chunk.append('@{}_{}\n{}\n+\n{}\n'.format(sample, n, seq, qual))
-                n += 1
-                if len(chunk) >= 10000:
-                    fh.write(''.join(chunk))
-                    chunk = []
+        for part_rows, part_reads in [(rows, reads)] + list(more):
+            rng = part_reads.rng
+            for insert, count, positions in part_rows:
+                for _ in range(count):
+                    left = ''.join(rng.choice(list('ACGT'), umi)) if umi else ''
+                    right = ''.join(rng.choice(list('ACGT'), umi)) if umi else ''
+                    seq = left + insert + right + adapter
+                    qual = part_reads.quality(len(seq), [p + umi for p in positions])
+                    chunk.append('@{}_{}\n{}\n+\n{}\n'.format(sample, n, seq, qual))
+                    n += 1
+                    if len(chunk) >= 10000:
+                        fh.write(''.join(chunk))
+                        chunk = []
         fh.write(''.join(chunk))
     return n
 
 
-def generate(spec, mature_fa, hairpin_fa, gff, prefix, adapter, umi, fastq_path):
-    """Write every sample's FASTQ (fastq_path(sample) -> Path) and return (truth rows, sample rows, miRNA rows)."""
+def hairpin_records(hairpin_fa, prefix, universe):
+    """[(name, sequence, [(start, end) of each mature in it])] of the organism's miRBase hairpins."""
+    spans = collections.defaultdict(list)
+    for m in universe.mirnas.values():
+        for parent, flank in zip(m['hairpins'], m['flanks']):
+            if flank:
+                spans[parent].append((len(flank[0]), len(flank[0]) + len(m['sequence'])))
+    return [(name, seq, sorted(spans.get(accession, []))) for name, (accession, seq) in sorted(read_fasta(hairpin_fa, prefix).items())]
+
+
+def generate(spec, mature_fa, hairpin_fa, gff, prefix, adapter, umi, fastq_path, decoy_sources=None):
+    """Write every sample's FASTQ (fastq_path(sample) -> Path) and return (truth rows, sample rows, miRNA rows).
+    `decoy_sources` {source: path} are the filled files of `decoys` (decoys.SOURCES)."""
     rng = np.random.default_rng(int(spec.get('seed', 1)))
     universe = Universe(mature_fa, hairpin_fa, gff, prefix, int((spec.get('coregulate') or {}).get('distance', 10000)))
     chosen, base, roles, absent = choose(universe, spec, rng)
@@ -436,6 +463,10 @@ def generate(spec, mature_fa, hairpin_fa, gff, prefix, adapter, umi, fastq_path)
     scores, loadings = structure(chosen, base, universe, spec, groups, rng)
     table, library, phi = counts(chosen, base, loadings, scores, spec, rng)
     reads = Reads(universe, chosen, spec, rng, umi)
+    decoy = None
+    if spec.get('decoys'):  # after every miRNA draw, on a stream of its own
+        decoy = decoys.Decoys(spec['decoys'], decoy_sources or {}, universe, hairpin_records(hairpin_fa, prefix, universe), reads,
+                       int(spec.get('seed', 1)))
     names = {r: universe.mirnas[r]['name'] for r in universe.mirnas}
     truth, samples = [], []
     width = len(str(len(scores)))
@@ -458,11 +489,16 @@ def generate(spec, mature_fa, hairpin_fa, gff, prefix, adapter, umi, fastq_path)
             for c, n in reads.split(r, table[(j, r)]).items():
                 for read, k, hits in reads.with_errors(reads.reads[r][c], n):
                     rows.append((read, k, hits))
-                    truth.append((sample, c, names[r], r, read, k, len(hits)))
+                    truth.append((sample, c, names[r], r, read, k, len(hits), 'mirbase', ''))
         for s, k in random_rows(library[j]).items():
             rows.append((s, k, ()))
-            truth.append((sample, 'random', '', '', s, k, 0))
-        n = write_fastq(fastq_path(sample), sample, rows, adapter, umi, reads)
+            truth.append((sample, 'random', '', '', s, k, 0, '', ''))
+        more = []
+        if decoy:
+            decoy_rows = decoy.mixed(sum(table[(j, r)] for r in chosen), f2)
+            truth += [(sample, cls, '', '', read, k, len(hits), source, origin) for cls, source, origin, read, k, hits in decoy_rows]
+            more = [([(read, k, hits) for _, _, _, read, k, hits in decoy_rows], decoy.reads)]
+        n = write_fastq(fastq_path(sample), sample, rows, adapter, umi, reads, more)
         samples.append((sample, 'mixed', label, '', '', n, round(f1, 4), round(f2, 4)))
 
     probes = spec.get('probes') or {}
@@ -489,7 +525,7 @@ def generate(spec, mature_fa, hairpin_fa, gff, prefix, adapter, umi, fastq_path)
                 rows = []
                 for r in carrier:
                     rows.append((universe.mirnas[r]['sequence'], carrier_reads, ()))
-                    truth.append((sample, 'carrier', names[r], r, universe.mirnas[r]['sequence'], carrier_reads, 0))
+                    truth.append((sample, 'carrier', names[r], r, universe.mirnas[r]['sequence'], carrier_reads, 0, 'mirbase', ''))
                 for r in members:
                     if c == 'errors':
                         out = collections.Counter()
@@ -498,15 +534,54 @@ def generate(spec, mature_fa, hairpin_fa, gff, prefix, adapter, umi, fastq_path)
                             out[(read, tuple(hits))] += 1
                         for (read, hits), k in out.items():
                             rows.append((read, k, hits))
-                            truth.append((sample, 'canonical', names[r], r, read, k, len(hits)))
+                            truth.append((sample, 'canonical', names[r], r, read, k, len(hits), 'mirbase', ''))
                     else:
                         rows.append((reads.reads[r][c], probe_reads, ()))
-                        truth.append((sample, c, names[r], r, reads.reads[r][c], probe_reads, 0))
+                        truth.append((sample, c, names[r], r, reads.reads[r][c], probe_reads, 0, 'mirbase', ''))
                 n = write_fastq(fastq_path(sample), sample, rows, adapter, umi, reads)
                 samples.append((sample, 'control' if c == 'control' else 'probe', '', '' if c == 'control' else c,
                                 rep if c != 'control' else '', n, '', ''))
         for r in carrier:
             probe_of[r].append('carrier')
+        if decoy:
+            replicates = int(probes.get('replicates', 1))
+            carrier_rows = [(universe.mirnas[r]['sequence'], carrier_reads, ()) for r in carrier]
+
+            def carrier_truth(sample):
+                return [(sample, 'carrier', names[r], r, universe.mirnas[r]['sequence'], carrier_reads, 0, 'mirbase', '') for r in carrier]
+            decoy_reads = int((spec['decoys'].get('probe') or {}).get('reads', 0))
+            for unit in decoy.units:  # (a): one unit's reads and the carrier
+                for rep in range(1, replicates + 1):
+                    sample = 'P_decoy_{}_{}'.format(unit, rep)
+                    rows = decoy.probe(unit, decoy_reads)
+                    truth += carrier_truth(sample) + [(sample, cls, '', '', read, k, 0, source, origin) for cls, source, origin, read, k, _ in rows]
+                    n = write_fastq(fastq_path(sample), sample, carrier_rows + [(read, k, ()) for _, _, _, read, k, _ in rows],
+                                    adapter, umi, decoy.reads)
+                    samples.append((sample, 'decoy', '', unit, rep, n, '', ''))
+            for cls in sorted(decoy.embedded):  # (b): canonical reads of the miRBase matures inside this class's molecules
+                pool = sorted(r for r in decoy.embedded[cls] if r not in carrier)
+                members = decoy.rng.permutation(np.array(pool, dtype=object)).tolist()[:probe_n] if pool else []
+                if not members:
+                    continue
+                for r in members:
+                    probe_of[r].append('embedded_' + cls)
+                for rep in range(1, replicates + 1):
+                    sample = 'P_embedded_{}_{}'.format(cls, rep)
+                    rows = [(universe.mirnas[r]['sequence'], probe_reads, ()) for r in members]
+                    truth += carrier_truth(sample) + [(sample, 'canonical', names[r], r, universe.mirnas[r]['sequence'], probe_reads, 0, 'mirbase',
+                                                       ','.join(decoy.embedded[cls][r][:3])) for r in members]
+                    n = write_fastq(fastq_path(sample), sample, carrier_rows + rows, adapter, umi, decoy.reads)
+                    samples.append((sample, 'probe', '', 'embedded_' + cls, rep, n, '', ''))
+            for cls, (catalogue, weights) in sorted(decoy.draw_overlaps(set(carrier)).items()):
+                # fragments of the host molecules overlapping an embedded mature (no read a miRNA could give)
+                for rep in range(1, replicates + 1):
+                    sample = 'P_overlap_{}_{}'.format(cls, rep)
+                    drawn = [(catalogue[i], int(k)) for i, k in enumerate(decoy.rng.multinomial(decoy_reads, weights)) if k]
+                    truth += carrier_truth(sample) + [(sample, cls, '', '', fragment, k, 0, source, origin)
+                                                      for (fragment, origin, source), k in drawn]
+                    n = write_fastq(fastq_path(sample), sample, carrier_rows + [(fragment, k, ()) for (fragment, _, _), k in drawn],
+                                    adapter, umi, decoy.reads)
+                    samples.append((sample, 'overlap', '', cls, rep, n, '', ''))
 
     mirnas = []
     for r in sorted(set(chosen) | set(probe_of), key=lambda x: names[x]):
@@ -515,7 +590,9 @@ def generate(spec, mature_fa, hairpin_fa, gff, prefix, adapter, umi, fastq_path)
         partner, role = roles.get(r, ('', ''))
         mirnas.append((r, names[r], ','.join(m['accessions']), m['sequence'], round(float(base.get(r, 0.0)), 4),
                        fold, int(fold != 0), round(nuis, 4), round(phi.get(r, 0.0), 6), m['cluster'], m['loci'],
-                       ','.join(sorted(universe.near[r])), role, ','.join(probe_of.get(r, []))))
+                       ','.join(sorted(universe.near[r])), role, ','.join(probe_of.get(r, [])),
+                       ';'.join('{}:{}'.format(cls, ','.join(mols[:3])) for cls, by in sorted((decoy.embedded if decoy else {}).items())
+                                for rr, mols in by.items() if rr == r)))
     return truth, samples, mirnas
 
 

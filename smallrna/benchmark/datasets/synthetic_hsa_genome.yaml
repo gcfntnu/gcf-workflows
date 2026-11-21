@@ -65,3 +65,35 @@ synthetic:
     replicates: 2
     carrier: {mirnas: 30, reads: 1000}
     probe: {mirnas: 40, reads: 500}
+  decoys:                   # reads of other RNA classes (#412 PR 2; decoys.py), from a stream of their own
+    sources:                # filled into <data>/decoys/
+      refseq_rrna:          # 18S, 28S, 5.8S, 5S and the 45S pre-rRNA, whose spacers are taken outside the matures
+        url: 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=NR_003286.4,NR_003287.4,NR_003285.3,NR_023363.1,NR_046235.3&rettype=fasta&retmode=text'
+        sha256: 8ca32fdbf271f4337da04b4b5cbf551d3f163c48706af3724127637b4fe8ba63
+      gtrnadb:              # mature tRNAs, introns removed; CCA is added
+        url: https://gtrnadb.ucsc.edu/genomes/eukaryota/Hsapi38/hg38-mature-tRNAs.fa
+        sha256: 1b4a5f3be176ca11debbc045ebeb0da12619005669877df428ab8fd533688adc
+      ensembl_ncrna:
+        url: https://ftp.ensembl.org/pub/release-116/fasta/homo_sapiens/ncrna/Homo_sapiens.GRCh38.ncrna.fa.gz
+        sha256: 7f03bb303e939517b322f7887a74c1ee15bbb82a6affbb54f0be84e82f89cff1
+      ensembl_cdna:
+        url: https://ftp.ensembl.org/pub/release-116/fasta/homo_sapiens/cdna/Homo_sapiens.GRCh38.cdna.all.fa.gz
+        sha256: 683eb19310c40bf1396e4718f45afa2ce86755717c0990f47a171f535d248ea1
+      pirnaclusterdb:       # the 927 human piRNA clusters UNITAS and TEsmall use
+        url: https://www.pirnaclusterdb.org/data/FASTA/Homo_sapiens.piRNAclusters.fasta
+        sha256: 2078dcb76ae76fd3249550dca5dbbce10da752dd8febd6854fa2a30d96026488
+    load:                   # decoy reads per miRNA read in a mixed sample, by class and source (plasma-like)
+      tRNA-gtrnadb: 0.15
+      tRNA-ensembl: 0.02    # mitochondrial tRNAs
+      rRNA-refseq: 0.08
+      rRNA-ensembl: 0.02    # mitochondrial 12S/16S, 5S and 5.8S genes
+      Y_RNA-ensembl: 0.05
+      snoRNA-ensembl: 0.02
+      other_ncRNA-ensembl: 0.02   # snRNA, 7SK, 7SL, vault RNA
+      mRNA-ensembl: 0.03
+      piRNA-pirnaclusterdb: 0.01
+      precursor-mirbase: 0.01     # hairpin loops and flanks outside the matures
+    nuisance: 0.5           # log2 change of the load per unit of the nuisance score: degraded samples carry more fragments
+    fragments: 2000         # distinct fragments per class and source, lognormal weights (weight_sd 1.5)
+    modification: 0.2       # tRNA fragments with a mismatch at m1G9 or m1A58
+    probe: {reads: 5000}    # decoy reads of one class and source per probe sample (P_decoy_<class>-<source>_<replicate>)

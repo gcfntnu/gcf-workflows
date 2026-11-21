@@ -188,11 +188,34 @@ files the declaration fills into `EXT_DIR/<data>/mirbase/23.1/` (`benchmark.py f
   the substituted bases; a few random reads.
 - **Probe samples:** one canonical carrier set of miRNAs outside the truth, plus one read class of truth miRNAs (each
   isomiR class, or canonical reads with at least one error), two replicates each; and a carrier-only control.
+- **Decoys** (#412 PR 2, `synthetic.decoys`, decoys.py): reads of other RNA classes, from a random stream of their own
+  after the miRNA reads, so those stay the same with or without decoys. Each class and source is a unit:
+  - **rRNA:** RefSeq 18S, 28S, 5.8S, 5S and the 45S spacers; Ensembl mitochondrial 12S/16S and 5S/5.8S genes.
+  - **tRNA:** GtRNAdb mature tRNAs, and Ensembl mitochondrial tRNAs, both with CCA added. Fragments are 5′ and 3′
+    halves, 5′- and 3′-tRFs and i-tRFs, some with an m1G9 or m1A58 mismatch.
+  - **Ensembl:** Y RNA, snoRNA and scaRNA, other ncRNA (snRNA, 7SK, 7SL, vault RNA), and mRNA.
+  - **piRNA:** piRNAclusterDB clusters, 24–32 nt with a 5′ U bias.
+  - **Precursor:** miRBase hairpin loops and flanks outside the matures.
 
-`prepare` writes the reads, `truth.tsv` (per sample, class and read sequence, with its number of substitutions),
-`samples.tsv` (each sample's kind, group, probe class and true factor scores) and `mirnas.tsv` (each miRNA's
-abundance, fold change, nuisance loading, dispersion, cluster, loci, near-identical partners and probe classes). The
-project uses the standard references (no `db.mirflowz.custom`). `--reads N` sets the mean reads of a mixed sample.
+  The sources are filled with checksums into `<data>/decoys/`.
+  - **Fragments:** each unit draws a fixed catalogue of fragments with lognormal weights.
+  - **No look-alikes:** a fragment sharing 18 nt with a miRBase hairpin is drawn again, so these decoys measure reads
+    unrelated to miRBase.
+  - **Mixed samples:** `load` gives decoy reads per miRNA read, rising with the nuisance factor (`nuisance`).
+  - **Probe samples:** each unit has its own (`P_decoy_<unit>_<n>`, kind `decoy`), with the carrier.
+  - **miRBase matures inside other-class molecules** (e.g. tRNA- and rRNA-derived entries) are probed from both sides:
+    their canonical reads (`P_embedded_<class>_<n>`), and fragments of the host molecules that cover at least half of
+    such a mature without being a read any miRNA could give (`P_overlap_<class>_<n>`, kind `overlap`).
+
+`prepare` writes:
+- the reads;
+- `truth.tsv`: per sample, class and read sequence, with its number of substitutions, its `source` and, for decoys,
+  its `origin` (molecule and fragment type);
+- `samples.tsv`: each sample's kind, group, probe class and true factor scores;
+- `mirnas.tsv`: each miRNA's abundance, fold change, nuisance loading, dispersion, cluster, loci, near-identical
+  partners, probe classes, and the other-class molecules it lies `inside`.
+
+The project uses the standard references (no `db.mirflowz.custom`). `--reads N` sets the mean reads of a mixed sample.
 
 **Synthetic RNA pools** (`kind: pool`), from Giraldez et al. 2018 (*Nat Biotechnol* 36:746, doi:10.1038/nbt.4183),
 one declaration per pool and kit, as a project has one kit:
@@ -341,6 +364,13 @@ the best the design allows) as a column:
   a variant of another mature beyond these classes (a 2-nt 3′ trim of miR-320d-3p is the 5′ 17 nt of the miR-320
   family). The truth keeps its origin, which no counting method can know, so a method may count such reads on a
   relative.
+- **Decoys** (#412 PR 2): `decoy_as_mirna_<class>-<source>`, the share of a decoy probe's reads that a method counts
+  on miRNAs other than the carrier, control subtracted; `decoy_as_mirna` pools the units. Every such read is false.
+  `probe_embedded_<class>` is the recovery of the miRBase matures inside that class's molecules, so 1 − recovery is the
+  share lost to the other class. `overlap_on_mirna_<class>` and `overlap_as_mirna_<class>`: the share of the overlap
+  fragments counted on the mature they overlap and on any miRNA (not false positives, as miRBase has the mature). The
+  report lists the miRNAs decoys land on. Decoys in the mixed samples act on
+  `precision` and `misassigned`. There are no intervals, as for the probes.
 - **isomiRs** (#454; mixed samples; intervals resample the miRNAs, #459): a true read counts as reported when the method reports its own
   sequence on its miRNA, up to the true count. `isomir_recovered_<class>` per read class (`canonical`, the isomiR
   classes, and `substituted` for reads with a substitution), and `isomir_recovered` over the isomiR classes. Over a
