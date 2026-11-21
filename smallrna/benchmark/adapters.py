@@ -30,13 +30,17 @@ isomiR table (#454): for the methods that report read sequences, one row per met
 sequence (ISOMIR_COLUMNS), counted by the method's own rule, so that a miRNA's rows add up to its count in the common
 table (check_isomirs). `label` is the method's own call, canonical or isomiR (empty for UNITAS, which has none):
 
-- UNITAS: isomir_counts.tsv (`sequence|name`, unitas_isomirtable.py), the name without the modification UNITAS appends
-  to a read with a substitution (`miR-548x-3p(1T->A)`), as mir_counts.tsv counts it; names placed as in the common table;
+- UNITAS: each sample's unitas.miR-table_<organism>.txt, whose sequence is the read without its non-templated 3' tail,
+  with the reads split by tail (`+N0-3'` none, `A-tailed_reads`, `AA-tailed_reads`, ...): each read is rebuilt as the
+  sequence plus its tail. The name is taken without the modification UNITAS appends to a read with a substitution
+  (`miR-548x-3p(1T->A)`), as mir_counts.tsv counts it, and placed as in the common table;
 - miRge3: mapped.csv, as rules/quant/scripts/mirge3_counts.py counts miR.Counts.csv: names folded by the project
   library's merge file, a merge group's reads on its first member, and only miRNAs with at least MIRGE3_MIN_EXACT exact
   reads in the project; a read under `exact miRNA` is canonical;
-- mirflowz: the `name|5' shift|3' shift|CIGAR|MD|sequence` rows are isomiRs; a plain row counts the reads that match
-  mirflowz's annotated mature exactly, whose sequence the table does not give (empty);
+- mirflowz: the `name|5' shift|3' shift|CIGAR|MD|sequence` rows are isomiRs, their sequence in genome orientation, so a
+  locus on the minus strand (its annotation) gives the reverse complement of the read. A plain row counts the reads that
+  match mirflowz's annotated mature exactly: the miRBase mature sequence of its accession, which the table does not give
+  (on the Giraldez equimolar pools, every annotated mature that mirflowz's own rows cover equals miRBase's);
 - nf-core/smrnaseq: joined_samples_mirtop.tsv, the first row of each UID (rules/quant/scripts/smrnaseq_counts.py);
   `Variant` NA is canonical;
 - biocore_miraligner: each sample's isomir.tsv (`<miRNA>_<sequence>_<mism;add;t5;t3>`, a sequence's reads already
@@ -291,13 +295,30 @@ MIRTOP_ANNOTATION = ('UID', 'Read', 'miRNA', 'Variant', 'iso_5p', 'iso_3p', 'iso
 
 def unitas_isomirs(quant_dir, name_to_id, prefix, unitas_hairpins=None, mature=None, **_):
     rows, placed = [], {}
-    for feature, counts in read_matrix(Path(quant_dir) / 'unitas' / 'isomir_counts.tsv', '\t').items():
-        sequence, name = feature.split('|', 1)
-        modified = UNITAS_MODIFICATION.match(name)
-        name = (modified.group(1) if modified else name).strip()
-        if name not in placed:
-            placed[name] = unitas_place(name, name_to_id, prefix, unitas_hairpins or {}, mature or {})[0]
-        rows += [('unitas', s, name, placed[name], sequence, '', c) for s, c in counts.items()]
+    for sample in table_samples('unitas', quant_dir):
+        found = sorted((Path(quant_dir) / 'unitas' / 'unitas' / sample).glob('unitas.miR-table_*.txt'))
+        if len(found) != 1:
+            raise ValueError('{}: expected one unitas.miR-table_<organism>.txt, found {}'.format(Path(quant_dir) / 'unitas' / 'unitas' / sample, len(found)))
+        with open(found[0], newline='') as fh:
+            reader = csv.reader(fh, delimiter='\t')
+            header = next(reader, [])
+            tails = [(c, c[:-len('-tailed_reads')]) for c in header if c.endswith('-tailed_reads')]
+            if header[:4] != ['miR-name', 'sequence', 'total_reads', "+N0-3'"] or not tails:
+                raise ValueError("{}: expected miR-name, sequence, total_reads, +N0-3' and the tail columns, got {}".format(found[0], header))
+            col = {c: i for i, c in enumerate(header)}
+            for i, row in enumerate(reader, 2):
+                if not row:
+                    continue
+                values = {c: float(row[col[c]] or 0) for c in ['total_reads', "+N0-3'"] + [c for c, _ in tails]}
+                reads = [(row[1], values["+N0-3'"])] + [(row[1] + tail, values[c]) for c, tail in tails]
+                if not math.isclose(sum(c for _, c in reads), values['total_reads'], rel_tol=1e-6, abs_tol=1e-6):
+                    raise ValueError("{}:{}: total_reads {:g}, but +N0-3' and the tails add up to {:g}".format(
+                        found[0], i, values['total_reads'], sum(c for _, c in reads)))
+                modified = UNITAS_MODIFICATION.match(row[0])
+                name = (modified.group(1) if modified else row[0]).strip()
+                if name not in placed:
+                    placed[name] = unitas_place(name, name_to_id, prefix, unitas_hairpins or {}, mature or {})[0]
+                rows += [('unitas', sample, name, placed[name], sequence, '', c) for sequence, c in reads if c]
     return rows
 
 
@@ -335,14 +356,39 @@ def mirge3_isomirs(quant_dir, name_to_id, **_):
     return [row for row in rows if exact[row[2]] >= MIRGE3_MIN_EXACT]
 
 
-def mirflowz_isomirs(quant_dir, name_to_id, mirflowz_gff=None, **_):
-    locus_names = mirflowz_names(mirflowz_gff) if mirflowz_gff else {}
+def mirflowz_strands(gff):
+    """Name -> strand of the miRNAs in mirflowz's extended annotation."""
+    strands = {}
+    with open(gff) as fh:
+        for line in fh:
+            fields = line.rstrip('\n').split('\t')
+            if not line.startswith('#') and len(fields) == 9:
+                name = dict(a.split('=', 1) for a in fields[8].split(';') if '=' in a).get('Name')
+                if name:
+                    strands[name] = fields[6]
+    return strands
+
+
+def reverse_complement(sequence):
+    return sequence[::-1].translate(str.maketrans('ACGTN', 'TGCAN'))
+
+
+def mirflowz_isomirs(quant_dir, name_to_id, mirflowz_gff=None, mature=None, **_):
+    if not mirflowz_gff:
+        raise ValueError("mirflowz's isomiR rows need its annotation, for the strand of each locus")
+    locus_names, strands = mirflowz_names(mirflowz_gff), mirflowz_strands(mirflowz_gff)
+    id_to_seq = {accession: seq for accession, seq in (mature or {}).values()}
     rows = []
     for feature, counts in read_matrix(Path(quant_dir) / 'mirflowz' / 'all_mirna_counts.tab', '\t').items():
         fields = feature.split('|')
         name = fields[0]
-        sequence, label = ('', CANONICAL) if len(fields) == 1 else (fields[-1], ISOMIR)
+        if strands.get(name) not in ('+', '-'):
+            raise ValueError('mirflowz miRNA {} is not on a strand in {}'.format(name, mirflowz_gff))
         accession = locus_names.get(name) or name_to_id.get(name, '')
+        if len(fields) == 1:
+            sequence, label = id_to_seq.get(accession, ''), CANONICAL
+        else:
+            sequence, label = (fields[-1] if strands[name] == '+' else reverse_complement(fields[-1])), ISOMIR
         rows += [('mirflowz', s, name, accession, sequence, label, c) for s, c in counts.items()]
     return rows
 

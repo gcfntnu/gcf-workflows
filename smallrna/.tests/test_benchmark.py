@@ -115,6 +115,9 @@ def write_records(quant, methods, database='mirbase', release='23.1', dump=None)
         write(quant / method / 'reference.tsv', text)
 
 
+UNITAS_MIR_TABLE = "miR-name\tsequence\ttotal_reads\t+N0-3'\t+N1-3'\t+N2-3'\tA-tailed_reads\tT-tailed_reads\n"
+
+
 def isomir_outputs(quant, sequences=None):
     """isomiR outputs that agree with the UNITAS and miRge3 count tables written so far, as the routes write them
     (#454): each miRNA's reads on one read sequence, `sequences` ({name without the species prefix: sequence}) or one
@@ -124,9 +127,10 @@ def isomir_outputs(quant, sequences=None):
         return (sequences or {}).get(bare) or ''.join('ACGT'[ord(c) % 4] for c in (bare * 3))[:22]
     unitas = quant / 'unitas/mir_counts.tsv'
     if unitas.is_file():
-        lines = unitas.read_text().splitlines()
-        write(quant / 'unitas/isomir_counts.tsv', lines[0] + '\n' + ''.join(
-            '{}|{}\t{}\n'.format(sequence(line.split('\t')[0]), line.split('\t')[0].strip(), line.split('\t', 1)[1]) for line in lines[1:] if line))
+        lines = [line.split('\t') for line in unitas.read_text().splitlines() if line]
+        for i, sample in enumerate(lines[0][1:], 1):
+            write(quant / 'unitas/unitas' / sample / 'unitas.miR-table_Human.txt', UNITAS_MIR_TABLE + ''.join(
+                '{}\t{}\t{c}\t{c}\t0\t0\t0\t0\n'.format(row[0], sequence(row[0]), c=row[i]) for row in lines[1:] if float(row[i])))
     mirge3 = quant / 'mirge3/miR.Counts.csv'
     if mirge3.is_file():
         lines = mirge3.read_text().splitlines()
@@ -2356,7 +2360,9 @@ def test_evaluate_de_stops_early(tmp_path, case, message):
 
 import isomirs  # noqa: E402
 
-MMU_192, MMU_194 = 'CTGACCTATGAATTGACAGCC', 'TGTAACAGCAACTCCATGTGGA'
+MMU_192, MMU_194, MMU_204 = 'CTGACCTATGAATTGACAGCC', 'TGTAACAGCAACTCCATGTGGA', 'TTCCCTTTGTCATCCTATGCCT'
+MMU_192_T = MMU_192[:4] + 'T' + MMU_192[5:]  # a substitution
+MMU_MATURE = {'mmu-miR-192-5p': ('MIMAT0000517', MMU_192), 'mmu-miR-194-5p': ('MIMAT0000224', MMU_194), 'mmu-miR-204-5p': ('MIMAT0000237', MMU_204)}
 MIRTOP_COLUMNS = '\t'.join(adapters.MIRTOP_ANNOTATION)
 
 
@@ -2364,8 +2370,10 @@ def native_isomir_outputs(quant):
     """Each isomiR route's count table and per-sequence output for samples S01 and S02, consistent as the routes write
     them; returns mirflowz's annotation."""
     write(quant / 'unitas/mir_counts.tsv', '\tS01\tS02\nmiR-192-5p\t45\t45\nmiR-194-2-5p\t5\t0\n')
-    write(quant / 'unitas/isomir_counts.tsv', '\tS01\tS02\n{0}|miR-192-5p\t40.0\t45.0\n{0}A|miR-192-5p(22C->A) \t5.0\t0.0\n'
-          '{1}|miR-194-2-5p\t5.0\t0.0\n'.format(MMU_192, MMU_194))  # a substitution's name keeps its modification
+    # the read without its non-templated tail, its reads split by tail; a substitution's name keeps its modification
+    write(quant / 'unitas/unitas/S01/unitas.miR-table_Mouse.txt', UNITAS_MIR_TABLE + 'miR-192-5p\t{0}\t40\t35\t5\t0\t5\t0\n'
+          'miR-192-5p(5C->T) \t{2}\t5\t5\t0\t0\t0\t0\nmiR-194-2-5p\t{1}\t5\t5\t0\t0\t0\t0\n'.format(MMU_192, MMU_194, MMU_192_T))
+    write(quant / 'unitas/unitas/S02/unitas.miR-table_Mouse.txt', UNITAS_MIR_TABLE + 'miR-192-5p\t{}\t45\t45\t0\t0\t0\t0\n'.format(MMU_192))
     write(quant / 'mirge3/miR.Counts.csv', 'miRNA,S01,S02\nmmu-miR-192-5p,45,45\nmmu-miR-194-5p/204-5p,25,25\nmmu-miR-9999-5p,0,0\n')
     write(quant / 'mirge3/mapped.csv', 'Sequence,annotFlag,exact miRNA,hairpin miRNA,mature tRNA,primary tRNA,snoRNA,rRNA,ncrna others,'
           'mRNA,isomiR miRNA,S01,S02\n'
@@ -2385,20 +2393,24 @@ def native_isomir_outputs(quant):
           'mmu-miR-192-5p_{2}_5TA;0;0;0\t3\nmmu-miR-194-5p_{1}_0;0;0;0\t12.5\nmmu-miR-204-5p_{1}_0;0;0;0\t12.5\n'.format(
               MMU_192, MMU_194, MMU_192.replace('ACC', 'TCC', 1)))  # a substitution: out of the mature table
     write(quant / 'biocore_miraligner/S02/isomir.tsv', 'isomiR\tcount\nmmu-miR-192-5p_{}_0;0;0;0\t44.5\n'.format(MMU_192))
+    # a plain row: the reads of the annotated mature; isomiR rows in genome orientation (miR-204-5p on the minus strand)
     write(quant / 'mirflowz/all_mirna_counts.tab', 'ID\tS01\tS02\nmmu-miR-192-5p\t40\t40\nmmu-miR-192-5p|0|2|23M|23|{}AA\t5\t5\n'
-          'mmu-miR-204-5p|0|0|22M|22|{}\tNA\t3\n'.format(MMU_192, MMU_194))
+          'mmu-miR-204-5p|0|0|22M|22|{}\tNA\t3\n'.format(MMU_192, adapters.reverse_complement(MMU_204)))
     write_records(quant, ['unitas', 'mirge3', 'smrnaseq', 'biocore_miraligner', 'mirflowz'])
-    return write(quant.parent / 'mirflowz.gff3', '19\t.\tmiRNA\t1\t30\t.\t+\t.\tID=MIMAT0000224_1;Alias=MIMAT0000224;Name=mmu-miR-194-2-5p\n')
+    return write(quant.parent / 'mirflowz.gff3', '19\t.\tmiRNA\t1\t30\t.\t+\t.\tID=MIMAT0000224_1;Alias=MIMAT0000224;Name=mmu-miR-194-2-5p\n'
+                 '18\t.\tmiRNA\t1\t33\t.\t+\t.\tID=MIMAT0000517;Alias=MIMAT0000517;Name=mmu-miR-192-5p\n'
+                 '2\t.\tmiRNA\t1\t34\t.\t-\t.\tID=MIMAT0000237;Alias=MIMAT0000237;Name=mmu-miR-204-5p\n')
 
 
 def test_isomir_table_counts_as_each_route_counts_its_mirnas(tmp_path):
     quant = tmp_path / 'quant'
     gff = native_isomir_outputs(quant)
     methods = ['unitas', 'mirge3', 'smrnaseq', 'biocore_miraligner', 'mirflowz', 'tesmall']
-    rows, without = adapters.isomir_table(methods, quant, NAME_TO_ID, 'mmu-', gff)
+    rows, without = adapters.isomir_table(methods, quant, NAME_TO_ID, 'mmu-', gff, mature=MMU_MATURE)
     assert without == ['tesmall']
     got = {(m, s, n, q): (i, label, c) for m, s, n, i, q, label, c in rows}
-    assert got[('unitas', 'S01', 'miR-192-5p', MMU_192 + 'A')] == ('MIMAT0000517', '', 5.0)  # the modification dropped; no labels
+    assert got[('unitas', 'S01', 'miR-192-5p', MMU_192 + 'A')] == ('MIMAT0000517', '', 5.0)  # the read rebuilt with its tail; no labels
+    assert got[('unitas', 'S01', 'miR-192-5p', MMU_192)][2] == 35 and got[('unitas', 'S01', 'miR-192-5p', MMU_192_T)][2] == 5  # modification dropped
     assert got[('mirge3', 'S01', 'mmu-miR-194-5p/204-5p', MMU_194)] == ('MIMAT0000224', 'canonical', 25.0)  # folded on the group
     assert got[('mirge3', 'S01', 'mmu-miR-192-5p', MMU_192 + 'AA')] == ('MIMAT0000517', 'isomiR', 5.0)
     assert not any(m == 'mirge3' and n == 'mmu-miR-9999-5p' for m, _, n, _ in got)  # fewer than 2 exact reads
@@ -2406,10 +2418,18 @@ def test_isomir_table_counts_as_each_route_counts_its_mirnas(tmp_path):
     assert got[('smrnaseq', 'S01', 'mmu-miR-192-5p', MMU_192 + 'AA')][1] == 'isomiR' and got[('smrnaseq', 'S01', 'mmu-miR-192-5p', MMU_192)][1] == 'canonical'
     assert got[('biocore_miraligner', 'S01', 'mmu-miR-192-5p', MMU_192 + 'AA')] == ('MIMAT0000517', 'isomiR', 5.0)
     assert not any(m == 'biocore_miraligner' and q.startswith('CTGTCC') for m, _, _, q in got)  # the substitution
-    assert got[('mirflowz', 'S01', 'mmu-miR-192-5p', '')] == ('MIMAT0000517', 'canonical', 40.0)  # a plain row: no sequence
-    assert got[('mirflowz', 'S02', 'mmu-miR-204-5p', MMU_194)] == ('MIMAT0000237', 'isomiR', 3.0) and ('mirflowz', 'S01', 'mmu-miR-204-5p', MMU_194) not in got
+    assert got[('mirflowz', 'S01', 'mmu-miR-192-5p', MMU_192)] == ('MIMAT0000517', 'canonical', 40.0)  # a plain row: the mature
+    assert got[('mirflowz', 'S02', 'mmu-miR-204-5p', MMU_204)] == ('MIMAT0000237', 'isomiR', 3.0)  # minus strand: reverse complemented
+    assert ('mirflowz', 'S01', 'mmu-miR-204-5p', MMU_204) not in got
     common = adapters.common_table(methods[:-1], quant, NAME_TO_ID, 'mmu-', gff)
     adapters.check_isomirs(rows, common, methods[:-1])
+    with pytest.raises(ValueError, match='need its annotation'):
+        adapters.isomir_table(['mirflowz'], quant, NAME_TO_ID, 'mmu-')
+    with pytest.raises(ValueError, match='mirflowz miRNA mmu-miR-192-5p is not on a strand'):
+        adapters.isomir_table(['mirflowz'], quant, NAME_TO_ID, 'mmu-', write(tmp_path / 'other.gff3', gff.read_text().splitlines()[0] + '\n'))
+    write(quant / 'unitas/unitas/S02/unitas.miR-table_Mouse.txt', UNITAS_MIR_TABLE + 'miR-192-5p\t{}\t45\t40\t0\t0\t0\t0\n'.format(MMU_192))
+    with pytest.raises(ValueError, match="total_reads 45, but \\+N0-3' and the tails add up to 40"):
+        adapters.isomir_table(['unitas'], quant, NAME_TO_ID, 'mmu-')
     write(quant / 'smrnaseq/mirna.tsv', 'miRNA\tS01\tS02\nmmu-miR-192-5p\t46\t45\nmmu-miR-194-5p\t25\t0\n')
     with pytest.raises(ValueError, match=r'smrnaseq isomiR rows do not add up .* smrnaseq S01 mmu-miR-192-5p: 45 in the isomiR rows, 46'):
         adapters.check_isomirs(rows, adapters.common_table(methods[:-1], quant, NAME_TO_ID, 'mmu-', gff), methods[:-1])
