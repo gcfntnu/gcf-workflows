@@ -1879,7 +1879,8 @@ def knockout_section(bench, spec, table, common, methods, filt, id_to_name):
 def fill(args):
     spec = load_dataset(args.dataset, args.mirbase_release)
     try:
-        filler.fill(spec, Path(args.ext_dir))
+        filler.fill(spec, Path(args.ext_dir), source=args.source, connections=args.connections, jobs=args.jobs,
+                    fasterq_dump=args.fasterq_dump)
     except (OSError, ValueError) as error:
         fail(str(error))
 
@@ -1909,6 +1910,11 @@ def main():
     f.add_argument('--dataset', required=True)
     f.add_argument('--ext-dir', required=True)
     f.add_argument('--mirbase-release', help="a miRBase release the declaration lists under mirbase_releases (default: its mirbase)")
+    f.add_argument('--source', choices=['ena', 'sra'], default='ena',
+                   help="where the runs come from: ena (the declared url) or sra (NCBI's copy on AWS, for runs declaring `sra`; needs fasterq-dump)")
+    f.add_argument('--connections', type=int, default=8, help='--source sra: range requests at a time per run')
+    f.add_argument('--jobs', type=int, default=4, help='--source sra: runs at a time')
+    f.add_argument('--fasterq-dump', default='fasterq-dump', help="--source sra: the fasterq-dump command, e.g. 'apptainer exec <image> fasterq-dump'")
     e = sub.add_parser('evaluate')
     e.add_argument('--project', required=True)
     e.add_argument('--de', action='store_true', help="datasets that declare `de:`: score de.smk's differential "
