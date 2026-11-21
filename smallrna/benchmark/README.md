@@ -421,7 +421,10 @@ miRNA), `exact` (share of miRNAs counted exactly, to within 1e-6 for the fractio
   - `tmm` (folder `de/arm/tmm`, metrics `.tmm`): edgeR's TMM factors (`calcNormFactors`) on the workflow's library
     sizes, for all three tests (voom on the normalised sizes).
   The main metrics stay the workflow's. An `offset` that differs between the arms is the normalisation's, not the
-  method's. Biological datasets have no arms: no change is known to score them against.
+  method's. Biological datasets have no arms: no change is known to score them against. The `fixed` arm reads the
+  cutadapt route's reports (the kits' default), so `evaluate` of a pool or synthetic project that declares `de:` on
+  another filter route stops and names the missing reports. On the pools `false_calls` is a share of their 25 1:1
+  sequences and, with dispersions near 0.002, follows the offset, so read the arms by their `offset`.
 
   With `de: {within: lab}` (#444) each lab's runs are also tested on their own with `~ group`, as replicate benchmarks
   of a single-lab experiment; each lab needs at least two runs per pool. Their metrics carry the lab, e.g.
