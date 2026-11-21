@@ -73,11 +73,18 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    so short memory peaks can be missed. CPU time is a lower bound: a route that starts many short processes is
    undercounted most (mirflowz: 12 s recorded, 45 s measured with `/usr/bin/time`).
 
-   **Differential expression** (#414). For a ratiometric pool that declares `de:`, `evaluate` also writes the inputs
-   to `benchmark/de/input/`. With `de: {within: lab}` (#444) it also writes each lab's inputs to
-   `benchmark/de/lab/<lab>/input/`, and lists the labs in `benchmark/de/levels.tsv`. `de.smk` tests every set it lists
-   with edgeR's exact and GLM tests and limma-voom (`de.R`, in the `sartools` image), and `evaluate --de` adds the
-   scores of their calls (Metrics, below):
+   **Differential expression** (#414, #447). One step for every dataset that declares `de:`: a ratiometric pool, the
+   genome-wide synthetic dataset or a biological dataset. `evaluate` also writes the inputs to `benchmark/de/input/`:
+   the counts of each row (a reference row, the pools' oracle or the synthetic truth, and each method), the library
+   sizes, the design and the model (`model.tsv`: the contrast, the covariates that are numbers and the least mean
+   count a row tests). A dataset can have more DE sets, each in a folder of its own, listed in
+   `benchmark/de/levels.tsv`:
+   - a pool or biological dataset with `de: {within: lab}` (#444): each lab's runs, in `benchmark/de/lab/<lab>/`;
+   - the synthetic dataset: the same samples with the true nuisance scores as a covariate, in
+     `benchmark/de/adjusted/nuisance/`.
+
+   `de.smk` tests every set with edgeR's exact and GLM tests and limma-voom (`de.R`, in the `sartools` image), and
+   `evaluate --de` adds the scores of their calls (Metrics, below):
 
    ```bash
    snakemake -s smallrna/benchmark/de.smk -d <project> --use-apptainer --cores 1
@@ -88,10 +95,23 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    visible in the container. `de.R` fits copies of the inputs and records their MD5s, its own and that of the results
    table it writes. `evaluate --de` stops before writing anything unless that record matches the current inputs, `de.R`
    and the results table; after new counts, run `evaluate` without `--de` (it writes the current inputs), then
-   `de.smk`, which also reruns after a change to `de.R`. A project prepared before #414 or #444 enables DE, or the
-   tests within each lab, by adding its dataset's `de:` to `benchmark/dataset.yaml`. `de.smk` reads
-   `benchmark/de/levels.tsv`, which `evaluate` writes since #444, so a project evaluated earlier needs `evaluate` once
-   more before `de.smk`. The DE files are not listed in `evaluation.json`; the report gives each set's results SHA-256.
+   `de.smk`, which also reruns after a change to `de.R`. A project prepared before its dataset declared `de:` enables
+   DE by adding the dataset's `de:` to `benchmark/dataset.yaml`. The inputs changed with #447 (`model.tsv`, and the
+   column `feature` in the counts and results), so a project evaluated earlier needs `evaluate` once more before
+   `de.smk`. The DE files are not listed in `evaluation.json`; the report gives each set's results SHA-256.
+
+   What a declaration's `de:` takes:
+
+   | Dataset | `de:` | Contrast | Rows test |
+   |---|---|---|---|
+   | ratiometric pool | `covariates`, `within` | pool A against pool B | every scored sequence with reads |
+   | genome-wide synthetic | nothing (`de: {}`) | the group the designed fold changes raise against the other | miRNAs with at least 10 reads on average |
+   | biological | `contrast: [numerator, denominator]`, `covariates`, `within` | two of the samples' groups; samples of other groups are left out | miRNAs with at least 10 reads on average |
+
+   A covariate is any field of the declaration's runs (pools) or samples (biological), e.g. `lab`, `patient` or
+   `mouse`; each needs a value for every run or sample of the contrast, and the design must leave residual degrees of
+   freedom. A biological dataset prepared with `--lanes` has no DE: the lanes of one library are no replicates. Its
+   calls are reported, not scored, since no change is known.
 5. **Summary.** `benchmark.py summary` reads several evaluated projects and writes one overview, a Markdown file or a
    single self-contained HTML file (no external resources), by the output's extension:
 
@@ -246,13 +266,25 @@ the best the design allows) as a column:
   and reads on absent miRNAs lower it), `exact`, `misassigned` and `unplaced` (shares of the observed reads),
   `near_spill` (reads above the truth on near-identical partners, relative to the high member's truth) and
   `deviation_correlation` (each miRNA's log counts around its mean, observed against truth).
-- **Differential expression:** median-of-ratios size factors, log2(normalised + 1), a linear model per miRNA with the
-  group (and, `_adjusted`, the true nuisance scores), a moderated t (the residual variance shrunk towards the median,
-  4 prior degrees of freedom), Benjamini-Hochberg at 5%. Each method tests the miRNAs with at least 10 reads on
-  average in its own counts, as an analysis of them would (`de_tested`), so reads spilled onto a relative of a DE miRNA
-  can make a false call. Reported as `de_sensitivity`, `de_fdr` (calls on any miRNA not designed DE, absent ones
-  included; the report lists them) and `de_fc_error` (median |observed - true log2 fold change| of the true DE
-  miRNAs). The ratiometric pools test edgeR and limma-voom (#414, Pools below).
+- **Differential expression** (#447; `de: {}` and `evaluate --de`): the tests of the ratiometric pools (Pools below)
+  on the mixed samples, so the two datasets can be compared. The group the designed fold changes raise is tested
+  against the other, with the workflow's library sizes (all the miRNA reads a method reported; the truth: its miRNA
+  reads). Each row tests the miRNAs with at least 10 reads on average in its own counts, as an analysis of them would,
+  so reads spilled onto a relative of a changing miRNA can make a false call. The scored miRNAs are those designed to
+  change with at least 10 truth reads on average, and every other miRNA of the truth or reported by a method that is
+  designed not to change. The metrics are the pools', with the same prefixes: `called`, `false_calls`, `fdr`,
+  `fc_bias` and `offset` against the designed changes, and against the truth's fits `own_false_calls`,
+  `discordant_vs_truth`, `fc_shift_vs_truth` and `fc_error_vs_truth`. A second set adds the nuisance factor's true
+  sample scores as a covariate of the GLM test and voom; its metrics end in `.adjusted` (the exact test takes no
+  covariates, so its values there equal the unadjusted ones). The report gives the share called per designed fold
+  change, and the share of each method's miRNAs whose fractional counts were rounded for the tests.
+- **Differential expression, the built-in check** (`de_*`, without a container): median-of-ratios size factors,
+  log2(normalised + 1), a linear model per miRNA with the group (and, `_adjusted`, the true nuisance scores), a
+  moderated t (the residual variance shrunk towards the median, 4 prior degrees of freedom), Benjamini-Hochberg at 5%,
+  on the miRNAs with at least 10 reads on average in a row's own counts (`de_tested`). Reported as `de_sensitivity`,
+  `de_fdr` (calls on any miRNA not designed DE, absent ones included; the report lists them) and `de_fc_error` (median
+  |observed - true log2 fold change| of the true DE miRNAs). It differs from the tests above in normalisation, model
+  and scoring, so compare methods within it, not its values with the pools'.
 - **Structure:** `structure_group_r2` and `structure_nuisance_r2` (each true factor regressed on the top two principal
   components) and `coexpression` (agreement of the miRNA-miRNA correlations).
 - **Probe samples:** `probe_<class>`, the recovery of each read class, control subtracted. A generated read can still be
@@ -344,6 +376,11 @@ miRNA), `exact` (share of miRNAs counted exactly, to within 1e-6 for the fractio
 
 **Biological samples** (`biological.py`; detected = at least 10 reads in a sample; CPM relative to each method's
 miRNA reads):
+
+- **Differential expression** (#447; `de:` and `evaluate --de`): the pools' tests between two groups of samples, each
+  method on the miRNAs with at least 10 reads on average in its own counts, identical sequences as one. The report
+  gives what each method tests and calls up and down per test. No change is known, so nothing is scored and
+  `metrics.tsv` gets no DE metrics.
 
 - **Accessions.** miRNAs with the same mature sequence count as one (the lowest accession), since the methods credit
   their reads to different members (miRge3 to its merge group's first name; UNITAS and mirflowz to either, e.g.
