@@ -8,18 +8,25 @@ no runs, only the miRBase files its reads are generated from. Files go to `<EXT_
 sha256) as `mirbase/<release>/mature.fa`, and a synthetic declaration's hairpins and GFF (`mirbase.hairpin`,
 `mirbase.gff`: url, sha256) as `mirbase/<release>/hairpin.fa` and `genes.gff3`. Each download is written to its own
 temporary file in the same folder and renamed only after its checksum matches, so a file in place is always complete,
-also when fills of declarations sharing a data folder run at the same time; files already in place are skipped. This is
+also when fills of declarations sharing a data folder run at the same time; files already in place are skipped. A
+transfer the server cuts before the announced length is resumed from where it stopped, on a new connection (one at a
+time, with a pause before each). This is
 the only step of the benchmark that writes to EXT_DIR, and it is run deliberately when a dataset is added; `prepare` and
 `evaluate` only read.
 """
 import hashlib
+import http.client
 import os
 from pathlib import Path
 import shutil
 import tempfile
+import time
+import urllib.error
 import urllib.request
 
 CHUNK = 1 << 20
+CONNECTIONS = 20   # per file: the first, and one for each time the transfer is cut and resumed
+PAUSE = 30         # seconds before a resuming connection, times its number, at most 300
 UMASK = os.umask(0)
 os.umask(UMASK)
 
@@ -42,6 +49,41 @@ def targets(spec, ext_dir):
     return files
 
 
+def transfer(url, out, checksum, log=print):
+    """Write url's bytes to `out` and into `checksum`. A server can close a long transfer early, which reads like the
+    end of the file: when fewer bytes arrived than the response announced (Content-Length), or the connection broke,
+    the rest is asked for on a new connection (a Range request from the bytes already written), up to CONNECTIONS in
+    all, one at a time. An HTTP error status is not retried. Without an announced length there is nothing to compare
+    with, and the caller's checksum decides."""
+    received, total = 0, None
+    for connection in range(CONNECTIONS):
+        if connection:
+            log('{}: cut at {} of {} bytes; resuming'.format(url, received, total if total is not None else 'unknown'))
+            time.sleep(min(PAUSE * connection, 300))
+        request = urllib.request.Request(url, headers={'Range': 'bytes={}-'.format(received)}) if received else url
+        try:
+            with urllib.request.urlopen(request, timeout=600) as response:
+                if received and getattr(response, 'status', None) != 206:
+                    raise ValueError('{}: no partial content for a resumed download (HTTP {})'.format(url, getattr(response, 'status', None)))
+                length = getattr(response, 'headers', None) and response.headers.get('Content-Length')
+                if length is not None:
+                    total = received + int(length)
+                for block in iter(lambda: response.read(CHUNK), b''):
+                    checksum.update(block)
+                    out.write(block)
+                    received += len(block)
+        except urllib.error.HTTPError:
+            raise
+        except (OSError, http.client.HTTPException) as error:  # a reset or timed-out connection, an incomplete read
+            if not received and total is None:
+                raise  # nothing arrived at all: not a cut transfer
+            log('{}: {}'.format(url, error))
+            continue
+        if total is None or received >= total:
+            return
+    raise ValueError('{}: incomplete after {} connections ({} of {} bytes)'.format(url, CONNECTIONS, received, total))
+
+
 def download(url, algorithm, digest, path, log=print):
     """Download url to path through a temporary file of this call only; fail (and remove that file) when the checksum
     differs. A concurrent download of the same file writes its own temporary file, so neither can change the other's."""
@@ -50,10 +92,8 @@ def download(url, algorithm, digest, path, log=print):
     partial = Path(name)
     checksum = hashlib.new(algorithm)
     try:
-        with os.fdopen(fd, 'wb') as out, urllib.request.urlopen(url, timeout=600) as response:
-            for block in iter(lambda: response.read(CHUNK), b''):
-                checksum.update(block)
-                out.write(block)
+        with os.fdopen(fd, 'wb') as out:
+            transfer(url, out, checksum, log)
         if checksum.hexdigest() != digest:
             raise ValueError('{}: {} {} does not match the declared {}'.format(url, algorithm, checksum.hexdigest(), digest))
         os.chmod(partial, 0o666 & ~UMASK)  # mkstemp creates it readable by the owner only

@@ -519,6 +519,39 @@ def test_concurrent_downloads_of_one_file_keep_their_own_temporary_files(tmp_pat
     assert path.read_bytes() == good and [p.name for p in path.parent.iterdir()] == ['SRR1.fastq.gz']
 
 
+def test_a_download_the_server_cuts_is_resumed_from_where_it_stopped(tmp_path, monkeypatch):
+    """A server that closes a long transfer early gives fewer bytes than it announced, which reads like the end of the
+    file. The rest is asked for with a Range request on a new connection; the file in place is complete and checked.
+    A server that keeps cutting ends the download after fill.CONNECTIONS connections, with nothing left behind."""
+    import hashlib
+    import io
+    good = bytes(range(256)) * 40
+    path = tmp_path / 'fastq/SRR1.fastq.gz'
+    asked, messages, waits = [], [], []
+
+    class Response(io.BytesIO):
+        def __init__(self, data, start, announced):
+            super().__init__(data)
+            self.status = 206 if start else 200
+            self.headers = {'Content-Length': str(announced)}
+
+    def urlopen(request, timeout):
+        start = int(request.headers['Range'][len('bytes='):-1]) if not isinstance(request, str) else 0
+        asked.append(start)
+        return Response(good[start:start + cut], start, len(good) - start)  # at most `cut` bytes, then the connection closes
+    monkeypatch.setattr(fill.urllib.request, 'urlopen', urlopen)
+    monkeypatch.setattr(fill.time, 'sleep', waits.append)
+    cut = 4000
+    fill.download('https://example.org/SRR1.fastq.gz', 'md5', hashlib.md5(good).hexdigest(), path, messages.append)
+    assert path.read_bytes() == good and asked == [0, 4000, 8000] and waits == [30, 60]
+    assert 'cut at 4000 of 10240 bytes; resuming' in messages[0] and messages[-1].endswith('md5 checked')
+    path.unlink()
+    cut, asked[:] = 100, []
+    with pytest.raises(ValueError, match='incomplete after 20 connections \\(2000 of 10240 bytes\\)'):
+        fill.download('https://example.org/SRR1.fastq.gz', 'md5', hashlib.md5(good).hexdigest(), path, messages.append)
+    assert len(asked) == fill.CONNECTIONS and list(path.parent.iterdir()) == []
+
+
 def test_filtered_fastq_follows_the_project_filter_route(tmp_path):
     """The oracle reads the route's filtered reads: the trimming route's (cutadapt by default), or the spike-in
     prefilter's when the project lists spike-in sets, also when the trimming route's remain (quant_all --notemp)."""
