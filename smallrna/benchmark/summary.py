@@ -108,10 +108,14 @@ def read_project(project, out_dir):
         libraries = {row['library'] for row in rows if row['lane'] != 'merged'}
         if libraries:
             samples = '{} lanes of {} samples'.format(samples, len(libraries))
+    # declared routes not evaluated (#448): their state fills their cells; none for evaluations before routes.tsv
+    status = {row['route']: row['state'] for row in read_tsv(bench / 'routes.tsv') if row['state'] != 'evaluated'} \
+        if (bench / 'routes.tsv').is_file() else {}
     report = os.path.relpath((bench / 'report.md').resolve(), out_dir)
     return kind, {'project': project.resolve().name, 'link': urllib.parse.quote(report), 'dataset': spec['name'], 'kit': spec['libprepkit'],
                   'samples': samples, 'reads processed': '' if record.get('reads_processed') is None else '{:,}'.format(record['reads_processed']),
-                  'methods': ', '.join(c for c in columns if c not in ('oracle', 'truth')), 'columns': columns, 'values': values}
+                  'methods': ', '.join(c for c in columns if c not in ('oracle', 'truth')), 'columns': columns, 'values': values,
+                  'status': status}
 
 
 def resolve_with_links(path):
@@ -151,7 +155,9 @@ def summarize(projects, out_dir):
         rows = by_kind.get(kind)
         if not rows:
             continue
-        methods = list(dict.fromkeys(c for row in rows for c in row['columns']))
+        methods = list(dict.fromkeys([c for row in rows for c in row['columns']] + [m for row in rows for m in row['status']]))
+        for row in rows:
+            row['values'].update({(k, m): state for k in keys for m, state in row['status'].items()})
         metrics = [(k, [m for m in methods if any((k, m) in row['values'] for row in rows)]) for k in keys]
         sections.append((title, note, [(k, ms) for k, ms in metrics if ms], rows))
     return sections
@@ -160,8 +166,10 @@ def summarize(projects, out_dir):
 INTRO = ('Key metrics of each evaluated project, from its `metrics.tsv`; its `report.md` has them all, and '
          '`smallrna/benchmark/README.md` defines them. `reads processed` is the reads the evaluated run filtered, from '
          'its cutadapt reports as recorded by `evaluate` (empty for another filter route, without the reports, or for an '
-         'evaluation older than this record). An empty metric cell: the method '
-         'was not run on that dataset, or the metric is not in its table. `oracle` is the pool reads counted by exact '
+         'evaluation older than this record). `not run` or `stopped` in a metric cell: a route the dataset declares that '
+         'was not selected or not run (`benchmark/not_run.tsv`), or whose checks failed; the report\'s Routes section has '
+         'the reason (#448). An empty metric cell: the metric is not in the project\'s table, the method is not declared '
+         'there, or the evaluation predates the route states. `oracle` is the pool reads counted by exact '
          'match, the reference for the methods; `truth` (genome-wide synthetic data) is the true counts analysed as a '
          'method, the best its design allows. A value with a range in parentheses has its 95% bootstrap interval, '
          'from the evaluation (`metrics_ci.tsv`; differences between methods are in each report).')

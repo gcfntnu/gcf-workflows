@@ -61,7 +61,7 @@ def reads_processed(project):
 
 # Tables published with some evaluations (bootstrap intervals, #413; runtime and memory, #386); listed with their
 # SHA-256 in evaluation.json.
-EXTRA_FILES = ('metrics_ci.tsv', 'differences.tsv', 'resources.tsv')
+EXTRA_FILES = ('metrics_ci.tsv', 'differences.tsv', 'routes.tsv', 'resources.tsv')
 
 
 def publish(bench, header, rows, lines, reads_processed=None, extra=None, bootstrap=None):

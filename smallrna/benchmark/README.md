@@ -38,9 +38,11 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    and `report.md`; with UNITAS, `unitas_names.tsv` (how each UNITAS name was placed, below). UNITAS names are placed
    with the reference dump the project's UNITAS run recorded (`quant/unitas/reference.tsv`; read only; `--unitas-ref`
    names another).
-   Before scoring, it stops when a method's count table does not have exactly the project's samples (a missing sample
-   would count as zero), or, for pools and biological datasets, when the method's `quant/<method>/reference.tsv` names
-   another miRNA database or release than the dataset's `mirbase.release` (#407). UNITAS and miRge3 record their
+   Before scoring, it sets a method aside as `stopped` when its count table is missing or does not have exactly the
+   project's samples (a missing sample would count as zero), or, for pools and biological datasets, when the method's
+   `quant/<method>/reference.tsv` is missing or names another miRNA database or release than the dataset's
+   `mirbase.release` (#407); the other methods are scored without it (#448). It stops when the project's configured
+   samples differ from the benchmark's, or when no method can be scored. UNITAS and miRge3 record their
    reference's release; `quant_reference` records it for mirflowz, TEsmall, tiny-count and biocore_htseq (`db.mirbase.release`,
    or `NA` for a `db.mirflowz.custom` reference) and nf-core/smrnaseq and biocore_miraligner (`db.mirbase.release`), with the
    SHA-256 of the count
@@ -53,8 +55,13 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    `evaluation.json`, with the resamples and seed (`--bootstrap N`, default 1000, `0` for none; `--seed`, default 1).
    `report.md` has a section with the intervals and the differences whose interval excludes 0. Some values have no
    interval: the synthetic totals `misassigned` and `unplaced`, and biological `detected_all_samples`, which a
-   resample repeating a sample biases upwards. With few samples (e.g. 6 in GSE317995) the sample part of the interval
+   resample repeating a sample biases upwards. With few samples (e.g. the 6 of the GSE317995 quick run) the sample part of the interval
    is approximate.
+   **Route states** (#448): every declared route is `evaluated`, `not run` (not selected with `prepare --methods`,
+   recorded as `not_selected` in the project's `benchmark/dataset.yaml`; or a run not done, e.g. for resources,
+   recorded by hand in `benchmark/not_run.tsv` with the columns `route` and `reason`) or `stopped` (a check above
+   failed, with the check's message). `routes.tsv` and the report's Routes section list them, and the summary shows
+   the state in the route's cells.
    The last section of `report.md` is each method's runtime and memory (#386, `resources.py`), from the Snakemake
    benchmark files its rules write under `quant/benchmarks/`. Per method:
    - the wall time and CPU time of its quantification jobs, summed;
@@ -136,7 +143,8 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    its dataset, kit, samples, reads processed, methods, a link to its
    `report.md`, and the kind's key metrics from its `metrics.tsv` per method (and the oracle, where it has values),
    each with its bootstrap interval in parentheses when the evaluation has one.
-   A method not run on a dataset, or a metric missing from its table, is an empty cell. It writes nothing into the
+   A declared route that was not evaluated shows its state, `not run` or `stopped` (#448); a metric missing from a
+   project's table, or a method not declared there, is an empty cell. It writes nothing into the
    projects; an output inside one stops it. New evaluations publish `evaluation.json` with checksums for the metrics
    and report. For an older evaluation, the metrics must match the complete metrics table embedded in the report.
    New evaluations coordinate readers and writers through a regular lock file in the benchmark directory. Legacy
@@ -208,7 +216,9 @@ python smallrna/benchmark/benchmark.py fill --dataset smallrna/benchmark/dataset
 ```
 
 `prepare` links the runs into the project, or copies the first `--reads N` reads of each for a quick run; `--methods`
-picks a subset of the declared methods (mirflowz and TEsmall on human need the full human reference). Run `quant_all` with
+picks a subset of the declared methods (mirflowz and TEsmall on human need the full human reference), and, for a
+biological dataset, `--per-group N` the first N samples of each group in declared order. Every declaration lists the
+eight routes (#448); the ones left out at `prepare` are `not run` in the evaluation. Run `quant_all` with
 `--notemp`: the oracle count reads the workflow's filtered reads, those of the project's filter route (`filter/cutadapt/`
 with the kit default; the spike-in prefilter's when the project's `filter.spikein.ref` lists sets removed by Bowtie,
 although the trimmed reads it starts from remain; the trimmed reads with native spike-ins, which UNITAS and miRge3
@@ -237,7 +247,7 @@ whole numbers; a lane is checked against the first 1,000 read names when they ca
 
 | Declaration | Samples | Runs |
 |---|---|---|
-| `gse317995_nextflex_v4` | human plasma, NEXTflex v4 (GEO GSE317995): the two lowest-numbered samples of each of three groups | 4 per sample: the 4 lanes of one NextSeq 500 run |
+| `gse317995_nextflex_v4` | human plasma, NEXTflex v4 (GEO GSE317995): all 30 samples, 10 in each of three groups (#448); `prepare --per-group 2` takes the two lowest-numbered of each, the quick run | 4 per sample: the 4 lanes of one NextSeq 500 run |
 
 GSE317995 is the only public NEXTflex v4 dataset found. Its lanes are one library each, so they replicate sequencing
 only; library-preparation reproducibility needs separate libraries of one sample (e.g. the Giraldez 2018 plasma pool

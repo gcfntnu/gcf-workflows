@@ -1,5 +1,6 @@
 """Small-RNA benchmark: synthetic truth, method adapters, metrics, pools (truth groups, oracle, fill) and the prepare/evaluate/summary steps
 on synthetic tables."""
+import collections
 import gzip
 import json
 import os
@@ -1752,6 +1753,11 @@ def check_project(tmp_path, kind, samples, methods):
     return project, spec, {'samples': {s: {} for s in samples}}
 
 
+def stopped_text(project, spec, config):
+    """check_methods' stopped routes as `route: reason` text (#448: a failed route check no longer stops the evaluation)."""
+    return '; '.join('{}: {}'.format(route, reason) for route, reason in benchmark.check_methods(project, spec, config).items())
+
+
 @pytest.mark.parametrize('kind', ['pool', 'biological'])
 def test_evaluate_stops_when_a_method_ran_on_other_samples_or_another_mirbase_release(tmp_path, kind):
     project, spec, config = check_project(tmp_path, kind, ['S1', 'S2'], ['unitas', 'mirge3', 'tinyrna'])
@@ -1766,9 +1772,7 @@ def test_evaluate_stops_when_a_method_ran_on_other_samples_or_another_mirbase_re
     write(quant / 'tinyrna/tinyrna_counts.tsv', 'Feature ID\tClassifier\tFeature Name\tS1\tS2\tS3\n')
     write_records(quant, ['tinyrna'])
     write_records(quant, ['unitas'], release='22')
-    with pytest.raises(SystemExit) as stop:
-        benchmark.check_methods(project, spec, config)
-    err = str(stop.value)
+    err = stopped_text(project, spec, config)
     assert 'mirge3: table samples differ from the benchmark\'s; missing S2' in err
     assert 'tinyrna: table samples differ from the benchmark\'s; extra S3' in err
     assert 'unitas: annotated with mirbase 22, but the dataset declares miRBase 23.1' in err
@@ -1777,14 +1781,11 @@ def test_evaluate_stops_when_a_method_ran_on_other_samples_or_another_mirbase_re
     write(quant / 'tinyrna/tinyrna_counts.tsv', 'Feature ID\tClassifier\tFeature Name\tS1\tS2\n')
     write_records(quant, ['unitas'], database='mirgenedb', release='3.0')
     write_records(quant, ['tinyrna'], database='NA', release='NA')  # a db.mirflowz.custom reference
-    with pytest.raises(SystemExit) as stop:
-        benchmark.check_methods(project, spec, config)
-    err = str(stop.value)
+    err = stopped_text(project, spec, config)
     assert 'unitas: annotated with mirgenedb 3.0' in err and 'tinyrna: annotated with NA NA' in err and 'mirge3' not in err
 
     (quant / 'mirge3/reference.tsv').unlink()
-    with pytest.raises(SystemExit, match='mirge3: reference record missing'):
-        benchmark.check_methods(project, spec, config)
+    assert re.search('mirge3: reference record missing', stopped_text(project, spec, config))
 
 
 def test_evaluate_of_a_project_prepared_before_the_biocore_rename_names_the_new_methods(tmp_path):
@@ -1806,8 +1807,7 @@ def test_evaluate_stops_on_a_malformed_reference_record(tmp_path, record, messag
     quant = project / 'data/tmp/smallrna/quant'
     write(quant / 'mirge3/miR.Counts.csv', 'miRNA,S1\nhsa-miR-1-3p,1\n')
     write(quant / 'mirge3/reference.tsv', record)
-    with pytest.raises(SystemExit, match=message):
-        benchmark.check_methods(project, spec, config)
+    assert re.search(message, stopped_text(project, spec, config))
 
 
 def test_evaluate_compares_configured_samples_and_literal_columns_with_the_scored_samples(tmp_path):
@@ -1820,8 +1820,7 @@ def test_evaluate_compares_configured_samples_and_literal_columns_with_the_score
     with pytest.raises(SystemExit, match="configured samples differ from the benchmark's; not configured S2"):
         benchmark.check_methods(project, spec, {'samples': {'S1': {}}})
     write(quant / 'unitas/mir_counts.tsv', '\tS1 \tS2\nmiR-1-3p\t1\t2\n')  # a padded column name scores under 'S1 '
-    with pytest.raises(SystemExit, match="unitas: table samples differ from the benchmark's; missing S1; extra S1 "):
-        benchmark.check_methods(project, spec, config)
+    assert re.search("unitas: table samples differ from the benchmark's; missing S1; extra S1 ", stopped_text(project, spec, config))
 
 
 def test_synthetic_projects_check_samples_only(tmp_path):
@@ -1832,8 +1831,7 @@ def test_synthetic_projects_check_samples_only(tmp_path):
     write(quant / 'mirflowz/all_mirna_counts.tab', 'ID\tS01\n')
     benchmark.check_methods(project, spec, config)  # no reference.tsv needed
     write(quant / 'mirflowz/all_mirna_counts.tab', 'ID\tS01\tS01\n')
-    with pytest.raises(SystemExit, match="mirflowz: table samples differ from the benchmark's; repeated columns"):
-        benchmark.check_methods(project, spec, config)
+    assert re.search("mirflowz: table samples differ from the benchmark's; repeated columns", stopped_text(project, spec, config))
     with pytest.raises(SystemExit, match='add its count table to adapters.TABLES'):
         benchmark.check_methods(project, dict(spec, methods=['newtool']), config)
 
@@ -1847,11 +1845,9 @@ def test_a_table_rebuilt_after_its_record_was_written_stops_the_evaluation(tmp_p
     write_records(quant, ['tesmall', 'smrnaseq'])
     benchmark.check_methods(project, spec, config)
     write(quant / 'tesmall/tesmall_counts.tsv', 'ftype\tfid\tS1\nmiRNA\thsa-miR-1-3p\t7\n')  # rebuilt, record not yet rewritten
-    with pytest.raises(SystemExit, match='tesmall: reference record was written for another count table'):
-        benchmark.check_methods(project, spec, config)
+    assert re.search('tesmall: reference record was written for another count table', stopped_text(project, spec, config))
     write(quant / 'smrnaseq/reference.tsv', 'field\tvalue\tsource\nmirna_database\tmirbase\tx\nmirna_release\t23.1\tx\n')
-    with pytest.raises(SystemExit, match='smrnaseq: .*one non-empty table_sha256 row, found 0'):
-        benchmark.check_methods(project, spec, config)
+    assert re.search('smrnaseq: .*one non-empty table_sha256 row, found 0', stopped_text(project, spec, config))
 
 
 def test_every_method_the_shipped_datasets_declare_is_checked_before_scoring():
@@ -2868,3 +2864,65 @@ def test_mirflowz_annotation_is_the_one_the_project_run_recorded(tmp_path):
     assert benchmark.mirflowz_annotation(project) == reference / 'gff-abc123/annotation' / name
     write(record, 'field\tvalue\tsource\nmirna_database\tmirbase\tx\nreference\t{}\tconfiguration\n'.format(reference))
     assert benchmark.mirflowz_annotation(project) == reference / 'prepared' / name
+
+
+# Every route on every dataset, and a state for each declared route (#448)
+
+def test_every_declaration_lists_the_eight_routes():
+    for path in sorted((BENCH / 'datasets').glob('*.yaml')):
+        assert sorted(benchmark.load_dataset(path)['methods']) == sorted(adapters.ADAPTERS), path.name
+
+
+def test_gse317995_is_declared_in_full_and_per_group_takes_the_quick_run(tmp_path):
+    spec = benchmark.load_dataset(BENCH / 'datasets/gse317995_nextflex_v4.yaml')
+    assert len(spec['samples']) == 30 and collections.Counter(s['group'] for s in spec['samples']) == {
+        'Adenomyosis': 10, 'Fertile control': 10, 'Infertile control': 10}
+    assert all(sorted(run['lane'] for run in s['runs']) == [1, 2, 3, 4] for s in spec['samples'])
+    assert len(fill.targets(spec, tmp_path)) == 1 + 120
+    quick = benchmark.select_per_group(spec, 2)  # the two lowest-numbered of each group, as declared before #448
+    assert [s['sample'] for s in quick['samples']] == ['GSM9484173', 'GSM9484174', 'GSM9484193', 'GSM9484194', 'GSM9484183', 'GSM9484184']
+    with pytest.raises(SystemExit, match='--per-group is for biological datasets'):
+        benchmark.select_per_group(benchmark.load_dataset(BENCH / 'datasets/giraldez2018_equimolar_truseq.yaml'), 2)
+
+
+def test_routes_not_evaluated_get_a_state_in_the_report_and_the_summary(tmp_path):
+    """A route left out at prepare is `not run`; a route whose checks fail is `stopped` and the others are scored
+    without it; benchmark/not_run.tsv gives the reason of a route not run by hand; the summary shows the state."""
+    ext, dataset, reads = biological_dataset(tmp_path)
+    spec = yaml.safe_load(dataset.read_text())
+    write(dataset, yaml.safe_dump(dict(spec, methods=['unitas', 'mirge3', 'tinyrna'])))
+    project = tmp_path / 'project'
+    result = subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'prepare', '--dataset', str(dataset), '--project', str(project),
+                             '--ext-dir', str(ext), '--methods', 'unitas,mirge3'], capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    saved = yaml.safe_load((project / 'benchmark/dataset.yaml').read_text())
+    assert saved['methods'] == ['unitas', 'mirge3'] and saved['not_selected'] == ['tinyrna']
+    quant = project / 'data/tmp/smallrna/quant'
+    write(quant / 'unitas/mir_counts.tsv', '\tGSM1\nmiR-16-5p\t700\nmiR-21-5p\t300\n')   # miRge3 did not finish: no count table
+    write_records(quant, ['unitas'], dump=unitas_dump(ext, 'homo_sapiens', 'Human', {}))
+    isomir_outputs(quant)
+    write(project / 'data/tmp/smallrna/filter/cutadapt/GSM1_R1.fastq', ''.join('@r{}\n{}\n+\n{}\n'.format(i, s, 'I' * len(s)) for i, s in enumerate(reads)))
+    write_cutadapt_reports(project / 'data/tmp/smallrna/filter/cutadapt_stages', 'GSM1', 100)
+    result = evaluate_cmd(project)
+    assert result.returncode == 0, result.stderr
+    bench = project / 'benchmark'
+    routes = (bench / 'routes.tsv').read_text().splitlines()
+    assert routes == ['route\tstate\treason', 'unitas\tevaluated\t',
+                      'mirge3\tstopped\tcount table missing (mirge3/miR.Counts.csv); run `snakemake quant_all` there',
+                      'tinyrna\tnot run\tnot selected at prepare']
+    report = (bench / 'report.md').read_text()
+    assert '## Routes' in report and '| tinyrna | not run | not selected at prepare |' in report
+    assert (bench / 'metrics.tsv').read_text().splitlines()[0] == 'metric\tunitas'   # scored without the stopped route
+    write(bench / 'not_run.tsv', 'route\treason\nmirge3\tneeds more memory than the run had\n')
+    result = evaluate_cmd(project)
+    assert result.returncode == 0, result.stderr
+    assert 'mirge3\tnot run\tneeds more memory than the run had' in (bench / 'routes.tsv').read_text()
+    summary_md = tmp_path / 'summary.md'
+    result = subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'summary', '--projects', str(project), '--output', str(summary_md)],
+                            capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    row = next(line for line in summary_md.read_text().splitlines() if line.startswith('| [project]'))
+    assert row.count('not run') == 2 * 6 and 'stopped' not in row   # mirge3 and tinyrna in each of the 6 key metrics
+    write(bench / 'not_run.tsv', 'route\treason\nmirflowz\tnot declared here\n')
+    result = evaluate_cmd(project)
+    assert result.returncode != 0 and 'not_run.tsv: mirflowz not declared for this project' in result.stderr
