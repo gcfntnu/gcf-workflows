@@ -115,6 +115,31 @@ def write_records(quant, methods, database='mirbase', release='23.1', dump=None)
         write(quant / method / 'reference.tsv', text)
 
 
+UNITAS_MIR_TABLE = "miR-name\tsequence\ttotal_reads\t+N0-3'\t+N1-3'\t+N2-3'\tA-tailed_reads\tT-tailed_reads\n"
+
+
+def isomir_outputs(quant, sequences=None):
+    """isomiR outputs that agree with the UNITAS and miRge3 count tables written so far, as the routes write them
+    (#454): each miRNA's reads on one read sequence, `sequences` ({name without the species prefix: sequence}) or one
+    made from the name, all exact reads for miRge3."""
+    def sequence(name):
+        bare = name.strip().split('-', 1)[1] if name.strip()[:4] in ('hsa-', 'mmu-') else name.strip()
+        return (sequences or {}).get(bare) or ''.join('ACGT'[ord(c) % 4] for c in (bare * 3))[:22]
+    unitas = quant / 'unitas/mir_counts.tsv'
+    if unitas.is_file():
+        lines = [line.split('\t') for line in unitas.read_text().splitlines() if line]
+        for i, sample in enumerate(lines[0][1:], 1):
+            write(quant / 'unitas/unitas' / sample / 'unitas.miR-table_Human.txt', UNITAS_MIR_TABLE + ''.join(
+                '{}\t{}\t{c}\t{c}\t0\t0\t0\t0\n'.format(row[0], sequence(row[0]), c=row[i]) for row in lines[1:] if float(row[i])))
+    mirge3 = quant / 'mirge3/miR.Counts.csv'
+    if mirge3.is_file():
+        lines = mirge3.read_text().splitlines()
+        annotation = 'Sequence,annotFlag,exact miRNA,hairpin miRNA,mature tRNA,primary tRNA,snoRNA,rRNA,ncrna others,mRNA,isomiR miRNA'
+        write(quant / 'mirge3/mapped.csv', annotation + ',' + lines[0].split(',', 1)[1] + '\n' + ''.join(
+            '{},1,{},,,,,,,,,{}\n'.format(sequence(line.split(',')[0]), line.split(',')[0], line.split(',', 1)[1]) for line in lines[1:] if line))
+        write(quant / 'mirge3/lib/human/annotation.Libs/human_merges_miRBase.csv', '')
+
+
 def native_outputs(quant):
     write(quant / 'unitas/mir_counts.tsv', '\tS01\tS02\nmiR-192-5p\t45\t45\nmiR-194-5p \t20\t25\nmiR-194-2-5p\t5\t0\nmiR-194-2-3p\t1\t0\n')
     write(quant / 'mirge3/miR.Counts.csv', 'miRNA,S01,S02\nmmu-miR-192-5p,45,45\nmmu-miR-194-5p/mmu-miR-204-5p,25,25\nmmu-miR-9999-5p,1,0\n')
@@ -628,6 +653,7 @@ def test_prepare_and_evaluate_a_pool(tmp_path):
     quant = project / 'data/tmp/smallrna/quant'
     write(quant / 'unitas/mir_counts.tsv', '\tSRRA\tSRRB\nmiR-1-3p\t8\t2\nmiR-21-5p\t2\t8\n')
     write(quant / 'mirge3/miR.Counts.csv', 'miRNA,SRRA,SRRB\nhsa-miR-1-3p,8,2\nhsa-miR-21-5p,2,8\n')
+    isomir_outputs(quant, {'miR-1-3p': 'TGGAATGTAAAGAAGTATGTAT', 'miR-21-5p': 'TAGCTTATCAGACTGATGTTGA'})
     write_records(quant, ['unitas', 'mirge3'], dump=dump)
     result = subprocess.run(cmd + ['evaluate', '--project', str(project)], capture_output=True, text=True, timeout=60)
     assert result.returncode != 0 and 'quant_all --notemp' in result.stderr  # the oracle needs the filtered reads
@@ -638,6 +664,14 @@ def test_prepare_and_evaluate_a_pool(tmp_path):
     stages = (project / 'benchmark/filter_stages.tsv').read_text().splitlines()
     assert stages[0] == 'sample\tpool_id\tgroup\tadapter\tfilter\tartefacts' and 'SRRA\thsa-miR-1-3p\texact\t9\t8\t8' in stages
     report = (project / 'benchmark/report.md').read_text()
+    isomir_lines = (project / 'benchmark/isomirs.tsv').read_text().splitlines()  # #454: the isomiR table and its metrics
+    assert isomir_lines[0] == '\t'.join(adapters.ISOMIR_COLUMNS)
+    assert 'mirge3\tSRRA\thsa-miR-1-3p\tMIMAT0000416\tTGGAATGTAAAGAAGTATGTAT\tcanonical\t8.0' in isomir_lines
+    table = {line.split('\t')[0]: line.split('\t')[1:] for line in (project / 'benchmark/metrics.tsv').read_text().splitlines()}
+    assert table['metric'] == ['oracle', 'unitas', 'mirge3'] and table['artefact_share'] == ['', '0.0', '0.0']
+    assert table['exact_sequence_recovered'][0] == '' and all(0 < float(v) <= 1 for v in table['exact_sequence_recovered'][1:])
+    assert '## isomiRs' in report and 'Without isomiR output' not in report
+    assert not any(line.split('\t')[0] in isomirs.POOL_KEYS for line in (project / 'benchmark/metrics_ci.tsv').read_text().splitlines())
     assert '| metric | oracle | unitas | mirge3 |' in report and '| called | 1.0 | 1.0 | 1.0 |' in report
     assert '| 1:8 | -3.00 | 1 |' in report
     per_sequence = (project / 'benchmark/per_sequence.tsv').read_text().splitlines()
@@ -1010,6 +1044,7 @@ def test_evaluate_a_biological_dataset_in_lanes(tmp_path):
     write(quant / 'mirge3/miR.Counts.csv', 'miRNA,GSM1_L1,GSM1_L2\nhsa-miR-16-5p,650,660\nhsa-miR-21-5p,320,300\n')
     write(quant / 'unitas/mir_counts.tsv', '\tGSM1_L1\tGSM1_L2\nmiR-16-5p\t700\t690\nmiR-21-5p\t300\t310\nmiR-451a\t1\t0\nmiR-16-1-5p\t30\t40\n'
           'miR-325-3p\t5\t0\n')  # miR-16-1-5p: hsa-miR-16-5p on the hairpin's 5' arm; miR-325-3p: no human mature on that arm
+    isomir_outputs(quant)
     write_records(quant, ['unitas', 'mirge3'], dump=unitas_dump_dir(ext, 'homo_sapiens'))
     unitas_dump(ext, 'homo_sapiens', 'Human', {
         'miR-16-1': 'GTCAGCAGTGCCTTAGCAGCACGTAAATATTGGCGTTAAGATTCTAAAATTATCTCCAGTATTAACTGTGCTGCTGAAGTAAGGTTGAC',
@@ -1043,6 +1078,8 @@ def test_evaluate_a_biological_dataset_in_lanes(tmp_path):
         'unitas\tquant\tunitas\tGSM1_L1\t30\t60\t930', 'unitas\tquant\tunitas\tGSM1_L2\t50\t100\t950',
         'unitas\tquant\tunitas_mirtable\t\t1\t\t']
     assert '| unplaced | 0.0024 | 0.0 |' in report and 'unitas: `miR-325-3p` (5)' in report      # median of 5/1036 and 0/1040
+    assert '| isomir_share |' in report and '## isomiRs' in report and '| unitas / mirge3 |' in report.split('## isomiRs')[1]
+    assert not any(line.split('\t')[0] in isomirs.BIOLOGICAL_KEYS for line in (project / 'benchmark/metrics_ci.tsv').read_text().splitlines())
     assert '| miR-451a | 485.0 | 0.0 |' in report     # median CPM of the blocked miRNA: 1 of 1031 placed reads in L1, none in L2
     assert '| GSM1_L1 | 100 | 95 | 1 | 7 | 0 | 2 | 2 | 1 | 87 |' in report                   # the filtering table
     assert '| GSM1_L1 | 10 | 10.00% | 40.0 | 14.0 |' in report                       # 1 of 10 top-miRNA reads has another first base
@@ -1923,6 +1960,7 @@ import math  # noqa: E402
 
 DE_RUNS = {'A1': ('A', 'L1'), 'A2': ('A', 'L2'), 'B1': ('B', 'L1'), 'B2': ('B', 'L2')}
 ONE, EQUAL, TWENTY_ONE = 'TGGAATGTAAAGAAGTATGTAT', 'ACAGTAGTCTGCACATTGGTTA', 'TAGCTTATCAGACTGATGTTGA'
+DE_SEQUENCES = {'miR-1-3p': ONE, 'miR-199a-3p': EQUAL, 'miR-21-5p': TWENTY_ONE}
 
 
 def de_entries(*designs):
@@ -2233,6 +2271,7 @@ def de_project(tmp_path, runs=DE_RUNS, declared=None):
     table = [(mirna, [amounts[run][i] for run in names]) for i, mirna in enumerate(['miR-1-3p', 'miR-199a-3p', 'miR-21-5p'])]
     write(quant / 'unitas/mir_counts.tsv', '\t' + '\t'.join(names) + '\n' + ''.join('{}\t{}\n'.format(m, '\t'.join(map(str, v))) for m, v in table))
     write(quant / 'mirge3/miR.Counts.csv', 'miRNA,' + ','.join(names) + '\n' + ''.join('hsa-{},{}\n'.format(m, ','.join(map(str, v))) for m, v in table))
+    isomir_outputs(quant, DE_SEQUENCES)
     write_records(quant, ['unitas', 'mirge3'], dump=dump)
     for run, seqs in reads.items():
         write_stages(project, run, seqs, seqs, seqs)
@@ -2394,6 +2433,7 @@ def test_evaluate_de_stops_early(tmp_path, case, message):
     if case == 'new counts':  # the method's counts changed after de.smk ran
         write(project / 'data/tmp/smallrna/quant/mirge3/miR.Counts.csv',
               'miRNA,A1,A2,B1,B2\nhsa-miR-1-3p,9,9,2,2\nhsa-miR-199a-3p,4,5,4,5\nhsa-miR-21-5p,1,1,8,9\n')
+        isomir_outputs(project / 'data/tmp/smallrna/quant', DE_SEQUENCES)  # the same run's isomiR table
     {'equimolar': equimolar, 'undeclared': no_de}.get(case, lambda p: None)(project)
     names = ['metrics.tsv', 'report.md', 'evaluation.json', 'common.tsv', 'per_sequence.tsv', 'filter_stages.tsv', 'unitas_names.tsv'] + \
         ['de/input/' + name for name in de.INPUTS]
@@ -2438,6 +2478,7 @@ def test_a_biological_dataset_goes_through_the_de_step_without_scores(tmp_path):
         write(quant / 'unitas/mir_counts.tsv', '\t' + '\t'.join(samples) + '\n' + ''.join('{}\t{}\n'.format(n, '\t'.join(map(str, v))) for n, v in rows))
         write(quant / 'mirge3/miR.Counts.csv', 'miRNA,' + ','.join(samples) + '\n' + ''.join('hsa-{},{}\n'.format(n, ','.join(map(str, v)))
                                                                                          for n, v in rows[:2]))
+        isomir_outputs(quant)
         write_records(quant, ['unitas', 'mirge3'], dump=unitas_dump(ext, 'homo_sapiens', 'Human', {}))
         for sample in samples:
             write(project / 'data/tmp/smallrna/filter/cutadapt/{}_R1.fastq'.format(sample),
@@ -2483,3 +2524,151 @@ def test_a_biological_dataset_goes_through_the_de_step_without_scores(tmp_path):
     assert evaluate_cmd(lanes).returncode == 0 and not (lanes / 'benchmark/de').exists()  # lanes of one library are no replicates
     result = evaluate_cmd(lanes, '--de')
     assert result.returncode != 0 and 'was prepared with --lanes' in result.stderr
+
+
+# isomiR level (#454): the routes' per-sequence counts, variants and scores.
+
+import isomirs  # noqa: E402
+
+MMU_192, MMU_194, MMU_204 = 'CTGACCTATGAATTGACAGCC', 'TGTAACAGCAACTCCATGTGGA', 'TTCCCTTTGTCATCCTATGCCT'
+MMU_192_T = MMU_192[:4] + 'T' + MMU_192[5:]  # a substitution
+MMU_MATURE = {'mmu-miR-192-5p': ('MIMAT0000517', MMU_192), 'mmu-miR-194-5p': ('MIMAT0000224', MMU_194), 'mmu-miR-204-5p': ('MIMAT0000237', MMU_204)}
+MIRTOP_COLUMNS = '\t'.join(adapters.MIRTOP_ANNOTATION)
+
+
+def native_isomir_outputs(quant):
+    """Each isomiR route's count table and per-sequence output for samples S01 and S02, consistent as the routes write
+    them; returns mirflowz's annotation."""
+    write(quant / 'unitas/mir_counts.tsv', '\tS01\tS02\nmiR-192-5p\t45\t45\nmiR-194-2-5p\t5\t0\n')
+    # the read without its non-templated tail, its reads split by tail; a substitution's name keeps its modification
+    write(quant / 'unitas/unitas/S01/unitas.miR-table_Mouse.txt', UNITAS_MIR_TABLE + 'miR-192-5p\t{0}\t40\t35\t5\t0\t5\t0\n'
+          'miR-192-5p(5C->T) \t{2}\t5\t5\t0\t0\t0\t0\nmiR-194-2-5p\t{1}\t5\t5\t0\t0\t0\t0\n'.format(MMU_192, MMU_194, MMU_192_T))
+    write(quant / 'unitas/unitas/S02/unitas.miR-table_Mouse.txt', UNITAS_MIR_TABLE + 'miR-192-5p\t{}\t45\t45\t0\t0\t0\t0\n'.format(MMU_192))
+    write(quant / 'unitas/unitas/S02/unitas.miR-table_non-Mouse.txt', UNITAS_MIR_TABLE + 'miR-192-5p\t{}\t9\t9\t0\t0\t0\t0\n'.format(MMU_192))
+    write(quant / 'mirge3/miR.Counts.csv', 'miRNA,S01,S02\nmmu-miR-192-5p,45,45\nmmu-miR-194-5p/204-5p,25,25\nmmu-miR-9999-5p,0,0\n')
+    write(quant / 'mirge3/mapped.csv', 'Sequence,annotFlag,exact miRNA,hairpin miRNA,mature tRNA,primary tRNA,snoRNA,rRNA,ncrna others,'
+          'mRNA,isomiR miRNA,S01,S02\n'
+          '{0},1,mmu-miR-192-5p,,,,,,,,,40,45\n{0}AA,1,,,,,,,,,mmu-miR-192-5p,5,0\n'
+          '{1},1,mmu-miR-204-5p,,,,,,,,,25,25\n'   # a merge group member: counted on the group
+          'AAAACCCCGGGGTTTTACGTAC,1,mmu-miR-9999-5p,,,,,,,,,1,0\n'  # one exact read in the project: the route drops the miRNA
+          'GCATTGGTGGTTCAGTGGTAGA,1,,,tRNA-Gly,,,,,,,9,9\n'.format(MMU_192, MMU_194))
+    write(quant / 'mirge3/lib/mouse/annotation.Libs/mouse_merges_miRBase.csv', 'mmu-miR-194-5p/204-5p,mmu-miR-194-5p,mmu-miR-204-5p\n')
+    write(quant / 'smrnaseq/mirna.tsv', 'miRNA\tS01\tS02\nmmu-miR-192-5p\t45\t45\nmmu-miR-194-5p\t25\t0\n')
+    write(quant / 'smrnaseq/joined_samples_mirtop.tsv', MIRTOP_COLUMNS + '\tS01\tS02\n'
+          'iso-1\t{0}\tmmu-miR-192-5p\tNA\t0\t0\t0\t0\t0\t0\t0\t0\t40\t45\n'
+          'iso-2\t{0}AA\tmmu-miR-192-5p\tiso_add3p:2\t0\t0\t2\t0\t0\t0\tAA\t0\t5\t0\n'
+          'iso-3\t{1}\tmmu-miR-194-5p\tNA\t0\t0\t0\t0\t0\t0\t0\t0\t25\t0\n'
+          'iso-3\t{1}\tmmu-miR-204-5p\tNA\t0\t0\t0\t0\t0\t0\t0\t0\t25\t0\n'.format(MMU_192, MMU_194))  # a UID's second row is not counted
+    write(quant / 'biocore_miraligner/mirna.tsv', 'miRNA\tS01\tS02\nmmu-miR-192-5p\t45\t44.5\nmmu-miR-194-5p\t12.5\t0\nmmu-miR-204-5p\t12.5\t0\n')
+    write(quant / 'biocore_miraligner/S01/isomir.tsv', 'isomiR\tcount\nmmu-miR-192-5p_{0}_0;0;0;0\t40\nmmu-miR-192-5p_{0}AA_0;0;0;aa\t5\n'
+          'mmu-miR-192-5p_{2}_5TA;0;0;0\t3\nmmu-miR-194-5p_{1}_0;0;0;0\t12.5\nmmu-miR-204-5p_{1}_0;0;0;0\t12.5\n'.format(
+              MMU_192, MMU_194, MMU_192.replace('ACC', 'TCC', 1)))  # a substitution: out of the mature table
+    write(quant / 'biocore_miraligner/S02/isomir.tsv', 'isomiR\tcount\nmmu-miR-192-5p_{}_0;0;0;0\t44.5\n'.format(MMU_192))
+    # a plain row: the reads of the annotated mature; isomiR rows in genome orientation (miR-204-5p on the minus strand)
+    write(quant / 'mirflowz/all_mirna_counts.tab', 'ID\tS01\tS02\nmmu-miR-192-5p\t40\t40\nmmu-miR-192-5p|0|2|23M|23|{}AA\t5\t5\n'
+          'mmu-miR-204-5p|0|0|22M|22|{}\tNA\t3\n'.format(MMU_192, adapters.reverse_complement(MMU_204)))
+    write_records(quant, ['unitas', 'mirge3', 'smrnaseq', 'biocore_miraligner', 'mirflowz'])
+    return write(quant.parent / 'mirflowz.gff3', '19\t.\tmiRNA\t1\t30\t.\t+\t.\tID=MIMAT0000224_1;Alias=MIMAT0000224;Name=mmu-miR-194-2-5p\n'
+                 '18\t.\tmiRNA\t1\t33\t.\t+\t.\tID=MIMAT0000517;Alias=MIMAT0000517;Name=mmu-miR-192-5p\n'
+                 '2\t.\tmiRNA\t1\t34\t.\t-\t.\tID=MIMAT0000237;Alias=MIMAT0000237;Name=mmu-miR-204-5p\n')
+
+
+def test_isomir_table_counts_as_each_route_counts_its_mirnas(tmp_path):
+    quant = tmp_path / 'quant'
+    gff = native_isomir_outputs(quant)
+    methods = ['unitas', 'mirge3', 'smrnaseq', 'biocore_miraligner', 'mirflowz', 'tesmall']
+    rows, without = adapters.isomir_table(methods, quant, NAME_TO_ID, 'mmu-', gff, mature=MMU_MATURE)
+    assert without == ['tesmall']
+    got = {(m, s, n, q): (i, label, c) for m, s, n, i, q, label, c in rows}
+    assert got[('unitas', 'S01', 'miR-192-5p', MMU_192 + 'A')] == ('MIMAT0000517', '', 5.0)  # the read rebuilt with its tail; no labels
+    assert got[('unitas', 'S01', 'miR-192-5p', MMU_192)][2] == 35 and got[('unitas', 'S01', 'miR-192-5p', MMU_192_T)][2] == 5  # modification dropped
+    assert got[('mirge3', 'S01', 'mmu-miR-194-5p/204-5p', MMU_194)] == ('MIMAT0000224', 'canonical', 25.0)  # folded on the group
+    assert got[('mirge3', 'S01', 'mmu-miR-192-5p', MMU_192 + 'AA')] == ('MIMAT0000517', 'isomiR', 5.0)
+    assert not any(m == 'mirge3' and n == 'mmu-miR-9999-5p' for m, _, n, _ in got)  # fewer than 2 exact reads
+    assert ('smrnaseq', 'S01', 'mmu-miR-204-5p', MMU_194) not in got and got[('smrnaseq', 'S01', 'mmu-miR-194-5p', MMU_194)][2] == 25
+    assert got[('smrnaseq', 'S01', 'mmu-miR-192-5p', MMU_192 + 'AA')][1] == 'isomiR' and got[('smrnaseq', 'S01', 'mmu-miR-192-5p', MMU_192)][1] == 'canonical'
+    assert got[('biocore_miraligner', 'S01', 'mmu-miR-192-5p', MMU_192 + 'AA')] == ('MIMAT0000517', 'isomiR', 5.0)
+    assert not any(m == 'biocore_miraligner' and q.startswith('CTGTCC') for m, _, _, q in got)  # the substitution
+    assert got[('mirflowz', 'S01', 'mmu-miR-192-5p', MMU_192)] == ('MIMAT0000517', 'canonical', 40.0)  # a plain row: the mature
+    assert got[('mirflowz', 'S02', 'mmu-miR-204-5p', MMU_204)] == ('MIMAT0000237', 'isomiR', 3.0)  # minus strand: reverse complemented
+    assert ('mirflowz', 'S01', 'mmu-miR-204-5p', MMU_204) not in got
+    common = adapters.common_table(methods[:-1], quant, NAME_TO_ID, 'mmu-', gff)
+    adapters.check_isomirs(rows, common, methods[:-1])
+    with pytest.raises(ValueError, match='need its annotation'):
+        adapters.isomir_table(['mirflowz'], quant, NAME_TO_ID, 'mmu-')
+    with pytest.raises(ValueError, match='mirflowz miRNA mmu-miR-192-5p is not on a strand'):
+        adapters.isomir_table(['mirflowz'], quant, NAME_TO_ID, 'mmu-', write(tmp_path / 'other.gff3', gff.read_text().splitlines()[0] + '\n'))
+    write(quant / 'unitas/unitas/S02/unitas.miR-table_Mouse.txt', UNITAS_MIR_TABLE + 'miR-192-5p\t{}\t45\t40\t0\t0\t0\t0\n'.format(MMU_192))
+    with pytest.raises(ValueError, match="total_reads 45, but \\+N0-3' and the tails add up to 40"):
+        adapters.isomir_table(['unitas'], quant, NAME_TO_ID, 'mmu-')
+    write(quant / 'smrnaseq/mirna.tsv', 'miRNA\tS01\tS02\nmmu-miR-192-5p\t46\t45\nmmu-miR-194-5p\t25\t0\n')
+    with pytest.raises(ValueError, match=r'smrnaseq isomiR rows do not add up .* smrnaseq S01 mmu-miR-192-5p: 45 in the isomiR rows, 46'):
+        adapters.check_isomirs(rows, adapters.common_table(methods[:-1], quant, NAME_TO_ID, 'mmu-', gff), methods[:-1])
+
+
+LET7 = 'TGAGGTAGTAGGTTGTATAGTT'
+LET7_HAIRPIN = 'CCGGA' + LET7 + 'TTCAGG'
+
+
+@pytest.mark.parametrize('read, hairpin, expected, kind', [
+    (LET7, LET7_HAIRPIN, (0, 0, '', 0), 'canonical'),
+    (LET7[:-2], None, (0, -2, '', 0), '3p_trim'),
+    (LET7 + 'T', LET7_HAIRPIN, (0, 1, '', 0), '3p_templated'),       # the hairpin's next base
+    (LET7 + 'A', LET7_HAIRPIN, (0, 0, 'A', 0), '3p_add'),            # not the hairpin's
+    (LET7 + 'T', None, (0, 0, 'T', 0), '3p_longer'),                 # without the hairpin, templated or not
+    ('A' + LET7, LET7_HAIRPIN, (-1, 0, '', 0), '5p'),
+    (LET7[1:], None, (1, 0, '', 0), '5p'),
+    (LET7[:8] + 'C' + LET7[9:], None, (0, 0, '', 1), 'substitution'),
+    (LET7[:-5], None, None, 'other'),                                # beyond 3 nt
+    ('A' + LET7, None, None, 'other'),                               # upstream of the mature, no hairpin
+])
+def test_isomir_variant_places_the_read_on_its_mature(read, hairpin, expected, kind):
+    v = isomirs.variant(read, LET7, hairpin)
+    assert (tuple(v) if v else None) == expected and isomirs.kind(v, templated_known=hairpin is not None) == kind
+
+
+def test_isomir_synthetic_scores_against_the_truth():
+    a, b, random_read = LET7, 'TAGCTTATCAGACTGATGTTGA', 'ACGTACGTACGTACGTACGT'
+    truth = [{'sample': 'M1', 'class': 'canonical', 'mature_id': 'A', 'sequence': a, 'count': '10', 'errors': '0'},
+             {'sample': 'M1', 'class': '3p_trim_1', 'mature_id': 'A', 'sequence': a[:-1], 'count': '4', 'errors': '0'},
+             {'sample': 'M1', 'class': '3p_add_A', 'mature_id': 'A', 'sequence': a + 'A', 'count': '2', 'errors': '0'},
+             {'sample': 'M1', 'class': 'canonical', 'mature_id': 'A', 'sequence': 'C' + a[1:], 'count': '1', 'errors': '1'},
+             {'sample': 'M1', 'class': 'random', 'mature_id': '', 'sequence': random_read, 'count': '3', 'errors': '0'},
+             {'sample': 'M1', 'class': 'canonical', 'mature_id': 'B', 'sequence': b, 'count': '5', 'errors': '0'},
+             {'sample': 'P1', 'class': 'canonical', 'mature_id': 'A', 'sequence': a, 'count': '99', 'errors': '0'}]
+    samples = [{'sample': 'M1', 'kind': 'mixed'}, {'sample': 'P1', 'kind': 'probe'}]
+    rows = [('m', 'M1', 'a', 'A', a, 'canonical', 10), ('m', 'M1', 'a', 'A', a[:-1], 'canonical', 3), ('m', 'M1', 'a', 'A', a + 'A', 'isomiR', 2),
+            ('m', 'M1', 'b', 'B', random_read, 'isomiR', 1), ('m', 'M1', 'b', 'B', b, 'isomiR', 5), ('m', 'M1', 'a', 'A', 'GGGGGGGGGGGGGGGGGG', 'isomiR', 2),
+            ('m', 'P1', 'a', 'A', a, 'canonical', 50), ('u', 'M1', 'a', 'A', a[:-1], '', 4)]
+    values, classes = isomirs.synthetic_scores(truth, rows, samples, ['m', 'u'], {})
+    assert classes == {'canonical': 15, '3p_trim_1': 4, '3p_add_A': 2, 'substituted': 1}  # mixed samples only
+    m = values['m']
+    assert [m['isomir_recovered_' + c] for c in ('canonical', '3p_trim_1', '3p_add_A', 'substituted')] == [1.0, 0.75, 1.0, 0.0]
+    assert m['isomir_recovered'] == 0.8333  # (3 + 2) of the 6 true isomiR reads
+    assert m['isomir_misassigned'] == 0.0435 and m['isomir_not_in_sample'] == 0.087  # 1 and 2 of its 23 reads in M1
+    assert m['isomir_as_canonical'] == 0.2308 and m['canonical_as_isomir'] == 0.7143  # 3 of 13 canonical labels, 5 of 7 isomiR labels
+    assert values['u']['isomir_recovered'] == 0.6667 and 'isomir_as_canonical' not in values['u']  # no labels, no label metrics
+    assert isomirs.synthetic_keys(classes)[-4:] == ['isomir_recovered_canonical', 'isomir_recovered_3p_add_A', 'isomir_recovered_3p_trim_1',
+                                                   'isomir_recovered_substituted']
+
+
+def test_isomir_pool_scores_against_the_oracle_and_the_artefact_floor():
+    exact = [{'pool_id': 'E1', 'sequence': LET7, 'mature_ids': ['A']}]
+    shifted = [{'pool_id': 'H1', 'sequence': 'TAGCTTATCAGACTGATGTTG', 'mature_ids': ['B']}]
+    oracle = {'S1': {LET7: 10, 'TAGCTTATCAGACTGATGTTG': 4}, 'S2': {LET7: 6}}
+    rows = [('m', 'S1', 'a', 'A', LET7, '', 8), ('m', 'S2', 'a', 'A', LET7, '', 6), ('m', 'S1', 'b', 'B', 'TAGCTTATCAGACTGATGTTG', '', 5),
+            ('m', 'S1', 'a', 'A', LET7 + 'A', '', 2), ('m', 'S1', 'c', 'C', 'TTTTTTTTTTTTTTTTTTTT', '', 9), ('m', 'S1', 'a', 'A', '', '', 7)]
+    values, kinds = isomirs.pool_scores(rows, exact, shifted, exact + shifted, oracle, ['m'], {'A': LET7, 'B': 'TAGCTTATCAGACTGATGTTGA'})
+    assert values['m'] == {'exact_sequence_recovered': 0.875, 'shifted_isomir_recovered': 1.0, 'shifted_isomir_within_2fold': 1.0,
+                           'artefact_share': 0.0952}  # 14 of 16; 4 of 4; 6/5; 2 of the 21 reads on pool miRNAs
+    assert kinds['m'] == {'3p_longer': 2}
+
+
+def test_isomir_biological_scores_describe_the_routes():
+    rows = [('m', 'S1', 'a', 'A', LET7, '', 30), ('m', 'S1', 'a', 'A', LET7[:-1], '', 10), ('m', 'S2', 'a2', 'A2', LET7, '', 5),
+            ('n', 'S1', 'a', 'A', LET7, '', 40), ('n', 'S1', 'a', 'A', LET7 + 'T', '', 10), ('m', 'S1', 'x', '', 'ACGTACGTACGTACGTACGT', '', 7)]
+    id_to_seq = {'A': LET7, 'A2': LET7}
+    values, kinds, overlap = isomirs.biological_scores(rows, ['m', 'n'], id_to_seq, isomirs.representatives(id_to_seq))
+    assert values == {'m': {'isomir_share': 0.2222, 'isomirs_detected': 2}, 'n': {'isomir_share': 0.2, 'isomirs_detected': 2}}
+    assert kinds['m'] == {'canonical': 35, '3p_trim': 10} and kinds['n'] == {'canonical': 40, '3p_longer': 10}
+    assert overlap == {('m', 'n'): 0.3333}  # the mature sequence of the 3 detected

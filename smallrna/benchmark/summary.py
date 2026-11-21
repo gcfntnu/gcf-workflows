@@ -23,7 +23,8 @@ import yaml
 # (kind, title, key metrics, what they show); a pool's kind is its `pool`
 SECTIONS = [
     ('synthetic', 'Synthetic data',
-     ['recovered', 'precision', 'exact', 'misassigned', 'unplaced', 'near_spill', 'edger_called', 'edger_false_calls', 'edger_fdr'],
+     ['recovered', 'precision', 'exact', 'misassigned', 'unplaced', 'near_spill', 'edger_called', 'edger_false_calls', 'edger_fdr',
+      'isomir_recovered'],
      'Counts are compared per sample and miRBase accession. `recovered` sums the smaller of observed and true counts '
      'for each pair, divided by the total true count. `exact` is the fraction of positive-truth pairs with matching counts. '
      '`misassigned` and `unplaced` count reads on accessions absent from that sample’s truth and on names without a miRBase accession. '
@@ -33,8 +34,10 @@ SECTIONS = [
      'edgeR\'s exact test on the workflow\'s library sizes, `edger_called` (miRNAs designed at least 2-fold apart, BH-adjusted p at '
      'most 0.05 in the designed direction), `edger_false_calls` (miRNAs designed not to change and called) and `edger_fdr` (the '
      'share of calls on unchanged miRNAs or in the wrong direction). edgeR\'s GLM test, limma-voom, the tests adjusted for the '
-     'nuisance factor and the built-in check `de_*` are in each report.'),
-    ('equimolar', 'Equimolar pools', ['detected', 'cv', 'within_2fold', 'spearman_vs_oracle', 'outside', 'unplaced', 'shifted_within_2fold'],
+     'nuisance factor and the built-in check `de_*` are in each report. `isomir_recovered` (#454): the share of its true isomiR '
+     'reads (no substitutions) a method reports as their own sequence on their miRNA; empty for methods without isomiR output.'),
+    ('equimolar', 'Equimolar pools', ['detected', 'cv', 'within_2fold', 'spearman_vs_oracle', 'outside', 'unplaced', 'shifted_within_2fold',
+                                      'shifted_isomir_recovered'],
      'Scored `exact` entries share no miRNA accession with any other exact or shifted entry. The metrics are averaged across samples: '
      '`detected` and `cv` across these entries, `within_2fold` and `spearman_vs_oracle` against '
      'the oracle (the filtered reads counted by exact match to the pool sequences), over the entries the oracle counts in '
@@ -42,10 +45,12 @@ SECTIONS = [
      '(method + 1) / (oracle + 1) within 2-fold. `outside` and `unplaced` are '
      'unweighted means of per-sample shares. Each denominator is all miRNA reads the method reported for that sample. '
      'The numerators are reads assigned to accessions with no exact or shifted entry in the analyzed pool and reads on names without a miRBase accession, respectively. '
-     '`shifted_within_2fold`: the same for isomiRs of known amount (shifted entries), also with one added read.'),
+     '`shifted_within_2fold`: the same for isomiRs of known amount (shifted entries), also with one added read. '
+     '`shifted_isomir_recovered` (#454): the share of the oracle\'s reads of the shifted sequences a method reports as that '
+     'sequence on its miRNA; empty for methods without isomiR output.'),
     ('ratiometric', 'Ratiometric pools', ['median_abs_error', 'spearman_vs_design', 'called', 'false_calls', 'shifted_called',
                                           'edger_called', 'edger_false_calls', 'edger_fdr', 'edger_fc_shift_vs_oracle',
-                                          'edger_fc_error_vs_oracle'],
+                                          'edger_fc_error_vs_oracle', 'shifted_isomir_recovered'],
      'Observed log2(A/B) against the design: `median_abs_error`, `spearman_vs_design`, `called` (designed at least 2-fold '
      'apart and observed at least 2-fold in the designed direction), `false_calls` (designed less than 2-fold apart, '
      'observed at least 2-fold); `shifted_called` applies the same direction requirement to shifted sequences. '
@@ -54,12 +59,13 @@ SECTIONS = [
      '1:1 and called) and `edger_fdr` (the share of calls on 1:1 sequences or in the wrong direction); against the oracle\'s '
      'fits on the same runs (#444), `edger_fc_shift_vs_oracle` (the median difference from its log2 fold changes, from the '
      'library sizes) and `edger_fc_error_vs_oracle` (the median absolute deviation from that shift, from the counts). edgeR\'s '
-     'GLM test, limma-voom and the tests within each lab are in each report.'),
-    ('biological', 'Biological samples', ['mirna_reads', 'unplaced', 'detected', 'detected_all_samples', 'top10_share'],
+     'GLM test, limma-voom and the tests within each lab are in each report. `shifted_isomir_recovered` as for equimolar pools.'),
+    ('biological', 'Biological samples', ['mirna_reads', 'unplaced', 'detected', 'detected_all_samples', 'top10_share', 'isomir_share'],
      'No known composition: `mirna_reads` is the rounded median per sample of reads assigned to a miRBase accession. '
      'The other metrics describe the share on names without a miRBase accession, '
      'miRNAs detected (at least 10 reads; median over samples) and in every sample, and the share of the 10 most abundant. '
-     'Agreement between methods is in each report.'),
+     'Agreement between methods is in each report. `isomir_share` (#454): the share of a method\'s miRNA reads that are not the '
+     'mature sequence; empty for methods without isomiR output.'),
 ]
 FIXED = ['project', 'dataset', 'kit', 'samples', 'reads processed', 'methods']
 

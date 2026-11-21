@@ -33,7 +33,8 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    (and, for biological datasets, the cutadapt reports; `evaluate` checks those before writing anything). After a
    complete run without `--notemp`, rerun with `--notemp --forceall`.
 4. **Evaluate.** `benchmark.py evaluate --project <project>` writes `<project>/benchmark/`: `common.tsv` (every
-   method's counts in one table), `per_mirna.tsv` (pools: `per_sequence.tsv` and `filter_stages.tsv`), `metrics.tsv`
+   method's counts in one table), `isomirs.tsv` (the methods with isomiR output: their counts per read sequence, #454),
+   `per_mirna.tsv` (pools: `per_sequence.tsv` and `filter_stages.tsv`), `metrics.tsv`
    and `report.md`; with UNITAS, `unitas_names.tsv` (how each UNITAS name was placed, below). UNITAS names are placed
    with the reference dump the project's UNITAS run recorded (`quant/unitas/reference.tsv`; read only; `--unitas-ref`
    names another).
@@ -260,6 +261,26 @@ the locus number is not enough: hsa-miR-181a-2-3p is its own mature miRNA. On th
 places 4% of UNITAS's miRNA reads that had no accession and leaves 0.2% unplaced; the reads placed are those the other
 methods count on the same miRNAs (often a pool sequence one or two bases shorter).
 
+**isomiR table** (`isomirs.tsv`, #454). For the methods that report read sequences, one row per method, sample, reported
+miRNA and read sequence, with the method's own label (canonical or isomiR, none for UNITAS). Each reader counts as the
+method's own route does, so a miRNA's rows add up to its count in the common table; the evaluation stops when they do
+not.
+- **UNITAS:** `isomir_counts.tsv`, the name without the modification UNITAS appends to a read with a substitution, as
+  `mir_counts.tsv` counts it.
+- **miRge3:** `mapped.csv`, names folded by the project library's merge file, and only miRNAs with at least 2 exact
+  reads in the project (as `miR.Counts.csv`); a read under `exact miRNA` is labelled canonical. miRge3's exact class
+  holds reads matching its library's sequences, not only the miRBase mature: 82% are the mature sequence on the
+  genome-wide synthetic set, the rest mostly 3′ shorter or longer, so its label metrics describe that class.
+- **mirflowz:** its isomiR rows. A plain row counts the reads matching mirflowz's annotated mature exactly; the table
+  does not give their sequence, so they cannot be matched by sequence.
+- **nf-core/smrnaseq:** `joined_samples_mirtop.tsv`, the first row of each UID; `Variant` NA is canonical.
+- **biocore_miraligner:** each sample's `isomir.tsv`, the rows without a substitution, as its mature table.
+
+TEsmall, tiny-count and biocore_htseq report features only and have no isomiR metrics. `isomirs.py` describes a
+sequence relative to its mature miRNA (`variant`: 5' and 3' offsets up to 3 nt, up to 3 non-templated 3' bases, one
+substitution; a templated extension is told from an added base only on the hairpin, so pools and biological samples
+report `3p_longer`).
+
 ## Metrics
 
 **Genome-wide synthetic data** (`genome_metrics.py`), per method, with `truth` (the truth counts analysed as a method,
@@ -293,6 +314,11 @@ the best the design allows) as a column:
   a variant of another mature beyond these classes (a 2-nt 3′ trim of miR-320d-3p is the 5′ 17 nt of the miR-320
   family). The truth keeps its origin, which no counting method can know, so a method may count such reads on a
   relative.
+- **isomiRs** (#454, mixed samples, no intervals yet): a true read counts as reported when the method reports its own
+  sequence on its miRNA, up to the true count. `isomir_recovered_<class>` per read class (`canonical`, the isomiR
+  classes, and `substituted` for reads with a substitution), and `isomir_recovered` over the isomiR classes. Over a
+  method's reads: `isomir_misassigned` (on a sequence the sample has under another miRNA or as a random read) and
+  `isomir_not_in_sample`. A method's own labels against the truth: `isomir_as_canonical` and `canonical_as_isomir`.
 
 The report also gives recovery by stratum (unique, near-identical, multi-locus, identical sequences, low abundance),
 each probe class's misplaced reads, and the miRNAs absent from the truth that receive reads.
@@ -366,6 +392,12 @@ miRNA), `exact` (share of miRNAs counted exactly, to within 1e-6 for the fractio
   `edger_fc_error_vs_oracle.Lab1`. They are in `metrics.tsv`, `metrics_ci.tsv` and `differences.tsv`, whose paired
   differences show whether a difference between methods holds in each lab. The report shows their values in a section
   of their own, outside the main table and the uncertainty section.
+- **isomiRs** (#454; no intervals yet, so they are left out of the uncertainty files). Against the oracle, per run: `exact_sequence_recovered` and
+  `shifted_isomir_recovered`, the share of the oracle's reads of the scored `exact` and `shifted` sequences a method
+  reports as that sequence on the entry's miRNA, and `shifted_isomir_within_2fold`. A synthetic pool holds only its
+  designed sequences, so a method's reads on other sequences of its miRNAs are library or sequencing artefacts
+  (`artefact_share`, broken down by kind in the report); all methods read the same filtered reads, so the differences
+  are the methods'.
 - **Filter route.** The same exact-match count of the pool sequences after each pass of the project's filter route
   (`filter_stages.tsv`): for cutadapt after the 3' adapter, the filter (random ends, 5' adapter, length, N, expected
   errors) and the artefact pass, for fastp after the adapter and the filter pass, then the spike-in prefilter with
@@ -389,6 +421,9 @@ miRNA reads):
   hsa-miR-199a-3p and hsa-miR-199b-3p). Reads on names without a miRBase accession are left out of every metric and
   reported as `unplaced`, with the names that have most.
 - **Per method:** miRNA reads, `unplaced`, miRNAs detected per sample and in every sample, and the share of the 10 most abundant.
+- **isomiRs** (#454), a description: `isomir_share` (the share of a method's miRNA reads that are not the mature
+  sequence) and `isomirs_detected` (sequences with at least 10 reads over all samples); the report adds each method's
+  reads by kind and the overlap of detected isomiRs between methods (Jaccard).
 - **Between methods**, per pair (medians over samples): Spearman of log2(CPM + 1) over the miRNAs either detects
   and over those both detect, median |log2 CPM ratio| over those both detect, overlap of the 100 most abundant, and miRNAs only one detects
   (`only_a` and `only_b` for the first and second method of the pair).
