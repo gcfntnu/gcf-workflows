@@ -2,6 +2,7 @@
 on synthetic tables."""
 import collections
 import gzip
+import io
 import json
 import os
 import statistics
@@ -561,6 +562,79 @@ def test_a_download_the_server_cuts_is_resumed_from_where_it_stopped(tmp_path, m
     with pytest.raises(OSError, match='No space left'):
         fill.transfer('https://example.org/SRR1.fastq.gz', Full(), hashlib.md5(), messages.append)
     assert asked == [0]
+
+
+def test_runs_filled_from_sra_are_checked_by_their_reads_not_their_file(tmp_path, monkeypatch):
+    """fill --source sra: a run that declares its SRA file is downloaded in parts (range requests, a short part asked
+    for again), checked against the file's md5, converted by the fasterq-dump command and written gzipped with a record
+    of its source. The reads are checked by their number and by the MD5 over the sequence and quality lines, which
+    does not depend on read names, block boundaries or compression. A run without `sra`, a wrong number of reads and a
+    wrong content MD5 leave nothing behind."""
+    import gzip
+    import hashlib
+    import json
+    import stat
+    reads = [('ACGT' * 5 + 'ACGT'[:i % 4 + 1], 'I' * (20 + i % 4 + 1)) for i in range(300)]
+    fastq = ''.join('@SRR1.{0} {0} length={1}\n{2}\n+SRR1.{0} {0} length={1}\n{3}\n'.format(i + 1, len(s), s, q) for i, (s, q) in enumerate(reads)).encode()
+    digest = hashlib.md5(''.join('{}\n{}\n'.format(s, q) for s, q in reads).encode()).hexdigest()
+    for size in (1, 7, 4096, len(fastq)):  # blocks cut anywhere
+        assert fill.content(fastq[i:i + size] for i in range(0, len(fastq), size)) == (300, digest)
+    assert fill.content([fastq[:-1]]) == (300, digest)  # no newline after the last line
+    with pytest.raises(ValueError, match='incomplete record after read 299'):
+        fill.content([fastq[:-40]])
+    with pytest.raises(ValueError, match='not FASTQ'):
+        fill.content([b'>seq\nACGT\n>seq2\nACGT\n'])
+    with pytest.raises(ValueError, match='one quality per base'):
+        fill.content([b'@r\nACGT\n+\nIII\n'])
+
+    sra = bytes(range(256)) * 100  # the "SRA file"; the fake fasterq-dump ignores it and prints the FASTQ
+    (tmp_path / 'reads.fastq').write_bytes(fastq)
+    dump = tmp_path / 'fasterq-dump'
+    dump.write_text('#!/bin/sh\nif [ "$1" = --version ]; then echo; echo "fasterq-dump : 9.9.9"; exit 0; fi\n'
+                    '[ -s "$1" ] || exit 3\ncat ' + str(tmp_path / 'reads.fastq') + '\n')
+    dump.chmod(dump.stat().st_mode | stat.S_IXUSR)
+    asked = []
+
+    class Response(io.BytesIO):
+        status = 206
+
+    def urlopen(request, timeout):
+        start, end = (int(v) for v in request.headers['Range'][len('bytes='):].split('-'))
+        asked.append((request.full_url, start, end))
+        short = start == 10000 and asked.count((request.full_url, start, end)) == 1
+        return Response(sra[start:end + 1 - (5 if short else 0)])
+    monkeypatch.setattr(fill.urllib.request, 'urlopen', urlopen)
+    monkeypatch.setattr(fill.time, 'sleep', lambda seconds: None)
+    monkeypatch.setattr(fill, 'PART', 10000)
+    run = {'run': 'SRR1', 'reads': 300, 'md5': 'x', 'url': 'https://example.org/ena/SRR1.fastq.gz',
+           'sra': {'md5': hashlib.md5(sra).hexdigest(), 'bytes': len(sra)}, 'content_md5': digest}
+    spec = {'name': 'set', 'kind': 'biological', 'data': 'benchmark/set',
+            'mirbase': {'release': '23.1', 'url': 'https://example.org/mature.fa', 'sha256': 'x'},
+            'samples': [{'sample': 'A', 'group': 'g', 'runs': [run]}]}
+    folder = tmp_path / 'ext/benchmark/set'
+    (folder / 'mirbase/23.1').mkdir(parents=True)
+    (folder / 'mirbase/23.1/mature.fa').write_text('>x\nACGT\n')
+    messages = []
+    monkeypatch.chdir(tmp_path)  # a relative EXT_DIR: the command, run in the temporary folder, still finds the file
+    assert fill.fill(spec, Path('ext'), log=messages.append, source='sra', connections=3, fasterq_dump=str(dump)) == 1
+    target = folder / 'fastq/SRR1.fastq.gz'
+    assert sorted(p.name for p in target.parent.iterdir()) == ['SRR1.fastq.gz', 'SRR1.sra.json']
+    assert fill.file_content(target) == (300, digest) and gzip.open(target, 'rt').read().split('\n')[2] == '+'
+    record = json.loads((target.parent / 'SRR1.sra.json').read_text())
+    assert record['source'] == fill.SRA_URL.format(run='SRR1') and record['sra_md5'] == run['sra']['md5']
+    assert (record['reads'], record['content_md5'], record['fasterq_dump']) == (300, digest, '9.9.9')
+    assert sorted(set(asked)) == [(fill.SRA_URL.format(run='SRR1'), start, min(start + 9999, len(sra) - 1)) for start in range(0, len(sra), 10000)]
+    assert asked.count((fill.SRA_URL.format(run='SRR1'), 10000, 19999)) == 2  # the short part, asked for again
+    assert fill.fill(spec, tmp_path / 'ext', log=messages.append, source='sra', fasterq_dump=str(dump)) == 0  # in place
+
+    for change, message in (({'reads': 299}, '300 reads from SRA, 299 declared'), ({'content_md5': '0' * 32}, 'content md5'),
+                            ({'sra': {'md5': '0' * 32, 'bytes': len(sra)}}, 'md5 .* does not match the declared'), ({'sra': None}, 'declares `reads` and `sra')):
+        target.unlink(missing_ok=True)
+        (target.parent / 'SRR1.sra.json').unlink(missing_ok=True)
+        spec['samples'][0]['runs'] = [dict(run, **change)]
+        with pytest.raises(ValueError, match=message):
+            fill.fill(spec, tmp_path / 'ext', log=messages.append, source='sra', fasterq_dump=str(dump))
+        assert list(target.parent.iterdir()) == []
 
 
 def test_filtered_fastq_follows_the_project_filter_route(tmp_path):
