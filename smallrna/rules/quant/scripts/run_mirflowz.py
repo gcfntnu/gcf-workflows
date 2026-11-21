@@ -26,9 +26,16 @@ oligomap is single-threaded and each run scans its whole target, most of mirflow
 that many parts of consecutive sequences, maps every part with all queries and joins the results, the same bytes as
 one run. The nested run sets `OLIGOMAP_JOBS` to `--threads`, at most 16 (`OLIGOMAP_PARTS`: above that the part
 holding the largest chromosome sets the pace), and gives both oligomap rules as many threads, so above 16 threads two
-oligomap steps run at once. Their memory is a few GB: one whole-genome oligomap peaks below 0.5 GB, far below the
-50 GB mirflowz declares. `OLIGOMAP_SPLIT_DIR` keeps the parts in the work directory, so a project's targets are
-split once for all samples.
+oligomap steps run at once. Every part holds all of a sample's queries, mirflowz's distinct reads of at most 30 nt,
+so a step's memory is the parts times one process, and a process grows with the queries: measured at 16 parts on
+GRCh38, about 9 kB per query on the genome and 4.5 kB on the transcriptome (0.45 GB per genome process for a
+0.6M-read pool run of 46 thousand queries, 1.07 GB for a 3.8M-read plasma sample of 124 thousand, over 5 GB for 716
+thousand). The script counts each sample's queries while it writes the reads and declares, for the largest sample,
+OLIGOMAP_BASE_GB plus 10 kB (genome) or 5 kB (transcriptome) per query, times the parts, instead of mirflowz's 50 and
+10 GB; the parts are also capped so that a genome step fits in `--mem-mb`, and a sample whose single process would
+not fit stops the run before mapping. `OLIGOMAP_SPLIT_DIR` keeps the parts in the work directory (a second copy of
+the genome and transcriptome FASTA, about 3 GB for human, removed with it), so a project's targets are split once for
+all samples.
 `remove_inferiors` and `filter_by_indels` run on one core whatever they declare, so they get one thread.
 
 Outputs in `--output`: `all_mirna_counts.tab` (miRNAs and isomiRs), `all_pri-mir_counts.tab`, `alignments/<sample>/`
@@ -39,6 +46,7 @@ Usage: run_mirflowz.py --prepared DIR --adapter SEQ --minimum-length N --threads
 import argparse
 import gzip
 import json
+import math
 import os
 from pathlib import Path
 import shutil
@@ -53,11 +61,16 @@ PREPARED = ('genome_processed.fa', 'segemehl_genome_index.idx', 'transcriptome_t
 TABLES = ('all_mirna_counts.tab', 'all_pri-mir_counts.tab')
 # Parts of the image's parallel oligomap per step (OLIGOMAP_JOBS), at most.
 OLIGOMAP_PARTS = 16
+# One oligomap process's memory (GB): a base and a size per query (mirflowz's distinct reads of at most
+# MAX_QUERY_LENGTH nt), above the peaks measured at 16 parts on GRCh38 (see the module docstring).
+OLIGOMAP_BASE_GB = 0.1
+QUERY_GB = {'map_genome_oligomap': 10e-6, 'map_transcriptome_oligomap': 5e-6}
+MAX_QUERY_LENGTH = 30  # mirflowz's max_length_reads
 # Resources (threads, mem in GB) for mirflowz 0.10.0's mapping and quantification rules: what they declare, except
-# that the two oligomap rules get OLIGOMAP_PARTS threads (the image's oligomap runs that many parts) and a few GB, and
-# that remove_inferiors and filter_by_indels (single-threaded scripts) get one thread.
+# that the two oligomap rules get their threads and memory from oligomap_resources (None here), and that
+# remove_inferiors and filter_by_indels (single-threaded scripts) get one thread.
 RESOURCES = {'remove_adapters': (8, None), 'map_genome_segemehl': (8, 50), 'map_transcriptome_segemehl': (8, 10),
-             'map_genome_oligomap': (OLIGOMAP_PARTS, 8), 'map_transcriptome_oligomap': (OLIGOMAP_PARTS, 4),
+             'map_genome_oligomap': None, 'map_transcriptome_oligomap': None,
              'sort_genome_oligomap': (8, None), 'sort_transcriptome_oligomap': (8, None), 'remove_inferiors': (1, 15),
              'filter_by_indels': (1, 15)}
 TARGET = '''
@@ -81,18 +94,22 @@ def sample_arg(text):
 
 
 def fastq_to_fasta(source, target):
-    """Write the FASTQ reads (plain or gzipped) as gzipped FASTA, names and sequences unchanged; return the count."""
+    """Write the FASTQ reads (plain or gzipped) as gzipped FASTA, names and sequences unchanged; return the count of
+    reads and of distinct sequences of at most MAX_QUERY_LENGTH nt (oligomap's queries)."""
     with open(source, 'rb') as fh:
         gzipped = fh.read(2) == b'\x1f\x8b'
-    count = 0
+    count, queries = 0, set()
     with (gzip.open(source, 'rt') if gzipped else open(source)) as src, gzip.open(target, 'wt', compresslevel=1) as out:
         while True:
             header, sequence, plus, quality = (src.readline() for _ in range(4))
             if not header:
-                return count
+                return count, len(queries)
             if not header.startswith('@') or not plus.startswith('+'):
                 fail('{} is not a four-line FASTQ file (read {})'.format(source, count + 1))
             out.write('>{}\n{}'.format(header[1:].split()[0], sequence))
+            read = sequence.rstrip('\n')
+            if len(read) <= MAX_QUERY_LENGTH:
+                queries.add(read)
             count += 1
 
 
@@ -101,6 +118,19 @@ def mem_budget_gb(mem_mb):
     if mem_mb < 1024:
         fail('memory budget {} MB is below 1 GB; mirflowz declares memory in GB'.format(mem_mb))
     return mem_mb // 1024
+
+
+def oligomap_resources(queries, threads, mem_gb):
+    """(parts, {oligomap rule: (threads, mem GB)}) for the largest sample's `queries`: at most `threads` and
+    OLIGOMAP_PARTS parts, and no more than fit a genome step in `mem_gb`; each step's memory is its parts times one
+    process (OLIGOMAP_BASE_GB plus QUERY_GB per query), rounded up to whole GB. Fails when one genome process does not fit."""
+    process = {rule: OLIGOMAP_BASE_GB + per_query * queries for rule, per_query in QUERY_GB.items()}
+    fitting = int(mem_gb // process['map_genome_oligomap'])
+    if fitting < 1:
+        fail('one genome oligomap process for {} queries needs about {:.1f} GB, more than the {} GB budget; raise '
+             'quant.mirflowz.mem_gb'.format(queries, process['map_genome_oligomap'], mem_gb))
+    parts = max(1, min(threads, OLIGOMAP_PARTS, fitting))
+    return parts, {rule: (parts, max(1, math.ceil(parts * gb))) for rule, gb in process.items()}
 
 
 def resource_args(resources, threads, mem_gb):
@@ -159,13 +189,14 @@ def main():
         for name in PREPARED:
             os.symlink((args.prepared / name).resolve(), work / 'intermediates' / name)
         (work / 'reads').mkdir()
-        rows, internal = [], {}
+        rows, internal, queries = [], {}, 0
         for i, (name, path) in enumerate(args.samples, 1):
             internal[name] = 'gcf_sample_{}'.format(i)
             target = work / 'reads' / (internal[name] + '.fa.gz')
-            reads = fastq_to_fasta(path, target)
+            reads, distinct = fastq_to_fasta(path, target)
             if not reads:
                 fail('{} ({}) holds no reads'.format(path, name))
+            queries = max(queries, distinct)
             rows.append('{}\t{}\t{}\tfa\n'.format(internal[name], target, args.adapter))
         (work / 'samples.tsv').write_text('sample\tsample_file\tadapter\tformat\n' + ''.join(rows))
         (work / 'empty.bed').touch()
@@ -174,7 +205,10 @@ def main():
         rules = mirflowz_dir / 'workflow/rules'
         (work / 'Snakefile').write_text('include: {!r}\ninclude: {!r}\n'.format(str(rules / 'map.smk'), str(rules / 'quantify.smk')) + TARGET)
         # The image's oligomap runs OLIGOMAP_JOBS parts in parallel and keeps them in OLIGOMAP_SPLIT_DIR.
-        env = dict(os.environ, XDG_CACHE_HOME=str(work / '.cache'), OLIGOMAP_JOBS=str(min(args.threads, OLIGOMAP_PARTS)),
+        mem_gb = mem_budget_gb(args.mem_mb)
+        parts, oligomap = oligomap_resources(queries, args.threads, mem_gb)
+        resources = dict(RESOURCES, **oligomap)
+        env = dict(os.environ, XDG_CACHE_HOME=str(work / '.cache'), OLIGOMAP_JOBS=str(parts),
                    OLIGOMAP_SPLIT_DIR=str(work / 'oligomap_parts'))
         result = subprocess.run(['snakemake', '-s', str(work / 'Snakefile'), '--configfile', str(work / 'config.yaml'),
                                  '--directory', str(work), '--cores', str(args.threads), '--nolock', '--workflow-profile', 'none', 'gcf_mirflowz_all',
@@ -182,7 +216,7 @@ def main():
                                  # skips reading the conda files that mirflowz's rules name (conda is not used).
                                  '--drop-metadata',
                                  # Last: these options take several values each, so a target after them would be read as one.
-                                 *resource_args(RESOURCES, args.threads, mem_budget_gb(args.mem_mb))],
+                                 *resource_args(resources, args.threads, mem_gb)],
                                 capture_output=True, text=True, env=env)
         if result.returncode != 0:
             logs = sorted((work / 'logs/local').glob('*.log'), key=os.path.getmtime)

@@ -19,7 +19,6 @@ def test_combined_route_plans_both_quantifiers_and_delivery_stays_on_unitas(tmp_
     assert 'mirflowz' not in output
 
 
-
 @pytest.mark.parametrize('threads', [None, 32])
 def test_threads_follow_quant_mirflowz_threads(tmp_path, threads):
     """mirflowz_quant takes quant.mirflowz.threads (default 8) and hands them to the nested run."""

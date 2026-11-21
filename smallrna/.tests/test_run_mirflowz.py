@@ -1,6 +1,8 @@
 """run_mirflowz.py: mirflowz mapping and quantification on filtered reads with a linked reference; snakemake is mocked."""
 import gzip
+import importlib.util
 import json
+import math
 import os
 from pathlib import Path
 import subprocess
@@ -143,7 +145,7 @@ def test_nested_resources_stay_within_the_outer_budget(setup):
 @pytest.mark.parametrize('threads, parts', [('3', '3'), ('16', '16'), ('32', '16')])
 def test_oligomap_maps_in_parallel_parts(setup, threads, parts):
     """The image's oligomap runs OLIGOMAP_JOBS parts in parallel: the nested run sets it to the job's threads, at most
-    16, gives both oligomap rules as many (32 threads: two oligomap steps at once) and a few GB, keeps the parts in the
+    16, gives both oligomap rules as many (32 threads: two oligomap steps at once) and memory for their queries, keeps the parts in the
     work directory, and gives the single-threaded remove_inferiors and filter_by_indels one thread."""
     _, _, call = run(setup, threads=threads, mem_mb='61440')
     args = call['args']
@@ -155,10 +157,44 @@ def test_oligomap_maps_in_parallel_parts(setup, threads, parts):
     assert split_dir.parent == Path(call['config']['intermediates_dir']).parent
     for rule in ('map_genome_oligomap', 'map_transcriptome_oligomap'):
         assert '{}={}'.format(rule, parts) in set_threads and '{}:threads={}'.format(rule, parts) in set_resources
-    assert 'map_genome_oligomap:mem=8' in set_resources and 'map_transcriptome_oligomap:mem=4' in set_resources
+    # the fixture's samples have a handful of queries: one process is about OLIGOMAP_BASE_GB
+    assert 'map_genome_oligomap:mem={}'.format(math.ceil(int(parts) * 0.1)) in set_resources
+    assert 'map_transcriptome_oligomap:mem={}'.format(math.ceil(int(parts) * 0.1)) in set_resources
     assert args[args.index('--resources') + 1] == 'threads={}'.format(threads)
     assert 'remove_inferiors=1' in set_threads and 'filter_by_indels=1' in set_threads
     assert 'map_genome_segemehl={}'.format(min(8, int(threads))) in set_threads
+
+
+def load_script():
+    spec = importlib.util.spec_from_file_location('run_mirflowz', SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_oligomap_memory_follows_the_queries():
+    """Every part holds all of a sample's queries, so a step's memory is the parts times one process, and a process
+    grows with the queries. Measured at 16 parts on GRCh38 (#446): genome 0.45 GB per process for 45.7 thousand
+    queries, 1.07 GB for 124.5 thousand, over 5.3 GB for 716 thousand; transcriptome 0.23 and 0.53 GB. The model is
+    above each, and the parts are capped so that a genome step fits the budget."""
+    script = load_script()
+    process = lambda rule, queries: script.OLIGOMAP_BASE_GB + script.QUERY_GB[rule] * queries
+    for queries, genome, transcriptome in ((45_717, 0.446, 0.233), (124_493, 1.066, 0.532), (716_066, 5.3, None)):
+        assert process('map_genome_oligomap', queries) > genome
+        assert transcriptome is None or process('map_transcriptome_oligomap', queries) > transcriptome
+    assert script.oligomap_resources(45_717, 8, 60) == (8, {'map_genome_oligomap': (8, 5), 'map_transcriptome_oligomap': (8, 3)})
+    assert script.oligomap_resources(124_493, 32, 60) == (16, {'map_genome_oligomap': (16, 22), 'map_transcriptome_oligomap': (16, 12)})
+    assert script.oligomap_resources(716_066, 32, 60) == (8, {'map_genome_oligomap': (8, 59), 'map_transcriptome_oligomap': (8, 30)})
+    with pytest.raises(SystemExit, match='raise quant.mirflowz.mem_gb'):
+        script.oligomap_resources(716_066, 8, 6)
+
+
+def test_queries_are_distinct_reads_of_at_most_30_nt(tmp_path):
+    script = load_script()
+    reads = ['ACGTACGTACGTACGTACGTAC', 'ACGTACGTACGTACGTACGTAC', 'TTTTACGTACGTACGTACGTAC', 'A' * 30, 'A' * 31]
+    source = tmp_path / 'S1.fastq'
+    source.write_text(''.join('@r{}\n{}\n+\n{}\n'.format(i, r, 'I' * len(r)) for i, r in enumerate(reads)))
+    assert script.fastq_to_fasta(source, tmp_path / 'S1.fa.gz') == (5, 3)   # the 31-nt read is not a query
 
 
 def test_memory_budget_below_one_gb_is_rejected(setup):
