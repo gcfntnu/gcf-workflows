@@ -78,7 +78,7 @@ SECTIONS = [
     ('mixture', 'Tissue mixtures', ['mirna_reads', 'detected', 'linearity_error', 'replicate_error', 'within_1_5fold', 'monotonic',
                                     'edger_glm_called', 'edger_glm_wrong_direction', 'edger_glm_called_shared'],
      'Total RNA of two tissues of each subject mixed at known fractions (#451). No known composition: each mixture is predicted '
-     'from the method\'s own counts of the subject\'s two pure samples, with one fitted content ratio per method, so the scores '
+     'from the method\'s own counts of the subject\'s two pure samples, with a content ratio fitted per method and subject, so the scores '
      'show linear and consistent counting, not correct assignment. `linearity_error` is the median |log2(observed / predicted)| '
      'over miRNA-sample pairs with at least 10 predicted reads and `within_1_5fold` the share within 1.5-fold; '
      '`replicate_error`, the same error between technical replicates, is its floor. `monotonic`: tissue-specific miRNAs whose '
