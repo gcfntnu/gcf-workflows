@@ -1,12 +1,13 @@
 # GSE317995 (GEO; SRA PRJNA1416291): human plasma, NEXTFLEX Small RNA-Seq Kit v4 with UDIs, NextSeq 500, 51-nt reads.
 # 30 samples (adenomyosis, fertile and infertile controls); each is one library sequenced in the 4 lanes of one
 # NextSeq run (flow cell HH2WHBGYW, run 262; lane from the read names), so its 4 runs are lane replicates.
-# This declaration takes the two lowest-numbered samples of each group. No known composition (kind: biological).
+# All 30 samples (#448), each group's in the order of its numbers; `prepare --per-group 2` takes the two lowest-numbered
+# of each group, the quick run. No known composition (kind: biological).
 name: gse317995_nextflex_v4
 kind: biological
 organism: homo_sapiens
 libprepkit: Bioo Scientific NEXTflex Small RNA-Seq Kit v4
-methods: [unitas, mirge3, mirflowz]
+methods: [unitas, mirge3, mirflowz, tesmall, tinyrna, smrnaseq, biocore_htseq, biocore_miraligner]
 data: benchmark/smallrna/gse317995   # relative to EXT_DIR
 config:
   # Inferred, not recorded in GEO: miR-486-5p and miR-451a are nearly absent, as with blood miRNA blockers (#361).
@@ -19,6 +20,8 @@ mirbase_releases:           # other releases a run can select: fill and prepare 
   '22':
     url: https://www.mirbase.org/download_version_files/22/mature.fa
     sha256: 3c521fc9bea3c7993e71cf188b11caf73e2d40ac83454e32876455317cc6d342
+de:                         # null comparisons (#449): each group's samples split in two, so every call is false
+  'null': {splits: 50, seed: 1}   # quoted: a bare null key is YAML's null
 samples:
   - sample: GSM9484173       # Adenomyosis 1
     group: Adenomyosis
@@ -34,6 +37,62 @@ samples:
       - {run: SRR37034376, lane: 2, reads: 3990734, md5: 14a09a13f86bdad7332439e5fd79133f, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/076/SRR37034376/SRR37034376.fastq.gz}
       - {run: SRR37034377, lane: 3, reads: 3856726, md5: ed59d728e866847c416995261dd44212, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/077/SRR37034377/SRR37034377.fastq.gz}
       - {run: SRR37034378, lane: 4, reads: 4027903, md5: 55d29b68a2843f34f7443044cf1426e0, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/078/SRR37034378/SRR37034378.fastq.gz}
+  - sample: GSM9484175       # Adenomyosis 3
+    group: Adenomyosis
+    runs:
+      - {run: SRR37034371, lane: 1, reads: 1746990, md5: 64a52dd482b6f5350c79ec186c6cd4da, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/071/SRR37034371/SRR37034371.fastq.gz}
+      - {run: SRR37034372, lane: 2, reads: 1712487, md5: b86ce1800a737d6b6025101b95fc8e9a, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/072/SRR37034372/SRR37034372.fastq.gz}
+      - {run: SRR37034373, lane: 3, reads: 1691490, md5: b920839efd892707079491e43806e79b, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/073/SRR37034373/SRR37034373.fastq.gz}
+      - {run: SRR37034374, lane: 4, reads: 1725820, md5: a405d9bf2f3ab5018100584f401d4b32, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/074/SRR37034374/SRR37034374.fastq.gz}
+  - sample: GSM9484176       # Adenomyosis 4
+    group: Adenomyosis
+    runs:
+      - {run: SRR37034367, lane: 1, reads: 4373961, md5: 56b0f08f31210edeb476138130d9a9bb, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/067/SRR37034367/SRR37034367.fastq.gz}
+      - {run: SRR37034368, lane: 2, reads: 4267721, md5: 2f76e02a6990505e49f503bbfa2bfefd, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/068/SRR37034368/SRR37034368.fastq.gz}
+      - {run: SRR37034369, lane: 3, reads: 4174192, md5: c7cb429582cdaed4b0725d6a6c9176c0, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/069/SRR37034369/SRR37034369.fastq.gz}
+      - {run: SRR37034370, lane: 4, reads: 4325304, md5: b8d50e6d61b82d187e335f2b69573623, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/070/SRR37034370/SRR37034370.fastq.gz}
+  - sample: GSM9484177       # Adenomyosis 5
+    group: Adenomyosis
+    runs:
+      - {run: SRR37034363, lane: 1, reads: 2020524, md5: 303bbecdb4a88f0418e68ce7b1f80724, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/063/SRR37034363/SRR37034363.fastq.gz}
+      - {run: SRR37034364, lane: 2, reads: 1968982, md5: 667878165e6dfeecf099bc318750c31d, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/064/SRR37034364/SRR37034364.fastq.gz}
+      - {run: SRR37034365, lane: 3, reads: 1930614, md5: 5fb6c0dcb5b95ab3f1f3d7f6b6b26fde, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/065/SRR37034365/SRR37034365.fastq.gz}
+      - {run: SRR37034366, lane: 4, reads: 1983983, md5: 93dbb35b8afd355e3837406ea8827b69, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/066/SRR37034366/SRR37034366.fastq.gz}
+  - sample: GSM9484178       # Adenomyosis 6
+    group: Adenomyosis
+    runs:
+      - {run: SRR37034359, lane: 1, reads: 3676928, md5: 460f7f2faebde4fb07dc0de7cbf0b9a8, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/059/SRR37034359/SRR37034359.fastq.gz}
+      - {run: SRR37034360, lane: 2, reads: 3594506, md5: 40dfee0187b55f4546609dcc38c470ff, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/060/SRR37034360/SRR37034360.fastq.gz}
+      - {run: SRR37034361, lane: 3, reads: 3478792, md5: 22326213b330b3b8f9a6d77f389f23c0, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/061/SRR37034361/SRR37034361.fastq.gz}
+      - {run: SRR37034362, lane: 4, reads: 3622354, md5: 10d025d992777823040678c5978b392c, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/062/SRR37034362/SRR37034362.fastq.gz}
+  - sample: GSM9484179       # Adenomyosis 7
+    group: Adenomyosis
+    runs:
+      - {run: SRR37034355, lane: 1, reads: 4574195, md5: 801122c83534a2e6f0fd1c2384ad5358, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/055/SRR37034355/SRR37034355.fastq.gz}
+      - {run: SRR37034356, lane: 2, reads: 4492363, md5: 8459c0429e0b97e878c7e623c4919d5c, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/056/SRR37034356/SRR37034356.fastq.gz}
+      - {run: SRR37034357, lane: 3, reads: 4401064, md5: f0fd603a1a58a9c9ebb9eec4b58b269a, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/057/SRR37034357/SRR37034357.fastq.gz}
+      - {run: SRR37034358, lane: 4, reads: 4545740, md5: 4c82753a14ecf0351bf3537eabb1c32e, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/058/SRR37034358/SRR37034358.fastq.gz}
+  - sample: GSM9484180       # Adenomyosis 8
+    group: Adenomyosis
+    runs:
+      - {run: SRR37034351, lane: 1, reads: 2944761, md5: ae5cd15cff991583e0dba1895d4b3af3, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/051/SRR37034351/SRR37034351.fastq.gz}
+      - {run: SRR37034352, lane: 2, reads: 2884394, md5: 94431df155fe8f608fd567f284296aca, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/052/SRR37034352/SRR37034352.fastq.gz}
+      - {run: SRR37034353, lane: 3, reads: 2808147, md5: 13df7ce8818fa7e9417a040abc40d655, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/053/SRR37034353/SRR37034353.fastq.gz}
+      - {run: SRR37034354, lane: 4, reads: 2916788, md5: 44355966f1706f8a7007d45df1e9fcb0, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/054/SRR37034354/SRR37034354.fastq.gz}
+  - sample: GSM9484181       # Adenomyosis 9
+    group: Adenomyosis
+    runs:
+      - {run: SRR37034347, lane: 1, reads: 4844068, md5: 1908aded1d65baa4f9df912b1b2c92dc, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/047/SRR37034347/SRR37034347.fastq.gz}
+      - {run: SRR37034348, lane: 2, reads: 4708206, md5: 20e7b67a78e511271c220008411b9113, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/048/SRR37034348/SRR37034348.fastq.gz}
+      - {run: SRR37034349, lane: 3, reads: 4635531, md5: 5228648f3f21b8ce1fe1a73ce1407f90, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/049/SRR37034349/SRR37034349.fastq.gz}
+      - {run: SRR37034350, lane: 4, reads: 4769222, md5: 9d2b936df34dd2ddc43eaf2381e7cc5e, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/050/SRR37034350/SRR37034350.fastq.gz}
+  - sample: GSM9484172       # Adenomyosis 10
+    group: Adenomyosis
+    runs:
+      - {run: SRR37034383, lane: 1, reads: 2003995, md5: ae533d35e88d8041232a2d150b217567, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/083/SRR37034383/SRR37034383.fastq.gz}
+      - {run: SRR37034384, lane: 2, reads: 1969552, md5: 6d29ba7fdccd6efe75c525ed91d127dd, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/084/SRR37034384/SRR37034384.fastq.gz}
+      - {run: SRR37034385, lane: 3, reads: 1918759, md5: f719e0c66f7ef82d74f568599d607e78, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/085/SRR37034385/SRR37034385.fastq.gz}
+      - {run: SRR37034386, lane: 4, reads: 1992525, md5: 397c41669bfb52d8b3de4cfdf7650245, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/086/SRR37034386/SRR37034386.fastq.gz}
   - sample: GSM9484193       # Fertile control 1
     group: Fertile control
     runs:
@@ -48,6 +107,62 @@ samples:
       - {run: SRR37034296, lane: 2, reads: 3937386, md5: 083864f94a330102a5d18ea6c4503bd8, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/096/SRR37034296/SRR37034296.fastq.gz}
       - {run: SRR37034297, lane: 3, reads: 3853147, md5: f6e4322065ecfc4dd2c3bda286b1593d, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/097/SRR37034297/SRR37034297.fastq.gz}
       - {run: SRR37034298, lane: 4, reads: 3987806, md5: fc1c388c4bce50c1ee8e1bac39b1bf64, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/098/SRR37034298/SRR37034298.fastq.gz}
+  - sample: GSM9484195       # Fertile control 3
+    group: Fertile control
+    runs:
+      - {run: SRR37034291, lane: 1, reads: 2331302, md5: c6d7ee559e4e9f304bf87dd8c9b33541, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/091/SRR37034291/SRR37034291.fastq.gz}
+      - {run: SRR37034292, lane: 2, reads: 2258384, md5: c81d9abb5a3f6c7037e85428a8ce507c, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/092/SRR37034292/SRR37034292.fastq.gz}
+      - {run: SRR37034293, lane: 3, reads: 2213500, md5: 807a9da89f282a1d6f8675ea84ddc9c5, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/093/SRR37034293/SRR37034293.fastq.gz}
+      - {run: SRR37034294, lane: 4, reads: 2280893, md5: 451faaf0b938f06aa68dd7902cfe6b05, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/094/SRR37034294/SRR37034294.fastq.gz}
+  - sample: GSM9484196       # Fertile control 4
+    group: Fertile control
+    runs:
+      - {run: SRR37034287, lane: 1, reads: 2047849, md5: a22428481489cf5f3a71d2dd4649b305, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/087/SRR37034287/SRR37034287.fastq.gz}
+      - {run: SRR37034288, lane: 2, reads: 2005986, md5: 4c8800a86485f40bc95410a7f793adf5, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/088/SRR37034288/SRR37034288.fastq.gz}
+      - {run: SRR37034289, lane: 3, reads: 1968986, md5: b38b59c32aa887cff19757688d87d246, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/089/SRR37034289/SRR37034289.fastq.gz}
+      - {run: SRR37034290, lane: 4, reads: 2031767, md5: 8eca8d69dfb9a96a3105fc9d53623768, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/090/SRR37034290/SRR37034290.fastq.gz}
+  - sample: GSM9484197       # Fertile control 5
+    group: Fertile control
+    runs:
+      - {run: SRR37034283, lane: 1, reads: 2629591, md5: f6b095e94ede32a009377a492c32e89e, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/083/SRR37034283/SRR37034283.fastq.gz}
+      - {run: SRR37034284, lane: 2, reads: 2563952, md5: d4c04054dc593e2aa6dfa594a187e697, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/084/SRR37034284/SRR37034284.fastq.gz}
+      - {run: SRR37034285, lane: 3, reads: 2522937, md5: 25b35a31c0b921c006c5b12eeb134a18, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/085/SRR37034285/SRR37034285.fastq.gz}
+      - {run: SRR37034286, lane: 4, reads: 2587986, md5: 1b6aaca6150095aed25be5f5d886d160, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/086/SRR37034286/SRR37034286.fastq.gz}
+  - sample: GSM9484198       # Fertile control 6
+    group: Fertile control
+    runs:
+      - {run: SRR37034279, lane: 1, reads: 3692454, md5: 17cdc347c443337d27f50c1729300e8d, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/079/SRR37034279/SRR37034279.fastq.gz}
+      - {run: SRR37034280, lane: 2, reads: 3651365, md5: d27504978690db62f8c79d22d25a1cc5, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/080/SRR37034280/SRR37034280.fastq.gz}
+      - {run: SRR37034281, lane: 3, reads: 3517617, md5: fc363c1205b971ad3dcfc398d434f798, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/081/SRR37034281/SRR37034281.fastq.gz}
+      - {run: SRR37034282, lane: 4, reads: 3680088, md5: c75577cc37ba191307825315fa4a9329, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/082/SRR37034282/SRR37034282.fastq.gz}
+  - sample: GSM9484199       # Fertile control 7
+    group: Fertile control
+    runs:
+      - {run: SRR37034275, lane: 1, reads: 3256486, md5: 8577254f038599078f3b6466cfb55960, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/075/SRR37034275/SRR37034275.fastq.gz}
+      - {run: SRR37034276, lane: 2, reads: 3197025, md5: 060e774eb93bef5795e8da9d62eaf8f7, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/076/SRR37034276/SRR37034276.fastq.gz}
+      - {run: SRR37034277, lane: 3, reads: 3089816, md5: 7239c7bcf053918d89951f6f4dfde4b8, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/077/SRR37034277/SRR37034277.fastq.gz}
+      - {run: SRR37034278, lane: 4, reads: 3218595, md5: 5ee7135fcd341291fecb797b5c37d6c2, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/078/SRR37034278/SRR37034278.fastq.gz}
+  - sample: GSM9484200       # Fertile control 8
+    group: Fertile control
+    runs:
+      - {run: SRR37034271, lane: 1, reads: 3105835, md5: 7fcb9a709eb153bb8de93df5c29ab4d2, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/071/SRR37034271/SRR37034271.fastq.gz}
+      - {run: SRR37034272, lane: 2, reads: 3047273, md5: 5b2467c7be2055b86a97eca82d939df1, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/072/SRR37034272/SRR37034272.fastq.gz}
+      - {run: SRR37034273, lane: 3, reads: 2993252, md5: 42cf73b7cad7207852cde8fbc4d342d6, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/073/SRR37034273/SRR37034273.fastq.gz}
+      - {run: SRR37034274, lane: 4, reads: 3090790, md5: 26ad95a0b5f572b78a9c6df3d7e7314f, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/074/SRR37034274/SRR37034274.fastq.gz}
+  - sample: GSM9484201       # Fertile control 9
+    group: Fertile control
+    runs:
+      - {run: SRR37034267, lane: 1, reads: 1969089, md5: 7cb492abad9574a46e7c4f9da3ee816a, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/067/SRR37034267/SRR37034267.fastq.gz}
+      - {run: SRR37034268, lane: 2, reads: 1916101, md5: 99ae18bae878a64343fd2b0cf5d25b22, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/068/SRR37034268/SRR37034268.fastq.gz}
+      - {run: SRR37034269, lane: 3, reads: 1886827, md5: 358696e0753908f830fad178abd97be8, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/069/SRR37034269/SRR37034269.fastq.gz}
+      - {run: SRR37034270, lane: 4, reads: 1932910, md5: d8ebffcf1a40c179f35fe74c517318d8, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/070/SRR37034270/SRR37034270.fastq.gz}
+  - sample: GSM9484192       # Fertile control 10
+    group: Fertile control
+    runs:
+      - {run: SRR37034303, lane: 1, reads: 1925644, md5: 61301c86bfc3110ddf9b36af75175db3, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/003/SRR37034303/SRR37034303.fastq.gz}
+      - {run: SRR37034304, lane: 2, reads: 1860713, md5: e74f88d89783cc879594b8285045d559, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/004/SRR37034304/SRR37034304.fastq.gz}
+      - {run: SRR37034305, lane: 3, reads: 1832515, md5: 2a647db07ef61f94697d207d1af05520, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/005/SRR37034305/SRR37034305.fastq.gz}
+      - {run: SRR37034306, lane: 4, reads: 1881907, md5: ca48be0bc20a9b06af887326104eb82d, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/006/SRR37034306/SRR37034306.fastq.gz}
   - sample: GSM9484183       # Infertile control 1
     group: Infertile control
     runs:
@@ -62,3 +177,59 @@ samples:
       - {run: SRR37034336, lane: 2, reads: 2566940, md5: f085587bf01d33964c099d08fa4c812a, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/036/SRR37034336/SRR37034336.fastq.gz}
       - {run: SRR37034337, lane: 3, reads: 2482484, md5: a60477d73d516265caf6fff1dec7492b, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/037/SRR37034337/SRR37034337.fastq.gz}
       - {run: SRR37034338, lane: 4, reads: 2596151, md5: 58a89cede68cafda848eacf4ce35c45f, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/038/SRR37034338/SRR37034338.fastq.gz}
+  - sample: GSM9484185       # Infertile control 3
+    group: Infertile control
+    runs:
+      - {run: SRR37034331, lane: 1, reads: 4654051, md5: e9ba6adda71ababf14667009c68ef932, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/031/SRR37034331/SRR37034331.fastq.gz}
+      - {run: SRR37034332, lane: 2, reads: 4520876, md5: d3f09b2b0026e3ad8bd0e5ba67149667, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/032/SRR37034332/SRR37034332.fastq.gz}
+      - {run: SRR37034333, lane: 3, reads: 4459317, md5: 3c2c33405fd4559047df2dc424967247, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/033/SRR37034333/SRR37034333.fastq.gz}
+      - {run: SRR37034334, lane: 4, reads: 4551443, md5: 814122a486a6682512141743a68a6b97, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/034/SRR37034334/SRR37034334.fastq.gz}
+  - sample: GSM9484186       # Infertile control 4
+    group: Infertile control
+    runs:
+      - {run: SRR37034327, lane: 1, reads: 1903393, md5: 85dcee3282db45930d43cb34a3008258, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/027/SRR37034327/SRR37034327.fastq.gz}
+      - {run: SRR37034328, lane: 2, reads: 1849469, md5: 3ae337a345f39ba30df3ee7160b2922e, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/028/SRR37034328/SRR37034328.fastq.gz}
+      - {run: SRR37034329, lane: 3, reads: 1809077, md5: 8b08b6fac4b3a4fcd7c4a4322829b932, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/029/SRR37034329/SRR37034329.fastq.gz}
+      - {run: SRR37034330, lane: 4, reads: 1865702, md5: c60b70b04b86cee9f874c374fee04ce9, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/030/SRR37034330/SRR37034330.fastq.gz}
+  - sample: GSM9484187       # Infertile control 5
+    group: Infertile control
+    runs:
+      - {run: SRR37034323, lane: 1, reads: 2152035, md5: 83ec1c7bf2be0389b2b554a0765a047d, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/023/SRR37034323/SRR37034323.fastq.gz}
+      - {run: SRR37034324, lane: 2, reads: 2079662, md5: e5c68744d1ae48e633867b18b32b0ac1, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/024/SRR37034324/SRR37034324.fastq.gz}
+      - {run: SRR37034325, lane: 3, reads: 2058201, md5: 94785d26077c6f5ca1c94bec3d90d7f9, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/025/SRR37034325/SRR37034325.fastq.gz}
+      - {run: SRR37034326, lane: 4, reads: 2095255, md5: 3ecfd5d8c709fb2495e8ce53386ca87e, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/026/SRR37034326/SRR37034326.fastq.gz}
+  - sample: GSM9484188       # Infertile control 6
+    group: Infertile control
+    runs:
+      - {run: SRR37034319, lane: 1, reads: 2951974, md5: ab975283dc7e6c912261bdf9cba02b68, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/019/SRR37034319/SRR37034319.fastq.gz}
+      - {run: SRR37034320, lane: 2, reads: 2853414, md5: 3bb2738a8c27d476882528501d8aeb82, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/020/SRR37034320/SRR37034320.fastq.gz}
+      - {run: SRR37034321, lane: 3, reads: 2823449, md5: f925e7597a6eda10b84aab814aae52bb, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/021/SRR37034321/SRR37034321.fastq.gz}
+      - {run: SRR37034322, lane: 4, reads: 2871008, md5: 5ec7f7699d1465fb1d4ab3b04c5c3804, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/022/SRR37034322/SRR37034322.fastq.gz}
+  - sample: GSM9484189       # Infertile control 7
+    group: Infertile control
+    runs:
+      - {run: SRR37034315, lane: 1, reads: 2817777, md5: 327280d9c2adde53e4d38dc1681393a4, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/015/SRR37034315/SRR37034315.fastq.gz}
+      - {run: SRR37034316, lane: 2, reads: 2747201, md5: 54dec9877e6c8e2f1cda826ad7526143, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/016/SRR37034316/SRR37034316.fastq.gz}
+      - {run: SRR37034317, lane: 3, reads: 2696082, md5: 43cd7a7bcc1742bf8d8c99c1f9e844ec, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/017/SRR37034317/SRR37034317.fastq.gz}
+      - {run: SRR37034318, lane: 4, reads: 2764841, md5: 39d8eacc3eac41b2b9ae8461cd27ccdd, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/018/SRR37034318/SRR37034318.fastq.gz}
+  - sample: GSM9484190       # Infertile control 8
+    group: Infertile control
+    runs:
+      - {run: SRR37034311, lane: 1, reads: 2250164, md5: 6c96e9d61d3070e38a5ffa293100ec34, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/011/SRR37034311/SRR37034311.fastq.gz}
+      - {run: SRR37034312, lane: 2, reads: 2180983, md5: 5727f13bf77af627d99425b4b14753f7, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/012/SRR37034312/SRR37034312.fastq.gz}
+      - {run: SRR37034313, lane: 3, reads: 2130150, md5: 903ddf99ee600b729f263bf2ee2df289, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/013/SRR37034313/SRR37034313.fastq.gz}
+      - {run: SRR37034314, lane: 4, reads: 2199326, md5: 1c00a7a847ef2520c69f1794c48db29c, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/014/SRR37034314/SRR37034314.fastq.gz}
+  - sample: GSM9484191       # Infertile control 9
+    group: Infertile control
+    runs:
+      - {run: SRR37034307, lane: 1, reads: 3422886, md5: a64e2c1aa2499904a90992670d9808c7, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/007/SRR37034307/SRR37034307.fastq.gz}
+      - {run: SRR37034308, lane: 2, reads: 3370092, md5: 585d0a417474ea77ba769c3ea64e779a, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/008/SRR37034308/SRR37034308.fastq.gz}
+      - {run: SRR37034309, lane: 3, reads: 3249547, md5: 96fbb5fd7fd0f046fce4db7182fc44f3, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/009/SRR37034309/SRR37034309.fastq.gz}
+      - {run: SRR37034310, lane: 4, reads: 3405392, md5: fed96f712de49be765e098f46431a3ba, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/010/SRR37034310/SRR37034310.fastq.gz}
+  - sample: GSM9484182       # Infertile control 10
+    group: Infertile control
+    runs:
+      - {run: SRR37034343, lane: 1, reads: 1219054, md5: fdc723aa52006c0b41ad4b174129cd71, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/043/SRR37034343/SRR37034343.fastq.gz}
+      - {run: SRR37034344, lane: 2, reads: 1183575, md5: 08e0cda02f0bb0677429f2c1aa3ce2c2, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/044/SRR37034344/SRR37034344.fastq.gz}
+      - {run: SRR37034345, lane: 3, reads: 1170645, md5: 2f49f400a417eebe450151571f124e69, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/045/SRR37034345/SRR37034345.fastq.gz}
+      - {run: SRR37034346, lane: 4, reads: 1197015, md5: 2f9e32066d5c3eb5dc4c8676542ba33b, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR370/046/SRR37034346/SRR37034346.fastq.gz}

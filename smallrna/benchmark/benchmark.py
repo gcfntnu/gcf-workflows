@@ -310,8 +310,34 @@ def write_project(project, spec, ext_dir, samples, read_length, methods, mirflow
     bench = project / 'benchmark'
     bench.mkdir()
     saved = {k: v for k, v in spec.items() if k != 'mirbase_releases'}  # the project uses one release
-    (bench / 'dataset.yaml').write_text(yaml.safe_dump(dict(saved, methods=list(methods)), sort_keys=False))
+    saved['methods'] = list(methods)
+    left_out = [m for m in spec['methods'] if m not in methods]  # declared, not selected (#448): `not run` in routes.tsv
+    if left_out:
+        saved['not_selected'] = left_out
+    (bench / 'dataset.yaml').write_text(yaml.safe_dump(saved, sort_keys=False))
     return bench
+
+
+def select_per_group(spec, count):
+    """The declaration with the first `count` samples of each group, in declared order (#448): a quick run of a
+    biological dataset, e.g. `--per-group 2` for GSE317995's two lowest-numbered samples per group."""
+    if spec['kind'] != 'biological':
+        fail('--per-group is for biological datasets')
+    if count <= 0:
+        fail('--per-group must be a positive integer')
+    taken = collections.Counter()
+    samples = []
+    for sample in spec['samples']:
+        if taken[sample.get('group', '')] < count:
+            taken[sample.get('group', '')] += 1
+            samples.append(sample)
+    selected = dict(spec, samples=samples)
+    declared = spec.get('de') or {}
+    if 'null' in declared and max(taken.values()) < de.NULL_MIN:  # the null comparisons need larger groups (#449)
+        print('--per-group {}: no group has {} samples, so the null comparisons (de.null) are left out'.format(count, de.NULL_MIN), file=sys.stderr)
+        rest = {k: v for k, v in declared.items() if k != 'null'}
+        selected = dict(selected, de=rest) if rest else {k: v for k, v in selected.items() if k != 'de'}
+    return selected
 
 
 def project_fastq(project, spec, sample):
@@ -331,6 +357,8 @@ def prepare(args):
         fail('--reads must be a positive integer')
     if getattr(args, 'lanes', False) and spec['kind'] != 'biological':
         fail('--lanes is for biological datasets')
+    if getattr(args, 'per_group', None) is not None:
+        spec = select_per_group(spec, args.per_group)
     prepare_dataset = {'pool': prepare_pool, 'biological': prepare_biological, 'synthetic': prepare_synthetic}[spec['kind']]
     project.parent.mkdir(parents=True, exist_ok=True)
     with TemporaryDirectory(dir=project.parent) as temporary:
@@ -558,11 +586,17 @@ def run_resources(project, bench, spec, reads):
 
 
 def publish(project, bench, spec, header, rows, lines, extra, record):
-    """evaluation.publish with the run's reads processed, and the methods' runtime and memory as a last report section
-    and resources.tsv."""
+    """evaluation.publish with the run's reads processed, the declared routes' states (#448) and the methods' runtime
+    and memory as the last report sections, with routes.tsv and resources.tsv."""
     reads = run_reads(project)
     text, resource_lines = run_resources(project, bench, spec, reads)
-    evaluation.publish(bench, header, rows, lines + resource_lines, reads, {**extra, 'resources.tsv': text}, record)
+    states = spec['route_states']
+    route_lines = ['', '## Routes', '', 'Every declared route (#448): `evaluated`; `not run`, not selected at `prepare` or recorded in '
+                   '`benchmark/not_run.tsv`; `stopped`, a check before scoring failed, and the other routes are scored without it.',
+                   ''] + md_table(['route', 'state', 'reason'], [list(s) for s in states])
+    routes = '\n'.join('\t'.join(row) for row in [('route', 'state', 'reason'), *states]) + '\n'
+    evaluation.publish(bench, header, rows, lines + route_lines + resource_lines, reads,
+                       {**extra, 'routes.tsv': routes, 'resources.tsv': text}, record)
 
 
 def nonnegative(text):
@@ -597,10 +631,11 @@ def scored_samples(spec, bench):
 
 
 def check_methods(project, spec, config):
-    """Stop before scoring when the project's configured samples or a method's count table do not have exactly the
-    samples scoring uses (column order free; a sample missing would be scored as zero), or, for datasets declaring a
-    miRBase release (pools, biological), when the method annotated with another miRNA database or release than the one
-    the truth and names come from (#407)."""
+    """The routes that cannot be scored, {method: reason} (#448): a count table missing or without exactly the samples
+    scoring uses (column order free; a sample missing would be scored as zero), or, for datasets declaring a miRBase
+    release (pools, biological), a route that annotated with another miRNA database or release than the one the truth
+    and names come from (#407). The evaluation scores the others without them. Stops when the project's configured
+    samples differ from the benchmark's, which concerns every route."""
     renamed = [m for m in spec['methods'] if m in adapters.RENAMED]
     if renamed:
         fail('the project names {} in benchmark/dataset.yaml, since renamed {} (#434): rerun those routes under the new names, '
@@ -612,49 +647,91 @@ def check_methods(project, spec, config):
         fail('the project\'s configured samples differ from the benchmark\'s{}{}; prepare the project again'.format(
             '; not configured ' + ', '.join(sorted(samples - configured)) if samples - configured else '',
             '; not in the benchmark ' + ', '.join(sorted(configured - samples)) if configured - samples else ''))
-    problems = []
+    stopped = {}
     for method in spec['methods']:
         if method not in adapters.TABLES:
             fail('no sample and release check for method {}: add its count table to adapters.TABLES'.format(method))
+        problems = []
         try:
             found = adapters.table_samples(method, quant)
         except FileNotFoundError as e:
-            fail('{}: count table missing ({}); run `snakemake quant_all` there'.format(method, e.filename))
+            stopped[method] = 'count table missing ({}); run `snakemake quant_all` there'.format(Path(e.filename).relative_to(quant))
+            continue
         if len(set(found)) != len(found) or set(found) != samples:
             missing, extra = sorted(samples - set(found)), sorted(set(found) - samples)
-            problems.append('{}: table samples differ from the benchmark\'s{}{}{}'.format(
-                method, '; missing ' + ', '.join(missing) if missing else '', '; extra ' + ', '.join(extra) if extra else '',
+            problems.append('table samples differ from the benchmark\'s{}{}{}'.format(
+                '; missing ' + ', '.join(missing) if missing else '', '; extra ' + ', '.join(extra) if extra else '',
                 '; repeated columns' if len(set(found)) != len(found) else ''))
         if 'mirbase' in spec:
             try:
                 database, release = adapters.method_mirbase(method, quant)
+                recorded = (adapters.method_record(method, quant, ('table_sha256',))['table_sha256']
+                            if method in adapters.TABLE_BOUND_RECORDS else None)
             except FileNotFoundError as e:
-                fail('{}: reference record missing ({}); run `snakemake quant_all` there'.format(method, e.filename))
+                stopped[method] = 'reference record missing ({}); run `snakemake quant_all` there'.format(Path(e.filename).relative_to(quant))
+                continue
             except ValueError as e:
-                fail('{}: {}'.format(method, e))
+                stopped[method] = '{}; run `snakemake quant_all` there'.format(e)
+                continue
+            if recorded is not None and recorded != adapters.table_sha256(method, quant):
+                problems.append('reference record was written for another count table; run `snakemake quant_all` there')
             expected = str(spec['mirbase']['release'])
-            if method in adapters.TABLE_BOUND_RECORDS:
-                try:
-                    recorded = adapters.method_record(method, quant, ('table_sha256',))['table_sha256']
-                except ValueError as e:
-                    fail('{}: {}; run `snakemake quant_all` there'.format(method, e))
-                if recorded != adapters.table_sha256(method, quant):
-                    problems.append('{}: reference record was written for another count table; run `snakemake quant_all` there'.format(method))
             if database != 'mirbase' or release != expected:
-                problems.append('{}: annotated with {} {}, but the dataset declares miRBase {}'.format(method, database, release, expected))
-    if problems:
-        fail('; '.join(problems))
+                problems.append('annotated with {} {}, but the dataset declares miRBase {}'.format(database, release, expected))
+        if problems:
+            stopped[method] = '; '.join(problems)
+    return stopped
+
+
+ROUTE_STATES = ('evaluated', 'not run', 'stopped')
+
+
+def route_states(bench, spec, stopped):
+    """[(route, state, reason)] for every declared route (#448): `evaluated`; `not run`, not selected at `prepare`
+    (the project's `not_selected`) or recorded by hand in benchmark/not_run.tsv (route, reason: e.g. a run that could
+    not be done for resources); `stopped`, a check of check_methods failed. A route in not_run.tsv that the evaluation
+    scores counts as evaluated."""
+    declared = list(spec['methods']) + list(spec.get('not_selected') or [])
+    by_hand = {}
+    path = bench / 'not_run.tsv'
+    if path.is_file():
+        rows = read_tsv(path)
+        if not rows or set(rows[0]) != {'route', 'reason'}:
+            fail('{}: expected the columns route and reason, one row per route not run'.format(path))
+        by_hand = {row['route']: row['reason'] for row in rows}
+        unknown = sorted(set(by_hand) - set(declared))
+        if unknown:
+            fail('{}: {} not declared for this project'.format(path, ', '.join(unknown)))
+    states = []
+    for route in declared:
+        if route in spec['methods'] and route not in stopped:
+            states.append((route, 'evaluated', ''))
+        elif route in by_hand:
+            states.append((route, 'not run', by_hand[route]))
+        elif route in stopped:
+            states.append((route, 'stopped', stopped[route]))
+        else:
+            states.append((route, 'not run', 'not selected at prepare'))
+    return states
 
 
 def evaluate(args):
     project = Path(args.project)
     bench = project / 'benchmark'
     spec = load_dataset(bench / 'dataset.yaml')
-    if args.de:
-        check_de_results(project, bench, spec)
     config = yaml.safe_load((project / 'config.yaml').read_text())
     ext_dir = Path(config['ext_dir'])
-    check_methods(project, spec, config)
+    stopped = check_methods(project, spec, config)
+    states = route_states(bench, spec, stopped)
+    scored = [route for route, state, _ in states if state == 'evaluated']
+    if not scored:
+        fail('no route can be scored: {}'.format('; '.join('{}: {}'.format(r, why) for r, _, why in states)))
+    spec = dict(spec, methods=scored, route_states=states)  # the stopped routes are left out of every table
+    for route, state, reason in states:  # visible to a script that reads only exit codes and the last lines
+        if state == 'stopped':
+            print('benchmark.py: {} stopped, scored without it: {}'.format(route, reason), file=sys.stderr)
+    if args.de:
+        check_de_results(project, bench, spec)
     run_resources(project, bench, spec, None)  # benchmark files checked before any scoring table is written
     if spec['kind'] == 'pool':
         return evaluate_pool(args, project, bench, spec, ext_dir)
@@ -1582,6 +1659,7 @@ def main():
     p.add_argument('--reads', type=int, help='pool and biological datasets: copy the first N reads of each run instead of linking the runs; '
                    'genome-wide synthetic dataset: the mean reads of a mixed sample')
     p.add_argument('--lanes', action='store_true', help='biological datasets: each run (lane) its own sample, for the lane-replicate metric')
+    p.add_argument('--per-group', type=int, help='biological datasets: the first N samples of each group, in declared order (a quick run)')
     f = sub.add_parser('fill', help='download a public dataset into EXT_DIR (the only step that writes there)')
     f.add_argument('--dataset', required=True)
     f.add_argument('--ext-dir', required=True)

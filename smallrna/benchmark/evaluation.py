@@ -61,7 +61,7 @@ def reads_processed(project):
 
 # Tables published with some evaluations (bootstrap intervals, #413; runtime and memory, #386); listed with their
 # SHA-256 in evaluation.json.
-EXTRA_FILES = ('metrics_ci.tsv', 'differences.tsv', 'resources.tsv')
+EXTRA_FILES = ('metrics_ci.tsv', 'differences.tsv', 'routes.tsv', 'resources.tsv')
 
 
 def publish(bench, header, rows, lines, reads_processed=None, extra=None, bootstrap=None):
@@ -110,9 +110,10 @@ def read_metrics(bench):
 
 
 def read_evaluation(bench):
-    """(metrics table, completion record, intervals) from one locked snapshot; the record is {} for an older
+    """(metrics table, completion record, intervals, routes) from one locked snapshot; the record is {} for an older
     evaluation without evaluation.json, and lacks `reads_processed` for one published before it was recorded.
-    intervals: the rows of metrics_ci.tsv as dicts when the record lists it (checksum checked), else []."""
+    intervals and routes: the rows of metrics_ci.tsv and routes.tsv (#448) as dicts when the record lists them
+    (checksums checked), else []."""
     message = f'{bench}: incomplete or inconsistent evaluation; run `benchmark.py evaluate --project {bench.parent}`'
     with evaluation_lock(bench, writer=False) as locked:
         files = evaluation_files(bench)
@@ -159,9 +160,10 @@ def read_evaluation(bench):
         end = first + len(lines)
         if end < len(report_lines) and report_lines[end].startswith('|'):
             raise ValueError(message)
-    intervals = []
+    intervals, routes = [], []
     headers = {'metrics_ci.tsv': ['metric', 'row', 'value', 'low', 'high'],
-               'differences.tsv': ['metric', 'row_a', 'row_b', 'difference', 'low', 'high']}
+               'differences.tsv': ['metric', 'row_a', 'row_b', 'difference', 'low', 'high'],
+               'routes.tsv': ['route', 'state', 'reason']}
     for name, header in headers.items():
         if name in record:
             reader = csv.DictReader(io.StringIO(files[name].decode()), delimiter='\t')
@@ -171,4 +173,6 @@ def read_evaluation(bench):
                 raise ValueError(message)
             if name == 'metrics_ci.tsv':
                 intervals = rows
-    return table, record, intervals
+            elif name == 'routes.tsv':
+                routes = rows
+    return table, record, intervals, routes
