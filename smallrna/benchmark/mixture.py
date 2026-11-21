@@ -11,11 +11,13 @@ that comes from the second component is not `fraction` but
 
     w(fraction) = fraction * k / (fraction * k + 1 - fraction)
 
-with one content ratio k per method (the second component's miRNA reads per unit of RNA over the first's, as that
-method counts them). A per-miRNA bias that is the same in every sample changes k and nothing else: the observed
-proportions of a mixture stay w * (pure second) + (1 - w) * (pure first) of the observed pure proportions. k is fitted
-per method (content_ratio): each mixture's weight by least squares of its proportions on the two pure profiles, turned
-into k, and the median over the mixtures.
+with a content ratio k (the second component's miRNA reads per unit of RNA over the first's, as a method counts them)
+for each subject: its two tissue samples have their own RNA content, and a per-miRNA bias acts on each subject's own
+profiles. A per-miRNA bias that is the same in every sample changes k and nothing else: the observed proportions of a
+mixture stay w * (pure second) + (1 - w) * (pure first) of the observed pure proportions. k is fitted per method and
+subject (content_ratio): each mixture's weight by least squares of its proportions on the subject's two pure profiles,
+turned into k, and the median over the subject's mixtures. It is fitted on the mixtures that are then scored: one
+number per subject against the residuals of all its miRNAs.
 
 Samples: a subject's series is its two pure samples (fraction 0 and 1) and its mixtures, one sample per fraction (the
 lowest `replicate`). Further replicates of a subject and fraction are technical replicates: they are not in the series,
@@ -30,8 +32,8 @@ Metrics per method (scores), over miRNA-sample pairs of the mixtures with at lea
   fractions;
 - replicate_error: median |log2 ratio| of the proportions of technical replicates, miRNAs with at least MIN_READS reads
   on average in the pair;
-- content_ratio and content_ratio_spread (the fitted k, and the median absolute log2 deviation of the mixtures' own
-  ratios from it): a description of the fit, not a score.
+- content_ratio and content_ratio_spread (the median of the subjects' k, and the median absolute log2 deviation of
+  the subjects' k from it): a description of the fit, not a score.
 
 Differential expression (expected_changes): between two fractions a method's expected log2 fold change of a miRNA is
 the mean over the subjects of log2(prediction at one / prediction at the other). benchmark.py tests the contrasts
@@ -138,20 +140,23 @@ def mixture_weight(mixed, first, second):
 
 
 def content_ratio(counts, design):
-    """(k, spread, {sample: its own ratio}) of a method: the median of the mixtures' ratios w (1 - f) / (f (1 - w)), and
-    the median absolute log2 deviation from it. A mixture whose weight is not between 0 and 1 has no ratio. (nan, nan,
-    {}) when no mixture has one."""
-    ratios = {}
-    for members in design.series.values():
+    """({subject: k}, {sample: its own ratio}) of a method: per subject the median of its mixtures' ratios
+    w (1 - f) / (f (1 - w)). A mixture without reads, or whose weight is not between 0 and 1, has no ratio, and a subject
+    without such a mixture, or without reads in a pure sample, no k."""
+    ks, ratios = {}, {}
+    for subject, members in design.series.items():
+        if min(counts.total[counts.column[sample]] for _, sample in members) <= 0:
+            continue
         first, second = counts.of(members[0][1]), counts.of(members[-1][1])
+        own = []
         for fraction, sample in members[1:-1]:
             w = mixture_weight(counts.of(sample), first, second)
             if 0 < w < 1:
                 ratios[sample] = w * (1 - fraction) / (fraction * (1 - w))
-    if not ratios:
-        return float('nan'), float('nan'), {}
-    k = float(np.median(list(ratios.values())))
-    return k, float(np.median([abs(math.log2(r / k)) for r in ratios.values()])), ratios
+                own.append(ratios[sample])
+        if own:
+            ks[subject] = float(np.median(own))
+    return ks, ratios
 
 
 def predicted(counts, members, fraction, k):
@@ -164,7 +169,9 @@ class Scores:
     """A method's residuals, kept as arrays so that a bootstrap resample is cheap (scores)."""
 
     def __init__(self, counts, design):
-        self.k, self.spread, self.ratios = content_ratio(counts, design)
+        self.ks, self.ratios = content_ratio(counts, design)
+        self.k = float(np.median(list(self.ks.values()))) if self.ks else float('nan')
+        self.spread = float(np.median([abs(math.log2(k / self.k)) for k in self.ks.values()])) if self.ks else float('nan')
         n = len(counts.features)
         self.subjects = sorted(design.series)
         columns, owner = [], []
@@ -172,8 +179,8 @@ class Scores:
         for subject in self.subjects:
             members = design.series[subject]
             for fraction, sample in members[1:-1]:
-                expected = predicted(counts, members, fraction, self.k) * counts.total[counts.column[sample]] if not math.isnan(self.k) \
-                    else np.full(n, np.nan)
+                expected = predicted(counts, members, fraction, self.ks[subject]) * counts.total[counts.column[sample]] \
+                    if subject in self.ks else np.full(n, np.nan)
                 observed = counts.matrix[:, counts.column[sample]]
                 with np.errstate(invalid='ignore'):
                     residual = np.where(expected >= MIN_READS, np.log2((observed + 0.5) / (expected + 0.5)), np.nan)
@@ -191,8 +198,8 @@ class Scores:
             first, second = series[:, 0], series[:, -1]
             floor = 0.5 / max(float(totals.min()), 1.0)
             direction = np.log2((second + floor) / (first + floor))
-            mixed = np.column_stack([predicted(counts, members, fraction, self.k) * counts.total[counts.column[sample]]
-                                     for fraction, sample in members[1:-1]]) if not math.isnan(self.k) else np.zeros((n, 1))
+            mixed = np.column_stack([predicted(counts, members, fraction, self.ks[subject]) * counts.total[counts.column[sample]]
+                                     for fraction, sample in members[1:-1]]) if subject in self.ks else np.zeros((n, 1))
             eligible = (np.abs(direction) >= SPECIFIC) & (mixed >= MIN_READS).all(axis=1)
             steps = np.diff(series, axis=1) * np.sign(direction)[:, None]
             trend.append(np.where(eligible, (steps >= 0).all(axis=1).astype(float), np.nan))
@@ -236,18 +243,16 @@ class Scores:
         return out
 
 
-def expected_changes(counts, design, k, numerator, denominator):
+def expected_changes(counts, design, ks, numerator, denominator):
     """{feature: expected log2 fold change} of a method between two fractions: the mean over the subjects with both
-    fractions of log2(prediction at numerator / prediction at denominator), for the miRNAs a subject's pure samples
-    hold. Empty without a content ratio."""
-    if math.isnan(k):
-        return {}
+    fractions and a content ratio (`ks`: {subject: k}) of log2(prediction at numerator / prediction at denominator), for
+    the miRNAs a subject's pure samples hold. Empty without such a subject."""
     logs = []
-    for members in design.series.values():
+    for subject, members in design.series.items():
         fractions = {fraction for fraction, _ in members}
-        if numerator not in fractions or denominator not in fractions:
+        if subject not in ks or numerator not in fractions or denominator not in fractions:
             continue
-        up, down = predicted(counts, members, numerator, k), predicted(counts, members, denominator, k)
+        up, down = predicted(counts, members, numerator, ks[subject]), predicted(counts, members, denominator, ks[subject])
         with np.errstate(divide='ignore', invalid='ignore'):
             logs.append(np.where((up > 0) & (down > 0), np.log2(up / down), np.nan))
     if not logs:

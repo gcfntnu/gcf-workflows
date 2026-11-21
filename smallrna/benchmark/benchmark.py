@@ -2046,7 +2046,7 @@ def mixture_de_sets(spec, design=None):
     return sets
 
 
-MIXTURE_DE_KEYS = ('called', 'wrong_direction', 'fc_bias', 'called_shared')
+MIXTURE_DE_KEYS = ('called', 'wrong_direction', 'fc_bias', 'called_shared', 'unchanged_called')
 
 
 def mixture_de_scores(results, expected, methods):
@@ -2059,8 +2059,10 @@ def mixture_de_scores(results, expected, methods):
     are significant in the expected direction; `wrong_direction`, the share of its calls against the expected
     direction; `fc_bias`, the median of sign(d) * (log2fc - d), negative when fold changes are compressed.
     `called_shared`: `called` over the miRNAs that every method expects at least 2-fold apart in the same direction in
-    that contrast (an untested one is not called), so the methods are compared on the same miRNAs. The second value
-    gives, per contrast and method, the miRNAs scored for `called` and their share called by edgeR's GLM test."""
+    that contrast (an untested one is not called), so the methods are compared on the same miRNAs. `unchanged_called`:
+    the share called of the miRNAs it tests with an expected change under mixture.MIN_EXPECTED, which the other metrics
+    leave out; hardly any miRNA is truly unchanged between two mixtures, so it compares methods and is not a false-call
+    rate. The second value gives, per contrast and method, the miRNAs scored for `called` and their share called by edgeR's GLM test."""
     strong = [{(suffix, feature): math.copysign(1, d) for suffix, changes in expected[m].items() for feature, d in changes.items()
                if abs(d) >= 1} for m in methods]
     shared = [key for key, sign in strong[0].items() if all(other.get(key) == sign for other in strong[1:])] if strong else []
@@ -2071,11 +2073,14 @@ def mixture_de_scores(results, expected, methods):
         scored = [(suffix + '|' + feature, d) for suffix, changes in expected[m].items() for feature, d in changes.items()
                   if abs(d) >= mixture.MIN_EXPECTED and fits[(m, de.TESTS[0], suffix + '|' + feature)][1] is not None]
         values = de.scores(fits, scored, [m])[m]
+        flat = [key for key in ((suffix + '|' + feature, d) for suffix, changes in expected[m].items() for feature, d in changes.items())
+                if abs(key[1]) < mixture.MIN_EXPECTED and fits[(m, de.TESTS[0], key[0])][1] is not None]
         together = de.scores(fits, [(suffix + '|' + feature, expected[m][suffix][feature]) for suffix, feature in shared], [m])[m]
         out[m] = {}
         for test in de.TESTS:
             out[m].update({test + '_called': values[test + '_called'], test + '_wrong_direction': values[test + '_fdr'],
-                           test + '_fc_bias': values[test + '_fc_bias'], test + '_called_shared': together[test + '_called']})
+                           test + '_fc_bias': values[test + '_fc_bias'], test + '_called_shared': together[test + '_called'],
+                           test + '_unchanged_called': de.share([de.significant(fits[(m, test, key)]) for key, _ in flat])})
         for suffix in expected[m]:
             strongly = [(key, d) for key, d in scored if key.startswith(suffix + '|') and abs(d) >= 1]
             called = [de.significant(fits[(m, 'edger_glm', key)]) and fits[(m, 'edger_glm', key)][0] * d > 0 for key, d in strongly]
@@ -2113,14 +2118,15 @@ def evaluate_mixture(args, project, bench, spec, ext_dir):
     if 'de' in spec:
         sets = mixture_de_sets(spec, design)
         count = lambda row, sample, feature: by.get((row, sample), {}).get(feature, 0.0)
-        sizes = collections.Counter()
-        for method, sample, _, _, value in raw:  # every miRNA read the method reported, as the workflow scales counts per million
-            sizes[(method, sample)] += float(value)
+        # A method's reads on miRNAs with an accession: the total its proportions, and so its expected changes, use. With
+        # every reported read, a share of unplaced reads that differs between two fractions would shift the test and not
+        # the expectation.
+        sizes = {(m, sample): float(counts[m].total[counts[m].column[sample]]) for m in methods for sample in design.samples}
         de_texts = {s.folder: de.input_tables(count, methods, features, s.design, sizes, s.model) for s, *_ in sets}
         de_results, de_reports = differential_expression(args, bench, [s for s, *_ in sets], de_texts, methods, features)
     if de_results:
         between = [(s, numerator, denominator) for s, numerator, denominator, inner in sets if inner]
-        expected = {m: {s.suffix: mixture.expected_changes(counts[m], design, scores[m].k, numerator, denominator)
+        expected = {m: {s.suffix: mixture.expected_changes(counts[m], design, scores[m].ks, numerator, denominator)
                         for s, numerator, denominator in between} for m in methods}
         de_point, per_contrast = mixture_de_scores(de_results, expected, methods)
         for m in methods:
@@ -2128,16 +2134,20 @@ def evaluate_mixture(args, project, bench, spec, ext_dir):
         keys += ['{}_{}'.format(test, key) for test in de.TESTS for key in MIXTURE_DE_KEYS]
         pure = sets[0][0]
         de_lines = de.call_lines([('', pure.folder, pure.samples, de_results[''], *de_reports[''][:2])], features, methods,
-                                 'pure {} ({})'.format(second, mixture.label(1.0)), 'pure {} ({})'.format(first, mixture.label(0.0)))
+                                 'pure {} ({})'.format(second, mixture.label(1.0)), 'pure {} ({})'.format(first, mixture.label(0.0)),
+                                 "a method's reads on miRNAs with an accession, the total its proportions use")
         de_lines += ['', '### Between the mixtures', '',
-                     'The contrasts between two fractions of {second}, each paired by subject (`~ subject + group`), the higher '
-                     'fraction against the lower. A method\'s expected change of a miRNA is the mean over the subjects of '
+                     'The contrasts between two fractions of {second}, the higher fraction against the lower. The GLM test and voom '
+                     'pair the samples by subject (`~ subject + group`); the exact test takes no covariates and compares the two '
+                     'groups as they are. A method\'s expected change of a miRNA is the mean over the subjects of '
                      'log2(prediction at one fraction / prediction at the other), from its own pure samples, which are in none of '
                      'these contrasts. Scored over the miRNAs a method tests with an expected change of at least {least} log2, all '
                      'contrasts together: `called`, those expected at least 2-fold apart that are called in the expected '
                      'direction; `wrong_direction`, the share of its calls against it; `fc_bias`, the median of sign(d) × (log2 '
                      'fold change − d), negative when fold changes are compressed; `called_shared`, `called` over the miRNAs every '
-                     'method expects at least 2-fold apart in the same direction. The metrics have no bootstrap interval.'.format(
+                     'method expects at least 2-fold apart in the same direction; `unchanged_called`, the share called of the miRNAs '
+                     'with a smaller expected change than that least one, which compares the methods and is not a false-call rate: '
+                     'hardly any miRNA is truly unchanged between two mixtures. The metrics have no bootstrap interval.'.format(
                          second=second, least=mixture.MIN_EXPECTED), '']
         de_lines += md_table(['metric'] + methods, [['{}_{}'.format(test, key)] + [rnd(point[m]['{}_{}'.format(test, key)]) for m in methods]
                                                     for test in de.TESTS for key in MIXTURE_DE_KEYS])
@@ -2166,18 +2176,20 @@ def evaluate_mixture(args, project, bench, spec, ext_dir):
              '{} technical replicate pair(s){}.'.format(len(design.replicates), '; outside the series (e.g. a pool of several '
                                                         'subjects): ' + ', '.join(design.unused) if design.unused else ''), '',
              '## Linearity', '',
-             'A mixture\'s share of miRNA reads from {second} is w = f k / (f k + 1 − f) for its fraction f, with one content ratio k '
-             'per method (`content_ratio`: the miRNA reads per unit of RNA of {second} over {first}, as the method counts them; '
-             '`content_ratio_spread`: the median |log2| deviation of the mixtures\' own ratios from it). Over the miRNA-sample pairs '
+             'A mixture\'s share of miRNA reads from {second} is w = f k / (f k + 1 − f) for its fraction f, with a content ratio k '
+             'per method and subject (the miRNA reads per unit of RNA of {second} over {first}, as the method counts them, fitted '
+             'on the subject\'s mixtures; `content_ratio`: the median over the subjects; `content_ratio_spread`: the median '
+             '|log2| deviation of the subjects from it). Over the miRNA-sample pairs '
              'with at least {reads} predicted reads: `linearity_error`, the median |log2(observed / predicted)|; `within_1_5fold`, '
              'the share within 1.5-fold. `monotonic`: of the tissue-specific miRNAs (at least {specific:g}-fold apart between the pure '
              'samples), the share of subject series that never move against the trend. `replicate_error`: the median |log2 ratio| '
              'between technical replicates, the error two libraries of one RNA have, so the floor for `linearity_error`.'.format(
                  first=first, second=second, reads=mixture.MIN_READS, specific=2 ** mixture.SPECIFIC), ''] + md_table(
         ['metric'] + methods, [row for row in metric_rows if row[0] in ('mirna_reads', 'detected') + mixture.KEYS])
-    lines += ['', '`linearity_error` per subject (an outlying subject points to its samples, not to a method):', ''] + md_table(
-        ['subject'] + methods, [[subject] + [rnd(scores[m].values(subjects=[subject])['linearity_error']) for m in methods]
-                                for subject in sorted(design.series)])
+    lines += ['', 'Per subject, `linearity_error` / content ratio (an outlying subject points to its samples, not to a method):', ''] + md_table(
+        ['subject'] + methods, [[subject] + ['{} / {}'.format(rnd(scores[m].values(subjects=[subject])['linearity_error']),
+                                                              round(scores[m].ks[subject], 4) if subject in scores[m].ks else '')
+                                             for m in methods] for subject in sorted(design.series)])
     abundance = {m: scores[m].by_abundance() for m in methods}
     lines += ['', '`linearity_error` by predicted reads (pairs / error):', ''] + md_table(
         ['predicted reads'] + methods, [[abundance[methods[0]][i][0]] + ['{} / {}'.format(abundance[m][i][1], rnd(abundance[m][i][2]))
@@ -2189,7 +2201,8 @@ def evaluate_mixture(args, project, bench, spec, ext_dir):
         args, {m: {k: rnd(v) for k, v in point[m].items()} for m in methods},
         lambda drawn, people: {m: scores[m].values(drawn, people) for m in methods},
         lambda rng: (uncertainty.resample(rng, index), uncertainty.resample(rng, subjects)), methods, list(mixture.SCORE_KEYS),
-        'the miRNAs and the subjects, on the fitted content ratios (the differential-expression metrics without an interval)')
+        'the miRNAs and the subjects, on the fitted content ratios (`replicate_error` resamples the miRNAs only; the '
+        'differential-expression metrics have no interval)')
     publish(project, bench, spec, ['metric'] + methods, metric_rows, lines + ci_lines, extra, record)
     print(bench / 'report.md')
 

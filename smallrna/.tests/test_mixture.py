@@ -42,7 +42,7 @@ def model_counts(k, design, change=None):
     second = {m: b / sum(b for _, b in PROFILE.values()) for m, (_, b) in PROFILE.items()}
     counts = {}
     for row in design:
-        w = mixture.weight(row['fraction'], k)
+        w = mixture.weight(row['fraction'], k[row['subject']] if isinstance(k, dict) else k)
         counts[row['sample']] = {m: float(round(READS * (w * second[m] + (1 - w) * first[m]))) for m in PROFILE}
         if change:
             change(row['sample'], row['fraction'], counts[row['sample']])
@@ -93,6 +93,19 @@ def test_counts_that_follow_the_model_are_predicted_and_give_back_the_content_ra
     assert all(math.isnan(v) for k, v in scores.values([], ['A']).items() if k in mixture.SCORE_KEYS)
 
 
+def test_each_subject_has_its_own_content_ratio():
+    """The tissues of one subject can hold another amount of miRNA per unit of RNA than those of the next: each subject's
+    mixtures are predicted with its own ratio, so that difference is not counted as error."""
+    rows = samples()
+    design = mixture.Design(rows)
+    truth = {'A': 0.5, 'B': 2.0, 'C': 1.0, 'pool': 1.0}
+    scores = mixture.Scores(mixture.Counts(model_counts(truth, rows), design.samples, sorted(PROFILE)), design)
+    assert {s: round(k, 2) for s, k in scores.ks.items()} == {'A': 0.5, 'B': 2.0, 'C': 1.0}
+    values = scores.values()
+    assert values['linearity_error'] < 0.01 and values['content_ratio'] == pytest.approx(1.0, abs=0.01)
+    assert values['content_ratio_spread'] == pytest.approx(1.0, abs=0.02)  # the subjects are a factor 2 from the median
+
+
 def test_a_constant_bias_changes_the_content_ratio_and_not_the_error():
     """Counting three times too much of the liver's main miRNA in every sample is a per-miRNA bias: the mixtures stay
     weighted sums of the pure samples, with another content ratio."""
@@ -129,14 +142,14 @@ def test_technical_replicates_give_the_noise_floor():
 
 def test_expected_changes_between_fractions_come_from_the_pure_samples():
     design, counts, scores = scored(k=0.5)
-    expected = mixture.expected_changes(counts, design, scores.k, 0.75, 0.25)
+    expected = mixture.expected_changes(counts, design, scores.ks, 0.75, 0.25)
     w = lambda f: mixture.weight(f, scores.k)
     assert expected['liver_only'] == pytest.approx(math.log2((1 - w(0.75)) / (1 - w(0.25))), abs=0.01)  # falls with the spleen's share
     assert expected['spleen_only'] == pytest.approx(math.log2(w(0.75) / w(0.25)), abs=0.01)
     assert expected['both'] == pytest.approx(0, abs=0.01) and expected['more_spleen'] > 1 > expected['more_liver']
-    assert mixture.expected_changes(counts, design, float('nan'), 0.75, 0.25) == {}
+    assert mixture.expected_changes(counts, design, {}, 0.75, 0.25) == {}
     empty = mixture.Counts({}, design.samples, sorted(PROFILE))  # a method without counts: no ratio, no expectation, no error
-    assert math.isnan(mixture.Scores(empty, design).k) and mixture.expected_changes(empty, design, 1.0, 0.75, 0.25) == {}
+    assert mixture.Scores(empty, design).ks == {} and mixture.expected_changes(empty, design, dict.fromkeys(design.series, 1.0), 0.75, 0.25) == {}
 
 
 MATURE = ''.join('>mmu-miR-{0}-5p MIMAT00000{0} Mus musculus miR-{0}-5p\n{1}\n'.format(10 + i, seq) for i, seq in enumerate(
@@ -198,6 +211,7 @@ def test_mixture_de_scores_use_each_methods_own_expected_changes():
     assert values['m1']['edger_glm_fc_bias'] == -0.2      # median of -0.2 (a), -2.5 (b) and -0.1 (c)
     assert values['m2']['edger_called'] == 0.0 and values['m2']['edger_wrong_direction'] == 1.0  # its one call, c, against the expectation
     assert values['m1']['edger_called_shared'] == 1.0 and values['m2']['edger_called_shared'] == 0.0  # only a is 2-fold for both
+    assert values['m1']['voom_unchanged_called'] == 1.0 and values['m2']['voom_unchanged_called'] == 0.0  # d: hardly any expected change
     assert per_contrast == {'.x': {'m1': (2, 0.5), 'm2': (1, 0.0)}}  # b is untested by m2
 
 
@@ -235,12 +249,15 @@ def test_prepare_and_evaluate_a_mixture(tmp_path):
     assert 'total RNA of liver and spleen of 2 subjects, mixed per subject at 0%, 25%, 50%, 75%, 100% spleen' in report
     assert '1 technical replicate pair(s); outside the series (e.g. a pool of several subjects): pool_000.' in report
     assert '## Linearity' in report and '| A | ' in report and '| >= 1000 |' in report and '## Uncertainty' in report
+    assert 'Per subject, `linearity_error` / content ratio' in report and ' / 0.5' in report  # each subject's own ratio
     assert any(line.startswith('linearity_error\tunitas\t') for line in (bench / 'metrics_ci.tsv').read_text().splitlines())
     assert (bench / 'de/levels.tsv').read_text() == 'column\tlevel\ncontrast\t50_vs_25\ncontrast\t75_vs_25\ncontrast\t75_vs_50\n'
     assert (bench / 'de/contrast/75_vs_25/input/design.tsv').read_text() == (
         'sample\tgroup\tsubject\nA_075\t75\tA\nB_075\t75\tB\nA_025\t25\tA\nB_025\t25\tB\n')
     assert (bench / 'de/contrast/75_vs_25/input/model.tsv').read_text() == de.model_text('75', '25', (), 10)
     assert (bench / 'de/input/counts.tsv').read_text().splitlines()[0] == 'row\tfeature\tA_100\tB_100\tA_000\tB_000'
+    sizes = (bench / 'de/input/library_sizes.tsv').read_text().splitlines()
+    assert sizes[1].split('\t')[1:] == [repr(sum(counts['unitas'][s].values())) for s in ('A_100', 'B_100', 'A_000', 'B_000')]  # placed reads
     result = evaluate('--de')
     assert result.returncode != 0 and 'no results.tsv or record.tsv' in result.stderr
 
@@ -276,6 +293,8 @@ def test_prepare_and_evaluate_a_mixture(tmp_path):
     assert table['voom_called_shared'][0] == '1.0' and float(table['edger_fc_bias'][0]) == pytest.approx(0, abs=0.2)
     report = (bench / 'report.md').read_text()
     assert 'pure spleen (100) against pure liver (0) over the 6 miRNAs any method reports' in report
+    assert "Library sizes are a method's reads on miRNAs with an accession" in report and 'the exact test takes no covariates' in report
+    assert 'edger_unchanged_called' in table
     assert '### Between the mixtures' in report and '| 75 against 25 | 2 75 and 2 25 samples of 2 subjects |' in report
     sha = hashlib.sha256((bench / 'de/contrast/75_vs_25/results.tsv').read_bytes()).hexdigest()
     assert '75_vs_25: design `~subject + group` (edgeR 4.10.7, limma 3.68.5); `de/contrast/75_vs_25/results.tsv` SHA-256 `{}`.'.format(sha) in report
