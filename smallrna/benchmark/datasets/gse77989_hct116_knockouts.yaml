@@ -33,44 +33,44 @@ samples:
     group: Parental
     set: 1
     runs:
-      - {run: SRR3174960, reads: 4217500, md5: 718835fa85a2b792d1fe2c790de48b38, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR317/000/SRR3174960/SRR3174960.fastq.gz}
+      - {run: SRR3174960, reads: 4217500, md5: 718835fa85a2b792d1fe2c790de48b38, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR317/000/SRR3174960/SRR3174960.fastq.gz, content_md5: 04ea9d5fbfb7f77bfeca0b75f774f28c, sra: {md5: 36ae20fcff91b8d8dd7fe25da14abe2a, bytes: 139460776}}
   - sample: GSM2064271       # Parental cells (set 1) replicate 2
     group: Parental
     set: 1
     runs:
-      - {run: SRR3174961, reads: 3623427, md5: 4d4d0db400aa936b9b1859384e6583eb, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR317/001/SRR3174961/SRR3174961.fastq.gz}
+      - {run: SRR3174961, reads: 3623427, md5: 4d4d0db400aa936b9b1859384e6583eb, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR317/001/SRR3174961/SRR3174961.fastq.gz, content_md5: 30f2cb344525ef23962afce23e78ace4, sra: {md5: 18478cd6a7cb8ecdd0d8893cee1fd377, bytes: 119731797}}
   - sample: GSM2064272       # DROSHA KO #40 (set 1) replicate 1
     group: DROSHA KO
     set: 1
     runs:
-      - {run: SRR3174962, reads: 4501746, md5: 4ddb1b7bb59d22318454eb5fa6f546a9, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR317/002/SRR3174962/SRR3174962.fastq.gz}
+      - {run: SRR3174962, reads: 4501746, md5: 4ddb1b7bb59d22318454eb5fa6f546a9, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR317/002/SRR3174962/SRR3174962.fastq.gz, content_md5: 486802000a74819f01a292681aa0bdf5, sra: {md5: ad6c7f60f2cae049c9d2b57140b60a97, bytes: 154947896}}
   - sample: GSM2064273       # DROSHA KO #40 (set 1) replicate 2
     group: DROSHA KO
     set: 1
     runs:
-      - {run: SRR3174963, reads: 4219461, md5: a102410b1f24f45708af53bd6f5adf48, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR317/003/SRR3174963/SRR3174963.fastq.gz}
+      - {run: SRR3174963, reads: 4219461, md5: a102410b1f24f45708af53bd6f5adf48, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR317/003/SRR3174963/SRR3174963.fastq.gz, content_md5: 34cc62105c42ce5fc50618c56aed525d, sra: {md5: 1dbb2c9a75f244c9f9a914d6482ba3ad, bytes: 145426881}}
   - sample: GSM2064274       # Parental cells (set 2)
     group: Parental
     set: 2
     runs:
-      - {run: SRR3174964, reads: 3449942, md5: 3f73de6eee95e675c0a29d7d90ea7f34, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR317/004/SRR3174964/SRR3174964.fastq.gz}
+      - {run: SRR3174964, reads: 3449942, md5: 3f73de6eee95e675c0a29d7d90ea7f34, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR317/004/SRR3174964/SRR3174964.fastq.gz, content_md5: 90957c2468bc749df4d666e443a6417e, sra: {md5: a0c6d206c63dc62a2b6661dc3bd0c963, bytes: 112806378}}
   - sample: GSM2064275       # XPO5 KO #19 (set 2)
     group: XPO5 KO
     set: 2
     runs:
-      - {run: SRR3174965, reads: 3334432, md5: aa87ef8ecab8684461114a10b3a18719, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR317/005/SRR3174965/SRR3174965.fastq.gz}
+      - {run: SRR3174965, reads: 3334432, md5: aa87ef8ecab8684461114a10b3a18719, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR317/005/SRR3174965/SRR3174965.fastq.gz, content_md5: 33f9a1f9ad70d913bb3dcadbb9e499b1, sra: {md5: 75f2c58bb80f93056548d4182b46ae75, bytes: 108609296}}
   - sample: GSM2064276       # XPO5 KO #19-1 (set 2)
     group: XPO5 KO
     set: 2
     runs:
-      - {run: SRR3174966, reads: 3624661, md5: 607ba04b5cfc8ee3acc277249902bc5d, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR317/006/SRR3174966/SRR3174966.fastq.gz}
+      - {run: SRR3174966, reads: 3624661, md5: 607ba04b5cfc8ee3acc277249902bc5d, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR317/006/SRR3174966/SRR3174966.fastq.gz, content_md5: 684850dbd020b63e53a549abf3018149, sra: {md5: ed5193f0553898f59d04e6b017a7f372, bytes: 116598795}}
   - sample: GSM2064277       # DICER KO #43 (set 2)
     group: DICER KO
     set: 2
     runs:
-      - {run: SRR3174967, reads: 3125020, md5: f346fd723ac325df46d70c720d4f39c1, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR317/007/SRR3174967/SRR3174967.fastq.gz}
+      - {run: SRR3174967, reads: 3125020, md5: f346fd723ac325df46d70c720d4f39c1, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR317/007/SRR3174967/SRR3174967.fastq.gz, content_md5: a2f5ccac94a29e40e271a7f0ddc6a949, sra: {md5: cfc08e4a0bf9d69b37e3e782cec7da43, bytes: 102535335}}
   - sample: GSM2064278       # DICER KO #45 (set 2)
     group: DICER KO
     set: 2
     runs:
-      - {run: SRR3174968, reads: 2944324, md5: 8e440954dbbafa1b4a86aaf16555237a, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR317/008/SRR3174968/SRR3174968.fastq.gz}
+      - {run: SRR3174968, reads: 2944324, md5: 8e440954dbbafa1b4a86aaf16555237a, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR317/008/SRR3174968/SRR3174968.fastq.gz, content_md5: f3da47185d989b73cd0a558f62d52e15, sra: {md5: e7f679ebdf7485a91e0b3ff04eb7d903, bytes: 98442158}}
