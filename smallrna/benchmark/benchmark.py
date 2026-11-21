@@ -32,6 +32,7 @@ mirflowz is made with reduce_reference.py and named in the declaration.
 
 Usage: benchmark.py fill --dataset YAML --ext-dir DIR [--mirbase-release R]
        benchmark.py prepare --dataset YAML --project DIR --ext-dir DIR [--mirbase-release R] [--methods LIST] [--reads N] [--lanes]
+                            [--set quant.ROUTE.SETTING=VALUE ...]
        benchmark.py evaluate --project DIR [--de] [--mirflowz-gff GFF3] [--unitas-ref DIR] [--bootstrap N] [--seed S]
        benchmark.py summary --projects DIR [DIR ...] --output FILE.md|FILE.html
 """
@@ -384,6 +385,9 @@ def write_project(project, spec, ext_dir, samples, read_length, methods, mirflow
         config['db'] = {'mirflowz': {'custom': {'name': spec['reference']['name'], 'genome': str(ref / 'genome.fa.gz'),
                                                 'gtf': str(ref / 'genes.gtf.gz'), 'mirna_gff': str(ref / 'mirna.gff3')}}}
     config.update(spec.get('config') or {})
+    for key, value in (spec.get('variant') or {}).items():  # a settings variant (#417); the workflow fills in the other settings
+        _, route, setting = key.split('.')
+        config['quant'].setdefault(route, {})[setting] = value
     if 'mirbase' in spec:  # every method uses the declaration's release (#407), also when another is selected (#431)
         release = str(spec['mirbase']['release'])
         db = config.setdefault('db', {})
@@ -407,6 +411,27 @@ def write_project(project, spec, ext_dir, samples, read_length, methods, mirflow
         saved['not_selected'] = left_out
     (bench / 'dataset.yaml').write_text(yaml.safe_dump(saved, sort_keys=False))
     return bench
+
+
+def settings_variant(assignments, methods):
+    """{quant.ROUTE.SETTING: value} of `prepare --set` (#417): each a setting smallrna.config has for a route the project
+    runs, set once, to a value (read as YAML) other than its default."""
+    defaults = (yaml.safe_load((Path(__file__).resolve().parents[1] / 'smallrna.config').read_text()) or {}).get('quant') or {}
+    variant = {}
+    for assignment in assignments:
+        key, equals, text = assignment.partition('=')
+        parts = key.split('.')
+        if not equals or len(parts) != 3 or parts[0] != 'quant':
+            fail('--set {}: expected quant.ROUTE.SETTING=VALUE'.format(assignment))
+        if parts[1] not in methods:
+            fail('--set {}: {} is not one of the project\'s routes ({})'.format(assignment, parts[1], ', '.join(methods)))
+        if parts[2] not in (defaults.get(parts[1]) or {}):
+            fail('--set {}: smallrna.config has no setting {} for {}'.format(assignment, parts[2], parts[1]))
+        value = yaml.safe_load(text)
+        if key in variant or value == defaults[parts[1]][parts[2]]:
+            fail('--set {}: {}'.format(assignment, 'set twice' if key in variant else 'that is the default'))
+        variant[key] = value
+    return variant
 
 
 def select_per_group(spec, count):
@@ -444,6 +469,8 @@ def prepare(args):
     unknown = [m for m in methods if m not in adapters.ADAPTERS]
     if unknown:
         fail('--methods: unknown {}; choose from {}'.format(', '.join(unknown), ', '.join(adapters.ADAPTERS)))
+    if args.set:
+        spec = dict(spec, variant=settings_variant(args.set, methods))
     if args.reads is not None and args.reads <= 0:
         fail('--reads must be a positive integer')
     if getattr(args, 'lanes', False) and spec['kind'] != 'biological':
@@ -801,10 +828,14 @@ def route_settings(project, route):
     return [(row['field'], row['value'], row['source']) for row in read_tsv(path) if row['field'] != 'table_sha256']
 
 
-def settings_lines(settings):
-    """report.md's lines on the evaluated routes' counting settings (#417), and settings.tsv's text."""
+def settings_lines(settings, variant=None):
+    """report.md's lines on the evaluated routes' counting settings (#417), and settings.tsv's text; `variant`, the
+    settings `prepare --set` changed."""
     lines = ['', 'Counting settings (#417), as each route recorded them with its count table (`quant/<route>/settings.tsv`; all in '
              '`settings.tsv`); `fixed` ones are set in the rule or script, the others by the configuration or the kit:', '']
+    if variant:
+        lines[1:1] = ['', '**A settings variant** (`prepare --set`): {}. `summary` compares it with a project of the same dataset run '
+                      'with the defaults.'.format('; '.join('{} `{}`'.format(k, v) for k, v in sorted(variant.items())))]
     for route, rows in settings.items():
         lines.append('- {}: {}'.format(route, 'not recorded (quantified before #417)' if rows is None else '; '.join(
             '{}{} `{}`'.format(field, ' (fixed)' if source == 'fixed' else '', value) for field, value, source in rows)))
@@ -822,7 +853,7 @@ def publish(project, bench, spec, header, rows, lines, extra, record):
                    '`benchmark/not_run.tsv`; `stopped`, a check before scoring failed, and the other routes are scored without it.',
                    ''] + md_table(['route', 'state', 'reason'], [list(s) for s in states])
     routes = '\n'.join('\t'.join(row) for row in [('route', 'state', 'reason'), *states]) + '\n'
-    setting_lines, settings = settings_lines(spec.get('route_settings') or {})
+    setting_lines, settings = settings_lines(spec.get('route_settings') or {}, spec.get('variant'))
     evaluation.publish(bench, header, rows, lines + route_lines + setting_lines + resource_lines, reads,
                        {**extra, 'routes.tsv': routes, 'settings.tsv': settings, 'resources.tsv': text}, record,
                        spec['synthetic'].get('seed') if spec['kind'] == 'synthetic' else None)  # the draw of a synthetic set (#455)
@@ -2337,6 +2368,9 @@ def main():
     p.add_argument('--per-group', type=int, help='biological datasets: the first N samples of each group, in declared order (a quick run)')
     p.add_argument('--synthetic-seed', type=int, help="synthetic datasets: the seed of the draw instead of the declaration's (#455); "
                    'each seed is a project of its own, and the summary groups the seeds of one declaration')
+    p.add_argument('--set', action='append', default=[], metavar='quant.ROUTE.SETTING=VALUE',
+                   help='a settings variant (#417): a route setting of smallrna.config changed for this project, e.g. '
+                        'quant.tinyrna.mismatch=1 (repeatable); the summary compares it with a project of the same dataset run with the defaults')
     f = sub.add_parser('fill', help='download a public dataset into EXT_DIR (the only step that writes there)')
     f.add_argument('--dataset', required=True)
     f.add_argument('--ext-dir', required=True)

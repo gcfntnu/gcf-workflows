@@ -3164,10 +3164,11 @@ def test_the_knockout_declaration_lists_its_runs_and_pairs_each_knockout_with_it
         benchmark.load_dataset(write(tmp_path / 'pool.yaml', yaml.safe_dump(dict(pool, knockout={'control': 'A', 'survival': 'B'}))))
 
 
-def knockout_project(tmp_path, other_rna=None, sequences=None, expected=None):
+def knockout_project(tmp_path, other_rna=None, sequences=None, expected=None, name='project', prepare=()):
     """A prepared knockout project (#452): P1, P2 (Parental) and K1, K2 (DROSHA KO), UNITAS and miRge3 counts; with
     `other_rna`, the declaration's other_rna (#415) and {source: file text} filled in place; `sequences`, the isomiR
-    outputs' read sequences; `expected`, the text of a knockout.expected list next to the declaration."""
+    outputs' read sequences; `expected`, the text of a knockout.expected list next to the declaration; `name`, the project
+    directory; `prepare`, more prepare options (e.g. --set, #417)."""
     ext = tmp_path / 'ext'
     data = ext / 'benchmark/smallrna/ko'
     write(data / 'mirbase/23.1/mature.fa', BLOOD)
@@ -3197,9 +3198,9 @@ def knockout_project(tmp_path, other_rna=None, sequences=None, expected=None):
         write(tmp_path / 'expected.tsv', expected)
         spec['knockout']['expected'] = 'expected.tsv'
     dataset = write(tmp_path / 'ko.yaml', yaml.safe_dump(spec))
-    project = tmp_path / 'project'
+    project = tmp_path / name
     result = subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'prepare', '--dataset', str(dataset), '--project', str(project),
-                             '--ext-dir', str(ext)], capture_output=True, text=True, timeout=60)
+                             '--ext-dir', str(ext), *prepare], capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
     quant = project / 'data/tmp/smallrna/quant'
     # miR-16-5p vanishes in the knockout; miR-21-5p keeps half its reads in UNITAS only (e.g. reads of another RNA)
@@ -3250,6 +3251,56 @@ def test_the_gse_declarations_name_each_run_s_sra_file():
     tissue = benchmark.load_dataset(BENCH / 'datasets/gse196633_truseq.yaml')
     assert collections.Counter(s['group'] for s in tissue['samples']) == {'tumour': 10, 'normal': 10}
     assert {s['patient'] for s in tissue['samples'] if s['group'] == 'tumour'} == {s['patient'] for s in tissue['samples'] if s['group'] == 'normal'}
+
+
+
+# Settings variants (#417)
+
+def test_prepare_set_takes_route_settings_of_the_workflow():
+    """`prepare --set`: a setting smallrna.config has for a route the project runs, read as YAML, not its default."""
+    variant = benchmark.settings_variant(['quant.tinyrna.mismatch=1', 'quant.tinyrna.normalize_by_genomic_hits=false'], ['tinyrna', 'unitas'])
+    assert variant == {'quant.tinyrna.mismatch': 1, 'quant.tinyrna.normalize_by_genomic_hits': False}
+    assert benchmark.settings_variant(['quant.tesmall.order=structural_RNA,miRNA,hairpin,exon,TE,intron,piRNA_cluster'], ['tesmall'])
+    for assignments, message in ((['quant.tinyrna.mismatch'], 'expected quant.ROUTE.SETTING=VALUE'),
+                                 (['db.mirbase.release=22'], 'expected quant.ROUTE.SETTING=VALUE'),
+                                 (['quant.tesmall.mismatch=1'], 'tesmall is not one of the project\'s routes'),
+                                 (['quant.tinyrna.mismatches=1'], 'smallrna.config has no setting mismatches for tinyrna'),
+                                 (['quant.tinyrna.mismatch=0'], 'that is the default'),
+                                 (['quant.tinyrna.mismatch=1', 'quant.tinyrna.mismatch=2'], 'set twice')):
+        with pytest.raises(SystemExit, match=re.escape(message)):
+            benchmark.settings_variant(assignments, ['tinyrna', 'unitas'])
+    lines, _ = benchmark.settings_lines({}, {'quant.mirge3.cr_threshold': 0.1})
+    assert '**A settings variant** (`prepare --set`): quant.mirge3.cr_threshold `0.1`.' in lines[2]
+
+
+def test_a_settings_variant_is_compared_with_the_defaults_in_the_summary(tmp_path):
+    """#417 end to end: a project prepared with --set records the variant and sets it in its configuration; the summary
+    compares its route with the project of the same dataset run with the defaults, and names the routes it passes."""
+    import summary
+    default = knockout_project(tmp_path / 'd', name='defaults')
+    variant = knockout_project(tmp_path / 'v', name='cr-threshold', prepare=['--set', 'quant.mirge3.cr_threshold=0.1'])
+    assert yaml.safe_load((variant / 'benchmark/dataset.yaml').read_text())['variant'] == {'quant.mirge3.cr_threshold': 0.1}
+    assert yaml.safe_load((variant / 'config.yaml').read_text())['quant']['mirge3'] == {'cr_threshold': 0.1}
+    quant = variant / 'data/tmp/smallrna/quant'   # with the setting, miRge3 keeps half of miR-21-5p's reads in the knockout
+    write(quant / 'mirge3/miR.Counts.csv', 'miRNA,P1,P2,K1,K2\nhsa-miR-16-5p,600,600,3,3\nhsa-miR-21-5p,40,40,20,20\n')
+    write_records(quant, ['unitas', 'mirge3'], dump=unitas_dump(tmp_path / 'v/ext', 'homo_sapiens', 'Human', {}))
+    isomir_outputs(quant)
+    for project in (default, variant):
+        result = evaluate_cmd(project)
+        assert result.returncode == 0, result.stderr
+    assert '**A settings variant** (`prepare --set`): quant.mirge3.cr_threshold `0.1`.' in (variant / 'benchmark/report.md').read_text()
+    for name in ('summary.md', 'summary.html'):
+        result = subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'summary', '--projects', str(default), str(variant),
+                                 '--output', str(tmp_path / name)], capture_output=True, text=True, timeout=60)
+        assert result.returncode == 0, result.stderr
+    text = (tmp_path / 'summary.md').read_text()
+    assert '### ko: settings against defaults' in text
+    assert '| knockout_surviving | mirge3 | quant.mirge3.cr_threshold 0.1 (cr-threshold) | 0 | 1 | unitas |' in text   # 0 < 1, then 1 = 1
+    assert '<h3>ko: settings against defaults</h3>' in (tmp_path / 'summary.html').read_text()
+    rows = [{'project': p, 'dataset': 'ko', 'variant': {}, 'identity': 'x', 'values': {}} for p in ('a', 'b')]
+    with pytest.raises(ValueError, match='projects a, b run ko with the defaults'):
+        summary.settings_variants(rows + [{'project': 'c', 'dataset': 'ko', 'variant': {'quant.mirge3.cr_threshold': 0.1}, 'identity': 'x',
+                                           'values': {}}], [])
 
 
 

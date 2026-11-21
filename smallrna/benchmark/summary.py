@@ -141,12 +141,15 @@ def read_project(project, out_dir):
     seed = record.get('synthetic_seed', synthetic.pop('seed', None))
     synthetic.pop('seed', None)
     declaration = json.dumps(dict({k: v for k, v in spec.items() if k not in ('methods', 'not_selected')}, synthetic=synthetic),
-                             sort_keys=True, default=str) if spec.get('kind') == 'synthetic' else None
+                             sort_keys=True, default=str) if spec.get('kind') == 'synthetic' else None  # a variant is its own set
+    # a settings variant (#417) is compared with the project of the same dataset, samples and draw run with the defaults
+    base = {k: v for k, v in spec.items() if k not in ('methods', 'not_selected', 'variant')}
+    identity = json.dumps([dict(base, synthetic=synthetic) if spec.get('kind') == 'synthetic' else base, seed, samples], sort_keys=True, default=str)
     report = os.path.relpath((bench / 'report.md').resolve(), out_dir)
     return kind, {'project': project.resolve().name, 'link': urllib.parse.quote(report), 'dataset': spec['name'], 'kit': spec['libprepkit'],
                   'samples': samples, 'reads processed': '' if record.get('reads_processed') is None else '{:,}'.format(record['reads_processed']),
                   'methods': ', '.join(c for c in columns if c not in ('oracle', 'truth')), 'columns': columns, 'values': values,
-                  'status': status, 'seed': seed, 'declaration': declaration}
+                  'status': status, 'seed': seed, 'declaration': declaration, 'variant': spec.get('variant') or {}, 'identity': identity}
 
 
 def resolve_with_links(path):
@@ -191,7 +194,7 @@ def summarize(projects, out_dir):
             row['values'].update({(k, m): state for k in keys for m, state in row['status'].items()})
         metrics = [(k, [m for m in methods if any((k, m) in row['values'] for row in rows)]) for k in keys]
         metrics = [(k, ms) for k, ms in metrics if ms]
-        sections.append((title, note, metrics, rows, over_seeds(rows, metrics)))
+        sections.append((title, note, metrics, rows, over_seeds(rows, metrics), settings_variants(rows, metrics)))
     return sections
 
 
@@ -234,6 +237,49 @@ def over_seeds(rows, metrics):
     return out
 
 
+def settings_variants(rows, metrics):
+    """Projects run with route settings changed (#417, `prepare --set`), each against the project of the same dataset,
+    samples and draw run with the defaults: [(dataset, default project, [(variant project, setting, route, [(metric,
+    default value, variant value, flipped)])])]. `flipped` names the default project's other routes whose order with the
+    varied route (higher, lower or equal) the setting changes. A variant without such a project is left out; two such
+    projects stop it."""
+    defaults = {}
+    for row in rows:
+        if not row['variant']:
+            defaults.setdefault(row['identity'], []).append(row)
+    sign = lambda x: (x > 0) - (x < 0)
+    out = {}
+    for row in rows:
+        if not row['variant'] or not defaults.get(row['identity']):
+            continue
+        if len(defaults[row['identity']]) > 1:
+            raise ValueError('projects {} run {} with the defaults; the settings variant {} needs one to compare with'.format(
+                ', '.join(r['project'] for r in defaults[row['identity']]), row['dataset'], row['project']))
+        base = defaults[row['identity']][0]
+        setting = ', '.join('{} {}'.format(k, v) for k, v in sorted(row['variant'].items()))
+        for route in sorted({key.split('.')[1] for key in row['variant']}):
+            lines = []
+            for k, ms in metrics:
+                default, changed = number(base['values'].get((k, route))), number(row['values'].get((k, route)))
+                if default is None or changed is None:
+                    continue
+                others = {m: number(base['values'].get((k, m))) for m in ms if m not in (route, 'oracle', 'truth')}
+                lines.append((k, default, changed, [m for m, x in others.items() if x is not None and sign(default - x) != sign(changed - x)]))
+            out.setdefault((base['dataset'], base['project']), []).append((row['project'], setting, route, lines))
+    return [(dataset, project, entries) for (dataset, project), entries in out.items()]
+
+
+VARIANTS_NOTE = ('Projects run with route settings changed (#417, `prepare --set`), each against the project of the same dataset, '
+                 'samples and draw run with the defaults: per key metric, the route\'s value with the defaults and with the setting, '
+                 'and the routes whose order with it (higher, lower or equal) the setting changes.')
+
+
+def variant_rows(entries):
+    """[metric, route, setting, default, variant, order changed against] of settings_variants() entries."""
+    return [[k, route, '{} ({})'.format(setting, project), '{:.4g}'.format(default), '{:.4g}'.format(changed), ', '.join(flipped)]
+            for project, setting, route, lines in entries for k, default, changed, flipped in lines]
+
+
 def seed_cell(spread):
     return '' if spread is None else '{:.4g} ({:.4g}–{:.4g})'.format(*spread)
 
@@ -266,7 +312,7 @@ def markdown_cell(value):
 
 def markdown(sections):
     lines = ['# Small-RNA benchmark summary', '', INTRO]
-    for title, note, metrics, rows, seeds in sections:
+    for title, note, metrics, rows, seeds, variants in sections:
         header = FIXED + ['{}: {}'.format(k, m) for k, ms in metrics for m in ms]
         lines += ['', '## ' + title, '', note, '', '| ' + ' | '.join(map(markdown_cell, header)) + ' |', '|---' * len(header) + '|']
         for row in rows:
@@ -278,6 +324,10 @@ def markdown(sections):
                       '| metric | ' + ' | '.join(map(markdown_cell, methods)) + ' | order |', '|---' * (len(methods) + 2) + '|']
             lines += ['| ' + ' | '.join([markdown_cell(k)] + [markdown_cell(seed_cell(spread.get(m))) for m in methods] + [order]) + ' |'
                       for k, spread, order in table]
+        for dataset, project, entries in variants:
+            lines += ['', '### {}: settings against {}'.format(markdown_cell(dataset), markdown_cell(project)), '', VARIANTS_NOTE, '',
+                      '| metric | route | setting (project) | default | setting | order changed against |', '|---' * 6 + '|']
+            lines += ['| ' + ' | '.join(map(markdown_cell, cells)) + ' |' for cells in variant_rows(entries)]
     return '\n'.join(lines) + '\n'
 
 
@@ -307,7 +357,7 @@ def inline_code(text):
 
 def html_page(sections):
     body = ['<h1>Small-RNA benchmark summary</h1>', '<p>{}</p>'.format(inline_code(INTRO))]
-    for title, note, metrics, rows, seeds in sections:
+    for title, note, metrics, rows, seeds, variants in sections:
         top = ''.join('<th rowspan="2">{}</th>'.format(k) for k in FIXED)
         top += ''.join('<th colspan="{}">{}</th>'.format(len(ms), html.escape(k)) for k, ms in metrics)
         sub = ''.join('<th>{}</th>'.format(html.escape(m)) for _, ms in metrics for m in ms)
@@ -326,6 +376,12 @@ def html_page(sections):
                 html.escape(seed_cell(spread.get(m)))) for m in methods), html.escape(order)) for k, spread, order in table]
             body += ['<h3>{} over seeds {}</h3>'.format(html.escape(dataset), html.escape(', '.join(map(str, used)))),
                      '<p>{}</p>'.format(inline_code(SEEDS_NOTE)),
+                     '<div class="scroll"><table><thead><tr>{}</tr></thead><tbody>'.format(head)] + trs + ['</tbody></table></div>']
+        for dataset, project, entries in variants:
+            head = ''.join('<th>{}</th>'.format(h) for h in ('metric', 'route', 'setting (project)', 'default', 'setting', 'order changed against'))
+            trs = ['<tr>{}</tr>'.format(''.join('<td{}>{}</td>'.format(' class="num"' if i in (3, 4) else '', html.escape(c)) for i, c in enumerate(cells)))
+                   for cells in variant_rows(entries)]
+            body += ['<h3>{}: settings against {}</h3>'.format(html.escape(dataset), html.escape(project)), '<p>{}</p>'.format(inline_code(VARIANTS_NOTE)),
                      '<div class="scroll"><table><thead><tr>{}</tr></thead><tbody>'.format(head)] + trs + ['</tbody></table></div>']
     return ('<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
             '<meta name="viewport" content="width=device-width, initial-scale=1">\n<title>Small-RNA benchmark summary</title>\n'

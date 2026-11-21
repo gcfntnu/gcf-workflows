@@ -16,8 +16,12 @@ if MIRGE3_DB not in MIRGE3_DATABASES:
 import shlex
 
 MIRGE3_MIN_LENGTH = filtered_min_length() or 1
-# --crThreshold 0: miRge3 otherwise zeroes miRNAs whose exact reads are at most 10% of their isomiR reads (#347)
-MIRGE3_ARGS = '--gff-out --isoform-entropy --AtoI --crThreshold 0 '
+# --crThreshold quant.mirge3.cr_threshold, 0 by default: miRge3 otherwise zeroes miRNAs whose exact reads are at most 10%
+# of their isomiR reads (#347). Joined in when the rules are read, so the default keeps the rule's params (#417)
+MIRGE3_CR = config['quant']['mirge3']['cr_threshold']
+if isinstance(MIRGE3_CR, bool) or not isinstance(MIRGE3_CR, (int, float)) or not 0 <= MIRGE3_CR <= 0.5:
+    raise ValueError('quant.mirge3.cr_threshold must be a number from 0 to 0.5 (miRge3\'s range), got {!r}'.format(MIRGE3_CR))
+MIRGE3_ARGS = '--gff-out --isoform-entropy --AtoI --crThreshold {} '.format(MIRGE3_CR)
 
 def get_args(wildcards):
     args = ''
@@ -31,7 +35,7 @@ def get_args(wildcards):
 def mirge3_settings():
     """The settings that decide miRge3's counting, recorded with its table (quant_settings, #417)."""
     return [('mir_db', MIRGE3_DATABASES[MIRGE3_DB], 'quant.mirge3.db'), ('minimum_length', str(MIRGE3_MIN_LENGTH), 'kit'),
-            ('arguments', ' '.join((MIRGE3_ARGS + get_args(None)).split()), 'fixed'),
+            ('arguments', ' '.join((MIRGE3_ARGS + get_args(None)).split()), 'quant.mirge3.cr_threshold and fixed'),
             ('identical_sequences', 'folded by the library merge file {}_merges_{}.csv'.format(MIRGE_ORG, MIRGE3_DATABASES[MIRGE3_DB]), 'fixed'),
             ('project_rule', 'a miRNA needs 2 exact reads in the project (mirge3_counts.py MIN_PROJECT_EXACT)', 'fixed')]
 
