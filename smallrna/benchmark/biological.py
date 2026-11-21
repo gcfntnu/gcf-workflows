@@ -83,9 +83,10 @@ def cpm(counts):
     return {k: 1e6 * v / total for k, v in counts.items()} if total else {}
 
 
-def method_summary(common, methods, samples):
+def method_summary(common, methods, samples, flagged=None):
     """Per method: median miRNA reads, median miRNAs detected per sample, miRNAs detected in every sample, median
-    share of the miRNA reads in the 10 most abundant miRNAs."""
+    share of the miRNA reads in the 10 most abundant miRNAs. With `flagged` (#415: the miRBase entries inside molecules of
+    other RNA classes), also the median share of the miRNA reads on them, the median detected among them and without them."""
     by = counts_by(common)
     out = {}
     for m in methods:
@@ -96,6 +97,11 @@ def method_summary(common, methods, samples):
                   'detected': statistics.median(len(d) for d in detected),
                   'detected_all_samples': len(set.intersection(*detected)) if detected else 0,
                   'top10_share': round(statistics.median(top10), 4) if top10 else ''}
+        if flagged is not None:
+            shares = [sum(v for k, v in c.items() if k in flagged) / sum(c.values()) for c in per if sum(c.values())]
+            out[m].update({'flagged_reads': round(statistics.median(shares), 4) if shares else '',
+                           'flagged_detected': statistics.median(len(d & flagged) for d in detected),
+                           'detected_unflagged': statistics.median(len(d - flagged) for d in detected)})
     return out
 
 
@@ -119,7 +125,7 @@ def sample_stats(common, raw, methods, samples):
     return stats
 
 
-def summary_of(stats, methods, samples, all_samples=True):
+def summary_of(stats, methods, samples, all_samples=True, flagged=None):
     """method_summary with unplaced's share, from sample_stats, for any list of samples (a bootstrap resample may
     repeat one): the same values as method_summary and unplaced over the same samples. `all_samples=False` leaves out
     detected_all_samples (a resample repeating a sample biases it, so the bootstrap does not use it)."""
@@ -133,7 +139,8 @@ def summary_of(stats, methods, samples, all_samples=True):
                   **({'detected_all_samples': len(frozenset.intersection(*(p['detected'] for p in per))) if per else 0}
                      if all_samples else {}),
                   'top10_share': round(statistics.median(top10), 4) if top10 else '',
-                  'unplaced': round(statistics.median(share), 4) if share else ''}
+                  'unplaced': round(statistics.median(share), 4) if share else '',
+                  **({'detected_unflagged': statistics.median(len(p['detected'] - flagged) for p in per)} if flagged is not None else {})}
     return out
 
 
