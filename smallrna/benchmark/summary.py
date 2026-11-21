@@ -187,15 +187,20 @@ def number(value):
 
 def over_seeds(rows, metrics):
     """Projects of one synthetic declaration that differ only by the seed of the draw (#455), two seeds or more:
-    [(dataset, seeds, [(metric, {method: (mean, low, high)}, order)])], `order` whether the methods with a value in
-    every seed rank the same in each (by value, ties by name), '' with fewer than two such methods."""
+    [(dataset, seeds, [(metric, {method: (mean, low, high)}, order)])], `order` how many pairs of the methods with a
+    value in every seed keep their order (higher, lower or equal) in every seed, '' with fewer than two such methods.
+    Two projects with the same seed stop it: each seed is one draw."""
     groups = {}
     for row in rows:
         if row['declaration'] is not None and row['seed'] is not None:
             groups.setdefault(row['declaration'], []).append(row)
     out = []
     for members in groups.values():
-        seeds = sorted({row['seed'] for row in members})
+        seeds = sorted(row['seed'] for row in members)
+        repeated = sorted({seed for seed in seeds if seeds.count(seed) > 1})
+        if repeated:
+            raise ValueError('projects {} draw synthetic set {} with the same seed {}; a seed is one draw, so give each project its own'.format(
+                ', '.join(row['project'] for row in members if row['seed'] in repeated), members[0]['dataset'], ', '.join(map(str, repeated))))
         if len(seeds) < 2:
             continue
         lines = []
@@ -203,8 +208,10 @@ def over_seeds(rows, metrics):
             values = {m: [number(row['values'].get((k, m))) for row in members] for m in ms}
             complete = {m: v for m, v in values.items() if v and None not in v}
             spread = {m: (statistics.mean(v), min(v), max(v)) for m, v in complete.items()}
-            ranks = {tuple(sorted(complete, key=lambda m: (-complete[m][i], m))) for i in range(len(members))}
-            lines.append((k, spread, ('same in every seed' if len(ranks) == 1 else 'differs') if len(complete) > 1 else ''))
+            sign = lambda x: (x > 0) - (x < 0)
+            pairs = [(a, b) for i, a in enumerate(complete) for b in list(complete)[i + 1:]]
+            kept = sum(len({sign(complete[a][i] - complete[b][i]) for i in range(len(members))}) == 1 for a, b in pairs)
+            lines.append((k, spread, '{} of {} pairs'.format(kept, len(pairs)) if pairs else ''))
         out.append((members[0]['dataset'], seeds, lines))
     return out
 
@@ -226,8 +233,8 @@ INTRO = ('Key metrics of each evaluated project, from its `metrics.tsv`; its `re
 
 
 SEEDS_NOTE = ('The projects of this synthetic declaration that differ only by the seed of the draw (#455): per key metric '
-              'and route, the mean over the seeds and their range in parentheses; `order`, whether the routes with a '
-              'value in every seed rank the same way in each.')
+              'and route, the mean over the seeds and their range in parentheses; `order`, how many pairs of the routes '
+              'with a value in every seed keep their order (higher, lower or equal) in every seed.')
 
 
 def markdown_cell(value):

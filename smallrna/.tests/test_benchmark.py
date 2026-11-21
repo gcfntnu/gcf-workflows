@@ -3145,8 +3145,12 @@ def test_the_summary_groups_the_seeds_of_one_synthetic_declaration(tmp_path):
     summary.write(projects, out)
     text = out.read_text()
     table = text.split('### synthetic_set over seeds 1, 2, 3')[1]
-    assert '| recovered | 0.9233 (0.9–0.95) | 0.7833 (0.7–0.85) | same in every seed |' in table  # unitas above tesmall in each
-    assert '| exact | 0.6 (0.5–0.7) | 0.6167 (0.6–0.65) | differs |' in table                 # tesmall first in seed 1 only
+    assert '| recovered | 0.9233 (0.9–0.95) | 0.7833 (0.7–0.85) | 1 of 1 pairs |' in table  # unitas above tesmall in each
+    assert '| exact | 0.6 (0.5–0.7) | 0.6167 (0.6–0.65) | 0 of 1 pairs |' in table          # tesmall first in seed 1 only
     assert 'over seeds 1, 2, 3, 4' not in text and text.count('over seeds') == 1               # the other declaration stays apart
     summary.write(projects, tmp_path / 'summary.html')
     assert 'synthetic_set over seeds 1, 2, 3' in (tmp_path / 'summary.html').read_text()
+    twice = summary_project(root, 'seed2_again', dict(base, synthetic={'mode': 'reduced', 'seed': 2}),
+                            [['metric', 'unitas', 'tesmall'], ['recovered', '0.9', '0.8']], truth=[('S01', 60)])
+    with pytest.raises(ValueError, match='with the same seed 2'):
+        summary.write(projects + [twice], tmp_path / 'again.md')
