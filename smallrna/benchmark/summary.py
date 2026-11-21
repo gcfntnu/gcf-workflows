@@ -46,7 +46,8 @@ SECTIONS = [
      'observed at least 2-fold); `shifted_called` applies the same direction requirement to shifted sequences. '
      'Differential expression (#414, `evaluate --de`), with edgeR\'s exact test on the workflow\'s library sizes: `edger_called` '
      '(designed at least 2-fold apart, BH-adjusted p at most 0.05 in the designed direction), `edger_false_calls` (designed '
-     '1:1 and called) and `edger_fdr` (the share of calls on 1:1 sequences or in the wrong direction); limma-voom is in each report.'),
+     '1:1 and called) and `edger_fdr` (the share of calls on 1:1 sequences or in the wrong direction); edgeR\'s GLM test '
+     'and limma-voom, with the declared covariates, are in each report.'),
     ('biological', 'Biological samples', ['mirna_reads', 'unplaced', 'detected', 'detected_all_samples', 'top10_share'],
      'No known composition: `mirna_reads` is the rounded median per sample of reads assigned to a miRBase accession. '
      'The other metrics describe the share on names without a miRBase accession, '

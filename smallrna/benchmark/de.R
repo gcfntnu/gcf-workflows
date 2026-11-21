@@ -1,10 +1,12 @@
 #!/usr/bin/env Rscript
 # Differential expression on the small-RNA benchmark's ratiometric pools (#414): for each row (the oracle and each
-# method), pool A against pool B with edgeR's exact test and limma-voom, on the counts, library sizes and design that
-# `benchmark.py evaluate` writes (benchmark/de/input/). Library sizes are the workflow's, without TMM. edgeR runs as in
-# the McCall-lab benchmark's best configuration (common dispersion, exact test; two groups, no covariates); voom takes
-# the design's covariates. A sequence without reads in a row is written as NA for both tests, and so is every sequence
-# of a row without reads on any of them.
+# method), pool A against pool B with edgeR's exact test, edgeR's GLM likelihood-ratio test and limma-voom, on the
+# counts, library sizes and design that `benchmark.py evaluate` writes (benchmark/de/input/). Library sizes are the
+# workflow's, without TMM. The exact test runs as in the McCall-lab benchmark's best configuration (common dispersion,
+# exact test; two groups, no covariates). The GLM test is its counterpart on the design with the covariates: a common
+# dispersion estimated under the design and a likelihood-ratio test of the group, so the two differ by the covariates.
+# voom takes the same design. A sequence without reads in a row is written as NA for every test, and so is every
+# sequence of a row without reads on any of them. Each row's two common dispersions go to the log.
 #
 # The inputs and this script are copied when it starts; the fits read the copies and the record names their MD5s, so
 # it describes the bytes the fits used even if `evaluate` rewrites an input meanwhile. The record also names the MD5
@@ -16,6 +18,7 @@ suppressPackageStartupMessages({
   library(edgeR)
   library(limma)
 })
+tests <- c('edger', 'edger_glm', 'voom')  # as de.py's TESTS
 
 options <- list(make_option('--counts'), make_option('--library-sizes', dest = 'library_sizes'), make_option('--design'),
                 make_option('--results'), make_option('--record'))
@@ -64,7 +67,7 @@ for (row in unique(counts$row)) {
   none <- rep(NA_real_, sum(!keep))
   untested <- data.frame(pool_id = part$pool_id[!keep], log2fc = none, pvalue = none, padj = none)
   if (!any(keep)) {  # no reads on any scored sequence: nothing to fit
-    for (test in c('edger', 'voom')) add(row, test, untested)
+    for (test in tests) add(row, test, untested)
     next
   }
   tested <- values[keep, , drop = FALSE]
@@ -74,12 +77,18 @@ for (row in unique(counts$row)) {
   exact <- exactTest(y, pair = c('B', 'A'), dispersion = 'common')$table
   edger <- data.frame(pool_id = rownames(exact), log2fc = exact$logFC, pvalue = exact$PValue, padj = p.adjust(exact$PValue, 'BH'))
 
+  common <- estimateGLMCommonDisp(y, model)$common.dispersion  # under the design, so without the covariates' variance
+  lrt <- glmLRT(glmFit(y, model, dispersion = common), coef = 'groupA')$table
+  edger_glm <- data.frame(pool_id = rownames(lrt), log2fc = lrt$logFC, pvalue = lrt$PValue, padj = p.adjust(lrt$PValue, 'BH'))
+  message(sprintf('%s: common dispersion %.4g for the exact test, %.4g for the GLM test', row, y$common.dispersion, common))
+
   fit <- eBayes(lmFit(voom(tested, model, lib.size = size), model))
   top <- topTable(fit, coef = 'groupA', number = Inf, sort.by = 'none', adjust.method = 'BH')
   voomed <- data.frame(pool_id = rownames(top), log2fc = top$logFC, pvalue = top$P.Value, padj = top$adj.P.Val)
 
-  for (test in c('edger', 'voom')) {
-    table <- rbind(if (test == 'edger') edger else voomed, untested)
+  fits <- list(edger = edger, edger_glm = edger_glm, voom = voomed)
+  for (test in tests) {
+    table <- rbind(fits[[test]], untested)
     add(row, test, table[match(part$pool_id, table$pool_id), ])
   }
 }
@@ -87,9 +96,10 @@ write.table(do.call(rbind, results), opt$results, sep = '\t', quote = FALSE, row
 
 record <- data.frame(
   field = c('md5_counts', 'md5_library_sizes', 'md5_design', 'md5_script', 'md5_results', 'R', 'edgeR', 'limma', 'formula',
-            'edger', 'voom'),
+            'edger', 'edger_glm', 'voom'),
   value = c(md5(copies$counts), md5(copies$library_sizes), md5(copies$design), md5(copies$script), md5(opt$results),
             R.version.string, as.character(packageVersion('edgeR')), as.character(packageVersion('limma')), deparse(formula),
             'DGEList with the library sizes and no normalisation factors, estimateCommonDisp, exactTest of A against B',
+            'the same DGEList, estimateGLMCommonDisp under the design, glmFit with that common dispersion, glmLRT of coefficient groupA',
             'voom with the library sizes, lmFit, eBayes, coefficient groupA'))
 write.table(record, opt$record, sep = '\t', quote = FALSE, row.names = FALSE)

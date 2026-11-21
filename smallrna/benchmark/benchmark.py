@@ -19,8 +19,8 @@ tools itself. Steps:
    method (metrics.py, pool.py; biological.py compares methods with each other) and writes
    `<project>/benchmark/report.md` with the tables behind it. For a ratiometric pool that declares `de:` (#414) it
    also writes the inputs of differential expression to `<project>/benchmark/de/input/`;
-   `snakemake -s <repo>/smallrna/benchmark/de.smk -d <project> --use-apptainer` tests them with edgeR and limma-voom
-   (de.R), and `evaluate --de` adds the scores of their calls (de.py).
+   `snakemake -s <repo>/smallrna/benchmark/de.smk -d <project> --use-apptainer` tests them with edgeR's exact and GLM
+   tests and limma-voom (de.R), and `evaluate --de` adds the scores of their calls (de.py).
 4. `summary` reads several evaluated projects and writes one overview, a section per dataset kind with each project's
    key metrics per method (summary.py), as Markdown or a self-contained HTML file; it writes nothing into the projects.
 
@@ -111,8 +111,8 @@ def load_dataset(path, mirbase_release=None):
 
 
 def check_de(spec, path):
-    """A ratiometric pool's `de:` (#414): covariates of the voom design from de.COVARIATES, each with a value for every
-    run and at least two levels, and at least two runs in each pool."""
+    """A ratiometric pool's `de:` (#414): covariates of the design of edgeR's GLM test and voom from de.COVARIATES, each
+    with a value for every run and at least two levels, and at least two runs in each pool."""
     if spec['kind'] != 'pool' or spec['pool'] != 'ratiometric':
         fail('{}: `de` (differential expression, #414) is for ratiometric pools'.format(path))
     declared = spec['de'] or {}
@@ -130,7 +130,7 @@ def check_de(spec, path):
         fail('{}: differential expression needs at least two runs in each pool, got {} A and {} B'.format(path, sizes['A'], sizes['B']))
     coefficients = 2 + sum(len({run[c] for run in spec['runs']}) - 1 for c in covariates)  # intercept, covariate levels, group
     if len(spec['runs']) - coefficients < 1:
-        fail('{}: the voom design ~ {} has {} coefficients for {} runs, so no residual degrees of freedom'.format(
+        fail('{}: the design ~ {} of the GLM test and voom has {} coefficients for {} runs, so no residual degrees of freedom'.format(
             path, ' + '.join(covariates + ['group']), coefficients, len(spec['runs'])))
 
 

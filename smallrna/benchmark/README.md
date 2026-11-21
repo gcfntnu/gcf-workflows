@@ -74,8 +74,8 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    undercounted most (mirflowz: 12 s recorded, 45 s measured with `/usr/bin/time`).
 
    **Differential expression** (#414). For a ratiometric pool that declares `de:`, `evaluate` also writes the inputs
-   to `benchmark/de/input/`. `de.smk` tests them with edgeR and limma-voom (`de.R`, in the `sartools` image), and
-   `evaluate --de` adds the scores of their calls (Metrics, below):
+   to `benchmark/de/input/`. `de.smk` tests them with edgeR's exact and GLM tests and limma-voom (`de.R`, in the
+   `sartools` image), and `evaluate --de` adds the scores of their calls (Metrics, below):
 
    ```bash
    snakemake -s smallrna/benchmark/de.smk -d <project> --use-apptainer --cores 1
@@ -296,21 +296,23 @@ miRNA), `exact` (share of miRNAs counted exactly, to within 1e-6 for the fractio
   `shifted` group, with a `shifted_` prefix, the same four, its sequences scaled by the `exact` group's counts and
   centred on its 1:1 sequences, so the `exact` results do not depend on them.
 - **Differential expression on the ratiometric pools** (#414; `de:` and `evaluate --de`). Each method's counts of the
-  scored `exact` sequences, rounded to whole numbers, are tested pool A against pool B with edgeR's exact test and
-  limma-voom. Library sizes are all the miRNA reads the method reported in a sample, the workflow's counts per million
-  (the oracle: its pool reads). There is no TMM and, unlike the metrics above, no centring, so an offset between the
-  pools stays in the fold changes. edgeR runs as the best configuration in the McCall lab's benchmark of miRNA-seq
-  normalisation and differential expression (Aparicio-Puerta et al., bioRxiv 2026, doi:10.64898/2026.05.08.723923):
-  a common dispersion and the exact test, so two groups without covariates. voom takes the declaration's covariates
-  (`de: {covariates: [lab]}`: `~ lab + group`). DESeq2 is left out: it did worst there. A call is a BH-adjusted p of at
-  most 0.05. Metrics, prefixed `edger_` and `voom_`: `called` (sequences designed at least 2-fold apart called in the
-  designed direction), `false_calls` (1:1 sequences called; a call on a sequence designed 1.5-fold apart is a true
+  scored `exact` sequences, rounded to whole numbers, are tested pool A against pool B with edgeR's exact test, edgeR's
+  GLM likelihood-ratio test and limma-voom. Library sizes are all the miRNA reads the method reported in a sample, the
+  workflow's counts per million (the oracle: its pool reads). There is no TMM and, unlike the metrics above, no
+  centring, so an offset between the pools stays in the fold changes. The exact test runs as the best configuration in
+  the McCall lab's benchmark of miRNA-seq normalisation and differential expression (Aparicio-Puerta et al., bioRxiv
+  2026, doi:10.64898/2026.05.08.723923): a common dispersion and the exact test, so two groups without covariates. The
+  GLM test and voom take the declaration's covariates (`de: {covariates: [lab]}`: `~ lab + group`). The GLM test keeps
+  the exact test's single common dispersion but estimates it under that design, so it differs from the exact test by
+  the covariates and from voom by the method. DESeq2 is left out: it did worst there. A call is a BH-adjusted p of at
+  most 0.05. Metrics, prefixed `edger_`, `edger_glm_` and `voom_`: `called` (sequences designed at least 2-fold apart
+  called in the designed direction), `false_calls` (1:1 sequences called; a call on a sequence designed 1.5-fold apart is a true
   one), `fdr` (the share of calls on 1:1 sequences or in the wrong direction), `fc_bias` (median of sign(d) × (log2
   fold change − d), negative when fold changes are compressed) and `offset` (median log2 fold change of the 1:1
   sequences). Their intervals resample the sequences on the fixed fits, on every draw: a draw without a 1:1 sequence
   has no `offset` or `false_calls` but still scores the rest, while the metrics above skip it. The declaration must leave
-  the voom design residual degrees of freedom. The report gives the share called per designed fold change, and the
-  tools' versions.
+  the design residual degrees of freedom. The report gives the share called per designed fold change and the tools'
+  versions and settings; `de/de.log` has each row's two common dispersions.
 - **Filter route.** The same exact-match count of the pool sequences after each pass of the project's filter route
   (`filter_stages.tsv`): for cutadapt after the 3' adapter, the filter (random ends, 5' adapter, length, N, expected
   errors) and the artefact pass, for fastp after the adapter and the filter pass, then the spike-in prefilter with
