@@ -19,6 +19,7 @@ BENCH = ROOT / 'smallrna/benchmark'
 sys.path.insert(0, str(BENCH))
 import adapters  # noqa: E402
 import benchmark  # noqa: E402
+import decoys  # noqa: E402
 import fill  # noqa: E402
 import genome_metrics as gm  # noqa: E402
 import synthetic_genome as sg  # noqa: E402
@@ -82,9 +83,9 @@ def mirbase(tmp_path):
     return fake_mirbase(tmp_path / 'mirbase')
 
 
-def generate(tmp_path, files, spec=SPEC):
+def generate(tmp_path, files, spec=SPEC, sources=None):
     out = tmp_path / 'fastq'
-    truth, samples, mirnas = sg.generate(copy.deepcopy(spec), *files, 'hsa-', ADAPTER, 0, lambda s: out / '{}_R1.fastq.gz'.format(s))
+    truth, samples, mirnas = sg.generate(copy.deepcopy(spec), *files, 'hsa-', ADAPTER, 0, lambda s: out / '{}_R1.fastq.gz'.format(s), sources)
     return truth, samples, mirnas, out
 
 
@@ -169,7 +170,7 @@ def test_generation_is_deterministic_and_every_read_has_its_truth(tmp_path, mirb
     assert first[:3] == second[:3]
     truth, samples, mirnas, out = first
     expected = collections.defaultdict(collections.Counter)
-    for sample, _, _, _, seq, count, _ in truth:
+    for sample, _, _, _, seq, count, *_ in truth:
         expected[sample][seq] += count
     for sample, *_ in samples:
         with gzip.open(out / '{}_R1.fastq.gz'.format(sample), 'rt') as fh:
@@ -210,7 +211,7 @@ def test_probe_samples_hold_a_carrier_and_one_read_class(tmp_path, mirbase):
     truth, samples, mirnas, _ = generate(tmp_path, files)
     classes = collections.defaultdict(set)
     errors = collections.defaultdict(list)
-    for sample, cls, _, _, _, _, n_errors in truth:
+    for sample, cls, _, _, _, _, n_errors, *_ in truth:
         classes[sample].add(cls)
         errors[sample].append(n_errors)
     assert classes['P_control'] == {'carrier'}
@@ -337,18 +338,22 @@ def test_loader_and_fill_for_genome_mode(tmp_path):
     assert fill.fill(spec, tmp_path, log=lambda *_: None, fetch=fetch) == 0      # a second fill skips every file
 
 
-def genome_project(tmp_path, declared=None, methods=('tinyrna',)):
+def genome_project(tmp_path, declared=None, methods=('tinyrna',), with_decoys=False):
     """A prepared genome-wide synthetic project whose method tinyrna counts every read on its miRNA; with `declared`, the
-    dataset's `de:`; `methods`, the dataset's methods, whose outputs other than tinyrna's the caller writes. (project, the
-    benchmark.py command)."""
+    dataset's `de:`; `methods`, the dataset's methods, whose outputs other than tinyrna's the caller writes; with_decoys,
+    DECOYS on fake sources filled in place (#412 PR 2). (project, the benchmark.py command)."""
     ext = tmp_path / 'ext'
-    files, _ = fake_mirbase(ext / 'benchmark/smallrna/syn_genome/mirbase/23.1')
+    files, matures = fake_mirbase(ext / 'benchmark/smallrna/syn_genome/mirbase/23.1')
     spec = {'name': 'syn_genome', 'kind': 'synthetic', 'organism': 'homo_sapiens', 'libprepkit': 'Bioo Scientific NEXTflex Small RNA-Seq Kit v4',
             'adapter': ADAPTER, 'umi': 0, 'methods': list(methods), 'data': 'benchmark/smallrna/syn_genome', 'synthetic': copy.deepcopy(SPEC),
             'mirbase': {'release': '23.1', 'url': 'u', 'sha256': 'a' * 64, 'hairpin': {'url': 'u', 'sha256': 'b' * 64},
                         'gff': {'url': 'u', 'sha256': 'c' * 64}}}
     if declared is not None:
         spec['de'] = declared
+    if with_decoys:
+        spec['synthetic']['decoys'] = copy.deepcopy(DECOYS)
+        for key, path in fake_decoy_sources(ext / 'benchmark/smallrna/syn_genome/decoys', matures).items():
+            path.rename(fill.decoy_path(spec, ext, key, spec['synthetic']['decoys']['sources'][key]['url']))
     dataset = tmp_path / 'ds.yaml'
     dataset.write_text(yaml.safe_dump(spec, sort_keys=False))  # the groups in their order: control, then case
     project = tmp_path / 'project'
@@ -356,10 +361,10 @@ def genome_project(tmp_path, declared=None, methods=('tinyrna',)):
     result = subprocess.run(cmd + ['prepare', '--dataset', str(dataset), '--project', str(project), '--ext-dir', str(ext)],
                             capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stderr
-    assert '6 mixed samples' in result.stdout and '9 probe samples' in result.stdout
+    assert '6 mixed samples' in result.stdout and ('9 probe samples' in result.stdout or with_decoys)
     config = yaml.safe_load((project / 'config.yaml').read_text())
     assert config['db'] == {'mirbase': {'release': '23.1'}}  # the standard references, on the declaration's release
-    assert len(config['samples']) == 15  # mixed + probe + control
+    assert len(config['samples']) == 15 or with_decoys  # mixed + probe + control
     bench = project / 'benchmark'
     truth = benchmark.read_tsv(bench / 'truth.tsv')
     counts = collections.defaultdict(float)
@@ -530,3 +535,197 @@ def test_differential_expression_uses_the_pools_tests_in_genome_mode(tmp_path):
     result = subprocess.run(cmd + ['summary', '--projects', str(project), '--output', str(out)], capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stderr
     assert 'edger_called: tinyrna' in out.read_text()
+
+
+# Decoys from other RNA classes (#412 PR 2)
+
+DECOYS = {'sources': {key: {'url': 'unused' + ('.gz' if key.startswith('ensembl') else ''), 'sha256': 'unused'} for key in decoys.SOURCES},
+          'load': {unit: 0.1 for unit in decoys.UNITS}, 'fragments': 40, 'nuisance': 0.5, 'probe': {'reads': 200}}
+
+
+def fake_decoy_sources(folder, matures, seed=5):
+    """{source: path} of small decoy sources: RefSeq rRNAs whose 28S holds miR-T20 and miR-T22, GtRNAdb tRNAs (one
+    holding miR-T21), Ensembl ncRNA (Y RNA, snoRNA, snRNA, mitochondrial tRNA and rRNA, a 5S gene, a lncRNA that no
+    unit takes) and cDNA (protein-coding and a nonsense-mediated decay transcript), and two piRNA clusters."""
+    rng = random.Random(seed)
+    rand = lambda k, alphabet='ACGT': ''.join(rng.choice(alphabet) for _ in range(k))
+    folder.mkdir(parents=True, exist_ok=True)
+    s18, s58, s28, s5 = rand(300), rand(60), rand(100) + matures[20] + rand(100) + matures[22] + rand(100), rand(120)
+    refseq = {'NR_003286.4 18S': s18, 'NR_003287.4 28S': s28, 'NR_003285.3 5.8S': s58, 'NR_023363.1 5S': s5,
+              'NR_046235.3 45S': rand(50) + s18 + rand(40) + s58 + rand(40) + s28 + rand(30)}
+    trnas = {'Homo_sapiens_tRNA-Gly-GCC-1-1 (tRNAscan-SE ID: chr1.trna1) Gly (GCC) 72 bp': rand(33) + 'GCC' + rand(36),
+             'Homo_sapiens_tRNA-Ala-AGC-1-1 (tRNAscan-SE ID: chr6.trna2) Ala (AGC) 72 bp': rand(33) + 'AGC' + rand(4) + matures[21] + rand(10),
+             'Homo_sapiens_tRNA-Undet-NNN-1-1 (tRNAscan-SE ID: chr2.trna3) Undet (NNN) 72 bp': rand(72)}
+    ncrna = {'ENST1.1 ncrna gene_biotype:misc_RNA transcript_biotype:misc_RNA gene_symbol:RNY1': rand(110),
+             'ENST2.1 ncrna gene_biotype:snoRNA transcript_biotype:snoRNA gene_symbol:SNORD3A': rand(200),
+             'ENST3.1 ncrna gene_biotype:snRNA transcript_biotype:snRNA gene_symbol:RNU1-1': rand(160),
+             'ENST4.1 ncrna gene_biotype:Mt_tRNA transcript_biotype:Mt_tRNA gene_symbol:MT-TA': rand(69),
+             'ENST5.1 ncrna gene_biotype:Mt_rRNA transcript_biotype:Mt_rRNA gene_symbol:MT-RNR1': rand(300),
+             'ENST6.1 ncrna gene_biotype:rRNA transcript_biotype:rRNA gene_symbol:RNA5S1': rand(120),
+             'ENST7.1 ncrna gene_biotype:lncRNA transcript_biotype:lncRNA gene_symbol:LINC1': rand(400)}
+    cdna = {'ENST8.1 cdna transcript_biotype:protein_coding gene_symbol:GENEA': rand(500),
+            'ENST9.1 cdna transcript_biotype:protein_coding gene_symbol:GENEB': rand(500),
+            'ENST10.1 cdna transcript_biotype:nonsense_mediated_decay gene_symbol:GENEC': rand(500)}
+    pirna = {'Hsap_0001 1:100..1100': rand(1000, 'ACGTTT'), 'Hsap_0002 2:100..1100': rand(1000, 'ACGTTT')}
+    fa = lambda records, rna=False: ''.join('>{}\n{}\n'.format(h, q.replace('T', 'U') if rna else q) for h, q in records.items())
+    paths = {key: folder / '{}.fa'.format(key) for key in decoys.SOURCES}
+    paths['refseq_rrna'].write_text(fa(refseq))
+    paths['gtrnadb'].write_text(fa(trnas, rna=True))
+    paths['pirnaclusterdb'].write_text(fa(pirna))
+    for key, records in (('ensembl_ncrna', ncrna), ('ensembl_cdna', cdna)):
+        paths[key] = folder / '{}.fa.gz'.format(key)
+        with gzip.open(paths[key], 'wt') as fh:
+            fh.write(fa(records))
+    return paths
+
+
+def decoy_spec(**changes):
+    spec = copy.deepcopy(SPEC)
+    spec['decoys'] = dict(copy.deepcopy(DECOYS), **changes)
+    return spec
+
+
+def fastq_records(folder, sample):
+    with gzip.open(folder / '{}_R1.fastq.gz'.format(sample), 'rt') as fh:
+        lines = fh.read().splitlines()
+    return [tuple(lines[i:i + 4]) for i in range(0, len(lines), 4)]
+
+
+def test_decoys_leave_the_mirna_reads_as_they_were(tmp_path, mirbase):
+    """Decoys draw from a stream of their own after the miRNA reads: every sample without decoys has the same truth and
+    FASTQ records, which a sample with decoys starts with; the decoy reads follow, each with its class and source."""
+    files, matures = mirbase
+    sources = fake_decoy_sources(tmp_path / 'decoys', matures)
+    truth0, samples0, _, out0 = generate(tmp_path / 'without', files)
+    out1 = tmp_path / 'with/fastq'
+    truth1, samples1, mirnas1 = sg.generate(decoy_spec(), *files, 'hsa-', ADAPTER, 0, lambda s: out1 / '{}_R1.fastq.gz'.format(s), sources)
+    is_decoy = lambda t: not t[3] and t[1] != 'random'  # no miRNA, not a random read
+    for sample, *_ in samples0:
+        mirna_rows = [t for t in truth1 if t[0] == sample and not is_decoy(t)]
+        assert mirna_rows == [t for t in truth0 if t[0] == sample]
+        before, after = fastq_records(out0, sample), fastq_records(out1, sample)
+        assert after[:len(before)] == before
+        decoy_rows = [t for t in truth1 if t[0] == sample and is_decoy(t)]
+        assert len(after) - len(before) == sum(t[5] for t in decoy_rows)
+        assert (sample.startswith('M') and decoy_rows) or (not sample.startswith('M') and not decoy_rows)
+    decoy_rows = [t for t in truth1 if is_decoy(t)]
+    assert {'{}-{}'.format(t[1], t[7]) for t in decoy_rows} == set(decoys.UNITS) and all(t[8] for t in decoy_rows)
+    kinds = collections.Counter(s[1] for s in samples1)
+    assert kinds['decoy'] == len(decoys.UNITS) and kinds['mixed'] == 6
+    for s in samples1:  # every read of a new sample has its truth
+        if s[1] == 'decoy' or s[3].startswith('embedded_'):
+            inserts = collections.Counter(r[1][:-len(ADAPTER)] for r in fastq_records(out1, s[0]))
+            assert inserts == collections.Counter({t[4]: t[5] for t in truth1 if t[0] == s[0]})
+    again = sg.generate(decoy_spec(), *files, 'hsa-', ADAPTER, 0, lambda s: tmp_path / 'again' / '{}_R1.fastq.gz'.format(s), sources)
+    assert again[0] == truth1  # deterministic
+
+
+def test_decoy_fragments_follow_their_class(tmp_path, mirbase):
+    files, matures = mirbase
+    sources = fake_decoy_sources(tmp_path / 'decoys', matures)
+    universe = sg.Universe(*files, 'hsa-')
+    reads = sg.Reads(universe, [], SPEC, np.random.default_rng(1))
+    hairpins = sg.hairpin_records(files[1], 'hsa-', universe)
+    d = decoys.Decoys(dict(DECOYS, fragments=300, modification=1.0), sources, universe, hairpins, reads, 7)
+    names = {u: sorted({name for name, _, _ in d.molecules[u]}) for u in d.units}
+    assert names['tRNA-ensembl'] == ['MT-TA'] and names['Y_RNA-ensembl'] == ['RNY1'] and names['mRNA-ensembl'] == ['GENEA', 'GENEB']
+    assert names['rRNA-refseq'] == ['18S', '28S', '3ETS', '5.8S', '5ETS', '5S', 'ITS1', 'ITS2'] and 'tRNA-Undet-NNN-1-1' not in names['tRNA-gtrnadb']
+    assert names['other_ncRNA-ensembl'] == ['RNU1-1'] and names['rRNA-ensembl'] == ['MT-RNR1', 'RNA5S1']
+    kmers = {seq[i:i + 18] for _, seq, _ in hairpins for i in range(len(seq) - 17)}
+    for unit in d.units:
+        for fragment, origin in d.catalogue[unit][0]:
+            assert 15 <= len(fragment) <= decoys.MAX_LENGTH and fragment not in reads.forbidden
+            if unit != 'precursor-mirbase':
+                assert not any(fragment[i:i + 18] in kmers for i in range(len(fragment) - 17)), (unit, origin)
+    trna = d.catalogue['tRNA-gtrnadb'][0]
+    kinds = {origin.split(':')[1] for _, origin in trna}
+    assert {'5p_half', '3p_half', '5p_tRF', '3p_tRF', 'i_tRF'} <= kinds
+    assert all(f.endswith('CCA') for f, o in trna if o.split(':')[1] in ('3p_tRF', '3p_half'))
+    assert any(o.endswith(':m1G9') for _, o in trna) and any(o.endswith(':m1A58') for _, o in trna)  # modification 1.0
+    pirna = d.catalogue['piRNA-pirnaclusterdb'][0]
+    assert all(24 <= len(f) <= 32 for f, _ in pirna) and sum(f[0] == 'T' for f, _ in pirna) / len(pirna) > 0.75
+    for fragment, origin in d.catalogue['precursor-mirbase'][0]:  # loops and flanks, never a mature
+        assert not any(m in fragment or fragment in m for m in universe.mature_sequences)
+    assert d.embedded == {'rRNA': {'MIMAT9000020': ['28S'], 'MIMAT9000022': ['28S']}, 'tRNA': {'MIMAT9000021': ['tRNA-Ala-AGC-1-1']}}
+
+
+def test_decoy_loads_follow_the_declaration_and_the_nuisance(tmp_path, mirbase):
+    files, matures = mirbase
+    sources = fake_decoy_sources(tmp_path / 'decoys', matures)
+    spec = decoy_spec()
+    spec['reads'] = {'mean': 20000, 'cv': 0.2}
+    out = tmp_path / 'fastq'
+    truth, samples, _ = sg.generate(spec, *files, 'hsa-', ADAPTER, 0, lambda s: out / '{}_R1.fastq.gz'.format(s), sources)
+    total_load = sum(DECOYS['load'].values())
+    for sample, kind, _, _, _, _, _, nuisance in samples:
+        if kind != 'mixed':
+            continue
+        mirna = sum(t[5] for t in truth if t[0] == sample and t[3])
+        decoy = sum(t[5] for t in truth if t[0] == sample and not t[3] and t[1] != 'random')
+        assert decoy / (mirna * total_load) == pytest.approx(2 ** (0.5 * nuisance), rel=0.1)
+
+
+def test_decoy_declaration_is_checked(tmp_path):
+    def load(**changes):
+        spec = {'name': 'g', 'kind': 'synthetic', 'organism': 'homo_sapiens', 'libprepkit': 'k', 'adapter': ADAPTER, 'methods': ['tinyrna'],
+                'data': 'd', 'synthetic': decoy_spec(**changes),
+                'mirbase': {'release': '23.1', 'url': 'u', 'sha256': 'a', 'hairpin': {'url': 'u', 'sha256': 'b'}, 'gff': {'url': 'u', 'sha256': 'c'}}}
+        path = tmp_path / 'd.yaml'
+        path.write_text(yaml.safe_dump(spec))
+        return benchmark.load_dataset(path)
+    assert load()['synthetic']['decoys']['probe'] == {'reads': 200}
+    for changes, message in (({'load': {'tRNA-elsewhere': 0.1}}, 'decoys.load must give'), ({'load': {'tRNA-gtrnadb': -1}}, 'decoys.load must give'),
+                             ({'sources': {}}, 'decoys.sources needs url and sha256 for'), ({'length': [10, 40]}, 'decoys.length'),
+                             ({'probe': {'reads': 1.5}}, 'decoys.probe.reads'), ({'modification': 2}, 'decoys.modification'),
+                             ({'colour': 'red'}, 'synthetic.decoys takes')):
+        with pytest.raises(SystemExit, match=re.escape(message)):
+            load(**changes)
+    spec = {'data': 'd', 'synthetic': {'decoys': {'sources': {'ensembl_cdna': {'url': 'https://x/cdna.all.fa.gz', 'sha256': 's'},
+                                                              'refseq_rrna': {'url': 'https://e/efetch.fcgi?id=1,2&rettype=fasta', 'sha256': 't'}}}}}
+    assert fill.decoy_path(spec, '/ext', 'ensembl_cdna', 'https://x/cdna.all.fa.gz') == Path('/ext/d/decoys/ensembl_cdna.fa.gz')
+    assert fill.decoy_path(spec, '/ext', 'refseq_rrna', 'https://e/efetch.fcgi?id=1,2&rettype=fasta') == Path('/ext/d/decoys/refseq_rrna.fa')
+
+
+def test_decoy_scores_on_hand_made_counts(tmp_path, mirbase):
+    """A method that counts a decoy probe's reads on two miRNAs gives their share of the decoy reads, the control's
+    subtracted; one that leaves out the embedded miRNAs recovers none of them; the truth counts no decoy."""
+    files, matures = mirbase
+    sources = fake_decoy_sources(tmp_path / 'decoys', matures)
+    truth, samples, mirnas, _ = generate(tmp_path, files, decoy_spec(), sources)
+    truth, samples, mirnas = tables(truth, samples, mirnas)
+    perfect = [('perfect', t['sample'], '', t['mature_id'], t['count']) for t in truth if t['mature_id']]
+    carriers = {m['mature_id'] for m in mirnas if 'carrier' in m['probe_classes']}
+    x, y = [i for i in ('MIMAT90000{}'.format(k) for k in range(30, 41)) if i not in carriers][:2]  # landing miRNAs
+    leaky = [('leaky',) + row[1:] for row in perfect] + [('leaky', 'P_decoy_tRNA-gtrnadb_1', '', x, 30)] + \
+        [('leaky', s, '', y, 10) for s in ('P_decoy_tRNA-gtrnadb_1', 'P_control')]
+    embedded = {s['sample'] for s in samples if s['probe_class'].startswith('embedded_')}
+    lossy = [('lossy',) + row[1:] for row in perfect if not (row[1] in embedded and row[3] in ('MIMAT9000020', 'MIMAT9000021', 'MIMAT9000022'))]
+    ev = gm.Evaluation(perfect + leaky + lossy, truth, samples, mirnas, ['perfect', 'leaky', 'lossy'])
+    decoy_reads = sum(float(t['count']) for t in truth if t['sample'] == 'P_decoy_tRNA-gtrnadb_1' and not t['mature_id'])
+    assert ev.decoys('perfect')['tRNA-gtrnadb'][0] == 0 and ev.decoys('truth')['rRNA-refseq'] == (0.0, ev.decoys('truth')['rRNA-refseq'][1], {})
+    share, reads, landed = ev.decoys('leaky')['tRNA-gtrnadb']
+    assert reads == decoy_reads and share == pytest.approx(30 / decoy_reads) and landed == {x: 30.0}  # y is the control's too
+    assert ev.decoys('leaky')['rRNA-refseq'][0] == 0
+    probes = ev.probes('lossy')
+    for cls in ('embedded_rRNA', 'embedded_tRNA'):
+        if cls in probes:
+            assert probes[cls][0] == 0 and ev.probes('perfect')[cls][0] == 1
+    assert any(c.startswith('embedded_') for c in probes)
+
+
+def test_prepare_and_evaluate_with_decoys(tmp_path):
+    project, cmd = genome_project(tmp_path, with_decoys=True)
+    bench = project / 'benchmark'
+    result = subprocess.run(cmd + ['evaluate', '--project', str(project), '--bootstrap', '20'], capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    report = (bench / 'report.md').read_text()
+    assert '## Decoys counted as miRNAs' in report and '| tRNA-gtrnadb |' in report and '## miRNAs inside other RNA classes' in report
+    table = {line.split('\t')[0]: line.split('\t')[1:] for line in (bench / 'metrics.tsv').read_text().splitlines()}
+    assert table['decoy_as_mirna'] == ['0.0', '0.0'] and table['decoy_as_mirna_piRNA-pirnaclusterdb'] == ['0.0', '0.0']
+    assert table['recovered'] == ['1.0', '1.0'] and table['precision'] == ['1.0', '1.0']  # tinyrna counts the miRNA reads only
+    truth = benchmark.read_tsv(bench / 'truth.tsv')
+    assert {'source', 'origin'} <= set(truth[0]) and any(row['source'] == 'gtrnadb' for row in truth)
+    out = tmp_path / 'summary.md'
+    result = subprocess.run(cmd + ['summary', '--projects', str(project), '--output', str(out)], capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    assert 'decoy_as_mirna' in out.read_text()

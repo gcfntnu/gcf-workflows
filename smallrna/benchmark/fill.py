@@ -43,6 +43,8 @@ def targets(spec, ext_dir):
     if spec['kind'] == 'synthetic':
         for key, name in (('hairpin', 'hairpin.fa'), ('gff', 'genes.gff3')):
             files.append((mirbase[key]['url'], 'sha256', mirbase[key]['sha256'], data / 'mirbase' / str(mirbase['release']) / name))
+        sources = (spec['synthetic'].get('decoys') or {}).get('sources') or {}  # #412 PR 2
+        files += [(value['url'], 'sha256', value['sha256'], decoy_path(spec, ext_dir, key, value['url'])) for key, value in sorted(sources.items())]
         return files
     runs = spec['runs'] if spec['kind'] == 'pool' else [run for sample in spec['samples'] for run in sample['runs']]
     files += [(run['url'], 'md5', run['md5'], data / 'fastq' / '{}.fastq.gz'.format(run['run'])) for run in runs]
@@ -93,6 +95,12 @@ def transfer(url, out, checksum, log=print):
         if total is None or received >= total:
             return
     raise ValueError('{}: incomplete after {} connections ({} of {} bytes)'.format(url, CONNECTIONS, received, total))
+
+
+def decoy_path(spec, ext_dir, key, url):
+    """Where a genome-wide synthetic declaration's decoy source `key` is filled: <data>/decoys/<key>.fa, or .fa.gz for a
+    gzipped download."""
+    return Path(ext_dir) / spec['data'] / 'decoys' / '{}.fa{}'.format(key, '.gz' if url.split('?')[0].endswith('.gz') else '')
 
 
 def download(url, algorithm, digest, path, log=print):

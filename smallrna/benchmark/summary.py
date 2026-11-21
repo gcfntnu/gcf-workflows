@@ -24,7 +24,7 @@ import yaml
 SECTIONS = [
     ('synthetic', 'Synthetic data',
      ['recovered', 'precision', 'exact', 'misassigned', 'unplaced', 'near_spill', 'edger_called', 'edger_false_calls', 'edger_fdr',
-      'isomir_recovered'],
+      'isomir_recovered', 'decoy_as_mirna'],
      'Counts are compared per sample and miRBase accession. `recovered` sums the smaller of observed and true counts '
      'for each pair, divided by the total true count. `exact` is the fraction of positive-truth pairs with matching counts. '
      '`misassigned` and `unplaced` count reads on accessions absent from that sample’s truth and on names without a miRBase accession. '
@@ -35,7 +35,10 @@ SECTIONS = [
      'most 0.05 in the designed direction), `edger_false_calls` (miRNAs designed not to change and called) and `edger_fdr` (the '
      'share of calls on unchanged miRNAs or in the wrong direction). edgeR\'s GLM test, limma-voom, the tests adjusted for the '
      'nuisance factor and the built-in check `de_*` are in each report. `isomir_recovered` (#454): the share of its true isomiR '
-     'reads (no substitutions) a method reports as their own sequence on their miRNA; empty for methods without isomiR output.'),
+     'reads (no substitutions) a method reports as their own sequence on their miRNA; empty for methods without isomiR output. '
+     '`decoy_as_mirna` (#412 PR 2): in probe samples of reads of other RNA classes (tRNA, rRNA, Y RNA, snoRNA, other ncRNA, '
+     'mRNA, piRNA, precursor), the share a method counts as miRNAs (control subtracted); each report has it per class and '
+     'source, the miRNAs they land on, and the recovery of miRBase matures inside other-class molecules.'),
     ('equimolar', 'Equimolar pools', ['detected', 'cv', 'within_2fold', 'spearman_vs_oracle', 'outside', 'unplaced', 'shifted_within_2fold',
                                       'shifted_isomir_recovered'],
      'Scored `exact` entries share no miRNA accession with any other exact or shifted entry. The metrics are averaged across samples: '

@@ -54,6 +54,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import adapters  # noqa: E402
 import biological  # noqa: E402
+import decoys  # noqa: E402
 import de  # noqa: E402
 import evaluation  # noqa: E402
 import fill as filler  # noqa: E402
@@ -96,6 +97,8 @@ def load_dataset(path, mirbase_release=None):
         spec = select_mirbase(spec, str(mirbase_release), path)
     if genome and not all(isinstance(spec['mirbase'].get(k), dict) and {'url', 'sha256'} <= set(spec['mirbase'][k]) for k in ('hairpin', 'gff')):
         fail('{}: a genome-wide synthetic dataset needs mirbase.hairpin and mirbase.gff, each with url and sha256'.format(path))
+    if genome and spec['synthetic'].get('decoys') is not None:
+        check_decoys(spec['synthetic'], path)
     if spec['kind'] == 'pool' and spec['pool'] not in ('equimolar', 'ratiometric'):
         fail('{}: pool must be equimolar or ratiometric, got {!r}'.format(path, spec['pool']))
     if 'de' in spec:
@@ -414,6 +417,47 @@ def prepare(args):
     print(message)
 
 
+def check_decoys(syn, path):
+    """`synthetic.decoys` of a genome-wide synthetic declaration (#412 PR 2; decoys.py): `load` {unit: decoy reads per miRNA
+    read} of units in decoys.UNITS, `sources` {source: {url, sha256}} for every source a declared unit reads, `probe.reads`
+    (a probe sample per unit needs `synthetic.probes`), and the optional fragment settings."""
+    d = syn['decoys']
+    number = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool)
+    where = '{}: synthetic.decoys'.format(path)
+    known = {'load', 'sources', 'probe'} | set(decoys.DEFAULTS)
+    if not isinstance(d, dict) or set(d) - known:
+        fail('{} takes {}, got {!r}'.format(where, ', '.join(sorted(known)), sorted(d) if isinstance(d, dict) else d))
+    load = d.get('load')
+    if not isinstance(load, dict) or not load or set(load) - set(decoys.UNITS) or not all(number(v) and v >= 0 for v in load.values()):
+        fail('{}.load must give decoy reads per miRNA read (a number of at least 0) for units of {}, got {!r}'.format(
+            where, ', '.join(decoys.UNITS), load))
+    sources = d.get('sources') or {}
+    needed = sorted({decoys.UNITS[u] for u in load if decoys.UNITS[u]})
+    bad = [s for s in needed if not (isinstance(sources.get(s), dict) and {'url', 'sha256'} <= set(sources[s]))]
+    if bad or set(sources) - set(decoys.SOURCES):
+        fail('{}.sources needs url and sha256 for {} (sources: {}), got {!r}'.format(where, ', '.join(needed), ', '.join(decoys.SOURCES),
+                                                                                 sorted(sources)))
+    reads = (d.get('probe') or {}).get('reads', 0)
+    if type(reads) is not int or reads < 0 or (reads and not syn.get('probes')):
+        fail('{}.probe.reads must be a whole number of at least 0, and needs synthetic.probes (their carrier and control), '
+             'got {!r}'.format(where, reads))
+    length = d.get('length', decoys.DEFAULTS['length'])
+    if not (isinstance(length, list) and len(length) == 2 and all(type(v) is int for v in length) and 15 <= length[0] <= length[1] <= decoys.MAX_LENGTH):
+        fail('{}.length must be [shortest, longest] between 15 and {}, got {!r}'.format(where, decoys.MAX_LENGTH, length))
+    for key in ('modification', 'pirna_5u'):
+        if not (number(d.get(key, 0)) and 0 <= d.get(key, 0) <= 1):
+            fail('{}.{} must be a share between 0 and 1, got {!r}'.format(where, key, d[key]))
+    if not (type(d.get('fragments', 1)) is int and d.get('fragments', 1) > 0) or not number(d.get('weight_sd', 0)) or \
+            d.get('weight_sd', 0) < 0 or not number(d.get('nuisance', 0)):
+        fail('{}: fragments must be a whole number above 0, weight_sd a number of at least 0 and nuisance a number'.format(where))
+
+
+def decoy_files(spec, ext_dir):
+    """{source: filled path} of a genome-wide synthetic declaration's decoy sources (fill.decoy_path)."""
+    sources = ((spec['synthetic'].get('decoys') or {}).get('sources') or {})
+    return {key: filler.decoy_path(spec, ext_dir, key, value['url']) for key, value in sources.items()}
+
+
 def synthetic_files(spec, ext_dir):
     """The filled miRBase files of a genome-wide synthetic declaration: mature.fa, hairpin.fa, genes.gff3."""
     folder = Path(ext_dir) / spec['data'] / 'mirbase' / str(spec['mirbase']['release'])
@@ -422,7 +466,8 @@ def synthetic_files(spec, ext_dir):
 
 def prepare_synthetic_genome(spec, project, ext_dir, methods, args):
     files = synthetic_files(spec, ext_dir)
-    missing = [str(p) for p in files if not p.is_file()]
+    sources = decoy_files(spec, ext_dir)
+    missing = [str(p) for p in files + list(sources.values()) if not p.is_file()]
     if missing:
         fail('not filled: {}; run `benchmark.py fill --dataset ...` first'.format(', '.join(missing)))
     syn = dict(spec['synthetic'])
@@ -430,7 +475,7 @@ def prepare_synthetic_genome(spec, project, ext_dir, methods, args):
         syn['reads'] = dict(syn['reads'], mean=args.reads)
     umi = int(spec.get('umi', 0))
     truth, samples, mirnas = synthetic_genome.generate(syn, *files, PREFIX[spec['organism']], spec['adapter'], umi,
-                                                       lambda sample: project_fastq(project, spec, sample))
+                                                       lambda sample: project_fastq(project, spec, sample), sources)
     read_length = max(len(row[4]) for row in truth) + 2 * umi + len(spec['adapter'])
     bench = write_project(project, spec, ext_dir, [s[0] for s in samples], read_length, methods)
     synthetic_genome.write_table(bench / 'truth.tsv', synthetic_genome.TRUTH_COLUMNS, truth)
@@ -1407,6 +1452,15 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
         for c in classes:
             point[name]['probe_' + c] = probes[name].get(c, (float('nan'),))[0]
     keys = GENOME_KEYS + ['probe_' + c for c in classes]
+    decoy_scores = {name: ev.decoys(name) for name in rows}  # decoy reads counted as miRNAs (#412 PR 2)
+    decoy_units = sorted({u for v in decoy_scores.values() for u in v})
+    if decoy_units:
+        for name in rows:
+            scored = decoy_scores[name]
+            reads = sum(scored[u][1] for u in decoy_units)
+            point[name]['decoy_as_mirna'] = sum(scored[u][0] * scored[u][1] for u in decoy_units) / reads if reads else float('nan')
+            point[name].update({'decoy_as_mirna_' + u: scored[u][0] for u in decoy_units})
+        keys += ['decoy_as_mirna'] + ['decoy_as_mirna_' + u for u in decoy_units]
     iso_rows, no_isomirs = isomir_table(args, project, bench, spec, methods, mature, gff, raw, pending)
     with_isomirs = [m for m in methods if m not in no_isomirs]
     iso_tallies, iso_classes = isomirs.synthetic_tallies(truth, iso_rows, samples, with_isomirs, isomirs.representatives(id_to_seq))
@@ -1481,6 +1535,39 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
               'and reads landing on other miRNAs (`misplaced`, relative to the same truth).', ''] + md_table(
         ['class', 'miRNAs'] + ['{}: recovery / misplaced'.format(r) for r in methods],
         [[c, probes['truth'][c][2]] + ['{} / {}'.format(rnd(probes[r][c][0]), rnd(probes[r][c][1])) for r in methods] for c in classes])
+    if decoy_units:
+        lines += ['', '## Decoys counted as miRNAs', '',
+                  'Probe samples of one class and source of other RNA (#412 PR 2; `P_decoy_*`): the reads a method counts on '
+                  'miRNAs other than the carrier, minus the control\'s, over the decoy reads (`decoy_as_mirna_<class>-<source>`; '
+                  '`decoy_as_mirna` pools them). Decoys never share {} nt with a miRBase hairpin, so every such read is false.'.format(
+                      decoys.OVERLAP), '']
+        lines += md_table(['class-source', 'decoy reads'] + methods,
+                          [[u, '{:.0f}'.format(decoy_scores['truth'][u][1])] + [rnd(decoy_scores[r][u][0]) for r in methods] for u in decoy_units])
+        landed_lines = []
+        for name in methods:
+            total = collections.Counter()
+            by = collections.defaultdict(collections.Counter)
+            for u in decoy_units:
+                for i, v in decoy_scores[name][u][2].items():
+                    total[i] += v
+                    by[i][u] += v
+            top = [(i, v) for i, v in total.most_common(5) if v >= 1]
+            if top:
+                landed_lines.append('- {}: '.format(name) + '; '.join('{} {:.0f} ({})'.format(
+                    label(i), v, ', '.join('{} {:.0f}'.format(u, c) for u, c in by[i].most_common(3))) for i, v in top))
+        if landed_lines:
+            lines += ['', 'The miRNAs with the most decoy reads (control subtracted), by class and source:', ''] + landed_lines
+    embedded = [c for c in classes if c.startswith('embedded_')]
+    if embedded:
+        lines += ['', '## miRNAs inside other RNA classes', '',
+                  'miRBase matures that lie exactly inside a molecule of another class (#412 PR 2; `P_embedded_*`, canonical reads): '
+                  'recovery as in the probe samples (`probe_embedded_<class>`); 1 - recovery is the share lost to the other class.', '']
+        inside = {i: m.get('inside', '') for i, m in ev.mirnas.items()}
+        lines += md_table(['class', 'miRNAs'] + methods, [[c[len('embedded_'):], ', '.join(sorted(
+            label(i) for i, m in ev.mirnas.items() if c in m['probe_classes'].split(',')))] + [rnd(probes[r][c][0]) for r in methods]
+            for c in embedded])
+        lines += ['', 'Their molecules: ' + '; '.join('{} ({})'.format(label(i), v) for i, v in sorted(inside.items(), key=lambda kv: label(kv[0]))
+                                                       if v) + '.']
     lines += isomirs.synthetic_lines(iso, iso_classes, with_isomirs, no_isomirs)
     absent = []
     for name in methods:
