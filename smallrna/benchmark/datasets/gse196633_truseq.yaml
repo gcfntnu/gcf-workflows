@@ -1,0 +1,123 @@
+# GSE196633 (GEO; SRA PRJNA806640): human lung adenocarcinoma and adjacent normal tissue of 10 patients, paired. TruSeq
+# Small RNA, HiSeq 2500, 51-nt reads, 65-98M reads per library: the deep TruSeq set of the depth analysis (#409) and real
+# tissue with patient variance (#416). Reads as uploaded: raw, with the 3' adapter. `patient` pairs each tumour with its
+# normal tissue; the DE step tests tumour against normal with the patient as a covariate (#447). Nothing is scored there:
+# no change is known. `prepare --per-group 3` takes the first three patients' tumours and normals (the issue's subset).
+name: gse196633_truseq
+kind: biological
+organism: homo_sapiens
+libprepkit: TruSeq Small RNA Library Prep Kit
+methods: [unitas, mirge3, mirflowz, tesmall, tinyrna, smrnaseq, biocore_htseq, biocore_miraligner]
+data: benchmark/smallrna/gse196633   # relative to EXT_DIR
+mirbase:                    # mature miRNAs of the release the methods use: names, accessions and truth groups
+  release: '23.1'
+  url: https://www.mirbase.org/download_version_files/23.1/mature.fa
+  sha256: 52d69eeb3c23c5ed0f66c8c9f24e1ad2cd94cc34e72e4fc376c0dd438d2779ff
+mirbase_releases:           # other releases a run can select: fill and prepare --mirbase-release (#431)
+  '22':
+    url: https://www.mirbase.org/download_version_files/22/mature.fa
+    sha256: 3c521fc9bea3c7993e71cf188b11caf73e2d40ac83454e32876455317cc6d342
+de:                         # differential expression (#447): tumour against normal, paired by patient
+  contrast: [tumour, normal]
+  covariates: [patient]
+samples:
+  - sample: GSM5897082       # B170406001GTV_T: Lung adenocarcinoma cells
+    group: tumour
+    patient: B170406001GTV
+    runs:
+      - {run: SRR18004549, reads: 69609400, md5: 76115a419af851ec1b8308c9f2e637df, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR180/049/SRR18004549/SRR18004549.fastq.gz, sra: {md5: aae4734337fb26dfb4e3946c229598cf, bytes: 1593148628}}
+  - sample: GSM5897084       # B170906001GTV_T: Lung adenocarcinoma cells
+    group: tumour
+    patient: B170906001GTV
+    runs:
+      - {run: SRR18004544, reads: 75993591, md5: bafc8fbd2ae9463e4d114c7ba546c1f1, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR180/044/SRR18004544/SRR18004544.fastq.gz, sra: {md5: 82fa62beeb3c89e498ca86ac3829ddde, bytes: 1760185025}}
+  - sample: GSM5897094       # LC16_T: Lung adenocarcinoma cells
+    group: tumour
+    patient: LC16
+    runs:
+      - {run: SRR18004538, reads: 64875856, md5: de6b0cfada455220cd5854375a373218, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR180/038/SRR18004538/SRR18004538.fastq.gz, sra: {md5: aa5dd394a205e7dca6eb6a72a94499f7, bytes: 1449846761}}
+  - sample: GSM5897088       # LC17_T: Lung adenocarcinoma cells
+    group: tumour
+    patient: LC17
+    runs:
+      - {run: SRR18004542, reads: 97788435, md5: 6a6af6326a6255a3d1379dacc84ada62, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR180/042/SRR18004542/SRR18004542.fastq.gz, sra: {md5: ffe863e2a4daa3f3e40574e6d4f1d95b, bytes: 2208538319}}
+  - sample: GSM5897086       # LC1_T: Lung adenocarcinoma cells
+    group: tumour
+    patient: LC1
+    runs:
+      - {run: SRR18004543, reads: 98252797, md5: 1484821112f659b3396af0335c4a1016, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR180/043/SRR18004543/SRR18004543.fastq.gz, sra: {md5: 645d7b15a1de2cf1717d1ef57dd00606, bytes: 2400405061}}
+  - sample: GSM5897096       # LC25_T: Lung adenocarcinoma cells
+    group: tumour
+    patient: LC25
+    runs:
+      - {run: SRR18004539, reads: 68737924, md5: 976d752ab50868734d67cec3a69af380, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR180/039/SRR18004539/SRR18004539.fastq.gz, sra: {md5: 750a52a269efec8e09c5c7058554b2c3, bytes: 1541777074}}
+  - sample: GSM5897098       # LC27_T: Lung adenocarcinoma cells
+    group: tumour
+    patient: LC27
+    runs:
+      - {run: SRR18004540, reads: 75913244, md5: df70de5cbb1622dc048b3cb00d550d9a, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR180/040/SRR18004540/SRR18004540.fastq.gz, sra: {md5: 869358aaccca48f2da042e1ab6763e9c, bytes: 1681440693}}
+  - sample: GSM5897100       # LC28_T: Lung adenocarcinoma cells
+    group: tumour
+    patient: LC28
+    runs:
+      - {run: SRR18004531, reads: 68944701, md5: 30352e9958322229e56fd7d615ce8d43, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR180/031/SRR18004531/SRR18004531.fastq.gz, sra: {md5: 88ddbcf84fbb9b1aadb2b54d1371f098, bytes: 1547536143}}
+  - sample: GSM5897090       # LC36_T: Lung adenocarcinoma cells
+    group: tumour
+    patient: LC36
+    runs:
+      - {run: SRR18004541, reads: 67372540, md5: a11e74d82b7537ce3a0557b1afa8f2d8, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR180/041/SRR18004541/SRR18004541.fastq.gz, sra: {md5: cea9262d08e69498504ce607f9c2293f, bytes: 1529241844}}
+  - sample: GSM5897092       # LC37_T: Lung adenocarcinoma cells
+    group: tumour
+    patient: LC37
+    runs:
+      - {run: SRR18004537, reads: 65969241, md5: 4a66d67ae0ebdbbc27e3d71b0a1c76a3, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR180/037/SRR18004537/SRR18004537.fastq.gz, sra: {md5: 94b39457e95c9ca48872cf8c94111445, bytes: 1543595300}}
+  - sample: GSM5897081       # B170406001GTV_N: Adjacent normal cells
+    group: normal
+    patient: B170406001GTV
+    runs:
+      - {run: SRR18004550, reads: 81322510, md5: 1c6d42bc6b851286ec395bca69b04ff8, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR180/050/SRR18004550/SRR18004550.fastq.gz, sra: {md5: ced619bc7e1e4d14c18f8df1ab1b0761, bytes: 1856961269}}
+  - sample: GSM5897083       # B170906001GTV_N: Adjacent normal cells
+    group: normal
+    patient: B170906001GTV
+    runs:
+      - {run: SRR18004545, reads: 73926110, md5: 8f4ba75b16cf833ceac38361a2729bfe, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR180/045/SRR18004545/SRR18004545.fastq.gz, sra: {md5: 75143fd51ab6c8b6250dfb04a7a81c6c, bytes: 1671508842}}
+  - sample: GSM5897093       # LC16_N: Adjacent normal cells
+    group: normal
+    patient: LC16
+    runs:
+      - {run: SRR18004535, reads: 66647776, md5: 3effda887dd86cee0ccb09cb848769cb, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR180/035/SRR18004535/SRR18004535.fastq.gz, sra: {md5: 0d1efde1d996f1efb4b6f4efce89ac35, bytes: 1493889193}}
+  - sample: GSM5897087       # LC17_N: Adjacent normal cells
+    group: normal
+    patient: LC17
+    runs:
+      - {run: SRR18004547, reads: 98454476, md5: 0b11d9f146bd84f4df4d4f3616ff0f4a, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR180/047/SRR18004547/SRR18004547.fastq.gz, sra: {md5: bc8192af2682eed4871caf7f4e9bc889, bytes: 2282393580}}
+  - sample: GSM5897085       # LC1_N: Adjacent normal cells
+    group: normal
+    patient: LC1
+    runs:
+      - {run: SRR18004546, reads: 95230023, md5: d5d62af176bc20592b2fce26badac161, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR180/046/SRR18004546/SRR18004546.fastq.gz, sra: {md5: d0d439ecd412862e29f9045d6a5a7108, bytes: 2195794201}}
+  - sample: GSM5897095       # LC25_N: Adjacent normal cells
+    group: normal
+    patient: LC25
+    runs:
+      - {run: SRR18004534, reads: 65662172, md5: 49b4b444d13a8829ab1f0b35ba5a51e4, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR180/034/SRR18004534/SRR18004534.fastq.gz, sra: {md5: d574046bd86088f2d83ed4189b2e788c, bytes: 1490316344}}
+  - sample: GSM5897097       # LC27_N: Adjacent normal cells
+    group: normal
+    patient: LC27
+    runs:
+      - {run: SRR18004533, reads: 74434172, md5: 18585d9690d02f10f98848176d0087e2, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR180/033/SRR18004533/SRR18004533.fastq.gz, sra: {md5: 9b0f0e950132cf0fe07d52e77e7b1ef6, bytes: 1683743503}}
+  - sample: GSM5897099       # LC28_N: Adjacent normal cells
+    group: normal
+    patient: LC28
+    runs:
+      - {run: SRR18004532, reads: 81328099, md5: cd1ebbc4e8ff361ef81e4ce5babe39c6, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR180/032/SRR18004532/SRR18004532.fastq.gz, sra: {md5: 74d9a288b9b23c28988380d4632bbbe1, bytes: 1914089825}}
+  - sample: GSM5897089       # LC36_N: Adjacent normal cells
+    group: normal
+    patient: LC36
+    runs:
+      - {run: SRR18004548, reads: 97908275, md5: 3576b12b8a016469d89d780296dbf430, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR180/048/SRR18004548/SRR18004548.fastq.gz, sra: {md5: 90ed10a1429b3804d3b246168a8e94ab, bytes: 2287657499}}
+  - sample: GSM5897091       # LC37_N: Adjacent normal cells
+    group: normal
+    patient: LC37
+    runs:
+      - {run: SRR18004536, reads: 98339500, md5: 1636310869dd2ca1247cd0e0074594b9, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR180/036/SRR18004536/SRR18004536.fastq.gz, sra: {md5: 6133af5329bddcc9cbaa5d337e8cc66d, bytes: 2326594479}}

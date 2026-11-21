@@ -1,0 +1,68 @@
+# GSE168416 (GEO; SRA PRJNA707335): human colorectal cancer cell line DiFi, cells and extracellular fractions (small EVs
+# sEV-P, exomeres, supermeres), 3 each (Zhang et al. 2021, PMID 34887515). Automated NEXTflex Small RNA-Seq Kit v3, NovaSeq 6000,
+# 51-nt reads, 129-188M reads per library: the deep NEXTflex v3 set of the depth analysis (#409). The extracellular fractions
+# are dominated by Y RNA, rRNA and tRNA fragments, the cells by miRNAs (other classes, #409). Reads as uploaded: raw, with the
+# 3' adapter and the 4 random bases at each end. `prepare --per-group 1` takes one library per fraction.
+name: gse168416_nextflex_v3
+kind: biological
+organism: homo_sapiens
+libprepkit: Bioo Scientific NEXTflex Small RNA-Seq Kit v3
+methods: [unitas, mirge3, mirflowz, tesmall, tinyrna, smrnaseq, biocore_htseq, biocore_miraligner]
+data: benchmark/smallrna/gse168416   # relative to EXT_DIR
+mirbase:                    # mature miRNAs of the release the methods use: names, accessions and truth groups
+  release: '23.1'
+  url: https://www.mirbase.org/download_version_files/23.1/mature.fa
+  sha256: 52d69eeb3c23c5ed0f66c8c9f24e1ad2cd94cc34e72e4fc376c0dd438d2779ff
+mirbase_releases:           # other releases a run can select: fill and prepare --mirbase-release (#431)
+  '22':
+    url: https://www.mirbase.org/download_version_files/22/mature.fa
+    sha256: 3c521fc9bea3c7993e71cf188b11caf73e2d40ac83454e32876455317cc6d342
+samples:
+  - sample: GSM5139309       # Cell_P1
+    group: Cell
+    runs:
+      - {run: SRR13873943, reads: 146806362, md5: ea1362d3a0a96e67749509b97fb0cbc7, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR138/043/SRR13873943/SRR13873943.fastq.gz, sra: {md5: 4b769af1906518f74aa961eaa57237c2, bytes: 2421496253}}
+  - sample: GSM5139310       # Cell_P2
+    group: Cell
+    runs:
+      - {run: SRR13873944, reads: 132292873, md5: cad7b609fb61ad7fb622a3ad1036e1e0, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR138/044/SRR13873944/SRR13873944.fastq.gz, sra: {md5: 80527d29468ec22882e9ca7fc38e8d39, bytes: 2181968381}}
+  - sample: GSM5139311       # Cell_P3
+    group: Cell
+    runs:
+      - {run: SRR13873945, reads: 136713524, md5: 201dc04f78a61677ad555ccbf5a565db, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR138/045/SRR13873945/SRR13873945.fastq.gz, sra: {md5: a0abf3be9513c1004ff63acdbb876154, bytes: 2248456732}}
+  - sample: GSM5139312       # sEV-P_P1
+    group: sEV-P
+    runs:
+      - {run: SRR13873946, reads: 139294218, md5: a4cee6046d74b106fdce450b9c0cf4b4, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR138/046/SRR13873946/SRR13873946.fastq.gz, sra: {md5: db797228c4b377649f67864709b2520c, bytes: 2304365935}}
+  - sample: GSM5139313       # sEV-P_P2
+    group: sEV-P
+    runs:
+      - {run: SRR13873947, reads: 167028512, md5: 1dead44bc3277d50a3a1acf3159203ca, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR138/047/SRR13873947/SRR13873947.fastq.gz, sra: {md5: 7b74e0d98a37c2a48efa6140cdeb5d9c, bytes: 2749811108}}
+  - sample: GSM5139314       # sEV-P_P3
+    group: sEV-P
+    runs:
+      - {run: SRR13873948, reads: 157279842, md5: 1f6e2bb20ce58b6fb2eff6fcf3543685, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR138/048/SRR13873948/SRR13873948.fastq.gz, sra: {md5: 25d1458c58b2afd993e59a58f99cfc0f, bytes: 2665759886}}
+  - sample: GSM5139315       # Exomere_P1
+    group: Exomere
+    runs:
+      - {run: SRR13873949, reads: 146888841, md5: f7b1e671f5b38e52706660c0625b1e67, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR138/049/SRR13873949/SRR13873949.fastq.gz, sra: {md5: 8ccdd49ba12fb452eafd7f4b4fa96ecc, bytes: 2478287973}}
+  - sample: GSM5139316       # Exomere_P2
+    group: Exomere
+    runs:
+      - {run: SRR13873950, reads: 188328458, md5: fbff2286bcf9574ef183c19c32f7761e, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR138/050/SRR13873950/SRR13873950.fastq.gz, sra: {md5: 4695c85b6288d69b10370dbcada74729, bytes: 3111538537}}
+  - sample: GSM5139317       # Exomere_P3
+    group: Exomere
+    runs:
+      - {run: SRR13873951, reads: 165435308, md5: 63701488bb1cc49ee5c5bbd688b30457, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR138/051/SRR13873951/SRR13873951.fastq.gz, sra: {md5: 832742695e156216c9ddfc770fa654cb, bytes: 2768975740}}
+  - sample: GSM5139318       # Supermere_P1
+    group: Supermere
+    runs:
+      - {run: SRR13873952, reads: 146811275, md5: 26897b15317378e9ecc040872a82df52, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR138/052/SRR13873952/SRR13873952.fastq.gz, sra: {md5: 5a927f14c6f6f9461fc1a6ef6d73c257, bytes: 2430407947}}
+  - sample: GSM5139319       # Supermere_P2
+    group: Supermere
+    runs:
+      - {run: SRR13873953, reads: 129236998, md5: e611c7088f6ba1075ded019271ce076a, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR138/053/SRR13873953/SRR13873953.fastq.gz, sra: {md5: f68dcb4ab66bf89636bbbe18e0c1bead, bytes: 2143900718}}
+  - sample: GSM5139320       # Supermere_P3
+    group: Supermere
+    runs:
+      - {run: SRR13873954, reads: 147875577, md5: 9614e1586dfde34d54eed3d18ecc554b, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR138/054/SRR13873954/SRR13873954.fastq.gz, sra: {md5: 74f2c93202e0f9322790a3085a5e5ebc, bytes: 2459757043}}

@@ -2256,7 +2256,7 @@ def test_shipped_ratiometric_declarations_declare_their_de_design():
     assert genome['de'] == {} and benchmark.de_kind(genome) == 'synthetic' and benchmark.de_contrast(truseq) == ('A', 'B')
     for path in BENCH.glob('datasets/*.yaml'):
         spec = yaml.safe_load(path.read_text())
-        assert ('de' in spec) == (spec.get('pool') == 'ratiometric' or spec['name'] in ('synthetic_hsa_genome', 'gse317995_nextflex_v4')), path.name
+        assert ('de' in spec) == (spec.get('pool') == 'ratiometric' or spec['name'] in ('synthetic_hsa_genome', 'gse317995_nextflex_v4', 'gse196633_truseq')), path.name
 
 
 def test_de_sets_take_any_column_of_the_runs_as_a_covariate(tmp_path):
@@ -3201,3 +3201,19 @@ def test_evaluate_a_knockout_dataset(tmp_path):
     tsv = (bench / 'knockout.tsv').read_text().splitlines()
     assert tsv[0] == 'method\tgroup\tmature_id\tmirna\tcontrol_reads\tknockout_reads\tratio\tsurviving'
     assert 'unitas\tDROSHA KO\tMIMAT0000076\thsa-miR-21-5p\t40.0\t20.0\t0.5\t1' in tsv and len(tsv) == 1 + 4   # miR-451a not tested
+
+
+def test_the_gse_declarations_name_each_run_s_sra_file():
+    """Every run of the GSE declarations has its SRA file (`sra`: md5, bytes, from NCBI's locator) for fill --source sra,
+    and the runs filled from ENA before have the content MD5 of their reads (#471)."""
+    import re
+    for name in ('gse317995_nextflex_v4', 'gse77989_hct116_knockouts', 'gse168416_nextflex_v3', 'gse196633_truseq', 'gse271895_nextflex_v4'):
+        spec = benchmark.load_dataset(BENCH / 'datasets/{}.yaml'.format(name))
+        runs = [run for sample in spec['samples'] for run in sample['runs']]
+        assert all(re.fullmatch('[0-9a-f]{32}', run['sra']['md5']) and run['sra']['bytes'] > 0 and run['reads'] > 0 for run in runs), name
+        assert len({run['run'] for run in runs}) == len(runs)
+    knockouts = benchmark.load_dataset(BENCH / 'datasets/gse77989_hct116_knockouts.yaml')
+    assert all('content_md5' in run for sample in knockouts['samples'] for run in sample['runs'])
+    tissue = benchmark.load_dataset(BENCH / 'datasets/gse196633_truseq.yaml')
+    assert collections.Counter(s['group'] for s in tissue['samples']) == {'tumour': 10, 'normal': 10}
+    assert {s['patient'] for s in tissue['samples'] if s['group'] == 'tumour'} == {s['patient'] for s in tissue['samples'] if s['group'] == 'normal'}
