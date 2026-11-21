@@ -49,7 +49,12 @@ def run(script, *args):
 
 def annotations(base, samples):
     """annotations.tsv as the workflow makes it (unitas_annotations.py) from the samples' summaries."""
-    result = run(QUANT / 'unitas_annotations.py', *[base / s / 'unitas.annotation_summary.txt' for s in samples])
+    summaries = [base / s / 'unitas.annotation_summary.txt' for s in samples]
+    result = run(QUANT / 'unitas_annotations.py', *summaries, '--hits-per-target', *[base / s / 'unitas.hits_per_target.txt' for s in samples])
+    if result.returncode != 0 and 'unitas.hits_per_target.txt' in result.stderr:
+        # A hits table the composition cannot read stops it too (#423); these tests are about the family script's own
+        # message for that table, so they get the composition without the move.
+        result = run(QUANT / 'unitas_annotations.py', *summaries)
     assert result.returncode == 0, result.stderr
     path = base / 'annotations.tsv'
     path.write_text(result.stdout)
@@ -81,6 +86,60 @@ def family_table(base, samples, annotations_path=None):
     ('>ENST00000621902.1', 'other'), ('XRNY-ENSG00000000006.1', 'other')])
 def test_family_rules(name, family):
     assert unitas_misc_rna.family(name) == family
+
+
+@pytest.mark.parametrize('transcript_class, name, moved', [
+    ('lncRNA', 'ENST00000651540.1-ENSG00000286171.1', True),      # human RNY5: a lncRNA transcript without a gene symbol
+    ('lncRNA', '>ENST00000651540.1-ENSG00000286171.1', True),     # as dumps before 20-11-2026 name it
+    ('lncRNA', 'Rny1-ENSMUSG00000138036.1', True),                # the mouse Rny1 gene with the biotype lncRNA
+    ('Y_RNA', 'Y_RNA-ENSRNOG00000067889.2', True),                # rat: a class of its own
+    ('misc_RNA', 'RNY4-ENSG00000252316.1', False),                # already misc_RNA
+    ('lncRNA', 'RNY4-AS1-ENSG00000000008.1', False),              # a name that looks like Y RNA is not enough
+    ('lncRNA', 'X-ENSG000002861710.1', False)])                   # another gene whose ID starts the same
+def test_y_rna_outside_misc_rna_is_found_by_gene_or_class(transcript_class, name, moved):
+    assert unitas_misc_rna.y_rna_elsewhere(transcript_class, name) is moved
+
+
+def composition(path):
+    """{(sample, class): count} of annotations.tsv's top-level rows."""
+    with open(path, newline='') as fh:
+        return {(row['Sample_ID'], row['Level1']): float(row['Count']) for row in csv.DictReader(fh, delimiter='\t')
+                if not row['Level2'] and not row['Level3']}
+
+
+def test_y_rna_of_other_classes_is_moved_to_misc_rna_and_the_classes_still_add_up(tmp_path):
+    """#423: human RNY5 is a lncRNA transcript, a mouse Rny1 gene is a lncRNA and rat's Y RNA has its own class; all
+    count as misc_RNA, family Y RNA, in annotations.tsv and in the family table."""
+    write_sample(tmp_path, 'human', summary=SUMMARY.replace('lncRNA\t3', 'lncRNA\t5.5'),
+                 hits=HITS + [('lncRNA', 'ENST00000651540.1-ENSG00000286171.1', 2.5)])
+    write_sample(tmp_path, 'mouse', summary='miRNA\t20\nlncRNA\t4\nmisc_RNA\t1\n',
+                 hits=[('misc_RNA', 'Rny3-ENSMUSG00000064945.3', 1.0), ('lncRNA', 'Rny1-ENSMUSG00000138036.1', 1.5),
+                       ('lncRNA', 'Malat1-ENSMUSG00000092341.4', 2.5)])
+    write_sample(tmp_path, 'rat', summary='miRNA\t20\nY_RNA\t4\nsnRNA\t1\n',
+                 hits=[('Y_RNA', 'Y_RNA-ENSRNOG00000067889.2', 3.0), ('Y_RNA', 'Y_RNA-ENSRNOG00000066329.2', 1.0),
+                       ('snRNA', 'U6-ENSRNOG00000000001.1', 1.0)])
+    write_sample(tmp_path, 'plain')  # no such target: untouched
+    samples = ['human', 'mouse', 'rat', 'plain']
+    result = family_table(tmp_path, samples)
+    assert result.returncode == 0, result.stderr
+    classes = composition(tmp_path / 'annotations.tsv')
+    assert classes[('human', 'lncRNA')] == 3.0 and classes[('human', 'misc_RNA')] == 8.0       # 2.5 reads moved
+    assert classes[('mouse', 'lncRNA')] == 2.5 and classes[('mouse', 'misc_RNA')] == 2.5
+    assert ('rat', 'Y_RNA') not in classes and classes[('rat', 'misc_RNA')] == 4.0 and classes[('rat', 'snRNA')] == 1.0
+    assert classes[('plain', 'lncRNA')] == 3.0 and classes[('plain', 'misc_RNA')] == 5.5
+    for sample, total in (('human', 42.0), ('mouse', 25.0), ('rat', 25.0), ('plain', 39.5)):  # nothing is lost or counted twice
+        assert math.isclose(sum(v for (s, _), v in classes.items() if s == sample), total)
+    table = dict(line.rsplit('\t', 1) for line in result.table.splitlines()[1:])
+    assert table['human\tY_RNA'] == '5.5' and table['mouse\tY_RNA'] == '2.5' and table['rat\tY_RNA'] == '4.0'
+    assert table['plain\tY_RNA'] == '3.0' and table['human\t7SK'] == '0.5'
+    assert 'human RNY5' in result.section['description']
+
+
+def test_y_rna_reads_beyond_their_class_stop_the_composition(tmp_path):
+    write_sample(tmp_path, 'S1', summary='miRNA\t20\nlncRNA\t1\n', hits=[('lncRNA', 'ENST00000651540.1-ENSG00000286171.1', 2.5)])
+    result = run(QUANT / 'unitas_annotations.py', tmp_path / 'S1/unitas.annotation_summary.txt',
+                 '--hits-per-target', tmp_path / 'S1/unitas.hits_per_target.txt')
+    assert result.returncode != 0 and 'its lncRNA targets that are Y RNA have 2.5 reads, but the summary has 1.0 for the class' in result.stderr
 
 
 def test_table_keeps_fractional_counts_and_lists_every_family(tmp_path):
@@ -278,7 +337,9 @@ def test_delivery_plans_the_family_split(tmp_path):
     assert all(f'data/tmp/smallrna/quant/unitas/unitas/{s}/unitas.hits_per_target.txt' in command for s in FIXTURE_SAMPLES)
     assert ('--table data/tmp/smallrna/quant/unitas/misc_rna_families.tsv '
             '--mqc data/tmp/smallrna/quant/unitas/unitas_misc_rna_mqc.yaml') in command
-    assert 'hits_per_target' not in rule_block(output, 'unitas_annotations')
+    composition = next(line for line in rule_block(output, 'unitas_annotations').splitlines() if 'unitas_annotations.py' in line)
+    assert composition.count('unitas.annotation_summary.txt') == composition.count('unitas.hits_per_target.txt') == len(FIXTURE_SAMPLES)
+    assert ' --hits-per-target ' in composition  # the Y RNA of other classes is moved to misc_RNA (#423)
     links = rule_block(output, 'bfq_level2_unitas_misc_rna')
     assert ('ln -srf data/tmp/smallrna/quant/unitas/misc_rna_families.tsv data/tmp/smallrna/bfq/exprs/misc_rna_families.tsv && '
             'ln -srf data/tmp/smallrna/quant/unitas/unitas_misc_rna_mqc.yaml data/tmp/smallrna/bfq/figs/unitas_misc_rna_mqc.yaml') in links

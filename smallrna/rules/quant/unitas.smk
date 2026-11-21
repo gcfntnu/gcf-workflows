@@ -156,15 +156,19 @@ rule unitas_modifications:
     shell:
         'python {params.script} -o {params.outdir} {input}'
         
+# Read composition per sample from UNITAS's class summaries. Y RNA that Ensembl files under another class (human RNY5 and
+# a mouse Rny1 gene under lncRNA, rat's Y_RNA class) is moved to misc_RNA from the reads' targets (#423), so the three
+# species report Y RNA in one place; unitas_misc_rna.py applies the same rule to the families.
 rule unitas_annotations:
     input:
-        expand(rules.unitas.output.annotation, sample=SAMPLES)
+        annotation = expand(rules.unitas.output.annotation, sample=SAMPLES),
+        target_hits = expand(rules.unitas.output.target_hits, sample=SAMPLES)
     params:
         script = src_gcf('scripts/unitas_annotations.py')
     output:
         join(QUANT_INTERIM, 'unitas', 'annotations.tsv')
     shell:
-        'python {params.script} {input} > {output}'
+        'python {params.script:q} {input.annotation:q} --hits-per-target {input.target_hits:q} > {output:q}'
 
 # misc_RNA reads by gene family (Y RNA, 7SK, 7SL, other) from the targets each sample's reads hit (#379), checked
 # against the misc_RNA class of annotations.tsv. A failed check stops this rule, quant_all (unitas_all), the rule that

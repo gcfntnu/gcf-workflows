@@ -13,6 +13,10 @@ A misc_RNA target belongs to the first family with a name prefix that starts its
 name, e.g. `RNY4-ENSG00000252316.1`), ignoring case, so mouse and rat symbols (`Rny1`, `Rn7sk`, `Rn7s1`) match too;
 `RN7S` follows `RN7SK`, so it takes the 7SL genes (`RN7SL1`, mouse `Rn7s1`) but not 7SK.
 Names that match none are `other`, including transcript-only names without a gene symbol (`ENST...`).
+Y RNA that Ensembl, and so the UNITAS dump, files under another class counts as misc_RNA, family Y RNA (#423,
+y_rna_elsewhere): human RNY5, a lncRNA transcript without a gene symbol; a second mouse Rny1 gene, a lncRNA; and rat's
+Y RNA genes, which have a class of their own (`Y_RNA`). unitas_annotations.py moves the same reads to misc_RNA in
+annotations.tsv, so the three species report Y RNA in one place and each sample's classes still add up.
 A read UNITAS splits between targets keeps its fractional counts, so a sample's families must add up to its misc_RNA
 class in annotations.tsv (unitas_annotations.py; Level1 misc_RNA without Level2, 0 when the sample has none, and
 for a sample without rows there, as from an empty summary): both 0, or both positive and equal up to summation order.
@@ -40,7 +44,13 @@ PREFIXES = tuple((name, tuple(p.upper() for p in prefixes)) for name, _, prefixe
 RULES = '; '.join('{} as {}'.format(' and '.join(p + '...' for p in prefixes), label) for _, label, prefixes in FAMILIES if prefixes) + \
     '; other names, including transcript-only names without a gene symbol, as other misc_RNA'
 DESCRIPTION = ('Reads of the UNITAS misc_RNA class by gene family, from the names of the Ensembl genes they hit, the first '
-               'match counting: {}. Reads split between genes keep their fractional counts.').format(RULES)
+               'match counting: {}. Y RNA genes that Ensembl files under another class (human RNY5, a mouse Rny1 gene, the rat '
+               'Y RNA genes) count here, as Y RNA; the UNITAS section above shows UNITAS\'s own classes, with those reads under '
+               'lncRNA or Y_RNA. Reads split between genes keep their fractional counts.').format(RULES)
+# Y RNA outside the misc_RNA class (#423): genes by Ensembl ID, as the dump's target names carry it (`<name>-<gene>.<version>`),
+# and whole classes.
+Y_RNA_GENES = ('ENSG00000286171', 'ENSMUSG00000138036')  # human RNY5; the mouse Rny1 gene with the biotype lncRNA
+Y_RNA_CLASSES = ('Y_RNA',)  # rat: the Ensembl biotype of its Y RNA genes
 HITS_HEADER = ['TRANSCRIPT_CLASS', 'TRANSCRIPT_NAME', 'READ_COUNT']
 COUNT = re.compile(r'\d+(\.\d+)?([eE][+-]?\d+)?')
 ANNOTATIONS_HEADER = ['Level1', 'Level2', 'Level3', 'Count', 'Sample_ID']
@@ -50,6 +60,13 @@ def family(target):
     """The misc_RNA family of a UNITAS target name."""
     upper = target.upper()
     return next((name for name, prefixes in PREFIXES if upper.startswith(prefixes)), NAMES[-1])
+
+
+def y_rna_elsewhere(transcript_class, target):
+    """Whether a target outside the misc_RNA class is Y RNA (Y_RNA_GENES, Y_RNA_CLASSES)."""
+    if transcript_class == 'misc_RNA':
+        return False
+    return transcript_class in Y_RNA_CLASSES or any('-{}.'.format(gene) in target or target.endswith('-' + gene) for gene in Y_RNA_GENES)
 
 
 def number(value, path, line):
@@ -76,22 +93,40 @@ def rows(path):
                 yield reader.line_num, row
 
 
-def misc_rna_families(path):
-    """misc_RNA reads of one hits_per_target table by family, every family present; summed with math.fsum."""
-    hits = {name: [] for name in NAMES}
+def hits(path):
+    """(class, target name, count) of a hits_per_target table's rows; nothing for an empty file."""
     lines = rows(path)
     header = next(lines, None)
     if header is None:
-        return dict.fromkeys(NAMES, 0.0)
+        return
     if header[1] != HITS_HEADER:
         raise ValueError('{}: line {}: not a UNITAS hits_per_target header (expected {})'.format(path, header[0], ' '.join(HITS_HEADER)))
     for line, row in lines:
         if len(row) != 3 or not row[0].strip() or not row[1].strip():
             raise ValueError('{}: line {}: expected a class, a target name and a count, got {!r}'.format(path, line, row))
-        count = number(row[2], path, line)
-        if row[0] == 'misc_RNA':
-            hits[family(row[1])].append(count)
-    return {name: math.fsum(counts) for name, counts in hits.items()}
+        yield row[0], row[1], number(row[2], path, line)
+
+
+def misc_rna_families(path):
+    """misc_RNA reads of one hits_per_target table by family, every family present, with the Y RNA of other classes
+    (y_rna_elsewhere); summed with math.fsum."""
+    counts = {name: [] for name in NAMES}
+    for transcript_class, target, count in hits(path):
+        if transcript_class == 'misc_RNA':
+            counts[family(target)].append(count)
+        elif y_rna_elsewhere(transcript_class, target):
+            counts[NAMES[0]].append(count)
+    return {name: math.fsum(values) for name, values in counts.items()}
+
+
+def y_rna_by_class(path):
+    """{class: reads} of one hits_per_target table's Y RNA outside the misc_RNA class: what unitas_annotations.py moves
+    to misc_RNA."""
+    moved = {}
+    for transcript_class, target, count in hits(path):
+        if y_rna_elsewhere(transcript_class, target):
+            moved.setdefault(transcript_class, []).append(count)
+    return {transcript_class: math.fsum(values) for transcript_class, values in moved.items()}
 
 
 def annotation_misc_rna(path):
