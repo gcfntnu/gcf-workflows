@@ -18,13 +18,14 @@ QUANT_BENCHMARKS = join(QUANT_INTERIM, 'benchmarks')
 
 
 def mem_from_reads(floor_mb, per_mb, base_mb=0, key='fastq'):
-    """mem_mb for a rule whose memory grows with a sample's filtered reads: the larger of floor_mb and base_mb plus
-    per_mb times the size in MB of the job's input `key` (the filtered FASTQ; an int for a positional input).
-    Calibrated with the benchmark files of public plasma at full depth (GSE317995, 8-18M filtered reads, about 110
-    bytes per read; #386). Snakemake computes it once the reads exist; --set-resources <rule>:mem_mb=<MB> overrides it."""
+    """mem_mb for a rule whose memory grows with its filtered reads: the larger of floor_mb and base_mb plus per_mb
+    times the size in MB of the job's input `key` (the filtered FASTQ, or the sum over a list of them; an int for a
+    positional input). Calibrated with benchmark files on public data at full depth (#386). Snakemake computes it once
+    the reads exist and caps it at --resources mem_mb; --set-resources <rule>:mem_mb=<MB> overrides it."""
     def mem_mb(wildcards, input):
-        path = input[key] if isinstance(key, int) else getattr(input, key)
-        return max(floor_mb, int(base_mb + per_mb * os.path.getsize(path) / 1e6))
+        paths = input[key] if isinstance(key, int) else getattr(input, key)
+        size = sum(os.path.getsize(p) for p in ([paths] if isinstance(paths, str) else paths))
+        return max(floor_mb, int(base_mb + per_mb * size / 1e6))
     return mem_mb
 
 include:
