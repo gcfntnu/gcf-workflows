@@ -1710,6 +1710,16 @@ def knockout_section(bench, spec, table, common, methods, filt, id_to_name):
         ['group', 'samples'] + methods,
         [[control, size[control]] + [round(result[m]['control_rpm']) for m in methods]] +
         [[g, size[g]] + [rounded(result[m]['share'][g]) for m in methods] for g in groups])
+    # Shares of the filtered reads: with the miRNAs gone, an RNA whose amount did not change takes a larger share
+    inflation = {m: (1e6 - result[m]['control_rpm'] * result[m]['share'][survival]) / (1e6 - result[m]['control_rpm'])
+                 for m in methods if result[m]['share'][survival] != '' and result[m]['control_rpm'] < 1e6}
+    if inflation:
+        lines += ['', 'The ratios are upper bounds: they are shares of the filtered reads, and with fewer miRNA reads the other RNAs take',
+                  'a larger share, so an RNA whose amount did not change rises in {} by {:.1f}-{:.1f}x (the filtered reads not on miRNAs, knockout'.format(
+                      survival, min(inflation.values()), max(inflation.values())),
+                  'over controls). A miRNA kept at 25% has fallen to about {:.0%} of its amount; the routes share the denominator, so'.format(
+                      0.25 / max(inflation.values())),
+                  'they compare.']
     lines += ['', '**miRNAs surviving {}**: miRNAs with at least {} reads on average in the {} samples are tested; one survives'.format(
                   survival, biological.KNOCKOUT_MIN_READS, control),
               'when the knockout keeps more than {:.0%} of its reads per million filtered reads. {} survive in every method{}.'.format(

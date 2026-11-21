@@ -448,6 +448,10 @@ miRNA reads):
   knockout changes); each knockout sample against the control samples of its `within` level, merged samples only.
   - `knockout_mirna_share`: the survival knockout's miRNA reads per million filtered reads over its controls' (mean
     over its samples); the report has it for every knockout group, and the controls' miRNA reads per million.
+  - The ratios are upper bounds: they are shares of the filtered reads, so when the miRNAs go, the other RNAs take a
+    larger share. In GSE77989's DROSHA knockout (miRNAs 60-71% of the parental filtered reads, 3-7% in the knockout)
+    an RNA whose amount did not change rises about 3x, so a miRNA kept at 25% has fallen to about 8%; the report
+    gives the factor per dataset. The routes share the denominator, so they compare.
   - Per miRNA with at least 10 reads on average in the controls: the knockout's reads per million over the controls';
     it survives above 25%. `knockout_surviving` counts those of the survival knockout; the report lists them with
     each method's ratio, those every method lists, and per method those only it lists (`only`) with their reads.
