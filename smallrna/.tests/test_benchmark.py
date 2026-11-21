@@ -3131,6 +3131,7 @@ def knockout_declaration(tmp_path, change=None):
     spec = yaml.safe_load((BENCH / 'datasets/gse77989_hct116_knockouts.yaml').read_text())
     if change:
         change(spec)
+    write(tmp_path / 'knockout_expected_hsa.tsv', (BENCH / 'datasets/knockout_expected_hsa.tsv').read_text())
     return write(tmp_path / 'ko.yaml', yaml.safe_dump(spec))
 
 
@@ -3146,21 +3147,24 @@ def test_the_knockout_declaration_lists_its_runs_and_pairs_each_knockout_with_it
     for change, message in ((lambda s: s.update(knockout={'control': 'Parental'}), 'must name two different groups'),
                             (lambda s: s['knockout'].update(survival='Parental'), 'must name two different groups'),
                             (lambda s: s['knockout'].update(control='Wild type'), 'must name two different groups'),
-                            (lambda s: s['knockout'].update(normalise='miR-320a'), 'takes only `control`, `survival` and `within`'),
+                            (lambda s: s['knockout'].update(normalise='miR-320a'), 'takes only `control`, `survival`, `within` and `expected`'),
+                            (lambda s: s['knockout'].update(expected='lists/expected.tsv'), 'knockout.expected names a file next to the declaration'),
+                            (lambda s: s['knockout'].update(expected='absent.tsv'), 'absent.tsv not found'),
                             (lambda s: s['samples'][0].pop('set'), "knockout.within is 'set', but not every sample has it"),
                             (lambda s: s['samples'][7].update(set=3), 'no Parental sample with the same set as GSM2064277')):
         with pytest.raises(SystemExit) as error:
             benchmark.load_dataset(knockout_declaration(tmp_path, change))
         assert message in str(error.value), (message, str(error.value))
+    assert benchmark.load_dataset(knockout_declaration(tmp_path))['knockout']['expected'] == 'knockout_expected_hsa.tsv'
     pool = yaml.safe_load((BENCH / 'datasets/giraldez2018_equimolar_truseq.yaml').read_text())
     with pytest.raises(SystemExit, match='is for biological datasets'):
         benchmark.load_dataset(write(tmp_path / 'pool.yaml', yaml.safe_dump(dict(pool, knockout={'control': 'A', 'survival': 'B'}))))
 
 
-def knockout_project(tmp_path, other_rna=None, sequences=None):
+def knockout_project(tmp_path, other_rna=None, sequences=None, expected=None):
     """A prepared knockout project (#452): P1, P2 (Parental) and K1, K2 (DROSHA KO), UNITAS and miRge3 counts; with
     `other_rna`, the declaration's other_rna (#415) and {source: file text} filled in place; `sequences`, the isomiR
-    outputs' read sequences."""
+    outputs' read sequences; `expected`, the text of a knockout.expected list next to the declaration."""
     ext = tmp_path / 'ext'
     data = ext / 'benchmark/smallrna/ko'
     write(data / 'mirbase/23.1/mature.fa', BLOOD)
@@ -3186,6 +3190,9 @@ def knockout_project(tmp_path, other_rna=None, sequences=None):
                     fh.write(text)
             else:
                 path.write_text(text)
+    if expected:
+        write(tmp_path / 'expected.tsv', expected)
+        spec['knockout']['expected'] = 'expected.tsv'
     dataset = write(tmp_path / 'ko.yaml', yaml.safe_dump(spec))
     project = tmp_path / 'project'
     result = subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'prepare', '--dataset', str(dataset), '--project', str(project),
@@ -3296,6 +3303,109 @@ def test_other_rna_declaration_and_reads_inside_molecules(tmp_path):
     loaded = benchmark.load_dataset(write(tmp_path / 'b.yaml', yaml.safe_dump(spec)))
     targets = {str(t[3]) for t in fill.targets(loaded, '/ext')}
     assert {'/ext/d/other_rna/gtrnadb.fa', '/ext/d/other_rna/ensembl_ncrna.fa.gz'} <= targets
+
+
+# The miRNAs expected to survive a DROSHA knockout (#478)
+
+import knockout_expected  # noqa: E402
+
+EXPECTED_HEADER = '# a test list\nmature_id\tmirna\treason\tsource\n'
+
+
+def test_the_expected_list_from_the_study_and_mirtrondb(tmp_path):
+    """knockout_expected.py: the study's six by accession, and every human mature exactly inside a mirtronDB precursor
+    with the PubMed IDs behind it; one row per mature (miR-877-5p from both); mouse and outside matures left out."""
+    rng = random.Random(7)
+    seq = lambda n: ''.join(rng.choice('ACGT') for _ in range(n))
+    precursor = seq(60)
+    inside, outside = precursor[5:27], seq(22)
+    paper = {a: seq(22) for a, _, _ in knockout_expected.PAPER}
+    paper['MIMAT0004949'] = precursor[30:52]                                     # miR-877-5p, a mirtron in both sources
+    mature = ''.join('>hsa-miR-{} {} Homo sapiens\n{}\n'.format(i, a, s.replace('T', 'U')) for i, (a, s) in enumerate(paper.items()))
+    mature += ('>hsa-miR-9001-5p MIMAT9000001 x\n{}\n>hsa-miR-9002 MIMAT9000002 x\n{}\n>mmu-miR-9003 MIMAT9000003 x\n{}\n'.format(
+        inside.replace('T', 'U'), outside, inside))
+    columns = 'specie\tid\tname\tpaper\ttype\thairpin arm\thost gene\tchromosome\tstart\tend\tstrand\tsequence\n'
+    row = 'H. sapiens \t{} \thsa-mirtron-{} \t{} \tprecursor \t- \tGENE(1) \t1 \t1 \t60 \t+ \t{}\n'
+    export = write(tmp_path / 'precursors.tsv', '##mirtronDB tabular format \n' + columns + row.format(1, 1, 26325366, precursor.replace('T', 'U')) +
+                   row.format(2, 2, 22955976, 'GG' + inside + 'CC'))
+    fa = write(tmp_path / 'mature.fa', mature)
+    knockout_expected.main(['--precursors', str(export), '--exported', '2026-11-21', '--mature', str(fa), '--output', str(tmp_path / 'list.tsv')])
+    listed = knockout_expected.read_list(tmp_path / 'list.tsv')
+    assert set(listed) == set(paper) | {'MIMAT9000001'}
+    assert listed['MIMAT9000001'] == ('hsa-miR-9001-5p', 'mirtron', 'mirtronDB v2 PMID 22955976,26325366')
+    assert listed['MIMAT0004949'][1:] == ('mirtron', 'Kim et al. 2016 Fig. 3B; mirtronDB v2 PMID 26325366')
+    assert listed['MIMAT0000510'][1:] == ("5' capped", 'Kim et al. 2016 Fig. 3B')
+    text = (tmp_path / 'list.tsv').read_text()
+    assert hashlib.sha256(export.read_bytes()).hexdigest() in text and '2 human precursors, exported 2026-11-21' in text
+    for broken, message in ((mature.replace('MIMAT0000510', 'MIMAT0000000'), 'MIMAT0000510 of Kim et al. 2016 not in the mature'),
+                            (mature + '>hsa-miR-1254 MIMAT0005905 x\nAAAA\n', "add Kim et al. 2016's miR-1254-5p"),
+                            (mature.replace(paper['MIMAT0000510'].replace('T', 'U'), precursor[1:23].replace('T', 'U')), "is 5' capped in Kim")):
+        write(fa, broken)
+        with pytest.raises(SystemExit, match=re.escape(message)):
+            knockout_expected.main(['--precursors', str(export), '--exported', 'd', '--mature', str(fa), '--output', str(tmp_path / 'x.tsv')])
+    write(export, columns + row.format(1, 1, 1, precursor).replace('H. sapiens', 'M. musculus'))
+    with pytest.raises(SystemExit, match='the human precursors only'):
+        knockout_expected.precursors(export)
+    for bad in ('mature_id\tmirna\treason\n', EXPECTED_HEADER + 'MIMAT1\tm\t\tx\n', EXPECTED_HEADER + 'MIMAT1\tm\tmirtron\tx\n' * 2):
+        with pytest.raises(SystemExit, match='knockout_expected.py: '):
+            knockout_expected.read_list(write(tmp_path / 'bad.tsv', bad))
+
+
+def test_the_knockout_declaration_s_expected_list_is_made_from_its_mirbase_release():
+    """GSE77989's list: the study's six and mirtronDB's mirtrons, from the mature.fa the declaration names."""
+    spec = benchmark.load_dataset(BENCH / 'datasets/gse77989_hct116_knockouts.yaml')
+    path = BENCH / 'datasets' / spec['knockout']['expected']
+    listed = knockout_expected.read_list(path)
+    assert 'miRBase mature.fa sha256 {};'.format(spec['mirbase']['sha256']) in path.read_text()
+    assert {a for a, (_, _, source) in listed.items() if 'Kim et al. 2016' in source} == {a for a, _, _ in knockout_expected.PAPER}
+    assert collections.Counter(reason for _, reason, _ in listed.values()) == {'mirtron': 469, "5' capped": 5}
+    assert listed['MIMAT0002174'][:2] == ('hsa-miR-484-5p', "5' capped") and listed['MIMAT0027552'][:2] == ('hsa-miR-6826-5p', 'mirtron')
+
+
+def test_knockout_survivors_split_by_the_expected_list():
+    """Of a method's only survivors: expected; not expected but tested by another method (which does not list it);
+    not tested elsewhere. Expected miRNAs tested and surviving per method."""
+    result = {'a': {'ratios': {'KO': {'E': (10.0, 8.0, 0.8), 'T': (20.0, 10.0, 0.5), 'N': (30.0, 12.0, 0.4), 'M': (50.0, 1.0, 0.02)}}},
+              'b': {'ratios': {'KO': {'T': (20.0, 1.0, 0.05), 'M': (50.0, 30.0, 0.6)}}}}
+    per, _ = biological.survivors(result, ['a', 'b'], 'KO')
+    split = biological.expected_split(result, per, ['a', 'b'], 'KO', {'E', 'M', 'Q'})
+    assert split['a']['tested_expected'] == {'E', 'M'} and split['a']['surviving_expected'] == {'E'} and split['a']['only_expected'] == {'E'}
+    assert split['a']['only_tested_elsewhere'] == {'T'} and split['a']['only_untested_elsewhere'] == {'N'}
+    assert split['a']['only_unexpected_reads'] == pytest.approx(22.0)
+    assert split['b']['surviving_expected'] == {'M'} and split['b']['only_expected'] == {'M'} and split['b']['only_unexpected_reads'] == 0.0
+
+
+def test_evaluate_a_knockout_dataset_with_an_expected_list(tmp_path):
+    """prepare copies the list into the project; the survivors are split by it; with other_rna, the flagged miRNAs are
+    expected too."""
+    listed = EXPECTED_HEADER + "MIMAT0000076\thsa-miR-21-5p\tmirtron\tx\nMIMAT0001631\thsa-miR-451a\t5' capped\tx\nMIMAT9999999\tother\tmirtron\tx\n"
+    project = knockout_project(tmp_path, expected=listed)
+    assert (project / 'benchmark/expected.tsv').read_text() == listed
+    result = evaluate_cmd(project)
+    assert result.returncode == 0, result.stderr
+    bench = project / 'benchmark'
+    section = (bench / 'report.md').read_text().split('## Knockouts (#452)')[1].split('\n## ')[0]
+    assert "Expected to survive (`knockout.expected`, #478): 2 miRNAs (1 5' capped, 1 mirtron); 2 of the 3 listed are in this miRBase release." in section
+    for row in ('| expected tested | 1 | 1 |', '| expected surviving | 1 | 0 |', '| only: expected | 1 | 0 |', '| only: tested elsewhere | 0 | 0 |',
+                '| only_unexpected_reads | 0.0 | 0.0 |', '| hsa-miR-21-5p | 1 | mirtron | **0.50** | 0.05 |'):
+        assert row in section, row
+    assert 'Expected miRNAs tested but not surviving, per method (most control reads first): mirge3: hsa-miR-21-5p.' in section
+    metrics = {row.split('\t')[0]: row.split('\t')[1:] for row in (bench / 'metrics.tsv').read_text().splitlines()[1:]}
+    assert metrics['knockout_surviving_expected'] == ['1', '0'] and metrics['knockout_surviving_unexpected'] == ['0', '0']
+    tsv = (bench / 'knockout.tsv').read_text().splitlines()
+    assert tsv[0].endswith('\tsurviving\texpected') and 'unitas\tDROSHA KO\tMIMAT0000076\thsa-miR-21-5p\t40.0\t20.0\t0.5\t1\tmirtron' in tsv
+    assert 'unitas\tDROSHA KO\tMIMAT0000069\thsa-miR-16-5p\t600.0\t3.0\t0.005\t0\t' in tsv
+    out = tmp_path / 'summary.md'
+    result = subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'summary', '--projects', str(project), '--output', str(out)],
+                            capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    assert 'knockout_surviving_expected' in out.read_text() and 'knockout_surviving_unexpected' in out.read_text()
+    flagged = knockout_project(tmp_path / 'flagged', OTHER_RNA, {'miR-16-5p': 'TAGCAGCACGTAAATATTGGCG', 'miR-21-5p': MIR21},
+                               EXPECTED_HEADER + "MIMAT0001631\thsa-miR-451a\t5' capped\tx\n")
+    result = evaluate_cmd(flagged)
+    assert result.returncode == 0, result.stderr
+    tsv = (flagged / 'benchmark/knockout.tsv').read_text().splitlines()
+    assert 'unitas\tDROSHA KO\tMIMAT0000076\thsa-miR-21-5p\t40.0\t20.0\t0.5\t1\ttRNA:tRNA-Leu-TAA-1-1\tinside another RNA class (#415)' in tsv
 
 
 

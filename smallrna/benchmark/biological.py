@@ -372,3 +372,21 @@ def survivors(result, methods, group):
         out[m] = {'tested': len(result[m]['ratios'].get(group, {})), 'surviving': surviving[m], 'only': only,
                   'only_reads': sum((result[m]['ratios'][group][i][1] for i in only), 0.0)}
     return out, set.intersection(*surviving.values()) if methods else set()
+
+
+def expected_split(result, per, methods, group, expected):
+    """The survivors() of `group` per method split by `expected`, the miRNAs expected to survive (e.g. made without
+    DROSHA; #478): {method: {'tested_expected', 'surviving_expected', and of its `only` miRNAs 'only_expected',
+    'only_tested_elsewhere' (not expected; another method tests it and does not list it) and 'only_untested_elsewhere'
+    (not expected; no other method tests it), all sets; 'only_unexpected_reads', the mean reads per knockout sample of
+    its `only` miRNAs not expected}}."""
+    tested = {m: set(result[m]['ratios'].get(group, {})) for m in methods}
+    out = {}
+    for m in methods:
+        elsewhere = set().union(*(tested[o] for o in methods if o != m))
+        unexpected = per[m]['only'] - expected
+        out[m] = {'tested_expected': tested[m] & expected, 'surviving_expected': per[m]['surviving'] & expected,
+                  'only_expected': per[m]['only'] & expected, 'only_tested_elsewhere': unexpected & elsewhere,
+                  'only_untested_elsewhere': unexpected - elsewhere,
+                  'only_unexpected_reads': sum((result[m]['ratios'][group][i][1] for i in unexpected), 0.0)}
+    return out
