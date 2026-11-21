@@ -35,6 +35,7 @@ Usage: benchmark.py fill --dataset YAML --ext-dir DIR [--mirbase-release R]
                             [--set quant.ROUTE.SETTING=VALUE ...]
        benchmark.py evaluate --project DIR [--de] [--mirflowz-gff GFF3] [--unitas-ref DIR] [--bootstrap N] [--seed S]
        benchmark.py summary --projects DIR [DIR ...] --output FILE.md|FILE.html
+       benchmark.py depth --project DIR [--output DIR] [--depths 500k,1M,...] [--seed S]
 """
 import argparse
 import collections
@@ -59,6 +60,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import adapters  # noqa: E402
 import biological  # noqa: E402
 import decoys  # noqa: E402
+import depth as depth_series  # noqa: E402
 import de  # noqa: E402
 import evaluation  # noqa: E402
 import fill as filler  # noqa: E402
@@ -2353,6 +2355,61 @@ def evaluate_mixture(args, project, bench, spec, ext_dir):
     print(bench / 'report.md')
 
 
+def depth(args):
+    """`depth` (#409): the sequencing-depth series of an evaluated biological project (depth.py), from its common and
+    isomiR tables and each sample's sequenced reads (the cutadapt route's reports), written to --output (default
+    benchmark/depth/ in the project): depth.tsv, depth_agreement.tsv, depth.md and depth.png."""
+    project = Path(args.project)
+    bench = project / 'benchmark'
+    spec = load_dataset(bench / 'dataset.yaml')
+    if spec['kind'] != 'biological':
+        fail('depth is for biological datasets, got a {} dataset'.format(spec['kind']))
+    table = read_tsv(bench / 'samples.tsv')
+    if any(row['lane'] != 'merged' for row in table):
+        fail('depth works on merged samples; this project has a sample per lane (prepare --lanes)')
+    if not (bench / 'common.tsv').is_file():
+        fail('{} missing: run `benchmark.py evaluate --project {}` first'.format(bench / 'common.tsv', project))
+    try:
+        depths = depth_series.parse_depths(args.depths)
+    except ValueError as error:
+        fail(str(error))
+    config = yaml.safe_load((project / 'config.yaml').read_text())
+    mature_fa, _ = biological_paths(spec, Path(config['ext_dir']))
+    id_to_seq = {accession: seq for _, (accession, seq) in synthetic.read_mature(mature_fa, PREFIX[spec['organism']]).items()}
+    samples = [row['sample'] for row in table]
+    groups = collections.defaultdict(list)
+    for row in table:
+        groups[row['group']].append(row['sample'])
+    stages = project / 'data/tmp/smallrna/filter/cutadapt_stages'
+    reports = {s: {k: stages / '{}.{}.json'.format(s, k) for k in biological.CUTADAPT_PASSES} for s in samples}
+    missing = [str(p) for paths in reports.values() for p in paths.values() if not p.is_file()]
+    if missing:
+        fail('cutadapt reports missing ({}): the depth axis is the reads each sample sequenced; run `snakemake quant_all '
+             '--notemp`'.format(', '.join(missing[:3])))
+    try:
+        reads_in = {s: biological.filtering(paths)['reads_in'] for s, paths in reports.items()}
+    except ValueError as error:
+        fail(str(error))
+    raw = [(r['method'], r['sample'], r['mature_name'], r['mature_id'], float(r['count'])) for r in read_tsv(bench / 'common.tsv')]
+    common, _ = biological.collapse(raw, id_to_seq)
+    methods = [m for m in spec['methods'] if any(row[0] == m for row in common)]
+    isomir_rows = None
+    if (bench / 'isomirs.tsv').is_file():
+        isomir_rows = [tuple(r[k] for k in adapters.ISOMIR_COLUMNS[:-1]) + (float(r['count']),) for r in read_tsv(bench / 'isomirs.tsv')]
+    points, skipped = depth_series.series(common, methods, samples, reads_in, groups, depths, args.seed, isomir_rows)
+    full = round(statistics.median(reads_in.values()))
+    reached = depth_series.saturation(points, methods, full)
+    out = Path(args.output) if args.output else bench / 'depth'
+    out.mkdir(parents=True, exist_ok=True)
+    rows, pairs = depth_series.tables(points, methods)
+    write_tsv(out / 'depth.tsv', ['method', 'depth', 'metric', 'value'], rows)
+    write_tsv(out / 'depth_agreement.tsv', ['method_a', 'method_b', 'depth', 'metric', 'value'], pairs)
+    lines = depth_series.report(spec['name'], points, methods, skipped, reached, reads_in, args.seed, md_table)
+    (out / 'depth.md').write_text('\n'.join(lines) + '\n')
+    depth_series.plot(points, methods, full, out / 'depth.png')
+    print(out / 'depth.md')
+
+
 def fill(args):
     spec = load_dataset(args.dataset, args.mirbase_release)
     try:
@@ -2410,8 +2467,14 @@ def main():
     s = sub.add_parser('summary', help='one overview of several evaluated projects (Markdown or HTML by the extension)')
     s.add_argument('--projects', nargs='+', required=True)
     s.add_argument('--output', required=True, help='.md or .html; written outside the projects')
+    d = sub.add_parser('depth', help='sequencing-depth curves of an evaluated biological project, by thinning its count tables (#409)')
+    d.add_argument('--project', required=True)
+    d.add_argument('--output', help='directory for depth.tsv, depth_agreement.tsv, depth.md and depth.png (default benchmark/depth/ in the project)')
+    d.add_argument('--depths', default=depth_series.DEPTHS, help='reads per sample, k and M suffixes (default %(default)s); '
+                   'those above the shallowest sample are left out, and the full depth ends the series')
+    d.add_argument('--seed', type=int, default=1, help='seed of the thinning (default %(default)s)')
     args = parser.parse_args()
-    {'prepare': prepare, 'fill': fill, 'evaluate': evaluate, 'summary': summary}[args.command](args)
+    {'prepare': prepare, 'fill': fill, 'evaluate': evaluate, 'summary': summary, 'depth': depth}[args.command](args)
 
 
 if __name__ == '__main__':
