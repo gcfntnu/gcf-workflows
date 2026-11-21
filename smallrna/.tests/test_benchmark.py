@@ -616,7 +616,9 @@ def test_runs_filled_from_sra_are_checked_by_their_reads_not_their_file(tmp_path
     (folder / 'mirbase/23.1/mature.fa').write_text('>x\nACGT\n')
     messages = []
     monkeypatch.chdir(tmp_path)  # a relative EXT_DIR: the command, run in the temporary folder, still finds the file
-    assert fill.fill(spec, Path('ext'), log=messages.append, source='sra', connections=3, fasterq_dump=str(dump)) == 1
+    (tmp_path / 'link').symlink_to(tmp_path / 'ext')  # and a store reached through a link is named by the link
+    dump.write_text(dump.read_text().replace('[ -s "$1" ] || exit 3', 'case "$1" in */link/*) ;; *) exit 4;; esac\n[ -s "$1" ] || exit 3'))
+    assert fill.fill(spec, Path('link'), log=messages.append, source='sra', connections=3, fasterq_dump=str(dump)) == 1
     target = folder / 'fastq/SRR1.fastq.gz'
     assert sorted(p.name for p in target.parent.iterdir()) == ['SRR1.fastq.gz', 'SRR1.sra.json']
     assert fill.file_content(target) == (300, digest) and gzip.open(target, 'rt').read().split('\n')[2] == '+'
@@ -625,7 +627,7 @@ def test_runs_filled_from_sra_are_checked_by_their_reads_not_their_file(tmp_path
     assert (record['reads'], record['content_md5'], record['fasterq_dump']) == (300, digest, '9.9.9')
     assert sorted(set(asked)) == [(fill.SRA_URL.format(run='SRR1'), start, min(start + 9999, len(sra) - 1)) for start in range(0, len(sra), 10000)]
     assert asked.count((fill.SRA_URL.format(run='SRR1'), 10000, 19999)) == 2  # the short part, asked for again
-    assert fill.fill(spec, tmp_path / 'ext', log=messages.append, source='sra', fasterq_dump=str(dump)) == 0  # in place
+    assert fill.fill(spec, tmp_path / 'link', log=messages.append, source='sra', fasterq_dump=str(dump)) == 0  # in place
 
     for change, message in (({'reads': 299}, '300 reads from SRA, 299 declared'), ({'content_md5': '0' * 32}, 'content md5'),
                             ({'sra': {'md5': '0' * 32, 'bytes': len(sra)}}, 'md5 .* does not match the declared'), ({'sra': None}, 'declares `reads` and `sra')):
@@ -633,7 +635,7 @@ def test_runs_filled_from_sra_are_checked_by_their_reads_not_their_file(tmp_path
         (target.parent / 'SRR1.sra.json').unlink(missing_ok=True)
         spec['samples'][0]['runs'] = [dict(run, **change)]
         with pytest.raises(ValueError, match=message):
-            fill.fill(spec, tmp_path / 'ext', log=messages.append, source='sra', fasterq_dump=str(dump))
+            fill.fill(spec, tmp_path / 'link', log=messages.append, source='sra', fasterq_dump=str(dump))
         assert list(target.parent.iterdir()) == []
 
 

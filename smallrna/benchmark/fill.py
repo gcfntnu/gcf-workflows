@@ -235,7 +235,9 @@ def sra_run(run, path, connections=8, fasterq_dump='fasterq-dump', threads=4, lo
         raise ValueError('{}: a run filled from SRA declares `reads` and `sra: {{md5, bytes}}`; fill it from ENA, or declare them'.format(name))
     url = SRA_URL.format(run=name)
     path.parent.mkdir(parents=True, exist_ok=True)
-    work = Path(tempfile.mkdtemp(prefix='.partial-{}.sra.'.format(name), dir=path.parent)).resolve()  # fasterq-dump runs inside it
+    # absolute, as fasterq-dump runs inside it, but not resolved: a store reached through a link keeps the path the
+    # caller named, which is the one a container has bound
+    work = Path(os.path.abspath(tempfile.mkdtemp(prefix='.partial-{}.sra.'.format(name), dir=path.parent)))
     try:
         sra = work / '{}.sra'.format(name)  # fasterq-dump names the reads after the file
         fetch_parts(url, int(declared['bytes']), sra, connections, log)
