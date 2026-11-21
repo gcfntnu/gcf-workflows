@@ -39,7 +39,7 @@ reports = load('merge_fastp')
 
 
 def test_kits_no_longer_set_fastp():
-    assert set(FASTP_PRESETS) == set(SMALLRNA)
+    assert set(FASTP_PRESETS) <= set(SMALLRNA)  # kits added after #350 (NEBNext, #450) never had a fastp preset
     assert all('fastp' not in kit['filter']['trim'] and kit['filter']['trim']['quantifier'] == 'cutadapt' for kit in SMALLRNA.values())
 
 
@@ -64,7 +64,7 @@ def test_explicit_final_length_overrides(args):
     assert policy.final_fastp_args({'args': args, 'params': ''}) == args
 
 
-@pytest.mark.parametrize('name', SMALLRNA)
+@pytest.mark.parametrize('name', FASTP_PRESETS)
 def test_resolved_workflow_commands(tmp_path, name):
     shutil.copytree(ROOT / 'smallrna/.tests', tmp_path, dirs_exist_ok=True,
                     ignore=shutil.ignore_patterns('.snakemake', '__pycache__'))
