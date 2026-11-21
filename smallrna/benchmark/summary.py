@@ -16,6 +16,7 @@ from pathlib import Path
 import re
 import secrets
 import statistics
+import sys
 import urllib.parse
 
 import evaluation
@@ -240,9 +241,9 @@ def over_seeds(rows, metrics):
 def settings_variants(rows, metrics):
     """Projects run with route settings changed (#417, `prepare --set`), each against the project of the same dataset,
     samples and draw run with the defaults: [(dataset, default project, [(variant project, setting, route, [(metric,
-    default value, variant value, flipped)])])]. `flipped` names the default project's other routes whose order with the
-    varied route (higher, lower or equal) the setting changes. A variant without such a project is left out; two such
-    projects stop it."""
+    default value, variant value, flipped)])])]. `flipped`: [(route, value)] of the default project's other routes whose
+    order with the varied route (higher, lower or equal) the setting changes. A variant without such a project is left
+    out with a line on stderr; two such projects stop it."""
     defaults = {}
     for row in rows:
         if not row['variant']:
@@ -250,7 +251,11 @@ def settings_variants(rows, metrics):
     sign = lambda x: (x > 0) - (x < 0)
     out = {}
     for row in rows:
-        if not row['variant'] or not defaults.get(row['identity']):
+        if not row['variant']:
+            continue
+        if not defaults.get(row['identity']):  # e.g. a default project prepared from an earlier version of the declaration
+            print('summary: settings variant {} ({}) has no project of the same dataset, samples and draw run with the defaults; '
+                  'it is left out of the comparison'.format(row['project'], row['dataset']), file=sys.stderr)
             continue
         if len(defaults[row['identity']]) > 1:
             raise ValueError('projects {} run {} with the defaults; the settings variant {} needs one to compare with'.format(
@@ -264,19 +269,21 @@ def settings_variants(rows, metrics):
                 if default is None or changed is None:
                     continue
                 others = {m: number(base['values'].get((k, m))) for m in ms if m not in (route, 'oracle', 'truth')}
-                lines.append((k, default, changed, [m for m, x in others.items() if x is not None and sign(default - x) != sign(changed - x)]))
+                lines.append((k, default, changed, [(m, x) for m, x in others.items() if x is not None and sign(default - x) != sign(changed - x)]))
             out.setdefault((base['dataset'], base['project']), []).append((row['project'], setting, route, lines))
     return [(dataset, project, entries) for (dataset, project), entries in out.items()]
 
 
 VARIANTS_NOTE = ('Projects run with route settings changed (#417, `prepare --set`), each against the project of the same dataset, '
                  'samples and draw run with the defaults: per key metric, the route\'s value with the defaults and with the setting, '
-                 'and the routes whose order with it (higher, lower or equal) the setting changes.')
+                 'and the routes whose order with it (higher, lower or equal) the setting changes, with their values. A variant '
+                 'without such a project is left out, named on stderr.')
 
 
 def variant_rows(entries):
     """[metric, route, setting, default, variant, order changed against] of settings_variants() entries."""
-    return [[k, route, '{} ({})'.format(setting, project), '{:.4g}'.format(default), '{:.4g}'.format(changed), ', '.join(flipped)]
+    return [[k, route, '{} ({})'.format(setting, project), '{:.4g}'.format(default), '{:.4g}'.format(changed),
+             ', '.join('{} {:.4g}'.format(m, x) for m, x in flipped)]
             for project, setting, route, lines in entries for k, default, changed, flipped in lines]
 
 

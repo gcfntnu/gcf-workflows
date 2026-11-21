@@ -3295,8 +3295,11 @@ def test_a_settings_variant_is_compared_with_the_defaults_in_the_summary(tmp_pat
         assert result.returncode == 0, result.stderr
     text = (tmp_path / 'summary.md').read_text()
     assert '### ko: settings against defaults' in text
-    assert '| knockout_surviving | mirge3 | quant.mirge3.cr_threshold 0.1 (cr-threshold) | 0 | 1 | unitas |' in text   # 0 < 1, then 1 = 1
+    assert '| knockout_surviving | mirge3 | quant.mirge3.cr_threshold 0.1 (cr-threshold) | 0 | 1 | unitas 1 |' in text   # 0 < 1, then 1 = 1
     assert '<h3>ko: settings against defaults</h3>' in (tmp_path / 'summary.html').read_text()
+    alone = subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'summary', '--projects', str(variant), '--output', str(tmp_path / 'alone.md')],
+                           capture_output=True, text=True, timeout=60)
+    assert alone.returncode == 0 and 'settings variant cr-threshold (ko) has no project of the same dataset' in alone.stderr
     rows = [{'project': p, 'dataset': 'ko', 'variant': {}, 'identity': 'x', 'values': {}} for p in ('a', 'b')]
     with pytest.raises(ValueError, match='projects a, b run ko with the defaults'):
         summary.settings_variants(rows + [{'project': 'c', 'dataset': 'ko', 'variant': {'quant.mirge3.cr_threshold': 0.1}, 'identity': 'x',
