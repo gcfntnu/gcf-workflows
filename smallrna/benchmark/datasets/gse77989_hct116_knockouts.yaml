@@ -1,0 +1,76 @@
+# GSE77989 (GEO; SRA PRJNA312310): HCT116 cells, parental and DROSHA, XPO5 and DICER knockouts (Kim et al., PNAS 113:E1881,
+# 2016, doi:10.1073/pnas.1602532113). TruSeq Small RNA after gel selection of 17-30 nt, MiSeq, 65-nt reads, 2.9-4.5 M
+# reads per library. Two sets of libraries: set 1 the parental cells (2 replicates) and the DROSHA knockout clone #40
+# (2 replicates); set 2 the parental cells (1) and two clones each of the XPO5 and DICER knockouts.
+# Canonical miRNAs need DROSHA and DICER, so their reads should nearly vanish in those knockouts: a negative control
+# for miRNA counts (#452). Each knockout sample is compared with the parental cells of its set. XPO5 knockout lowers
+# miRNAs only partly; it is reported, but the surviving miRNAs are listed for the DROSHA knockout.
+# The study normalised the DROSHA and XPO5 knockouts to miR-320a-3p (made without DROSHA) and the DICER knockouts to
+# rRNA and tRNA reads; the benchmark uses reads per million filtered reads. The study (abstract): canonical miRNAs are
+# abolished without DROSHA, apart from a few DROSHA-independent ones (among them miR-7706, miR-3615 and miR-1254);
+# without DICER many are still detected at reduced levels, from pre-miRNAs loaded onto AGO and trimmed at the 3' end,
+# so 5p miRNAs.
+name: gse77989_hct116_knockouts
+kind: biological
+organism: homo_sapiens
+libprepkit: TruSeq Small RNA Library Prep Kit
+methods: [unitas, mirge3, mirflowz, tesmall, tinyrna, smrnaseq, biocore_htseq, biocore_miraligner]
+data: benchmark/smallrna/gse77989   # relative to EXT_DIR
+mirbase:                    # mature miRNAs of the release the methods use: names, accessions and truth groups
+  release: '23.1'
+  url: https://www.mirbase.org/download_version_files/23.1/mature.fa
+  sha256: 52d69eeb3c23c5ed0f66c8c9f24e1ad2cd94cc34e72e4fc376c0dd438d2779ff
+mirbase_releases:           # other releases a run can select: fill and prepare --mirbase-release (#431)
+  '22':
+    url: https://www.mirbase.org/download_version_files/22/mature.fa
+    sha256: 3c521fc9bea3c7993e71cf188b11caf73e2d40ac83454e32876455317cc6d342
+knockout:                   # #452: every other group against the parental cells of its set
+  control: Parental
+  survival: DROSHA KO       # the knockout whose surviving miRNAs are listed
+  within: set
+samples:
+  - sample: GSM2064270       # Parental cells (set 1) replicate 1
+    group: Parental
+    set: 1
+    runs:
+      - {run: SRR3174960, reads: 4217500, md5: 718835fa85a2b792d1fe2c790de48b38, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR317/000/SRR3174960/SRR3174960.fastq.gz}
+  - sample: GSM2064271       # Parental cells (set 1) replicate 2
+    group: Parental
+    set: 1
+    runs:
+      - {run: SRR3174961, reads: 3623427, md5: 4d4d0db400aa936b9b1859384e6583eb, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR317/001/SRR3174961/SRR3174961.fastq.gz}
+  - sample: GSM2064272       # DROSHA KO #40 (set 1) replicate 1
+    group: DROSHA KO
+    set: 1
+    runs:
+      - {run: SRR3174962, reads: 4501746, md5: 4ddb1b7bb59d22318454eb5fa6f546a9, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR317/002/SRR3174962/SRR3174962.fastq.gz}
+  - sample: GSM2064273       # DROSHA KO #40 (set 1) replicate 2
+    group: DROSHA KO
+    set: 1
+    runs:
+      - {run: SRR3174963, reads: 4219461, md5: a102410b1f24f45708af53bd6f5adf48, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR317/003/SRR3174963/SRR3174963.fastq.gz}
+  - sample: GSM2064274       # Parental cells (set 2)
+    group: Parental
+    set: 2
+    runs:
+      - {run: SRR3174964, reads: 3449942, md5: 3f73de6eee95e675c0a29d7d90ea7f34, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR317/004/SRR3174964/SRR3174964.fastq.gz}
+  - sample: GSM2064275       # XPO5 KO #19 (set 2)
+    group: XPO5 KO
+    set: 2
+    runs:
+      - {run: SRR3174965, reads: 3334432, md5: aa87ef8ecab8684461114a10b3a18719, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR317/005/SRR3174965/SRR3174965.fastq.gz}
+  - sample: GSM2064276       # XPO5 KO #19-1 (set 2)
+    group: XPO5 KO
+    set: 2
+    runs:
+      - {run: SRR3174966, reads: 3624661, md5: 607ba04b5cfc8ee3acc277249902bc5d, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR317/006/SRR3174966/SRR3174966.fastq.gz}
+  - sample: GSM2064277       # DICER KO #43 (set 2)
+    group: DICER KO
+    set: 2
+    runs:
+      - {run: SRR3174967, reads: 3125020, md5: f346fd723ac325df46d70c720d4f39c1, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR317/007/SRR3174967/SRR3174967.fastq.gz}
+  - sample: GSM2064278       # DICER KO #45 (set 2)
+    group: DICER KO
+    set: 2
+    runs:
+      - {run: SRR3174968, reads: 2944324, md5: 8e440954dbbafa1b4a86aaf16555237a, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR317/008/SRR3174968/SRR3174968.fastq.gz}

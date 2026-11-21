@@ -61,14 +61,17 @@ SECTIONS = [
      'library sizes) and `edger_fc_error_vs_oracle` (the median absolute deviation from that shift, from the counts). edgeR\'s '
      'GLM test, limma-voom and the tests within each lab are in each report. `shifted_isomir_recovered` as for equimolar pools.'),
     ('biological', 'Biological samples', ['mirna_reads', 'unplaced', 'detected', 'detected_all_samples', 'top10_share', 'isomir_share',
-                                         'edger_null_called', 'voom_null_called'],
+                                          'edger_null_called', 'voom_null_called',
+                                          'knockout_mirna_share', 'knockout_surviving'],
      'No known composition: `mirna_reads` is the rounded median per sample of reads assigned to a miRBase accession. '
      'The other metrics describe the share on names without a miRBase accession, '
      'miRNAs detected (at least 10 reads; median over samples) and in every sample, and the share of the 10 most abundant. '
      'Agreement between methods is in each report. `isomir_share` (#454): the share of a method\'s miRNA reads that are not the '
      'mature sequence; empty for methods without isomiR output. With null comparisons (#449, `evaluate --de`): '
      '`edger_null_called` and `voom_null_called`, the median share of tested miRNAs that edgeR\'s exact test and limma-voom call '
-     'when one group\'s samples, split in two at random, are tested against each other (every call is false).'),
+     'when one group\'s samples, split in two at random, are tested against each other (every call is false). A dataset with '
+     'knockout cells (#452): `knockout_mirna_share`, the miRNA reads per million filtered reads in the knockout that should '
+     'remove miRNAs (DROSHA) relative to its control cells, and `knockout_surviving`, the miRNAs that keep more than 25% there.'),
 ]
 FIXED = ['project', 'dataset', 'kit', 'samples', 'reads processed', 'methods']
 

@@ -2946,3 +2946,119 @@ def test_a_bare_null_key_in_a_declaration_is_named(tmp_path):
     bare = write(tmp_path / 'bare.yaml', quoted.read_text().replace("'null':", 'null:'))
     with pytest.raises(SystemExit, match=re.escape("`de` has a key that YAML reads as null; write the null comparisons' key quoted, `'null':`")):
         benchmark.load_dataset(bare)
+
+
+# Knockout cells as a negative control for miRNA counts (#452)
+
+def knockout_common(rows):
+    """Common-table rows from {(method, sample): {accession: count}}."""
+    return [(m, s, i, i, c) for (m, s), counts in rows.items() for i, c in counts.items()]
+
+
+def test_knockout_metrics_on_hand_made_counts():
+    """Reads per million filtered reads, each knockout sample against the controls of its level; per miRNA a ratio
+    for those with at least 10 control reads on average, surviving above 25%; survivors per method, only one method's,
+    and every method's."""
+    a = {'P1': {'X': 100, 'Y': 40, 'Z': 4, 'W': 20, 'V': 10, 'U': 50}, 'P2': {'X': 100, 'Y': 40, 'Z': 5, 'W': 20, 'V': 10, 'U': 50},
+         'K1': {'X': 2, 'Y': 40, 'W': 20, 'U': 100}, 'K2': {'X': 1, 'Y': 30, 'U': 50}, 'P3': {'X': 100}, 'D1': {'X': 3}}
+    b = {s: dict(c) for s, c in a.items()}
+    b['K1'] = {'X': 2, 'W': 20, 'V': 20, 'U': 100}       # Y gone; V kept
+    b['K2'] = {'X': 1, 'V': 5, 'U': 50}
+    common = knockout_common({**{('a', s): c for s, c in a.items()}, **{('b', s): c for s, c in b.items()}})
+    kept = {'P1': 1e6, 'P2': 1e6, 'K1': 2e6, 'K2': 1e6, 'P3': 1e6, 'D1': 1e6}   # K1 sequenced twice as deep
+    units = [('P1', 'Parental', '1'), ('P2', 'Parental', '1'), ('K1', 'DROSHA KO', '1'), ('K2', 'DROSHA KO', '1'),
+             ('P3', 'Parental', '2'), ('D1', 'DICER KO', '2')]
+    result = biological.knockout(common, ['a', 'b'], kept, units, 'Parental')
+    level1 = (224 + 225) / 2                                                       # set 1 controls' miRNA RPM
+    assert result['a']['share']['DROSHA KO'] == pytest.approx((162 / 2 / level1 + 81 / level1) / 2)
+    assert result['a']['share']['DICER KO'] == pytest.approx(3 / 100)              # against the set 2 control only
+    assert result['a']['control_rpm'] == pytest.approx((224 + 225 + 100) / 3)
+    ratios = result['a']['ratios']['DROSHA KO']
+    assert set(ratios) == {'X', 'Y', 'W', 'V', 'U'}                                # Z: 4.5 control reads on average
+    assert ratios['X'] == pytest.approx((100.0, 1.5, 0.01))                         # K1's 2 reads are 1 per million
+    assert ratios['Y'][2] == pytest.approx((0.5 + 0.75) / 2) and ratios['W'][2] == pytest.approx(0.25)
+    assert set(result['a']['ratios']['DICER KO']) == {'X'}                         # Y and the rest: no set 2 control reads
+    per, every = biological.survivors(result, ['a', 'b'], 'DROSHA KO')
+    assert per['a']['surviving'] == {'Y', 'U'} and per['b']['surviving'] == {'V', 'U'}   # W at exactly 25% does not survive
+    assert every == {'U'} and per['a']['only'] == {'Y'} and per['b']['only'] == {'V'} and per['a']['tested'] == 5
+    assert per['a']['only_reads'] == pytest.approx(35) and per['b']['only_reads'] == pytest.approx(12.5)
+
+
+def knockout_declaration(tmp_path, change=None):
+    spec = yaml.safe_load((BENCH / 'datasets/gse77989_hct116_knockouts.yaml').read_text())
+    if change:
+        change(spec)
+    return write(tmp_path / 'ko.yaml', yaml.safe_dump(spec))
+
+
+def test_the_knockout_declaration_lists_its_runs_and_pairs_each_knockout_with_its_set(tmp_path):
+    spec = benchmark.load_dataset(BENCH / 'datasets/gse77989_hct116_knockouts.yaml')
+    runs = [run for s in spec['samples'] for run in s['runs']]
+    assert len(runs) == 9 and [t[3].name for t in fill.targets(spec, tmp_path)][1:] == ['{}.fastq.gz'.format(r['run']) for r in runs]
+    assert collections.Counter(s['group'] for s in spec['samples']) == {'Parental': 3, 'DROSHA KO': 2, 'XPO5 KO': 2, 'DICER KO': 2}
+    assert {s['group'] for s in spec['samples'] if s['set'] == 1} == {'Parental', 'DROSHA KO'}
+    table = [{'sample': s['sample'], 'library': s['sample'], 'group': s['group']} for s in spec['samples']]
+    units = benchmark.knockout_units(spec, table)
+    assert ('GSM2064272', 'DROSHA KO', '1') in units and ('GSM2064274', 'Parental', '2') in units
+    for change, message in ((lambda s: s.update(knockout={'control': 'Parental'}), 'must name two different groups'),
+                            (lambda s: s['knockout'].update(survival='Parental'), 'must name two different groups'),
+                            (lambda s: s['knockout'].update(control='Wild type'), 'must name two different groups'),
+                            (lambda s: s['knockout'].update(normalise='miR-320a'), 'takes only `control`, `survival` and `within`'),
+                            (lambda s: s['samples'][0].pop('set'), "knockout.within is 'set', but not every sample has it"),
+                            (lambda s: s['samples'][7].update(set=3), 'no Parental sample with the same set as GSM2064277')):
+        with pytest.raises(SystemExit) as error:
+            benchmark.load_dataset(knockout_declaration(tmp_path, change))
+        assert message in str(error.value), (message, str(error.value))
+    pool = yaml.safe_load((BENCH / 'datasets/giraldez2018_equimolar_truseq.yaml').read_text())
+    with pytest.raises(SystemExit, match='is for biological datasets'):
+        benchmark.load_dataset(write(tmp_path / 'pool.yaml', yaml.safe_dump(dict(pool, knockout={'control': 'A', 'survival': 'B'}))))
+
+
+def test_evaluate_a_knockout_dataset(tmp_path):
+    """#452 end to end: the knockout section, its metrics.tsv rows and knockout.tsv, per million filtered reads."""
+    ext = tmp_path / 'ext'
+    data = ext / 'benchmark/smallrna/ko'
+    write(data / 'mirbase/23.1/mature.fa', BLOOD)
+    reads = ['TAGCAGCACGTAAATATTGGCG'] * 6 + ['TAGCTTATCAGACTGATGTTGA'] * 3
+    names, groups = ['P1', 'P2', 'K1', 'K2'], ['Parental', 'Parental', 'DROSHA KO', 'DROSHA KO']
+    for i in range(len(names)):
+        (data / 'fastq').mkdir(parents=True, exist_ok=True)
+        with gzip.open(data / 'fastq/SRR{}.fastq.gz'.format(i), 'wt') as fh:
+            fh.write(''.join('@SRR{}.{}\n{}TGGAATTCTC\n+\n{}\n'.format(i, j, s, 'I' * (len(s) + 10)) for j, s in enumerate(reads)))
+    dataset = write(tmp_path / 'ko.yaml', yaml.safe_dump({
+        'name': 'ko', 'kind': 'biological', 'organism': 'homo_sapiens', 'libprepkit': 'TruSeq Small RNA Library Prep Kit',
+        'methods': ['unitas', 'mirge3'], 'data': 'benchmark/smallrna/ko', 'mirbase': {'release': '23.1', 'url': 'unused', 'sha256': 'unused'},
+        'knockout': {'control': 'Parental', 'survival': 'DROSHA KO'},
+        'samples': [{'sample': n, 'group': g, 'runs': [{'run': 'SRR{}'.format(i), 'md5': 'unused', 'url': 'unused'}]}
+                    for i, (n, g) in enumerate(zip(names, groups))]}))
+    project = tmp_path / 'project'
+    result = subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'prepare', '--dataset', str(dataset), '--project', str(project),
+                             '--ext-dir', str(ext)], capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    quant = project / 'data/tmp/smallrna/quant'
+    # miR-16-5p vanishes in the knockout; miR-21-5p keeps half its reads in UNITAS only (e.g. reads of another RNA)
+    rows = [('miR-16-5p', [600, 600, 3, 3]), ('miR-21-5p', [40, 40, 20, 20]), ('miR-451a', [1, 1, 1, 1])]
+    write(quant / 'unitas/mir_counts.tsv', '\t' + '\t'.join(names) + '\n' + ''.join('{}\t{}\n'.format(n, '\t'.join(map(str, v))) for n, v in rows))
+    mirge = [('miR-16-5p', [600, 600, 3, 3]), ('miR-21-5p', [40, 40, 2, 2])]
+    write(quant / 'mirge3/miR.Counts.csv', 'miRNA,' + ','.join(names) + '\n' + ''.join('hsa-{},{}\n'.format(n, ','.join(map(str, v))) for n, v in mirge))
+    write_records(quant, ['unitas', 'mirge3'], dump=unitas_dump(ext, 'homo_sapiens', 'Human', {}))
+    isomir_outputs(quant)
+    for sample in names:
+        write(project / 'data/tmp/smallrna/filter/cutadapt/{}_R1.fastq'.format(sample),
+              ''.join('@r{}\n{}\n+\n{}\n'.format(j, s, 'I' * len(s)) for j, s in enumerate(reads)))
+        write_cutadapt_reports(project / 'data/tmp/smallrna/filter/cutadapt_stages', sample, 100)   # 87 kept each
+    result = evaluate_cmd(project)
+    assert result.returncode == 0, result.stderr
+    bench = project / 'benchmark'
+    report = (bench / 'report.md').read_text()
+    section = report.split('## Knockouts (#452)')[1].split('\n## ')[0]
+    assert '| Parental | 2 | 7367816 | 7356322 |' in section                    # 641 and 640 miRNA reads per 87 kept
+    assert '| DROSHA KO | 2 | 0.0374 | 0.0078 |' in section                      # 24/641 and 5/640
+    assert '| surviving | 1 | 0 |' in section and '| only | 1 | 0 |' in section and '| only_reads | 20.0 | 0.0 |' in section
+    assert '0 survive in every method' in section and '| hsa-miR-21-5p | 1 | **0.50** | 0.05 |' in section
+    metrics = {row.split('\t')[0]: row.split('\t')[1:] for row in (bench / 'metrics.tsv').read_text().splitlines()[1:]}
+    assert metrics['knockout_mirna_share'] == ['0.0374', '0.0078'] and metrics['knockout_surviving'] == ['1', '0']
+    assert '| knockout_mirna_share |' not in report.split('## Knockouts')[0]       # not in the methods table
+    tsv = (bench / 'knockout.tsv').read_text().splitlines()
+    assert tsv[0] == 'method\tgroup\tmature_id\tmirna\tcontrol_reads\tknockout_reads\tratio\tsurviving'
+    assert 'unitas\tDROSHA KO\tMIMAT0000076\thsa-miR-21-5p\t40.0\t20.0\t0.5\t1' in tsv and len(tsv) == 1 + 4   # miR-451a not tested
