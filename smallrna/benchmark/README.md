@@ -123,7 +123,7 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    with `--lanes` has no DE: the lanes of one library are no replicates. Its calls are reported, not scored, since no
    change is known; with `within`, the report has a table for the whole contrast and one for each level.
 
-   **Null comparisons** (#449, `de: {null: {splits: 50, seed: 1}}`): the samples of one group split in two at random
+   **Null comparisons** (#449, `de: {'null': {splits: 50, seed: 1}}`; the key quoted, since a bare `null` is YAML's null): the samples of one group split in two at random
    and tested against each other, so every call is false: the false-call rate under real variance. Each group with at
    least 4 samples gets up to `splits` distinct splits drawn from the seed (a split and its mirror are one), each a DE
    set (`benchmark/de/null/<group>-<k>/`) with pseudo-groups `x` and `y`. A split halves each stratum of the declared

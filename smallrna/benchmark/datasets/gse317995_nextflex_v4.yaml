@@ -20,6 +20,8 @@ mirbase_releases:           # other releases a run can select: fill and prepare 
   '22':
     url: https://www.mirbase.org/download_version_files/22/mature.fa
     sha256: 3c521fc9bea3c7993e71cf188b11caf73e2d40ac83454e32876455317cc6d342
+de:                         # null comparisons (#449): each group's samples split in two, so every call is false
+  'null': {splits: 50, seed: 1}   # quoted: a bare null key is YAML's null
 samples:
   - sample: GSM9484173       # Adenomyosis 1
     group: Adenomyosis

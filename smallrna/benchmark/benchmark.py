@@ -331,7 +331,13 @@ def select_per_group(spec, count):
         if taken[sample.get('group', '')] < count:
             taken[sample.get('group', '')] += 1
             samples.append(sample)
-    return dict(spec, samples=samples)
+    selected = dict(spec, samples=samples)
+    declared = spec.get('de') or {}
+    if 'null' in declared and max(taken.values()) < de.NULL_MIN:  # the null comparisons need larger groups (#449)
+        print('--per-group {}: no group has {} samples, so the null comparisons (de.null) are left out'.format(count, de.NULL_MIN), file=sys.stderr)
+        rest = {k: v for k, v in declared.items() if k != 'null'}
+        selected = dict(selected, de=rest) if rest else {k: v for k, v in selected.items() if k != 'de'}
+    return selected
 
 
 def project_fastq(project, spec, sample):

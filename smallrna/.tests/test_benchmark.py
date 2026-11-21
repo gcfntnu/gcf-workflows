@@ -2136,7 +2136,7 @@ def test_shipped_ratiometric_declarations_declare_their_de_design():
     assert genome['de'] == {} and benchmark.de_kind(genome) == 'synthetic' and benchmark.de_contrast(truseq) == ('A', 'B')
     for path in BENCH.glob('datasets/*.yaml'):
         spec = yaml.safe_load(path.read_text())
-        assert ('de' in spec) == (spec.get('pool') == 'ratiometric' or spec['name'] == 'synthetic_hsa_genome'), path.name
+        assert ('de' in spec) == (spec.get('pool') == 'ratiometric' or spec['name'] in ('synthetic_hsa_genome', 'gse317995_nextflex_v4')), path.name
 
 
 def test_de_sets_take_any_column_of_the_runs_as_a_covariate(tmp_path):
@@ -2881,6 +2881,8 @@ def test_gse317995_is_declared_in_full_and_per_group_takes_the_quick_run(tmp_pat
     assert len(fill.targets(spec, tmp_path)) == 1 + 120
     quick = benchmark.select_per_group(spec, 2)  # the two lowest-numbered of each group, as declared before #448
     assert [s['sample'] for s in quick['samples']] == ['GSM9484173', 'GSM9484174', 'GSM9484193', 'GSM9484194', 'GSM9484183', 'GSM9484184']
+    assert spec['de'] == {'null': {'splits': 50, 'seed': 1}} and 'de' not in quick   # #449: halves need 4 samples per group
+    assert benchmark.select_per_group(spec, 4)['de'] == spec['de']
     with pytest.raises(SystemExit, match='--per-group is for biological datasets'):
         benchmark.select_per_group(benchmark.load_dataset(BENCH / 'datasets/giraldez2018_equimolar_truseq.yaml'), 2)
 
@@ -2923,7 +2925,9 @@ def test_routes_not_evaluated_get_a_state_in_the_report_and_the_summary(tmp_path
                             capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
     row = next(line for line in summary_md.read_text().splitlines() if line.startswith('| [project]'))
-    assert row.count('not run') == 2 * 6 and 'stopped' not in row   # mirge3 and tinyrna in each of the 6 key metrics
+    import summary
+    keys = next(keys for kind, _, keys, _ in summary.SECTIONS if kind == 'biological')
+    assert row.count('not run') == 2 * len(keys) and 'stopped' not in row   # mirge3 and tinyrna in each key metric
     write(bench / 'routes.tsv', 'route\tstate\treason\nunitas\tstopped\tedited\n')   # not the published file: the summary refuses it
     result = subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'summary', '--projects', str(project), '--output', str(summary_md)],
                             capture_output=True, text=True, timeout=60)
