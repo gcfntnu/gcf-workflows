@@ -66,6 +66,10 @@ def targets(spec, ext_dir):
         sources = (spec['synthetic'].get('decoys') or {}).get('sources') or {}  # #412 PR 2
         files += [(value['url'], 'sha256', value['sha256'], decoy_path(spec, ext_dir, key, value['url'])) for key, value in sorted(sources.items())]
         return files
+    if spec['kind'] == 'biological':  # the other RNA classes whose molecules flag miRBase entries (#415)
+        sources = (spec.get('other_rna') or {}).get('sources') or {}
+        files += [(value['url'], 'sha256', value['sha256'], decoy_path(spec, ext_dir, key, value['url'], 'other_rna'))
+                  for key, value in sorted(sources.items())]
     files += [(run['url'], 'md5', run['md5'], data / 'fastq' / '{}.fastq.gz'.format(run['run'])) for run in runs(spec)]
     return files
 
@@ -118,10 +122,10 @@ def transfer(url, out, checksum, log=print):
     raise ValueError('{}: incomplete after {} connections ({} of {} bytes)'.format(url, CONNECTIONS, received, total))
 
 
-def decoy_path(spec, ext_dir, key, url):
-    """Where a genome-wide synthetic declaration's decoy source `key` is filled: <data>/decoys/<key>.fa, or .fa.gz for a
-    gzipped download."""
-    return Path(ext_dir) / spec['data'] / 'decoys' / '{}.fa{}'.format(key, '.gz' if url.split('?')[0].endswith('.gz') else '')
+def decoy_path(spec, ext_dir, key, url, folder='decoys'):
+    """Where a declaration's source `key` of other RNA classes is filled: <data>/<folder>/<key>.fa, or .fa.gz for a gzipped
+    download; `decoys` for a genome-wide synthetic declaration's decoys (#412), `other_rna` for a biological one's (#415)."""
+    return Path(ext_dir) / spec['data'] / folder / '{}.fa{}'.format(key, '.gz' if url.split('?')[0].endswith('.gz') else '')
 
 
 def download(url, algorithm, digest, path, log=print):

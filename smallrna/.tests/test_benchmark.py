@@ -18,6 +18,7 @@ BENCH = ROOT / 'smallrna/benchmark'
 sys.path.insert(0, str(BENCH))
 import adapters  # noqa: E402
 import benchmark  # noqa: E402
+import decoys  # noqa: E402
 import fill  # noqa: E402
 import metrics  # noqa: E402
 import pool  # noqa: E402
@@ -3153,8 +3154,10 @@ def test_the_knockout_declaration_lists_its_runs_and_pairs_each_knockout_with_it
         benchmark.load_dataset(write(tmp_path / 'pool.yaml', yaml.safe_dump(dict(pool, knockout={'control': 'A', 'survival': 'B'}))))
 
 
-def test_evaluate_a_knockout_dataset(tmp_path):
-    """#452 end to end: the knockout section, its metrics.tsv rows and knockout.tsv, per million filtered reads."""
+def knockout_project(tmp_path, other_rna=None, sequences=None):
+    """A prepared knockout project (#452): P1, P2 (Parental) and K1, K2 (DROSHA KO), UNITAS and miRge3 counts; with
+    `other_rna`, the declaration's other_rna (#415) and {source: file text} filled in place; `sequences`, the isomiR
+    outputs' read sequences."""
     ext = tmp_path / 'ext'
     data = ext / 'benchmark/smallrna/ko'
     write(data / 'mirbase/23.1/mature.fa', BLOOD)
@@ -3164,12 +3167,23 @@ def test_evaluate_a_knockout_dataset(tmp_path):
         (data / 'fastq').mkdir(parents=True, exist_ok=True)
         with gzip.open(data / 'fastq/SRR{}.fastq.gz'.format(i), 'wt') as fh:
             fh.write(''.join('@SRR{}.{}\n{}TGGAATTCTC\n+\n{}\n'.format(i, j, s, 'I' * (len(s) + 10)) for j, s in enumerate(reads)))
-    dataset = write(tmp_path / 'ko.yaml', yaml.safe_dump({
-        'name': 'ko', 'kind': 'biological', 'organism': 'homo_sapiens', 'libprepkit': 'TruSeq Small RNA Library Prep Kit',
-        'methods': ['unitas', 'mirge3'], 'data': 'benchmark/smallrna/ko', 'mirbase': {'release': '23.1', 'url': 'unused', 'sha256': 'unused'},
-        'knockout': {'control': 'Parental', 'survival': 'DROSHA KO'},
-        'samples': [{'sample': n, 'group': g, 'runs': [{'run': 'SRR{}'.format(i), 'md5': 'unused', 'url': 'unused'}]}
-                    for i, (n, g) in enumerate(zip(names, groups))]}))
+    spec = {'name': 'ko', 'kind': 'biological', 'organism': 'homo_sapiens', 'libprepkit': 'TruSeq Small RNA Library Prep Kit',
+            'methods': ['unitas', 'mirge3'], 'data': 'benchmark/smallrna/ko', 'mirbase': {'release': '23.1', 'url': 'unused', 'sha256': 'unused'},
+            'knockout': {'control': 'Parental', 'survival': 'DROSHA KO'},
+            'samples': [{'sample': n, 'group': g, 'runs': [{'run': 'SRR{}'.format(i), 'md5': 'unused', 'url': 'unused'}]}
+                        for i, (n, g) in enumerate(zip(names, groups))]}
+    if other_rna:
+        spec['other_rna'] = {'sources': {key: {'url': 'https://x/{}{}'.format(key, '.gz' if key.startswith('ensembl') else ''), 'sha256': 'unused'}
+                                         for key in other_rna}}
+        for key, text in other_rna.items():
+            path = fill.decoy_path(spec, ext, key, spec['other_rna']['sources'][key]['url'], 'other_rna')
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if path.name.endswith('.gz'):
+                with gzip.open(path, 'wt') as fh:
+                    fh.write(text)
+            else:
+                path.write_text(text)
+    dataset = write(tmp_path / 'ko.yaml', yaml.safe_dump(spec))
     project = tmp_path / 'project'
     result = subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'prepare', '--dataset', str(dataset), '--project', str(project),
                              '--ext-dir', str(ext)], capture_output=True, text=True, timeout=60)
@@ -3181,11 +3195,17 @@ def test_evaluate_a_knockout_dataset(tmp_path):
     mirge = [('miR-16-5p', [600, 600, 3, 3]), ('miR-21-5p', [40, 40, 2, 2])]
     write(quant / 'mirge3/miR.Counts.csv', 'miRNA,' + ','.join(names) + '\n' + ''.join('hsa-{},{}\n'.format(n, ','.join(map(str, v))) for n, v in mirge))
     write_records(quant, ['unitas', 'mirge3'], dump=unitas_dump(ext, 'homo_sapiens', 'Human', {}))
-    isomir_outputs(quant)
+    isomir_outputs(quant, sequences)
     for sample in names:
         write(project / 'data/tmp/smallrna/filter/cutadapt/{}_R1.fastq'.format(sample),
               ''.join('@r{}\n{}\n+\n{}\n'.format(j, s, 'I' * len(s)) for j, s in enumerate(reads)))
         write_cutadapt_reports(project / 'data/tmp/smallrna/filter/cutadapt_stages', sample, 100)   # 87 kept each
+    return project
+
+
+def test_evaluate_a_knockout_dataset(tmp_path):
+    """#452 end to end: the knockout section, its metrics.tsv rows and knockout.tsv, per million filtered reads."""
+    project = knockout_project(tmp_path)
     result = evaluate_cmd(project)
     assert result.returncode == 0, result.stderr
     bench = project / 'benchmark'
@@ -3217,3 +3237,59 @@ def test_the_gse_declarations_name_each_run_s_sra_file():
     tissue = benchmark.load_dataset(BENCH / 'datasets/gse196633_truseq.yaml')
     assert collections.Counter(s['group'] for s in tissue['samples']) == {'tumour': 10, 'normal': 10}
     assert {s['patient'] for s in tissue['samples'] if s['group'] == 'tumour'} == {s['patient'] for s in tissue['samples'] if s['group'] == 'normal'}
+
+
+
+# miRNAs inside other RNA classes, on real data (#415)
+
+MIR21 = 'TAGCTTATCAGACTGATGTTGA'
+OTHER_RNA = {
+    'gtrnadb': '>Homo_sapiens_tRNA-Leu-TAA-1-1 (tRNAscan-SE ID: chr6.trna1) Leu (TAA) 76 bp\n{}\n'.format(
+        ('GCCGGATTAGCTCAGTTGGTAGAGC' + MIR21 + 'TTAAGCCTGTGGATCC').replace('T', 'U')),
+    'ensembl_ncrna': '>ENST1.1 ncrna transcript_biotype:misc_RNA gene_symbol:RNY1\nGGCTGGTCCGAAGGTAGTGAGTTATCTCAATTGATTGTTCACAGTCAGTTACAGATCG\n'}
+
+
+def test_other_rna_flags_the_mirnas_inside_other_classes(tmp_path):
+    """#415 end to end: miR-21-5p lies inside a tRNA, so it is flagged; its reads, which UNITAS keeps in the knockout,
+    lie inside the tRNA too."""
+    sequences = {'miR-16-5p': 'TAGCAGCACGTAAATATTGGCG', 'miR-21-5p': MIR21}
+    project = knockout_project(tmp_path, OTHER_RNA, sequences)
+    result = evaluate_cmd(project, '--bootstrap', '20')
+    assert result.returncode == 0, result.stderr
+    bench = project / 'benchmark'
+    assert (bench / 'other_rna.tsv').read_text() == 'mature_id\tmirna\tclass\tmolecules\nMIMAT0000076\thsa-miR-21-5p\ttRNA\ttRNA-Leu-TAA-1-1\n'
+    metrics = {row.split('\t')[0]: row.split('\t')[1:] for row in (bench / 'metrics.tsv').read_text().splitlines()[1:]}
+    # per sample, UNITAS: P 40 of 641 miRNA reads on miR-21-5p, K 20 of 24; detected P {16, 21}, K {21}
+    assert metrics['flagged_reads'][0] == str(round(statistics.median([40 / 641, 40 / 641, 20 / 24, 20 / 24]), 4))
+    assert metrics['flagged_detected'] == ['1.0', '0.5'] and metrics['detected_unflagged'] == ['0.5', '0.5']  # miRge3: 2 reads in K
+    assert metrics['read_in_other_class'] == [str(round(120 / 1330, 4)), str(round(84 / 1290, 4))]   # miR-21-5p's reads of all
+    assert metrics['knockout_surviving_flagged'] == ['1', '0']
+    report = (bench / 'report.md').read_text()
+    assert '## miRNAs inside other RNA classes (#415)' in report and '- tRNA: hsa-miR-21-5p (tRNA-Leu-TAA-1-1).' in report
+    assert 'Surviving miRNAs that lie inside molecules of other RNA classes (#415), per method: unitas: hsa-miR-21-5p.' in report
+    ci = {row.split('\t')[0] for row in (bench / 'metrics_ci.tsv').read_text().splitlines()[1:]}  # metric, row, value, low, high
+    assert 'detected_unflagged' in ci and 'read_in_other_class' not in ci
+    tsv = (bench / 'knockout.tsv').read_text().splitlines()
+    assert tsv[0].endswith('\tsurviving\tother_class') and 'unitas\tDROSHA KO\tMIMAT0000076\thsa-miR-21-5p\t40.0\t20.0\t0.5\t1\ttRNA:tRNA-Leu-TAA-1-1' in tsv
+    out = tmp_path / 'summary.md'
+    result = subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'summary', '--projects', str(project), '--output', str(out)],
+                            capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    assert 'detected_unflagged' in out.read_text() and 'read_in_other_class' in out.read_text()
+
+
+def test_other_rna_declaration_and_reads_inside_molecules(tmp_path):
+    molecules = {'tRNA-gtrnadb': [('tRNA-1', 'AAAA' + MIR21 + 'CCCC', None)], 'mRNA-ensembl': [('GENE', 'GGGG' + MIR21, None)]}
+    assert decoys.contained(molecules, {MIR21, MIR21[2:], 'ACGTACGTACGTACGTAC'}) == {MIR21: ['tRNA'], MIR21[2:]: ['tRNA']}  # not mRNA
+    assert decoys.embedded(molecules, {'MIMAT0000076': MIR21, 'MIMAT0000069': 'TAGCAGCACGTAAATATTGGCG'}) == {'tRNA': {'MIMAT0000076': ['tRNA-1']}}
+    spec = {'name': 'b', 'kind': 'biological', 'organism': 'homo_sapiens', 'libprepkit': 'k', 'methods': ['unitas'], 'data': 'd',
+            'mirbase': {'release': '23.1', 'url': 'u', 'sha256': 's'},
+            'samples': [{'sample': 'S1', 'group': 'g', 'runs': [{'run': 'R1', 'url': 'u', 'md5': 'm'}]}]}
+    for other, message in (({'sources': {'ensembl_cdna': {'url': 'u', 'sha256': 's'}}}, 'other_rna takes `sources`'),
+                           ({'sources': {'gtrnadb': {'url': 'u'}}}, 'other_rna takes `sources`'), ({'files': {}}, 'other_rna takes `sources`')):
+        with pytest.raises(SystemExit, match=re.escape(message)):
+            benchmark.load_dataset(write(tmp_path / 'b.yaml', yaml.safe_dump(dict(spec, other_rna=other))))
+    spec['other_rna'] = {'sources': {'gtrnadb': {'url': 'https://x/t.fa', 'sha256': 's'}, 'ensembl_ncrna': {'url': 'https://x/n.fa.gz', 'sha256': 't'}}}
+    loaded = benchmark.load_dataset(write(tmp_path / 'b.yaml', yaml.safe_dump(spec)))
+    targets = {str(t[3]) for t in fill.targets(loaded, '/ext')}
+    assert {'/ext/d/other_rna/gtrnadb.fa', '/ext/d/other_rna/ensembl_ncrna.fa.gz'} <= targets
