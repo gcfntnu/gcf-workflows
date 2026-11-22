@@ -219,13 +219,17 @@ class Evaluation:
             out['de_fc_error' + suffix] = float(np.median(errors)) if errors else float('nan')
         return out
 
-    def strata(self, name):
-        """recovered per stratum."""
-        groups = collections.defaultdict(list)
+    def strata(self, name, extra=None):
+        """recovered per stratum; `extra` ({stratum: units}, e.g. MirGeneDB's, #493) adds strata, each shown even when
+        empty."""
+        groups = collections.defaultdict(list, {stratum: [] for stratum in (extra or {})})
         for i in self.units:
             m = self.mirnas.get(i)
             if not m or float(m['base_per_million']) <= 0:
                 continue
+            for stratum, units in (extra or {}).items():
+                if i in units:
+                    groups[stratum].append(i)
             if m['near_role']:
                 groups['near_identical'].append(i)
             if int(m['loci']) > 1:

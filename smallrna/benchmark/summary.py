@@ -67,7 +67,7 @@ SECTIONS = [
      'library sizes) and `edger_fc_error_vs_oracle` (the median absolute deviation from that shift, from the counts). edgeR\'s '
      'GLM test, limma-voom and the tests within each lab are in each report. `shifted_isomir_recovered` as for equimolar pools.'),
     ('biological', 'Biological samples', ['mirna_reads', 'unplaced', 'detected', 'detected_all_samples', 'top10_share', 'isomir_share',
-                                          'edger_null_called', 'voom_null_called',
+                                          'edger_null_called', 'voom_null_called', 'detected.mirgenedb', 'detected.star', 'detected.mirbase_only',
                                           'knockout_mirna_share', 'knockout_surviving', 'knockout_surviving_expected',
                                           'knockout_surviving_unexpected', 'detected_unflagged', 'read_in_other_class'],
      'No known composition: `mirna_reads` is the rounded median per sample of reads assigned to a miRBase accession. '
@@ -76,7 +76,9 @@ SECTIONS = [
      'Agreement between methods is in each report. `isomir_share` (#454): the share of a method\'s miRNA reads that are not the '
      'mature sequence; empty for methods without isomiR output. With null comparisons (#449, `evaluate --de`): '
      '`edger_null_called` and `voom_null_called`, the median share of tested miRNAs that edgeR\'s exact test and limma-voom call '
-     'when one group\'s samples, split in two at random, are tested against each other (every call is false). A dataset with '
+     'when one group\'s samples, split in two at random, are tested against each other (every call is false). With '
+     '`evaluate --mirgenedb` (#493): `detected.mirgenedb`, `detected.star` and `detected.mirbase_only`, the miRNAs detected per '
+     'MirGeneDB stratum (listed, listed as a star arm, not listed); each report has the read shares and the disputed miRNAs. A dataset with '
      'knockout cells (#452): `knockout_mirna_share`, the miRNA reads per million filtered reads in the knockout that should '
      'remove miRNAs (DROSHA) relative to its control cells, and `knockout_surviving`, the miRNAs that keep more than 25% there; '
      'with the miRNAs expected to survive declared (#478; made without DROSHA, or inside another RNA class), '
@@ -194,12 +196,16 @@ def summarize(projects, out_dir):
         if not rows:
             continue
         methods = list(dict.fromkeys([c for row in rows for c in row['columns']] + [m for row in rows for m in row['status']]))
+        present = {k for row in rows for k, _ in row['values']}  # the strata metrics (#493) get route states only where evaluated
         for row in rows:
-            row['values'].update({(k, m): state for k in keys for m, state in row['status'].items()})
+            row['values'].update({(k, m): state for k in keys if k in present or k not in OPTIONAL for m, state in row['status'].items()})
         metrics = [(k, [m for m in methods if any((k, m) in row['values'] for row in rows)]) for k in keys]
         metrics = [(k, ms) for k, ms in metrics if ms]
         sections.append((title, note, metrics, rows, over_seeds(rows, metrics), settings_variants(rows, metrics)))
     return sections
+
+
+OPTIONAL = {'detected.mirgenedb', 'detected.star', 'detected.mirbase_only'}  # metrics of an option (evaluate --mirgenedb, #493)
 
 
 def number(value):
