@@ -3825,6 +3825,15 @@ def test_the_summary_groups_the_seeds_of_one_synthetic_declaration(tmp_path):
     assert 'over seeds 1, 2, 3, 4' not in text and text.count('over seeds') == 1               # the other declaration stays apart
     summary.write(projects, tmp_path / 'summary.html')
     assert 'synthetic_set over seeds 1, 2, 3' in (tmp_path / 'summary.html').read_text()
+    # a genome-wide draw prepared before #500 has no min_length: drawn at 15, the same set as one recorded at 15
+    genome = [summary_project(root, 'genome{}'.format(n), dict(base, name='genome_set', synthetic=dict({'mode': 'genome', 'seed': n}, **extra)),
+                              [['metric', 'unitas', 'tesmall'], ['recovered', '0.9', '0.8']], truth=[('S01', 60)])
+              for n, extra in ((1, {}), (2, {'min_length': 15}), (3, {'min_length': 16}))]
+    for project in genome:   # genome mode: mixed and probe samples
+        write(project / 'benchmark/samples.tsv', 'sample\tkind\nS01\tmixed\n')
+    summary.write(genome, tmp_path / 'genome.md')
+    text = (tmp_path / 'genome.md').read_text()
+    assert '### genome_set over seeds 1, 2' in text and 'over seeds 1, 2, 3' not in text   # the draw at 16 is another set
     twice = summary_project(root, 'seed2_again', dict(base, synthetic={'mode': 'reduced', 'seed': 2}),
                             [['metric', 'unitas', 'tesmall'], ['recovered', '0.9', '0.8']], truth=[('S01', 60)])
     with pytest.raises(ValueError, match='with the same seed 2'):
