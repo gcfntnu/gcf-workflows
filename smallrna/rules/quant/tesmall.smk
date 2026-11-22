@@ -24,6 +24,12 @@ TESMALL_CONF = config['quant']['tesmall']
 include:
     join(GCFDB_DIR, 'tesmall.db')
 
+# The database TEsmall reads: the base build, or with quant.tesmall.structural_rnacentral the one with RNAcentral's
+# structural entries (#378), chosen here so that the rule's paths and command stay the same without the setting.
+TESMALL_WITH_RNACENTRAL = TESMALL_RNACENTRAL and ORG in TESMALL_RNACENTRAL_ASSEMBLY  # else tesmall.db stopped a TEsmall project
+TESMALL_QUANT_DB = TESMALL_RNACENTRAL_DB if TESMALL_WITH_RNACENTRAL else TESMALL_DB
+TESMALL_QUANT_DB_FILES = rules.tesmall_rnacentral_db.output if TESMALL_WITH_RNACENTRAL else rules.tesmall_db.output
+
 TESMALL_OUT = join(QUANT_INTERIM, 'tesmall')
 TESMALL_MIN_LENGTH = filtered_min_length() or 1  # no shared minimum: none of TEsmall's own either
 TESMALL_CLASSES = ('structural_RNA', 'miRNA', 'hairpin', 'exon', 'TE', 'intron', 'piRNA_cluster')
@@ -36,6 +42,7 @@ def tesmall_settings():
     """The settings that decide TEsmall's counting, recorded with its table (quant_settings, #417)."""
     return [('order', ','.join(TESMALL_ORDER), 'quant.tesmall.order'), ('max_length', str(TESMALL_CONF['max_length']), 'quant.tesmall.max_length'),
             ('mismatch', str(TESMALL_CONF['mismatch']), 'quant.tesmall.mismatch'), ('maxaln', str(TESMALL_CONF['maxaln']), 'quant.tesmall.maxaln'),
+            ('structural_rnacentral', str(TESMALL_RNACENTRAL).lower(), 'quant.tesmall.structural_rnacentral'),
             ('minimum_length', str(TESMALL_MIN_LENGTH), 'kit'), ('arguments', '--no-trim ' + TESMALL_ARGS, 'fixed and the above'),
             ('multimappers', 'split equally within a class; counts rounded by TEsmall', 'fixed')]
 
@@ -55,12 +62,12 @@ rule tesmall_quant:
         fastq = lambda wildcards: get_filtered_fastq(wildcards)['R1'],
         # every file TEsmall checks at startup, so that a partial database is completed before it runs
         genome = rules.tesmall_genome_links.output,
-        db = rules.tesmall_db.output
+        db = TESMALL_QUANT_DB_FILES
     output:
         counts = join(TESMALL_OUT, '{sample}', 'count_summary.txt')
     params:
         work = join(TESMALL_OUT, '{sample}'),
-        db = TESMALL_DB,
+        db = TESMALL_QUANT_DB,
         name = TESMALL_NAME,
         args = TESMALL_ARGS,
         script = src_gcf('scripts/tesmall_check.py')
