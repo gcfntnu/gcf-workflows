@@ -25,7 +25,10 @@ under each test), not a normalisation bias from composition.
 Scores, per design, arm, route and test: for the null comparisons `null_called`, `null_any` and `null_p05` (de.py)
 and `offset`, the median over the splits of the median log2 fold change of the tested miRNAs (every change is null,
 so a shift is the normalisation's); for the contrast's sets, against the same arm's unthinned fits, `calls`, `recall`
-and `precision` (depth.de_scores) and `fc_shift`, the median change of the log2 fold changes.
+and `precision` (depth.de_scores) and `fc_shift`, the median change of the log2 fold changes. A mixture (#451): its
+pure samples as a contrast, and its contrasts between fractions against each route's expected changes, from the
+unthinned counts (`called`, `called_shared`, `wrong_direction`, `fc_bias`, `unchanged_called`, `scored`), the best
+real test of what an arm does, since there every miRNA has an expected direction and size.
 """
 import math
 import statistics
@@ -151,19 +154,21 @@ def realised_lines(realised, md_table):
             ''] + md_table(header, table)
 
 
-def rows(contrasts, nulls, methods):
+def rows(contrasts, nulls, methods, between=()):
     """imbalance.tsv's rows (method, scenario, arm, set, metric, value): `contrasts` [(set, title, [(scenario, arm,
-    {row: values})])]; `nulls` [(scenario, arm, {row: values})], the set `null`."""
+    {row: values})])]; `nulls` [(scenario, arm, {row: values})], the set `null`; `between` likewise, a mixture's
+    contrasts between fractions, the set `between`."""
     out = [[m, scenario, arm, name, key, value] for name, _, points in contrasts for scenario, arm, values in points
            for m in methods for key, value in values[m].items()]
-    return out + [[m, scenario, arm, de.NULL, key, value] for scenario, arm, values in nulls for m in methods for key, value in values[m].items()]
+    out += [[m, scenario, arm, de.NULL, key, value] for scenario, arm, values in nulls for m in methods for key, value in values[m].items()]
+    return out + [[m, scenario, arm, depth.BETWEEN, key, value] for scenario, arm, values in between for m in methods
+                  for key, value in values[m].items()]
 
 
-def signed(value):
-    return '-' if value is None or (isinstance(value, float) and math.isnan(value)) else '{:+.2f}'.format(value)
+signed = depth.signed
 
 
-def lines(name, contrasts, nulls, methods, ratios, seed, versions, md_table):
+def lines(name, contrasts, nulls, methods, ratios, seed, versions, md_table, between=()):
     """imbalance.md's lines."""
     share = depth.share_cell
     out = ['# Depth imbalance: {}'.format(name), '',
@@ -195,4 +200,7 @@ def lines(name, contrasts, nulls, methods, ratios, seed, versions, md_table):
                 '{} / {} ({}) {}'.format(share(values[m][test + '_recall']), share(values[m][test + '_precision']), values[m][test + '_calls'],
                                          signed(values[m][test + '_fc_shift'])) if test + '_recall' in values[m]
                 else str(values[m][test + '_calls']) for m in methods] for scenario, arm, values in points])
+    if between:
+        out += depth.between_lines([([scenario, arm], values) for scenario, arm, values in between], ['design', 'arm'], methods, md_table,
+                                   'each design and arm')
     return out + ['', versions]

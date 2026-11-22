@@ -2301,6 +2301,75 @@ def mixture_de_scores(results, expected, methods):
     return out, dict(per_contrast)
 
 
+def mixture_de_texts(sets, methods, common, design, features, sizes=None):
+    """(count(row, sample, feature), {method: mixture.Counts}, {folder: de.input_tables}) of a mixture's DE sets on the
+    `common` rows, over `features`. A method's library size is its reads on miRNAs with an accession, the total its
+    proportions and so its expected changes use: with every reported read, a share of unplaced reads that differs
+    between two fractions would shift the test and not the expectation. `sizes` ({(method, sample): size}) replaces
+    them (the `fixed` arm of #488)."""
+    by = biological.counts_by(common)
+    count = lambda row, sample, feature: by.get((row, sample), {}).get(feature, 0.0)
+    counts = {m: mixture.Counts({s: by.get((m, s), {}) for s in design.samples}, design.samples, features) for m in methods}
+    if sizes is None:
+        sizes = {(m, sample): float(counts[m].total[counts[m].column[sample]]) for m in methods for sample in design.samples}
+    return count, counts, {s.folder: de.input_tables(count, methods, features, s.design, sizes, s.model) for s in sets}
+
+
+def mixture_expected(counts, design, between, methods):
+    """{method: {suffix: {feature: expected log2 fold change}}} of a mixture's contrasts between fractions (`between`:
+    [(DeSet, numerator, denominator)]), from each method's `counts` (mixture.Counts) and the content ratios fitted on
+    them (mixture.expected_changes)."""
+    ks = {m: mixture.Scores(counts[m], design).ks for m in methods}
+    return {m: {s.suffix: mixture.expected_changes(counts[m], design, ks[m], numerator, denominator) for s, numerator, denominator in between}
+            for m in methods}
+
+
+def mixture_between_scores(result, between, expected, methods):
+    """{method: values} of a mixture's contrasts between fractions in a depth or design (`result`: {set folder:
+    de.read_results}) against `expected` (mixture_expected): mixture_de_scores' metrics, and `scored`, the miRNAs a
+    method tests that it expects at least 2-fold apart, over the contrasts."""
+    values, per_contrast = mixture_de_scores({s.suffix: result[s.folder] for s, _, _ in between}, expected, methods)
+    for m in methods:
+        values[m]['scored'] = sum(per_contrast[s.suffix][m][0] for s, _, _ in between)
+    return values
+
+
+DeKit = collections.namedtuple('DeKit', 'sets contrasts nulls between features texts expected title')
+
+
+def kit_sets(spec, table):
+    """The DE sets of an evaluated biological or mixture dataset (de_sets, mixture_de_sets), in their order."""
+    return [s for s, *_ in mixture_de_sets(spec)] if de_kind(spec) == 'mixture' else de_sets(spec, de_units(spec, table))
+
+
+def de_kit(spec, table, methods, full):
+    """The DE sets of an evaluated biological or mixture dataset for `depth --de` and `imbalance` (#414, #488), from its
+    unthinned common rows `full`:
+    - `sets`: kit_sets(); `contrasts`: those scored against the same route's full-depth or unthinned calls (a
+      biological dataset's contrast and levels of `within`, a mixture's pure samples); `nulls`: the null comparisons
+      (#449); `between`: [(DeSet, numerator, denominator)], a mixture's contrasts between fractions, scored against
+      `expected` (mixture_expected), each route's expected changes from its unthinned counts;
+    - `features`: {set folder: features}, the evaluation's;
+    - `texts(at, rows, sizes=None)`: {folder: de.input_tables} of the sets `at` ({set folder: DeSet at its new folder})
+      on `rows`, with the evaluation's library sizes or `sizes` ({(method, sample): size});
+    - `title(set)`: a contrast's heading."""
+    title = lambda s: 'The contrast ({})'.format(s.samples) if not s.folder else '{} ({})'.format(s.folder, s.samples)
+    if de_kind(spec) == 'mixture':
+        design = mixture.Design(spec['samples'])
+        info = mixture_de_sets(spec, design)
+        features = sorted({f for counts in biological.counts_by(full).values() for f in counts})
+        between = [(s, numerator, denominator) for s, numerator, denominator, inner in info if inner]
+        _, counts, _ = mixture_de_texts([], methods, full, design, features)
+        texts = lambda at, rows, sizes=None: mixture_de_texts(list(at.values()), methods, rows, design, features, sizes)[2]
+        return DeKit([s for s, *_ in info], [s for s, _, _, inner in info if not inner], [], between, {s.folder: features for s, *_ in info},
+                     texts, mixture_expected(counts, design, between, methods), lambda s: 'The pure samples ({})'.format(s.samples))
+    sets = de_sets(spec, de_units(spec, table))
+    features = biological_de_features(sets, methods, full)
+    nulls = [s for s in sets if s.folder.startswith(de.NULL + '/')]
+    texts = lambda at, rows, sizes=None: biological_de_texts(list(at.values()), methods, rows, {at[f].folder: features[f] for f in at}, sizes)[1]
+    return DeKit(sets, [s for s in sets if s not in nulls], nulls, [], features, texts, {}, title)
+
+
 def evaluate_mixture(args, project, bench, spec, ext_dir):
     """A mixture dataset (#451): mixture.py's linearity scores of each method against its own pure samples, and, with
     `de:`, de.R on the contrasts between fractions (mixture_de_sets), scored against each method's expected changes."""
@@ -2330,17 +2399,11 @@ def evaluate_mixture(args, project, bench, spec, ext_dir):
     de_lines = []
     if 'de' in spec:
         sets = mixture_de_sets(spec, design)
-        count = lambda row, sample, feature: by.get((row, sample), {}).get(feature, 0.0)
-        # A method's reads on miRNAs with an accession: the total its proportions, and so its expected changes, use. With
-        # every reported read, a share of unplaced reads that differs between two fractions would shift the test and not
-        # the expectation.
-        sizes = {(m, sample): float(counts[m].total[counts[m].column[sample]]) for m in methods for sample in design.samples}
-        de_texts = {s.folder: de.input_tables(count, methods, features, s.design, sizes, s.model) for s, *_ in sets}
+        count, _, de_texts = mixture_de_texts([s for s, *_ in sets], methods, common, design, features)
         de_results, de_reports = differential_expression(args, bench, [s for s, *_ in sets], de_texts, methods, features)
     if de_results:
         between = [(s, numerator, denominator) for s, numerator, denominator, inner in sets if inner]
-        expected = {m: {s.suffix: mixture.expected_changes(counts[m], design, scores[m].ks, numerator, denominator)
-                        for s, numerator, denominator in between} for m in methods}
+        expected = mixture_expected(counts, design, between, methods)
         de_point, per_contrast = mixture_de_scores(de_results, expected, methods)
         for m in methods:
             point[m].update(de_point[m])
@@ -2421,53 +2484,53 @@ def evaluate_mixture(args, project, bench, spec, ext_dir):
 
 
 def depth_de(args, out, spec, table, methods, tables, usable):
-    """Differential expression by depth (#414) of a biological dataset that declares `de:`: every DE set of its
-    evaluation (de_sets: the contrast, each level of `within`, the null comparisons of #449) on each depth's thinned
-    `tables` (depth.thinned, the draw of the detection metrics) and on the full depth, over the full depth's features.
-    The sets go to <out>/de/<depth>/<set>/ (depth.de_folder), listed in <out>/de/levels.tsv for de.smk. Without --de it
-    writes their inputs and returns (depth.md's lines on running de.smk, None); with --de it checks de.smk's results
-    like evaluate --de and returns (depth.md's section, depth_de.tsv's rows), writing nothing itself. Depths are scored
-    one at a time against the full depth's results, so only those are kept."""
-    sets = de_sets(spec, de_units(spec, table))
-    features = biological_de_features(sets, methods, tables[depth_series.FULL][0])
+    """Differential expression by depth (#414) of a biological or mixture dataset that declares `de:`: every DE set of
+    its evaluation (de_kit) on each depth's thinned `tables` (depth.thinned, the draw of the detection metrics) and on
+    the full depth, over the full depth's features. The sets go to <out>/de/<depth>/<set>/ (depth.de_folder), listed in
+    <out>/de/levels.tsv for de.smk. Without --de it writes their inputs and returns (depth.md's lines on running de.smk,
+    None); with --de it checks de.smk's results like evaluate --de and returns (depth.md's section, depth_de.tsv's
+    rows), writing nothing itself. Depths are scored one at a time against the full depth's results (a mixture's
+    contrasts between fractions against the expected changes, #488), so only those are kept."""
+    kit = de_kit(spec, table, methods, tables[depth_series.FULL][0])
     root = out / 'de'
-    nulls = [s for s in sets if s.folder.startswith(de.NULL + '/')]
-    contrasts = [s for s in sets if s not in nulls]
-    scores, null_points, full_results, versions = {s.folder: [] for s in contrasts}, [], None, ''
+    scores, null_points, between_points, full_results, versions = {s.folder: [] for s in kit.contrasts}, [], [], None, ''
     folders = []
     if not args.de:
         (out / 'depth_de.tsv').unlink(missing_ok=True)  # scores of an earlier draw, if any, before any input changes
     for depth in [depth_series.FULL] + usable:  # the full depth first: the other depths are scored against it
         at = {s.folder: s._replace(suffix=depth_series.de_folder(depth, s.folder), folder=depth_series.de_folder(depth, s.folder))
-              for s in sets}
-        _, texts = biological_de_texts(at.values(), methods, tables[depth][0], {at[f].folder: features[f] for f in at})
+              for s in kit.sets}
+        texts = kit.texts(at, tables[depth][0])
         folders += list(texts)
         if not args.de:
             for folder, inputs in texts.items():
                 de.write_inputs(root / folder / 'input', inputs)
             continue
-        results, reports = differential_expression(args, None, list(at.values()), texts, methods,
-                                                   {at[f].folder: features[f] for f in at}, root=root, command='depth')
+        found, reports = differential_expression(args, None, list(at.values()), texts, methods,
+                                                 {at[f].folder: kit.features[f] for f in at}, root=root, command='depth')
+        result = {f: found[at[f].suffix] for f in at}
         if depth == depth_series.FULL:
-            full_results = {s.folder: results[at[s.folder].suffix] for s in contrasts}
-            record = reports[at[(contrasts or nulls)[0].folder].suffix][0]
+            full_results = {s.folder: result[s.folder] for s in kit.contrasts}
+            record = reports[at[kit.sets[0].folder].suffix][0]
             versions = 'edgeR {}, limma {}; {}. Results in `de/<depth>/<set>/results.tsv`.'.format(
                 record.get('edgeR', '?'), record.get('limma', '?'), record.get('R', '?'))
-        for s in contrasts:
+        for s in kit.contrasts:
             reference = None if depth == depth_series.FULL else full_results[s.folder]
-            scores[s.folder].append((depth, depth_series.de_scores(results[at[s.folder].suffix], reference, features[s.folder], methods)))
-        if nulls:
-            null_points.append((depth, de.null_scores([(results[at[s.folder].suffix], features[s.folder]) for s in nulls], methods)[0]))
+            scores[s.folder].append((depth, depth_series.de_scores(result[s.folder], reference, kit.features[s.folder], methods)))
+        if kit.nulls:
+            null_points.append((depth, de.null_scores([(result[s.folder], kit.features[s.folder]) for s in kit.nulls], methods)[0]))
+        if kit.between:
+            between_points.append((depth, mixture_between_scores(result, kit.between, kit.expected, methods)))
     if not args.de:
         de.write_changed(root / de.LEVELS, de.levels_text([folder.split('/') for folder in folders]))
         return ['', 'Differential expression by depth (#414): the inputs of {} DE sets at each of {} depths are in `de/`. Run '
                 'de.smk on them (`snakemake -s <repo>/smallrna/benchmark/de.smk -d {} --config de=de --use-apptainer`), then '
-                '`benchmark.py depth --de` with the same depths and seed.'.format(len(sets), len(usable) + 1, out)], None
+                '`benchmark.py depth --de` with the same depths and seed.'.format(len(kit.sets), len(usable) + 1, out)], None
     order = lambda points: sorted(points, key=lambda point: math.inf if point[0] == depth_series.FULL else point[0])
-    titled = [(depth_series.de_set_name(s.folder), 'The contrast ({})'.format(s.samples) if not s.folder else '{} ({})'.format(s.folder, s.samples),
-               order(scores[s.folder])) for s in contrasts]
-    null_points = order(null_points)
-    return depth_series.de_lines(titled, null_points, methods, versions, md_table), depth_series.de_tables(titled, null_points, methods)
+    titled = [(depth_series.de_set_name(s.folder), kit.title(s), order(scores[s.folder])) for s in kit.contrasts]
+    null_points, between_points = order(null_points), order(between_points)
+    return (depth_series.de_lines(titled, null_points, methods, versions, md_table, between_points),
+            depth_series.de_tables(titled, null_points, methods, between_points))
 
 
 def evaluated_filtering(project, bench, samples, why):
@@ -2508,8 +2571,8 @@ def depth(args):
     project = Path(args.project)
     bench = project / 'benchmark'
     spec = load_dataset(bench / 'dataset.yaml')
-    if spec['kind'] != 'biological':
-        fail('depth is for biological datasets, got a {} dataset'.format(spec['kind']))
+    if spec['kind'] not in ('biological', 'mixture'):
+        fail('depth is for biological and mixture datasets, got a {} dataset'.format(spec['kind']))
     if args.de and 'de' not in spec:
         fail('--de: {} declares no `de:`, so there is no differential expression by depth'.format(spec['name']))
     table = read_tsv(bench / 'samples.tsv')
@@ -2539,7 +2602,7 @@ def depth(args):
     if 'de' in spec and (out / 'de').resolve() == (bench / 'de').resolve():
         fail('--output {}: its de/ would be the evaluation\'s benchmark/de; choose another folder (default benchmark/depth/)'.format(out))
     if args.de:  # before the thinning: every set at every depth needs de.smk's results
-        sets = de_sets(spec, de_units(spec, table))
+        sets = kit_sets(spec, table)
         missing = [str(Path(folder) / name) for depth in [depth_series.FULL] + depth_series.usable_depths(depths, samples, reads_in)
                    for folder in (depth_series.de_folder(depth, s.folder) for s in sets) for name in ('results.tsv', 'record.tsv')
                    if not (out / 'de' / folder / name).is_file()]
@@ -2581,8 +2644,8 @@ def imbalance(args):
     project = Path(args.project)
     bench = project / 'benchmark'
     spec = load_dataset(bench / 'dataset.yaml')
-    if spec['kind'] != 'biological':
-        fail('imbalance is for biological datasets, got a {} dataset'.format(spec['kind']))
+    if spec['kind'] not in ('biological', 'mixture'):
+        fail('imbalance is for biological and mixture datasets, got a {} dataset'.format(spec['kind']))
     if 'de' not in spec:
         fail('{} declares no `de:`: imbalance tests the DE sets of an evaluation'.format(spec['name']))
     table = read_tsv(bench / 'samples.tsv')
@@ -2600,7 +2663,7 @@ def imbalance(args):
     samples = [row['sample'] for row in table]
     kept = {s: float(f['kept']) for s, f in evaluated_filtering(project, bench, samples, 'the `fixed` arm takes each sample\'s '
                                                                  'filtered reads').items()}
-    sets = de_sets(spec, de_units(spec, table))
+    sets = kit_sets(spec, table)
     scenarios = imbalance_series.scenarios(ratios)
     root = out / 'de'
     if args.de:  # before the thinning: every set in every scenario and arm needs de.smk's results
@@ -2615,7 +2678,7 @@ def imbalance(args):
     mature_fa, _ = biological_paths(spec, Path(config['ext_dir']))
     id_to_seq = {accession: seq for _, (accession, seq) in synthetic.read_mature(mature_fa, PREFIX[spec['organism']]).items()}
     common, methods = evaluated_common(bench, spec, id_to_seq)
-    features = biological_de_features(sets, methods, common)
+    kit = de_kit(spec, table, methods, common)
     by_sample = collections.defaultdict(list)
     for row in common:
         by_sample[row[1]].append(row)
@@ -2635,7 +2698,7 @@ def imbalance(args):
                 folder = imbalance_series.folder(scenario, arm, s.folder)
                 at[(s.folder, arm)] = s._replace(suffix=folder, folder=folder, model=s.model + 'normalisation\ttmm\n' if arm == 'tmm' else s.model)
                 sizes = {(m, sample): kept[sample] * fraction[sample] for m in methods for sample, _ in members} if arm == 'fixed' else None
-                texts.update(biological_de_texts([at[(s.folder, arm)]], methods, rows, {folder: features[s.folder]}, sizes)[1])
+                texts.update(kit.texts({s.folder: at[(s.folder, arm)]}, rows, sizes))
         return texts, at
 
     realised = []  # (design, set folder, median filtered reads times fraction of the first group, of the second)
@@ -2664,9 +2727,8 @@ def imbalance(args):
         (out / 'imbalance.md').write_text('\n'.join(header) + '\n')
         print(out / 'imbalance.md')
         return
-    nulls = [s for s in sets if s.folder.startswith(de.NULL + '/')]
-    contrasts = [s for s in sets if s not in nulls]
-    points, null_points, versions = {s.folder: [] for s in contrasts}, [], ''
+    contrasts, nulls, features = kit.contrasts, kit.nulls, kit.features
+    points, null_points, between_points, versions = {s.folder: [] for s in contrasts}, [], [], ''
     for arm in imbalance_series.ARMS:
         reference = None
         for scenario, design, ratio in scenarios:  # `none` first: the others are scored against it
@@ -2693,15 +2755,17 @@ def imbalance(args):
                 for m, offset in imbalance_series.null_offsets(splits, methods).items():
                     values[m].update(offset)
                 null_points.append((scenario, arm, values))
+            if kit.between:  # a mixture's contrasts between fractions, against the expected changes (#488)
+                between_points.append((scenario, arm, mixture_between_scores(result, kit.between, kit.expected, methods)))
     order = {(scenario, arm): i for i, (scenario, arm) in enumerate((sc[0], a) for sc in scenarios for a in imbalance_series.ARMS)}
     ordered = lambda items: sorted(items, key=lambda item: order[(item[0], item[1])])
-    titled = [(depth_series.de_set_name(s.folder), 'The contrast ({})'.format(s.samples) if not s.folder else '{} ({})'.format(s.folder, s.samples),
-               ordered(points[s.folder])) for s in contrasts]
-    null_points = ordered(null_points)
+    titled = [(depth_series.de_set_name(s.folder), kit.title(s), ordered(points[s.folder])) for s in contrasts]
+    null_points, between_points = ordered(null_points), ordered(between_points)
     out.mkdir(parents=True, exist_ok=True)
-    write_tsv(out / 'imbalance.tsv', ['method', 'design', 'arm', 'set', 'metric', 'value'], imbalance_series.rows(titled, null_points, methods))
+    write_tsv(out / 'imbalance.tsv', ['method', 'design', 'arm', 'set', 'metric', 'value'],
+              imbalance_series.rows(titled, null_points, methods, between_points))
     write_tsv(out / 'imbalance_depths.tsv', ['design', 'set', 'first', 'second', 'ratio'], imbalance_series.realised_rows(realised))
-    body = imbalance_series.lines(spec['name'], titled, null_points, methods, ratios, args.seed, versions, md_table)
+    body = imbalance_series.lines(spec['name'], titled, null_points, methods, ratios, args.seed, versions, md_table, between_points)
     (out / 'imbalance.md').write_text('\n'.join(header + body[3:]) + '\n')
     print(out / 'imbalance.md')
 

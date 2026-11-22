@@ -17,7 +17,7 @@ sys.path.insert(0, str(BENCH))
 import benchmark  # noqa: E402
 import de  # noqa: E402
 import mixture  # noqa: E402
-from test_benchmark import unitas_dump, write, write_records  # noqa: E402
+from test_benchmark import unitas_dump, write, write_cutadapt_reports, write_records  # noqa: E402
 
 FRACTIONS = (0, 0.25, 0.5, 0.75, 1)
 # miRNA: (proportion in the pure first tissue, in the pure second), before scaling to 1
@@ -304,3 +304,110 @@ def test_prepare_and_evaluate_a_mixture(tmp_path):
     result = subprocess.run(cmd + ['summary', '--projects', str(project), '--output', str(out)], capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
     assert '## Tissue mixtures' in out.read_text() and 'linearity_error: unitas' in out.read_text()
+
+
+# Depth and imbalance on a mixture (#488): its contrasts between fractions against the expected changes
+
+def evaluated_mixture(tmp_path):
+    """A prepared, quantified and evaluated mixture project (`declaration`, both methods counting as the model gives,
+    content ratio 0.5), with the cutadapt route's reports (100 reads sequenced and 87 kept per sample)."""
+    ext, path, rows = declaration(tmp_path)
+    project = tmp_path / 'project'
+    cmd = [sys.executable, str(BENCH / 'benchmark.py')]
+    result = subprocess.run(cmd + ['prepare', '--dataset', str(path), '--project', str(project), '--ext-dir', str(ext)],
+                            capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    names = list(yaml.safe_load((project / 'config.yaml').read_text())['samples'])
+    quant = project / 'data/tmp/smallrna/quant'
+    counts = model_counts(0.5, rows)
+    write(quant / 'unitas/mir_counts.tsv', '\t' + '\t'.join(names) + '\n' + ''.join(
+        '{}\t{}\n'.format(NAMES[m], '\t'.join('{:g}'.format(counts[s][m]) for s in names)) for m in sorted(PROFILE)))
+    write(quant / 'mirge3/miR.Counts.csv', 'miRNA,' + ','.join(names) + '\n' + ''.join(
+        'mmu-{},{}\n'.format(NAMES[m], ','.join('{:g}'.format(counts[s][m]) for s in names)) for m in sorted(PROFILE)))
+    write_records(quant, ['unitas', 'mirge3'], dump=unitas_dump(ext, 'mus_musculus', 'Mouse', {}))
+    for name in names:
+        write_cutadapt_reports(project / 'data/tmp/smallrna/filter/cutadapt_stages', name, 100)
+    result = subprocess.run(cmd + ['evaluate', '--project', str(project)], capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    return project
+
+
+def mixture_outputs(base, high, low, found=True):
+    """de.smk's outputs for the mixture set in `base` (its inputs written): every method fits the changes the model gives
+    between fractions `high` and `low`, called when `found`, else none called; `rare` untested."""
+    w = lambda f: mixture.weight(f, 0.5)
+    accession = {m: 'MIMAT00000{}'.format(10 + i) for i, m in enumerate(sorted(PROFILE))}
+    change = {'liver_only': math.log2((1 - w(high)) / (1 - w(low))) if high < 1 else -8.0,
+              'spleen_only': math.log2(w(high) / w(low)) if low > 0 else 8.0, 'both': 0.0, 'more_spleen': 1.2, 'more_liver': -0.3}
+    lines = ['\t'.join(de.RESULT_HEADER)]
+    for row in ('unitas', 'mirge3'):
+        for test in de.TESTS:
+            for m in sorted(PROFILE):
+                called = found and abs(change.get(m, 0)) > 0.25
+                fit = ('NA', 'NA', 'NA') if m == 'rare' else (change[m], 0.001, 0.01) if called else (change[m], 0.5, 0.9)
+                lines.append('\t'.join([row, test, accession[m]] + [str(v) for v in fit]))
+    text = '\n'.join(lines) + '\n'
+    write(base / 'results.tsv', text)
+    record = {'md5_' + Path(name).stem: de.md5((base / 'input' / name).read_text()) for name in de.INPUTS}
+    record.update(md5_script=de.md5(de.SCRIPT.read_bytes()), md5_results=de.md5(text), R='R version 4.5.3', edgeR='4.10.7', limma='3.68.5',
+                  formula='~subject + group', min_mean='10', edger='exact test', edger_glm='GLM test', voom='voom')
+    write(base / 'record.tsv', 'field\tvalue\n' + ''.join('{}\t{}\n'.format(k, v) for k, v in record.items()))
+
+
+FRACTION = {'all': (1.0, 0.0), 'contrast.50_vs_25': (0.5, 0.25), 'contrast.75_vs_25': (0.75, 0.25), 'contrast.75_vs_50': (0.75, 0.5)}
+
+
+def test_depth_de_scores_a_mixture_against_its_expected_changes(tmp_path):
+    """`depth --de` on a mixture (#488): the mixture's sets at each depth, the full depth's inputs the evaluation's; the
+    contrasts between fractions scored against each route's expected changes from the unthinned counts."""
+    project = evaluated_mixture(tmp_path)
+    bench, out = project / 'benchmark', tmp_path / 'depth'
+    command = [sys.executable, str(BENCH / 'benchmark.py'), 'depth', '--project', str(project), '--depths', '20', '--output', str(out)]
+    result = subprocess.run(command, capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    assert (out / 'de/levels.tsv').read_text() == de.levels_text([(d, name) for d in ('full', '20') for name in FRACTION])
+    for name in de.INPUTS:
+        assert (out / 'de/full/all/input' / name).read_text() == (bench / 'de/input' / name).read_text()
+        assert (out / 'de/full/contrast.75_vs_25/input' / name).read_text() == (bench / 'de/contrast/75_vs_25/input' / name).read_text()
+    for depth in ('full', '20'):
+        for name, (high, low) in FRACTION.items():
+            mixture_outputs(out / 'de' / depth / name, high, low, found=depth == 'full')
+    result = subprocess.run(command + ['--de'], capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    tsv = (out / 'depth_de.tsv').read_text().splitlines()
+    assert 'unitas\tfull\tbetween\tedger_glm_called\t1.0' in tsv and 'unitas\t20\tbetween\tedger_glm_called\t0.0' in tsv
+    assert 'mirge3\tfull\tbetween\tvoom_wrong_direction\t0.0' in tsv and any(line.startswith('unitas\t20\tbetween\tscored\t') for line in tsv)
+    assert 'unitas\t20\tall\tedger_recall\t0.0' in tsv   # the pure samples against the full depth's calls
+    report = (out / 'depth.md').read_text()
+    assert '## Between the mixtures, against the expected changes' in report and '| full | 1.00 (1.00) / 0.00 / ' in report
+    assert '**The pure samples (2 100 and 2 0 samples of 2 subjects)**' in report and '**scored**' in report
+
+
+def test_imbalance_scores_a_mixture_against_its_expected_changes(tmp_path):
+    """`imbalance` on a mixture (#488): `tied` thins each set's lower fraction; the contrasts between fractions in each
+    design and arm against the expected changes."""
+    project = evaluated_mixture(tmp_path)
+    bench, out = project / 'benchmark', tmp_path / 'imbalance'
+    command = [sys.executable, str(BENCH / 'benchmark.py'), 'imbalance', '--project', str(project), '--ratios', '2', '--output', str(out)]
+    result = subprocess.run(command, capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    folders = ['{}_{}/{}'.format(scenario, arm, name) for scenario in ('none', 'independent-2', 'tied-2') for name in FRACTION
+               for arm in ('workflow', 'fixed', 'tmm')]
+    assert (out / 'de/levels.tsv').read_text() == de.levels_text([folder.split('/') for folder in folders])
+    for name in de.INPUTS:
+        assert (out / 'de/none_workflow/contrast.75_vs_25/input' / name).read_text() == (bench / 'de/contrast/75_vs_25/input' / name).read_text()
+    sizes = lambda folder: [float(v) for v in (out / 'de' / folder / 'input/library_sizes.tsv').read_text().splitlines()[1].split('\t')[1:]]
+    tied = [t / f for t, f in zip(sizes('tied-2_workflow/contrast.75_vs_25'), sizes('none_workflow/contrast.75_vs_25'))]
+    assert tied[:2] == [1.0, 1.0] and all(0.45 < r < 0.55 for r in tied[2:])   # A_075, B_075 kept; A_025, B_025 halved
+    assert sizes('tied-2_fixed/contrast.75_vs_25') == [87.0, 87.0, 43.5, 43.5]
+    assert 'tied-2\tcontrast.75_vs_25\t87.0\t43.5\t2.0' in (out / 'imbalance_depths.tsv').read_text()
+    for folder in folders:
+        scenario, name = folder.split('_', 1)[0], folder.split('/')[1]
+        mixture_outputs(out / 'de' / folder, *FRACTION[name], found=scenario == 'none')
+    result = subprocess.run(command + ['--de'], capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    tsv = (out / 'imbalance.tsv').read_text().splitlines()
+    assert 'unitas\tnone\tworkflow\tbetween\tedger_called\t1.0' in tsv and 'unitas\ttied-2\tfixed\tbetween\tedger_called\t0.0' in tsv
+    assert 'mirge3\ttied-2\ttmm\tall\tedger_recall\t0.0' in tsv
+    report = (out / 'imbalance.md').read_text()
+    assert '## Between the mixtures, against the expected changes' in report and '| tied-2 | tmm | 0.00 (0.00) / - / ' in report

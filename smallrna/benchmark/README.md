@@ -172,7 +172,7 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    empty when a sample had no report (another filter route, or the reports were removed) and for evaluations published
    before the total was recorded; `samples.tsv` keeps the reads copied (`--reads`) or declared at preparation.
 6. **Depth.** `benchmark.py depth` (#409) gives the sequencing-depth (saturation) curves of an evaluated biological
-   project, from its tables, without running the workflow again:
+   or mixture project, from its tables, without running the workflow again:
 
    ```bash
    python smallrna/benchmark/benchmark.py depth --project <project> [--output <dir>] [--depths 500k,1M,2M,4M,8M,16M,32M] [--seed 1] [--plot]
@@ -213,10 +213,16 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
      set). de.smk fits each set at each depth, plus the full depth, one fit of a few seconds each. 50 null splits in
      each of three groups give 150 sets, so 600 fits over three depths and the full depth: run de.smk with `--cores`
      to match.
+   - **A mixture** (#451, #488): its own DE sets and library sizes (reads on miRNAs with an accession). The pure
+     samples are scored as above, against the full depth's calls. The contrasts between fractions are scored against
+     each route's expected changes, which come from its unthinned pure samples and content ratios and are the same at
+     every depth, with the evaluation's metrics: `called`, `called_shared`, `wrong_direction`, `fc_bias` and
+     `unchanged_called`, set `between`. `scored` counts the miRNAs a route expects at least 2-fold apart and still
+     tests, since `called` is a share of those.
 
    It writes to `--output`, or `benchmark/depth/` in the project; it changes nothing else there.
 7. **Depth imbalance.** `benchmark.py imbalance` (#488) is a stress test of the normalisation arms for an evaluated
-   biological project that declares `de:`, without running the workflow again. It thins each DE set's samples
+   biological or mixture project that declares `de:`, without running the workflow again. It thins each DE set's samples
    unevenly from the count tables, binomially as `depth` does, and tests the sets again with de.R:
 
    ```bash
@@ -240,7 +246,10 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
      - the null splits' `null_called`, `null_any` and `null_p05`, and `offset`, the median over the splits of the
        median log2 fold change (every change is null, so any shift comes from the normalisation);
      - the contrast's sets against the same arm's unthinned fits: `calls`, `recall`, `precision` and `fc_shift`, the
-       median change of the log2 fold changes.
+       median change of the log2 fold changes;
+     - a mixture's contrasts between fractions against the expected changes, as for `depth` (set `between`). There
+       every miRNA has an expected direction and size, so this is the best real test of what an arm does. A mixture's
+       `tied` thins each contrast's lower fraction.
    - **Realised depths** (`imbalance_depths.tsv`, a table in `imbalance.md`): per design and set, the median
      filtered reads times the fraction of each group, and their ratio. The ratios act on the project's own depths,
      which may differ between the groups already in `none` (a proportional read cap keeps them).
