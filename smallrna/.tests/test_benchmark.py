@@ -1401,6 +1401,11 @@ def test_prepare_fraction_keeps_the_runs_relative_depths(tmp_path):
     for args, message in ((['--fraction', '0.3', '--reads', '5'], 'give one'), (['--fraction', '0'], 'above 0'), (['--fraction', '1.5'], 'at most 1')):
         failed = subprocess.run(cmd + ['--project', str(tmp_path / 'no'), *args], capture_output=True, text=True, timeout=60)
         assert failed.returncode != 0 and message in failed.stderr, failed.stderr
+    runs[0]['reads'] = 100   # declared deeper than the file is: the fraction cannot be met
+    write(dataset, yaml.safe_dump(spec))
+    failed = subprocess.run(cmd + ['--project', str(tmp_path / 'no'), '--fraction', '0.3'], capture_output=True, text=True, timeout=60)
+    assert failed.returncode != 0 and 'fewer than the 30 that --fraction 0.3 of its declared 100 is' in failed.stderr, failed.stderr
+    assert not (tmp_path / 'no').exists()
     del runs[0]['reads']
     write(dataset, yaml.safe_dump(spec))
     failed = subprocess.run(cmd + ['--project', str(tmp_path / 'no'), '--fraction', '0.3'], capture_output=True, text=True, timeout=60)

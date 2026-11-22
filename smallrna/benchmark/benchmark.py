@@ -736,7 +736,11 @@ def prepare_runs(project, spec, fastqs, runs, limit, fraction=None):
             target.symlink_to(source)
             counts[name] = declared_reads(run)
         else:
-            counts[name] = head_fastq(source, target, limit if fraction is None else max(1, round(fraction * declared_reads(run))))
+            wanted = limit if fraction is None else max(1, round(fraction * declared_reads(run)))
+            counts[name] = head_fastq(source, target, wanted)
+            if fraction is not None and counts[name] < wanted:  # --reads takes up to N; a fraction is of the declared reads
+                fail('{}: {} reads, fewer than the {} that --fraction {:g} of its declared {} is'.format(
+                    source, counts[name], wanted, fraction, declared_reads(run)))
     return counts
 
 
