@@ -1501,27 +1501,30 @@ def null_sets(declared, units, covariates, strata, min_mean):
     return sets
 
 
-def differential_expression(args, bench, sets, texts, rows, features):
+def differential_expression(args, bench, sets, texts, rows, features, root=None, command='evaluate'):
     """With --de, the results of each DE set (de_sets): ({suffix: results}, {suffix: (record, results SHA-256, the set's
     samples)}), after checking for every set that de.smk's results come from its inputs `texts[folder]` and the current
     de.R, and that the results table is the one de.R recorded, with a line for every row, test and feature; it verifies,
     parses and reports one read of each. Without --de: (None, None). The caller writes each set's inputs of de.smk to
-    benchmark/de/<folder>/input/, and benchmark/de/levels.tsv, with its other tables (write_de_inputs)."""
+    benchmark/de/<folder>/input/, and benchmark/de/levels.tsv, with its other tables (write_de_inputs). `root`: the
+    sets' DE folder instead of benchmark/de, `command` the benchmark.py command that writes their inputs (`depth`,
+    #414)."""
     if not args.de:
         return None, None
+    root = bench / 'de' if root is None else root
     results, reports = {}, {}
     for de_set in sets:
         set_features = features[de_set.folder] if isinstance(features, dict) else features
-        path, record_path = bench / 'de' / de_set.folder / 'results.tsv', bench / 'de' / de_set.folder / 'record.tsv'
+        path, record_path = root / de_set.folder / 'results.tsv', root / de_set.folder / 'record.tsv'
         record = de.read_record(record_path)
         changed = de.stale(record, texts[de_set.folder])
         if changed:
-            fail('{} comes from other inputs or another de.R ({}); nothing was written: run `benchmark.py evaluate` without --de '
-                 '(it writes the current inputs), then de.smk, then evaluate --de'.format(path, ', '.join(changed)))
+            fail('{} comes from other inputs or another de.R ({}); nothing was written: run `benchmark.py {}` without --de '
+                 '(it writes the current inputs), then de.smk, then {} --de'.format(path, ', '.join(changed), command, command))
         data = path.read_bytes()
         if de.md5(data) != record.get('md5_results'):
-            fail('{} is not the table de.R recorded in {}; nothing was written: run de.smk again, then evaluate --de'.format(
-                path, record_path))
+            fail('{} is not the table de.R recorded in {}; nothing was written: run de.smk again, then {} --de'.format(
+                path, record_path, command))
         try:
             results[de_set.suffix] = de.read_results(data.decode(), rows, set_features, path)
         except ValueError as error:
@@ -1549,6 +1552,32 @@ def filtered_sizes(project, sets, rows, sizes):
         fail(str(error))
     by_row = {(row, s): kept[s] for row in rows for s in samples}
     return {s.folder: by_row if s.arm == 'fixed' else sizes for s in sets}
+
+
+def biological_de_features(sets, methods, common):
+    """{folder: features} of a biological dataset's DE sets (de_sets): the miRNAs any method reports in the set's
+    samples in `common`; each null comparison its own split's, the contrast's sets (the whole and each level of
+    `within`) the whole contrast's."""
+    by = biological.counts_by(common)
+    reported = lambda design: sorted({i for m in methods for sample, _, _ in design for i in by.get((m, sample), {})})
+    nulls = [s for s in sets if s.folder.startswith(de.NULL + '/')]
+    contrasts = [s for s in sets if s not in nulls]
+    features = {s.folder: reported(s.design) for s in nulls}
+    if contrasts:
+        features.update({s.folder: reported(contrasts[0].design) for s in contrasts})
+    return features
+
+
+def biological_de_texts(sets, methods, common, features):
+    """(count(row, sample, feature), {folder: de.input_tables}) of a biological dataset's DE sets on the `common` rows,
+    over `features` ({folder: features}). A sample's library size is every miRNA read the method reported in it (all its
+    rows of `common`, those without an accession too), as the workflow scales counts per million."""
+    by = biological.counts_by(common)
+    count = lambda row, sample, feature: by.get((row, sample), {}).get(feature, 0.0)
+    sizes = collections.Counter()
+    for method, sample, _, _, value in common:
+        sizes[(method, sample)] += float(value)
+    return count, {s.folder: de.input_tables(count, methods, features[s.folder], s.design, sizes, s.model) for s in sets}
 
 
 def write_de_inputs(bench, texts):
@@ -1876,15 +1905,8 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
         sets = de_sets(spec, de_units(spec, table))
         nulls = [s for s in sets if s.folder.startswith(de.NULL + '/')]  # null comparisons within a group (#449)
         contrasts = [s for s in sets if s not in nulls]
-        by = biological.counts_by(common)
-        reported = lambda design: sorted({i for m in methods for sample, _, _ in design for i in by.get((m, sample), {})})
-        features = {s.folder: reported(s.design) for s in nulls}  # each null split's own; the contrast's sets share the whole contrast's
-        features.update({s.folder: reported(contrasts[0].design) for s in contrasts})
-        count = lambda row, sample, feature: by.get((row, sample), {}).get(feature, 0.0)
-        sizes = collections.Counter()
-        for method, sample, _, _, value in raw:  # every miRNA read the method reported, as the workflow scales counts per million
-            sizes[(method, sample)] += float(value)
-        de_texts = {s.folder: de.input_tables(count, methods, features[s.folder], s.design, sizes, s.model) for s in sets}
+        features = biological_de_features(sets, methods, common)
+        count, de_texts = biological_de_texts(sets, methods, common, features)
         de_results, de_reports = differential_expression(args, bench, sets, de_texts, methods, features)
         if de_results and contrasts:
             tested = [sample for sample, _, _ in contrasts[0].design]
@@ -2355,15 +2377,67 @@ def evaluate_mixture(args, project, bench, spec, ext_dir):
     print(bench / 'report.md')
 
 
+def depth_de(args, out, spec, table, methods, tables, usable):
+    """Differential expression by depth (#414) of a biological dataset that declares `de:`: every DE set of its
+    evaluation (de_sets: the contrast, each level of `within`, the null comparisons of #449) on each depth's thinned
+    `tables` (depth.thinned, the draw of the detection metrics) and on the full depth, over the full depth's features.
+    The sets go to <out>/de/<depth>/<set>/ (depth.de_folder), listed in <out>/de/levels.tsv for de.smk. Without --de it
+    writes their inputs and returns (depth.md's lines on running de.smk, None); with --de it checks de.smk's results
+    like evaluate --de and returns (depth.md's section, depth_de.tsv's rows), writing nothing itself. Depths are scored
+    one at a time against the full depth's results, so only those are kept."""
+    sets = de_sets(spec, de_units(spec, table))
+    features = biological_de_features(sets, methods, tables[depth_series.FULL][0])
+    root = out / 'de'
+    nulls = [s for s in sets if s.folder.startswith(de.NULL + '/')]
+    contrasts = [s for s in sets if s not in nulls]
+    scores, null_points, full_results, versions = {s.folder: [] for s in contrasts}, [], None, ''
+    folders = []
+    for depth in [depth_series.FULL] + usable:  # the full depth first: the other depths are scored against it
+        at = {s.folder: s._replace(suffix=depth_series.de_folder(depth, s.folder), folder=depth_series.de_folder(depth, s.folder))
+              for s in sets}
+        _, texts = biological_de_texts(at.values(), methods, tables[depth][0], {at[f].folder: features[f] for f in at})
+        folders += list(texts)
+        if not args.de:
+            for folder, inputs in texts.items():
+                de.write_inputs(root / folder / 'input', inputs)
+            continue
+        results, reports = differential_expression(args, None, list(at.values()), texts, methods,
+                                                   {at[f].folder: features[f] for f in at}, root=root, command='depth')
+        if depth == depth_series.FULL:
+            full_results = {s.folder: results[at[s.folder].suffix] for s in contrasts}
+            record = reports[at[(contrasts or nulls)[0].folder].suffix][0]
+            versions = 'edgeR {}, limma {}; {}. Results in `de/<depth>/<set>/results.tsv`.'.format(
+                record.get('edgeR', '?'), record.get('limma', '?'), record.get('R', '?'))
+        for s in contrasts:
+            reference = None if depth == depth_series.FULL else full_results[s.folder]
+            scores[s.folder].append((depth, depth_series.de_scores(results[at[s.folder].suffix], reference, features[s.folder], methods)))
+        if nulls:
+            null_points.append((depth, de.null_scores([(results[at[s.folder].suffix], features[s.folder]) for s in nulls], methods)[0]))
+    if not args.de:
+        de.write_changed(root / de.LEVELS, de.levels_text([folder.split('/') for folder in folders]))
+        return ['', 'Differential expression by depth (#414): the inputs of {} DE sets at each of {} depths are in `de/`. Run '
+                'de.smk on them (`snakemake -s <repo>/smallrna/benchmark/de.smk -d {} --config de=de --use-apptainer`), then '
+                '`benchmark.py depth --de` with the same depths and seed.'.format(len(sets), len(usable) + 1, out)], None
+    order = lambda points: sorted(points, key=lambda point: math.inf if point[0] == depth_series.FULL else point[0])
+    titled = [(depth_series.de_set_name(s.folder), 'The contrast ({})'.format(s.samples) if not s.folder else '{} ({})'.format(s.folder, s.samples),
+               order(scores[s.folder])) for s in contrasts]
+    null_points = order(null_points)
+    return depth_series.de_lines(titled, null_points, methods, versions, md_table), depth_series.de_tables(titled, null_points, methods)
+
+
 def depth(args):
     """`depth` (#409): the sequencing-depth series of an evaluated biological project (depth.py), from its common and
     isomiR tables and each sample's sequenced reads (the cutadapt route's reports), written to --output (default
-    benchmark/depth/ in the project): depth.tsv, depth_agreement.tsv, depth.md and, with --plot, depth.png."""
+    benchmark/depth/ in the project): depth.tsv, depth_agreement.tsv, depth.md and, with --plot, depth.png. A dataset
+    that declares `de:` also gets differential expression by depth (#414, depth_de): the inputs of de.smk in de/, and
+    with --de depth_de.tsv and its section of depth.md."""
     project = Path(args.project)
     bench = project / 'benchmark'
     spec = load_dataset(bench / 'dataset.yaml')
     if spec['kind'] != 'biological':
         fail('depth is for biological datasets, got a {} dataset'.format(spec['kind']))
+    if args.de and 'de' not in spec:
+        fail('--de: {} declares no `de:`, so there is no differential expression by depth'.format(spec['name']))
     table = read_tsv(bench / 'samples.tsv')
     if any(row['lane'] != 'merged' for row in table):
         fail('depth works on merged samples; this project has a sample per lane (prepare --lanes)')
@@ -2399,22 +2473,36 @@ def depth(args):
     if recorded is not None and recorded != sum(reads_in.values()):  # the count tables are the evaluated run's
         fail('the cutadapt reports give {:,} reads, the evaluation recorded {:,}: the filtering changed since; evaluate again'.format(
             sum(reads_in.values()), recorded))
+    out = Path(args.output) if args.output else bench / 'depth'
+    if args.de:  # before the thinning: every set at every depth needs de.smk's results
+        sets = de_sets(spec, de_units(spec, table))
+        missing = [str(Path(folder) / name) for depth in [depth_series.FULL] + depth_series.usable_depths(depths, samples, reads_in)
+                   for folder in (depth_series.de_folder(depth, s.folder) for s in sets) for name in ('results.tsv', 'record.tsv')
+                   if not (out / 'de' / folder / name).is_file()]
+        if missing:
+            fail('no {}{} in {}: run `benchmark.py depth` without --de (the same depths and seed), then `snakemake -s {} -d {} --config '
+                 'de=de --use-apptainer`, then depth --de'.format(' or '.join(missing[:3]), ' ...' if len(missing) > 3 else '', out / 'de',
+                                                                 Path(__file__).resolve().with_name('de.smk'), out))
     raw = [(r['method'], r['sample'], r['mature_name'], r['mature_id'], float(r['count'])) for r in read_tsv(bench / 'common.tsv')]
     common, _ = biological.collapse(raw, id_to_seq)
     methods = [m for m in spec['methods'] if any(row[0] == m for row in common)]
     isomir_rows = None
     if (bench / 'isomirs.tsv').is_file():
         isomir_rows = [tuple(r[k] for k in adapters.ISOMIR_COLUMNS[:-1]) + (float(r['count']),) for r in read_tsv(bench / 'isomirs.tsv')]
-    points, skipped = depth_series.series(common, methods, samples, reads_in, groups, depths, args.seed, isomir_rows)
+    tables, usable = depth_series.thinned(common, samples, reads_in, depths, args.seed, isomir_rows)
+    skipped = [d for d in depths if d not in usable]
+    points = depth_series.series_points(tables, usable, methods, samples, groups, isomir_rows)
     full = round(statistics.median(reads_in.values()))
     equal = len(set(reads_in.values())) == 1  # the full depth is a common measurement only then
     reached, rising = depth_series.saturation(points, methods, full, equal=equal), depth_series.rise(points, methods, full)
-    out = Path(args.output) if args.output else bench / 'depth'
+    de_lines, de_rows = depth_de(args, out, spec, table, methods, tables, usable) if 'de' in spec else ([], None)
     out.mkdir(parents=True, exist_ok=True)
     rows, pairs = depth_series.tables(points, methods)
     write_tsv(out / 'depth.tsv', ['method', 'depth', 'metric', 'value'], rows)
     write_tsv(out / 'depth_agreement.tsv', ['method_a', 'method_b', 'depth', 'metric', 'value'], pairs)
-    lines = depth_series.report(spec['name'], points, methods, skipped, reached, rising, reads_in, args.seed, md_table)
+    if de_rows is not None:
+        write_tsv(out / 'depth_de.tsv', ['method', 'depth', 'set', 'metric', 'value'], de_rows)
+    lines = depth_series.report(spec['name'], points, methods, skipped, reached, rising, reads_in, args.seed, md_table) + de_lines
     (out / 'depth.md').write_text('\n'.join(lines) + '\n')
     if args.plot:
         depth_series.plot(points, methods, full, out / 'depth.png')
@@ -2485,6 +2573,8 @@ def main():
     d.add_argument('--depths', default=depth_series.DEPTHS, help='reads per sample, k and M suffixes (default %(default)s); '
                    'those above the shallowest sample are left out, and the full depth ends the series')
     d.add_argument('--seed', type=int, default=1, help='seed of the thinning (default %(default)s)')
+    d.add_argument('--de', action='store_true', help="datasets that declare `de:`: score de.smk's differential expression by "
+                   "depth (#414), after `depth` without it wrote the inputs to de/ and de.smk ran on them")
     args = parser.parse_args()
     {'prepare': prepare, 'fill': fill, 'evaluate': evaluate, 'summary': summary, 'depth': depth}[args.command](args)
 

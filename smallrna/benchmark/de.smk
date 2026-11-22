@@ -11,6 +11,10 @@ as the project's `quant_all` (the repository holding de.R must be visible in the
     snakemake -s <repo>/smallrna/benchmark/de.smk -d <project> --use-apptainer --cores 1
 
 then score the results with `benchmark.py evaluate --project <project> --de`.
+
+`--config de=<folder>` runs the sets of another DE folder, relative to the working directory: `benchmark.py depth`
+writes those of each depth to de/ in its output (#414), run with `-d <depth output> --config de=de`, then scored with
+`benchmark.py depth --de`.
 """
 from pathlib import Path
 
@@ -19,12 +23,12 @@ from snakemake.exceptions import WorkflowError
 
 HERE = Path(str(workflow.current_basedir))
 SARTOOLS = yaml.safe_load((HERE.parents[1] / 'docker.config').read_text())['docker']['sartools']
-DE = 'benchmark/de'
+DE = str(config.get('de', 'benchmark/de'))
 DE_INPUT = DE + '/input'
 LEVELS_TABLE = Path(DE, 'levels.tsv')
 if not LEVELS_TABLE.is_file():
-    raise WorkflowError('{} not found in {}: run `benchmark.py evaluate` in the project first; it writes the inputs of '
-                        'differential expression'.format(LEVELS_TABLE, Path.cwd()))
+    raise WorkflowError('{} not found in {}: run `benchmark.py evaluate` in the project first (`depth` for --config '
+                        'de=de in its output); it writes the inputs of differential expression'.format(LEVELS_TABLE, Path.cwd()))
 LEVELS = [line.split('\t') for line in LEVELS_TABLE.read_text().splitlines()[1:] if line]  # [column, level]
 WHOLE = Path(DE_INPUT, 'model.tsv').is_file()  # absent with null comparisons only (#449); evaluate --de checks every set it declared
 if not WHOLE and not LEVELS:

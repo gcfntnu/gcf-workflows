@@ -2421,16 +2421,17 @@ def de_project(tmp_path, runs=DE_RUNS, declared=None):
     return project
 
 
-def de_outputs(project, fits, change=None, drop_last=False, folder='', formula=None):
-    """de.smk's outputs as de.R writes them for the current inputs of the DE set in benchmark/de/`folder`: every row and
-    test gets `fits` ({pool_id: (log2fc, pvalue, padj)}); `change` edits the record; `drop_last` leaves the table's last
-    line out (a table de.R recorded, but incomplete). The whole dataset's set (folder '') brings its normalisation arms
-    (#453) with the same fits, written first, so that a check fails on the whole dataset's set as before."""
-    if folder == '':
+def de_outputs(project, fits, change=None, drop_last=False, folder='', formula=None, root=None):
+    """de.smk's outputs as de.R writes them for the current inputs of the DE set in benchmark/de/`folder` (`root`/`folder`
+    for another DE folder): every row and test gets `fits` ({pool_id: (log2fc, pvalue, padj)}); `change` edits the
+    record; `drop_last` leaves the table's last line out (a table de.R recorded, but incomplete). The whole dataset's set
+    (folder '') brings its normalisation arms (#453) with the same fits, written first, so that a check fails on the
+    whole dataset's set as before."""
+    if folder == '' and root is None:
         for arm in de.ARMS:
             if (project / 'benchmark/de/arm' / arm / 'input').is_dir():
                 de_outputs(project, fits, folder='arm/' + arm, formula='~lab + group')
-    base = project / 'benchmark/de' / folder
+    base = (project / 'benchmark/de' if root is None else root) / folder
     texts = {name: (base / 'input' / name).read_text() for name in de.INPUTS}
     rows = list(dict.fromkeys(line.split('\t')[0] for line in texts['counts.tsv'].splitlines()[1:]))
     lines = ['\t'.join(de.RESULT_HEADER)] + ['\t'.join([row, test, pool_id] + ['NA' if v is None else str(v) for v in fit])
@@ -3388,7 +3389,88 @@ def test_depth_of_an_evaluated_knockout_project(tmp_path):
     result = subprocess.run(command, capture_output=True, text=True, timeout=60)
     assert result.returncode != 0 and 'the cutadapt reports give 500 reads, the evaluation recorded 400' in result.stderr
     assert 'unitas\tmirge3\t20\tspearman_either' in (out / 'depth_agreement.tsv').read_text()
-    assert not (project / 'benchmark/depth').exists()
+    assert not (project / 'benchmark/depth').exists() and not (out / 'de').exists()   # no `de:`, no DE by depth (#414)
+    result = subprocess.run(command + ['--de'], capture_output=True, text=True, timeout=60)
+    assert result.returncode != 0 and '--de: ko declares no `de:`' in result.stderr
+
+
+def test_depth_de_scores_each_route_against_its_own_full_depth_calls():
+    """#414: a depth's calls against the same route's full-depth calls, in the same direction."""
+    import depth
+    features = ['F1', 'F2', 'F3']
+    fits = lambda values: {('a', test, f): fit for test in de.TESTS for f, fit in zip(features, values)}
+    full = fits([(1.0, 0.001, 0.01), (-1.0, 0.001, 0.02), (0.1, 0.5, 0.6)])         # F1 up, F2 down
+    at = fits([(0.8, 0.01, 0.03), (None, None, None), (-0.9, 0.01, 0.04)])           # F1 up, F3 down: one of each
+    scores = depth.de_scores(at, full, features, ['a'])['a']
+    assert scores['edger_calls'] == 2 and scores['voom_recall'] == 0.5 and scores['edger_glm_precision'] == 0.5
+    assert depth.de_scores(full, None, features, ['a']) == {'a': {test + '_calls': 2 for test in de.TESTS}}   # the full depth itself
+    flipped = {**at, ('a', 'edger', 'F1'): (-0.8, 0.01, 0.03)}                       # called, the other way
+    assert depth.de_scores(flipped, full, features, ['a'])['a']['edger_recall'] == 0.0
+    none = depth.de_scores(fits([(0.0, 0.9, 0.9)] * 3), full, features, ['a'])['a']
+    assert none['edger_calls'] == 0 and none['edger_recall'] == 0.0 and math.isnan(none['edger_precision'])
+    assert depth.de_folder(1_000_000, '') == '1M/all' and depth.de_folder(500, 'lab/L1') == '500/lab.L1'
+    assert depth.de_folder(depth.FULL, 'null/case-1') == 'full/null.case-1'
+    assert depth.share_cell(float('nan')) == '-' and depth.share_cell(0.5) == '0.50'
+
+
+def test_depth_de_of_an_evaluated_biological_project(tmp_path):
+    """`depth` with `de:` (#414): every DE set of the evaluation at each depth and the full depth, whose inputs are the
+    evaluation's; `depth --de` scores each route against its own full-depth calls and the null comparisons by depth,
+    and refuses results of other inputs (another seed) before writing anything."""
+    project = biological_de_project(tmp_path, {'contrast': ['case', 'control'], 'covariates': ['lab'], 'within': 'lab',
+                                               'null': {'splits': 3, 'seed': 1}})
+    assert evaluate_cmd(project).returncode == 0
+    out = tmp_path / 'depth'
+    command = [sys.executable, str(BENCH / 'benchmark.py'), 'depth', '--project', str(project), '--depths', '20,50', '--output', str(out)]
+    result = subprocess.run(command, capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    sets = ['all', 'lab.L1', 'lab.L2', 'null.case-1', 'null.case-2', 'null.control-1', 'null.control-2']
+    assert (out / 'de/levels.tsv').read_text() == de.levels_text([(d, s) for d in ('full', '20', '50') for s in sets])
+    bench = project / 'benchmark'
+    for name in de.INPUTS:   # the full depth's sets are the evaluation's
+        assert (out / 'de/full/all/input' / name).read_text() == (bench / 'de/input' / name).read_text()
+        assert (out / 'de/full/null.case-1/input' / name).read_text() == (bench / 'de/null/case-1/input' / name).read_text()
+    sizes = {depth: {line.split('\t')[0]: [float(v) for v in line.split('\t')[1:]]
+                     for line in (out / 'de' / depth / 'all/input/library_sizes.tsv').read_text().splitlines()[1:]} for depth in ('full', '20')}
+    assert all(0.1 < low / high < 0.3 for low, high in zip(sizes['20']['unitas'], sizes['full']['unitas']))   # 20 of 100 reads
+    assert 'then `benchmark.py depth --de` with the same depths and seed' in (out / 'depth.md').read_text() and not (out / 'depth_de.tsv').exists()
+    result = subprocess.run(command + ['--de'], capture_output=True, text=True, timeout=120)   # before de.smk
+    assert result.returncode != 0 and 'no full/all/results.tsv or full/all/record.tsv or full/lab.L1/results.tsv ...' in result.stderr
+    assert '--config de=de --use-apptainer`, then depth --de' in result.stderr
+    full_fits = {'MIMAT0000069': (0.4, 0.001, 0.01), 'MIMAT0000076': (-0.6, 0.01, 0.03), 'MIMAT0001631': (None, None, None)}
+    low_fits = {'MIMAT0000069': (0.3, 0.01, 0.04), 'MIMAT0000076': (-0.2, 0.3, 0.6), 'MIMAT0001631': (None, None, None)}
+    for depth in ('full', '20', '50'):
+        for name in sets:
+            de_outputs(project, full_fits if depth == 'full' else low_fits, folder='{}/{}'.format(depth, name), root=out / 'de', formula='~group')
+    result = subprocess.run(command + ['--de'], capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    tsv = (out / 'depth_de.tsv').read_text().splitlines()
+    assert tsv[0] == 'method\tdepth\tset\tmetric\tvalue' and 'mirge3\tfull\tlab.L1\tvoom_calls\t2' in tsv
+    assert 'unitas\t20\tall\tedger_recall\t0.5' in tsv and 'unitas\t20\tall\tedger_precision\t1.0' in tsv
+    assert 'unitas\t50\tnull\tedger_null_called\t0.5' in tsv and 'mirge3\tfull\tnull\tvoom_null_called\t1.0' in tsv
+    report = (out / 'depth.md').read_text()
+    assert '## Differential expression by depth' in report and "**The contrast (4 case and 4 control samples)**, edgeR's exact test" in report
+    assert '| 20 | 0.50 / 1.00 (1) | 0.50 / 1.00 (1) |' in report and '| full | 2 | 2 |' in report
+    assert '**lab/L1 (2 case and 2 control samples)**, limma-voom' in report and '| 50 | 0.50 (1.00) | 0.50 (1.00) |' in report
+    assert 'edgeR 4.10.7, limma 3.68.5' in report
+    before = {name: (out / name).read_text() for name in ('depth.md', 'depth.tsv', 'depth_de.tsv')}
+    result = subprocess.run(command + ['--de', '--seed', '2'], capture_output=True, text=True, timeout=120)   # another draw
+    assert result.returncode != 0 and 'de/20/all/results.tsv comes from other inputs' in result.stderr
+    assert 'run `benchmark.py depth` without --de' in result.stderr
+    assert {name: (out / name).read_text() for name in before} == before
+
+
+def test_de_snakefile_runs_the_sets_of_another_de_folder(tmp_path):
+    """--config de=de: the sets `benchmark.py depth` writes in its output (#414), each depth's set one column and level."""
+    for folder in ('full/all', '20/null.case-1'):
+        for name in de.INPUTS:
+            write(tmp_path / 'de' / folder / 'input' / name, 'x\n')
+    write(tmp_path / 'de/levels.tsv', de.levels_text([('full', 'all'), ('20', 'null.case-1')]))
+    result = de_snakemake(tmp_path, '-s', str(BENCH / 'de.smk'), '-n', '-p', '--cores', '1', '--config', 'de=de')
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert '--results de/full/all/results.tsv' in result.stdout and '--results de/20/null.case-1/results.tsv' in result.stdout
+    result = de_snakemake(tmp_path, '-s', str(BENCH / 'de.smk'), '-n', '--cores', '1')
+    assert result.returncode != 0 and '`depth` for --config de=de in its output' in result.stdout + result.stderr
 
 
 

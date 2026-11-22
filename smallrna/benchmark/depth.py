@@ -18,6 +18,11 @@ output, the median distinct read sequences per sample; per pair of methods the b
 value is interpolated on log depth between depths every sample was measured at (the full depth only when all samples
 have the same); it is relative to the dataset's own depth, so the rise per doubling of depth over the last step tells
 whether the curve is still rising there.
+
+Differential expression by depth (#414): a dataset that declares `de:` has the evaluation's DE sets (the contrast, each
+level of `within`, the null comparisons of #449) tested on each depth's thinned tables, the same draw as the detection
+metrics, and on the full depth, with de.R (de.smk). Each route's calls at a depth are scored against its own calls at
+the full depth (recall and precision), and the null comparisons' false calls are reported per depth.
 """
 import collections
 import math
@@ -26,6 +31,7 @@ import statistics
 import numpy as np
 
 import biological
+import de
 
 DEPTHS = '500k,1M,2M,4M,8M,16M,32M'
 LEVELS = (1, 5, 10)            # miRNAs with at least this many reads in a sample
@@ -111,13 +117,17 @@ def metrics(common, methods, samples, groups, isomir_rows=None, fixed=None, with
     return out
 
 
-def series(common, methods, samples, reads_in, groups, depths, seed, isomir_rows=None):
-    """The depth series: ([(depth or FULL, metrics(), biological.agreement())] from the lowest depth up, the depths
-    left out because a sample has fewer reads). The tables are thinned from the full depth down, each depth from the
-    one above (so a subset of it), with one random generator seeded with `seed`; the replicate CV of a method and group
-    uses the miRNAs of the lowest depth where it has any (cv_sets()) all along. A depth reaching every sample's own
-    depth is the full depth itself, so it is left out."""
-    usable = [d for d in depths if all(reads_in[s] > d for s in samples)]
+def usable_depths(depths, samples, reads_in):
+    """The depths below every sample's own depth (reads_in), ascending as given."""
+    return [d for d in depths if all(reads_in[s] > d for s in samples)]
+
+
+def thinned(common, samples, reads_in, depths, seed, isomir_rows=None):
+    """({depth or FULL: (common rows, isomir rows or None)}, [the depths used, ascending]): the tables thinned from the
+    full depth down, each depth from the one above (so a subset of it), with one random generator seeded with `seed`.
+    Only depths below every sample's own are used: a depth reaching it is the full depth itself. The detection metrics
+    (series_points) and the differential expression (#414) of a depth read the same thinned tables."""
+    usable = usable_depths(depths, samples, reads_in)
     rng = np.random.default_rng(seed)
     tables = {FULL: (common, isomir_rows)}
     above = None
@@ -126,6 +136,19 @@ def series(common, methods, samples, reads_in, groups, depths, seed, isomir_rows
         rows, iso = tables[FULL if above is None else above]
         tables[depth] = (thin(rows, fraction, rng), thin(iso, fraction, rng) if iso is not None else None)
         above = depth
+    return tables, usable
+
+
+def series(common, methods, samples, reads_in, groups, depths, seed, isomir_rows=None):
+    """The depth series: (series_points() of the thinned() tables, the depths left out because a sample has fewer
+    reads)."""
+    tables, usable = thinned(common, samples, reads_in, depths, seed, isomir_rows)
+    return series_points(tables, usable, methods, samples, groups, isomir_rows), [d for d in depths if d not in usable]
+
+
+def series_points(tables, usable, methods, samples, groups, isomir_rows=None):
+    """[(depth or FULL, metrics(), biological.agreement())] of thinned() tables, from the lowest depth up; the replicate
+    CV of a method and group uses the miRNAs of the lowest depth where it has any (cv_sets()) all along."""
     order = usable + [FULL]
     fixed = {}
     for depth in order:  # from the lowest depth up, the first where a method and group have any
@@ -134,9 +157,8 @@ def series(common, methods, samples, reads_in, groups, depths, seed, isomir_rows
                 fixed[key] = kept
     fixed = {key: fixed.get(key, set()) for key in cv_sets([], methods, groups)}
     with_isomirs = {row[0] for row in isomir_rows or [] if float(row[-1]) > 0 and row[4]}
-    out = [(depth, metrics(tables[depth][0], methods, samples, groups, tables[depth][1], fixed, with_isomirs),
-            biological.agreement(tables[depth][0], methods, samples)) for depth in order]
-    return out, [d for d in depths if d not in usable]
+    return [(depth, metrics(tables[depth][0], methods, samples, groups, tables[depth][1], fixed, with_isomirs),
+             biological.agreement(tables[depth][0], methods, samples)) for depth in order]
 
 
 def rise(points, methods, full_depth, key=SATURATION_KEY):
@@ -179,6 +201,83 @@ def saturation(points, methods, full_depth, key=SATURATION_KEY, shares=SATURATIO
                 reached = BEYOND
             out[m][share] = round(reached) if reached not in ('', BEYOND) else reached
     return out
+
+
+DE_KEYS = ('calls', 'recall', 'precision')
+WHOLE = 'all'  # the folder of a depth's DE set of the whole contrast
+
+
+def de_set_name(folder):
+    """The name of a DE set (#414) by depth, from its folder in benchmark/de: `all` for the whole contrast's (folder
+    ''), the folder with `.` for `/` for the others (`lab.L1`, `null.case-01`)."""
+    return folder.replace('/', '.') if folder else WHOLE
+
+
+def de_folder(depth, folder):
+    """The folder of a DE set at a depth under the depth DE root, `<depth>/<de_set_name()>`: one column and level of
+    de.smk's levels.tsv."""
+    return '{}/{}'.format(label(depth), de_set_name(folder))
+
+
+def de_scores(results, full, features, rows):
+    """{row: {<test>_<key>: value}} of a DE set's fits at a depth against the same row's fits at the full depth, over
+    the set's `features` (the same at every depth); `results` and `full` as de.read_results, `full` None for the full
+    depth itself (`calls` only). `calls`: the features called (BH-adjusted p of at most de.FDR); `recall`: the share of
+    the full-depth calls called in the same direction; `precision`: the share of the calls that the full depth makes
+    in the same direction; NaN without full-depth calls, or without calls."""
+    out = {}
+    for row in rows:
+        out[row] = {}
+        for test in de.TESTS:
+            at = [de.call(results[(row, test, f)]) for f in features]
+            out[row][test + '_calls'] = sum(1 for c in at if c)
+            if full is not None:
+                pairs = list(zip(at, (de.call(full[(row, test, f)]) for f in features)))
+                out[row].update({test + '_recall': de.share([c == top for c, top in pairs if top]),
+                                 test + '_precision': de.share([c == top for c, top in pairs if c])})
+    return out
+
+
+def de_tables(contrasts, nulls, methods):
+    """depth_de.tsv's rows (method, depth, set, metric, value): `contrasts` [(set, title, [(depth, de_scores())])], the
+    set its folder name (WHOLE, `lab.L1`); `nulls` [(depth, de.null_scores' values)], the set `null`."""
+    rows = [[m, label(depth), name, key, value] for name, _, points in contrasts for depth, values in points
+            for m in methods for key, value in values[m].items()]
+    return rows + [[m, label(depth), de.NULL, key, value] for depth, values in nulls for m in methods for key, value in values[m].items()]
+
+
+def share_cell(value):
+    return '-' if value is None or (isinstance(value, float) and math.isnan(value)) else '{:.2f}'.format(value)
+
+
+def de_lines(contrasts, nulls, methods, versions, md_table):
+    """depth.md's section on differential expression by depth (#414): per DE set of the contrast and test, each
+    route's recall / precision (calls) per depth; per test, the null comparisons' median share called (share of splits
+    with a call) per depth. `versions`: a line on the tools de.R recorded."""
+    lines = ['', '## Differential expression by depth', '',
+             "The evaluation's DE sets tested on each depth's thinned tables, the draw of the detection metrics above, and on the "
+             "full depth (de.R: edgeR's exact test, its GLM test and limma-voom, #447), each over the same miRNAs at every depth: "
+             "those any route reports at the full depth in the set's samples. A row tests the miRNAs with at least {} reads on "
+             'average; library sizes are every miRNA read the route reported at that depth, as the workflow scales counts per '
+             'million. Each route against its own calls at the full depth (BH-adjusted p of at most {}, in the same direction): '
+             '`recall / precision (calls)`; `full` shows the calls. The full-depth calls are no truth: a route that calls more '
+             'there has more to recall.'.format(biological.MIN_READS, de.FDR)]
+    for _, title, points in contrasts:
+        for test in de.TESTS:
+            lines += ['', '**{}**, {}'.format(title, de.TEST_NAMES[test]), '']
+            lines += md_table(['depth'] + methods, [[label(depth)] + [
+                '{} / {} ({})'.format(share_cell(values[m][test + '_recall']), share_cell(values[m][test + '_precision']), values[m][test + '_calls'])
+                if test + '_recall' in values[m] else str(values[m][test + '_calls']) for m in methods] for depth, values in points])
+    if nulls:
+        lines += ['', '**Null comparisons** (#449): the same splits of each group at every depth, so every call is false: the median '
+                  'over the splits of the share of tested miRNAs called (`null_called`), and the share of splits with a call (`null_any`) '
+                  'in brackets.']
+        for test in de.TESTS:
+            lines += ['', '**Null comparisons**, {}'.format(de.TEST_NAMES[test]), '']
+            lines += md_table(['depth'] + methods, [[label(depth)] + ['{} ({})'.format(
+                share_cell(values[m][test + '_null_called']), share_cell(values[m][test + '_null_any'])) for m in methods]
+                for depth, values in nulls])
+    return lines + ['', versions]
 
 
 def label(depth):
