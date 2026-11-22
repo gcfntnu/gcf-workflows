@@ -313,7 +313,9 @@ INTRO = ('Key metrics of each evaluated project, from its `metrics.tsv`; its `re
 
 SEEDS_NOTE = ('The projects of this synthetic declaration that differ only by the seed of the draw (#455): per key metric '
               'and route, the mean over the seeds and their range in parentheses; `order`, how many pairs of the routes '
-              'with a value in every seed keep their order (higher, lower or equal) in every seed.')
+              'with a value in every seed keep their order (higher, lower or equal) in every seed. A route\'s cell is empty for a '
+              'metric it does not have in every seed: the probe, decoy and overlap metrics of a declaration whose further seeds were '
+              'prepared without probe samples (`prepare --no-probes`) are in the one project that has them, not here.')
 
 
 def markdown_cell(value):

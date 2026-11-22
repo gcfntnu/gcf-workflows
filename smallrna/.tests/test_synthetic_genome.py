@@ -803,6 +803,9 @@ def test_no_probes_leaves_the_mixed_samples_as_they_are(tmp_path):
     result = subprocess.run(cmd + ['summary', '--projects', str(full), str(other), '--output', str(out)], capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stderr
     assert 'syn_genome over seeds {}, 7'.format(SPEC['seed']) in out.read_text() or 'syn_genome over seeds 7, {}'.format(SPEC['seed']) in out.read_text()
+    seeds = out.read_text().split('over seeds', 1)[1]
+    row = next(line for line in seeds.splitlines() if line.startswith('| decoy_as_mirna '))
+    assert set(row.split('|')[2:-2]) == {'  '} or all(not cell.strip() for cell in row.split('|')[2:-2]), row  # one seed has it: no figure over seeds
     bad = subprocess.run(cmd + ['prepare', '--dataset', str(BENCH / 'datasets/giraldez2018_equimolar_truseq.yaml'), '--project', str(tmp_path / 'p'),
                                 '--ext-dir', str(tmp_path / 'e'), '--no-probes'], capture_output=True, text=True, timeout=120)
     assert bad.returncode != 0 and '--no-probes is for the genome-wide synthetic dataset' in bad.stderr
