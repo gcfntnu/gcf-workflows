@@ -260,8 +260,11 @@ def de_lines(contrasts, nulls, methods, versions, md_table):
              "those any route reports at the full depth in the set's samples. A row tests the miRNAs with at least {} reads on "
              'average; library sizes are every miRNA read the route reported at that depth, as the workflow scales counts per '
              'million. Each route against its own calls at the full depth (BH-adjusted p of at most {}, in the same direction): '
-             '`recall / precision (calls)`; `full` shows the calls. The full-depth calls are no truth: a route that calls more '
-             'there has more to recall.'.format(biological.MIN_READS, de.FDR)]
+             '`recall / precision (calls)`; `full` shows the calls. These measure how depth changes a route\'s calls, not '
+             'whether the calls are right: the full-depth calls are no truth, and a route that calls more there has more to '
+             'recall. They are optimistic twice over: each depth is a subset of the full-depth reads, so its calls share their '
+             'noise, and the full depth is what the project holds (a read cap where one was set), not what was sequenced.'.format(
+                 biological.MIN_READS, de.FDR)]
     for _, title, points in contrasts:
         for test in de.TESTS:
             lines += ['', '**{}**, {}'.format(title, de.TEST_NAMES[test]), '']

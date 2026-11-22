@@ -208,6 +208,11 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
      of at most 0.05, in the same direction): `calls`, `recall` (share of the full-depth calls made) and `precision`
      (share of the calls the full depth makes). For the null comparisons, `null_called`, `null_any` and `null_p05` per
      depth, as in the evaluation. Nothing is written when a result comes from other inputs (other depths or seed).
+     These scores show how depth changes a route's calls, not whether the calls are right. They are optimistic: each
+     depth is a subset of the full-depth reads, and the full depth is what the project holds (a read cap where one was
+     set). de.smk fits each set at each depth, plus the full depth, one fit of a few seconds each. 50 null splits in
+     each of three groups give 150 sets, so 600 fits over three depths and the full depth: run de.smk with `--cores`
+     to match.
 
    It writes to `--output`, or `benchmark/depth/` in the project; it changes nothing else there.
 
