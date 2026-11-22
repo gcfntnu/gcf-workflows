@@ -28,7 +28,11 @@ so a shift is the normalisation's); for the contrast's sets, against the same ar
 and `precision` (depth.de_scores) and `fc_shift`, the median change of the log2 fold changes. A mixture (#451): its
 pure samples as a contrast, and its contrasts between fractions against each route's expected changes, from the
 unthinned counts (`called`, `called_shared`, `wrong_direction`, `fc_bias`, `unchanged_called`, `scored`), the best
-real test of what an arm does, since there every miRNA has an expected direction and size.
+real test of what an arm does, since there every miRNA has an expected direction and size. The expected changes are
+on the scale of a route's miRNA reads, the `workflow` arm's; the `fixed` arm gets them shifted by the log2 ratio of the
+route's miRNA share of filtered reads between the two fractions (benchmark.mixture_fixed_shift); `tmm` is scored on
+the workflow's scale, as TMM meeting a design where most miRNAs change. `tied` thins each contrast's lower fraction,
+the samples with less of the second tissue.
 """
 import math
 import statistics
@@ -168,7 +172,18 @@ def rows(contrasts, nulls, methods, between=()):
 signed = depth.signed
 
 
-def lines(name, contrasts, nulls, methods, ratios, seed, versions, md_table, between=()):
+def between_notes(shifts, methods, md_table):
+    """imbalance.md's lines on the arms' scales between a mixture's fractions: `shifts` [(contrast, [the `fixed` arm's
+    shift per method])] (benchmark.mixture_fixed_shift)."""
+    return ['', 'The expected changes are on the scale of a route\'s miRNA reads, the `workflow` arm\'s. The `fixed` arm divides by '
+            'filtered reads instead, which adds the log2 ratio of the route\'s miRNA share of filtered reads, higher fraction over '
+            'lower, to every fold change of a contrast; it is scored against the expected changes shifted by that ratio, from the '
+            'unthinned data (below, mean over the subjects). `tmm` is scored on the workflow\'s scale: TMM rescales towards most '
+            'miRNAs not changing, which does not hold between two fractions, so its `fc_bias` and calls include that shift, as on '
+            'the ratiometric pools.', ''] + md_table(['contrast'] + methods, [[name] + [signed(v) for v in values] for name, values in shifts])
+
+
+def lines(name, contrasts, nulls, methods, ratios, seed, versions, md_table, between=(), notes=()):
     """imbalance.md's lines."""
     share = depth.share_cell
     out = ['# Depth imbalance: {}'.format(name), '',
@@ -202,5 +217,5 @@ def lines(name, contrasts, nulls, methods, ratios, seed, versions, md_table, bet
                 else str(values[m][test + '_calls']) for m in methods] for scenario, arm, values in points])
     if between:
         out += depth.between_lines([([scenario, arm], values) for scenario, arm, values in between], ['design', 'arm'], methods, md_table,
-                                   'each design and arm')
+                                   'each design and arm') + list(notes)
     return out + ['', versions]

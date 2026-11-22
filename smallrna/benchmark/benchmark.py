@@ -2334,7 +2334,23 @@ def mixture_between_scores(result, between, expected, methods):
     return values
 
 
-DeKit = collections.namedtuple('DeKit', 'sets contrasts nulls between features texts expected title')
+def mixture_fixed_shift(counts, design, between, kept, methods):
+    """{method: {suffix: shift}} of a mixture's contrasts between fractions (#488): the log2 ratio, higher fraction over
+    lower and the mean over the subjects with both, of a method's share of miRNA reads (counts' total) among the sample's
+    filtered reads (`kept`). The expected changes are on the scale of a method's miRNA reads; the `fixed` arm divides by
+    filtered reads, which adds this shift to every fold change of the contrast."""
+    out = {}
+    for m in methods:
+        share = lambda sample: counts[m].total[counts[m].column[sample]] / kept[sample]
+        out[m] = {}
+        for s, numerator, denominator in between:
+            up, down = dict(design.at(numerator)), dict(design.at(denominator))
+            logs = [math.log2(share(up[x]) / share(down[x])) for x in sorted(set(up) & set(down)) if share(up[x]) > 0 and share(down[x]) > 0]
+            out[m][s.suffix] = statistics.mean(logs) if logs else 0.0
+    return out
+
+
+DeKit = collections.namedtuple('DeKit', 'sets contrasts nulls between features texts expected title counts design')
 
 
 def kit_sets(spec, table):
@@ -2362,12 +2378,12 @@ def de_kit(spec, table, methods, full):
         _, counts, _ = mixture_de_texts([], methods, full, design, features)
         texts = lambda at, rows, sizes=None: mixture_de_texts(list(at.values()), methods, rows, design, features, sizes)[2]
         return DeKit([s for s, *_ in info], [s for s, _, _, inner in info if not inner], [], between, {s.folder: features for s, *_ in info},
-                     texts, mixture_expected(counts, design, between, methods), lambda s: 'The pure samples ({})'.format(s.samples))
+                     texts, mixture_expected(counts, design, between, methods), lambda s: 'The pure samples ({})'.format(s.samples), counts, design)
     sets = de_sets(spec, de_units(spec, table))
     features = biological_de_features(sets, methods, full)
     nulls = [s for s in sets if s.folder.startswith(de.NULL + '/')]
     texts = lambda at, rows, sizes=None: biological_de_texts(list(at.values()), methods, rows, {at[f].folder: features[f] for f in at}, sizes)[1]
-    return DeKit(sets, [s for s in sets if s not in nulls], nulls, [], features, texts, {}, title)
+    return DeKit(sets, [s for s in sets if s not in nulls], nulls, [], features, texts, {}, title, None, None)
 
 
 def evaluate_mixture(args, project, bench, spec, ext_dir):
@@ -2729,6 +2745,9 @@ def imbalance(args):
         return
     contrasts, nulls, features = kit.contrasts, kit.nulls, kit.features
     points, null_points, between_points, versions = {s.folder: [] for s in contrasts}, [], [], ''
+    fixed_shift = mixture_fixed_shift(kit.counts, kit.design, kit.between, kept, methods) if kit.between else {}
+    expected = {'fixed': {m: {suffix: {f: d + fixed_shift[m][suffix] for f, d in changes.items()} for suffix, changes in kit.expected[m].items()}
+                          for m in methods}} if kit.between else {}
     for arm in imbalance_series.ARMS:
         reference = None
         for scenario, design, ratio in scenarios:  # `none` first: the others are scored against it
@@ -2756,7 +2775,7 @@ def imbalance(args):
                     values[m].update(offset)
                 null_points.append((scenario, arm, values))
             if kit.between:  # a mixture's contrasts between fractions, against the expected changes (#488)
-                between_points.append((scenario, arm, mixture_between_scores(result, kit.between, kit.expected, methods)))
+                between_points.append((scenario, arm, mixture_between_scores(result, kit.between, expected.get(arm, kit.expected), methods)))
     order = {(scenario, arm): i for i, (scenario, arm) in enumerate((sc[0], a) for sc in scenarios for a in imbalance_series.ARMS)}
     ordered = lambda items: sorted(items, key=lambda item: order[(item[0], item[1])])
     titled = [(depth_series.de_set_name(s.folder), kit.title(s), ordered(points[s.folder])) for s in contrasts]
@@ -2765,7 +2784,9 @@ def imbalance(args):
     write_tsv(out / 'imbalance.tsv', ['method', 'design', 'arm', 'set', 'metric', 'value'],
               imbalance_series.rows(titled, null_points, methods, between_points))
     write_tsv(out / 'imbalance_depths.tsv', ['design', 'set', 'first', 'second', 'ratio'], imbalance_series.realised_rows(realised))
-    body = imbalance_series.lines(spec['name'], titled, null_points, methods, ratios, args.seed, versions, md_table, between_points)
+    notes = [] if not kit.between else imbalance_series.between_notes(
+        [(s.suffix[1:].replace('_vs_', ' against '), [fixed_shift[m][s.suffix] for m in methods]) for s, _, _ in kit.between], methods, md_table)
+    body = imbalance_series.lines(spec['name'], titled, null_points, methods, ratios, args.seed, versions, md_table, between_points, notes)
     (out / 'imbalance.md').write_text('\n'.join(header + body[3:]) + '\n')
     print(out / 'imbalance.md')
 
