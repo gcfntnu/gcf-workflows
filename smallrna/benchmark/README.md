@@ -192,6 +192,27 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    - **Saturation:** the depth at which detection (at least 10 reads) reaches 90% and 95% of its full-depth value,
      interpolated on log depth.
    - **Plot** (`--plot`, needs matplotlib): `depth.png`, detection and replicate CV against depth.
+   - **Differential expression by depth** (#414), for a dataset that declares `de:`. The evaluation's DE sets (the
+     contrast, each level of `within`, the null comparisons of #449) are tested on each depth's thinned tables (the
+     draw of the detection metrics) and on the full depth. The tests are de.R's, over the full depth's miRNAs, with
+     every miRNA read a route reported at that depth as its library size. `depth` writes the inputs to `de/<depth>/<set>/`
+     (`all` for the contrast, `lab.L1` for a level, `null.case-01` for a split), with the full depth's equal to the
+     evaluation's. de.smk fits them, and `depth --de`, with the same depths and seed, checks and scores the results:
+
+     ```bash
+     snakemake -s <repo>/smallrna/benchmark/de.smk -d <depth output> --config de=de --use-apptainer --cores 8
+     python smallrna/benchmark/benchmark.py depth --project <project> --output <depth output> --de
+     ```
+
+     Per route, test and depth (`depth_de.tsv`, `depth.md`), against the route's own full-depth calls (BH-adjusted p
+     of at most 0.05, in the same direction): `calls`, `recall` (share of the full-depth calls made) and `precision`
+     (share of the calls the full depth makes). For the null comparisons, `null_called`, `null_any` and `null_p05` per
+     depth, as in the evaluation. Nothing is written when a result comes from other inputs (other depths or seed).
+     These scores show how depth changes a route's calls, not whether the calls are right. They are optimistic: each
+     depth is a subset of the full-depth reads, and the full depth is what the project holds (a read cap where one was
+     set). de.smk fits each set at each depth, plus the full depth, one fit of a few seconds each. 50 null splits in
+     each of three groups give 150 sets, so 600 fits over three depths and the full depth: run de.smk with `--cores`
+     to match.
 
    It writes to `--output`, or `benchmark/depth/` in the project; it changes nothing else there.
 
