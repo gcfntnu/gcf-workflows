@@ -69,6 +69,7 @@ import imbalance as imbalance_series  # noqa: E402
 import isomirs  # noqa: E402
 import knockout_expected  # noqa: E402
 import metrics  # noqa: E402
+import mirgenedb  # noqa: E402
 import mixture  # noqa: E402
 import pool  # noqa: E402
 import resources  # noqa: E402
@@ -1043,6 +1044,8 @@ def evaluate(args):
     spec = load_dataset(bench / 'dataset.yaml')
     config = yaml.safe_load((project / 'config.yaml').read_text())
     ext_dir = Path(config['ext_dir'])
+    if args.mirgenedb and spec['kind'] != 'biological' and not (spec['kind'] == 'synthetic' and synthetic_mode(spec) == 'genome'):
+        fail('--mirgenedb (#493) is for biological datasets and the genome-wide synthetic set, not this {} dataset'.format(spec['kind']))
     stopped = check_methods(project, spec, config)
     states = route_states(bench, spec, stopped)
     scored = [route for route, state, _ in states if state == 'evaluated']
@@ -1715,7 +1718,7 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
     gff = args.mirflowz_gff or (mirflowz_annotation(project) if 'mirflowz' in methods else None)
     pending = []  # tables written once the differential-expression checks (evaluate --de) have passed
     raw = common_table(args, project, bench, spec, ext_dir, methods, mature, gff, pending)
-    common, _ = biological.collapse(raw, id_to_seq)
+    common, groups = biological.collapse(raw, id_to_seq)
     truth, samples, mirnas = (read_tsv(bench / n) for n in ('truth.tsv', 'samples.tsv', 'mirnas.tsv'))
     ev = genome_metrics.Evaluation(common, truth, samples, mirnas, methods)
     label = lambda i: id_to_name.get(i) or ev.mirnas.get(i, {}).get('mature_name') or i
@@ -1819,11 +1822,15 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
                  'DE with the tests of the ratiometric pools (`edger_*`, `edger_glm_*`, `voom_*`): the section below.' if de_results else
                  'DE with the tests of the ratiometric pools: run de.smk, then `evaluate --de` (#447).' if 'de' in spec else ''), '']
     lines += md_table(['metric'] + rows, [row for row in metric_rows if row[0] in table_keys])
-    strata = {name: ev.strata(name) for name in rows}
+    stratum, source = mirgenedb_strata(args, groups)
+    extra_strata = {s: {i for i in ev.units if stratum(i) == s} for s in mirgenedb.STRATA} if stratum else None  # #493
+    strata = {name: ev.strata(name, extra_strata) for name in rows}
     names = sorted({k for v in strata.values() for k in v})
     lines += ['', '## Recovery by stratum', ''] + md_table(
         ['stratum', 'miRNAs'] + rows, [[n, strata['truth'].get(n, ('', ''))[1]] + [rnd(strata[r].get(n, (float('nan'),))[0]) for r in rows]
                                        for n in names])
+    if source:  # #493: the MirGeneDB strata are rows of the table above
+        lines += ['', '`mirgenedb`, `star` and `mirbase_only`: the truth miRNAs by MirGeneDB stratum (#493). ' + source]
     lines += ['', '## Probe samples', '', 'Per read class: the probe miRNAs\' observed reads (control subtracted) over their truth, '
               'and reads landing on other miRNAs (`misplaced`, relative to the same truth).', ''] + md_table(
         ['class', 'miRNAs'] + ['{}: recovery / misplaced'.format(r) for r in methods],
@@ -1906,6 +1913,19 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
         GENOME_CI_KEYS + isomirs.synthetic_keys(iso_classes) + [k for k in de_keys if k in table_keys])
     publish(project, bench, spec, ['metric'] + rows, metric_rows, lines + ci_lines, extra, record)
     print(bench / 'report.md')
+
+
+def mirgenedb_strata(args, groups):
+    """(stratum(accession), the report's line on the source) of `evaluate --mirgenedb` (#493), or (None, None)."""
+    if not args.mirgenedb:
+        return None, None
+    try:
+        listed = mirgenedb.read_gff(args.mirgenedb)
+    except (OSError, ValueError) as error:
+        fail('--mirgenedb: {}'.format(error))
+    counts = collections.Counter(listed.values())
+    return mirgenedb.strata(listed, groups), 'MirGeneDB annotation `{}` (SHA-256 `{}`): {} accessions listed, {} of them star arms.'.format(
+        args.mirgenedb.name, mirgenedb.sha256(args.mirgenedb), len(listed), counts['star'])
 
 
 def evaluate_biological(args, project, bench, spec, ext_dir):
@@ -2004,6 +2024,16 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
     for m in methods:
         summary[m].update(iso.get(m, dict.fromkeys(isomirs.BIOLOGICAL_KEYS, '')))
     keys += isomirs.BIOLOGICAL_KEYS
+    stratum, source = mirgenedb_strata(args, groups)
+    strata_lines = []
+    if stratum:  # #493
+        by_accession = biological.counts_by(common)
+        values = mirgenedb.biological_values(by_accession, methods, samples, stratum)
+        for m in methods:
+            summary[m].update(values[m])
+        keys += mirgenedb.keys()
+        strata_lines = mirgenedb.biological_lines(values, *mirgenedb.disputed(by_accession, methods, stratum), methods,
+                                                  lambda a: id_to_name.get(a, a), source, md_table)
     metric_rows = [[k] + [summary[m][k] for m in methods] for k in keys]
     knockout_lines = []
     if knockout:
@@ -2043,6 +2073,7 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
     lines += ['', '## Agreement between methods (medians over samples)', ''] + md_table(
         ['methods'] + pair_keys, [['{} / {}'.format(a, b)] + [v.get(k, '') for k in pair_keys] for (a, b), v in pairs.items()])
     lines += isomirs.biological_lines(iso, iso_kinds, iso_overlap, with_isomirs, no_isomirs)
+    lines += strata_lines
     lines += other_lines
     lines += knockout_lines
 
@@ -2113,6 +2144,7 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
     extra, record, ci_lines = bootstrap(args, summary, compute,
                                         lambda rng: ([s for lib in uncertainty.resample(rng, libraries) for s in lanes_of[lib]],), methods,
                                         [k for k in keys if k not in ('detected_all_samples', 'isomirs_detected') + tuple(de.null_keys()) +
+                                         tuple(mirgenedb.keys()) +
                                          tuple(k for k in OTHER_RNA_KEYS if k != 'detected_unflagged')],
                                         '{} (`detected_all_samples` and `isomirs_detected` without an interval: a resample repeating a '
                                         'sample has fewer distinct samples)'.format('the libraries, each with all its lanes' if lane_mode else 'the samples'))
@@ -2851,6 +2883,9 @@ def main():
                    help='bootstrap resamples for the metrics\' 95%% intervals (#413); 0 for none (default %(default)s)')
     e.add_argument('--seed', type=int, default=uncertainty.SEED, help='seed of the bootstrap (default %(default)s)')
     e.add_argument('--mirflowz-gff', type=Path, help="mirflowz's extended miRNA annotation; default the one the project's mirflowz run recorded")
+    e.add_argument('--mirgenedb', type=Path, metavar='GFF3', help="MirGeneDB's annotation of the organism (e.g. miRge3's library "
+                   "file annotation.Libs/<species>_MirGeneDB.gff3): the metrics per MirGeneDB stratum (#493) in biological "
+                   "reports and the synthetic recovery")
     e.add_argument('--unitas-ref', type=Path, help="UNITAS reference dump (its miRBase hairpins place locus names); default the "
                    "dump the project's UNITAS run recorded")
     s = sub.add_parser('summary', help='one overview of several evaluated projects (Markdown or HTML by the extension)')

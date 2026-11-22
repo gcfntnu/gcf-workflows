@@ -403,6 +403,14 @@ def test_prepare_and_evaluate_in_genome_mode(tmp_path):
     row = next(line for line in out.read_text().splitlines() if line.startswith('| [project]'))
     assert '| 6 mixed, 9 probe |' in row and '| tinyrna |' in row
 
+    # MirGeneDB strata (#493): rows of the recovery table; an accession MirGeneDB does not list is miRBase-only
+    gff = tmp_path / 'MirGeneDB.gff3'
+    gff.write_text('chr1\t.\tmiRNA\t1\t22\t.\t+\t.\tID=Hsa-Mir-X_5p;Alias=MIMAT9999999\n')
+    result = subprocess.run(cmd + ['evaluate', '--project', str(project), '--bootstrap', '0', '--mirgenedb', str(gff)],
+                            capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    report = (bench / 'report.md').read_text()
+    assert '| mirbase_only |' in report and 'the truth miRNAs by MirGeneDB stratum (#493)' in report and '1 accessions listed' in report
 
 def test_isomirs_in_genome_mode(tmp_path):
     """#454: nf-core/smrnaseq as a perfect isomiR route, every true read on its miRNA as its own sequence, labelled canonical
