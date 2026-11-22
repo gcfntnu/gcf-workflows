@@ -22,7 +22,8 @@ whether the curve is still rising there.
 Differential expression by depth (#414): a dataset that declares `de:` has the evaluation's DE sets (the contrast, each
 level of `within`, the null comparisons of #449) tested on each depth's thinned tables, the same draw as the detection
 metrics, and on the full depth, with de.R (de.smk). Each route's calls at a depth are scored against its own calls at
-the full depth (recall and precision), and the null comparisons' false calls are reported per depth.
+the full depth (recall and precision), and the null comparisons' false calls are reported per depth. A mixture's
+contrasts between fractions (#451) are scored against each route's expected changes instead (#488).
 """
 import collections
 import math
@@ -238,33 +239,59 @@ def de_scores(results, full, features, rows):
     return out
 
 
-def de_tables(contrasts, nulls, methods):
+BETWEEN = 'between'  # the set name of a mixture's contrasts between fractions in the tables (#488)
+
+
+def de_tables(contrasts, nulls, methods, between=()):
     """depth_de.tsv's rows (method, depth, set, metric, value): `contrasts` [(set, title, [(depth, de_scores())])], the
-    set its folder name (WHOLE, `lab.L1`); `nulls` [(depth, de.null_scores' values)], the set `null`."""
+    set its folder name (WHOLE, `lab.L1`); `nulls` [(depth, de.null_scores' values)], the set `null`; `between` [(depth,
+    {method: values})] of a mixture's contrasts between fractions, the set `between`."""
     rows = [[m, label(depth), name, key, value] for name, _, points in contrasts for depth, values in points
             for m in methods for key, value in values[m].items()]
-    return rows + [[m, label(depth), de.NULL, key, value] for depth, values in nulls for m in methods for key, value in values[m].items()]
+    rows += [[m, label(depth), de.NULL, key, value] for depth, values in nulls for m in methods for key, value in values[m].items()]
+    return rows + [[m, label(depth), BETWEEN, key, value] for depth, values in between for m in methods for key, value in values[m].items()]
+
+
+def signed(value):
+    return '-' if value is None or (isinstance(value, float) and math.isnan(value)) else '{:+.2f}'.format(value)
+
+
+def between_lines(labelled, header, methods, md_table, where):
+    """Lines on a mixture's contrasts between fractions (#488): `labelled` [(label cells, {method: values})] with
+    benchmark.mixture_between_scores' values, `header` the label columns, `where` what varies (each depth, ...)."""
+    lines = ['', '## Between the mixtures, against the expected changes', '',
+             "A mixture's contrasts between two fractions (#451) at {}, scored as the evaluation scores them against each route's "
+             'expected changes, which come from its unthinned pure samples and content ratios and are the same throughout: '
+             '`called` (in brackets `called_shared`, over the miRNAs every route expects at least 2-fold apart, an untested one not '
+             'called) / `wrong_direction` / `fc_bias`. `called` is a share of the miRNAs a route still tests; `scored` counts those '
+             'it expects at least 2-fold apart, over the contrasts.'.format(where)]
+    for test in de.TESTS:
+        lines += ['', '**{}**'.format(de.TEST_NAMES[test]), '']
+        lines += md_table(header + methods, [cells + ['{} ({}) / {} / {}'.format(
+            share_cell(values[m][test + '_called']), share_cell(values[m][test + '_called_shared']),
+            share_cell(values[m][test + '_wrong_direction']), signed(values[m][test + '_fc_bias'])) for m in methods] for cells, values in labelled])
+    return lines + ['', '**scored**', ''] + md_table(header + methods, [cells + [str(values[m]['scored']) for m in methods] for cells, values in labelled])
 
 
 def share_cell(value):
     return '-' if value is None or (isinstance(value, float) and math.isnan(value)) else '{:.2f}'.format(value)
 
 
-def de_lines(contrasts, nulls, methods, versions, md_table):
+def de_lines(contrasts, nulls, methods, versions, md_table, between=(), library='every miRNA read the route reported'):
     """depth.md's section on differential expression by depth (#414): per DE set of the contrast and test, each
     route's recall / precision (calls) per depth; per test, the null comparisons' median share called (share of splits
-    with a call) per depth. `versions`: a line on the tools de.R recorded."""
+    with a call) per depth; a mixture's contrasts between fractions (`between`, as for de_tables) against the expected
+    changes. `versions`: a line on the tools de.R recorded; `library`: what a library size counts (a mixture's differ)."""
     lines = ['', '## Differential expression by depth', '',
              "The evaluation's DE sets tested on each depth's thinned tables, the draw of the detection metrics above, and on the "
              "full depth (de.R: edgeR's exact test, its GLM test and limma-voom, #447), each over the same miRNAs at every depth: "
              "those any route reports at the full depth in the set's samples. A row tests the miRNAs with at least {} reads on "
-             'average; library sizes are every miRNA read the route reported at that depth, as the workflow scales counts per '
-             'million. Each route against its own calls at the full depth (BH-adjusted p of at most {}, in the same direction): '
+             'average; library sizes are {} at that depth. Each route against its own calls at the full depth (BH-adjusted p of at most {}, in the same direction): '
              '`recall / precision (calls)`; `full` shows the calls. These measure how depth changes a route\'s calls, not '
              'whether the calls are right: the full-depth calls are no truth, and a route that calls more there has more to '
              'recall. They are optimistic twice over: each depth is a subset of the full-depth reads, so its calls share their '
              'noise, and the full depth is what the project holds (a read cap where one was set), not what was sequenced.'.format(
-                 biological.MIN_READS, de.FDR)]
+                 biological.MIN_READS, library, de.FDR)]
     for _, title, points in contrasts:
         for test in de.TESTS:
             lines += ['', '**{}**, {}'.format(title, de.TEST_NAMES[test]), '']
@@ -280,6 +307,8 @@ def de_lines(contrasts, nulls, methods, versions, md_table):
             lines += md_table(['depth'] + methods, [[label(depth)] + ['{} ({})'.format(
                 share_cell(values[m][test + '_null_called']), share_cell(values[m][test + '_null_any'])) for m in methods]
                 for depth, values in nulls])
+    if between:
+        lines += between_lines([([label(depth)], values) for depth, values in between], ['depth'], methods, md_table, 'each depth')
     return lines + ['', versions]
 
 

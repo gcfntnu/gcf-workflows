@@ -25,7 +25,14 @@ under each test), not a normalisation bias from composition.
 Scores, per design, arm, route and test: for the null comparisons `null_called`, `null_any` and `null_p05` (de.py)
 and `offset`, the median over the splits of the median log2 fold change of the tested miRNAs (every change is null,
 so a shift is the normalisation's); for the contrast's sets, against the same arm's unthinned fits, `calls`, `recall`
-and `precision` (depth.de_scores) and `fc_shift`, the median change of the log2 fold changes.
+and `precision` (depth.de_scores) and `fc_shift`, the median change of the log2 fold changes. A mixture (#451): its
+pure samples as a contrast, and its contrasts between fractions against each route's expected changes, from the
+unthinned counts (`called`, `called_shared`, `wrong_direction`, `fc_bias`, `unchanged_called`, `scored`), the best
+real test of what an arm does, since there every miRNA has an expected direction and size. The expected changes are
+on the scale of a route's miRNA reads, the `workflow` arm's; the `fixed` arm gets them shifted, per subject, by the log2 ratio of the
+route's miRNA share of filtered reads between the two fractions (benchmark.mixture_fixed_shift); `tmm` is scored on
+the workflow's scale, as TMM meeting a design where most miRNAs change. `tied` thins each contrast's lower fraction,
+the samples with less of the second tissue.
 """
 import math
 import statistics
@@ -151,30 +158,43 @@ def realised_lines(realised, md_table):
             ''] + md_table(header, table)
 
 
-def rows(contrasts, nulls, methods):
+def rows(contrasts, nulls, methods, between=()):
     """imbalance.tsv's rows (method, scenario, arm, set, metric, value): `contrasts` [(set, title, [(scenario, arm,
-    {row: values})])]; `nulls` [(scenario, arm, {row: values})], the set `null`."""
+    {row: values})])]; `nulls` [(scenario, arm, {row: values})], the set `null`; `between` likewise, a mixture's
+    contrasts between fractions, the set `between`."""
     out = [[m, scenario, arm, name, key, value] for name, _, points in contrasts for scenario, arm, values in points
            for m in methods for key, value in values[m].items()]
-    return out + [[m, scenario, arm, de.NULL, key, value] for scenario, arm, values in nulls for m in methods for key, value in values[m].items()]
+    out += [[m, scenario, arm, de.NULL, key, value] for scenario, arm, values in nulls for m in methods for key, value in values[m].items()]
+    return out + [[m, scenario, arm, depth.BETWEEN, key, value] for scenario, arm, values in between for m in methods
+                  for key, value in values[m].items()]
 
 
-def signed(value):
-    return '-' if value is None or (isinstance(value, float) and math.isnan(value)) else '{:+.2f}'.format(value)
+signed = depth.signed
 
 
-def lines(name, contrasts, nulls, methods, ratios, seed, versions, md_table):
-    """imbalance.md's lines."""
+def between_notes(shifts, methods, md_table):
+    """imbalance.md's lines on the arms' scales between a mixture's fractions: `shifts` [(contrast, [the `fixed` arm's
+    shift per method])] (benchmark.mixture_fixed_shift)."""
+    return ['', 'The expected changes are on the scale of a route\'s miRNA reads, the `workflow` arm\'s. The `fixed` arm divides by '
+            'filtered reads instead, which adds each subject\'s log2 ratio of the route\'s miRNA share of filtered reads, higher '
+            'fraction over lower, to that subject\'s fold changes; it is scored against expected changes with that ratio added to '
+            'each subject\'s log ratios before their mean, from the unthinned data (below, the mean over the subjects). `tmm` is scored on the workflow\'s scale: TMM rescales towards most '
+            'miRNAs not changing, which does not hold between two fractions, so its `fc_bias` and calls include that shift, as on '
+            'the ratiometric pools.', ''] + md_table(['contrast'] + methods, [[name] + [signed(v) for v in values] for name, values in shifts])
+
+
+def lines(name, contrasts, nulls, methods, ratios, seed, versions, md_table, between=(), notes=(), library='every miRNA read the route reported'):
+    """imbalance.md's lines; `library`: what the `workflow` arm's library size counts (a mixture's differ)."""
     share = depth.share_cell
     out = ['# Depth imbalance: {}'.format(name), '',
            'Each DE set thinned unevenly from the evaluation\'s count tables, binomially (seed {}), and tested again with de.R in '
-           'three normalisation arms (#488): `workflow` (every miRNA read the route reported), `fixed` (the sample\'s filtered '
+           'three normalisation arms (#488): `workflow` ({}), `fixed` (the sample\'s filtered '
            'reads times its thinning fraction) and `tmm` (edgeR\'s TMM factors on the workflow\'s). `independent-<r>`: in each '
            'group of the set, half the samples thinned to 1/r; `tied-<r>`: the set\'s second group only thinned to 1/r, so a '
            'contrast is tested with the imbalance in one direction; `none`: unthinned. Ratios: {}. Thinning keeps each sample\'s composition and every arm\'s library sizes '
            'follow it, so the designs show what the imbalance costs (power, false calls from the shallower samples\' variance), '
            'not a bias from composition. Each set is tested over the miRNAs of its evaluation.'.format(
-               seed, ', '.join('{:g}'.format(r) for r in ratios))]
+               seed, library, ', '.join('{:g}'.format(r) for r in ratios))]
     if nulls:
         out += ['', '## Null comparisons (#449)', '',
                 'The splits of each group, every call false: `null_called` (the median share of tested miRNAs called), the share '
@@ -195,4 +215,7 @@ def lines(name, contrasts, nulls, methods, ratios, seed, versions, md_table):
                 '{} / {} ({}) {}'.format(share(values[m][test + '_recall']), share(values[m][test + '_precision']), values[m][test + '_calls'],
                                          signed(values[m][test + '_fc_shift'])) if test + '_recall' in values[m]
                 else str(values[m][test + '_calls']) for m in methods] for scenario, arm, values in points])
+    if between:
+        out += depth.between_lines([([scenario, arm], values) for scenario, arm, values in between], ['design', 'arm'], methods, md_table,
+                                   'each design and arm') + list(notes)
     return out + ['', versions]
