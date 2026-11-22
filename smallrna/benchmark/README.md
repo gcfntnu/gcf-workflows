@@ -322,9 +322,12 @@ biological dataset, `--per-group N` the first N samples of each group in declare
 `--synthetic-seed N` another draw of the same declaration (#455: the miRNAs chosen, their abundances and changes, the
 counts and, for the genome-wide set, the decoys), each seed a project of its own, recorded in its
 `benchmark/dataset.yaml` and in `evaluation.json`, and for the genome-wide set `--no-probes` the mixed samples alone,
-without the probe, decoy, overlap and control samples. The mixed samples are the ones the same seed gives with them,
-so the accuracy, structure and differential-expression metrics are unchanged; the project has no `probe_*`, decoy or
-overlap metrics, its report says so, and the summary still groups it with the other seeds of its declaration. It is
+without the probe, decoy, overlap and control samples (`no_probes: true` in the project's `benchmark/dataset.yaml`).
+The mixed samples' reads and truth are the ones the same seed gives with them. Their metrics are the same for a route
+that counts each sample on its own; a route with a rule over the whole project can differ on rare miRNAs (miRge3
+keeps a miRNA with two exact reads anywhere in the project, and a probe sample can supply one of them). The project
+has no `probe_*`, decoy or overlap metrics, its report says so, and the summary still groups it with the other seeds
+of its declaration. It is
 for further seeds and scenarios, where the probe samples (most of a project's samples, a few percent of its reads)
 would test the same read handling again. `--set quant.ROUTE.SETTING=VALUE` (repeatable) a settings variant
 (#417): a route setting of `smallrna.config` changed for the project, for a route it runs, not to its default. The

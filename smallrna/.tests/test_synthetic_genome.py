@@ -782,7 +782,8 @@ def test_no_probes_leaves_the_mixed_samples_as_they_are(tmp_path):
     bare, _ = genome_project(tmp_path / 'bare', with_decoys=True, extra=('--no-probes',))
     samples = benchmark.read_tsv(bare / 'benchmark/samples.tsv')
     assert [row['kind'] for row in samples] == ['mixed'] * 6
-    assert yaml.safe_load((bare / 'benchmark/dataset.yaml').read_text())['synthetic']['probes'] is None
+    recorded = yaml.safe_load((bare / 'benchmark/dataset.yaml').read_text())['synthetic']
+    assert recorded['no_probes'] is True and recorded['probes'] == SPEC['probes']  # left out, the declared design on record
     mixed = {row['sample'] for row in samples}
     for sample in sorted(mixed):
         a, = (full / 'data/raw').rglob('{}_R1.fastq.gz'.format(sample))

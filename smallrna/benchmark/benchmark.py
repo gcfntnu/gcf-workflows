@@ -507,13 +507,10 @@ def prepare(args):
         if spec['kind'] != 'synthetic':
             fail('--synthetic-seed is for synthetic datasets')
         spec = dict(spec, synthetic=dict(spec['synthetic'], seed=args.synthetic_seed))
-    if getattr(args, 'no_probes', False):  # the mixed samples alone; the project's dataset.yaml keeps `probes: null`
+    if getattr(args, 'no_probes', False):  # the mixed samples alone; the project's dataset.yaml keeps `no_probes: true`
         if spec['kind'] != 'synthetic' or synthetic_mode(spec) != 'genome':
             fail('--no-probes is for the genome-wide synthetic dataset')
-        synthetic = dict(spec['synthetic'], probes=None)
-        if synthetic.get('decoys'):  # the decoys' probe samples go with the others; their reads in the mixed samples stay
-            synthetic['decoys'] = {k: v for k, v in synthetic['decoys'].items() if k != 'probe'}
-        spec = dict(spec, synthetic=synthetic)
+        spec = dict(spec, synthetic=dict(spec['synthetic'], no_probes=True))  # the declared probe design stays on record
     prepare_dataset = {'pool': prepare_pool, 'biological': prepare_biological, 'mixture': prepare_biological,
                        'synthetic': prepare_synthetic}[spec['kind']]
     project.parent.mkdir(parents=True, exist_ok=True)
@@ -651,8 +648,7 @@ def synthetic_files(spec, ext_dir):
 
 def no_probes(spec):
     """Whether a genome-wide synthetic project was prepared without its probe samples (`prepare --no-probes`)."""
-    synthetic = spec.get('synthetic') or {}
-    return 'probes' in synthetic and synthetic['probes'] is None
+    return bool((spec.get('synthetic') or {}).get('no_probes'))
 
 
 def prepare_synthetic_genome(spec, project, ext_dir, methods, args):
@@ -1810,7 +1806,9 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
                  spec['organism'], spec['libprepkit'], mixed, len(samples) - mixed,
                  sum(1 for m in mirnas if float(m['base_per_million']) > 0)), ''] + ([
              'The probe samples were left out when the project was prepared (`prepare --no-probes`): there are no `probe_*`, decoy '
-             'or overlap metrics here. The mixed samples are the ones the same seed gives with the probe samples.', ''] if no_probes(spec) else []) + [
+             'or overlap metrics here. The mixed samples\' reads are the ones the same seed gives with the probe samples; a route '
+             'that applies a rule over the whole project (miRge3 keeps a miRNA with two exact reads in the project) can still count '
+             'a rare miRNA differently without them.', ''] if no_probes(spec) else []) + [
              '## Metrics', '', 'Mixed samples (definitions in genome_metrics.py). DE, the built-in check (`de_*`): each row tests '
              'the miRNAs with at least {} reads on average in its own counts, as an analysis of them would (`de_tested`); {} miRNAs '
              'are truly DE, and a call on any other miRNA is false. {} `probe_*`: probe samples, recovery per read class.'.format(
