@@ -3515,6 +3515,10 @@ def test_imbalance_of_an_evaluated_biological_project(tmp_path):
     independent = [t / f for t, f in zip(sizes('independent-2_workflow/all')['unitas'], sizes('none_workflow/all')['unitas'])]
     assert [sum(r < 0.7 for r, g in zip(independent, groups) if g == group) for group in ('case', 'control')] == [2, 2]
     assert sizes('tied-2_fixed/all')['mirge3'] == [87.0 if g == 'case' else 43.5 for g in groups]   # filtered reads (#453) times the fraction
+    counts = lambda folder: [line.split('\t') for line in (out / 'de' / folder / 'input/counts.tsv').read_text().splitlines()]
+    case = [i for i, column in enumerate(counts('none_workflow/all')[0]) if column in
+            [line.split('\t')[0] for line in (out / 'de/none_workflow/all/input/design.tsv').read_text().splitlines()[1:] if '\tcase' in line]]
+    assert [[row[i] for i in case] for row in counts('tied-2_workflow/all')] == [[row[i] for i in case] for row in counts('none_workflow/all')]
     assert (out / 'de/tied-2_tmm/all/input/model.tsv').read_text() == de.model_text('case', 'control', (), biological.MIN_READS, 'tmm')
     assert 'then `benchmark.py imbalance --de` with the same ratios and seed' in (out / 'imbalance.md').read_text()
     depths = (out / 'imbalance_depths.tsv').read_text().splitlines()   # 87 filtered reads in every sample

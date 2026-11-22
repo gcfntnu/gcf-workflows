@@ -2395,6 +2395,8 @@ def depth_de(args, out, spec, table, methods, tables, usable):
     contrasts = [s for s in sets if s not in nulls]
     scores, null_points, full_results, versions = {s.folder: [] for s in contrasts}, [], None, ''
     folders = []
+    if not args.de:
+        (out / 'depth_de.tsv').unlink(missing_ok=True)  # scores of an earlier draw, if any, before any input changes
     for depth in [depth_series.FULL] + usable:  # the full depth first: the other depths are scored against it
         at = {s.folder: s._replace(suffix=depth_series.de_folder(depth, s.folder), folder=depth_series.de_folder(depth, s.folder))
               for s in sets}
@@ -2418,7 +2420,6 @@ def depth_de(args, out, spec, table, methods, tables, usable):
             null_points.append((depth, de.null_scores([(results[at[s.folder].suffix], features[s.folder]) for s in nulls], methods)[0]))
     if not args.de:
         de.write_changed(root / de.LEVELS, de.levels_text([folder.split('/') for folder in folders]))
-        (out / 'depth_de.tsv').unlink(missing_ok=True)  # scores of an earlier draw, if any
         return ['', 'Differential expression by depth (#414): the inputs of {} DE sets at each of {} depths are in `de/`. Run '
                 'de.smk on them (`snakemake -s <repo>/smallrna/benchmark/de.smk -d {} --config de=de --use-apptainer`), then '
                 '`benchmark.py depth --de` with the same depths and seed.'.format(len(sets), len(usable) + 1, out)], None
@@ -2588,8 +2589,8 @@ def imbalance(args):
             rng = imbalance_series.generator(args.seed, scenario, s.folder)
             fraction = imbalance_series.fractions(design, ratio, members, imbalance_series.denominator(s.model), rng)
             rows = [row for sample, _ in members for row in by_sample[sample]]
-            if design is not None:
-                rows = depth_series.thin(rows, fraction, rng)
+            if design is not None:  # the samples kept whole stay as they are, unrounded, as in `none`
+                rows = [row for row in rows if fraction[row[1]] == 1] + depth_series.thin([row for row in rows if fraction[row[1]] < 1], fraction, rng)
             for arm in arms:
                 folder = imbalance_series.folder(scenario, arm, s.folder)
                 at[(s.folder, arm)] = s._replace(suffix=folder, folder=folder, model=s.model + 'normalisation\ttmm\n' if arm == 'tmm' else s.model)
@@ -2607,6 +2608,8 @@ def imbalance(args):
     header = imbalance_series.lines(spec['name'], [], [], methods, ratios, args.seed, '', md_table)[:3] + \
         imbalance_series.realised_lines(realised, md_table)
     if not args.de:
+        for name in ('imbalance.tsv', 'imbalance.md'):  # scores of an earlier draw, if any, before any input changes
+            (out / name).unlink(missing_ok=True)
         folders = []
         for scenario, design, ratio in scenarios:
             texts, _ = scenario_texts(scenario, design, ratio, imbalance_series.ARMS)
@@ -2614,7 +2617,6 @@ def imbalance(args):
                 de.write_inputs(root / folder / 'input', inputs)
             folders += list(texts)
         de.write_changed(root / de.LEVELS, de.levels_text([folder.split('/') for folder in folders]))
-        (out / 'imbalance.tsv').unlink(missing_ok=True)  # scores of an earlier draw, if any
         write_tsv(out / 'imbalance_depths.tsv', ['design', 'set', 'first', 'second', 'ratio'], imbalance_series.realised_rows(realised))
         header += ['', 'The inputs of {} DE sets in {} designs and {} arms are in `de/`. Run de.smk on them (`snakemake -s '
                    '<repo>/smallrna/benchmark/de.smk -d {} --config de=de --use-apptainer`), then `benchmark.py imbalance --de` with the '
@@ -2658,6 +2660,7 @@ def imbalance(args):
     null_points = ordered(null_points)
     out.mkdir(parents=True, exist_ok=True)
     write_tsv(out / 'imbalance.tsv', ['method', 'design', 'arm', 'set', 'metric', 'value'], imbalance_series.rows(titled, null_points, methods))
+    write_tsv(out / 'imbalance_depths.tsv', ['design', 'set', 'first', 'second', 'ratio'], imbalance_series.realised_rows(realised))
     body = imbalance_series.lines(spec['name'], titled, null_points, methods, ratios, args.seed, versions, md_table)
     (out / 'imbalance.md').write_text('\n'.join(header + body[3:]) + '\n')
     print(out / 'imbalance.md')
