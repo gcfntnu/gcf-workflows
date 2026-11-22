@@ -2388,8 +2388,12 @@ def depth(args):
              '--notemp`'.format(', '.join(missing[:3])))
     try:
         reads_in = {s: biological.filtering(paths)['reads_in'] for s, paths in reports.items()}
+        recorded = evaluation.read_evaluation(bench)[1].get('reads_processed')
     except ValueError as error:
         fail(str(error))
+    if recorded is not None and recorded != sum(reads_in.values()):  # the count tables are the evaluated run's
+        fail('the cutadapt reports give {:,} reads, the evaluation recorded {:,}: the filtering changed since; evaluate again'.format(
+            sum(reads_in.values()), recorded))
     raw = [(r['method'], r['sample'], r['mature_name'], r['mature_id'], float(r['count'])) for r in read_tsv(bench / 'common.tsv')]
     common, _ = biological.collapse(raw, id_to_seq)
     methods = [m for m in spec['methods'] if any(row[0] == m for row in common)]
@@ -2398,7 +2402,8 @@ def depth(args):
         isomir_rows = [tuple(r[k] for k in adapters.ISOMIR_COLUMNS[:-1]) + (float(r['count']),) for r in read_tsv(bench / 'isomirs.tsv')]
     points, skipped = depth_series.series(common, methods, samples, reads_in, groups, depths, args.seed, isomir_rows)
     full = round(statistics.median(reads_in.values()))
-    reached, rising = depth_series.saturation(points, methods, full), depth_series.rise(points, methods, full)
+    equal = len(set(reads_in.values())) == 1  # the full depth is a common measurement only then
+    reached, rising = depth_series.saturation(points, methods, full, equal=equal), depth_series.rise(points, methods, full)
     out = Path(args.output) if args.output else bench / 'depth'
     out.mkdir(parents=True, exist_ok=True)
     rows, pairs = depth_series.tables(points, methods)

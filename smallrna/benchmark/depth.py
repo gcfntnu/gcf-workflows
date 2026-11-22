@@ -8,15 +8,16 @@ rounded first, so it is approximate there. Only depths every sample reaches are 
 sample's own) ends the series.
 
 Each table is thinned on its own (each method's, and the isomiR output apart from the common table), while real
-subsampling removes the same reads for every method: the agreement between methods therefore falls faster with depth
-than on real shallow data, and is a lower bound.
+subsampling removes the same reads for every method: the agreement between methods is measured under independent
+thinning, and typically falls faster with depth than on real shallow data.
 
 Per method and depth: median miRNA reads per sample, median miRNAs with at least 1, 5 and 10 reads per sample,
 miRNAs with at least 10 reads in every sample, the median replicate CV within the groups, and, from the isomiR
 output, the median distinct read sequences per sample; per pair of methods the biological report's agreement
 (Spearman, median |log2 ratio|, top-100 overlap). The depth at which detection reaches 90% and 95% of its full-depth
-value is interpolated on log depth; it is relative to the dataset's own depth, so the rise per doubling of depth over
-the last step tells whether the curve is still rising there.
+value is interpolated on log depth between depths every sample was measured at (the full depth only when all samples
+have the same); it is relative to the dataset's own depth, so the rise per doubling of depth over the last step tells
+whether the curve is still rising there.
 """
 import collections
 import math
@@ -32,6 +33,7 @@ SATURATION = (0.9, 0.95)       # shares of full-depth detection whose depth is r
 SATURATION_KEY = 'detected_10'
 AGREEMENT_KEYS = ('spearman_either', 'median_abs_log2_ratio', 'top{}_overlap'.format(biological.TOP))
 FULL = 'full'
+BEYOND = 'beyond'  # a saturation share not reached by the last depth every sample was measured at
 
 
 def parse_depths(text):
@@ -62,26 +64,31 @@ def thin(rows, fraction, rng):
     return [tuple(row[:-1]) + (int(k),) for row, k in zip(rows, kept) if k > 0]
 
 
+def replicate_groups(groups):
+    """The groups of two samples or more with a name: those the replicate CV uses."""
+    return {g: members for g, members in groups.items() if str(g).strip() and len(members) > 1}
+
+
 def cv_sets(common, methods, groups):
-    """{(method, group): the miRNAs with at least MIN_READS reads in every sample of the group}, for groups of two
-    samples or more: the replicate CV's miRNAs, fixed over a series at its lowest depth."""
+    """{(method, group): the miRNAs with at least MIN_READS reads in every sample of the group}, for replicate_groups():
+    the replicate CV's miRNAs."""
     by = biological.counts_by(common)
     return {(m, g): set.intersection(*({i for i, v in by.get((m, s), {}).items() if v >= biological.MIN_READS} for s in members))
-            for m in methods for g, members in groups.items() if len(members) > 1}
+            for m in methods for g, members in replicate_groups(groups).items()}
 
 
-def metrics(common, methods, samples, groups, isomir_rows=None, fixed=None):
+def metrics(common, methods, samples, groups, isomir_rows=None, fixed=None, with_isomirs=None):
     """Per method: median miRNA reads, median miRNAs with at least 1, 5 and 10 reads per sample, miRNAs with at least
     10 in every sample, the median over groups (two samples or more) of the median CPM coefficient of variation of
-    the miRNAs in `fixed` (cv_sets(); by default those of these tables), and with `isomir_rows` the median distinct read
-    sequences per sample ('' for a method without isomiR output)."""
+    the miRNAs in `fixed` (cv_sets(); by default those of these tables), and with `isomir_rows` the median distinct
+    nonempty read sequences per sample ('' for a method not in `with_isomirs`, by default those with rows here)."""
     fixed = cv_sets(common, methods, groups) if fixed is None else fixed
     by = biological.counts_by(common)
     sequences = collections.defaultdict(set)
     for row in isomir_rows or []:
-        if float(row[-1]) > 0:
+        if float(row[-1]) > 0 and row[4]:
             sequences[(row[0], row[1])].add(row[4])
-    with_isomirs = {method for method, _ in sequences}
+    with_isomirs = {method for method, _ in sequences} if with_isomirs is None else with_isomirs
     out = {}
     for m in methods:
         per = {s: by.get((m, s), {}) for s in samples}
@@ -91,9 +98,7 @@ def metrics(common, methods, samples, groups, isomir_rows=None, fixed=None):
         detected = [{i for i, v in c.items() if v >= biological.MIN_READS} for c in per.values()]
         values['detected_all_samples'] = len(set.intersection(*detected)) if detected else 0
         cvs = []
-        for g, members in groups.items():
-            if len(members) < 2:
-                continue
+        for g, members in replicate_groups(groups).items():
             levels = [biological.cpm(per[s]) for s in members]
             values_of = lambda i: [c.get(i, 0.0) for c in levels]
             cv = [statistics.stdev(values_of(i)) / statistics.mean(values_of(i)) for i in fixed[(m, g)] if any(values_of(i))]
@@ -109,9 +114,10 @@ def metrics(common, methods, samples, groups, isomir_rows=None, fixed=None):
 def series(common, methods, samples, reads_in, groups, depths, seed, isomir_rows=None):
     """The depth series: ([(depth or FULL, metrics(), biological.agreement())] from the lowest depth up, the depths
     left out because a sample has fewer reads). The tables are thinned from the full depth down, each depth from the
-    one above (so a subset of it), with one random generator seeded with `seed`; the replicate CV uses the miRNAs of
-    the lowest depth (cv_sets()) all along."""
-    usable = [d for d in depths if all(reads_in[s] >= d for s in samples)]
+    one above (so a subset of it), with one random generator seeded with `seed`; the replicate CV of a method and group
+    uses the miRNAs of the lowest depth where it has any (cv_sets()) all along. A depth reaching every sample's own
+    depth is the full depth itself, so it is left out."""
+    usable = [d for d in depths if all(reads_in[s] > d for s in samples)]
     rng = np.random.default_rng(seed)
     tables = {FULL: (common, isomir_rows)}
     above = None
@@ -121,8 +127,14 @@ def series(common, methods, samples, reads_in, groups, depths, seed, isomir_rows
         tables[depth] = (thin(rows, fraction, rng), thin(iso, fraction, rng) if iso is not None else None)
         above = depth
     order = usable + [FULL]
-    fixed = cv_sets(tables[order[0]][0], methods, groups)
-    out = [(depth, metrics(tables[depth][0], methods, samples, groups, tables[depth][1], fixed),
+    fixed = {}
+    for depth in order:  # from the lowest depth up, the first where a method and group have any
+        for key, kept in cv_sets(tables[depth][0], methods, groups).items():
+            if kept and not fixed.get(key):
+                fixed[key] = kept
+    fixed = {key: fixed.get(key, set()) for key in cv_sets([], methods, groups)}
+    with_isomirs = {row[0] for row in isomir_rows or [] if float(row[-1]) > 0 and row[4]}
+    out = [(depth, metrics(tables[depth][0], methods, samples, groups, tables[depth][1], fixed, with_isomirs),
             biological.agreement(tables[depth][0], methods, samples)) for depth in order]
     return out, [d for d in depths if d not in usable]
 
@@ -141,14 +153,15 @@ def rise(points, methods, full_depth, key=SATURATION_KEY):
     return out
 
 
-def saturation(points, methods, full_depth, key=SATURATION_KEY, shares=SATURATION):
+def saturation(points, methods, full_depth, key=SATURATION_KEY, shares=SATURATION, equal=True):
     """{method: {share: reads}}: the depth at which `key` first reaches `share` of its full-depth value, interpolated
-    on log depth between the depths around it; the full depth (the median of the samples' reads) is the last point.
-    '' when the full-depth value is 0, and the smallest depth when the first point already reaches it."""
+    on log depth between the depths around it. The full depth (`full_depth`) is a point of the curve only when every
+    sample has it (`equal`); otherwise a share not reached by the last thinned depth is BEYOND. '' when the full-depth
+    value is 0, and the smallest depth when the first point already reaches it."""
     out = {}
     for m in methods:
-        curve = [(full_depth if depth == FULL else depth, values[m][key]) for depth, values, _ in points]
-        top = curve[-1][1]
+        top = points[-1][1][m][key]
+        curve = [(full_depth if depth == FULL else depth, values[m][key]) for depth, values, _ in points if depth != FULL or equal]
         out[m] = {}
         for share in shares:
             target = share * top
@@ -162,7 +175,9 @@ def saturation(points, methods, full_depth, key=SATURATION_KEY, shares=SATURATIO
                         t = (target - y0) / (y - y0)
                         reached = 2 ** (math.log2(x0) + t * (math.log2(x) - math.log2(x0)))
                     break
-            out[m][share] = round(reached) if reached != '' else ''
+            if reached == '' and top and not equal:
+                reached = BEYOND
+            out[m][share] = round(reached) if reached not in ('', BEYOND) else reached
     return out
 
 
@@ -180,6 +195,12 @@ def tables(points, methods):
     return rows, pairs
 
 
+def saturation_cell(value, last):
+    if value == BEYOND:
+        return 'beyond {}'.format(label(last))
+    return '{:,}'.format(value) if value != '' else ''
+
+
 def report(name, points, methods, skipped, reached, rising, reads_in, seed, md_table):
     """depth.md's lines."""
     keys = list(next(iter(points[0][1].values())))
@@ -188,26 +209,28 @@ def report(name, points, methods, skipped, reached, rising, reads_in, seed, md_t
              'sample\'s sequenced reads (seed {}), from the full depth down, each depth a subset of the one above; fractional '
              'counts (tiny-count, mirflowz) rounded first. Each table is thinned on its own (each method\'s; the isomiR output '
              'apart from the common table), whereas real subsampling removes the same reads for every method, so the agreement '
-             'between methods falls faster than on real shallow data: a lower bound. `full`: each sample\'s own depth, {:,} to '
+             'between methods is measured under independent thinning and typically falls faster than on real shallow data. '
+             '`full`: each sample\'s own depth, {:,} to '
              '{:,} reads sequenced (median {:,}). The replicate CV uses the miRNAs with at least {} reads in every sample of a '
-             'group at the lowest depth, the same set at every depth.'.format(
+             'group at the lowest depth where it has any, the same set at every depth.'.format(
                  seed, min(reads_in.values()), max(reads_in.values()), round(statistics.median(reads_in.values())), biological.MIN_READS)]
     if skipped:
         lines += ['', 'Left out, above the shallowest sample: {}.'.format(', '.join(label(d) for d in skipped))]
     lines += ['', '**Depth reaching {} of full-depth detection** (miRNAs with at least {} reads, median per sample; reads '
               'sequenced per sample). It is relative to this dataset\'s depth: `rise per doubling` is the share of full-depth '
-              'detection gained per doubling of depth over the last step, near 0 when the curve has levelled off.'.format(
+              'detection gained per doubling of depth over the last step, near 0 when the curve has levelled off. With samples of '
+              'different depths the full depth is no common measurement: a share the last common depth misses is `beyond` it.'.format(
                   ' and '.join('{:.0%}'.format(s) for s in SATURATION), biological.MIN_READS), '']
     lines += md_table(['method'] + ['{:.0%}'.format(s) for s in SATURATION] + ['rise per doubling'],
-                      [[m] + ['{:,}'.format(reached[m][s]) if reached[m][s] != '' else '' for s in SATURATION] +
+                      [[m] + [saturation_cell(reached[m][s], points[-2][0] if len(points) > 1 else FULL) for s in SATURATION] +
                        ['{:.1%}'.format(rising[m]) if rising[m] != '' else ''] for m in methods])
     for key in keys:
         lines += ['', '**{}**'.format(key), ''] + md_table(['depth'] + methods, [[label(depth)] + [values[m][key] for m in methods]
                                                                                 for depth, values, _ in points])
     pairs = list(points[0][2])
     if pairs:
-        lines += ['', '**Agreement between methods** (Spearman over miRNAs either detects, median per sample; a lower bound below '
-                  'full depth, as each method is thinned on its own):', '']
+        lines += ['', '**Agreement between methods** (Spearman over miRNAs either detects, median per sample), under independent '
+                  'thinning below full depth:', '']
         lines += md_table(['pair'] + [label(depth) for depth, _, _ in points],
                           [['{} / {}'.format(a, b)] + [agreement[(a, b)]['spearman_either'] for _, _, agreement in points] for a, b in pairs])
         lines += ['', 'Median |log2 ratio| and top-{} overlap per depth are in `depth_agreement.tsv`.'.format(biological.TOP)]
