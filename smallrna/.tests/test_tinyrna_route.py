@@ -219,9 +219,18 @@ def test_seed_alignment_mode(tmp_path):
     returncode, output = dry_run(tmp_path, 'tinyrna', seed(seed_length=16, seed_total=2), printshell=True)
     assert returncode == 0, output
     align = rule_block(output, 'tinyrna_align')
-    assert '-n 0 -l 16 -e 80 --nomaqround --all --best --strata --no-unal --sam --seed 0' in align and ' -v ' not in align
+    assert '-n 0 -l 16 -e 80 --nomaqround --all --best --strata --no-unal --sam --seed 0' in align and ' -v 0 ' not in align
     returncode, output = dry_run(tmp_path / 'default', 'tinyrna', printshell=True)
     assert returncode == 0 and '-f {}/SR0'.format(OUT) in output and '-v 0 --all --best' in rule_block(output, 'tinyrna_align')
+    # per read only the alignments with the fewest mismatches (an exact read is not divided with a relative's locus)
+    command = align.split('2> ', 1)[1].split(' | ', 1)[1].rsplit(' | samtools', 1)[0]
+    assert command.startswith('awk ')
+    record = lambda name, chrom, nm: '{}\t0\t{}\t100\t255\t22M\t*\t0\t0\t{}\t{}\tXA:i:0\tMD:Z:22\tNM:i:{}\n'.format(
+        name, chrom, 'A' * 22, 'I' * 22, nm)
+    sam = '@HD\tVN:1.0\n' + record('1_count=5', '1', 0) + record('1_count=5', '2', 1) + record('2_count=3', '3', 1) + record('2_count=3', '4', 1)
+    kept = subprocess.run(['bash', '-c', command], input=sam, capture_output=True, text=True, check=True).stdout.splitlines()
+    assert kept[0] == '@HD\tVN:1.0' and [(f[0], f[2]) for f in (line.split('\t') for line in kept[1:])] == [
+        ('1_count=5', '1'), ('2_count=3', '3'), ('2_count=3', '4')]
     # requested directly, without quant.method selecting tiny-count: the same options
     returncode, output = dry_run(tmp_path / 'direct', 'unitas', seed(), printshell=True, target=OUT + '/tinyrna_counts.tsv')
     assert returncode == 0 and '-n 0 -l 18 -e 40 --nomaqround' in rule_block(output, 'tinyrna_align'), output

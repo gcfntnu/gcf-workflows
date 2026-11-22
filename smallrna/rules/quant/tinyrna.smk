@@ -11,7 +11,10 @@ gcfntnu/tiny-count:
    0), or with quant.tinyrna.alignment `seed` in Bowtie's seed mode (#417): at most `mismatch` mismatches in the first
    `seed_length` bases and at most `seed_total` in the read. The collapsed reads are FASTA, which Bowtie scores at
    quality 40 per base; with --nomaqround (no rounding to Maq's scale, which caps 40 at 30) each mismatch costs 40,
-   so the quality budget (-e) is 40 per mismatch allowed. All alignments in the best stratum
+   so the quality budget (-e) is 40 per mismatch allowed. A read keeps only its alignments with the fewest mismatches
+   (NM), as end-to-end mode's strata do: Bowtie's seed-mode strata count the seed's mismatches only, so an exact read
+   would also be reported at a relative's locus with a mismatch beyond the seed and divided between them. The default
+   seed_total of 1 covers a non-templated tail of one base (or one error beyond the seed). All alignments in the best stratum
    (in seed mode, Bowtie's strata count the seed's mismatches only), alignments of a read together. The BAM keeps Bowtie as the last @PG, which
    tiny-count requires to accept the alignments of multimapping reads as adjacent;
 3. counted by tiny-count against the miRBase GFF with the Features Sheet written from quant.tinyrna
@@ -74,6 +77,14 @@ def tinyrna_normalize(wildcards):
 
 TINYRNA_ALIGNMENT = tinyrna_alignment()  # also when tiny-count's outputs are requested without quant.method selecting it
 TINYRNA_SEED = TINYRNA_CONF.get('alignment', 'end_to_end') == 'seed'
+# Seed mode: per read (its records are consecutive), only the alignments with the fewest mismatches (NM).
+TINYRNA_FILTER = (" | awk -F '\\t' -v OFS='\\t' 'function flush(  j) {{ for (j = 1; j <= n; j++) print rec[j]; n = 0 }} "
+                  "/^@/ {{ print; next }} "
+                  "{{ nm = 0; for (i = 12; i <= NF; i++) if ($i ~ /^NM:i:/) nm = substr($i, 6) + 0; "
+                  "if ($1 != name) {{ flush(); name = $1; best = nm }} "
+                  "if (nm < best) {{ best = nm; n = 0 }} "
+                  "if (nm == best) rec[++n] = $0 }} "
+                  "END {{ flush() }}'") if TINYRNA_SEED else ''
 if TINYRNA_SELECTED:
     tinyrna_mismatch(None)
     tinyrna_normalize(None)
@@ -147,7 +158,7 @@ rule tinyrna_align:
     shell:
         # --no-PG keeps Bowtie as the last program in the header, which tiny-count checks.
         'bowtie -x {params.index:q} -f {input.reads:q} ' + TINYRNA_ALIGNMENT + ' ' + TINYRNA_BOWTIE + ' '
-        '2> {log:q} | samtools view -b --no-PG -o {output:q} -'
+        '2> {log:q}' + TINYRNA_FILTER + ' | samtools view -b --no-PG -o {output:q} -'
 
 
 rule tinyrna_count:
