@@ -889,6 +889,8 @@ def test_the_shortest_read_is_the_filters_minimum(mirbase):
             sg.Reads(u, chosen, {k: v for k, v in dict(SPEC, min_length=value).items() if v is not None}, np.random.default_rng(1))
     with pytest.raises(ValueError, match='below the filter'):   # decoys of 16 nt under a minimum of 17
         sg.generate(dict(decoy_spec(length=[16, 40]), min_length=17), *files, 'hsa-', ADAPTER, 0, lambda s: Path('/nonexistent') / s, {})
+    with pytest.raises(ValueError, match='random_reads.length starts at 18'):   # random reads of 18-20 nt under 19
+        sg.generate(dict(SPEC, min_length=19), *files, 'hsa-', ADAPTER, 0, lambda s: Path('/nonexistent') / s)
 
 
 def test_prepare_takes_the_minimum_from_the_kit_or_the_declaration(tmp_path, monkeypatch):
@@ -901,6 +903,8 @@ def test_prepare_takes_the_minimum_from_the_kit_or_the_declaration(tmp_path, mon
         assert benchmark.filter_minimum({'name': 'x', 'libprepkit': kit}) == expected
     v4 = {'name': 'x', 'libprepkit': 'Bioo Scientific NEXTflex Small RNA-Seq Kit v4'}
     assert benchmark.filter_minimum(dict(v4, config={'filter': {'trim': {'cutadapt': {'minimum_length': 19}}}})) == 19
+    assert benchmark.filter_minimum({'name': 'x', 'libprepkit': 'No Such Kit', 'config': {'libprepkit': v4['libprepkit']}}) == \
+        kits[v4['libprepkit'] + ' SE']['filter']['trim']['cutadapt']['minimum_length']   # the project's kit, as write_project emits it
     for config, message in (({'filter': {'trim': {'quantifier': 'fastp'}}}, "runs the cutadapt filter route, this one 'fastp'"),
                             ({'filter': {'trim': {'cutadapt': {'minimum_length': '16'}}}}, 'no filter.trim.cutadapt.minimum_length')):
         with pytest.raises(SystemExit, match=message):

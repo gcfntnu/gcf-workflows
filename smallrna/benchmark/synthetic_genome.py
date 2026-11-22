@@ -493,6 +493,9 @@ def generate(spec, mature_fa, hairpin_fa, gff, prefix, adapter, umi, fastq_path,
     truth, samples = [], []
     width = len(str(len(scores)))
     random_spec = spec.get('random_reads') or {}
+    if random_spec.get('per_million') and random_spec.get('length', [18, 26])[0] < reads.min_length:
+        raise ValueError('random_reads.length starts at {}, below the filter\'s minimum read length {}; such reads never reach '
+                         'a route'.format(random_spec.get('length', [18, 26])[0], reads.min_length))
 
     def random_rows(total):
         k = int(round(float(random_spec.get('per_million', 0)) * total / 1e6))

@@ -407,7 +407,7 @@ read), and the filter-route count reads those after each of the route's passes. 
 
 The genome-wide synthetic set is drawn at the filter's minimum read length (#500): the declaration's
 `config.filter.trim.cutadapt.minimum_length`, otherwise its kit's in `libprep.config` (the set runs the cutadapt route).
-No read of the truth, of the reads another miRNA's loci could give, or of the decoys is shorter. `prepare` records the
+No read of the truth, of the reads another miRNA's loci could give, of the decoys or of the random reads is shorter. `prepare` records the
 minimum as `synthetic.min_length` in the project's `benchmark/dataset.yaml`; a declaration cannot set it. That record
 is the length the truth was drawn at, not the one a later run filters at. A project drawn at 15 nt and run with the
 filter at 16 keeps 15-nt reads in its truth that no route sees (3′ ends shortened and 5′ ends moved on 16- and 17-nt

@@ -666,10 +666,11 @@ def filter_minimum(spec):
     except ImportError:
         fail('prepare of a genome-wide synthetic set reads the kit\'s filter minimum with configmaker, as the workflow does; '
              'run it in an environment that has it, as the workflow\'s own (e.g. the repository\'s .dev/ci)')
+    name = (spec.get('config') or {}).get('libprepkit', spec['libprepkit'])  # the project's, as write_project emits it
     try:  # a single-end read geometry; its length does not take part in the selection
-        kit = LibprepConfig.load(str(LIBPREP_CONFIG)).select(spec['libprepkit'], [1]).parameters
+        kit = LibprepConfig.load(str(LIBPREP_CONFIG)).select(name, [1]).parameters
     except LibprepConfigError as error:
-        fail('libprepkit {!r}: {}'.format(spec['libprepkit'], error))
+        fail('libprepkit {!r}: {}'.format(name, error))
     declared = (((spec.get('config') or {}).get('filter') or {}).get('trim') or {})
     preset = ((kit.get('filter') or {}).get('trim') or {})
     route = declared.get('quantifier', preset.get('quantifier'))
@@ -677,7 +678,7 @@ def filter_minimum(spec):
         fail('{}: the genome-wide synthetic set runs the cutadapt filter route, this one {!r}'.format(spec['name'], route))
     value = (declared.get('cutadapt') or {}).get('minimum_length', (preset.get('cutadapt') or {}).get('minimum_length'))
     if type(value) is not int or value < 1:
-        fail('{}: no filter.trim.cutadapt.minimum_length for {!r}, got {!r}'.format(spec['name'], spec['libprepkit'], value))
+        fail('{}: no filter.trim.cutadapt.minimum_length for {!r}, got {!r}'.format(spec['name'], name, value))
     return value
 
 
