@@ -3358,6 +3358,17 @@ def test_depth_series_thins_every_method_alike_and_finds_saturation():
     assert ['a', 'full', 'detected_10', 12] in rows and ['a', 'b', '1k', 'spearman_either', points[0][2][('a', 'b')]['spearman_either']] in pairs
 
 
+def test_depth_plot(tmp_path):
+    """--plot's figure, where matplotlib is installed."""
+    pytest.importorskip('matplotlib')
+    import depth
+    samples = ['A1', 'A2']
+    common = [('a', s, 'n{}'.format(i), 'M{}'.format(i), 10.0 * 2 ** i) for s in samples for i in range(8)]
+    points, _ = depth.series(common, ['a'], samples, dict.fromkeys(samples, 100_000), {'A': samples}, [1000, 10_000], seed=1)
+    depth.plot(points, ['a'], 100_000, tmp_path / 'depth.png')
+    assert (tmp_path / 'depth.png').read_bytes()[:4] == b'\x89PNG'
+
+
 def test_depth_of_an_evaluated_knockout_project(tmp_path):
     """benchmark.py depth end to end: it needs an evaluation; writes its tables, report and plot to --output and nothing
     into the project; depths above the shallowest sample are left out."""
@@ -3369,7 +3380,7 @@ def test_depth_of_an_evaluated_knockout_project(tmp_path):
     result = subprocess.run(command, capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stderr
     out = tmp_path / 'depth'
-    assert (out / 'depth.tsv').read_text().startswith('method\tdepth\tmetric\tvalue\n') and (out / 'depth.png').stat().st_size > 0
+    assert (out / 'depth.tsv').read_text().startswith('method\tdepth\tmetric\tvalue\n') and not (out / 'depth.png').exists()
     report = (out / 'depth.md').read_text()
     assert 'Left out, above the shallowest sample: 1k.' in report and '| full |' in report and '**sequences**' in report
     assert 'under independent thinning' in report and '| method | 90% | 95% | rise per doubling |' in report

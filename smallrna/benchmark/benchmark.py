@@ -35,7 +35,7 @@ Usage: benchmark.py fill --dataset YAML --ext-dir DIR [--mirbase-release R]
                             [--set quant.ROUTE.SETTING=VALUE ...]
        benchmark.py evaluate --project DIR [--de] [--mirflowz-gff GFF3] [--unitas-ref DIR] [--bootstrap N] [--seed S]
        benchmark.py summary --projects DIR [DIR ...] --output FILE.md|FILE.html
-       benchmark.py depth --project DIR [--output DIR] [--depths 500k,1M,...] [--seed S]
+       benchmark.py depth --project DIR [--output DIR] [--depths 500k,1M,...] [--seed S] [--plot]
 """
 import argparse
 import collections
@@ -2358,7 +2358,7 @@ def evaluate_mixture(args, project, bench, spec, ext_dir):
 def depth(args):
     """`depth` (#409): the sequencing-depth series of an evaluated biological project (depth.py), from its common and
     isomiR tables and each sample's sequenced reads (the cutadapt route's reports), written to --output (default
-    benchmark/depth/ in the project): depth.tsv, depth_agreement.tsv, depth.md and depth.png."""
+    benchmark/depth/ in the project): depth.tsv, depth_agreement.tsv, depth.md and, with --plot, depth.png."""
     project = Path(args.project)
     bench = project / 'benchmark'
     spec = load_dataset(bench / 'dataset.yaml')
@@ -2369,6 +2369,11 @@ def depth(args):
         fail('depth works on merged samples; this project has a sample per lane (prepare --lanes)')
     if not (bench / 'common.tsv').is_file():
         fail('{} missing: run `benchmark.py evaluate --project {}` first'.format(bench / 'common.tsv', project))
+    if args.plot:
+        try:
+            import matplotlib  # noqa: F401
+        except ImportError:
+            fail('--plot needs matplotlib')
     try:
         depths = depth_series.parse_depths(args.depths)
     except ValueError as error:
@@ -2411,7 +2416,8 @@ def depth(args):
     write_tsv(out / 'depth_agreement.tsv', ['method_a', 'method_b', 'depth', 'metric', 'value'], pairs)
     lines = depth_series.report(spec['name'], points, methods, skipped, reached, rising, reads_in, args.seed, md_table)
     (out / 'depth.md').write_text('\n'.join(lines) + '\n')
-    depth_series.plot(points, methods, full, out / 'depth.png')
+    if args.plot:
+        depth_series.plot(points, methods, full, out / 'depth.png')
     print(out / 'depth.md')
 
 
@@ -2474,7 +2480,8 @@ def main():
     s.add_argument('--output', required=True, help='.md or .html; written outside the projects')
     d = sub.add_parser('depth', help='sequencing-depth curves of an evaluated biological project, by thinning its count tables (#409)')
     d.add_argument('--project', required=True)
-    d.add_argument('--output', help='directory for depth.tsv, depth_agreement.tsv, depth.md and depth.png (default benchmark/depth/ in the project)')
+    d.add_argument('--output', help='directory for depth.tsv, depth_agreement.tsv and depth.md (default benchmark/depth/ in the project)')
+    d.add_argument('--plot', action='store_true', help='also depth.png, detection and replicate CV against depth (needs matplotlib)')
     d.add_argument('--depths', default=depth_series.DEPTHS, help='reads per sample, k and M suffixes (default %(default)s); '
                    'those above the shallowest sample are left out, and the full depth ends the series')
     d.add_argument('--seed', type=int, default=1, help='seed of the thinning (default %(default)s)')

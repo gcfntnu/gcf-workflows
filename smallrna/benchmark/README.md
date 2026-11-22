@@ -175,7 +175,7 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    project, from its tables, without running the workflow again:
 
    ```bash
-   python smallrna/benchmark/benchmark.py depth --project <project> [--output <dir>] [--depths 500k,1M,2M,4M,8M,16M,32M] [--seed 1]
+   python smallrna/benchmark/benchmark.py depth --project <project> [--output <dir>] [--depths 500k,1M,2M,4M,8M,16M,32M] [--seed 1] [--plot]
    ```
 
    Each method's common table (and isomiR output) is thinned binomially to each depth: every read is kept with
@@ -191,7 +191,7 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
      detects, median |log2 ratio|, top-100 overlap) at each depth.
    - **Saturation:** the depth at which detection (at least 10 reads) reaches 90% and 95% of its full-depth value,
      interpolated on log depth.
-   - **Plot:** `depth.png`, detection and replicate CV against depth.
+   - **Plot** (`--plot`, needs matplotlib): `depth.png`, detection and replicate CV against depth.
 
    It writes to `--output`, or `benchmark/depth/` in the project; it changes nothing else there.
 
