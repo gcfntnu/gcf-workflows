@@ -321,7 +321,12 @@ picks a subset of the declared methods (mirflowz and TEsmall on human need the f
 biological dataset, `--per-group N` the first N samples of each group in declared order; for a synthetic dataset,
 `--synthetic-seed N` another draw of the same declaration (#455: the miRNAs chosen, their abundances and changes, the
 counts and, for the genome-wide set, the decoys), each seed a project of its own, recorded in its
-`benchmark/dataset.yaml` and in `evaluation.json`; `--set quant.ROUTE.SETTING=VALUE` (repeatable) a settings variant
+`benchmark/dataset.yaml` and in `evaluation.json`, and for the genome-wide set `--no-probes` the mixed samples alone,
+without the probe, decoy, overlap and control samples. The mixed samples are the ones the same seed gives with them,
+so the accuracy, structure and differential-expression metrics are unchanged; the project has no `probe_*`, decoy or
+overlap metrics, its report says so, and the summary still groups it with the other seeds of its declaration. It is
+for further seeds and scenarios, where the probe samples (most of a project's samples, a few percent of its reads)
+would test the same read handling again. `--set quant.ROUTE.SETTING=VALUE` (repeatable) a settings variant
 (#417): a route setting of `smallrna.config` changed for the project, for a route it runs, not to its default. The
 variant is recorded as `variant` in `benchmark/dataset.yaml` and named in the report; run it with only the varied route
 (`--methods`) and compare it with the project run with the defaults in `summary`. #417's variants: tiny-count

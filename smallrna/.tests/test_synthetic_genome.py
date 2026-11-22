@@ -339,7 +339,7 @@ def test_loader_and_fill_for_genome_mode(tmp_path):
     assert fill.fill(spec, tmp_path, log=lambda *_: None, fetch=fetch) == 0      # a second fill skips every file
 
 
-def genome_project(tmp_path, declared=None, methods=('tinyrna',), with_decoys=False):
+def genome_project(tmp_path, declared=None, methods=('tinyrna',), with_decoys=False, extra=()):
     """A prepared genome-wide synthetic project whose method tinyrna counts every read on its miRNA; with `declared`, the
     dataset's `de:`; `methods`, the dataset's methods, whose outputs other than tinyrna's the caller writes; with_decoys,
     DECOYS on fake sources filled in place (#412 PR 2). (project, the benchmark.py command)."""
@@ -359,13 +359,13 @@ def genome_project(tmp_path, declared=None, methods=('tinyrna',), with_decoys=Fa
     dataset.write_text(yaml.safe_dump(spec, sort_keys=False))  # the groups in their order: control, then case
     project = tmp_path / 'project'
     cmd = [sys.executable, str(BENCH / 'benchmark.py')]
-    result = subprocess.run(cmd + ['prepare', '--dataset', str(dataset), '--project', str(project), '--ext-dir', str(ext)],
+    result = subprocess.run(cmd + ['prepare', '--dataset', str(dataset), '--project', str(project), '--ext-dir', str(ext), *extra],
                             capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stderr
-    assert '6 mixed samples' in result.stdout and ('9 probe samples' in result.stdout or with_decoys)
+    assert '6 mixed samples' in result.stdout and ('9 probe samples' in result.stdout or with_decoys or extra)
     config = yaml.safe_load((project / 'config.yaml').read_text())
     assert config['db'] == {'mirbase': {'release': '23.1'}}  # the standard references, on the declaration's release
-    assert len(config['samples']) == 15 or with_decoys  # mixed + probe + control
+    assert len(config['samples']) == 15 or with_decoys or extra  # mixed + probe + control
     bench = project / 'benchmark'
     truth = benchmark.read_tsv(bench / 'truth.tsv')
     counts = collections.defaultdict(float)
@@ -772,6 +772,40 @@ def test_a_synthetic_seed_is_set_at_prepare_and_recorded(tmp_path):
     result = subprocess.run(cmd + ['prepare', '--dataset', str(bad), '--project', str(tmp_path / 'b'), '--ext-dir', str(tmp_path / 'ext'),
                                    '--synthetic-seed', '7'], capture_output=True, text=True, timeout=120)
     assert result.returncode != 0 and '--synthetic-seed is for synthetic datasets' in result.stderr
+
+
+def test_no_probes_leaves_the_mixed_samples_as_they_are(tmp_path):
+    """`prepare --no-probes` prepares the mixed samples alone: their reads and truth are the ones the same seed gives
+    with the probe samples, the project records it, its evaluation says so and has no probe metrics, and the summary
+    still groups it with the other seeds of its declaration."""
+    full, cmd = genome_project(tmp_path / 'full', with_decoys=True)
+    bare, _ = genome_project(tmp_path / 'bare', with_decoys=True, extra=('--no-probes',))
+    samples = benchmark.read_tsv(bare / 'benchmark/samples.tsv')
+    assert [row['kind'] for row in samples] == ['mixed'] * 6
+    assert yaml.safe_load((bare / 'benchmark/dataset.yaml').read_text())['synthetic']['probes'] is None
+    mixed = {row['sample'] for row in samples}
+    for sample in sorted(mixed):
+        a, = (full / 'data/raw').rglob('{}_R1.fastq.gz'.format(sample))
+        b, = (bare / 'data/raw').rglob('{}_R1.fastq.gz'.format(sample))
+        assert gzip.open(a).read() == gzip.open(b).read(), sample
+    rows = lambda project: [row for row in benchmark.read_tsv(project / 'benchmark/truth.tsv') if row['sample'] in mixed]
+    assert rows(full) == rows(bare)
+    other, _ = genome_project(tmp_path / 'other', with_decoys=True, extra=('--no-probes', '--synthetic-seed', '7'))
+    other = other.rename(tmp_path / 'seed7')  # the summary names a project by its directory
+    for project in (full, other):
+        result = subprocess.run(cmd + ['evaluate', '--project', str(project), '--bootstrap', '0'], capture_output=True, text=True, timeout=120)
+        assert result.returncode == 0, result.stderr
+    report = (other / 'benchmark/report.md').read_text()
+    assert 'probe samples were left out' in report and '6 mixed samples in two groups, 0 probe samples' in report
+    metrics = [line.split('\t')[0] for line in (other / 'benchmark/metrics.tsv').read_text().splitlines()]
+    assert 'recovered' in metrics and not any(k.startswith(('probe_', 'decoy_as_mirna', 'overlap_')) for k in metrics)
+    out = tmp_path / 'summary.md'
+    result = subprocess.run(cmd + ['summary', '--projects', str(full), str(other), '--output', str(out)], capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    assert 'syn_genome over seeds {}, 7'.format(SPEC['seed']) in out.read_text() or 'syn_genome over seeds 7, {}'.format(SPEC['seed']) in out.read_text()
+    bad = subprocess.run(cmd + ['prepare', '--dataset', str(BENCH / 'datasets/giraldez2018_equimolar_truseq.yaml'), '--project', str(tmp_path / 'p'),
+                                '--ext-dir', str(tmp_path / 'e'), '--no-probes'], capture_output=True, text=True, timeout=120)
+    assert bad.returncode != 0 and '--no-probes is for the genome-wide synthetic dataset' in bad.stderr
 
 
 def test_abundant_mirnas_change_first(mirbase):
