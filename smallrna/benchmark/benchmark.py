@@ -491,6 +491,14 @@ def prepare(args):
         spec = dict(spec, variant=settings_variant(args.set, methods))
     if args.reads is not None and args.reads <= 0:
         fail('--reads must be a positive integer')
+    fraction = getattr(args, 'fraction', None)
+    if fraction is not None:
+        if args.reads is not None:
+            fail('--fraction and --reads are two ways to cap the reads; give one')
+        if spec['kind'] == 'synthetic':
+            fail('--fraction is for pool and biological datasets; a synthetic dataset generates its reads (--reads sets their mean)')
+        if not 0 < fraction <= 1:
+            fail('--fraction must be above 0 and at most 1')
     if getattr(args, 'lanes', False) and spec['kind'] != 'biological':
         fail('--lanes is for biological datasets')
     if getattr(args, 'per_group', None) is not None:
@@ -709,20 +717,34 @@ def declared_reads(run):
     return int(count) if str(count).isdecimal() else None
 
 
-def prepare_runs(project, spec, fastqs, runs, limit):
-    """Link or copy (first `limit` reads) each run into the project; {run: reads copied, or the declared count of a
-    linked run, None when not declared}. The summary reports the reads a run processed from its own reports instead."""
+def prepare_runs(project, spec, fastqs, runs, limit, fraction=None):
+    """Link or copy each run into the project; {run: reads copied, or the declared count of a linked run, None when not
+    declared}. Copies take the first `limit` reads of each run, or with `fraction` the first fraction x its declared
+    reads (at least one), so the runs keep the depths they have relative to each other. The summary reports the reads a
+    run processed from its own reports instead."""
+    runs = list(runs)
+    if fraction is not None:
+        undeclared = [run['run'] for run in runs if declared_reads(run) is None]
+        if undeclared:
+            fail('--fraction needs the declared reads of every run; none for {}'.format(', '.join(undeclared)))
     counts = {}
     for run in runs:
         name = run['run']
         source, target = fastqs[name], project_fastq(project, spec, name)
-        if limit is None:
+        if limit is None and fraction is None:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.symlink_to(source)
             counts[name] = declared_reads(run)
         else:
-            counts[name] = head_fastq(source, target, limit)
+            counts[name] = head_fastq(source, target, limit if fraction is None else max(1, round(fraction * declared_reads(run))))
     return counts
+
+
+def capped(args):
+    """How prepare's message describes the read cap of a pool or biological project ('' without one)."""
+    if getattr(args, 'fraction', None) is not None:
+        return ', the first {:g} of each run\'s reads'.format(args.fraction)
+    return ', up to {} reads of each run'.format(args.reads) if args.reads else ''
 
 
 def prepare_pool(spec, project, ext_dir, methods, args):
@@ -731,7 +753,7 @@ def prepare_pool(spec, project, ext_dir, methods, args):
     if missing:
         fail('not filled: {}; run `benchmark.py fill --dataset ...` first'.format(', '.join(missing)))
     samples = list(fastqs)
-    counts = prepare_runs(project, spec, fastqs, spec['runs'], args.reads)
+    counts = prepare_runs(project, spec, fastqs, spec['runs'], args.reads, getattr(args, 'fraction', None))
     with gzip.open(fastqs[samples[0]], 'rt') as fh:
         fh.readline()
         read_length = len(fh.readline().strip())
@@ -742,7 +764,7 @@ def prepare_pool(spec, project, ext_dir, methods, args):
               [[r['run'], r['group'], r.get('lab', ''), '' if counts[r['run']] is None else counts[r['run']]] for r in spec['runs']])
     groups = {g: sum(1 for r in rows if r[2] == g) for g in pool.GROUPS}
     return ('{}: {} runs{}; pool {}; run `snakemake quant_all --notemp` there (the oracle reads the filtered reads), '
-          'then `benchmark.py evaluate --project {}`'.format(args.project, len(samples), ', up to {} reads each'.format(args.reads) if args.reads else '',
+          'then `benchmark.py evaluate --project {}`'.format(args.project, len(samples), capped(args),
                                                              ', '.join('{} {}'.format(n, g) for g, n in groups.items()), args.project))
 
 
@@ -799,7 +821,8 @@ def prepare_biological(spec, project, ext_dir, methods, args):
     with gzip.open(fastqs[spec['samples'][0]['runs'][0]['run']], 'rt') as fh:
         fh.readline()
         read_length = len(fh.readline().strip())
-    counts = prepare_runs(project, spec, fastqs, (r for sample in spec['samples'] for r in sample['runs']), args.reads)
+    counts = prepare_runs(project, spec, fastqs, (r for sample in spec['samples'] for r in sample['runs']), args.reads,
+                          getattr(args, 'fraction', None))
     for row in rows:
         run_ids = row.pop()
         values = [counts[name] for name in run_ids]
@@ -809,7 +832,7 @@ def prepare_biological(spec, project, ext_dir, methods, args):
     write_tsv(bench / 'samples.tsv', ['sample', 'library', 'group', 'lane', 'runs', 'reads'], rows)
     return ('{}: {} {}{}; run `snakemake quant_all --notemp` there (the first-base check reads the filtered reads), then '
           '`benchmark.py evaluate --project {}`'.format(args.project, len(r1), 'lane samples' if args.lanes else 'samples',
-                                                        ', up to {} reads of each run'.format(args.reads) if args.reads else '', args.project))
+                                                        capped(args), args.project))
 
 
 def bootstrap(args, point, compute, draw, rows, keys, units, shown=None):
@@ -2449,6 +2472,8 @@ def main():
     p.add_argument('--methods', help="comma-separated subset of the declaration's methods, e.g. unitas,mirge3")
     p.add_argument('--reads', type=int, help='pool and biological datasets: copy the first N reads of each run instead of linking the runs; '
                    'genome-wide synthetic dataset: the mean reads of a mixed sample')
+    p.add_argument('--fraction', type=float, help='pool and biological datasets: copy the first FRACTION of each run\'s declared reads '
+                   '(0 to 1) instead of the same number from each, so the runs keep their relative depths')
     p.add_argument('--lanes', action='store_true', help='biological datasets: each run (lane) its own sample, for the lane-replicate metric')
     p.add_argument('--per-group', type=int, help='biological datasets: the first N samples of each group, in declared order (a quick run)')
     p.add_argument('--synthetic-seed', type=int, help="synthetic datasets: the seed of the draw instead of the declaration's (#455); "

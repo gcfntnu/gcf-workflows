@@ -1382,6 +1382,31 @@ def test_prepare_actual_short_run_and_unknown_merged_counts(tmp_path):
         assert row['reads'] == expected
 
 
+def test_prepare_fraction_keeps_the_runs_relative_depths(tmp_path):
+    """prepare --fraction copies the first fraction of each run's declared reads, so a deeper run stays deeper, where
+    --reads would give every run the same number. It needs the declared reads, and excludes --reads and synthetic sets."""
+    import benchmark
+    ext, dataset, reads = biological_dataset(tmp_path)
+    spec = yaml.safe_load(dataset.read_text())
+    runs = [run for sample in spec['samples'] for run in sample['runs']]
+    runs[0]['reads'], runs[1]['reads'] = 20, 10   # declared: the first run twice as deep as the second
+    write(dataset, yaml.safe_dump(spec))
+    cmd = [sys.executable, str(BENCH / 'benchmark.py'), 'prepare', '--dataset', str(dataset), '--ext-dir', str(ext)]
+    project = tmp_path / 'fraction'
+    done = subprocess.run(cmd + ['--project', str(project), '--fraction', '0.3', '--lanes'], capture_output=True, text=True, timeout=60)
+    assert done.returncode == 0, done.stderr
+    assert "the first 0.3 of each run's reads" in done.stdout
+    copied = sorted(int(row['reads']) for row in benchmark.read_tsv(project / 'benchmark/samples.tsv'))  # one row per lane
+    assert copied == [3, 6], copied   # 0.3 x 10 and 0.3 x 20
+    for args, message in ((['--fraction', '0.3', '--reads', '5'], 'give one'), (['--fraction', '0'], 'above 0'), (['--fraction', '1.5'], 'at most 1')):
+        failed = subprocess.run(cmd + ['--project', str(tmp_path / 'no'), *args], capture_output=True, text=True, timeout=60)
+        assert failed.returncode != 0 and message in failed.stderr, failed.stderr
+    del runs[0]['reads']
+    write(dataset, yaml.safe_dump(spec))
+    failed = subprocess.run(cmd + ['--project', str(tmp_path / 'no'), '--fraction', '0.3'], capture_output=True, text=True, timeout=60)
+    assert failed.returncode != 0 and 'needs the declared reads of every run' in failed.stderr, failed.stderr
+
+
 def test_summary_reads_processed_are_those_recorded_by_the_evaluation(tmp_path):
     """Not samples.tsv, and not the reports as they are now: a rerun without a new evaluation keeps the recorded total;
     a sample without a report gives no total; a report without a whole read count stops `evaluate`; an evaluation
