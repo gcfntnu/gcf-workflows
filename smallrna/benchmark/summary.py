@@ -141,6 +141,7 @@ def read_project(project, out_dir):
     synthetic = dict(spec.get('synthetic') or {})
     seed = record.get('synthetic_seed', synthetic.pop('seed', None))
     synthetic.pop('seed', None)
+    synthetic.pop('no_probes', None)  # a draw prepared without its probe samples (--no-probes) is the same set: its mixed samples
     declaration = json.dumps(dict({k: v for k, v in spec.items() if k not in ('methods', 'not_selected')}, synthetic=synthetic),
                              sort_keys=True, default=str) if spec.get('kind') == 'synthetic' and not spec.get('variant') else None
     # a settings variant (#417) is compared with the project of the same dataset, samples, draw and reads processed (a read
@@ -310,7 +311,9 @@ INTRO = ('Key metrics of each evaluated project, from its `metrics.tsv`; its `re
 
 SEEDS_NOTE = ('The projects of this synthetic declaration that differ only by the seed of the draw (#455): per key metric '
               'and route, the mean over the seeds and their range in parentheses; `order`, how many pairs of the routes '
-              'with a value in every seed keep their order (higher, lower or equal) in every seed.')
+              'with a value in every seed keep their order (higher, lower or equal) in every seed. A route\'s cell is empty for a '
+              'metric it does not have in every seed: the probe, decoy and overlap metrics of a declaration whose further seeds were '
+              'prepared without probe samples (`prepare --no-probes`) are in the one project that has them, not here.')
 
 
 def markdown_cell(value):

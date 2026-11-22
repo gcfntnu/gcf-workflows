@@ -514,7 +514,7 @@ def generate(spec, mature_fa, hairpin_fa, gff, prefix, adapter, umi, fastq_path,
         n = write_fastq(fastq_path(sample), sample, rows, adapter, umi, reads, more)
         samples.append((sample, 'mixed', label, '', '', n, round(f1, 4), round(f2, 4)))
 
-    probes = spec.get('probes') or {}
+    probes = {} if spec.get('no_probes') else spec.get('probes') or {}  # no_probes: prepare --no-probes, the mixed samples alone
     probe_of = collections.defaultdict(list)
     if probes:
         # the probe samples draw from a stream of their own (#453), so they are the same whatever the mixed samples' design

@@ -508,6 +508,10 @@ def prepare(args):
         if spec['kind'] != 'synthetic':
             fail('--synthetic-seed is for synthetic datasets')
         spec = dict(spec, synthetic=dict(spec['synthetic'], seed=args.synthetic_seed))
+    if getattr(args, 'no_probes', False):  # the mixed samples alone; the project's dataset.yaml keeps `no_probes: true`
+        if spec['kind'] != 'synthetic' or synthetic_mode(spec) != 'genome':
+            fail('--no-probes is for the genome-wide synthetic dataset')
+        spec = dict(spec, synthetic=dict(spec['synthetic'], no_probes=True))  # the declared probe design stays on record
     prepare_dataset = {'pool': prepare_pool, 'biological': prepare_biological, 'mixture': prepare_biological,
                        'synthetic': prepare_synthetic}[spec['kind']]
     project.parent.mkdir(parents=True, exist_ok=True)
@@ -641,6 +645,11 @@ def synthetic_files(spec, ext_dir):
     """The filled miRBase files of a genome-wide synthetic declaration: mature.fa, hairpin.fa, genes.gff3."""
     folder = Path(ext_dir) / spec['data'] / 'mirbase' / str(spec['mirbase']['release'])
     return [folder / name for name in ('mature.fa', 'hairpin.fa', 'genes.gff3')]
+
+
+def no_probes(spec):
+    """Whether a genome-wide synthetic project was prepared without its probe samples (`prepare --no-probes`)."""
+    return bool((spec.get('synthetic') or {}).get('no_probes'))
 
 
 def prepare_synthetic_genome(spec, project, ext_dir, methods, args):
@@ -1798,7 +1807,11 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
              '{} ({}), genome-wide synthetic reads (#412): {} mixed samples in two groups, {} probe samples; {} truth miRNAs, '
              'identical sequences counted as one. `truth` is the truth counts analysed as a method: the best the design allows.'.format(
                  spec['organism'], spec['libprepkit'], mixed, len(samples) - mixed,
-                 sum(1 for m in mirnas if float(m['base_per_million']) > 0)), '',
+                 sum(1 for m in mirnas if float(m['base_per_million']) > 0)), ''] + ([
+             'The probe samples were left out when the project was prepared (`prepare --no-probes`): there are no `probe_*`, decoy '
+             'or overlap metrics here. The mixed samples\' reads are the ones the same seed gives with the probe samples; a route '
+             'that applies a rule over the whole project (miRge3 keeps a miRNA with two exact reads in the project) can still count '
+             'a rare miRNA differently without them.', ''] if no_probes(spec) else []) + [
              '## Metrics', '', 'Mixed samples (definitions in genome_metrics.py). DE, the built-in check (`de_*`): each row tests '
              'the miRNAs with at least {} reads on average in its own counts, as an analysis of them would (`de_tested`); {} miRNAs '
              'are truly DE, and a call on any other miRNA is false. {} `probe_*`: probe samples, recovery per read class.'.format(
@@ -2724,6 +2737,8 @@ def main():
     p.add_argument('--fraction', type=float, help='pool and biological datasets: copy the first FRACTION of each run\'s declared reads '
                    '(0 to 1) instead of the same number from each, so the runs keep their relative depths')
     p.add_argument('--lanes', action='store_true', help='biological datasets: each run (lane) its own sample, for the lane-replicate metric')
+    p.add_argument('--no-probes', action='store_true', help='genome-wide synthetic dataset: the mixed samples only, without the probe, '
+                   'decoy and control samples; the mixed samples are those the same seed gives with them')
     p.add_argument('--per-group', type=int, help='biological datasets: the first N samples of each group, in declared order (a quick run)')
     p.add_argument('--synthetic-seed', type=int, help="synthetic datasets: the seed of the draw instead of the declaration's (#455); "
                    'each seed is a project of its own, and the summary groups the seeds of one declaration')
