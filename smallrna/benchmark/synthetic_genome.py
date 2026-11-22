@@ -59,7 +59,6 @@ TRUTH_COLUMNS = ('sample', 'class', 'mature_name', 'mature_id', 'sequence', 'cou
 SAMPLE_COLUMNS = ('sample', 'kind', 'group', 'probe_class', 'replicate', 'reads', 'factor_group', 'factor_nuisance')
 MIRNA_COLUMNS = ('mature_id', 'mature_name', 'accessions', 'sequence', 'base_per_million', 'log2fc', 'de', 'nuisance_loading',
                  'dispersion', 'cluster', 'loci', 'near_identical', 'near_role', 'probe_classes', 'inside')
-MIN_LENGTH = 15  # the filter's minimum read length (every kit)
 
 
 def read_fasta(path, prefix):
@@ -194,16 +193,16 @@ def variant(m, read_class, shift_sign):
     raise ValueError('unknown read class {!r}'.format(read_class))
 
 
-def possible_reads(m):
+def possible_reads(m, min_length):
     """Every read of a miRNA's classes that any of its loci could give: both 5' shifts, either added base (templated or
-    not), and each hairpin's templated bases."""
+    not), and each hairpin's templated bases; reads shorter than `min_length` (the filter's minimum) are none."""
     seq = m['sequence']
     out = {seq, seq[:-1], seq[:-2], seq[1:], seq + 'A', seq + 'T'}
     for up, down in filter(None, m['flanks']):
         out.update(seq + down[:k] for k in (1, 2) if len(down) >= k)
         if up:
             out.add(up[-1] + seq)
-    return {s for s in out if len(s) >= MIN_LENGTH}
+    return {s for s in out if len(s) >= min_length}
 
 
 def abundances(n, spec, rng):
@@ -338,12 +337,13 @@ class Reads:
 
     def __init__(self, universe, chosen, spec, rng, umi=0):
         self.universe, self.rng, self.umi = universe, rng, umi
+        self.min_length = min_length(spec)
         self.shares, self.reads = {}, {}
         self.sign = {r: (1 if rng.random() < 0.5 else -1) for r in chosen}
         mean = spec['isomirs']
         source = collections.defaultdict(set)  # read -> the miRNAs whose loci could give it in some class
         for rep, m in universe.mirnas.items():
-            for s in possible_reads(m):
+            for s in possible_reads(m, self.min_length):
                 source[s].add(rep)
         self.forbidden = set(universe.mature_sequences) | set(source)
         for r in chosen:
@@ -351,7 +351,7 @@ class Reads:
             reads = {}
             for c in READ_CLASSES:
                 s = variant(m, c, self.sign[r])
-                if s is None or len(s) < MIN_LENGTH:
+                if s is None or len(s) < self.min_length:
                     continue
                 # an isomiR equal to another mature, or to a read another miRNA could give, is left out (the canonical
                 # read stays)
@@ -462,6 +462,15 @@ def hairpin_records(hairpin_fa, prefix, universe):
             if flank:
                 spans[parent].append((len(flank[0]), len(flank[0]) + len(m['sequence'])))
     return [(name, seq, sorted(spans.get(accession, []))) for name, (accession, seq) in sorted(read_fasta(hairpin_fa, prefix).items())]
+
+
+def min_length(spec):
+    """`min_length`, the shortest read the project's filter keeps (#500): prepare records the kit's (or the declaration's)
+    filter minimum here, and no read of the truth, of the possible reads of other miRNAs or of the decoys is shorter."""
+    value = spec.get('min_length')
+    if type(value) is not int or value < 1:
+        raise ValueError('synthetic.min_length must be the filter\'s minimum read length (prepare sets it), got {!r}'.format(value))
+    return value
 
 
 def generate(spec, mature_fa, hairpin_fa, gff, prefix, adapter, umi, fastq_path, decoy_sources=None):

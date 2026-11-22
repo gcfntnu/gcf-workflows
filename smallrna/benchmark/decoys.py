@@ -172,7 +172,10 @@ class Decoys:
         self.spec = dict(DEFAULTS, **spec)
         self.rng = np.random.default_rng(np.random.SeedSequence(int(seed), spawn_key=(1,)))
         self.reads = reads.fork(self.rng)  # the miRNA reads' error and quality model, on this stream
-        self.forbidden = reads.forbidden
+        self.forbidden, self.min_length = reads.forbidden, reads.min_length
+        if self.spec['length'][0] < self.min_length:
+            raise ValueError('decoys: length starts at {}, below the filter\'s minimum read length {}; such reads never reach '
+                             'a route'.format(self.spec['length'][0], self.min_length))
         self.kmers = {seq[i:i + OVERLAP] for _, seq, _ in hairpins for i in range(len(seq) - OVERLAP + 1)}
         self.units = list(self.spec['load'])
         self.molecules = {u: molecules(u, sources.get(UNITS[u]) if UNITS[u] else None, hairpins) for u in self.units}
@@ -252,7 +255,7 @@ class Decoys:
         return seq[start:start + length], 'fragment'
 
     def acceptable(self, unit, fragment):
-        if not 15 <= len(fragment) <= MAX_LENGTH or set(fragment) - set('ACGT') or fragment in self.forbidden:
+        if not self.min_length <= len(fragment) <= MAX_LENGTH or set(fragment) - set('ACGT') or fragment in self.forbidden:
             return False
         if unit == 'precursor-mirbase':
             return True  # outside the matures by construction

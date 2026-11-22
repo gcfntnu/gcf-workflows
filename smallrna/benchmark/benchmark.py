@@ -560,8 +560,9 @@ def check_decoys(syn, path):
         fail('{}.probe.reads must be a whole number of at least 0, and needs synthetic.probes (their carrier and control), '
              'got {!r}'.format(where, reads))
     length = d.get('length', decoys.DEFAULTS['length'])
-    if not (isinstance(length, list) and len(length) == 2 and all(type(v) is int for v in length) and 15 <= length[0] <= length[1] <= decoys.MAX_LENGTH):
-        fail('{}.length must be [shortest, longest] between 15 and {}, got {!r}'.format(where, decoys.MAX_LENGTH, length))
+    # the shortest also at least the filter's minimum read length, checked when prepare knows it (#500)
+    if not (isinstance(length, list) and len(length) == 2 and all(type(v) is int for v in length) and 1 <= length[0] <= length[1] <= decoys.MAX_LENGTH):
+        fail('{}.length must be [shortest, longest] between 1 and {}, got {!r}'.format(where, decoys.MAX_LENGTH, length))
     for key in ('modification', 'pirna_5u'):
         if not (number(d.get(key, 0)) and 0 <= d.get(key, 0) <= 1):
             fail('{}.{} must be a share between 0 and 1, got {!r}'.format(where, key, d[key]))
@@ -653,7 +654,35 @@ def no_probes(spec):
     return bool((spec.get('synthetic') or {}).get('no_probes'))
 
 
+LIBPREP_CONFIG = Path(__file__).resolve().parents[2] / 'libprep.config'
+
+
+def filter_minimum(spec):
+    """The shortest read the project's filter keeps (#500): the declaration's `config`
+    filter.trim.cutadapt.minimum_length, otherwise its kit's in libprep.config, the kit selected as the workflow selects
+    it (configmaker; single-end). The genome-wide synthetic sets run the cutadapt route; another route stops."""
+    from configmaker.libprep import LibprepConfig, LibprepConfigError
+    try:  # a single-end read geometry; its length does not take part in the selection
+        kit = LibprepConfig.load(str(LIBPREP_CONFIG)).select(spec['libprepkit'], [1]).parameters
+    except LibprepConfigError as error:
+        fail('libprepkit {!r}: {}'.format(spec['libprepkit'], error))
+    declared = (((spec.get('config') or {}).get('filter') or {}).get('trim') or {})
+    preset = ((kit.get('filter') or {}).get('trim') or {})
+    route = declared.get('quantifier', preset.get('quantifier'))
+    if route != 'cutadapt':
+        fail('{}: the genome-wide synthetic set runs the cutadapt filter route, this one {!r}'.format(spec['name'], route))
+    value = (declared.get('cutadapt') or {}).get('minimum_length', (preset.get('cutadapt') or {}).get('minimum_length'))
+    if type(value) is not int or value < 1:
+        fail('{}: no filter.trim.cutadapt.minimum_length for {!r}, got {!r}'.format(spec['name'], spec['libprepkit'], value))
+    return value
+
+
 def prepare_synthetic_genome(spec, project, ext_dir, methods, args):
+    # the draw at the filter's minimum read length, recorded with it in the project's dataset.yaml (#500)
+    if 'min_length' in spec['synthetic']:
+        fail('{}: synthetic.min_length is recorded by prepare from the filter\'s minimum read length; set '
+             'config.filter.trim.cutadapt.minimum_length to draw at another minimum'.format(spec['name']))
+    spec = dict(spec, synthetic=dict(spec['synthetic'], min_length=filter_minimum(spec)))
     files = synthetic_files(spec, ext_dir)
     sources = decoy_files(spec, ext_dir)
     missing = [str(p) for p in files + list(sources.values()) if not p.is_file()]

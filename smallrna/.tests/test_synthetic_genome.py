@@ -27,7 +27,7 @@ import synthetic_genome as sg  # noqa: E402
 
 ADAPTER = 'TGGAATTCTCGGGTGCCAAGG'
 SPEC = {
-    'mode': 'genome', 'seed': 2, 'mirnas': 16,
+    'mode': 'genome', 'seed': 2, 'mirnas': 16, 'min_length': 15,   # min_length: set by prepare (#500)
     'abundance': {'zipf': 1.0, 'tail': {'mirnas': 3, 'reads': [1, 5]}},
     'near_identical': {'ratio': 100, 'partner_absent': 0.0},
     'reads': {'mean': 3000, 'cv': 0.2},
@@ -118,7 +118,7 @@ def test_isomirs_equal_to_another_mature_are_left_out(mirbase):
     # a read another miRNA could give is left out too, also when that miRNA is not in the truth
     assert '3p_trim_2' not in reads.reads['MIMAT9000006']    # T5's 3p_trim_1
     assert '3p_trim_1' not in sg.Reads(u, ['MIMAT9000005'], SPEC, np.random.default_rng(1)).reads['MIMAT9000005']  # T6's 3p_trim_2
-    assert all(sg.possible_reads(m) <= reads.forbidden for m in u.mirnas.values())   # nor do errors or random reads give one
+    assert all(sg.possible_reads(m, 15) <= reads.forbidden for m in u.mirnas.values())   # nor do errors or random reads give one
 
 
 def test_an_added_base_that_any_hairpin_has_next_is_templated():
@@ -126,7 +126,7 @@ def test_an_added_base_that_any_hairpin_has_next_is_templated():
     m = {'sequence': seq, 'flanks': [('GGT', 'CTTA'), ('GGC', 'ATTA')], 'upstream': 'GGT', 'downstream': 'CTTA'}
     assert sg.variant(m, '3p_add_A', 1) is None and sg.variant(m, '3p_add_U', 1) == seq + 'T'
     assert sg.variant(m, '3p_templated_1', 1) == seq + 'C' and sg.variant(m, '5p_shift', -1) == 'T' + seq   # the first hairpin
-    assert {seq + 'C', seq + 'AT', 'T' + seq, 'C' + seq, seq + 'A', seq[:-2], seq[1:]} <= sg.possible_reads(m)
+    assert {seq + 'C', seq + 'AT', 'T' + seq, 'C' + seq, seq + 'A', seq[:-2], seq[1:]} <= sg.possible_reads(m, 15)
     for unknown in (('GGC', ''), None):      # the mature ends the second hairpin, or is not found in it
         m['flanks'][1] = unknown
         assert sg.variant(m, '3p_add_A', 1) is None and sg.variant(m, '3p_add_U', 1) is None
@@ -346,7 +346,8 @@ def genome_project(tmp_path, declared=None, methods=('tinyrna',), with_decoys=Fa
     ext = tmp_path / 'ext'
     files, matures = fake_mirbase(ext / 'benchmark/smallrna/syn_genome/mirbase/23.1')
     spec = {'name': 'syn_genome', 'kind': 'synthetic', 'organism': 'homo_sapiens', 'libprepkit': 'Bioo Scientific NEXTflex Small RNA-Seq Kit v4',
-            'adapter': ADAPTER, 'umi': 0, 'methods': list(methods), 'data': 'benchmark/smallrna/syn_genome', 'synthetic': copy.deepcopy(SPEC),
+            'adapter': ADAPTER, 'umi': 0, 'methods': list(methods), 'data': 'benchmark/smallrna/syn_genome',
+            'synthetic': {k: v for k, v in copy.deepcopy(SPEC).items() if k != 'min_length'},   # prepare sets it (#500)
             'mirbase': {'release': '23.1', 'url': 'u', 'sha256': 'a' * 64, 'hairpin': {'url': 'u', 'sha256': 'b' * 64},
                         'gff': {'url': 'u', 'sha256': 'c' * 64}}}
     if declared is not None:
@@ -365,6 +366,11 @@ def genome_project(tmp_path, declared=None, methods=('tinyrna',), with_decoys=Fa
     assert '6 mixed samples' in result.stdout and ('9 probe samples' in result.stdout or with_decoys or extra)
     config = yaml.safe_load((project / 'config.yaml').read_text())
     assert config['db'] == {'mirbase': {'release': '23.1'}}  # the standard references, on the declaration's release
+    # drawn at the kit's filter minimum, recorded with the draw (#500)
+    kit = yaml.safe_load((BENCH.parents[1] / 'libprep.config').read_text())[spec['libprepkit'] + ' SE']
+    minimum = kit['filter']['trim']['cutadapt']['minimum_length']
+    assert yaml.safe_load((project / 'benchmark/dataset.yaml').read_text())['synthetic']['min_length'] == minimum
+    assert min(len(row['sequence']) for row in benchmark.read_tsv(project / 'benchmark/truth.tsv')) >= minimum
     assert len(config['samples']) == 15 or with_decoys or extra  # mixed + probe + control
     bench = project / 'benchmark'
     truth = benchmark.read_tsv(bench / 'truth.tsv')
@@ -695,7 +701,7 @@ def test_decoy_declaration_is_checked(tmp_path):
         return benchmark.load_dataset(path)
     assert load()['synthetic']['decoys']['probe'] == {'reads': 200}
     for changes, message in (({'load': {'tRNA-elsewhere': 0.1}}, 'decoys.load must give'), ({'load': {'tRNA-gtrnadb': -1}}, 'decoys.load must give'),
-                             ({'sources': {}}, 'decoys.sources needs url and sha256 for'), ({'length': [10, 40]}, 'decoys.length'),
+                             ({'sources': {}}, 'decoys.sources needs url and sha256 for'), ({'length': [0, 40]}, 'decoys.length'),   # below the filter's minimum: at prepare (#500)
                              ({'probe': {'reads': 1.5}}, 'decoys.probe.reads'), ({'modification': 2}, 'decoys.modification'),
                              ({'colour': 'red'}, 'synthetic.decoys takes')):
         with pytest.raises(SystemExit, match=re.escape(message)):
@@ -865,3 +871,50 @@ def test_a_scenario_keeps_the_base_sets_nuisance_and_probes(tmp_path, mirbase):
     for name in ('null', 'up'):
         assert runs[name][0] == runs['base'][0], name   # the same miRNAs, abundances and nuisance loadings
         assert runs[name][1] == runs['base'][1], name   # the same probe samples, read for read
+
+
+def test_the_shortest_read_is_the_filters_minimum(mirbase):
+    """#500: no read of the truth, of another miRNA's possible reads or of the decoys is shorter than synthetic.min_length."""
+    seq = 'ACGTACGTACGTACGTA'   # 17 nt: its 3' end shortened by two has 15
+    m = {'sequence': seq, 'flanks': [('GGT', 'CTTA')], 'upstream': 'GGT', 'downstream': 'CTTA'}
+    assert seq[:-2] in sg.possible_reads(m, 15) and seq[:-2] not in sg.possible_reads(m, 16)
+    assert min(map(len, sg.possible_reads(m, 16))) == 16
+    files, _ = mirbase
+    u = sg.Universe(*files, 'hsa-')
+    chosen = sorted(u.mirnas)[:12]
+    lengths = lambda spec: {len(s) for r in sg.Reads(u, chosen, spec, np.random.default_rng(1)).reads.values() for s in r.values()}
+    assert min(lengths(SPEC)) == 20 and min(lengths(dict(SPEC, min_length=21))) == 21   # the 22-nt matures' 2-nt trims go
+    for value in (None, 0, '16', True):
+        with pytest.raises(ValueError, match='synthetic.min_length'):
+            sg.Reads(u, chosen, {k: v for k, v in dict(SPEC, min_length=value).items() if v is not None}, np.random.default_rng(1))
+    with pytest.raises(ValueError, match='below the filter'):   # decoys of 16 nt under a minimum of 17
+        sg.generate(dict(decoy_spec(length=[16, 40]), min_length=17), *files, 'hsa-', ADAPTER, 0, lambda s: Path('/nonexistent') / s, {})
+
+
+def test_prepare_takes_the_minimum_from_the_kit_or_the_declaration(tmp_path):
+    """#500: filter_minimum reads the kit's cutadapt minimum_length as the workflow selects the kit, unless the
+    declaration's config sets one; a declaration cannot set synthetic.min_length, and the set runs cutadapt."""
+    kits = yaml.safe_load((BENCH.parents[1] / 'libprep.config').read_text())
+    for kit in ('Bioo Scientific NEXTflex Small RNA-Seq Kit v3', 'Bioo Scientific NEXTflex Small RNA-Seq Kit v4',
+                'TruSeq Small RNA Library Prep Kit', 'NEBNext Multiplex Small RNA Library Prep Kit'):
+        expected = kits[kit + ' SE']['filter']['trim']['cutadapt']['minimum_length']
+        assert benchmark.filter_minimum({'name': 'x', 'libprepkit': kit}) == expected
+    v4 = {'name': 'x', 'libprepkit': 'Bioo Scientific NEXTflex Small RNA-Seq Kit v4'}
+    assert benchmark.filter_minimum(dict(v4, config={'filter': {'trim': {'cutadapt': {'minimum_length': 19}}}})) == 19
+    for config, message in (({'filter': {'trim': {'quantifier': 'fastp'}}}, "runs the cutadapt filter route, this one 'fastp'"),
+                            ({'filter': {'trim': {'cutadapt': {'minimum_length': '16'}}}}, 'no filter.trim.cutadapt.minimum_length')):
+        with pytest.raises(SystemExit, match=message):
+            benchmark.filter_minimum(dict(v4, config=config))
+    with pytest.raises(SystemExit, match='Unsupported library kit'):
+        benchmark.filter_minimum({'name': 'x', 'libprepkit': 'No Such Kit'})
+    ext = tmp_path / 'ext'
+    fake_mirbase(ext / 'benchmark/smallrna/syn_genome/mirbase/23.1')
+    spec = dict(v4, name='syn_genome', kind='synthetic', organism='homo_sapiens', adapter=ADAPTER, umi=0, methods=['tinyrna'],
+                data='benchmark/smallrna/syn_genome', synthetic=copy.deepcopy(SPEC),
+                mirbase={'release': '23.1', 'url': 'u', 'sha256': 'a' * 64, 'hairpin': {'url': 'u', 'sha256': 'b' * 64},
+                         'gff': {'url': 'u', 'sha256': 'c' * 64}})
+    (tmp_path / 'ds.yaml').write_text(yaml.safe_dump(spec, sort_keys=False))
+    result = subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'prepare', '--dataset', str(tmp_path / 'ds.yaml'),
+                             '--project', str(tmp_path / 'project'), '--ext-dir', str(ext)], capture_output=True, text=True, timeout=120)
+    assert result.returncode != 0 and 'synthetic.min_length is recorded by prepare' in result.stderr
+    assert not (tmp_path / 'project').exists()
