@@ -187,10 +187,13 @@ def test_local_alignment_mode(tmp_path):
     header = '@SQ\tSN:1\tLN:1000\n'
     records = {'exact': ('r1', 0, '22M'), 'tail': ('r2', 0, '20M2S'), 'clipped5': ('r3', 0, '2S20M'), 'reverse_tail': ('r4', 16, '2S20M'),
                'reverse_clipped5': ('r5', 16, '20M2S'), 'short': ('r6', 0, '16M6S'), 'unmapped': ('r7', 4, '*')}
-    sam = header + ''.join('{}\t{}\t1\t100\t255\t{}\t*\t0\t0\t{}\t{}\n'.format(n, f, c, 'A' * 22, 'I' * 22) for n, f, c in records.values())
+    sam = header + ''.join('{}\t{}\t1\t100\t255\t{}\t*\t0\t0\t{}\t{}\tAS:i:40\n'.format(n, f, c, 'A' * 22, 'I' * 22) for n, f, c in records.values())
+    # a read aligned exactly at one locus and clipped at a relative's: only the best-scoring alignment is kept
+    sam += 'r8\t0\t1\t500\t255\t22M\t*\t0\t0\t{0}\t{1}\tAS:i:44\nr8\t256\t2\t900\t255\t20M2S\t*\t0\t0\t{0}\t{1}\tAS:i:40\n'.format('A' * 22, 'I' * 22)
     kept = subprocess.run(['bash', '-c', command], input=sam, capture_output=True, text=True, check=True).stdout
-    names = [line.split('\t')[0] for line in kept.splitlines() if not line.startswith('@')]
-    assert kept.startswith('@SQ') and names == ['r1', 'r2', 'r4', 'r7']   # 5' clips and a 73% alignment dropped, unmapped kept
+    records_kept = [line.split('\t') for line in kept.splitlines() if not line.startswith('@')]
+    assert kept.startswith('@SQ') and [f[0] for f in records_kept] == ['r1', 'r2', 'r4', 'r7', 'r8']   # 5' clips and a 73% alignment dropped
+    assert [f[2] for f in records_kept if f[0] == 'r8'] == ['1']
     returncode, output = dry_run(tmp_path / 'default', 'biocore_htseq', printshell=True)
     assert returncode == 0 and re.search(r'bowtie2 -p \d+ -k 10 -f -x ', output) and '--local' not in output
     for value, message in ((dict(local_min_aligned=0.3), 'quant.biocore_htseq.local_min_aligned must be a number from 0.5 to 1'),

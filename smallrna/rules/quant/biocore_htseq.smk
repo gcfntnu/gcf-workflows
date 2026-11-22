@@ -12,7 +12,9 @@ The pipeline's own trimming is replaced by the shared filtered reads, as for the
    `local_min_aligned` of the read, the match bonus, so that share must align), and alignments whose read 5' end is
    soft-clipped by more than `local_max_5p_clip` bases or that align less than `local_min_aligned` of the read are
    dropped before annotation: a clipped 3' tail passes step 4's perfect-alignment test, which reads the aligned part
-   only;
+   only. Of the alignments left, a read keeps only those with the highest score (AS), so an exact read is not also
+   counted at a relative's locus that it matches clipped. The default local_min_aligned of 0.9 covers tails of up to
+   two bases on reads of 20-29 nt;
 3. htseq-count annotates every alignment (`-a 0 -s yes -t miRNA -i Name`: union overlap mode, stranded, MAPQ 0
    accepted), writing the feature into the record's XF tag. Bowtie 2 writes no NH tag, so each reported alignment is
    annotated on its own. Secondary (and supplementary) alignments are scored, as HTSeq 0.9.1, the pipeline's version,
@@ -46,7 +48,8 @@ def biocore_htseq_local():
     the default (end_to_end) keeps it as before: for `local`, --local with a minimum score of 2 (the match bonus) per
     base of local_min_aligned of the read, and an awk filter of the SAM records, unmapped ones kept, that drops
     alignments clipping more than local_max_5p_clip bases at the read's 5' end (the CIGAR's start on the forward strand,
-    its end on the reverse) or aligning less than local_min_aligned of the read."""
+    its end on the reverse) or aligning less than local_min_aligned of the read, and of the rest keeps a read's
+    alignments with the highest score (AS; a read's records are consecutive)."""
     mode = BIOCORE_HTSEQ_CONF.get('alignment', 'end_to_end')
     if mode == 'end_to_end':
         return '', ''
@@ -58,11 +61,18 @@ def biocore_htseq_local():
     if isinstance(clip, bool) or not isinstance(clip, int) or not 0 <= clip <= 5:
         raise ValueError('quant.biocore_htseq.local_max_5p_clip must be a whole number from 0 to 5, got {!r}'.format(clip))
     awk = ("awk -F '\\t' -v OFS='\\t' -v share={share} -v clip={clip} "
-           "'/^@/ || int($2 / 4) % 2 {{{{print; next}}}} "
-           "{{{{n = length($10); lead = ($6 ~ /^[0-9]+S/) ? $6 + 0 : 0; tail = 0; "
+           "'function flush(  j) {{{{ for (j = 1; j <= k; j++) print rec[j]; k = 0 }}}} "
+           "/^@/ {{{{ print; next }}}} "
+           "int($2 / 4) % 2 {{{{ flush(); name = \"\"; print; next }}}} "
+           "{{{{ if ($1 != name) {{{{ flush(); name = $1; best = -1e9 }}}} "
+           "n = length($10); lead = ($6 ~ /^[0-9]+S/) ? $6 + 0 : 0; tail = 0; "
            "if (match($6, /[0-9]+S$/)) tail = substr($6, RSTART, RLENGTH - 1) + 0; "
            "five = int($2 / 16) % 2 ? tail : lead; "
-           "if (five <= clip && n - lead - tail >= share * n) print}}}}'").format(share=share, clip=clip)
+           "if (five > clip || n - lead - tail < share * n) next; "
+           "as = -1e9; for (i = 12; i <= NF; i++) if ($i ~ /^AS:i:/) as = substr($i, 6) + 0; "
+           "if (as > best) {{{{ best = as; k = 0 }}}} "
+           "if (as == best) rec[++k] = $0 }}}} "
+           "END {{{{ flush() }}}}'").format(share=share, clip=clip)
     return ' --local --score-min L,0,{:g}'.format(2 * share), ' | ' + awk
 
 
