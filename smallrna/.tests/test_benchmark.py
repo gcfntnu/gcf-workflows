@@ -3464,6 +3464,84 @@ def test_depth_de_of_an_evaluated_biological_project(tmp_path):
     assert result.returncode != 0 and "its de/ would be the evaluation's benchmark/de" in result.stderr
 
 
+def test_imbalance_designs_thin_one_group_or_half_of_each():
+    """#488: `tied` thins the set's second group, `independent` half of each group in a seeded draw; shifts and null
+    offsets."""
+    import imbalance
+    assert imbalance.parse_ratios('4,1.5') == [1.5, 4.0]
+    for bad in ('1', '0.5', 'x', '2,2', 'inf'):
+        with pytest.raises(ValueError, match='ratios: '):
+            imbalance.parse_ratios(bad)
+    assert [name for name, _, _ in imbalance.scenarios([1.5, 4])] == ['none', 'independent-1.5', 'tied-1.5', 'independent-4', 'tied-4']
+    members = [('A1', 'case'), ('A2', 'case'), ('A3', 'case'), ('B1', 'control'), ('B2', 'control')]
+    assert imbalance.denominator(de.model_text('case', 'control', (), 10)) == 'control'
+    assert imbalance.fractions('tied', 4, members, 'control', None) == {'A1': 1.0, 'A2': 1.0, 'A3': 1.0, 'B1': 0.25, 'B2': 0.25}
+    assert imbalance.fractions(None, 1.0, members, 'control', None) == dict.fromkeys(['A1', 'A2', 'A3', 'B1', 'B2'], 1.0)
+    independent = imbalance.fractions('independent', 2, members, 'control', imbalance.generator(1, 'independent-2', ''))
+    assert sorted(independent.values()) == [0.5, 0.5, 1.0, 1.0, 1.0] and sum(independent[s] < 1 for s in ('A1', 'A2', 'A3')) == 1
+    assert independent == imbalance.fractions('independent', 2, members, 'control', imbalance.generator(1, 'independent-2', ''))
+    assert imbalance.folder('tied-1.5', 'fixed', 'null/case-1') == 'tied-1.5_fixed/null.case-1'
+    assert imbalance.folder('none', 'workflow', '') == 'none_workflow/all'
+    features = ['F1', 'F2', 'F3']
+    fits = lambda values: {('a', test, f): fit for test in de.TESTS for f, fit in zip(features, values)}
+    reference = fits([(1.0, 0.01, 0.01), (-1.0, 0.01, 0.01), (None, None, None)])
+    at = fits([(1.2, 0.01, 0.01), (-0.6, 0.01, 0.01), (0.5, 0.5, 0.5)])
+    assert imbalance.shifts(at, reference, features, ['a'])['a']['edger_fc_shift'] == 0.3   # 0.2 and 0.4; F3 untested in the reference
+    assert imbalance.null_offsets([(at, features), (reference, features)], ['a'])['a']['voom_offset'] == 0.25   # medians 0.5 and 0.0
+
+
+def test_imbalance_of_an_evaluated_biological_project(tmp_path):
+    """`imbalance` (#488) end to end: every DE set under every design and arm in de/, `none` in the workflow arm equal
+    to the evaluation's inputs; `tied` thins the second group's library sizes, `fixed` takes the filtered reads times
+    the fraction, `tmm` adds it to the model; `--de` scores against the same arm's unthinned fits and refuses results
+    of another draw before writing anything."""
+    project = biological_de_project(tmp_path, {'contrast': ['case', 'control'], 'null': {'splits': 2, 'seed': 1}})
+    assert evaluate_cmd(project).returncode == 0
+    out, bench = tmp_path / 'imbalance', project / 'benchmark'
+    command = [sys.executable, str(BENCH / 'benchmark.py'), 'imbalance', '--project', str(project), '--ratios', '2', '--output', str(out)]
+    result = subprocess.run(command, capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    sets = ['all', 'null.case-1', 'null.case-2', 'null.control-1', 'null.control-2']
+    folders = ['{}_{}/{}'.format(scenario, arm, name) for scenario in ('none', 'independent-2', 'tied-2') for name in sets
+               for arm in ('workflow', 'fixed', 'tmm')]
+    assert (out / 'de/levels.tsv').read_text() == de.levels_text([folder.split('/') for folder in folders])
+    for name in de.INPUTS:   # unthinned, in the workflow's arm: the evaluation's
+        assert (out / 'de/none_workflow/all/input' / name).read_text() == (bench / 'de/input' / name).read_text()
+    sizes = lambda folder: {line.split('\t')[0]: [float(v) for v in line.split('\t')[1:]]
+                            for line in (out / 'de' / folder / 'input/library_sizes.tsv').read_text().splitlines()[1:]}
+    groups = [line.split('\t')[1] for line in (out / 'de/none_workflow/all/input/design.tsv').read_text().splitlines()[1:]]
+    tied = [t / f for t, f in zip(sizes('tied-2_workflow/all')['unitas'], sizes('none_workflow/all')['unitas'])]
+    assert all(r == 1 if g == 'case' else 0.4 < r < 0.6 for r, g in zip(tied, groups))
+    independent = [t / f for t, f in zip(sizes('independent-2_workflow/all')['unitas'], sizes('none_workflow/all')['unitas'])]
+    assert [sum(r < 0.7 for r, g in zip(independent, groups) if g == group) for group in ('case', 'control')] == [2, 2]
+    assert sizes('tied-2_fixed/all')['mirge3'] == [87.0 if g == 'case' else 43.5 for g in groups]   # filtered reads (#453) times the fraction
+    assert (out / 'de/tied-2_tmm/all/input/model.tsv').read_text() == de.model_text('case', 'control', (), biological.MIN_READS, 'tmm')
+    assert 'then `benchmark.py imbalance --de` with the same ratios and seed' in (out / 'imbalance.md').read_text()
+    result = subprocess.run(command + ['--de'], capture_output=True, text=True, timeout=120)   # before de.smk
+    assert result.returncode != 0 and 'no none_workflow/all/results.tsv or none_workflow/all/record.tsv or none_workflow/null.case-1/results.tsv ...' in result.stderr
+    full_fits = {'MIMAT0000069': (0.4, 0.001, 0.01), 'MIMAT0000076': (-0.6, 0.01, 0.03), 'MIMAT0001631': (None, None, None)}
+    low_fits = {'MIMAT0000069': (0.3, 0.01, 0.04), 'MIMAT0000076': (-0.2, 0.3, 0.6), 'MIMAT0001631': (None, None, None)}
+    for folder in folders:
+        de_outputs(project, full_fits if folder.startswith('none_') else low_fits, folder=folder, root=out / 'de', formula='~group')
+    result = subprocess.run(command + ['--de'], capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    tsv = (out / 'imbalance.tsv').read_text().splitlines()
+    assert tsv[0] == 'method\tdesign\tarm\tset\tmetric\tvalue' and 'mirge3\tnone\tfixed\tall\tvoom_calls\t2' in tsv
+    assert 'unitas\ttied-2\tworkflow\tall\tedger_recall\t0.5' in tsv and 'unitas\ttied-2\tworkflow\tall\tedger_fc_shift\t0.15' in tsv
+    assert 'unitas\ttied-2\ttmm\tnull\tedger_null_called\t0.5' in tsv and 'unitas\tnone\tworkflow\tnull\tvoom_offset\t-0.1' in tsv
+    report = (out / 'imbalance.md').read_text()
+    assert '## Null comparisons (#449)' in report and '| tied-2 | fixed | 0.50 (1.00) +0.05 | 0.50 (1.00) +0.05 |' in report
+    assert '## The contrast (4 case and 4 control samples)' in report and '| tied-2 | workflow | 0.50 / 1.00 (1) +0.15 |' in report
+    assert '| none | tmm | 2 | 2 |' in report and 'edgeR 4.10.7, limma 3.68.5' in report
+    before = {name: (out / name).read_text() for name in ('imbalance.md', 'imbalance.tsv')}
+    result = subprocess.run(command + ['--de', '--seed', '2'], capture_output=True, text=True, timeout=120)   # another draw
+    assert result.returncode != 0 and 'de/independent-2_workflow/all/results.tsv comes from other inputs' in result.stderr
+    assert 'run `benchmark.py imbalance` without --de' in result.stderr and {name: (out / name).read_text() for name in before} == before
+    assert subprocess.run(command, capture_output=True, text=True, timeout=120).returncode == 0 and not (out / 'imbalance.tsv').exists()
+    result = subprocess.run(command[:-2] + ['--output', str(bench)], capture_output=True, text=True, timeout=60)
+    assert result.returncode != 0 and "its de/ would be the evaluation's benchmark/de" in result.stderr
+
+
 def test_de_snakefile_runs_the_sets_of_another_de_folder(tmp_path):
     """--config de=de: the sets `benchmark.py depth` writes in its output (#414), each depth's set one column and level."""
     for folder in ('full/all', '20/null.case-1'):

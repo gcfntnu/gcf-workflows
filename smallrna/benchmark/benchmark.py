@@ -65,6 +65,7 @@ import de  # noqa: E402
 import evaluation  # noqa: E402
 import fill as filler  # noqa: E402
 import genome_metrics  # noqa: E402
+import imbalance as imbalance_series  # noqa: E402
 import isomirs  # noqa: E402
 import knockout_expected  # noqa: E402
 import metrics  # noqa: E402
@@ -1568,15 +1569,17 @@ def biological_de_features(sets, methods, common):
     return features
 
 
-def biological_de_texts(sets, methods, common, features):
+def biological_de_texts(sets, methods, common, features, sizes=None):
     """(count(row, sample, feature), {folder: de.input_tables}) of a biological dataset's DE sets on the `common` rows,
     over `features` ({folder: features}). A sample's library size is every miRNA read the method reported in it (all its
-    rows of `common`, those without an accession too), as the workflow scales counts per million."""
+    rows of `common`, those without an accession too), as the workflow scales counts per million; `sizes` ({(method,
+    sample): size}) replaces them (the `fixed` arm of #488)."""
     by = biological.counts_by(common)
     count = lambda row, sample, feature: by.get((row, sample), {}).get(feature, 0.0)
-    sizes = collections.Counter()
-    for method, sample, _, _, value in common:
-        sizes[(method, sample)] += float(value)
+    if sizes is None:
+        sizes = collections.Counter()
+        for method, sample, _, _, value in common:
+            sizes[(method, sample)] += float(value)
     return count, {s.folder: de.input_tables(count, methods, features[s.folder], s.design, sizes, s.model) for s in sets}
 
 
@@ -2426,6 +2429,35 @@ def depth_de(args, out, spec, table, methods, tables, usable):
     return depth_series.de_lines(titled, null_points, methods, versions, md_table), depth_series.de_tables(titled, null_points, methods)
 
 
+def evaluated_filtering(project, bench, samples, why):
+    """{sample: biological.filtering()} of an evaluated project's samples, from the cutadapt route's reports (kept with
+    --notemp), checked to be those of the evaluated run: their reads sum to the evaluation's `reads_processed`. `why`
+    says what needs them, in the message when they are missing."""
+    stages = project / 'data/tmp/smallrna/filter/cutadapt_stages'
+    reports = {s: {k: stages / '{}.{}.json'.format(s, k) for k in biological.CUTADAPT_PASSES} for s in samples}
+    missing = [str(p) for paths in reports.values() for p in paths.values() if not p.is_file()]
+    if missing:
+        fail('cutadapt reports missing ({}): {}; run `snakemake quant_all --notemp`'.format(', '.join(missing[:3]), why))
+    try:
+        filtering = {s: biological.filtering(paths) for s, paths in reports.items()}
+        recorded = evaluation.read_evaluation(bench)[1].get('reads_processed')
+    except ValueError as error:
+        fail(str(error))
+    total = sum(f['reads_in'] for f in filtering.values())
+    if recorded is not None and recorded != total:  # the count tables are the evaluated run's
+        fail('the cutadapt reports give {:,} reads, the evaluation recorded {:,}: the filtering changed since; evaluate again'.format(
+            total, recorded))
+    return filtering
+
+
+def evaluated_common(bench, spec, id_to_seq):
+    """(the evaluation's common-table rows with identical sequences as one accession, biological.collapse; the declared
+    methods that have rows)."""
+    raw = [(r['method'], r['sample'], r['mature_name'], r['mature_id'], float(r['count'])) for r in read_tsv(bench / 'common.tsv')]
+    common, _ = biological.collapse(raw, id_to_seq)
+    return common, [m for m in spec['methods'] if any(row[0] == m for row in common)]
+
+
 def depth(args):
     """`depth` (#409): the sequencing-depth series of an evaluated biological project (depth.py), from its common and
     isomiR tables and each sample's sequenced reads (the cutadapt route's reports), written to --output (default
@@ -2460,20 +2492,8 @@ def depth(args):
     groups = collections.defaultdict(list)
     for row in table:
         groups[row['group']].append(row['sample'])
-    stages = project / 'data/tmp/smallrna/filter/cutadapt_stages'
-    reports = {s: {k: stages / '{}.{}.json'.format(s, k) for k in biological.CUTADAPT_PASSES} for s in samples}
-    missing = [str(p) for paths in reports.values() for p in paths.values() if not p.is_file()]
-    if missing:
-        fail('cutadapt reports missing ({}): the depth axis is the reads each sample sequenced; run `snakemake quant_all '
-             '--notemp`'.format(', '.join(missing[:3])))
-    try:
-        reads_in = {s: biological.filtering(paths)['reads_in'] for s, paths in reports.items()}
-        recorded = evaluation.read_evaluation(bench)[1].get('reads_processed')
-    except ValueError as error:
-        fail(str(error))
-    if recorded is not None and recorded != sum(reads_in.values()):  # the count tables are the evaluated run's
-        fail('the cutadapt reports give {:,} reads, the evaluation recorded {:,}: the filtering changed since; evaluate again'.format(
-            sum(reads_in.values()), recorded))
+    reads_in = {s: f['reads_in'] for s, f in evaluated_filtering(project, bench, samples, 'the depth axis is the reads each sample '
+                                                                 'sequenced').items()}
     out = Path(args.output) if args.output else bench / 'depth'
     if 'de' in spec and (out / 'de').resolve() == (bench / 'de').resolve():
         fail('--output {}: its de/ would be the evaluation\'s benchmark/de; choose another folder (default benchmark/depth/)'.format(out))
@@ -2486,9 +2506,7 @@ def depth(args):
             fail('no {}{} in {}: run `benchmark.py depth` without --de (the same depths and seed), then `snakemake -s {} -d {} --config '
                  'de=de --use-apptainer`, then depth --de'.format(' or '.join(missing[:3]), ' ...' if len(missing) > 3 else '', out / 'de',
                                                                  Path(__file__).resolve().with_name('de.smk'), out))
-    raw = [(r['method'], r['sample'], r['mature_name'], r['mature_id'], float(r['count'])) for r in read_tsv(bench / 'common.tsv')]
-    common, _ = biological.collapse(raw, id_to_seq)
-    methods = [m for m in spec['methods'] if any(row[0] == m for row in common)]
+    common, methods = evaluated_common(bench, spec, id_to_seq)
     isomir_rows = None
     if (bench / 'isomirs.tsv').is_file():
         isomir_rows = [tuple(r[k] for k in adapters.ISOMIR_COLUMNS[:-1]) + (float(r['count']),) for r in read_tsv(bench / 'isomirs.tsv')]
@@ -2510,6 +2528,130 @@ def depth(args):
     if args.plot:
         depth_series.plot(points, methods, full, out / 'depth.png')
     print(out / 'depth.md')
+
+
+def imbalance(args):
+    """`imbalance` (#488): differential expression under controlled depth imbalance (imbalance.py) of an evaluated
+    biological project that declares `de:`, written to --output (default benchmark/imbalance/ in the project). Without
+    --de it writes every DE set under every design and arm to de/<scenario>_<arm>/<set>/ for de.smk (`--config de=de`)
+    and imbalance.md saying so; with --de it checks de.smk's results like evaluate --de and writes imbalance.tsv and
+    imbalance.md. Each scenario and arm is scored on its own, against the same arm's unthinned fits, so only the
+    results of one are held at a time."""
+    project = Path(args.project)
+    bench = project / 'benchmark'
+    spec = load_dataset(bench / 'dataset.yaml')
+    if spec['kind'] != 'biological':
+        fail('imbalance is for biological datasets, got a {} dataset'.format(spec['kind']))
+    if 'de' not in spec:
+        fail('{} declares no `de:`: imbalance tests the DE sets of an evaluation'.format(spec['name']))
+    table = read_tsv(bench / 'samples.tsv')
+    if any(row['lane'] != 'merged' for row in table):
+        fail('imbalance works on merged samples; this project has a sample per lane (prepare --lanes)')
+    if not (bench / 'common.tsv').is_file():
+        fail('{} missing: run `benchmark.py evaluate --project {}` first'.format(bench / 'common.tsv', project))
+    try:
+        ratios = imbalance_series.parse_ratios(args.ratios)
+    except ValueError as error:
+        fail(str(error))
+    out = Path(args.output) if args.output else bench / 'imbalance'
+    if (out / 'de').resolve() == (bench / 'de').resolve():
+        fail('--output {}: its de/ would be the evaluation\'s benchmark/de; choose another folder (default benchmark/imbalance/)'.format(out))
+    samples = [row['sample'] for row in table]
+    kept = {s: float(f['kept']) for s, f in evaluated_filtering(project, bench, samples, 'the `fixed` arm takes each sample\'s '
+                                                                 'filtered reads').items()}
+    sets = de_sets(spec, de_units(spec, table))
+    scenarios = imbalance_series.scenarios(ratios)
+    root = out / 'de'
+    if args.de:  # before the thinning: every set in every scenario and arm needs de.smk's results
+        missing = [str(Path(folder) / name) for scenario, _, _ in scenarios for arm in imbalance_series.ARMS for s in sets
+                   for folder in [imbalance_series.folder(scenario, arm, s.folder)] for name in ('results.tsv', 'record.tsv')
+                   if not (root / folder / name).is_file()]
+        if missing:
+            fail('no {}{} in {}: run `benchmark.py imbalance` without --de (the same ratios and seed), then `snakemake -s {} -d {} '
+                 '--config de=de --use-apptainer`, then imbalance --de'.format(' or '.join(missing[:3]), ' ...' if len(missing) > 3 else '',
+                                                                            root, Path(__file__).resolve().with_name('de.smk'), out))
+    config = yaml.safe_load((project / 'config.yaml').read_text())
+    mature_fa, _ = biological_paths(spec, Path(config['ext_dir']))
+    id_to_seq = {accession: seq for _, (accession, seq) in synthetic.read_mature(mature_fa, PREFIX[spec['organism']]).items()}
+    common, methods = evaluated_common(bench, spec, id_to_seq)
+    features = biological_de_features(sets, methods, common)
+    by_sample = collections.defaultdict(list)
+    for row in common:
+        by_sample[row[1]].append(row)
+
+    def scenario_texts(scenario, design, ratio, arms):
+        """({folder: input texts}, {(set folder, arm): the set's DeSet there}) of every set in a scenario and `arms`; one
+        draw per set and scenario, the same in every arm."""
+        texts, at = {}, {}
+        for s in sets:
+            members = [(sample, group) for sample, group, _ in s.design]
+            rng = imbalance_series.generator(args.seed, scenario, s.folder)
+            fraction = imbalance_series.fractions(design, ratio, members, imbalance_series.denominator(s.model), rng)
+            rows = [row for sample, _ in members for row in by_sample[sample]]
+            if design is not None:
+                rows = depth_series.thin(rows, fraction, rng)
+            for arm in arms:
+                folder = imbalance_series.folder(scenario, arm, s.folder)
+                at[(s.folder, arm)] = s._replace(suffix=folder, folder=folder, model=s.model + 'normalisation\ttmm\n' if arm == 'tmm' else s.model)
+                sizes = {(m, sample): kept[sample] * fraction[sample] for m in methods for sample, _ in members} if arm == 'fixed' else None
+                texts.update(biological_de_texts([at[(s.folder, arm)]], methods, rows, {folder: features[s.folder]}, sizes)[1])
+        return texts, at
+
+    header = imbalance_series.lines(spec['name'], [], [], methods, ratios, args.seed, '', md_table)[:3]
+    if not args.de:
+        folders = []
+        for scenario, design, ratio in scenarios:
+            texts, _ = scenario_texts(scenario, design, ratio, imbalance_series.ARMS)
+            for folder, inputs in texts.items():
+                de.write_inputs(root / folder / 'input', inputs)
+            folders += list(texts)
+        de.write_changed(root / de.LEVELS, de.levels_text([folder.split('/') for folder in folders]))
+        (out / 'imbalance.tsv').unlink(missing_ok=True)  # scores of an earlier draw, if any
+        header += ['', 'The inputs of {} DE sets in {} designs and {} arms are in `de/`. Run de.smk on them (`snakemake -s '
+                   '<repo>/smallrna/benchmark/de.smk -d {} --config de=de --use-apptainer`), then `benchmark.py imbalance --de` with the '
+                   'same ratios and seed.'.format(len(sets), len(scenarios), len(imbalance_series.ARMS), out)]
+        (out / 'imbalance.md').write_text('\n'.join(header) + '\n')
+        print(out / 'imbalance.md')
+        return
+    nulls = [s for s in sets if s.folder.startswith(de.NULL + '/')]
+    contrasts = [s for s in sets if s not in nulls]
+    points, null_points, versions = {s.folder: [] for s in contrasts}, [], ''
+    for arm in imbalance_series.ARMS:
+        reference = None
+        for scenario, design, ratio in scenarios:  # `none` first: the others are scored against it
+            texts, at = scenario_texts(scenario, design, ratio, [arm])
+            found, reports = differential_expression(args, None, list(at.values()), texts, methods,
+                                                     {at[(s.folder, arm)].folder: features[s.folder] for s in sets}, root=root, command='imbalance')
+            result = {s.folder: found[at[(s.folder, arm)].suffix] for s in sets}
+            if not versions:
+                record = reports[at[(sets[0].folder, arm)].suffix][0]
+                versions = 'edgeR {}, limma {}; {}. Results in `de/<design>_<arm>/<set>/results.tsv`.'.format(
+                    record.get('edgeR', '?'), record.get('limma', '?'), record.get('R', '?'))
+            if scenario == imbalance_series.NONE:
+                reference = {s.folder: result[s.folder] for s in contrasts}
+            for s in contrasts:
+                values = depth_series.de_scores(result[s.folder], None if scenario == imbalance_series.NONE else reference[s.folder],
+                                                features[s.folder], methods)
+                if scenario != imbalance_series.NONE:
+                    for m, shift in imbalance_series.shifts(result[s.folder], reference[s.folder], features[s.folder], methods).items():
+                        values[m].update(shift)
+                points[s.folder].append((scenario, arm, values))
+            if nulls:
+                splits = [(result[s.folder], features[s.folder]) for s in nulls]
+                values = de.null_scores(splits, methods)[0]
+                for m, offset in imbalance_series.null_offsets(splits, methods).items():
+                    values[m].update(offset)
+                null_points.append((scenario, arm, values))
+    order = {(scenario, arm): i for i, (scenario, arm) in enumerate((sc[0], a) for sc in scenarios for a in imbalance_series.ARMS)}
+    ordered = lambda items: sorted(items, key=lambda item: order[(item[0], item[1])])
+    titled = [(depth_series.de_set_name(s.folder), 'The contrast ({})'.format(s.samples) if not s.folder else '{} ({})'.format(s.folder, s.samples),
+               ordered(points[s.folder])) for s in contrasts]
+    null_points = ordered(null_points)
+    out.mkdir(parents=True, exist_ok=True)
+    write_tsv(out / 'imbalance.tsv', ['method', 'design', 'arm', 'set', 'metric', 'value'], imbalance_series.rows(titled, null_points, methods))
+    (out / 'imbalance.md').write_text('\n'.join(imbalance_series.lines(spec['name'], titled, null_points, methods, ratios, args.seed,
+                                                                       versions, md_table)) + '\n')
+    print(out / 'imbalance.md')
 
 
 def fill(args):
@@ -2578,8 +2720,17 @@ def main():
     d.add_argument('--seed', type=int, default=1, help='seed of the thinning (default %(default)s)')
     d.add_argument('--de', action='store_true', help="datasets that declare `de:`: score de.smk's differential expression by "
                    "depth (#414), after `depth` without it wrote the inputs to de/ and de.smk ran on them")
+    m = sub.add_parser('imbalance', help='differential expression under controlled depth imbalance of an evaluated biological '
+                       'project, by thinning its count tables unevenly (#488)')
+    m.add_argument('--project', required=True)
+    m.add_argument('--output', help='directory for de/, imbalance.tsv and imbalance.md (default benchmark/imbalance/ in the project)')
+    m.add_argument('--ratios', default=imbalance_series.RATIOS, help='depth ratios between the deeper and the thinned samples, each '
+                   'above 1 (default %(default)s)')
+    m.add_argument('--seed', type=int, default=1, help='seed of the draws (default %(default)s)')
+    m.add_argument('--de', action='store_true', help="score de.smk's results, after `imbalance` without it wrote the inputs to de/ "
+                   "and de.smk ran on them")
     args = parser.parse_args()
-    {'prepare': prepare, 'fill': fill, 'evaluate': evaluate, 'summary': summary, 'depth': depth}[args.command](args)
+    {'prepare': prepare, 'fill': fill, 'evaluate': evaluate, 'summary': summary, 'depth': depth, 'imbalance': imbalance}[args.command](args)
 
 
 if __name__ == '__main__':
