@@ -21,6 +21,8 @@ import math
 import re
 import statistics
 
+import numpy as np
+
 import de
 
 STRATA = ('mirgenedb', 'star', 'mirbase_only')
@@ -143,8 +145,9 @@ NULL_TESTS = ('edger', 'voom')
 
 
 def mixture_keys():
-    """The mixture series' linearity metrics per stratum (mixture.Scores): `<metric>.<stratum>`."""
-    return ['{}.{}'.format(k, s) for k in MIXTURE_KEYS for s in STRATA]
+    """The mixture series' linearity metrics per stratum (mixture.Scores), `<metric>.<stratum>`, and `scored.<stratum>`,
+    the miRNAs with at least one scored miRNA-sample pair."""
+    return ['{}.{}'.format(k, s) for k in MIXTURE_KEYS + ('scored',) for s in STRATA]
 
 
 def mixture_values(scores, counts, methods, stratum):
@@ -156,12 +159,14 @@ def mixture_values(scores, counts, methods, stratum):
             rows = [i for i, f in enumerate(counts[m].features) if stratum(f) == s]
             values = scores[m].values(features=rows) if rows else {}
             out[m].update({'{}.{}'.format(k, s): values.get(k, float('nan')) for k in MIXTURE_KEYS})
+            out[m]['scored.' + s] = int((~np.isnan(scores[m].residual[rows])).any(axis=1).sum()) if rows else 0
     return out
 
 
 def null_keys():
-    """The null comparisons' share of tested miRNAs called (#449) per stratum: `<test>_null_called.<stratum>`."""
-    return ['{}_null_called.{}'.format(t, s) for t in NULL_TESTS for s in STRATA]
+    """The null comparisons' share of tested miRNAs called (#449) per stratum, `<test>_null_called.<stratum>`, and
+    `null_tested.<stratum>`, the stratum's miRNAs tested (median over the splits)."""
+    return ['{}_null_called.{}'.format(t, s) for t in NULL_TESTS for s in STRATA] + ['null_tested.' + s for s in STRATA]
 
 
 def null_values(splits, methods, stratum):
@@ -169,9 +174,12 @@ def null_values(splits, methods, stratum):
     (`splits`: [(results, features)] as for de.null_scores)."""
     out = {m: {} for m in methods}
     for s in STRATA:
-        values = de.null_scores([(results, [f for f in features if stratum(f) == s]) for results, features in splits], methods)[0]
+        subsets = [(results, [f for f in features if stratum(f) == s]) for results, features in splits]
+        values = de.null_scores(subsets, methods)[0]
         for m in methods:
             out[m].update({'{}_null_called.{}'.format(t, s): values[m][t + '_null_called'] for t in NULL_TESTS})
+            tested = [sum(1 for f in features if results[(m, de.TESTS[0], f)][1] is not None) for results, features in subsets]
+            out[m]['null_tested.' + s] = statistics.median(tested) if tested else 0
     return out
 
 

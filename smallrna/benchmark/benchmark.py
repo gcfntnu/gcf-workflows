@@ -2058,7 +2058,8 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
             keys += mirgenedb.null_keys()
             strata_lines += mirgenedb.table_lines(
                 '**Null comparisons by stratum**', 'The median share of a stratum\'s tested miRNAs called in the null splits (every call false), '
-                'by edgeR\'s exact test and limma-voom.', nulls_by, mirgenedb.null_keys(), methods, md_table)
+                'by edgeR\'s exact test and limma-voom, and the miRNAs tested (`null_tested`, median over the splits): a share of a '
+                'few dozen miRNAs moves by chance.', nulls_by, mirgenedb.null_keys(), methods, md_table)
     metric_rows = [[k] + [summary[m][k] for m in methods] for k in keys]
     knockout_lines = []
     if knockout:
@@ -2554,7 +2555,10 @@ def evaluate_mixture(args, project, bench, spec, ext_dir):
         keys += mirgenedb.mixture_keys()
         metric_rows += [[k] + [rnd(point[m].get(k, float('nan'))) for m in methods] for k in mirgenedb.mixture_keys()]
         lines += mirgenedb.table_lines('## MirGeneDB strata (#493)', '`linearity_error` and `within_1_5fold` over the miRNAs of each '
-                                       'MirGeneDB stratum: `mirgenedb` (listed), `star` (listed as a star arm), `mirbase_only`. ' + source,
+                                       'MirGeneDB stratum: `mirgenedb` (listed), `star` (listed as a star arm), `mirbase_only`; `scored`, '
+                                       'the miRNAs with a scored pair. The strata differ in abundance: the error falls steeply with the '
+                                       'predicted reads (the table by predicted reads above) and miRBase-only miRNAs are mostly low-count, '
+                                       'so compare a stratum\'s error with the error at its abundance. ' + source,
                                        strata_values, mirgenedb.mixture_keys(), methods, md_table)
     lines += de_lines
     index = list(range(len(features)))

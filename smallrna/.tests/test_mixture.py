@@ -441,6 +441,7 @@ def test_mixture_linearity_per_mirgenedb_stratum(tmp_path):
     stratum = lambda f: 'mirgenedb' if f in ('liver_only', 'spleen_only', 'both') else 'mirbase_only'
     values = mirgenedb.mixture_values({'m': scores}, {'m': counts}, ['m'], stratum)['m']
     assert values['linearity_error.mirgenedb'] == pytest.approx(0, abs=0.01) and math.isnan(values['linearity_error.star'])
+    assert values['scored.mirgenedb'] == 3 and values['scored.star'] == 0 and values['scored.mirbase_only'] == 3   # 'rare' too (200 reads per sample)
     project = evaluated_mixture(tmp_path)
     gff = write(tmp_path / 'mouse_MirGeneDB.gff3', '# microRNAs:    MirGeneDB v3.0\n' + ''.join(
         'chr1\t.\tmiRNA\t1\t22\t.\t+\t.\tID=Mmu-Mir-{}_5p;Alias=MIMAT00000{}\n'.format(i, 10 + i) for i in range(3)))

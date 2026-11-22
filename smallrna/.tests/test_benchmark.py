@@ -2998,7 +2998,7 @@ def test_evaluate_reports_null_comparisons(tmp_path):
     assert result.returncode == 0, result.stderr
     strata = {line.split('\t')[0]: line.split('\t')[1:] for line in (project / 'benchmark/metrics.tsv').read_text().splitlines()}
     assert strata['edger_null_called.mirgenedb'] == ['1.0', '1.0'] and strata['edger_null_called.star'] == ['0.0', '0.0']   # miR-16-5p, miR-21-5p
-    assert '**Null comparisons by stratum**' in (project / 'benchmark/report.md').read_text()
+    assert strata['null_tested.mirgenedb'] == ['1.0', '1.0'] and '**Null comparisons by stratum**' in (project / 'benchmark/report.md').read_text()
     table = {line.split('\t')[0]: line.split('\t')[1:] for line in (bench / 'metrics.tsv').read_text().splitlines()}
     assert table['edger_null_called'] == ['0.5', '0.5'] and table['voom_null_any'] == ['1.0', '1.0']  # 1 of 2 tested, in every split
     assert table['edger_glm_null_p05'] == ['0.5', '0.5'] and not any(line.split('\t')[0].endswith(('_null_called', '_null_any'))
