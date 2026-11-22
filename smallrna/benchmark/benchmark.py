@@ -2315,13 +2315,14 @@ def mixture_de_texts(sets, methods, common, design, features, sizes=None):
     return count, counts, {s.folder: de.input_tables(count, methods, features, s.design, sizes, s.model) for s in sets}
 
 
-def mixture_expected(counts, design, between, methods):
+def mixture_expected(counts, design, between, methods, offsets=None):
     """{method: {suffix: {feature: expected log2 fold change}}} of a mixture's contrasts between fractions (`between`:
     [(DeSet, numerator, denominator)]), from each method's `counts` (mixture.Counts) and the content ratios fitted on
-    them (mixture.expected_changes)."""
+    them (mixture.expected_changes), with `offsets` ({method: {suffix: {subject: log2 shift}}}, mixture_fixed_shift)
+    added per subject when given."""
     ks = {m: mixture.Scores(counts[m], design).ks for m in methods}
-    return {m: {s.suffix: mixture.expected_changes(counts[m], design, ks[m], numerator, denominator) for s, numerator, denominator in between}
-            for m in methods}
+    return {m: {s.suffix: mixture.expected_changes(counts[m], design, ks[m], numerator, denominator, (offsets or {}).get(m, {}).get(s.suffix))
+                for s, numerator, denominator in between} for m in methods}
 
 
 def mixture_between_scores(result, between, expected, methods):
@@ -2335,22 +2336,23 @@ def mixture_between_scores(result, between, expected, methods):
 
 
 def mixture_fixed_shift(counts, design, between, kept, methods):
-    """{method: {suffix: shift}} of a mixture's contrasts between fractions (#488): the log2 ratio, higher fraction over
-    lower and the mean over the subjects with both, of a method's share of miRNA reads (counts' total) among the sample's
-    filtered reads (`kept`). The expected changes are on the scale of a method's miRNA reads; the `fixed` arm divides by
-    filtered reads, which adds this shift to every fold change of the contrast."""
+    """{method: {suffix: {subject: shift}}} of a mixture's contrasts between fractions (#488): per subject with both
+    fractions, the log2 ratio, higher fraction over lower, of a method's share of miRNA reads (counts' total) among the
+    sample's filtered reads (`kept`). The expected changes are on the scale of a method's miRNA reads; the `fixed` arm
+    divides by filtered reads, which adds the subject's shift to its log ratios (mixture.expected_changes' offsets)."""
     out = {}
     for m in methods:
         share = lambda sample: counts[m].total[counts[m].column[sample]] / kept[sample]
         out[m] = {}
         for s, numerator, denominator in between:
             up, down = dict(design.at(numerator)), dict(design.at(denominator))
-            logs = [math.log2(share(up[x]) / share(down[x])) for x in sorted(set(up) & set(down)) if share(up[x]) > 0 and share(down[x]) > 0]
-            out[m][s.suffix] = statistics.mean(logs) if logs else 0.0
+            out[m][s.suffix] = {x: math.log2(share(up[x]) / share(down[x])) for x in sorted(set(up) & set(down))
+                                if share(up[x]) > 0 and share(down[x]) > 0}
     return out
 
 
-DeKit = collections.namedtuple('DeKit', 'sets contrasts nulls between features texts expected title counts design')
+DeKit = collections.namedtuple('DeKit', 'sets contrasts nulls between features texts expected title counts design library')
+LIBRARY = {'biological': 'every miRNA read the route reported', 'mixture': "the route's reads on miRNAs with an accession"}
 
 
 def kit_sets(spec, table):
@@ -2378,12 +2380,13 @@ def de_kit(spec, table, methods, full):
         _, counts, _ = mixture_de_texts([], methods, full, design, features)
         texts = lambda at, rows, sizes=None: mixture_de_texts(list(at.values()), methods, rows, design, features, sizes)[2]
         return DeKit([s for s, *_ in info], [s for s, _, _, inner in info if not inner], [], between, {s.folder: features for s, *_ in info},
-                     texts, mixture_expected(counts, design, between, methods), lambda s: 'The pure samples ({})'.format(s.samples), counts, design)
+                     texts, mixture_expected(counts, design, between, methods), lambda s: 'The pure samples ({})'.format(s.samples), counts, design,
+                     LIBRARY['mixture'])
     sets = de_sets(spec, de_units(spec, table))
     features = biological_de_features(sets, methods, full)
     nulls = [s for s in sets if s.folder.startswith(de.NULL + '/')]
     texts = lambda at, rows, sizes=None: biological_de_texts(list(at.values()), methods, rows, {at[f].folder: features[f] for f in at}, sizes)[1]
-    return DeKit(sets, [s for s in sets if s not in nulls], nulls, [], features, texts, {}, title, None, None)
+    return DeKit(sets, [s for s in sets if s not in nulls], nulls, [], features, texts, {}, title, None, None, LIBRARY['biological'])
 
 
 def evaluate_mixture(args, project, bench, spec, ext_dir):
@@ -2545,7 +2548,7 @@ def depth_de(args, out, spec, table, methods, tables, usable):
     order = lambda points: sorted(points, key=lambda point: math.inf if point[0] == depth_series.FULL else point[0])
     titled = [(depth_series.de_set_name(s.folder), kit.title(s), order(scores[s.folder])) for s in kit.contrasts]
     null_points, between_points = order(null_points), order(between_points)
-    return (depth_series.de_lines(titled, null_points, methods, versions, md_table, between_points),
+    return (depth_series.de_lines(titled, null_points, methods, versions, md_table, between_points, kit.library),
             depth_series.de_tables(titled, null_points, methods, between_points))
 
 
@@ -2724,7 +2727,7 @@ def imbalance(args):
             fraction = imbalance_series.fractions(design, ratio, members, second, imbalance_series.generator(args.seed, scenario, s.folder))
             reads = [statistics.median(kept[x] * fraction[x] for x, group in members if (group == second) == is_second) for is_second in (False, True)]
             realised.append((scenario, s.folder, *reads))
-    header = imbalance_series.lines(spec['name'], [], [], methods, ratios, args.seed, '', md_table)[:3] + \
+    header = imbalance_series.lines(spec['name'], [], [], methods, ratios, args.seed, '', md_table, library=kit.library)[:3] + \
         imbalance_series.realised_lines(realised, md_table)
     if not args.de:
         for name in ('imbalance.tsv', 'imbalance.md'):  # scores of an earlier draw, if any, before any input changes
@@ -2746,8 +2749,7 @@ def imbalance(args):
     contrasts, nulls, features = kit.contrasts, kit.nulls, kit.features
     points, null_points, between_points, versions = {s.folder: [] for s in contrasts}, [], [], ''
     fixed_shift = mixture_fixed_shift(kit.counts, kit.design, kit.between, kept, methods) if kit.between else {}
-    expected = {'fixed': {m: {suffix: {f: d + fixed_shift[m][suffix] for f, d in changes.items()} for suffix, changes in kit.expected[m].items()}
-                          for m in methods}} if kit.between else {}
+    expected = {'fixed': mixture_expected(kit.counts, kit.design, kit.between, methods, fixed_shift)} if kit.between else {}
     for arm in imbalance_series.ARMS:
         reference = None
         for scenario, design, ratio in scenarios:  # `none` first: the others are scored against it
@@ -2785,8 +2787,10 @@ def imbalance(args):
               imbalance_series.rows(titled, null_points, methods, between_points))
     write_tsv(out / 'imbalance_depths.tsv', ['design', 'set', 'first', 'second', 'ratio'], imbalance_series.realised_rows(realised))
     notes = [] if not kit.between else imbalance_series.between_notes(
-        [(s.suffix[1:].replace('_vs_', ' against '), [fixed_shift[m][s.suffix] for m in methods]) for s, _, _ in kit.between], methods, md_table)
-    body = imbalance_series.lines(spec['name'], titled, null_points, methods, ratios, args.seed, versions, md_table, between_points, notes)
+        [(s.suffix[1:].replace('_vs_', ' against '), [statistics.mean(fixed_shift[m][s.suffix].values()) if fixed_shift[m][s.suffix] else float('nan')
+                                                         for m in methods]) for s, _, _ in kit.between], methods, md_table)
+    body = imbalance_series.lines(spec['name'], titled, null_points, methods, ratios, args.seed, versions, md_table, between_points, notes,
+                                  kit.library)
     (out / 'imbalance.md').write_text('\n'.join(header + body[3:]) + '\n')
     print(out / 'imbalance.md')
 

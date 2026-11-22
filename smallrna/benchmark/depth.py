@@ -277,22 +277,21 @@ def share_cell(value):
     return '-' if value is None or (isinstance(value, float) and math.isnan(value)) else '{:.2f}'.format(value)
 
 
-def de_lines(contrasts, nulls, methods, versions, md_table, between=()):
+def de_lines(contrasts, nulls, methods, versions, md_table, between=(), library='every miRNA read the route reported'):
     """depth.md's section on differential expression by depth (#414): per DE set of the contrast and test, each
     route's recall / precision (calls) per depth; per test, the null comparisons' median share called (share of splits
     with a call) per depth; a mixture's contrasts between fractions (`between`, as for de_tables) against the expected
-    changes. `versions`: a line on the tools de.R recorded."""
+    changes. `versions`: a line on the tools de.R recorded; `library`: what a library size counts (a mixture's differ)."""
     lines = ['', '## Differential expression by depth', '',
              "The evaluation's DE sets tested on each depth's thinned tables, the draw of the detection metrics above, and on the "
              "full depth (de.R: edgeR's exact test, its GLM test and limma-voom, #447), each over the same miRNAs at every depth: "
              "those any route reports at the full depth in the set's samples. A row tests the miRNAs with at least {} reads on "
-             'average; library sizes are every miRNA read the route reported at that depth, as the workflow scales counts per '
-             'million. Each route against its own calls at the full depth (BH-adjusted p of at most {}, in the same direction): '
+             'average; library sizes are {} at that depth. Each route against its own calls at the full depth (BH-adjusted p of at most {}, in the same direction): '
              '`recall / precision (calls)`; `full` shows the calls. These measure how depth changes a route\'s calls, not '
              'whether the calls are right: the full-depth calls are no truth, and a route that calls more there has more to '
              'recall. They are optimistic twice over: each depth is a subset of the full-depth reads, so its calls share their '
              'noise, and the full depth is what the project holds (a read cap where one was set), not what was sequenced.'.format(
-                 biological.MIN_READS, de.FDR)]
+                 biological.MIN_READS, library, de.FDR)]
     for _, title, points in contrasts:
         for test in de.TESTS:
             lines += ['', '**{}**, {}'.format(title, de.TEST_NAMES[test]), '']

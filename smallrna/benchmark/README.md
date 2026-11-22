@@ -249,10 +249,10 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
        median change of the log2 fold changes;
      - a mixture's contrasts between fractions against the expected changes, as for `depth` (set `between`). There
        every miRNA has an expected direction and size, so this is the best real test of what an arm does. The expected
-       changes are on the scale of a route's miRNA reads, the `workflow` arm's. `fixed` is scored against them shifted
-       by the log2 ratio of the route's miRNA share of filtered reads between the two fractions, from the unthinned
-       data (printed per contrast). `tmm` is scored on the workflow's scale, as TMM meeting a design where most miRNAs
-       change. A mixture's `tied` thins each contrast's lower fraction, the samples with less of the second tissue.
+       changes are on the scale of a route's miRNA reads, the `workflow` arm's. `fixed` is scored against them shifted,
+       per subject before the mean, by the log2 ratio of the route's miRNA share of filtered reads between the two
+       fractions, from the unthinned data (the mean over the subjects is printed per contrast). `tmm` is scored on the
+       workflow's scale, as TMM meeting a design where most miRNAs change. A mixture's `tied` thins each contrast's lower fraction, the samples with less of the second tissue.
    - **Realised depths** (`imbalance_depths.tsv`, a table in `imbalance.md`): per design and set, the median
      filtered reads times the fraction of each group, and their ratio. The ratios act on the project's own depths,
      which may differ between the groups already in `none` (a proportional read cap keeps them).

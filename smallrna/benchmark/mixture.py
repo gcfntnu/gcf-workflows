@@ -243,10 +243,11 @@ class Scores:
         return out
 
 
-def expected_changes(counts, design, ks, numerator, denominator):
+def expected_changes(counts, design, ks, numerator, denominator, offsets=None):
     """{feature: expected log2 fold change} of a method between two fractions: the mean over the subjects with both
     fractions and a content ratio (`ks`: {subject: k}) of log2(prediction at numerator / prediction at denominator), for
-    the miRNAs a subject's pure samples hold. Empty without such a subject."""
+    the miRNAs a subject's pure samples hold. Empty without such a subject. `offsets` ({subject: log2 shift}) is added to
+    each subject's log ratios before the mean (another scale, e.g. the `fixed` arm of #488)."""
     logs = []
     for subject, members in design.series.items():
         fractions = {fraction for fraction, _ in members}
@@ -254,7 +255,7 @@ def expected_changes(counts, design, ks, numerator, denominator):
             continue
         up, down = predicted(counts, members, numerator, ks[subject]), predicted(counts, members, denominator, ks[subject])
         with np.errstate(divide='ignore', invalid='ignore'):
-            logs.append(np.where((up > 0) & (down > 0), np.log2(up / down), np.nan))
+            logs.append(np.where((up > 0) & (down > 0), np.log2(up / down), np.nan) + (offsets or {}).get(subject, 0.0))
     if not logs:
         return {}
     logs = np.column_stack(logs)

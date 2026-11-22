@@ -363,8 +363,13 @@ def test_the_fixed_arm_shift_is_the_mirna_share_of_filtered_reads_between_fracti
     kept = {sample: 200000.0 if fraction >= 0.5 else 100000.0 for sample, fraction in
             ((row['sample'], row['fraction']) for row in samples())}   # twice the filtered reads from 50% on
     shift = benchmark.mixture_fixed_shift({'m': counts}, design, between, kept, ['m'])['m']
-    assert shift['.75_vs_25'] == pytest.approx(-1.0, abs=0.001) and shift['.50_vs_25'] == pytest.approx(-1.0, abs=0.001)
-    assert shift['.75_vs_50'] == pytest.approx(0.0, abs=0.001)   # the same miRNA reads and filtered reads at both
+    assert set(shift['.75_vs_25']) == {'A', 'B', 'C'} and all(v == pytest.approx(-1.0, abs=0.001) for v in shift['.75_vs_25'].values())
+    assert all(v == pytest.approx(0.0, abs=0.001) for v in shift['.75_vs_50'].values())   # the same reads and filtered reads at both
+    # the shift goes into each subject's log ratios before the mean, so it follows the subjects that define a miRNA
+    base = benchmark.mixture_expected({'m': counts}, design, between, ['m'])['m']['.75_vs_25']
+    offsets = {'m': {'.75_vs_25': {'A': 0.0, 'B': 0.0, 'C': 3.0}}}
+    moved = benchmark.mixture_expected({'m': counts}, design, between, ['m'], offsets)['m']['.75_vs_25']
+    assert set(moved) == set(base) and all(moved[f] == pytest.approx(base[f] + 1.0) for f in base)   # all three subjects define each
 
 
 FRACTION = {'all': (1.0, 0.0), 'contrast.50_vs_25': (0.5, 0.25), 'contrast.75_vs_25': (0.75, 0.25), 'contrast.75_vs_50': (0.75, 0.5)}
@@ -394,6 +399,7 @@ def test_depth_de_scores_a_mixture_against_its_expected_changes(tmp_path):
     report = (out / 'depth.md').read_text()
     assert '## Between the mixtures, against the expected changes' in report and '| full | 1.00 (1.00) / 0.00 / ' in report
     assert '**The pure samples (2 100 and 2 0 samples of 2 subjects)**' in report and '**scored**' in report
+    assert "library sizes are the route's reads on miRNAs with an accession at that depth" in report
 
 
 def test_imbalance_scores_a_mixture_against_its_expected_changes(tmp_path):
@@ -424,4 +430,5 @@ def test_imbalance_scores_a_mixture_against_its_expected_changes(tmp_path):
     assert 'mirge3\ttied-2\ttmm\tall\tedger_recall\t0.0' in tsv
     report = (out / 'imbalance.md').read_text()
     assert '## Between the mixtures, against the expected changes' in report and '| tied-2 | tmm | 0.00 (0.00) / - / ' in report
-    assert 'it is scored against the expected changes shifted by that ratio' in report and '| 75 against 25 | +0.00 | +0.00 |' in report
+    assert "each subject's log ratios before their mean" in report and '| 75 against 25 | +0.00 | +0.00 |' in report
+    assert "`workflow` (the route's reads on miRNAs with an accession)" in report
