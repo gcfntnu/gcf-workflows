@@ -3517,6 +3517,11 @@ def test_imbalance_of_an_evaluated_biological_project(tmp_path):
     assert sizes('tied-2_fixed/all')['mirge3'] == [87.0 if g == 'case' else 43.5 for g in groups]   # filtered reads (#453) times the fraction
     assert (out / 'de/tied-2_tmm/all/input/model.tsv').read_text() == de.model_text('case', 'control', (), biological.MIN_READS, 'tmm')
     assert 'then `benchmark.py imbalance --de` with the same ratios and seed' in (out / 'imbalance.md').read_text()
+    depths = (out / 'imbalance_depths.tsv').read_text().splitlines()   # 87 filtered reads in every sample
+    assert depths[0] == 'design\tset\tfirst\tsecond\tratio' and 'none\tall\t87.0\t87.0\t1.0' in depths
+    assert 'tied-2\tall\t87.0\t43.5\t2.0' in depths and 'independent-2\tall\t65.2\t65.2\t1.0' in depths
+    assert 'tied-2\tnull.case-1\t87.0\t43.5\t2.0' in depths
+    assert '| tied-2 | 87 / 44 (2.00) | 2.00 (2.00–2.00) |' in (out / 'imbalance.md').read_text()
     result = subprocess.run(command + ['--de'], capture_output=True, text=True, timeout=120)   # before de.smk
     assert result.returncode != 0 and 'no none_workflow/all/results.tsv or none_workflow/all/record.tsv or none_workflow/null.case-1/results.tsv ...' in result.stderr
     full_fits = {'MIMAT0000069': (0.4, 0.001, 0.01), 'MIMAT0000076': (-0.6, 0.01, 0.03), 'MIMAT0001631': (None, None, None)}
@@ -3532,7 +3537,7 @@ def test_imbalance_of_an_evaluated_biological_project(tmp_path):
     report = (out / 'imbalance.md').read_text()
     assert '## Null comparisons (#449)' in report and '| tied-2 | fixed | 0.50 (1.00) +0.05 | 0.50 (1.00) +0.05 |' in report
     assert '## The contrast (4 case and 4 control samples)' in report and '| tied-2 | workflow | 0.50 / 1.00 (1) +0.15 |' in report
-    assert '| none | tmm | 2 | 2 |' in report and 'edgeR 4.10.7, limma 3.68.5' in report
+    assert '| none | tmm | 2 | 2 |' in report and 'edgeR 4.10.7, limma 3.68.5' in report and '## Realised depths' in report
     before = {name: (out / name).read_text() for name in ('imbalance.md', 'imbalance.tsv')}
     result = subprocess.run(command + ['--de', '--seed', '2'], capture_output=True, text=True, timeout=120)   # another draw
     assert result.returncode != 0 and 'de/independent-2_workflow/all/results.tsv comes from other inputs' in result.stderr

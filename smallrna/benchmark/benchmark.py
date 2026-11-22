@@ -2597,7 +2597,15 @@ def imbalance(args):
                 texts.update(biological_de_texts([at[(s.folder, arm)]], methods, rows, {folder: features[s.folder]}, sizes)[1])
         return texts, at
 
-    header = imbalance_series.lines(spec['name'], [], [], methods, ratios, args.seed, '', md_table)[:3]
+    realised = []  # (design, set folder, median filtered reads times fraction of the first group, of the second)
+    for scenario, design, ratio in scenarios:
+        for s in sets:
+            members, second = [(sample, group) for sample, group, _ in s.design], imbalance_series.denominator(s.model)
+            fraction = imbalance_series.fractions(design, ratio, members, second, imbalance_series.generator(args.seed, scenario, s.folder))
+            reads = [statistics.median(kept[x] * fraction[x] for x, group in members if (group == second) == is_second) for is_second in (False, True)]
+            realised.append((scenario, s.folder, *reads))
+    header = imbalance_series.lines(spec['name'], [], [], methods, ratios, args.seed, '', md_table)[:3] + \
+        imbalance_series.realised_lines(realised, md_table)
     if not args.de:
         folders = []
         for scenario, design, ratio in scenarios:
@@ -2607,6 +2615,7 @@ def imbalance(args):
             folders += list(texts)
         de.write_changed(root / de.LEVELS, de.levels_text([folder.split('/') for folder in folders]))
         (out / 'imbalance.tsv').unlink(missing_ok=True)  # scores of an earlier draw, if any
+        write_tsv(out / 'imbalance_depths.tsv', ['design', 'set', 'first', 'second', 'ratio'], imbalance_series.realised_rows(realised))
         header += ['', 'The inputs of {} DE sets in {} designs and {} arms are in `de/`. Run de.smk on them (`snakemake -s '
                    '<repo>/smallrna/benchmark/de.smk -d {} --config de=de --use-apptainer`), then `benchmark.py imbalance --de` with the '
                    'same ratios and seed.'.format(len(sets), len(scenarios), len(imbalance_series.ARMS), out)]
@@ -2649,8 +2658,8 @@ def imbalance(args):
     null_points = ordered(null_points)
     out.mkdir(parents=True, exist_ok=True)
     write_tsv(out / 'imbalance.tsv', ['method', 'design', 'arm', 'set', 'metric', 'value'], imbalance_series.rows(titled, null_points, methods))
-    (out / 'imbalance.md').write_text('\n'.join(imbalance_series.lines(spec['name'], titled, null_points, methods, ratios, args.seed,
-                                                                       versions, md_table)) + '\n')
+    body = imbalance_series.lines(spec['name'], titled, null_points, methods, ratios, args.seed, versions, md_table)
+    (out / 'imbalance.md').write_text('\n'.join(header + body[3:]) + '\n')
     print(out / 'imbalance.md')
 
 

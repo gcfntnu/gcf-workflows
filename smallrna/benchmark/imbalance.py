@@ -11,8 +11,12 @@ Designs, each at the given ratios r:
 - `independent-<r>`: in each of the set's two groups, half the samples (a seeded draw) thinned to 1/r, the others
   kept, so the imbalance is unrelated to the group;
 - `tied-<r>`: the set's second group (the contrast's denominator, a null split's `y`) thinned to 1/r, so the first
-  group is r times deeper, as the adenomyosis samples are in the GSE317995 plasma series;
+  group is r times deeper than it was, as the adenomyosis samples are in the GSE317995 plasma series; only the second
+  group is thinned, so a contrast is tested with its imbalance in one direction;
 - `none`: the set unthinned, the control.
+
+The ratios act on the project's own depths, which may already differ between the groups (a proportional read cap
+keeps them): the realised depths, the groups' median filtered reads times their fractions, are reported per design.
 
 Thinning keeps each sample's composition and every arm's library sizes follow it, so no arm's expected fold changes
 move: the designs show what the imbalance costs (power, and false calls from the shallower samples' extra variance
@@ -119,6 +123,34 @@ def null_offsets(splits, rows):
     return out
 
 
+def realised_rows(realised):
+    """imbalance_depths.tsv's rows (design, set, first, second, ratio) from `realised` [(design, set folder, median
+    filtered reads times fraction of the set's first group, of its second)]."""
+    return [[scenario, depth.de_set_name(folder), round(first, 1), round(second, 1), round(first / second, 3) if second else '']
+            for scenario, folder, first, second in realised]
+
+
+def realised_lines(realised, md_table):
+    """imbalance.md's table of realised depths: per design, the contrast's sets' medians and their ratio, and the null
+    splits' ratio, median and range over the splits."""
+    names = list(dict.fromkeys(folder for _, folder, _, _ in realised if not folder.startswith(de.NULL + '/')))
+    has_nulls = any(folder.startswith(de.NULL + '/') for _, folder, _, _ in realised)
+    table = []
+    for scenario in dict.fromkeys(scenario for scenario, _, _, _ in realised):
+        mine = [(folder, first, second) for sc, folder, first, second in realised if sc == scenario]
+        cells = ['{:,.0f} / {:,.0f} ({:.2f})'.format(first, second, first / second) for folder, first, second in mine
+                 if folder in names]
+        if has_nulls:
+            ratios = [first / second for folder, first, second in mine if folder.startswith(de.NULL + '/')]
+            cells.append('{:.2f} ({:.2f}–{:.2f})'.format(statistics.median(ratios), min(ratios), max(ratios)))
+        table.append([scenario] + cells)
+    header = ['design'] + [depth.de_set_name(name) for name in names] + (['null splits'] if has_nulls else [])
+    return ['', '## Realised depths', '',
+            'Filtered reads times the thinning fraction, median per group: first / second (their ratio); for the null splits, '
+            'the ratio\'s median and range over the splits. The ratios act on these depths, which may differ already in `none`.',
+            ''] + md_table(header, table)
+
+
 def rows(contrasts, nulls, methods):
     """imbalance.tsv's rows (method, scenario, arm, set, metric, value): `contrasts` [(set, title, [(scenario, arm,
     {row: values})])]; `nulls` [(scenario, arm, {row: values})], the set `null`."""
@@ -138,8 +170,8 @@ def lines(name, contrasts, nulls, methods, ratios, seed, versions, md_table):
            'Each DE set thinned unevenly from the evaluation\'s count tables, binomially (seed {}), and tested again with de.R in '
            'three normalisation arms (#488): `workflow` (every miRNA read the route reported), `fixed` (the sample\'s filtered '
            'reads times its thinning fraction) and `tmm` (edgeR\'s TMM factors on the workflow\'s). `independent-<r>`: in each '
-           'group of the set, half the samples thinned to 1/r; `tied-<r>`: the set\'s second group thinned to 1/r, so the first is '
-           'r times deeper; `none`: unthinned. Ratios: {}. Thinning keeps each sample\'s composition and every arm\'s library sizes '
+           'group of the set, half the samples thinned to 1/r; `tied-<r>`: the set\'s second group only thinned to 1/r, so a '
+           'contrast is tested with the imbalance in one direction; `none`: unthinned. Ratios: {}. Thinning keeps each sample\'s composition and every arm\'s library sizes '
            'follow it, so the designs show what the imbalance costs (power, false calls from the shallower samples\' variance), '
            'not a bias from composition. Each set is tested over the miRNAs of its evaluation.'.format(
                seed, ', '.join('{:g}'.format(r) for r in ratios))]

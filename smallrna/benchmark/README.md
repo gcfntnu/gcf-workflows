@@ -227,7 +227,8 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
 
    - **Designs** per set (the contrast, each level of `within`, the #449 null splits), at each ratio r:
      - `independent-<r>`: half the samples of each group, a seeded draw, thinned to 1/r.
-     - `tied-<r>`: the set's second group (the contrast's denominator, a split's `y`) thinned to 1/r.
+     - `tied-<r>`: the set's second group only (the contrast's denominator, a split's `y`) thinned to 1/r, so a
+       contrast is tested with the imbalance in one direction.
      - `none`: unthinned.
    - **Arms:**
      - `workflow`: every miRNA read the route reported, the evaluation's library size.
@@ -240,6 +241,9 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
        median log2 fold change (every change is null, so any shift comes from the normalisation);
      - the contrast's sets against the same arm's unthinned fits: `calls`, `recall`, `precision` and `fc_shift`, the
        median change of the log2 fold changes.
+   - **Realised depths** (`imbalance_depths.tsv`, a table in `imbalance.md`): per design and set, the median
+     filtered reads times the fraction of each group, and their ratio. The ratios act on the project's own depths,
+     which may differ between the groups already in `none` (a proportional read cap keeps them).
    - **Caveat:** thinning keeps each sample's composition and every arm's library sizes follow it. The designs
      therefore show the cost of the imbalance (power, false calls from the shallower samples' variance), not a bias
      from composition.
