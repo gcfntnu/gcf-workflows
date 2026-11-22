@@ -42,7 +42,7 @@ def tesmall_settings():
     """The settings that decide TEsmall's counting, recorded with its table (quant_settings, #417)."""
     return [('order', ','.join(TESMALL_ORDER), 'quant.tesmall.order'), ('max_length', str(TESMALL_CONF['max_length']), 'quant.tesmall.max_length'),
             ('mismatch', str(TESMALL_CONF['mismatch']), 'quant.tesmall.mismatch'), ('maxaln', str(TESMALL_CONF['maxaln']), 'quant.tesmall.maxaln'),
-            ('structural_rnacentral', str(TESMALL_RNACENTRAL).lower(), 'quant.tesmall.structural_rnacentral'),
+            ('structural_rnacentral', str(TESMALL_WITH_RNACENTRAL).lower(), 'quant.tesmall.structural_rnacentral'),  # the database used
             ('minimum_length', str(TESMALL_MIN_LENGTH), 'kit'), ('arguments', '--no-trim ' + TESMALL_ARGS, 'fixed and the above'),
             ('multimappers', 'split equally within a class; counts rounded by TEsmall', 'fixed')]
 
