@@ -3104,7 +3104,7 @@ def test_routes_not_evaluated_get_a_state_in_the_report_and_the_summary(tmp_path
     row = next(line for line in summary_md.read_text().splitlines() if line.startswith('| [project]'))
     import summary
     keys = next(keys for kind, _, keys, _ in summary.SECTIONS if kind == 'biological')
-    assert row.count('not run') == 2 * len(keys) and 'stopped' not in row   # mirge3 and tinyrna in each key metric
+    assert row.count('not run') == 2 * len([k for k in keys if k not in summary.OPTIONAL]) and 'stopped' not in row   # mirge3 and tinyrna in each key metric, but the MirGeneDB strata, which this evaluation lacks (#493)
     write(bench / 'routes.tsv', 'route\tstate\treason\nunitas\tstopped\tedited\n')   # not the published file: the summary refuses it
     result = subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'summary', '--projects', str(project), '--output', str(summary_md)],
                             capture_output=True, text=True, timeout=60)
@@ -3885,6 +3885,9 @@ def test_mirgenedb_strata_split_detection_reads_and_disputes(tmp_path):
     assert listed == {'MIMAT0000069': 'mirgenedb', 'MIMAT0000076': 'star'} and info == {'release': 'v3.0', 'species': {'Hsa'}}
     with pytest.raises(ValueError, match='no miRNA row'):
         mirgenedb.read_gff(write(tmp_path / 'empty.gff3', '##gff-version 3\n'))
+    # only the Alias attribute counts: an accession in Dbxref alone is not listed
+    other, _ = mirgenedb.read_gff(write(tmp_path / 'x.gff3', 'chr1\t.\tmiRNA\t1\t22\t.\t+\t.\tID=Hsa-Mir-1_5p;Alias=MIMAT0000001;Dbxref=MIMAT0000002\n'))
+    assert other == {'MIMAT0000001': 'mirgenedb'}
     stratum = mirgenedb.strata(listed, [['MIMAT0000001', 'MIMAT0000076']])   # a group whose second member is a star arm
     assert [stratum(a) for a in ('MIMAT0000069', 'MIMAT0000076', 'MIMAT0000001', 'MIMAT0009999')] == ['mirgenedb', 'star', 'star', 'mirbase_only']
     by = {('a', 'S1'): {'MIMAT0000069': 900, 'MIMAT0009999': 100}, ('a', 'S2'): {'MIMAT0000069': 5, 'MIMAT0009999': 15},
@@ -3915,6 +3918,7 @@ def test_evaluate_with_mirgenedb_strata(tmp_path):
     mouse = write(tmp_path / 'mouse_MirGeneDB.gff3', MIRGENEDB_GFF.replace('Hsa-', 'Mmu-'))
     result = evaluate_cmd(project, '--mirgenedb', str(mouse))
     assert result.returncode != 0 and 'has MirGeneDB IDs of Mmu, not of homo_sapiens (Hsa-)' in result.stderr
+    assert (project / 'benchmark/report.md').read_text() == report   # stopped before writing anything
     assert 'mirgenedb 0 of 1; star 0 of 1; mirbase_only 0 of 0' in report
     pool = de_project(tmp_path / 'pool')
     result = evaluate_cmd(pool, '--mirgenedb', str(gff))

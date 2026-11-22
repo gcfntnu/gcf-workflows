@@ -220,8 +220,9 @@ class Evaluation:
         return out
 
     def strata(self, name, extra=None):
-        """recovered per stratum; `extra` ({stratum: units}, e.g. MirGeneDB's, #493) adds strata."""
-        groups = collections.defaultdict(list)
+        """recovered per stratum; `extra` ({stratum: units}, e.g. MirGeneDB's, #493) adds strata, each shown even when
+        empty."""
+        groups = collections.defaultdict(list, {stratum: [] for stratum in (extra or {})})
         for i in self.units:
             m = self.mirnas.get(i)
             if not m or float(m['base_per_million']) <= 0:

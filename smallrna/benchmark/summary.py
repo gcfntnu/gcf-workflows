@@ -196,12 +196,16 @@ def summarize(projects, out_dir):
         if not rows:
             continue
         methods = list(dict.fromkeys([c for row in rows for c in row['columns']] + [m for row in rows for m in row['status']]))
+        present = {k for row in rows for k, _ in row['values']}  # the strata metrics (#493) get route states only where evaluated
         for row in rows:
-            row['values'].update({(k, m): state for k in keys for m, state in row['status'].items()})
+            row['values'].update({(k, m): state for k in keys if k in present or k not in OPTIONAL for m, state in row['status'].items()})
         metrics = [(k, [m for m in methods if any((k, m) in row['values'] for row in rows)]) for k in keys]
         metrics = [(k, ms) for k, ms in metrics if ms]
         sections.append((title, note, metrics, rows, over_seeds(rows, metrics), settings_variants(rows, metrics)))
     return sections
+
+
+OPTIONAL = {'detected.mirgenedb', 'detected.star', 'detected.mirbase_only'}  # metrics of an option (evaluate --mirgenedb, #493)
 
 
 def number(value):

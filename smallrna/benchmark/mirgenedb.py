@@ -41,11 +41,12 @@ def read_gff(path):
                 continue
             if len(fields) < 9 or fields[2] != 'miRNA':
                 continue
-            prefix = re.search(r'(?:^|;)ID=([A-Za-z]+)-', fields[8])
+            attributes = dict(part.split('=', 1) for part in fields[8].strip().strip(';').split(';') if '=' in part)
+            prefix = re.match(r'([A-Za-z]+)-', attributes.get('ID', ''))
             if prefix:
                 info['species'].add(prefix.group(1))
-            star = re.search(r'(?:^|;)ID=[^;]*\*(?:;|$)', fields[8]) is not None
-            for accession in re.findall(r'MIMAT\d+', fields[8]):
+            star = attributes.get('ID', '').endswith('*')
+            for accession in (a.strip() for a in attributes.get('Alias', '').split(',') if re.fullmatch(r'MIMAT\d+', a.strip())):
                 if listed.get(accession) != 'mirgenedb':  # an accession listed as an arm and as a star arm is an arm
                     listed[accession] = 'star' if star else 'mirgenedb'
     if not listed:

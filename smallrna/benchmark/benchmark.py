@@ -1046,6 +1046,7 @@ def evaluate(args):
     ext_dir = Path(config['ext_dir'])
     if args.mirgenedb and spec['kind'] != 'biological' and not (spec['kind'] == 'synthetic' and synthetic_mode(spec) == 'genome'):
         fail('--mirgenedb (#493) is for biological datasets and the genome-wide synthetic set, not this {} dataset'.format(spec['kind']))
+    args.mirgenedb_read = read_mirgenedb(args, spec['organism'])  # before any table is written
     stopped = check_methods(project, spec, config)
     states = route_states(bench, spec, stopped)
     scored = [route for route, state, _ in states if state == 'evaluated']
@@ -1822,7 +1823,7 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
                  'DE with the tests of the ratiometric pools (`edger_*`, `edger_glm_*`, `voom_*`): the section below.' if de_results else
                  'DE with the tests of the ratiometric pools: run de.smk, then `evaluate --de` (#447).' if 'de' in spec else ''), '']
     lines += md_table(['metric'] + rows, [row for row in metric_rows if row[0] in table_keys])
-    stratum, source = mirgenedb_strata(args, groups, spec['organism'])
+    stratum, source = mirgenedb_strata(args, groups)
     extra_strata = {s: {i for i in ev.units if stratum(i) == s} for s in mirgenedb.STRATA} if stratum else None  # #493
     strata = {name: ev.strata(name, extra_strata) for name in rows}
     names = sorted({k for v in strata.values() for k in v})
@@ -1915,12 +1916,14 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
     print(bench / 'report.md')
 
 
-def mirgenedb_strata(args, groups, organism):
-    """(stratum(accession), the report's line on the source) of `evaluate --mirgenedb` (#493), or (None, None); stops
-    when the file's MirGeneDB IDs are not those of the dataset's organism."""
+def read_mirgenedb(args, organism):
+    """`evaluate --mirgenedb` (#493), read and checked before an evaluation writes anything: (listed, the report's
+    line on the source) or None; stops when the file has no miRNA row with a miRBase alias or its MirGeneDB IDs are not
+    those of the dataset's organism."""
     if not args.mirgenedb:
-        return None, None
+        return None
     try:
+        data = args.mirgenedb.read_bytes()
         listed, info = mirgenedb.read_gff(args.mirgenedb)
     except (OSError, ValueError) as error:
         fail('--mirgenedb: {}'.format(error))
@@ -1929,8 +1932,16 @@ def mirgenedb_strata(args, groups, organism):
         fail('--mirgenedb: {} has MirGeneDB IDs of {}, not of {} ({}-)'.format(
             args.mirgenedb, ', '.join(sorted(info['species'])) or 'no species', organism, expected))
     counts = collections.Counter(listed.values())
-    return mirgenedb.strata(listed, groups), 'MirGeneDB {} annotation `{}` (SHA-256 `{}`): {} accessions listed, {} of them star arms.'.format(
-        info['release'] or '(release not in the header)', args.mirgenedb.name, mirgenedb.sha256(args.mirgenedb), len(listed), counts['star'])
+    return listed, 'MirGeneDB {} annotation `{}` (SHA-256 `{}`): {} accessions listed, {} of them star arms.'.format(
+        info['release'] or '(release not in the header)', args.mirgenedb.name, hashlib.sha256(data).hexdigest(), len(listed), counts['star'])
+
+
+def mirgenedb_strata(args, groups):
+    """(stratum(accession), the report's line on the source) of the --mirgenedb file read by evaluate, or (None, None)."""
+    if not getattr(args, 'mirgenedb_read', None):
+        return None, None
+    listed, source = args.mirgenedb_read
+    return mirgenedb.strata(listed, groups), source
 
 
 def evaluate_biological(args, project, bench, spec, ext_dir):
@@ -2029,7 +2040,7 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
     for m in methods:
         summary[m].update(iso.get(m, dict.fromkeys(isomirs.BIOLOGICAL_KEYS, '')))
     keys += isomirs.BIOLOGICAL_KEYS
-    stratum, source = mirgenedb_strata(args, groups, spec['organism'])
+    stratum, source = mirgenedb_strata(args, groups)
     strata_lines = []
     if stratum:  # #493
         by_accession = biological.counts_by(common)
