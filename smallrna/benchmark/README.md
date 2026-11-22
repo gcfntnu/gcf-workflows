@@ -155,7 +155,11 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    Projects of one synthetic declaration that differ only by the seed of the draw (`prepare --synthetic-seed`, #455)
    also get a table over the seeds after their section: per key metric and route the mean and the range, and how many
    pairs of the routes with a value in every seed keep their order in every seed. Two projects with one seed stop it. The seed is read from `evaluation.json`
-   (`synthetic_seed`), or from the project's `benchmark/dataset.yaml` for an earlier evaluation. It writes nothing into the
+   (`synthetic_seed`), or from the project's `benchmark/dataset.yaml` for an earlier evaluation.
+   A settings variant (`prepare --set`, #417) gets a table against the project of the same dataset, samples, draw and
+   reads processed run with the defaults (metrics over the routes' shared features left out): per key metric, the
+   varied route's value with the defaults and with the setting, and the routes whose order with it (higher, lower or
+   equal) the setting changes. Two such default projects stop it. It writes nothing into the
    projects; an output inside one stops it. New evaluations publish `evaluation.json` with checksums for the metrics
    and report. For an older evaluation, the metrics must match the complete metrics table embedded in the report.
    New evaluations coordinate readers and writers through a regular lock file in the benchmark directory. Legacy
@@ -270,7 +274,15 @@ picks a subset of the declared methods (mirflowz and TEsmall on human need the f
 biological dataset, `--per-group N` the first N samples of each group in declared order; for a synthetic dataset,
 `--synthetic-seed N` another draw of the same declaration (#455: the miRNAs chosen, their abundances and changes, the
 counts and, for the genome-wide set, the decoys), each seed a project of its own, recorded in its
-`benchmark/dataset.yaml` and in `evaluation.json`. Every declaration lists the
+`benchmark/dataset.yaml` and in `evaluation.json`; `--set quant.ROUTE.SETTING=VALUE` (repeatable) a settings variant
+(#417): a route setting of `smallrna.config` changed for the project, for a route it runs, not to its default. The
+variant is recorded as `variant` in `benchmark/dataset.yaml` and named in the report; run it with only the varied route
+(`--methods`) and compare it with the project run with the defaults in `summary`. #417's variants: tiny-count
+`mismatch` 1 and `normalize_by_genomic_hits` false, TEsmall's own class `order`
+(`structural_RNA,miRNA,hairpin,exon,TE,intron,piRNA_cluster`). miRge3's `--crThreshold` is no variant: the scored
+table is rebuilt from miRge3's alignments (exact and isomiR reads of miRNAs with 2 exact reads in the project), which
+the threshold does not reach; mirflowz's multimapper handling is not configurable. `evaluate` scores a variant only when
+its route's settings record (`quant/<route>/settings.tsv`) has the setting at the variant's value. Every declaration lists the
 eight routes (#448); the ones left out at `prepare` are `not run` in the evaluation. Run `quant_all` with
 `--notemp`: the oracle count reads the workflow's filtered reads, those of the project's filter route (`filter/cutadapt/`
 with the kit default; the spike-in prefilter's when the project's `filter.spikein.ref` lists sets removed by Bowtie,
