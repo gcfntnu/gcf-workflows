@@ -210,3 +210,21 @@ def test_join_rejects_duplicate_keys_in_a_native_table(tmp_path):
     native.write_text('Feature ID,Classifier,Feature Name,S1_rep_1\nMIMAT1,miRNA,mir-1,2\nMIMAT1,miRNA,mir-1,3\n')
     with pytest.raises(SystemExit, match='duplicate feature ID and classifier'):
         tinyrna.read_counts(native, 'S1')
+
+
+def test_seed_alignment_mode(tmp_path):
+    """quant.tinyrna.alignment: seed (#417): Bowtie's seed mode, -n mismatch -l seed_length -e 40 per mismatch allowed in
+    the read (FASTA reads score quality 40 per base); the default keeps the end-to-end command; bad values stop at load."""
+    seed = lambda **kw: (lambda s: s['quant'].setdefault('tinyrna', {}).update(alignment='seed', **kw))
+    returncode, output = dry_run(tmp_path, 'tinyrna', seed(seed_length=16, seed_total=2), printshell=True)
+    assert returncode == 0, output
+    align = rule_block(output, 'tinyrna_align')
+    assert '-n 0 -l 16 -e 80 --all --best --strata --no-unal --sam --seed 0' in align and ' -v ' not in align
+    returncode, output = dry_run(tmp_path / 'default', 'tinyrna', printshell=True)
+    assert returncode == 0 and '-f {}/SR0'.format(OUT) in output and '-v 0 --all --best' in rule_block(output, 'tinyrna_align')
+    for value, message in ((dict(seed_length=4), 'quant.tinyrna.seed_length must be a whole number from 5 to 32'),
+                           (dict(seed_total=0, mismatch=1), 'quant.tinyrna.seed_total must be a whole number from quant.tinyrna.mismatch to 3')):
+        returncode, output = dry_run(tmp_path / str(len(message)), 'tinyrna', seed(**value))
+        assert returncode != 0 and message in output, output
+    returncode, output = dry_run(tmp_path / 'mode', 'tinyrna', lambda s: s['quant'].setdefault('tinyrna', {}).update(alignment='local'))
+    assert returncode != 0 and "quant.tinyrna.alignment must be end_to_end or seed, got 'local'" in output
