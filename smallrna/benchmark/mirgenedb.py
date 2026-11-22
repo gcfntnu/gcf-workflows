@@ -165,7 +165,7 @@ def mixture_values(scores, counts, methods, stratum):
 
 def null_keys():
     """The null comparisons' share of tested miRNAs called (#449) per stratum, `<test>_null_called.<stratum>`, and
-    `null_tested.<stratum>`, the stratum's miRNAs tested (median over the splits)."""
+    `null_tested.<stratum>`, the stratum's miRNAs tested (median over the splits that test any of them)."""
     return ['{}_null_called.{}'.format(t, s) for t in NULL_TESTS for s in STRATA] + ['null_tested.' + s for s in STRATA]
 
 
@@ -178,7 +178,8 @@ def null_values(splits, methods, stratum):
         values = de.null_scores(subsets, methods)[0]
         for m in methods:
             out[m].update({'{}_null_called.{}'.format(t, s): values[m][t + '_null_called'] for t in NULL_TESTS})
-            tested = [sum(1 for f in features if results[(m, de.TESTS[0], f)][1] is not None) for results, features in subsets]
+            # over the splits that test any of the stratum's miRNAs, as null_called's median
+            tested = [n for n in (sum(1 for f in features if results[(m, de.TESTS[0], f)][1] is not None) for results, features in subsets) if n]
             out[m]['null_tested.' + s] = statistics.median(tested) if tested else 0
     return out
 
