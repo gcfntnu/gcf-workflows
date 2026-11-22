@@ -11,7 +11,8 @@ accession gets a stratum:
 
 Identical sequences count as one accession, as the evaluation collapses them (biological.collapse): the group takes
 the first of these strata any member has. The strata split the per-miRNA metrics: for biological datasets the miRNAs
-detected and the share of the miRNA reads per stratum, and the miRNAs the routes dispute most; for the genome-wide
+detected, those detected by no other route and the share of the miRNA reads per stratum, and the miRNAs the routes
+dispute most; for the genome-wide
 synthetic set the recovery per stratum.
 """
 import collections
@@ -24,23 +25,32 @@ MIN_READS = 10         # a miRNA counts as detected in a sample with at least th
 DISPUTED_READS = 100   # a miRNA is weighed when some route counts at least this many reads over the samples
 DISPUTED_FOLD = 4      # disputed: the routes' totals differ at least this much, (max + 1) / (min + 1)
 LISTED = 20            # disputed miRNAs listed in the report
+SPECIES = {'homo_sapiens': 'Hsa', 'mus_musculus': 'Mmu', 'rattus_norvegicus': 'Rno'}   # MirGeneDB's ID prefixes
 
 
 def read_gff(path):
-    """{miRBase accession: 'mirgenedb' or 'star'} of a MirGeneDB GFF3's `miRNA` rows; ValueError without any."""
-    listed = {}
+    """({miRBase accession: 'mirgenedb' or 'star'} of a MirGeneDB GFF3's `miRNA` rows, {'release': the header's
+    MirGeneDB release, 'species': the ID prefixes}); ValueError without any such row."""
+    listed, info = {}, {'release': '', 'species': set()}
     with open(path) as fh:
         for line in fh:
             fields = line.rstrip('\n').split('\t')
-            if line.startswith('#') or len(fields) < 9 or fields[2] != 'miRNA':
+            if line.startswith('#'):
+                found = re.search(r'MirGeneDB\s+(v?[0-9][0-9.]*)', line)
+                info['release'] = info['release'] or (found.group(1) if found else '')
                 continue
+            if len(fields) < 9 or fields[2] != 'miRNA':
+                continue
+            prefix = re.search(r'(?:^|;)ID=([A-Za-z]+)-', fields[8])
+            if prefix:
+                info['species'].add(prefix.group(1))
             star = re.search(r'(?:^|;)ID=[^;]*\*(?:;|$)', fields[8]) is not None
             for accession in re.findall(r'MIMAT\d+', fields[8]):
                 if listed.get(accession) != 'mirgenedb':  # an accession listed as an arm and as a star arm is an arm
                     listed[accession] = 'star' if star else 'mirgenedb'
     if not listed:
         raise ValueError('{}: no miRNA row with a miRBase accession (Alias=MIMAT...)'.format(path))
-    return listed
+    return listed, info
 
 
 def sha256(path):
@@ -59,20 +69,24 @@ def strata(listed, groups=()):
 
 
 def keys():
-    """The biological metrics per stratum: `detected.<stratum>` and `reads.<stratum>`."""
-    return ['{}.{}'.format(what, s) for what in ('detected', 'reads') for s in STRATA]
+    """The biological metrics per stratum: `detected.<stratum>`, `detected_alone.<stratum>` and `reads.<stratum>`."""
+    return ['{}.{}'.format(what, s) for what in ('detected', 'detected_alone', 'reads') for s in STRATA]
 
 
 def biological_values(by, methods, samples, stratum):
-    """{method: {detected.<stratum>: median per sample of the miRNAs with at least MIN_READS reads, reads.<stratum>:
-    median share of the sample's miRNA reads (on accessions)}} from `by` ({(method, sample): {accession: count}},
+    """{method: {detected.<stratum>: median per sample of the miRNAs with at least MIN_READS reads,
+    detected_alone.<stratum>: of those, the ones no other method detects in the sample, reads.<stratum>: median share
+    of the sample's miRNA reads (on accessions)}} from `by` ({(method, sample): {accession: count}},
     biological.counts_by)."""
+    detected = {(m, s): {a for a, v in by.get((m, s), {}).items() if v >= MIN_READS} for m in methods for s in samples}
     out = {}
     for m in methods:
         out[m] = {}
         per = [by.get((m, s), {}) for s in samples]
+        alone = [detected[(m, x)] - set().union(*(detected[(o, x)] for o in methods if o != m)) for x in samples]
         for s in STRATA:
             out[m]['detected.' + s] = statistics.median(sum(1 for a, v in c.items() if v >= MIN_READS and stratum(a) == s) for c in per)
+            out[m]['detected_alone.' + s] = statistics.median(sum(1 for a in d if stratum(a) == s) for d in alone)
             shares = [sum(v for a, v in c.items() if stratum(a) == s) / sum(c.values()) for c in per if sum(c.values())]
             out[m]['reads.' + s] = round(statistics.median(shares), 4) if shares else ''
     return out
@@ -106,8 +120,8 @@ def biological_lines(values, counts, rows, methods, name, source, md_table):
     lines = ['', '## MirGeneDB strata (#493)', '',
              'Each miRBase accession by MirGeneDB stratum: `mirgenedb` (listed), `star` (listed as a star arm), `mirbase_only` (not '
              'listed); identical sequences count as one, in the first stratum any of them has. Per route: `detected.<stratum>`, the '
-             'miRNAs with at least {} reads (median over samples), and `reads.<stratum>`, the share of the miRNA reads (median over '
-             'samples). {}'.format(MIN_READS, source), '']
+             'miRNAs with at least {} reads (median over samples); `detected_alone.<stratum>`, those of them no other route detects '
+             'in the sample; and `reads.<stratum>`, the share of the miRNA reads (median over samples). {}'.format(MIN_READS, source), '']
     lines += md_table(['metric'] + methods, [[k] + [values[m][k] for m in methods] for k in keys()])
     lines += ['', '**Disputed miRNAs:** of the miRNAs some route counts at least {} reads over the samples, those whose routes\' '
               'totals differ at least {}-fold, (max + 1) / (min + 1): {}.'.format(

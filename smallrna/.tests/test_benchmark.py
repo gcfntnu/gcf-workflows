@@ -3872,7 +3872,7 @@ def test_false_calls_against_the_changes_need_them_mostly_one_way():
 
 import mirgenedb  # noqa: E402
 
-MIRGENEDB_GFF = ('##gff-version 3\n'
+MIRGENEDB_GFF = ('##gff-version 3\n# microRNAs:    MirGeneDB v3.0\n'
                  'chr1\t.\tpre_miRNA\t1\t60\t.\t+\t.\tID=Hsa-Mir-15-P2a_pre;Alias=MI0000070\n'
                  'chr1\t.\tmiRNA\t1\t22\t.\t+\t.\tID=Hsa-Mir-15-P2a_5p;Alias=MIMAT0000069\n'
                  'chr1\t.\tmiRNA\t40\t60\t.\t+\t.\tID=Hsa-Mir-21_3p*;Alias=MIMAT0000076\n')
@@ -3881,8 +3881,8 @@ MIRGENEDB_GFF = ('##gff-version 3\n'
 def test_mirgenedb_strata_split_detection_reads_and_disputes(tmp_path):
     """#493: arms, star arms and miRBase-only accessions; an identical-sequence group takes its members' first stratum;
     detected and read share per stratum; the disputed miRNAs."""
-    listed = mirgenedb.read_gff(write(tmp_path / 'm.gff3', MIRGENEDB_GFF))
-    assert listed == {'MIMAT0000069': 'mirgenedb', 'MIMAT0000076': 'star'}
+    listed, info = mirgenedb.read_gff(write(tmp_path / 'm.gff3', MIRGENEDB_GFF))
+    assert listed == {'MIMAT0000069': 'mirgenedb', 'MIMAT0000076': 'star'} and info == {'release': 'v3.0', 'species': {'Hsa'}}
     with pytest.raises(ValueError, match='no miRNA row'):
         mirgenedb.read_gff(write(tmp_path / 'empty.gff3', '##gff-version 3\n'))
     stratum = mirgenedb.strata(listed, [['MIMAT0000001', 'MIMAT0000076']])   # a group whose second member is a star arm
@@ -3892,6 +3892,7 @@ def test_mirgenedb_strata_split_detection_reads_and_disputes(tmp_path):
     values = mirgenedb.biological_values(by, ['a', 'b'], ['S1', 'S2'], stratum)
     assert values['a']['detected.mirgenedb'] == 0.5 and values['a']['detected.mirbase_only'] == 1.0 and values['b']['detected.mirbase_only'] == 0
     assert values['a']['reads.mirbase_only'] == round(statistics.median([0.1, 0.75]), 4) and values['b']['reads.mirgenedb'] == 1.0
+    assert values['a']['detected_alone.mirbase_only'] == 1.0 and values['a']['detected_alone.mirgenedb'] == 0 and values['b']['detected_alone.mirgenedb'] == 0
     counts, rows = mirgenedb.disputed(by, ['a', 'b'], stratum)
     assert counts == {'mirgenedb': (1, 0), 'star': (0, 0), 'mirbase_only': (1, 1)}   # 115 reads against none
     assert rows == [(116.0, 'MIMAT0009999', {'a': 115}, 'mirbase_only')]
@@ -3909,7 +3910,11 @@ def test_evaluate_with_mirgenedb_strata(tmp_path):
     table = {line.split('\t')[0]: line.split('\t')[1:] for line in (project / 'benchmark/metrics.tsv').read_text().splitlines()}
     assert table['detected.mirgenedb'] == ['0.5', '0.5'] and table['detected.star'] == ['1.0', '0.5'] and table['detected.mirbase_only'] == ['0.0', '0.0']
     report = (project / 'benchmark/report.md').read_text()
-    assert '## MirGeneDB strata (#493)' in report and '2 accessions listed, 1 of them star arms' in report
+    assert '## MirGeneDB strata (#493)' in report and 'MirGeneDB v3.0 annotation' in report and '2 accessions listed, 1 of them star arms' in report
+    assert table['detected_alone.star'] == ['0.5', '0.0']   # miR-21-5p: miRge3 has 2 reads in the knockouts
+    mouse = write(tmp_path / 'mouse_MirGeneDB.gff3', MIRGENEDB_GFF.replace('Hsa-', 'Mmu-'))
+    result = evaluate_cmd(project, '--mirgenedb', str(mouse))
+    assert result.returncode != 0 and 'has MirGeneDB IDs of Mmu, not of homo_sapiens (Hsa-)' in result.stderr
     assert 'mirgenedb 0 of 1; star 0 of 1; mirbase_only 0 of 0' in report
     pool = de_project(tmp_path / 'pool')
     result = evaluate_cmd(pool, '--mirgenedb', str(gff))

@@ -41,8 +41,11 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    With `--mirgenedb GFF3` (#493; MirGeneDB's annotation of the organism, e.g. miRge3's library file
    `annotation.Libs/<species>_MirGeneDB.gff3`), every miRBase accession gets a stratum: `mirgenedb` (listed), `star`
    (listed as a star arm) or `mirbase_only`. Identical sequences count as one, in the first stratum any of them has.
-   - **Biological datasets:** `detected.<stratum>` and `reads.<stratum>` are added to the metrics, and the report
-     lists the miRNAs the routes dispute most (totals at least 4-fold apart), with their stratum.
+   - **Biological datasets:** `detected.<stratum>`, `detected_alone.<stratum>` (detections no other route makes in
+     the sample) and `reads.<stratum>` are added to the metrics, and the report lists the miRNAs the routes dispute
+     most (totals at least 4-fold apart), with their stratum.
+   - **Checks:** the file's MirGeneDB IDs must be the dataset organism's (`Hsa-`, `Mmu-`, `Rno-`), and the report names
+     the release from its header.
    - **The genome-wide synthetic set:** the strata become rows of its recovery-by-stratum table.
    Before scoring, it sets a method aside as `stopped` when its count table is missing or does not have exactly the
    project's samples (a missing sample would count as zero), or, for pools and biological datasets, when the method's
