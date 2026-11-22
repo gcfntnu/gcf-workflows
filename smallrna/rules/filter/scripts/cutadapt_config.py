@@ -68,8 +68,14 @@ kit) discards reads expected to hold one or more sequencing errors, a read-level
 `-q 15 -u 40`. On 11 public runs (TruSeq and NEXTflex v3 pools, TruSeq plasma) it removed 0-1.3% of reads, lost no
 read exactly matching a human mature miRNA in plasma and at most 2 exact pool reads per run, and changed no miRNA
 count; on four public NEXTflex v4 plasma runs it removed 0.03-0.08%. The NEXTflex v4 manual's 3' quality trimming
-(`--quality-cutoff 20`) and 16-nt minimum are not used: on the same runs `-q 20` lost 5-40 exact pool reads per run
-and gained nothing (#350).
+(`--quality-cutoff 20`) is not used: on the same runs `-q 20` lost 5-40 exact pool reads per run and gained nothing
+(#350).
+
+Minimum length: `minimum_length` is 16 for every kit (#498), the NEXTflex v4 manual's minimum and the length of the
+shortest human mature miRNAs in miRBase 23.1. At 15, reads of exactly 15 nt were 1-4% of the filtered reads of public
+plasma libraries and mostly fragments of longer transcripts; UNITAS placed them on miRNAs that no other method
+reported (#385). At 16 the genome-wide synthetic truth loses 0.02% of its miRNA reads: 3' ends shortened by two bases
+on 17-nt miRNAs.
 
 Included by smallrna/rules/filter/cutadapt.smk; also a command-line script for the adapter FASTAs:
     cutadapt_config.py five-prime-fasta ADAPTER5 PIECE > five_prime_adapters.fa

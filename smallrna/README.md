@@ -30,12 +30,12 @@ Three cutadapt 5.2 passes per sample. [`cutadapt_config.py`](rules/filter/script
 
 | Kit | `adapter5` | `five_prime_piece` | `random_ends` | `minimum_length` | `max_n` | `max_ee` | `reagent_oligos` |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| NEXTflex v3 | `GTTCAGAGTTCTACAGTCCGACGATC` | 14 | 4 | 15 | 5 | 1 | none |
-| NEXTflex v4 | `TCTTTCCCTACACGACGCTCTTCCGATCT` | 15 | 0 | 15 | 5 | 1 | none |
-| TruSeq Small RNA | `GTTCAGAGTTCTACAGTCCGACGATC` | 14 | 0 | 15 | 5 | 1 | Stop Oligo (STP) |
-| NEBNext Multiplex Small RNA | `GTTCAGAGTTCTACAGTCCGACGATC` | 14 | 0 | 15 | 5 | 1 | none |
+| NEXTflex v3 | `GTTCAGAGTTCTACAGTCCGACGATC` | 14 | 4 | 16 | 5 | 1 | none |
+| NEXTflex v4 | `TCTTTCCCTACACGACGCTCTTCCGATCT` | 15 | 0 | 16 | 5 | 1 | none |
+| TruSeq Small RNA | `GTTCAGAGTTCTACAGTCCGACGATC` | 14 | 0 | 16 | 5 | 1 | Stop Oligo (STP) |
+| NEBNext Multiplex Small RNA | `GTTCAGAGTTCTACAGTCCGACGATC` | 14 | 0 | 16 | 5 | 1 | none |
 
-The NEXTflex and TruSeq kits share the 3′ adapter (`adapter`) `TGGAATTCTCGGGTGCCAAGG`; NEBNext's is `AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC`, its 3′ SR Adapter read through into Illumina's index-read primer as NEB gives it for trimming. miRge3 and mirflowz take their minimum read length from `minimum_length`.
+The NEXTflex and TruSeq kits share the 3′ adapter (`adapter`) `TGGAATTCTCGGGTGCCAAGG`; NEBNext's is `AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC`, its 3′ SR Adapter read through into Illumina's index-read primer as NEB gives it for trimming. miRge3 and mirflowz take their minimum read length from `minimum_length`. The minimum is 16 nt (#498): no human mature miRNA in miRBase 23.1 is shorter, and in plasma the reads of 15 nt were mostly fragments of other transcripts, on which UNITAS reported miRNAs that no other method supported (#385).
 The passes' reports are merged into `logs/<sample>/<sample>.cutadapt.json` ([`merge_cutadapt.py`](rules/filter/scripts/merge_cutadapt.py)), shown in MultiQC by gcf-multiqc's `gcf_smallrna_cutadapt` module; the per-pass reports are delivered under `provenance/cutadapt/`.
 
 ### fastp route

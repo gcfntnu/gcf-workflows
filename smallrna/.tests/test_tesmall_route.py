@@ -39,7 +39,7 @@ def test_route_plans_database_and_runs_and_delivery_stays_on_unitas(tmp_path):
     assert 'id=BK000964.3' in rule_block(output, 'tesmall_rdna')
     run = rule_block(output, 'tesmall_quant')
     assert 'TEsmall --no-trim -f "$fastq" -l SR0' in run and f'-g gcf --dbfolder "$db"' in run
-    assert '-m 15 -M 36 --mismatch 0 --maxaln 100' in run  # the kit's filtered minimum (NEXTflex v4 fixture)
+    assert '-m 16 -M 36 --mismatch 0 --maxaln 100' in run  # the kit's filtered minimum (NEXTflex v4 fixture)
     assert '-o miRNA hairpin structural_RNA exon TE intron piRNA_cluster' in run  # miRNA first by default
     assert 'input: data/tmp/smallrna/filter/cutadapt/SR0' in run
     assert f'db=$(realpath {DUMP}/db)' in run

@@ -82,7 +82,7 @@ def test_read_settings_follow_the_kit(tmp_path):
     returncode, output = dry_run(tmp_path, 'mirflowz', lambda s: s.update(libprepkit=kit), printshell=True)
     assert returncode == 0, output
     quant = rule_block(output, 'mirflowz_quant')
-    assert '--adapter TGGAATTCTCGGGTGCCAAGG --minimum-length 15 --threads' in quant
+    assert '--adapter TGGAATTCTCGGGTGCCAAGG --minimum-length 16 --threads' in quant
     assert 'SR01=data/tmp/smallrna/filter/cutadapt/SR01_R1.fastq' in quant
 
 
