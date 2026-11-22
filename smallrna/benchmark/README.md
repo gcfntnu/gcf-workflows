@@ -171,6 +171,29 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    them and records the total in `evaluation.json`, so a later rerun without a new evaluation does not change it. It is
    empty when a sample had no report (another filter route, or the reports were removed) and for evaluations published
    before the total was recorded; `samples.tsv` keeps the reads copied (`--reads`) or declared at preparation.
+6. **Depth.** `benchmark.py depth` (#409) gives the sequencing-depth (saturation) curves of an evaluated biological
+   project, from its tables, without running the workflow again:
+
+   ```bash
+   python smallrna/benchmark/benchmark.py depth --project <project> [--output <dir>] [--depths 500k,1M,2M,4M,8M,16M,32M] [--seed 1] [--plot]
+   ```
+
+   Each method's common table (and isomiR output) is thinned binomially to each depth: every read is kept with
+   probability depth / the sample's sequenced reads (the first cutadapt pass's input, from the reports kept with
+   `--notemp`), the same draw for every method. For detection this equals subsampling the reads when a read counts
+   for one miRNA; tiny-count's and mirflowz's fractional counts are rounded first, so it is approximate for them.
+   Depths above the shallowest sample are left out, and each sample's full depth ends the series. Merged samples only.
+   - **Per method and depth** (`depth.tsv`, `depth.md`): median miRNA reads per sample; miRNAs with at least 1, 5 and
+     10 reads (median per sample) and with at least 10 in every sample; the replicate CV, the median over groups of
+     the median CPM coefficient of variation of the miRNAs with at least 10 reads in every sample of the group; and
+     the distinct read sequences of the isomiR output (median per sample).
+   - **Per pair of methods** (`depth_agreement.tsv`): the biological report's agreement (Spearman over miRNAs either
+     detects, median |log2 ratio|, top-100 overlap) at each depth.
+   - **Saturation:** the depth at which detection (at least 10 reads) reaches 90% and 95% of its full-depth value,
+     interpolated on log depth.
+   - **Plot** (`--plot`, needs matplotlib): `depth.png`, detection and replicate CV against depth.
+
+   It writes to `--output`, or `benchmark/depth/` in the project; it changes nothing else there.
 
 ## Datasets
 

@@ -3320,6 +3320,77 @@ def test_a_settings_variant_is_compared_with_the_defaults_in_the_summary(tmp_pat
                                            'values': {}}], [])
 
 
+# Sequencing depth (#409)
+
+def test_depth_series_thins_every_method_alike_and_finds_saturation():
+    """Binomial thinning to depths every sample reaches, then the full depth; detection rises with depth, and the depth
+    reaching 90% of full-depth detection is interpolated on log depth."""
+    import depth
+    import numpy
+    assert depth.parse_depths('2M,500k,100') == [100, 500000, 2000000]
+    for bad in ('0', '1.5', 'x', '1M,1M'):
+        with pytest.raises(ValueError, match='depths: '):
+            depth.parse_depths(bad)
+    thinned = depth.thin([('a', 'S1', 'n', 'M1', 1000.0), ('a', 'S2', 'n', 'M1', 2.4)], {'S1': 0.5, 'S2': 1.0}, numpy.random.default_rng(3))
+    assert ('a', 'S2', 'n', 'M1', 2) in thinned and 420 < [r for r in thinned if r[1] == 'S1'][0][-1] < 580   # rounded; about half
+    samples = ['A1', 'A2', 'B1', 'B2']
+    common = [(m, s, 'n{}'.format(i), 'M{}'.format(i), 10.0 * 2 ** i) for m in ('a', 'b') for s in samples for i in range(12)]
+    points, skipped = depth.series(common, ['a', 'b'], samples, dict.fromkeys(samples, 1_000_000), {'A': ['A1', 'A2'], 'B': ['B1', 'B2']},
+                                   [1000, 10_000, 100_000, 2_000_000], seed=1)
+    assert skipped == [2_000_000] and [d for d, _, _ in points] == [1000, 10_000, 100_000, depth.FULL]
+    detected = [values['a']['detected_10'] for _, values, _ in points]
+    assert detected == sorted(detected) and detected[-1] == 12 and detected[0] < 6
+    assert points[-1][1]['a']['replicate_cv'] == 0.0 and points[-1][2][('a', 'b')]['spearman_either'] == 1.0   # identical tables
+    reached = depth.saturation(points, ['a', 'b'], 1_000_000)
+    assert 100_000 < reached['a'][0.9] < 1_000_000 and reached['a'][0.9] <= reached['a'][0.95]
+    rising = depth.rise(points, ['a', 'b'], 1_000_000)   # the last step, 100k to 1M: (12 - detected at 100k) / 12 per doubling
+    assert rising['a'] == round((12 - points[-2][1]['a']['detected_10']) / math.log2(10) / 12, 4) > 0
+    fixed = depth.cv_sets(common, ['a'], {'A': ['A1', 'A2'], '': ['B1', 'B2']})
+    assert len(fixed[('a', 'A')]) == 12 and ('a', '') not in fixed and depth.rise(points[-1:], ['a'], 1_000_000) == {'a': ''}
+    # a depth every sample has is the full depth itself; with unequal depths the full depth is no common measurement
+    assert depth.series(common, ['a'], samples, dict.fromkeys(samples, 1000), {}, [1000], seed=1)[1] == [1000]
+    unequal = dict(zip(samples, (1_000_000, 1_000_000, 4_000_000, 4_000_000)))
+    points, _ = depth.series(common, ['a', 'b'], samples, unequal, {}, [1000, 10_000], seed=1)
+    assert points[1][1]['a']['detected_10'] < 0.9 * points[-1][1]['a']['detected_10']
+    assert depth.saturation(points, ['a'], 2_500_000, equal=False)['a'][0.9] == depth.BEYOND
+    assert depth.saturation_cell(depth.BEYOND, 10_000) == 'beyond 10k'
+    rows, pairs = depth.tables(points, ['a', 'b'])
+    assert ['a', 'full', 'detected_10', 12] in rows and ['a', 'b', '1k', 'spearman_either', points[0][2][('a', 'b')]['spearman_either']] in pairs
+
+
+def test_depth_plot(tmp_path):
+    """--plot's figure, where matplotlib is installed."""
+    pytest.importorskip('matplotlib')
+    import depth
+    samples = ['A1', 'A2']
+    common = [('a', s, 'n{}'.format(i), 'M{}'.format(i), 10.0 * 2 ** i) for s in samples for i in range(8)]
+    points, _ = depth.series(common, ['a'], samples, dict.fromkeys(samples, 100_000), {'A': samples}, [1000, 10_000], seed=1)
+    depth.plot(points, ['a'], 100_000, tmp_path / 'depth.png')
+    assert (tmp_path / 'depth.png').read_bytes()[:4] == b'\x89PNG'
+
+
+def test_depth_of_an_evaluated_knockout_project(tmp_path):
+    """benchmark.py depth end to end: it needs an evaluation; writes its tables, report and plot to --output and nothing
+    into the project; depths above the shallowest sample are left out."""
+    project = knockout_project(tmp_path)
+    command = [sys.executable, str(BENCH / 'benchmark.py'), 'depth', '--project', str(project), '--depths', '20,50,1k', '--output', str(tmp_path / 'depth')]
+    result = subprocess.run(command, capture_output=True, text=True, timeout=60)
+    assert result.returncode != 0 and 'run `benchmark.py evaluate' in result.stderr
+    assert evaluate_cmd(project).returncode == 0
+    result = subprocess.run(command, capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    out = tmp_path / 'depth'
+    assert (out / 'depth.tsv').read_text().startswith('method\tdepth\tmetric\tvalue\n') and not (out / 'depth.png').exists()
+    report = (out / 'depth.md').read_text()
+    assert 'Left out, above the shallowest sample: 1k.' in report and '| full |' in report and '**sequences**' in report
+    assert 'under independent thinning' in report and '| method | 90% | 95% | rise per doubling |' in report
+    write_cutadapt_reports(project / 'data/tmp/smallrna/filter/cutadapt_stages', 'P1', 200)   # the filtering changed since
+    result = subprocess.run(command, capture_output=True, text=True, timeout=60)
+    assert result.returncode != 0 and 'the cutadapt reports give 500 reads, the evaluation recorded 400' in result.stderr
+    assert 'unitas\tmirge3\t20\tspearman_either' in (out / 'depth_agreement.tsv').read_text()
+    assert not (project / 'benchmark/depth').exists()
+
+
 
 # miRNAs inside other RNA classes, on real data (#415)
 
