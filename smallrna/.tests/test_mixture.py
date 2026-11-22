@@ -432,3 +432,26 @@ def test_imbalance_scores_a_mixture_against_its_expected_changes(tmp_path):
     assert '## Between the mixtures, against the expected changes' in report and '| tied-2 | tmm | 0.00 (0.00) / - / ' in report
     assert "each subject's log ratios before their mean" in report and '| 75 against 25 | +0.00 | +0.00 |' in report
     assert "`workflow` (the route's reads on miRNAs with an accession)" in report
+
+
+def test_mixture_linearity_per_mirgenedb_stratum(tmp_path):
+    """#493: the mixture series' linearity per MirGeneDB stratum, unit and end to end."""
+    import mirgenedb
+    halved = lambda sample, fraction, counts: counts.update(more_spleen=counts['more_spleen'] // 2) if 0 < fraction < 1 else None
+    design, counts, scores = scored(change=halved)   # a miRBase-only miRNA counted wrongly in the mixtures
+    stratum = lambda f: 'mirgenedb' if f in ('liver_only', 'spleen_only', 'both') else 'mirbase_only'
+    values = mirgenedb.mixture_values({'m': scores}, {'m': counts}, ['m'], stratum)['m']
+    # each stratum scored on its own miRNAs: the halved miRNA's stratum has the larger error and fewer pairs within 1.5-fold
+    assert values['linearity_error.mirgenedb'] < values['linearity_error.mirbase_only'] and math.isnan(values['linearity_error.star'])
+    assert values['within_1_5fold.mirgenedb'] == 1.0 > values['within_1_5fold.mirbase_only']
+    assert values['scored.mirgenedb'] == 3 and values['scored.star'] == 0 and values['scored.mirbase_only'] == 3   # 'rare' too (200 reads per sample)
+    project = evaluated_mixture(tmp_path)
+    gff = write(tmp_path / 'mouse_MirGeneDB.gff3', '# microRNAs:    MirGeneDB v3.0\n' + ''.join(
+        'chr1\t.\tmiRNA\t1\t22\t.\t+\t.\tID=Mmu-Mir-{}_5p;Alias=MIMAT00000{}\n'.format(i, 10 + i) for i in range(3)))
+    result = subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'evaluate', '--project', str(project), '--bootstrap', '0',
+                             '--mirgenedb', str(gff)], capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    table = {line.split('\t')[0]: line.split('\t')[1:] for line in (project / 'benchmark/metrics.tsv').read_text().splitlines()}
+    assert float(table['linearity_error.mirgenedb'][0]) < 0.01 and table['linearity_error.star'] == ['', '']
+    report = (project / 'benchmark/report.md').read_text()
+    assert '## MirGeneDB strata (#493)' in report and 'MirGeneDB v3.0 annotation' in report

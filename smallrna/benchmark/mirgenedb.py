@@ -12,13 +12,18 @@ accession gets a stratum:
 Identical sequences count as one accession, as the evaluation collapses them (biological.collapse): the group takes
 the first of these strata any member has. The strata split the per-miRNA metrics: for biological datasets the miRNAs
 detected, those detected by no other route and the share of the miRNA reads per stratum, and the miRNAs the routes
-dispute most; for the genome-wide
-synthetic set the recovery per stratum.
+dispute most, and the null comparisons' false calls (#449) per stratum; for the mixture series the linearity per
+stratum; for the genome-wide synthetic set the recovery per stratum.
 """
 import collections
 import hashlib
+import math
 import re
 import statistics
+
+import numpy as np
+
+import de
 
 STRATA = ('mirgenedb', 'star', 'mirbase_only')
 MIN_READS = 10         # a miRNA counts as detected in a sample with at least this many reads (biological.MIN_READS)
@@ -133,3 +138,56 @@ def biological_lines(values, counts, rows, methods, name, source, md_table):
                           [[name(a), s, '{:.0f}'.format(fold)] + ['{:.0f}'.format(per.get(m, 0)) for m in methods]
                            for fold, a, per, s in rows[:LISTED]])
     return lines
+
+
+MIXTURE_KEYS = ('linearity_error', 'within_1_5fold')
+NULL_TESTS = ('edger', 'voom')
+
+
+def mixture_keys():
+    """The mixture series' linearity metrics per stratum (mixture.Scores), `<metric>.<stratum>`, and `scored.<stratum>`,
+    the miRNAs with at least one scored miRNA-sample pair."""
+    return ['{}.{}'.format(k, s) for k in MIXTURE_KEYS + ('scored',) for s in STRATA]
+
+
+def mixture_values(scores, counts, methods, stratum):
+    """{method: {<metric>.<stratum>: value}}: mixture.Scores' values over the miRNAs of each stratum (NaN without any)."""
+    out = {}
+    for m in methods:
+        out[m] = {}
+        for s in STRATA:
+            rows = [i for i, f in enumerate(counts[m].features) if stratum(f) == s]
+            values = scores[m].values(features=rows) if rows else {}
+            out[m].update({'{}.{}'.format(k, s): values.get(k, float('nan')) for k in MIXTURE_KEYS})
+            out[m]['scored.' + s] = int((~np.isnan(scores[m].residual[rows])).any(axis=1).sum()) if rows else 0
+    return out
+
+
+def null_keys():
+    """The null comparisons' share of tested miRNAs called (#449) per stratum, `<test>_null_called.<stratum>`, and
+    `null_tested.<stratum>`, the stratum's miRNAs tested (median over the splits that test any of them)."""
+    return ['{}_null_called.{}'.format(t, s) for t in NULL_TESTS for s in STRATA] + ['null_tested.' + s for s in STRATA]
+
+
+def null_values(splits, methods, stratum):
+    """{method: {<test>_null_called.<stratum>: value}}: de.null_scores over each split's features of the stratum
+    (`splits`: [(results, features)] as for de.null_scores)."""
+    out = {m: {} for m in methods}
+    for s in STRATA:
+        subsets = [(results, [f for f in features if stratum(f) == s]) for results, features in splits]
+        values = de.null_scores(subsets, methods)[0]
+        for m in methods:
+            out[m].update({'{}_null_called.{}'.format(t, s): values[m][t + '_null_called'] for t in NULL_TESTS})
+            # over the splits that test any of the stratum's miRNAs, as null_called's median
+            tested = [n for n in (sum(1 for f in features if results[(m, de.TESTS[0], f)][1] is not None) for results, features in subsets) if n]
+            out[m]['null_tested.' + s] = statistics.median(tested) if tested else 0
+    return out
+
+
+def text(value):
+    return '' if value is None or (isinstance(value, float) and math.isnan(value)) else str(value)
+
+
+def table_lines(title, intro, values, keys, methods, md_table):
+    """A report section: `intro`, then `keys` per method from `values` ({method: {key: value}})."""
+    return ['', title, '', intro, ''] + md_table(['metric'] + methods, [[k] + [text(values[m].get(k)) for m in methods] for k in keys])

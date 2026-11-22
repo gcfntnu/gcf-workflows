@@ -46,6 +46,9 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
      most (totals at least 4-fold apart), with their stratum.
    - **Checks:** the file's MirGeneDB IDs must be the dataset organism's (`Hsa-`, `Mmu-`, `Rno-`), and the report names
      the release from its header.
+   - **Null comparisons (#449):** `edger_null_called.<stratum>` and `voom_null_called.<stratum>`, the null splits'
+     false calls among each stratum's tested miRNAs.
+   - **The mixture series:** `linearity_error.<stratum>` and `within_1_5fold.<stratum>`.
    - **The genome-wide synthetic set:** the strata become rows of its recovery-by-stratum table.
    Before scoring, it sets a method aside as `stopped` when its count table is missing or does not have exactly the
    project's samples (a missing sample would count as zero), or, for pools and biological datasets, when the method's
