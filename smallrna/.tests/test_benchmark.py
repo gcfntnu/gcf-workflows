@@ -3458,6 +3458,10 @@ def test_depth_de_of_an_evaluated_biological_project(tmp_path):
     assert result.returncode != 0 and 'de/20/all/results.tsv comes from other inputs' in result.stderr
     assert 'run `benchmark.py depth` without --de' in result.stderr
     assert {name: (out / name).read_text() for name in before} == before
+    assert subprocess.run(command, capture_output=True, text=True, timeout=120).returncode == 0   # new inputs: old scores go
+    assert not (out / 'depth_de.tsv').exists()
+    result = subprocess.run(command[:-2] + ['--output', str(bench)], capture_output=True, text=True, timeout=120)
+    assert result.returncode != 0 and "its de/ would be the evaluation's benchmark/de" in result.stderr
 
 
 def test_de_snakefile_runs_the_sets_of_another_de_folder(tmp_path):
@@ -3469,6 +3473,12 @@ def test_de_snakefile_runs_the_sets_of_another_de_folder(tmp_path):
     result = de_snakemake(tmp_path, '-s', str(BENCH / 'de.smk'), '-n', '-p', '--cores', '1', '--config', 'de=de')
     assert result.returncode == 0, result.stdout + result.stderr
     assert '--results de/full/all/results.tsv' in result.stdout and '--results de/20/null.case-1/results.tsv' in result.stdout
+    for folder in ('full/all', '20/null.case-1'):   # a fit that lost only its record runs again
+        write(tmp_path / 'de' / folder / 'results.tsv', 'r\n')
+        write(tmp_path / 'de' / folder / 'record.tsv', 'r\n')
+    (tmp_path / 'de/20/null.case-1/record.tsv').unlink()
+    result = de_snakemake(tmp_path, '-s', str(BENCH / 'de.smk'), '-n', '-p', '--cores', '1', '--config', 'de=de')
+    assert '--results de/20/null.case-1/results.tsv' in result.stdout and '--results de/full/all/results.tsv' not in result.stdout
     result = de_snakemake(tmp_path, '-s', str(BENCH / 'de.smk'), '-n', '--cores', '1')
     assert result.returncode != 0 and '`depth` for --config de=de in its output' in result.stdout + result.stderr
 

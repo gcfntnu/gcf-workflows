@@ -2415,6 +2415,7 @@ def depth_de(args, out, spec, table, methods, tables, usable):
             null_points.append((depth, de.null_scores([(results[at[s.folder].suffix], features[s.folder]) for s in nulls], methods)[0]))
     if not args.de:
         de.write_changed(root / de.LEVELS, de.levels_text([folder.split('/') for folder in folders]))
+        (out / 'depth_de.tsv').unlink(missing_ok=True)  # scores of an earlier draw, if any
         return ['', 'Differential expression by depth (#414): the inputs of {} DE sets at each of {} depths are in `de/`. Run '
                 'de.smk on them (`snakemake -s <repo>/smallrna/benchmark/de.smk -d {} --config de=de --use-apptainer`), then '
                 '`benchmark.py depth --de` with the same depths and seed.'.format(len(sets), len(usable) + 1, out)], None
@@ -2474,6 +2475,8 @@ def depth(args):
         fail('the cutadapt reports give {:,} reads, the evaluation recorded {:,}: the filtering changed since; evaluate again'.format(
             sum(reads_in.values()), recorded))
     out = Path(args.output) if args.output else bench / 'depth'
+    if 'de' in spec and (out / 'de').resolve() == (bench / 'de').resolve():
+        fail('--output {}: its de/ would be the evaluation\'s benchmark/de; choose another folder (default benchmark/depth/)'.format(out))
     if args.de:  # before the thinning: every set at every depth needs de.smk's results
         sets = de_sets(spec, de_units(spec, table))
         missing = [str(Path(folder) / name) for depth in [depth_series.FULL] + depth_series.usable_depths(depths, samples, reads_in)

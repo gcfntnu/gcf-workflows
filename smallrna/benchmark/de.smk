@@ -38,10 +38,10 @@ COMMAND = ('Rscript {params.script:q} --counts {input.counts:q} --library-sizes 
            '--model {input.model:q} --results {output.results:q} --record {output.record:q} > {log:q} 2>&1')
 
 
-rule all:
+rule all:  # both outputs of every fit: Snakemake does not rerun a job for a missing output nobody requests
     input:
-        [DE + '/results.tsv'] if WHOLE else [],
-        ['{}/{}/{}/results.tsv'.format(DE, column, level) for column, level in LEVELS]
+        [DE + '/' + name for name in ('results.tsv', 'record.tsv')] if WHOLE else [],
+        ['{}/{}/{}/{}'.format(DE, column, level, name) for column, level in LEVELS for name in ('results.tsv', 'record.tsv')]
 
 
 rule benchmark_de:
