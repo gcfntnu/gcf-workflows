@@ -3424,6 +3424,17 @@ def test_depth_of_an_evaluated_knockout_project(tmp_path):
     assert result.returncode != 0 and '--de: ko declares no `de:`' in result.stderr
 
 
+def test_tesmall_rnacentral_is_a_settings_variant():
+    """#378: `prepare --set quant.tesmall.structural_rnacentral=true` makes a variant, confirmed by TEsmall's settings
+    record."""
+    key = 'quant.tesmall.structural_rnacentral'
+    assert benchmark.settings_variant([key + '=true'], ['tesmall']) == {key: True}
+    route_settings = {'tesmall': [('structural_rnacentral', 'true', key)]}
+    benchmark.check_variant({'variant': {key: True}, 'route_settings': route_settings})
+    with pytest.raises(SystemExit, match='counted with false, not True'):
+        benchmark.check_variant({'variant': {key: True}, 'route_settings': {'tesmall': [('structural_rnacentral', 'false', key)]}})
+
+
 def test_depth_de_scores_each_route_against_its_own_full_depth_calls():
     """#414: a depth's calls against the same route's full-depth calls, in the same direction."""
     import depth

@@ -29,8 +29,9 @@ run instead of starting a download.
 With `quant.tesmall.structural_rnacentral` (#378), TEsmall reads a database derived from that one,
 `gff-<ID>/unitas-<release>-rnacentral-<RNAcentral release>/` (TESMALL_RNACENTRAL_REF): its structural RNA class adds
 RNAcentral's snoRNA, scaRNA, Y RNA, vault RNA and 7SK entries (scripts/tesmall_rnacentral.py), and every other file is
-a relative link to the base database, which is built and used as before. Human and mouse only: RNAcentral has no
-coordinates on TEsmall's rat assembly (Rnor_6.0).
+a relative link to the base database, which is built and used as before. The RNAcentral source and its log are kept in
+that folder too, so the setting writes nothing in the folders the base database shares. Human and mouse only: RNAcentral
+has no coordinates on TEsmall's rat assembly (Rnor_6.0).
 """
 import shlex
 
@@ -68,7 +69,9 @@ if 'genomes' in os.path.realpath(TESMALL_DB):
 assert TESMALL_NAME not in TESMALL_BUILTIN
 
 # RNAcentral entries in the structural RNA class (#378): a database of its own, so a project never mixes the two builds
-TESMALL_RNACENTRAL = bool(((config.get('quant') or {}).get('tesmall') or {}).get('structural_rnacentral', False))
+TESMALL_RNACENTRAL = ((config.get('quant') or {}).get('tesmall') or {}).get('structural_rnacentral', False)
+if not isinstance(TESMALL_RNACENTRAL, bool):
+    raise ValueError('quant.tesmall.structural_rnacentral must be true or false, got {!r}'.format(TESMALL_RNACENTRAL))
 TESMALL_RNACENTRAL_RELEASE = '28.0'
 TESMALL_RNACENTRAL_ASSEMBLY = {'homo_sapiens': 'GRCh38', 'mus_musculus': 'GRCm39'}
 TESMALL_RNACENTRAL_REF = '{}-rnacentral-{}'.format(TESMALL_DUMP_REF, TESMALL_RNACENTRAL_RELEASE)
@@ -207,15 +210,14 @@ rule tesmall_db:
 if ORG in TESMALL_RNACENTRAL_ASSEMBLY:
     rule tesmall_rnacentral:
         output:
-            join(TESMALL_REF, 'sources', 'rnacentral-{}'.format(TESMALL_RNACENTRAL_RELEASE),
-                 '{}.{}.gff3.gz'.format(ORG, TESMALL_RNACENTRAL_ASSEMBLY[ORG]))
+            join(TESMALL_RNACENTRAL_REF, 'sources', '{}.{}.gff3.gz'.format(ORG, TESMALL_RNACENTRAL_ASSEMBLY[ORG]))
         params:
             proxy = config.get('proxy', {}).get('wget', ''),
             url = 'https://ftp.ebi.ac.uk/pub/databases/RNAcentral/releases/{}/genome_coordinates/gff3/{}.{}.gff3.gz'.format(
                 TESMALL_RNACENTRAL_RELEASE, ORG, TESMALL_RNACENTRAL_ASSEMBLY[ORG]),
             version = TESMALL_RNACENTRAL_RELEASE
         log:
-            join(TESMALL_REF, 'logs', 'rnacentral-{}.log'.format(TESMALL_RNACENTRAL_RELEASE))
+            join(TESMALL_RNACENTRAL_REF, 'logs', 'rnacentral.log')
         shell:
             'wget {params.proxy} -q -O {output}.part {params.url} && gzip -t {output}.part && mv {output}.part {output} && '
             'echo "RNAcentral,{params.version},{params.url},`date -I`" > {log}'

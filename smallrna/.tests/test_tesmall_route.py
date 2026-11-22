@@ -301,7 +301,7 @@ def test_rnacentral_structural_entries_make_a_database_of_their_own(tmp_path):
     derived = rule_block(output, 'tesmall_rnacentral_db')
     assert f'--base {DB} ' in derived and f'--out {RNACENTRAL}/db/genomes/gcf ' in derived
     assert f'--record {RNACENTRAL}/tesmall_reference.tsv' in derived and f'--base-record {DUMP}/tesmall_reference.tsv' in derived
-    assert f'--rnacentral {REF}/sources/rnacentral-28.0/mus_musculus.GRCm39.gff3.gz' in derived
+    assert f'--rnacentral {RNACENTRAL}/sources/mus_musculus.GRCm39.gff3.gz' in derived   # in its own folder, not the shared sources/
     for path in ('annotation/structural_RNA.bed', 'annotation/piRNA_cluster.bed', 'sequence/genome.fa', 'sequence/bowtie_index/tDNA.rev.2.ebwt'):
         assert f'{RNACENTRAL}/db/genomes/gcf/{path}' in derived.split('output:', 1)[1].split('shell:', 1)[0]
     run = rule_block(output, 'tesmall_quant')
@@ -312,3 +312,5 @@ def test_rnacentral_structural_entries_make_a_database_of_their_own(tmp_path):
     assert 'rule tesmall_rnacentral' not in output and f'db=$(realpath {DUMP}/db)' in rule_block(output, 'tesmall_quant')
     returncode, output = dry_run(tmp_path / 'rat', 'tesmall', lambda s: (on(s), s.update(organism='rattus_norvegicus')))
     assert returncode != 0 and 'RNAcentral 28.0 has coordinates for homo_sapiens and mus_musculus on GRCh38 and GRCm39' in output
+    returncode, output = dry_run(tmp_path / 'text', 'tesmall', lambda s: s['quant'].setdefault('tesmall', {}).update(structural_rnacentral='no'))
+    assert returncode != 0 and "quant.tesmall.structural_rnacentral must be true or false, got 'no'" in output
