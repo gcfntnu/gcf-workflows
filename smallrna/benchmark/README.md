@@ -215,6 +215,42 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
      to match.
 
    It writes to `--output`, or `benchmark/depth/` in the project; it changes nothing else there.
+7. **Depth imbalance.** `benchmark.py imbalance` (#488) is a stress test of the normalisation arms for an evaluated
+   biological project that declares `de:`, without running the workflow again. It thins each DE set's samples
+   unevenly from the count tables, binomially as `depth` does, and tests the sets again with de.R:
+
+   ```bash
+   python smallrna/benchmark/benchmark.py imbalance --project <project> [--output <dir>] [--ratios 1.5,4] [--seed 1]
+   snakemake -s <repo>/smallrna/benchmark/de.smk -d <output> --config de=de --use-apptainer --cores 16
+   python smallrna/benchmark/benchmark.py imbalance --project <project> [--output <dir>] [--ratios 1.5,4] [--seed 1] --de
+   ```
+
+   - **Designs** per set (the contrast, each level of `within`, the #449 null splits), at each ratio r:
+     - `independent-<r>`: half the samples of each group, a seeded draw, thinned to 1/r.
+     - `tied-<r>`: the set's second group only (the contrast's denominator, a split's `y`) thinned to 1/r, so a
+       contrast is tested with the imbalance in one direction.
+     - `none`: unthinned.
+   - **Arms:**
+     - `workflow`: every miRNA read the route reported, the evaluation's library size.
+     - `fixed`: the sample's filtered reads times its thinning fraction.
+     - `tmm`: edgeR's TMM factors on the workflow's.
+
+     Inputs go to `de/<design>_<arm>/<set>/`. `none` in the `workflow` arm equals the evaluation's inputs.
+   - **Scores** (`imbalance.tsv`, `imbalance.md`), per design, arm, route and test:
+     - the null splits' `null_called`, `null_any` and `null_p05`, and `offset`, the median over the splits of the
+       median log2 fold change (every change is null, so any shift comes from the normalisation);
+     - the contrast's sets against the same arm's unthinned fits: `calls`, `recall`, `precision` and `fc_shift`, the
+       median change of the log2 fold changes.
+   - **Realised depths** (`imbalance_depths.tsv`, a table in `imbalance.md`): per design and set, the median
+     filtered reads times the fraction of each group, and their ratio. The ratios act on the project's own depths,
+     which may differ between the groups already in `none` (a proportional read cap keeps them).
+   - **Caveat:** thinning keeps each sample's composition and every arm's library sizes follow it. The designs
+     therefore show the cost of the imbalance (power, false calls from the shallower samples' variance), not a bias
+     from composition.
+   - **Fits:** sets × (1 + 2 × ratios) × 3 arms. 150 null splits at two ratios make 2,250 fits.
+
+   Nothing is written when a result comes from other inputs (other ratios or seed), and new inputs remove an earlier
+   `imbalance.tsv`.
 
 ## Datasets
 
