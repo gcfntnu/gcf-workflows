@@ -2993,6 +2993,12 @@ def test_evaluate_reports_null_comparisons(tmp_path):
     de_outputs(project, fits, folder=nulls[-1])
     result = evaluate_cmd(project, '--de')
     assert result.returncode == 0, result.stderr
+    gff = write(tmp_path / 'human_MirGeneDB.gff3', MIRGENEDB_GFF)   # the null calls per MirGeneDB stratum (#493)
+    result = evaluate_cmd(project, '--de', '--mirgenedb', str(gff))
+    assert result.returncode == 0, result.stderr
+    strata = {line.split('\t')[0]: line.split('\t')[1:] for line in (project / 'benchmark/metrics.tsv').read_text().splitlines()}
+    assert strata['edger_null_called.mirgenedb'] == ['1.0', '1.0'] and strata['edger_null_called.star'] == ['0.0', '0.0']   # miR-16-5p, miR-21-5p
+    assert '**Null comparisons by stratum**' in (project / 'benchmark/report.md').read_text()
     table = {line.split('\t')[0]: line.split('\t')[1:] for line in (bench / 'metrics.tsv').read_text().splitlines()}
     assert table['edger_null_called'] == ['0.5', '0.5'] and table['voom_null_any'] == ['1.0', '1.0']  # 1 of 2 tested, in every split
     assert table['edger_glm_null_p05'] == ['0.5', '0.5'] and not any(line.split('\t')[0].endswith(('_null_called', '_null_any'))
@@ -3922,4 +3928,4 @@ def test_evaluate_with_mirgenedb_strata(tmp_path):
     assert 'mirgenedb 0 of 1; star 0 of 1; mirbase_only 0 of 0' in report
     pool = de_project(tmp_path / 'pool')
     result = evaluate_cmd(pool, '--mirgenedb', str(gff))
-    assert result.returncode != 0 and '--mirgenedb (#493) is for biological datasets and the genome-wide synthetic set' in result.stderr
+    assert result.returncode != 0 and '--mirgenedb (#493) is for biological and mixture datasets and the genome-wide synthetic set' in result.stderr

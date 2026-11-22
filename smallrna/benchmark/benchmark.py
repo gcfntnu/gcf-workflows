@@ -1044,8 +1044,8 @@ def evaluate(args):
     spec = load_dataset(bench / 'dataset.yaml')
     config = yaml.safe_load((project / 'config.yaml').read_text())
     ext_dir = Path(config['ext_dir'])
-    if args.mirgenedb and spec['kind'] != 'biological' and not (spec['kind'] == 'synthetic' and synthetic_mode(spec) == 'genome'):
-        fail('--mirgenedb (#493) is for biological datasets and the genome-wide synthetic set, not this {} dataset'.format(spec['kind']))
+    if args.mirgenedb and spec['kind'] not in ('biological', 'mixture') and not (spec['kind'] == 'synthetic' and synthetic_mode(spec) == 'genome'):
+        fail('--mirgenedb (#493) is for biological and mixture datasets and the genome-wide synthetic set, not this {} dataset'.format(spec['kind']))
     args.mirgenedb_read = read_mirgenedb(args, spec['organism'])  # before any table is written
     stopped = check_methods(project, spec, config)
     states = route_states(bench, spec, stopped)
@@ -1979,7 +1979,7 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
     iso_rows, no_isomirs = isomir_table(args, project, bench, spec, methods, mature, gff, raw, pending)
     common, groups = biological.collapse(raw, id_to_seq)
     unplaced = biological.unplaced(raw, methods, samples)
-    de_texts, de_lines, null_values = None, [], {}
+    de_texts, de_lines, null_values, null_splits = None, [], {}, []
     if 'de' in spec and not lane_mode:  # the tests of the ratiometric pools (de.R) between two groups of samples (#447); not scored
         sets = de_sets(spec, de_units(spec, table))
         nulls = [s for s in sets if s.folder.startswith(de.NULL + '/')]  # null comparisons within a group (#449)
@@ -1993,7 +1993,8 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
                                      features[contrasts[0].folder], methods, *de_contrast(spec))
             de_lines += ['', rounding_line(count, methods, features[contrasts[0].folder], tested, 'miRNAs')]
         if de_results and nulls:
-            null_values, spread, called = de.null_scores([(de_results[s.suffix], features[s.folder]) for s in nulls], methods)
+            null_splits = [(de_results[s.suffix], features[s.folder]) for s in nulls]
+            null_values, spread, called = de.null_scores(null_splits, methods)
             group_of = {row['sample']: row['group'] for row in table}
             splits = collections.Counter(group_of[s.design[0][0]] for s in nulls)
             in_splits = sorted({sample for s in nulls for sample, _, _ in s.design})
@@ -2050,6 +2051,14 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
         keys += mirgenedb.keys()
         strata_lines = mirgenedb.biological_lines(values, *mirgenedb.disputed(by_accession, methods, stratum), methods,
                                                   lambda a: id_to_name.get(a, a), source, md_table)
+        if null_splits:  # the null comparisons' false calls per stratum (#449)
+            nulls_by = mirgenedb.null_values(null_splits, methods, stratum)
+            for m in methods:
+                summary[m].update(nulls_by[m])
+            keys += mirgenedb.null_keys()
+            strata_lines += mirgenedb.table_lines(
+                '**Null comparisons by stratum**', 'The median share of a stratum\'s tested miRNAs called in the null splits (every call false), '
+                'by edgeR\'s exact test and limma-voom.', nulls_by, mirgenedb.null_keys(), methods, md_table)
     metric_rows = [[k] + [summary[m][k] for m in methods] for k in keys]
     knockout_lines = []
     if knockout:
@@ -2160,7 +2169,7 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
     extra, record, ci_lines = bootstrap(args, summary, compute,
                                         lambda rng: ([s for lib in uncertainty.resample(rng, libraries) for s in lanes_of[lib]],), methods,
                                         [k for k in keys if k not in ('detected_all_samples', 'isomirs_detected') + tuple(de.null_keys()) +
-                                         tuple(mirgenedb.keys()) +
+                                         tuple(mirgenedb.keys()) + tuple(mirgenedb.null_keys()) +
                                          tuple(k for k in OTHER_RNA_KEYS if k != 'detected_unflagged')],
                                         '{} (`detected_all_samples` and `isomirs_detected` without an interval: a resample repeating a '
                                         'sample has fewer distinct samples)'.format('the libraries, each with all its lanes' if lane_mode else 'the samples'))
@@ -2452,7 +2461,7 @@ def evaluate_mixture(args, project, bench, spec, ext_dir):
     gff = args.mirflowz_gff or (mirflowz_annotation(project) if 'mirflowz' in methods else None)
     pending = []  # tables written once the differential-expression checks (evaluate --de) have passed
     raw = common_table(args, project, bench, spec, ext_dir, methods, mature, gff, pending)
-    common, _ = biological.collapse(raw, id_to_seq)
+    common, groups = biological.collapse(raw, id_to_seq)
     by = biological.counts_by(common)
     features = sorted({feature for counts in by.values() for feature in counts})
     counts = {m: mixture.Counts({s: by.get((m, s), {}) for s in design.samples}, design.samples, features) for m in methods}
@@ -2537,6 +2546,16 @@ def evaluate_mixture(args, project, bench, spec, ext_dir):
     lines += ['', '`linearity_error` by predicted reads (pairs / error):', ''] + md_table(
         ['predicted reads'] + methods, [[abundance[methods[0]][i][0]] + ['{} / {}'.format(abundance[m][i][1], rnd(abundance[m][i][2]))
                                                                          for m in methods] for i in range(len(mixture.BINS))])
+    stratum, source = mirgenedb_strata(args, groups)
+    if stratum:  # #493: the linearity per MirGeneDB stratum
+        strata_values = mirgenedb.mixture_values(scores, counts, methods, stratum)
+        for m in methods:
+            point[m].update(strata_values[m])
+        keys += mirgenedb.mixture_keys()
+        metric_rows += [[k] + [rnd(point[m].get(k, float('nan'))) for m in methods] for k in mirgenedb.mixture_keys()]
+        lines += mirgenedb.table_lines('## MirGeneDB strata (#493)', '`linearity_error` and `within_1_5fold` over the miRNAs of each '
+                                       'MirGeneDB stratum: `mirgenedb` (listed), `star` (listed as a star arm), `mirbase_only`. ' + source,
+                                       strata_values, mirgenedb.mixture_keys(), methods, md_table)
     lines += de_lines
     index = list(range(len(features)))
     subjects = sorted(design.series)

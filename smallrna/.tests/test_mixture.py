@@ -432,3 +432,22 @@ def test_imbalance_scores_a_mixture_against_its_expected_changes(tmp_path):
     assert '## Between the mixtures, against the expected changes' in report and '| tied-2 | tmm | 0.00 (0.00) / - / ' in report
     assert "each subject's log ratios before their mean" in report and '| 75 against 25 | +0.00 | +0.00 |' in report
     assert "`workflow` (the route's reads on miRNAs with an accession)" in report
+
+
+def test_mixture_linearity_per_mirgenedb_stratum(tmp_path):
+    """#493: the mixture series' linearity per MirGeneDB stratum, unit and end to end."""
+    import mirgenedb
+    design, counts, scores = scored()
+    stratum = lambda f: 'mirgenedb' if f in ('liver_only', 'spleen_only', 'both') else 'mirbase_only'
+    values = mirgenedb.mixture_values({'m': scores}, {'m': counts}, ['m'], stratum)['m']
+    assert values['linearity_error.mirgenedb'] == pytest.approx(0, abs=0.01) and math.isnan(values['linearity_error.star'])
+    project = evaluated_mixture(tmp_path)
+    gff = write(tmp_path / 'mouse_MirGeneDB.gff3', '# microRNAs:    MirGeneDB v3.0\n' + ''.join(
+        'chr1\t.\tmiRNA\t1\t22\t.\t+\t.\tID=Mmu-Mir-{}_5p;Alias=MIMAT00000{}\n'.format(i, 10 + i) for i in range(3)))
+    result = subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'evaluate', '--project', str(project), '--bootstrap', '0',
+                             '--mirgenedb', str(gff)], capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    table = {line.split('\t')[0]: line.split('\t')[1:] for line in (project / 'benchmark/metrics.tsv').read_text().splitlines()}
+    assert float(table['linearity_error.mirgenedb'][0]) < 0.01 and table['linearity_error.star'] == ['', '']
+    report = (project / 'benchmark/report.md').read_text()
+    assert '## MirGeneDB strata (#493)' in report and 'MirGeneDB v3.0 annotation' in report
