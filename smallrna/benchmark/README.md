@@ -412,7 +412,9 @@ minimum as `synthetic.min_length` in the project's `benchmark/dataset.yaml`; a d
 is the length the truth was drawn at, not the one a later run filters at. A project drawn at 15 nt and run with the
 filter at 16 keeps 15-nt reads in its truth that no route sees (3′ ends shortened and 5′ ends moved on 16- and 17-nt
 miRNAs); they count as not recovered for every route alike. A project drawn at 16 has none. Projects prepared before
-#500 have no `min_length` and were drawn at 15. At the same minimum and seed the draw is the same as before #500.
+#500 have no `min_length` and were drawn at 15; `summary` reads them so and groups their seeds with draws recorded at 15.
+At the same minimum and seed the draw is the same as before #500. `prepare` of this set reads the kit with configmaker,
+as the workflow does, so it runs in an environment that has it (the workflow's own, or the repository's `.dev/ci`).
 
 **Runs from SRA instead of ENA.** ENA serves a client one slow connection and may cut or refuse transfers (`fill`
 resumes a cut one). NCBI's copy of the Sequence Read Archive on AWS takes many requests at once:

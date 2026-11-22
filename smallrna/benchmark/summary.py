@@ -144,6 +144,8 @@ def read_project(project, out_dir):
     seed = record.get('synthetic_seed', synthetic.pop('seed', None))
     synthetic.pop('seed', None)
     synthetic.pop('no_probes', None)  # a draw prepared without its probe samples (--no-probes) is the same set: its mixed samples
+    if synthetic.get('mode') == 'genome':  # drawn at the filter's minimum (#500); prepared before it was recorded, at 15
+        synthetic.setdefault('min_length', 15)
     declaration = json.dumps(dict({k: v for k, v in spec.items() if k not in ('methods', 'not_selected')}, synthetic=synthetic),
                              sort_keys=True, default=str) if spec.get('kind') == 'synthetic' and not spec.get('variant') else None
     # a settings variant (#417) is compared with the project of the same dataset, samples, draw and reads processed (a read

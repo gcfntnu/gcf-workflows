@@ -661,7 +661,11 @@ def filter_minimum(spec):
     """The shortest read the project's filter keeps (#500): the declaration's `config`
     filter.trim.cutadapt.minimum_length, otherwise its kit's in libprep.config, the kit selected as the workflow selects
     it (configmaker; single-end). The genome-wide synthetic sets run the cutadapt route; another route stops."""
-    from configmaker.libprep import LibprepConfig, LibprepConfigError
+    try:
+        from configmaker.libprep import LibprepConfig, LibprepConfigError
+    except ImportError:
+        fail('prepare of a genome-wide synthetic set reads the kit\'s filter minimum with configmaker, as the workflow does; '
+             'run it in an environment that has it, as the workflow\'s own (e.g. the repository\'s .dev/ci)')
     try:  # a single-end read geometry; its length does not take part in the selection
         kit = LibprepConfig.load(str(LIBPREP_CONFIG)).select(spec['libprepkit'], [1]).parameters
     except LibprepConfigError as error:

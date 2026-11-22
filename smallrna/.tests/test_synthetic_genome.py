@@ -891,7 +891,7 @@ def test_the_shortest_read_is_the_filters_minimum(mirbase):
         sg.generate(dict(decoy_spec(length=[16, 40]), min_length=17), *files, 'hsa-', ADAPTER, 0, lambda s: Path('/nonexistent') / s, {})
 
 
-def test_prepare_takes_the_minimum_from_the_kit_or_the_declaration(tmp_path):
+def test_prepare_takes_the_minimum_from_the_kit_or_the_declaration(tmp_path, monkeypatch):
     """#500: filter_minimum reads the kit's cutadapt minimum_length as the workflow selects the kit, unless the
     declaration's config sets one; a declaration cannot set synthetic.min_length, and the set runs cutadapt."""
     kits = yaml.safe_load((BENCH.parents[1] / 'libprep.config').read_text())
@@ -907,6 +907,10 @@ def test_prepare_takes_the_minimum_from_the_kit_or_the_declaration(tmp_path):
             benchmark.filter_minimum(dict(v4, config=config))
     with pytest.raises(SystemExit, match='Unsupported library kit'):
         benchmark.filter_minimum({'name': 'x', 'libprepkit': 'No Such Kit'})
+    monkeypatch.setitem(sys.modules, 'configmaker.libprep', None)   # an environment without configmaker
+    with pytest.raises(SystemExit, match='reads the kit.s filter minimum with configmaker'):
+        benchmark.filter_minimum(v4)
+    monkeypatch.undo()
     ext = tmp_path / 'ext'
     fake_mirbase(ext / 'benchmark/smallrna/syn_genome/mirbase/23.1')
     spec = dict(v4, name='syn_genome', kind='synthetic', organism='homo_sapiens', adapter=ADAPTER, umi=0, methods=['tinyrna'],
