@@ -171,3 +171,29 @@ def test_gff_leaves_out_rows_without_a_strand(tmp_path):
     assert lines[0] == '##gff-version 3'
     assert lines[1] == '# htseq_counts.py gff: rows without a strand left out (2): hsa-mir-13168,hsa-miR-13168-5p'
     assert [line.split('\t')[8].split(';')[0] for line in lines if not line.startswith('#')] == ['ID=MI1', 'ID=MIMAT1']
+
+
+def test_local_alignment_mode(tmp_path):
+    """quant.biocore_htseq.alignment: local (#417): Bowtie 2 --local with a minimum score of 2 per base for
+    local_min_aligned of the read, and a filter that drops alignments clipping the read's 5' end or aligning too little
+    of it; the default keeps the command as before; bad values stop at load."""
+    local = lambda **kw: (lambda s: s['quant'].setdefault('biocore_htseq', {}).update(alignment='local', **kw))
+    returncode, output = dry_run(tmp_path, 'biocore_htseq', local(), printshell=True)
+    assert returncode == 0, output
+    align = rule_block(output, 'biocore_htseq_align')
+    assert re.search(r'bowtie2 -p \d+ -k 10 -f --local --score-min L,0,1\.8 -x ', align)
+    command = align.split('2> ', 1)[1].split(' | ', 1)[1].rsplit(' | gzip', 1)[0]
+    assert command.startswith('awk ')
+    header = '@SQ\tSN:1\tLN:1000\n'
+    records = {'exact': ('r1', 0, '22M'), 'tail': ('r2', 0, '20M2S'), 'clipped5': ('r3', 0, '2S20M'), 'reverse_tail': ('r4', 16, '2S20M'),
+               'reverse_clipped5': ('r5', 16, '20M2S'), 'short': ('r6', 0, '16M6S'), 'unmapped': ('r7', 4, '*')}
+    sam = header + ''.join('{}\t{}\t1\t100\t255\t{}\t*\t0\t0\t{}\t{}\n'.format(n, f, c, 'A' * 22, 'I' * 22) for n, f, c in records.values())
+    kept = subprocess.run(['bash', '-c', command], input=sam, capture_output=True, text=True, check=True).stdout
+    names = [line.split('\t')[0] for line in kept.splitlines() if not line.startswith('@')]
+    assert kept.startswith('@SQ') and names == ['r1', 'r2', 'r4', 'r7']   # 5' clips and a 73% alignment dropped, unmapped kept
+    returncode, output = dry_run(tmp_path / 'default', 'biocore_htseq', printshell=True)
+    assert returncode == 0 and re.search(r'bowtie2 -p \d+ -k 10 -f -x ', output) and '--local' not in output
+    for value, message in ((dict(local_min_aligned=0.3), 'quant.biocore_htseq.local_min_aligned must be a number from 0.5 to 1'),
+                           (dict(local_max_5p_clip=-1), 'quant.biocore_htseq.local_max_5p_clip must be a whole number from 0 to 5')):
+        returncode, output = dry_run(tmp_path / str(len(message)), 'biocore_htseq', local(**value))
+        assert returncode != 0 and message in output, output

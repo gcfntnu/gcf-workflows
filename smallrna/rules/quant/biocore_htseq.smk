@@ -7,7 +7,12 @@ The pipeline's own trimming is replaced by the shared filtered reads, as for the
 
 1. the reads are collapsed to unique sequences with fastx_collapser (names `<rank>-<reads>`);
 2. sequences of at least 15 nt are aligned end to end to the genome with Bowtie 2, `-k 10 -f` with default
-   sensitivity: up to 10 alignments per sequence, mismatches within Bowtie 2's score threshold;
+   sensitivity: up to 10 alignments per sequence, mismatches within Bowtie 2's score threshold. With
+   quant.biocore_htseq.alignment `local` (#417), Bowtie 2 aligns locally (`--local`, minimum score 2 per base for
+   `local_min_aligned` of the read, the match bonus, so that share must align), and alignments whose read 5' end is
+   soft-clipped by more than `local_max_5p_clip` bases or that align less than `local_min_aligned` of the read are
+   dropped before annotation: a clipped 3' tail passes step 4's perfect-alignment test, which reads the aligned part
+   only;
 3. htseq-count annotates every alignment (`-a 0 -s yes -t miRNA -i Name`: union overlap mode, stranded, MAPQ 0
    accepted), writing the feature into the record's XF tag. Bowtie 2 writes no NH tag, so each reported alignment is
    annotated on its own. Secondary (and supplementary) alignments are scored, as HTSeq 0.9.1, the pipeline's version,
@@ -33,11 +38,44 @@ BIOCORE_HTSEQ_OUT = join(QUANT_INTERIM, 'biocore_htseq')
 BIOCORE_HTSEQ_MIN_LENGTH = 15  # collapsed sequences shorter than this are not aligned
 BIOCORE_HTSEQ_BOWTIE2 = '-k 10 -f'
 BIOCORE_HTSEQ_COUNT = '-f sam -a 0 -s yes -t miRNA -i Name --secondary-alignments score --supplementary-alignments score'
+BIOCORE_HTSEQ_CONF = config['quant'].get('biocore_htseq') or {}
+
+
+def biocore_htseq_local():
+    """(Bowtie 2 options, filter) of quant.biocore_htseq.alignment (#417), joined into the rule's command here so that
+    the default (end_to_end) keeps it as before: for `local`, --local with a minimum score of 2 (the match bonus) per
+    base of local_min_aligned of the read, and an awk filter of the SAM records, unmapped ones kept, that drops
+    alignments clipping more than local_max_5p_clip bases at the read's 5' end (the CIGAR's start on the forward strand,
+    its end on the reverse) or aligning less than local_min_aligned of the read."""
+    mode = BIOCORE_HTSEQ_CONF.get('alignment', 'end_to_end')
+    if mode == 'end_to_end':
+        return '', ''
+    if mode != 'local':
+        raise ValueError('quant.biocore_htseq.alignment must be end_to_end or local, got {!r}'.format(mode))
+    share, clip = BIOCORE_HTSEQ_CONF.get('local_min_aligned'), BIOCORE_HTSEQ_CONF.get('local_max_5p_clip')
+    if isinstance(share, bool) or not isinstance(share, (int, float)) or not 0.5 <= share <= 1:
+        raise ValueError('quant.biocore_htseq.local_min_aligned must be a number from 0.5 to 1, got {!r}'.format(share))
+    if isinstance(clip, bool) or not isinstance(clip, int) or not 0 <= clip <= 5:
+        raise ValueError('quant.biocore_htseq.local_max_5p_clip must be a whole number from 0 to 5, got {!r}'.format(clip))
+    awk = ("awk -F '\\t' -v OFS='\\t' -v share={share} -v clip={clip} "
+           "'/^@/ || int($2 / 4) % 2 {{{{print; next}}}} "
+           "{{{{n = length($10); lead = ($6 ~ /^[0-9]+S/) ? $6 + 0 : 0; tail = 0; "
+           "if (match($6, /[0-9]+S$/)) tail = substr($6, RSTART, RLENGTH - 1) + 0; "
+           "five = int($2 / 16) % 2 ? tail : lead; "
+           "if (five <= clip && n - lead - tail >= share * n) print}}}}'").format(share=share, clip=clip)
+    return ' --local --score-min L,0,{:g}'.format(2 * share), ' | ' + awk
+
+
+BIOCORE_HTSEQ_LOCAL, BIOCORE_HTSEQ_FILTER = biocore_htseq_local() if BIOCORE_HTSEQ_SELECTED else ('', '')
 
 
 def biocore_htseq_settings():
     """The settings that decide the biocore_htseq route's counting, recorded with its table (quant_settings, #417)."""
-    return [('minimum_length', str(BIOCORE_HTSEQ_MIN_LENGTH), 'fixed'), ('bowtie2', BIOCORE_HTSEQ_BOWTIE2, 'fixed'),
+    return [('minimum_length', str(BIOCORE_HTSEQ_MIN_LENGTH), 'fixed'),
+            ('alignment', str(BIOCORE_HTSEQ_CONF.get('alignment', 'end_to_end')), 'quant.biocore_htseq.alignment'),
+            ('local_min_aligned', str(BIOCORE_HTSEQ_CONF.get('local_min_aligned')), 'quant.biocore_htseq.local_min_aligned'),
+            ('local_max_5p_clip', str(BIOCORE_HTSEQ_CONF.get('local_max_5p_clip')), 'quant.biocore_htseq.local_max_5p_clip'),
+            ('bowtie2', BIOCORE_HTSEQ_BOWTIE2 + BIOCORE_HTSEQ_LOCAL, 'quant.biocore_htseq.alignment and fixed'),
             ('htseq_count', BIOCORE_HTSEQ_COUNT, 'fixed'),
             ('counting', 'perfect alignments only (MD tag); a read counts in full for every miRNA it overlaps (htseq_counts.py)', 'fixed')]
 
@@ -96,7 +134,8 @@ rule biocore_htseq_align:
     shell:
         # fastx_collapser writes each sequence on one line after its name.
         "awk 'NR % 2 == 1 {{name = $0; next}} length($0) >= " + str(BIOCORE_HTSEQ_MIN_LENGTH) + " {{print name; print}}' {input.reads:q} | "
-        'bowtie2 -p {threads} ' + BIOCORE_HTSEQ_BOWTIE2 + ' -x {params.index:q} -U - 2> {log:q} | gzip > {output:q}'
+        'bowtie2 -p {threads} ' + BIOCORE_HTSEQ_BOWTIE2 + BIOCORE_HTSEQ_LOCAL + ' -x {params.index:q} -U - 2> {log:q}' + BIOCORE_HTSEQ_FILTER +
+        ' | gzip > {output:q}'
 
 
 rule biocore_htseq_annotate:
