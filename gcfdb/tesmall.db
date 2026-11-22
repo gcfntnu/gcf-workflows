@@ -25,6 +25,13 @@ Layout under `EXT_DIR/tesmall/<mirflowz reference>/` (TESMALL_REF):
 
 TESMALL_NAME is not one of TEsmall's built-in genome names, so a database that fails TEsmall's own checks stops the
 run instead of starting a download.
+
+With `quant.tesmall.structural_rnacentral` (#378), TEsmall reads a database derived from that one,
+`gff-<ID>/unitas-<release>-rnacentral-<RNAcentral release>/` (TESMALL_RNACENTRAL_REF): its structural RNA class adds
+RNAcentral's snoRNA, scaRNA, Y RNA, vault RNA and 7SK entries (scripts/tesmall_rnacentral.py), and every other file is
+a relative link to the base database, which is built and used as before. The RNAcentral source and its log are kept in
+that folder too, so the setting writes nothing in the folders the base database shares. Human and mouse only: RNAcentral
+has no coordinates on TEsmall's rat assembly (Rnor_6.0).
 """
 import shlex
 
@@ -60,6 +67,24 @@ if 'genomes' in os.path.realpath(TESMALL_DB):
     tesmall_fail('TEsmall: the database path {} contains "genomes", which TEsmall strips from it; '
                  'choose an EXT_DIR without it'.format(os.path.realpath(TESMALL_DB)))
 assert TESMALL_NAME not in TESMALL_BUILTIN
+
+# RNAcentral entries in the structural RNA class (#378): a database of its own, so a project never mixes the two builds
+TESMALL_RNACENTRAL = ((config.get('quant') or {}).get('tesmall') or {}).get('structural_rnacentral', False)
+if not isinstance(TESMALL_RNACENTRAL, bool):
+    raise ValueError('quant.tesmall.structural_rnacentral must be true or false, got {!r}'.format(TESMALL_RNACENTRAL))
+TESMALL_RNACENTRAL_RELEASE = '28.0'
+TESMALL_RNACENTRAL_ASSEMBLY = {'homo_sapiens': 'GRCh38', 'mus_musculus': 'GRCm39'}
+TESMALL_RNACENTRAL_REF = '{}-rnacentral-{}'.format(TESMALL_DUMP_REF, TESMALL_RNACENTRAL_RELEASE)
+TESMALL_RNACENTRAL_DB = join(TESMALL_RNACENTRAL_REF, 'db')
+TESMALL_RNACENTRAL_GENOME_DIR = join(TESMALL_RNACENTRAL_DB, 'genomes', TESMALL_NAME)
+if TESMALL_RNACENTRAL:
+    if ORG not in TESMALL_RNACENTRAL_ASSEMBLY or MIRFLOWZ_CUSTOM:
+        tesmall_fail('quant.tesmall.structural_rnacentral: RNAcentral {} has coordinates for {} on {}, not for this reference '
+                     '({}{})'.format(TESMALL_RNACENTRAL_RELEASE, ' and '.join(TESMALL_RNACENTRAL_ASSEMBLY),
+                                     ' and '.join(TESMALL_RNACENTRAL_ASSEMBLY.values()), ORG, ', custom' if MIRFLOWZ_CUSTOM else ''))
+    elif 'genomes' in os.path.realpath(TESMALL_RNACENTRAL_DB):
+        tesmall_fail('TEsmall: the database path {} contains "genomes", which TEsmall strips from it; '
+                     'choose an EXT_DIR without it'.format(os.path.realpath(TESMALL_RNACENTRAL_DB)))
 
 if ORG in TESMALL_ORGANISMS:
     rule tesmall_gtrnadb:
@@ -180,3 +205,48 @@ rule tesmall_db:
         '--rdna {input.rdna} --pirna-clusters {input.unitas}/piRclDB '
         '--annotation {params.annotation} --sequence {params.seq} --record {output.record} {params.sources} && '
         'for n in rDNA tDNA; do samtools faidx {params.seq}/$n.fa && bowtie-build -q {params.seq}/$n.fa {params.seq}/bowtie_index/$n; done'
+
+
+if ORG in TESMALL_RNACENTRAL_ASSEMBLY:
+    rule tesmall_rnacentral:
+        output:
+            join(TESMALL_RNACENTRAL_REF, 'sources', '{}.{}.gff3.gz'.format(ORG, TESMALL_RNACENTRAL_ASSEMBLY[ORG]))
+        params:
+            proxy = config.get('proxy', {}).get('wget', ''),
+            url = 'https://ftp.ebi.ac.uk/pub/databases/RNAcentral/releases/{}/genome_coordinates/gff3/{}.{}.gff3.gz'.format(
+                TESMALL_RNACENTRAL_RELEASE, ORG, TESMALL_RNACENTRAL_ASSEMBLY[ORG]),
+            version = TESMALL_RNACENTRAL_RELEASE
+        log:
+            join(TESMALL_RNACENTRAL_REF, 'logs', 'rnacentral.log')
+        shell:
+            'wget {params.proxy} -q -O {output}.part {params.url} && gzip -t {output}.part && mv {output}.part {output} && '
+            'echo "RNAcentral,{params.version},{params.url},`date -I`" > {log}'
+
+    # Every file of the base database's genome folder, at the same place in the derived one.
+    TESMALL_DB_FILES = [os.path.relpath(str(f), TESMALL_GENOME_DIR) for f in list(rules.tesmall_db.output) + list(rules.tesmall_genome_links.output)
+                        if str(f).startswith(TESMALL_GENOME_DIR + os.sep)]
+
+    rule tesmall_rnacentral_db:
+        """The TEsmall database with RNAcentral's structural entries (#378), derived from the base one."""
+        input:
+            base = rules.tesmall_db.output,
+            links = rules.tesmall_genome_links.output,
+            record = rules.tesmall_db.output.record,
+            fai = rules.tesmall_genome.output.fai,
+            rnacentral = rules.tesmall_rnacentral.output
+        output:
+            files = [join(TESMALL_RNACENTRAL_GENOME_DIR, f) for f in TESMALL_DB_FILES],
+            record = join(TESMALL_RNACENTRAL_REF, 'tesmall_reference.tsv')
+        params:
+            script = src_gcf('scripts/tesmall_rnacentral.py'),
+            base = TESMALL_GENOME_DIR,
+            out = TESMALL_RNACENTRAL_GENOME_DIR,
+            sources = ' '.join('--source {}'.format(shlex.quote(s)) for s in (
+                'rnacentral={}'.format(TESMALL_RNACENTRAL_RELEASE), 'rnacentral_assembly={}'.format(TESMALL_RNACENTRAL_ASSEMBLY[ORG])))
+        benchmark:
+            join(TESMALL_RNACENTRAL_REF, 'benchmarks', 'tesmall_rnacentral_db.tsv')
+        container:
+            'docker://' + config['docker']['tesmall']
+        shell:
+            'python {params.script} --base {params.base} --base-record {input.record} --rnacentral {input.rnacentral} '
+            '--genome-fai {input.fai} --out {params.out} --record {output.record} {params.sources}'

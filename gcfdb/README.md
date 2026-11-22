@@ -89,7 +89,11 @@ their identity, sources and checks.
 - **TEsmall databases** ([`tesmall.db`](tesmall.db)): built on the mirflowz reference's genome, with a Bowtie 1 index
   of it, and once per UNITAS dump, from which the piRNA clusters come. The genome FASTA and its index are built from the
   genome alone, so a new annotation does not rebuild them or the biocore_htseq index
-  ([#433](https://github.com/gcfntnu/gcf-workflows/issues/433)).
+  ([#433](https://github.com/gcfntnu/gcf-workflows/issues/433)). With `quant.tesmall.structural_rnacentral`, a database
+  derived from that one adds RNAcentral's snoRNA, scaRNA, Y RNA, vault RNA and 7SK entries (release 28.0) to the
+  structural RNA class, in its own folder beside the base database, whose other files it links
+  ([`tesmall_rnacentral.py`](scripts/tesmall_rnacentral.py), [#378](https://github.com/gcfntnu/gcf-workflows/issues/378));
+  human and mouse only.
 - **tiny-count reference** ([`tinyrna.db`](tinyrna.db), [`tinyrna_gff.py`](scripts/tinyrna_gff.py)): TEsmall's Bowtie 1
   genome index, and the miRBase GFF renamed to the genome's sequence names with the mirflowz chromosome map
   (`mirna.v<n>.gff3`; `<n>` is raised when the script's output changes, so an older GFF is rebuilt). A mature miRNA

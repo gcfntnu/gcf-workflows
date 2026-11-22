@@ -284,3 +284,33 @@ def test_two_correction_sets_in_one_ext_dir_each_use_their_own_derived_files(tmp
     assert set(derived) <= planned and not planned & set(genome), planned
     returncode, output = snakemake(tmp_path / 'a', '-n', *derived, *genome)
     assert returncode == 0 and 'Nothing to be done' in output, output  # a keeps its own files, older than b's
+
+
+RNACENTRAL = DUMP + '-rnacentral-28.0'  # #378: the database with RNAcentral's structural entries, beside the base one
+
+
+def test_rnacentral_structural_entries_make_a_database_of_their_own(tmp_path):
+    """quant.tesmall.structural_rnacentral (#378): RNAcentral's structural entries in a database derived from the base
+    one, which TEsmall then reads; the base database is built as before, and without the setting nothing of it is
+    planned. Rat (Rnor_6.0) stops at load."""
+    on = lambda s: s['quant'].setdefault('tesmall', {}).update(structural_rnacentral=True)
+    returncode, output = dry_run(tmp_path, 'tesmall', on, printshell=True)
+    assert returncode == 0, output
+    assert ('https://ftp.ebi.ac.uk/pub/databases/RNAcentral/releases/28.0/genome_coordinates/gff3/mus_musculus.GRCm39.gff3.gz'
+            in rule_block(output, 'tesmall_rnacentral'))
+    derived = rule_block(output, 'tesmall_rnacentral_db')
+    assert f'--base {DB} ' in derived and f'--out {RNACENTRAL}/db/genomes/gcf ' in derived
+    assert f'--record {RNACENTRAL}/tesmall_reference.tsv' in derived and f'--base-record {DUMP}/tesmall_reference.tsv' in derived
+    assert f'--rnacentral {RNACENTRAL}/sources/mus_musculus.GRCm39.gff3.gz' in derived   # in its own folder, not the shared sources/
+    for path in ('annotation/structural_RNA.bed', 'annotation/piRNA_cluster.bed', 'sequence/genome.fa', 'sequence/bowtie_index/tDNA.rev.2.ebwt'):
+        assert f'{RNACENTRAL}/db/genomes/gcf/{path}' in derived.split('output:', 1)[1].split('shell:', 1)[0]
+    run = rule_block(output, 'tesmall_quant')
+    assert f'db=$(realpath {RNACENTRAL}/db)' in run and f'{RNACENTRAL}/db/genomes/gcf/annotation/structural_RNA.bed' in run.split('output:', 1)[0]
+    assert 'rule tesmall_db:' in output   # the base database it is derived from
+    returncode, output = dry_run(tmp_path / 'off', 'tesmall', printshell=True)
+    assert returncode == 0, output
+    assert 'rule tesmall_rnacentral' not in output and f'db=$(realpath {DUMP}/db)' in rule_block(output, 'tesmall_quant')
+    returncode, output = dry_run(tmp_path / 'rat', 'tesmall', lambda s: (on(s), s.update(organism='rattus_norvegicus')))
+    assert returncode != 0 and 'RNAcentral 28.0 has coordinates for homo_sapiens and mus_musculus on GRCh38 and GRCm39' in output
+    returncode, output = dry_run(tmp_path / 'text', 'tesmall', lambda s: s['quant'].setdefault('tesmall', {}).update(structural_rnacentral='no'))
+    assert returncode != 0 and "quant.tesmall.structural_rnacentral must be true or false, got 'no'" in output
