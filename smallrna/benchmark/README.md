@@ -313,7 +313,10 @@ python smallrna/benchmark/benchmark.py fill --dataset smallrna/benchmark/dataset
     --ext-dir "$EXT_DIR"
 ```
 
-`prepare` links the runs into the project, or copies the first `--reads N` reads of each for a quick run; `--methods`
+`prepare` links the runs into the project, or copies the first `--reads N` reads of each for a quick run, or with
+`--fraction F` the first F of each run's declared reads: the same total can be had either way, but `--reads` gives every
+run the same depth, while `--fraction` keeps the depths the runs have relative to each other, which the normalisation
+in differential expression is there to handle. `--methods`
 picks a subset of the declared methods (mirflowz and TEsmall on human need the full human reference), and, for a
 biological dataset, `--per-group N` the first N samples of each group in declared order; for a synthetic dataset,
 `--synthetic-seed N` another draw of the same declaration (#455: the miRNAs chosen, their abundances and changes, the
