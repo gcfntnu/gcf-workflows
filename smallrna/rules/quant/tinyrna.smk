@@ -7,8 +7,15 @@ gcfntnu/tiny-count:
 
 1. the shared filtered reads are collapsed to unique sequences (tiny-collapse, names `<n>_count=<reads>`, which
    tiny-count reads the counts from);
-2. aligned end to end to the genome with Bowtie 1: at most quant.tinyrna.mismatch mismatches (tinyRNA's default 0),
-   all alignments in the best stratum, alignments of a read together. The BAM keeps Bowtie as the last @PG, which
+2. aligned to the genome with Bowtie 1: end to end with at most quant.tinyrna.mismatch mismatches (tinyRNA's default
+   0), or with quant.tinyrna.alignment `seed` in Bowtie's seed mode (#417): at most `mismatch` mismatches in the first
+   `seed_length` bases and at most `seed_total` in the read. The collapsed reads are FASTA, which Bowtie scores at
+   quality 40 per base; with --nomaqround (no rounding to Maq's scale, which caps 40 at 30) each mismatch costs 40,
+   so the quality budget (-e) is 40 per mismatch allowed. A read keeps only its alignments with the fewest mismatches
+   (NM), as end-to-end mode's strata do: Bowtie's seed-mode strata count the seed's mismatches only, so an exact read
+   would also be reported at a relative's locus with a mismatch beyond the seed and divided between them. The default
+   seed_total of 1 covers a non-templated tail of one base (or one error beyond the seed). All alignments in the best stratum
+   (in seed mode, Bowtie's strata count the seed's mismatches only), alignments of a read together. The BAM keeps Bowtie as the last @PG, which
    tiny-count requires to accept the alignments of multimapping reads as adjacent;
 3. counted by tiny-count against the miRBase GFF with the Features Sheet written from quant.tinyrna
    (`features.csv`, scripts/tinyrna.py: mature miRNAs; 5' end at one of the offsets, 3' end at most `extension`
@@ -48,11 +55,36 @@ def tinyrna_mismatch(wildcards):
     return value
 
 
+def tinyrna_alignment():
+    """Bowtie's alignment options, joined here so that the default (end_to_end) keeps the rule's command as before."""
+    mode = TINYRNA_CONF.get('alignment', 'end_to_end')
+    if mode == 'end_to_end':
+        return '-v {params.mismatch}'
+    if mode != 'seed':
+        raise ValueError('quant.tinyrna.alignment must be end_to_end or seed, got {!r}'.format(mode))
+    length, total = TINYRNA_CONF.get('seed_length'), TINYRNA_CONF.get('seed_total')
+    if isinstance(length, bool) or not isinstance(length, int) or not 5 <= length <= 32:
+        raise ValueError('quant.tinyrna.seed_length must be a whole number from 5 to 32 (Bowtie -l), got {!r}'.format(length))
+    if isinstance(total, bool) or not isinstance(total, int) or not int(tinyrna_mismatch(None)) <= total <= 3:
+        raise ValueError('quant.tinyrna.seed_total must be a whole number from quant.tinyrna.mismatch to 3, got {!r}'.format(total))
+    return '-n {{params.mismatch}} -l {} -e {} --nomaqround'.format(length, 40 * total)
+
+
 def tinyrna_normalize(wildcards):
     return '--normalize-by-genomic-hits {} --normalize-by-feature-hits {}'.format(
         tinyrna_flag('normalize_by_genomic_hits'), tinyrna_flag('normalize_by_feature_hits'))
 
 
+TINYRNA_ALIGNMENT = tinyrna_alignment()  # also when tiny-count's outputs are requested without quant.method selecting it
+TINYRNA_SEED = TINYRNA_CONF.get('alignment', 'end_to_end') == 'seed'
+# Seed mode: per read (its records are consecutive), only the alignments with the fewest mismatches (NM).
+TINYRNA_FILTER = (" | awk -F '\\t' -v OFS='\\t' 'function flush(  j) {{ for (j = 1; j <= n; j++) print rec[j]; n = 0 }} "
+                  "/^@/ {{ print; next }} "
+                  "{{ nm = 0; for (i = 12; i <= NF; i++) if ($i ~ /^NM:i:/) nm = substr($i, 6) + 0; "
+                  "if ($1 != name) {{ flush(); name = $1; best = nm }} "
+                  "if (nm < best) {{ best = nm; n = 0 }} "
+                  "if (nm == best) rec[++n] = $0 }} "
+                  "END {{ flush() }}'") if TINYRNA_SEED else ''
 if TINYRNA_SELECTED:
     tinyrna_mismatch(None)
     tinyrna_normalize(None)
@@ -60,9 +92,12 @@ if TINYRNA_SELECTED:
 
 def tinyrna_settings():
     """The settings that decide tiny-count's counting, recorded with its table (quant_settings, #417)."""
-    keys = ('mismatch', 'five_prime_offsets', 'three_prime_extension', 'strand', 'length', 'normalize_by_genomic_hits', 'normalize_by_feature_hits')
-    return [(key, str(TINYRNA_CONF[key]), 'quant.tinyrna.' + key) for key in keys] + \
-        [('bowtie', '-v {} {}'.format(tinyrna_mismatch(None), TINYRNA_BOWTIE), 'quant.tinyrna.mismatch and fixed')]
+    keys = ('mismatch', 'alignment', 'seed_length', 'seed_total', 'five_prime_offsets', 'three_prime_extension', 'strand', 'length',
+            'normalize_by_genomic_hits', 'normalize_by_feature_hits')
+    unused = () if TINYRNA_SEED else ('seed_length', 'seed_total')  # recorded as unused, so no variant can vary them alone
+    return [(key, 'unused (end_to_end)' if key in unused else str(TINYRNA_CONF[key]), 'quant.tinyrna.' + key) for key in keys] + \
+        [('bowtie', '{} {}'.format(TINYRNA_ALIGNMENT.replace('{params.mismatch}', str(tinyrna_mismatch(None))), TINYRNA_BOWTIE),
+          'quant.tinyrna.mismatch, alignment, seed_length, seed_total and fixed')]
 
 
 rule tinyrna_features:
@@ -122,8 +157,8 @@ rule tinyrna_align:
         'docker://' + config['docker']['tiny-count']
     shell:
         # --no-PG keeps Bowtie as the last program in the header, which tiny-count checks.
-        'bowtie -x {params.index:q} -f {input.reads:q} -v {params.mismatch} ' + TINYRNA_BOWTIE + ' '
-        '2> {log:q} | samtools view -b --no-PG -o {output:q} -'
+        'bowtie -x {params.index:q} -f {input.reads:q} ' + TINYRNA_ALIGNMENT + ' ' + TINYRNA_BOWTIE + ' '
+        '2> {log:q}' + TINYRNA_FILTER + ' | samtools view -b --no-PG -o {output:q} -'
 
 
 rule tinyrna_count:

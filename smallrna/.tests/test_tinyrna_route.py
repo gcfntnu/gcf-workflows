@@ -210,3 +210,33 @@ def test_join_rejects_duplicate_keys_in_a_native_table(tmp_path):
     native.write_text('Feature ID,Classifier,Feature Name,S1_rep_1\nMIMAT1,miRNA,mir-1,2\nMIMAT1,miRNA,mir-1,3\n')
     with pytest.raises(SystemExit, match='duplicate feature ID and classifier'):
         tinyrna.read_counts(native, 'S1')
+
+
+def test_seed_alignment_mode(tmp_path):
+    """quant.tinyrna.alignment: seed (#417): Bowtie's seed mode, -n mismatch -l seed_length -e 40 per mismatch allowed in
+    the read (FASTA reads score quality 40 per base); the default keeps the end-to-end command; bad values stop at load."""
+    seed = lambda **kw: (lambda s: s['quant'].setdefault('tinyrna', {}).update(alignment='seed', **kw))
+    returncode, output = dry_run(tmp_path, 'tinyrna', seed(seed_length=16, seed_total=2), printshell=True)
+    assert returncode == 0, output
+    align = rule_block(output, 'tinyrna_align')
+    assert '-n 0 -l 16 -e 80 --nomaqround --all --best --strata --no-unal --sam --seed 0' in align and ' -v 0 ' not in align
+    returncode, output = dry_run(tmp_path / 'default', 'tinyrna', printshell=True)
+    assert returncode == 0 and '-f {}/SR0'.format(OUT) in output and '-v 0 --all --best' in rule_block(output, 'tinyrna_align')
+    # per read only the alignments with the fewest mismatches (an exact read is not divided with a relative's locus)
+    command = align.split('2> ', 1)[1].split(' | ', 1)[1].rsplit(' | samtools', 1)[0]
+    assert command.startswith('awk ')
+    record = lambda name, chrom, nm: '{}\t0\t{}\t100\t255\t22M\t*\t0\t0\t{}\t{}\tXA:i:0\tMD:Z:22\tNM:i:{}\n'.format(
+        name, chrom, 'A' * 22, 'I' * 22, nm)
+    sam = '@HD\tVN:1.0\n' + record('1_count=5', '1', 0) + record('1_count=5', '2', 1) + record('2_count=3', '3', 1) + record('2_count=3', '4', 1)
+    kept = subprocess.run(['bash', '-c', command], input=sam, capture_output=True, text=True, check=True).stdout.splitlines()
+    assert kept[0] == '@HD\tVN:1.0' and [(f[0], f[2]) for f in (line.split('\t') for line in kept[1:])] == [
+        ('1_count=5', '1'), ('2_count=3', '3'), ('2_count=3', '4')]
+    # requested directly, without quant.method selecting tiny-count: the same options
+    returncode, output = dry_run(tmp_path / 'direct', 'unitas', seed(), printshell=True, target=OUT + '/tinyrna_counts.tsv')
+    assert returncode == 0 and '-n 0 -l 18 -e 40 --nomaqround' in rule_block(output, 'tinyrna_align'), output
+    for value, message in ((dict(seed_length=4), 'quant.tinyrna.seed_length must be a whole number from 5 to 32'),
+                           (dict(seed_total=0, mismatch=1), 'quant.tinyrna.seed_total must be a whole number from quant.tinyrna.mismatch to 3')):
+        returncode, output = dry_run(tmp_path / str(len(message)), 'tinyrna', seed(**value))
+        assert returncode != 0 and message in output, output
+    returncode, output = dry_run(tmp_path / 'mode', 'tinyrna', lambda s: s['quant'].setdefault('tinyrna', {}).update(alignment='local'))
+    assert returncode != 0 and "quant.tinyrna.alignment must be end_to_end or seed, got 'local'" in output
