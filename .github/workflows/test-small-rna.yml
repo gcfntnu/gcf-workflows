@@ -14,6 +14,13 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+    - name: Check that this workflow names every small-RNA test file
+      run: |
+        missing=0
+        for f in smallrna/.tests/test_*.py; do
+          grep -qF "$f" .github/workflows/test-small-rna.yml || { echo "::error file=$f::$f is not run by .github/workflows/test-small-rna.yml"; missing=1; }
+        done
+        exit $missing
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v2
       with:
