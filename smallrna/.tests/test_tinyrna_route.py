@@ -219,9 +219,12 @@ def test_seed_alignment_mode(tmp_path):
     returncode, output = dry_run(tmp_path, 'tinyrna', seed(seed_length=16, seed_total=2), printshell=True)
     assert returncode == 0, output
     align = rule_block(output, 'tinyrna_align')
-    assert '-n 0 -l 16 -e 80 --all --best --strata --no-unal --sam --seed 0' in align and ' -v ' not in align
+    assert '-n 0 -l 16 -e 80 --nomaqround --all --best --strata --no-unal --sam --seed 0' in align and ' -v ' not in align
     returncode, output = dry_run(tmp_path / 'default', 'tinyrna', printshell=True)
     assert returncode == 0 and '-f {}/SR0'.format(OUT) in output and '-v 0 --all --best' in rule_block(output, 'tinyrna_align')
+    # requested directly, without quant.method selecting tiny-count: the same options
+    returncode, output = dry_run(tmp_path / 'direct', 'unitas', seed(), printshell=True, target=OUT + '/tinyrna_counts.tsv')
+    assert returncode == 0 and '-n 0 -l 18 -e 40 --nomaqround' in rule_block(output, 'tinyrna_align'), output
     for value, message in ((dict(seed_length=4), 'quant.tinyrna.seed_length must be a whole number from 5 to 32'),
                            (dict(seed_total=0, mismatch=1), 'quant.tinyrna.seed_total must be a whole number from quant.tinyrna.mismatch to 3')):
         returncode, output = dry_run(tmp_path / str(len(message)), 'tinyrna', seed(**value))
