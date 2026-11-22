@@ -41,6 +41,8 @@ BIOCORE_HTSEQ_MIN_LENGTH = 15  # collapsed sequences shorter than this are not a
 BIOCORE_HTSEQ_BOWTIE2 = '-k 10 -f'
 BIOCORE_HTSEQ_COUNT = '-f sam -a 0 -s yes -t miRNA -i Name --secondary-alignments score --supplementary-alignments score'
 BIOCORE_HTSEQ_CONF = config['quant'].get('biocore_htseq') or {}
+if not isinstance(BIOCORE_HTSEQ_CONF, dict):
+    raise ValueError('quant.biocore_htseq must be a mapping of settings, got {!r}'.format(BIOCORE_HTSEQ_CONF))
 
 
 def biocore_htseq_local():
@@ -68,23 +70,28 @@ def biocore_htseq_local():
            "n = length($10); lead = ($6 ~ /^[0-9]+S/) ? $6 + 0 : 0; tail = 0; "
            "if (match($6, /[0-9]+S$/)) tail = substr($6, RSTART, RLENGTH - 1) + 0; "
            "five = int($2 / 16) % 2 ? tail : lead; "
-           "if (five > clip || n - lead - tail < share * n) next; "
+           "if (five > clip || n - lead - tail < share * n - 1e-9) next; "
            "as = -1e9; for (i = 12; i <= NF; i++) if ($i ~ /^AS:i:/) as = substr($i, 6) + 0; "
            "if (as > best) {{{{ best = as; k = 0 }}}} "
            "if (as == best) rec[++k] = $0 }}}} "
            "END {{{{ flush() }}}}'").format(share=share, clip=clip)
-    return ' --local --score-min L,0,{:g}'.format(2 * share), ' | ' + awk
+    # a seed of 16 (default 20 in local mode), so a 20-nt read with a 2-base tail still has an exact seed
+    return ' --local -L 16 --score-min L,0,{:g}'.format(2 * share), ' | ' + awk
 
 
-BIOCORE_HTSEQ_LOCAL, BIOCORE_HTSEQ_FILTER = biocore_htseq_local() if BIOCORE_HTSEQ_SELECTED else ('', '')
+BIOCORE_HTSEQ_LOCAL, BIOCORE_HTSEQ_FILTER = biocore_htseq_local()  # also when its outputs are requested without quant.method selecting it
+BIOCORE_HTSEQ_LOCAL_MODE = BIOCORE_HTSEQ_CONF.get('alignment', 'end_to_end') == 'local'
 
 
 def biocore_htseq_settings():
     """The settings that decide the biocore_htseq route's counting, recorded with its table (quant_settings, #417)."""
     return [('minimum_length', str(BIOCORE_HTSEQ_MIN_LENGTH), 'fixed'),
             ('alignment', str(BIOCORE_HTSEQ_CONF.get('alignment', 'end_to_end')), 'quant.biocore_htseq.alignment'),
-            ('local_min_aligned', str(BIOCORE_HTSEQ_CONF.get('local_min_aligned')), 'quant.biocore_htseq.local_min_aligned'),
-            ('local_max_5p_clip', str(BIOCORE_HTSEQ_CONF.get('local_max_5p_clip')), 'quant.biocore_htseq.local_max_5p_clip'),
+            # recorded as unused in end_to_end mode, so no benchmark variant can vary them alone
+            ('local_min_aligned', str(BIOCORE_HTSEQ_CONF.get('local_min_aligned')) if BIOCORE_HTSEQ_LOCAL_MODE else 'unused (end_to_end)',
+             'quant.biocore_htseq.local_min_aligned'),
+            ('local_max_5p_clip', str(BIOCORE_HTSEQ_CONF.get('local_max_5p_clip')) if BIOCORE_HTSEQ_LOCAL_MODE else 'unused (end_to_end)',
+             'quant.biocore_htseq.local_max_5p_clip'),
             ('bowtie2', BIOCORE_HTSEQ_BOWTIE2 + BIOCORE_HTSEQ_LOCAL, 'quant.biocore_htseq.alignment and fixed'),
             ('htseq_count', BIOCORE_HTSEQ_COUNT, 'fixed'),
             ('counting', 'perfect alignments only (MD tag); a read counts in full for every miRNA it overlaps (htseq_counts.py)', 'fixed')]
