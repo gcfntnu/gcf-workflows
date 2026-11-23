@@ -73,8 +73,10 @@ if BIOCORE_HTSEQ_CLASSES:
         log:
             join(BIOCORE_HTSEQ_REF, 'sources', 'rnacentral-{}'.format(BIOCORE_HTSEQ_RNACENTRAL_RELEASE), 'rnacentral.log')
         shell:
-            'wget {params.proxy} -q -O {output}.part {params.url} && gzip -t {output}.part && mv {output}.part {output} && '
-            'echo "RNAcentral,{BIOCORE_HTSEQ_RNACENTRAL_RELEASE},{params.url},`date -I`" > {log}'
+            # a temporary file of this job's own, renamed when complete: two projects building the same reference at
+            # once never publish a partial download
+            'tmp=$(mktemp {output}.XXXXXX) && wget {params.proxy} -q -O "$tmp" {params.url} && gzip -t "$tmp" && mv "$tmp" {output} && '
+            'echo "RNAcentral,{BIOCORE_HTSEQ_RNACENTRAL_RELEASE},{params.url},`date -I`" > {log} || {{ rm -f "$tmp"; exit 1; }}'
 
 
     rule biocore_htseq_annotation:
@@ -94,5 +96,6 @@ if BIOCORE_HTSEQ_CLASSES:
         container:
             'docker://' + config['docker']['default']
         shell:
-            'python {params.script:q} --mirna-gff {input.mirna_gff:q} --rnacentral {input.rnacentral:q} '
-            '--gtf {input.gtf:q} --fai {input.fai:q} > {output:q}.part && mv {output:q}.part {output:q}'
+            # a temporary file of this job's own, renamed when complete (as the download)
+            'tmp=$(mktemp {output:q}.XXXXXX) && python {params.script:q} --mirna-gff {input.mirna_gff:q} --rnacentral {input.rnacentral:q} '
+            '--gtf {input.gtf:q} --fai {input.fai:q} > "$tmp" && mv "$tmp" {output:q} || {{ rm -f "$tmp"; exit 1; }}'

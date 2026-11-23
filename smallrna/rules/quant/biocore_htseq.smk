@@ -230,41 +230,44 @@ rule biocore_htseq_counts:
         'python {params.script:q} join --samples {params.samples:q} --tables {input:q} > {output:q}'
 
 
-rule biocore_htseq_ncrna:
-    input:
-        rules.biocore_htseq_annotate.output
-    output:
-        types = join(BIOCORE_HTSEQ_OUT, '{sample}', 'ncrna_types.tsv'),
-        features = join(BIOCORE_HTSEQ_OUT, '{sample}', 'ncrna.tsv'),
-        stats = join(BIOCORE_HTSEQ_OUT, '{sample}', 'ncrna_stats.tsv')
-    params:
-        script = src_gcf('scripts/htseq_counts.py'),
-        species = MIR_ORG.get(ORG, '')
-    resources:
-        mem_mb = 1000  # about 50 MB on a plasma sample
-    benchmark:
-        join(QUANT_BENCHMARKS, 'biocore_htseq_ncrna', '{sample}.tsv')
-    container:
-        'docker://' + config['docker']['default']
-    shell:
-        'python {params.script:q} ncrna --species {params.species:q} --annotated {input:q} --types {output.types:q} '
-        '--features {output.features:q} --stats {output.stats:q}'
+# The ncRNA tables only where the annotation has the RNAcentral and Ensembl layers (#503): elsewhere htseq-count's
+# records carry miRNA features alone, and the tables would be empty.
+if BIOCORE_HTSEQ_CLASSES:
+    rule biocore_htseq_ncrna:
+        input:
+            rules.biocore_htseq_annotate.output
+        output:
+            types = join(BIOCORE_HTSEQ_OUT, '{sample}', 'ncrna_types.tsv'),
+            features = join(BIOCORE_HTSEQ_OUT, '{sample}', 'ncrna.tsv'),
+            stats = join(BIOCORE_HTSEQ_OUT, '{sample}', 'ncrna_stats.tsv')
+        params:
+            script = src_gcf('scripts/htseq_counts.py'),
+            species = MIR_ORG.get(ORG, '')
+        resources:
+            mem_mb = 1000  # about 50 MB on a plasma sample
+        benchmark:
+            join(QUANT_BENCHMARKS, 'biocore_htseq_ncrna', '{sample}.tsv')
+        container:
+            'docker://' + config['docker']['default']
+        shell:
+            'python {params.script:q} ncrna --species {params.species:q} --annotated {input:q} --types {output.types:q} '
+            '--features {output.features:q} --stats {output.stats:q}'
 
 
-rule biocore_htseq_ncrna_types:
-    input:
-        expand(rules.biocore_htseq_ncrna.output.types, sample=SAMPLES)
-    output:
-        join(BIOCORE_HTSEQ_OUT, 'ncrna_types.tsv')
-    params:
-        script = src_gcf('scripts/htseq_counts.py'),
-        samples = SAMPLES
-    benchmark:
-        join(QUANT_BENCHMARKS, 'biocore_htseq_ncrna_types.tsv')
-    container:
-        'docker://' + config['docker']['default']
-    shell:
-        'python {params.script:q} join --key type --samples {params.samples:q} --tables {input:q} > {output:q}'
+    rule biocore_htseq_ncrna_types:
+        input:
+            expand(rules.biocore_htseq_ncrna.output.types, sample=SAMPLES)
+        output:
+            join(BIOCORE_HTSEQ_OUT, 'ncrna_types.tsv')
+        params:
+            script = src_gcf('scripts/htseq_counts.py'),
+            samples = SAMPLES
+        benchmark:
+            join(QUANT_BENCHMARKS, 'biocore_htseq_ncrna_types.tsv')
+        container:
+            'docker://' + config['docker']['default']
+        shell:
+            'python {params.script:q} join --key type --samples {params.samples:q} --tables {input:q} > {output:q}'
 
 
 rule biocore_htseq_all:

@@ -48,6 +48,10 @@ def test_route_plans_reference_and_counting_and_delivery_stays_on_unitas(tmp_pat
     assert '--samples SR01 SR02 SR03 SR04' in rule_block(output, 'biocore_htseq_counts')
     # mouse: no ncRNA tables (#503), RNAcentral 9.0 has mouse coordinates on GRCm38 only
     assert 'biocore_htseq_ncrna' not in output and 'biocore_htseq_rnacentral' not in output
+    # nor as a direct target, which would count from records without ncRNA features (review of #505)
+    for target in (f'{OUT}/ncrna_types.tsv', f'{OUT}/SR01/ncrna_types.tsv'):
+        returncode, output = dry_run(tmp_path, 'unitas,biocore_htseq', target=target)
+        assert returncode != 0 and 'MissingRuleException' in output, output[-500:]
     returncode, output = dry_run(tmp_path, 'unitas,biocore_htseq', target='bfq_all')
     assert returncode == 0, output
     assert 'biocore_htseq' not in output
@@ -228,7 +232,11 @@ def test_human_route_annotates_with_the_pipelines_annotation_and_writes_ncrna_ta
     assert '/rnacentral-9.0/benchmarks/biocore_htseq_annotation.tsv' in build
     download = rule_block(output, 'biocore_htseq_rnacentral')
     assert ('https://ftp.ebi.ac.uk/pub/databases/RNAcentral/releases/9.0/genome_coordinates/Homo_sapiens.GRCh38.gff.gz'
-            in download and 'gzip -t ' in download)
+            in download and 'gzip -t "$tmp"' in download)
+    # each job writes a temporary file of its own and renames it when complete: two projects building the same
+    # reference at once never publish a partial file (review of #505)
+    for block in (download, build):
+        assert 'tmp=$(mktemp ' in block and 'mv "$tmp" ' in block and 'rm -f "$tmp"' in block
     assert output.count('rule biocore_htseq_ncrna:') == 4
     ncrna = rule_block(output, 'biocore_htseq_ncrna')
     assert 'ncrna --species hsa --annotated ' in ncrna and '/ncrna_types.tsv --features ' in ncrna
