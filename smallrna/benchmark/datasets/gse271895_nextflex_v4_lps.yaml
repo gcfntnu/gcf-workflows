@@ -1,0 +1,152 @@
+# GSE271895's LPS response (#414, #416): LPS against DMSO over the four siRNA arms, the arm (`sirna`) as a covariate, and per
+# arm with `within: sirna` (the control arm's 3 against 3 among them). Base: gse271895_nextflex_v4.yaml, the same libraries
+# and data folder, regrouped by drug; I2_LPS_C (55,677 reads) is left out. The arms respond alike: on the authors' count
+# table (GEO supplementary file), edgeR finds a siRNA-by-LPS interaction for 2 of 790 miRNAs, and miR-146a-5p rises 2.8-4.3
+# log2 with LPS in every arm (miR-155-5p 1.0-1.8). Pooled, LPS against DMSO calls 49 miRNAs at FDR 0.05 there, the control
+# arm alone 5. No change is known, so the calls are reported, not scored.
+extends: gse271895_nextflex_v4.yaml
+name: gse271895_nextflex_v4_lps
+de:                         # differential expression (#414): LPS against DMSO, the siRNA arm as a covariate
+  contrast: [LPS, DMSO]
+  covariates: [sirna]
+  within: sirna
+  'null': {splits: 50, seed: 1}   # quoted: a bare null key is YAML's null
+samples:
+  - sample: GSM8387787       # N_DMSO_A_VNS: Control siRNA DMSO treatment
+    group: DMSO
+    sirna: control
+    drug: DMSO
+    runs:
+      - {run: SRR29759886, reads: 62641748, md5: 3b4c6903b06f3f5fa0352c4b04db54cb, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR297/086/SRR29759886/SRR29759886.fastq.gz, sra: {md5: 011be30101dc2908019018a038745d7b, bytes: 1016793165}}
+  - sample: GSM8387798       # N_DMSO_B_VNS: Control siRNA DMSO treatment
+    group: DMSO
+    sirna: control
+    drug: DMSO
+    runs:
+      - {run: SRR29759875, reads: 57645958, md5: fe544fafd07a47af8c98588056f20e60, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR297/075/SRR29759875/SRR29759875.fastq.gz, sra: {md5: 559dbf4fd57333ca3aa3ca1d82d21f98, bytes: 937869834}}
+  - sample: GSM8387804       # N_DMSO_C_VNS: Control siRNA DMSO treatment
+    group: DMSO
+    sirna: control
+    drug: DMSO
+    runs:
+      - {run: SRR29759869, reads: 49337816, md5: b62714f010025e6275a03a35802b27f1, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR297/069/SRR29759869/SRR29759869.fastq.gz, sra: {md5: 4b8df4dffbed4724bd025e645163a60a, bytes: 806040192}}
+  - sample: GSM8387805       # N_LPS_A_SI: Control siRNA with 2ug/uL LPS treatment
+    group: LPS
+    sirna: control
+    drug: LPS
+    runs:
+      - {run: SRR29759868, reads: 53307758, md5: 9d27fc46bc7bce9ee3b081060f77cf8f, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR297/068/SRR29759868/SRR29759868.fastq.gz, sra: {md5: 95c31869b5a763abcafc9e28fa34d795, bytes: 869776939}}
+  - sample: GSM8387806       # N_LPS_B_SI: Control siRNA with 2ug/uL LPS treatment
+    group: LPS
+    sirna: control
+    drug: LPS
+    runs:
+      - {run: SRR29759867, reads: 53213190, md5: 10cc630973ba64ab233de5c287ee650a, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR297/067/SRR29759867/SRR29759867.fastq.gz, sra: {md5: 9928ce258ba03c8d6bcbd9f422b7a907, bytes: 865892926}}
+  - sample: GSM8387807       # N_LPS_C_SI: Control siRNA with 2ug/uL LPS treatment
+    group: LPS
+    sirna: control
+    drug: LPS
+    runs:
+      - {run: SRR29759866, reads: 47874721, md5: fc5cb863b23a351a564908830c4ba60a, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR297/066/SRR29759866/SRR29759866.fastq.gz, sra: {md5: dc5d8d99a1814fb2dbd2ff2b64a0ffb2, bytes: 802812861}}
+  - sample: GSM8387808       # I2_DMSO_A_VNS: Coilin 2 siRNA with DMSO treatment
+    group: DMSO
+    sirna: coilin2
+    drug: DMSO
+    runs:
+      - {run: SRR29759865, reads: 49194798, md5: 00dbc4ac3fc5ec53180c4b825cfd05bc, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR297/065/SRR29759865/SRR29759865.fastq.gz, sra: {md5: aa96873367b81eff3dca6ab2bad11990, bytes: 801795853}}
+  - sample: GSM8387809       # I2_DMSO_B_VNS: Coilin 2 siRNA with DMSO treatment
+    group: DMSO
+    sirna: coilin2
+    drug: DMSO
+    runs:
+      - {run: SRR29759864, reads: 48933189, md5: f1a5de3ebabe88c8083b251cad13a6cd, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR297/064/SRR29759864/SRR29759864.fastq.gz, sra: {md5: b4d0ed4654f9e7c1257d9f154ba17087, bytes: 801830199}}
+  - sample: GSM8387810       # I2_DMSO_C_VNS: Coilin 2 siRNA with DMSO treatment
+    group: DMSO
+    sirna: coilin2
+    drug: DMSO
+    runs:
+      - {run: SRR29759863, reads: 54437275, md5: 059c6ddc6e976ca1958dbfa273399395, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR297/063/SRR29759863/SRR29759863.fastq.gz, sra: {md5: 0ee0af86b1f6f23bbc2da48128c1fe03, bytes: 894757354}}
+  - sample: GSM8387788       # I2_LPS_A_SI: Coilin 2 siRNA with 2ug/uL LPS treatment
+    group: LPS
+    sirna: coilin2
+    drug: LPS
+    runs:
+      - {run: SRR29759885, reads: 55112277, md5: c87aae6c5111914cad51355b3d1bf0fc, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR297/085/SRR29759885/SRR29759885.fastq.gz, sra: {md5: ee14da946fef10e5f2204f2c270a5b16, bytes: 905386227}}
+  - sample: GSM8387789       # I2_LPS_B_SI: Coilin 2 siRNA with 2ug/uL LPS treatment
+    group: LPS
+    sirna: coilin2
+    drug: LPS
+    runs:
+      - {run: SRR29759884, reads: 54932942, md5: 025c783bfbc6f897558b51ab3ea4a08a, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR297/084/SRR29759884/SRR29759884.fastq.gz, sra: {md5: 487a797fe1a1842d59281d151e0a70a3, bytes: 901259901}}
+  - sample: GSM8387791       # IA_DMSO_A_VNS: Coilin A siRNA with DMSO treatment
+    group: DMSO
+    sirna: coilinA
+    drug: DMSO
+    runs:
+      - {run: SRR29759882, reads: 59433278, md5: f0394f3ae105d91061fef7e592af4e09, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR297/082/SRR29759882/SRR29759882.fastq.gz, sra: {md5: b04f28c634326b3d5f142afbbf71daa7, bytes: 971735583}}
+  - sample: GSM8387792       # IA_DMSO_B_VNS: Coilin A siRNA with DMSO treatment
+    group: DMSO
+    sirna: coilinA
+    drug: DMSO
+    runs:
+      - {run: SRR29759881, reads: 58888475, md5: be7e99fcb154e04dbd5a4aeb71e5fc19, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR297/081/SRR29759881/SRR29759881.fastq.gz, sra: {md5: 001913e609323f7e15addac0ff2285f4, bytes: 961847984}}
+  - sample: GSM8387793       # IA_DMSO_C_VNS: Coilin A siRNA with DMSO treatment
+    group: DMSO
+    sirna: coilinA
+    drug: DMSO
+    runs:
+      - {run: SRR29759880, reads: 51284124, md5: 99e0ff1d0c05fef9ae154334a7f695cf, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR297/080/SRR29759880/SRR29759880.fastq.gz, sra: {md5: 3ab81e7065c60f20aa48e823caf09af6, bytes: 833872266}}
+  - sample: GSM8387794       # IA_LPS_A_SI: Coilin A siRNA with 2ug/uL LPS treatment
+    group: LPS
+    sirna: coilinA
+    drug: LPS
+    runs:
+      - {run: SRR29759879, reads: 53685100, md5: 2ee2c671bd8c321b20f1f1453fb5633b, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR297/079/SRR29759879/SRR29759879.fastq.gz, sra: {md5: d5482aba46ce629d92ca1e830e7f6536, bytes: 873836341}}
+  - sample: GSM8387795       # IA_LPS_B_SI: Coilin A siRNA with 2ug/uL LPS treatment
+    group: LPS
+    sirna: coilinA
+    drug: LPS
+    runs:
+      - {run: SRR29759878, reads: 47687039, md5: 8f03b8bbd8fcc85b7ff1adcd5b6e4ce1, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR297/078/SRR29759878/SRR29759878.fastq.gz, sra: {md5: 748fa47a748f9d6df4ef14914a3048f5, bytes: 780255691}}
+  - sample: GSM8387796       # IA_LPS_C_SI: Coilin A siRNA with 2ug/uL LPS treatment
+    group: LPS
+    sirna: coilinA
+    drug: LPS
+    runs:
+      - {run: SRR29759877, reads: 48498438, md5: d698bb62edd6e6b36962765a70abd8cd, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR297/077/SRR29759877/SRR29759877.fastq.gz, sra: {md5: 9fb1d9660449bc992cfc004dd08dbf09, bytes: 788210259}}
+  - sample: GSM8387797       # W_DMSO_A_VNS: WRAP53 siRNA with DMSO treatment
+    group: DMSO
+    sirna: WRAP53
+    drug: DMSO
+    runs:
+      - {run: SRR29759876, reads: 51068328, md5: c8cc0f356a5b985c9e4d47d6ec16c2cb, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR297/076/SRR29759876/SRR29759876.fastq.gz, sra: {md5: 7d4c00cfe66edf66dfbd39f3f93e703e, bytes: 831403415}}
+  - sample: GSM8387799       # W_DMSO_B_VNS: WRAP53 siRNA with DMSO treatment
+    group: DMSO
+    sirna: WRAP53
+    drug: DMSO
+    runs:
+      - {run: SRR29759874, reads: 60278213, md5: 1915c0307d258bc0cf7b299270480e37, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR297/074/SRR29759874/SRR29759874.fastq.gz, sra: {md5: 592d601b1d052c789916b59977c9649b, bytes: 986774044}}
+  - sample: GSM8387800       # W_DMSO_C_VNS: WRAP53 siRNA with DMSO treatment
+    group: DMSO
+    sirna: WRAP53
+    drug: DMSO
+    runs:
+      - {run: SRR29759873, reads: 58433144, md5: e0af99f39d611a1063408d79bbb69c21, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR297/073/SRR29759873/SRR29759873.fastq.gz, sra: {md5: 5e833fbd119cf9ee7d3755b631f32c0c, bytes: 944906133}}
+  - sample: GSM8387801       # W_LPS_A_SI: WRAP53 siRNA with 2ug/uL LPS treatment
+    group: LPS
+    sirna: WRAP53
+    drug: LPS
+    runs:
+      - {run: SRR29759872, reads: 47732876, md5: 9d61c76e8a9a7f1788b72ca8852e5224, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR297/072/SRR29759872/SRR29759872.fastq.gz, sra: {md5: ef43d0190e2365b7c57cbc8d5f8424cf, bytes: 784203150}}
+  - sample: GSM8387802       # W_LPS_B_SI: WRAP53 siRNA with 2ug/uL LPS treatment
+    group: LPS
+    sirna: WRAP53
+    drug: LPS
+    runs:
+      - {run: SRR29759871, reads: 51854620, md5: 6a2953861890afbc356d8da0539248bf, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR297/071/SRR29759871/SRR29759871.fastq.gz, sra: {md5: f0a742fe89f39133b020cc0f9ff8699a, bytes: 860798205}}
+  - sample: GSM8387803       # W_LPS_C_SI: WRAP53 siRNA with 2ug/uL LPS treatment
+    group: LPS
+    sirna: WRAP53
+    drug: LPS
+    runs:
+      - {run: SRR29759870, reads: 37519491, md5: bfea19f6130736d805e104501e789a11, url: https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR297/070/SRR29759870/SRR29759870.fastq.gz, sra: {md5: d2a33ffc3a4dcb60972e787a9a445ac9, bytes: 624115482}}

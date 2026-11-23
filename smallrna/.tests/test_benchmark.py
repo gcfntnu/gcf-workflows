@@ -2293,7 +2293,19 @@ def test_shipped_ratiometric_declarations_declare_their_de_design():
         spec = benchmark.load_dataset(path)  # a scenario (#453) takes its base's `de`
         assert ('de' in spec) == (spec.get('pool') == 'ratiometric' or spec['kind'] == 'mixture' or
                                   spec['name'] in ('synthetic_hsa_genome', 'synthetic_hsa_genome_null', 'synthetic_hsa_genome_unbalanced',
-                                                   'gse317995_nextflex_v4', 'gse196633_truseq')), path.name
+                                                   'gse317995_nextflex_v4', 'gse196633_truseq', 'gse271895_nextflex_v4_lps')), path.name
+
+
+def test_shipped_lps_declaration_regroups_its_base_by_drug():
+    """GSE271895's LPS scenario (#414): its base's samples and runs, grouped by drug, without the 55,677-read library."""
+    base = benchmark.load_dataset(BENCH / 'datasets/gse271895_nextflex_v4.yaml')
+    lps = benchmark.load_dataset(BENCH / 'datasets/gse271895_nextflex_v4_lps.yaml')
+    kept = {s['sample']: s for s in lps['samples']}
+    assert {s['sample'] for s in base['samples']} - set(kept) == {'GSM8387790'}
+    for sample in base['samples']:
+        if sample['sample'] in kept:
+            assert kept[sample['sample']] == dict(sample, group=sample['drug']), sample['sample']
+    assert lps['de'] == {'contrast': ['LPS', 'DMSO'], 'covariates': ['sirna'], 'within': 'sirna', 'null': {'splits': 50, 'seed': 1}}
 
 
 def test_de_sets_take_any_column_of_the_runs_as_a_covariate(tmp_path):
