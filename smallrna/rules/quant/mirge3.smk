@@ -122,6 +122,12 @@ rule mirge3_quant:
                             'spikein.tsv', 'reference.tsv', 'miR.Counts.mirge3.csv', 'unmapped.fasta'))
     threads:
         8
+    resources:
+        # One job for all samples, so it scales with all their filtered reads together. Peaks on public data (#386):
+        # 1.6-3.1 GB for 3-8 samples of 0.1-0.5 GB filtered FASTQ (Giraldez pools), 6.7 GB for 6 samples and 7.5 GB for
+        # the same reads in 24 lane files (2.5 GB), and 15.6 GB for 6 plasma samples at full depth (8.3 GB, GSE317995).
+        # Snakemake caps a reservation at --resources mem_mb, so a very large project runs miRge3 alone.
+        mem_mb = mem_from_reads(6000, 2, base_mb=4000)
     benchmark:
         join(QUANT_BENCHMARKS, 'mirge3_quant.tsv')
     container:
