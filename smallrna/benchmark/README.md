@@ -462,6 +462,7 @@ whole numbers; a lane is checked against the first 1,000 read names when they ca
 |---|---|---|
 | `gse317995_nextflex_v4` | human plasma, NEXTflex v4 (GEO GSE317995): all 30 samples, 10 in each of three groups (#448); `prepare --per-group 2` takes the two lowest-numbered of each, the quick run | 4 per sample: the 4 lanes of one NextSeq 500 run |
 | `gse77989_hct116_knockouts` | HCT116 cells, TruSeq Small RNA (GEO GSE77989, Kim et al. 2016): parental cells (3), DROSHA (2), XPO5 (2) and DICER (2) knockouts, in two sets of libraries | 1 per sample (MiSeq) |
+| `gse271895_nextflex_v4_lps` | human fibroblasts, NEXTflex v4 (GEO GSE271895, McLaurin et al. 2025): a scenario of `gse271895_nextflex_v4` grouped by drug, LPS (11) against DMSO (12) with the siRNA arm as a covariate and per arm (`within: sirna`), and null splits; the 55,677-read library is left out (#414) | 1 per sample (NextSeq 2000) |
 
 A biological dataset with knockout cells declares `knockout:` (#452): the `control` group, the knockout whose
 surviving miRNAs are listed (`survival`), and optionally `within`, a field of the samples that pairs each knockout sample
