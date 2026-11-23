@@ -25,12 +25,22 @@ The pipeline's own trimming is replaced by the shared filtered reads, as for the
    every miRNA name it overlaps at any of its loci, never divided.
 
 Per sample `mature.tsv` (name, count), `isomir.tsv` (name_sequence, count) and `stats.tsv`; `htseq_counts.tsv` joins
-the samples' mature counts. The pipeline's annotation added RNAcentral transcripts and Ensembl genes for its ncRNA
-tables. In union mode those only turn a miRNA hit into `__ambiguous[...]`, which step 4 expands back, so the miRNA
-counts do not depend on them; the route uses the miRBase features only, tiny-count's renamed GFF (gcfdb/tinyrna.db),
-without its rows that have no strand (`mirna.gff3`), which htseq-count's stranded mode cannot place and stops on. The
-corrected miRBase GFF3 has none (gcfdb/mirbase.db, #429); a custom reference (`db.mirflowz.custom`) may. The genome's
-Bowtie 2 index is gcfdb/biocore_htseq.db.
+the samples' mature counts. The miRNA annotation is tiny-count's renamed GFF (gcfdb/tinyrna.db) without its rows that
+have no strand, which htseq-count's stranded mode cannot place and stops on; the corrected miRBase GFF3 has none
+(gcfdb/mirbase.db, #429), a custom reference (`db.mirflowz.custom`) may.
+
+ncRNA tables (#503). The pipeline's annotation added RNAcentral transcripts and Ensembl genes to the miRNAs, all as
+feature type `miRNA`, and one htseq-count pass annotated the alignments with all three; where gcfdb/biocore_htseq.db
+builds that annotation (`BIOCORE_HTSEQ_CLASSES`: human and mouse on the Ensembl reference), step 3 uses it. In union
+mode the extra features only turn a miRNA hit into `__ambiguous[...]`, which step 4 expands back, so the miRNA tables do
+not depend on them (#427 showed identical tables). From the same records htseq_counts.py `ncrna` writes the pipeline's
+ncRNA tables per sample: `ncrna_types.tsv` (RNAcentral types and Ensembl biotypes, each read divided evenly between its
+distinct types), `ncrna.tsv` (URS/ENS feature and sequence) and `ncrna_stats.tsv` (RNACentral, tRNAs, rRNAs, snoRNAs,
+snRNAs, lncRNAs, by substring as the pipeline's stats); `ncrna_types.tsv` in the route's folder joins the samples'
+classes. The pipeline's quirks are kept: the split between the miRNA and ncRNA paths is per alignment record, so a
+read with alignments on both counts in both; RNAcentral types and Ensembl biotypes share one class list. Elsewhere the
+route annotates with the miRNA GFF alone (`mirna.gff3`) and writes no ncRNA tables. The genome's Bowtie 2 index is
+gcfdb/biocore_htseq.db.
 """
 
 include:
@@ -40,6 +50,7 @@ BIOCORE_HTSEQ_OUT = join(QUANT_INTERIM, 'biocore_htseq')
 BIOCORE_HTSEQ_MIN_LENGTH = 15  # collapsed sequences shorter than this are not aligned
 BIOCORE_HTSEQ_BOWTIE2 = '-k 10 -f'
 BIOCORE_HTSEQ_COUNT = '-f sam -a 0 -s yes -t miRNA -i Name --secondary-alignments score --supplementary-alignments score'
+BIOCORE_HTSEQ_ANNOTATE_MEM_MB = 16000  # htseq-count with the ncRNA annotation (#503); measured on full-size human data
 BIOCORE_HTSEQ_CONF = config['quant'].get('biocore_htseq') or {}
 if not isinstance(BIOCORE_HTSEQ_CONF, dict):
     raise ValueError('quant.biocore_htseq must be a mapping of settings, got {!r}'.format(BIOCORE_HTSEQ_CONF))
@@ -94,7 +105,9 @@ def biocore_htseq_settings():
              'quant.biocore_htseq.local_max_5p_clip'),
             ('bowtie2', BIOCORE_HTSEQ_BOWTIE2 + BIOCORE_HTSEQ_LOCAL, 'quant.biocore_htseq.alignment and fixed'),
             ('htseq_count', BIOCORE_HTSEQ_COUNT, 'fixed'),
-            ('counting', 'perfect alignments only (MD tag); a read counts in full for every miRNA it overlaps (htseq_counts.py)', 'fixed')]
+            ('counting', 'perfect alignments only (MD tag); a read counts in full for every miRNA it overlaps (htseq_counts.py)', 'fixed'),
+            ('ncrna_annotation', 'RNAcentral {} transcripts and the reference\'s Ensembl genes (#503)'.format(TESMALL_RNACENTRAL_RELEASE)
+             if BIOCORE_HTSEQ_CLASSES else 'none (miRNA GFF only)', 'fixed per organism and reference')]
 
 
 rule biocore_htseq_gff:
@@ -158,13 +171,15 @@ rule biocore_htseq_align:
 rule biocore_htseq_annotate:
     input:
         alignments = rules.biocore_htseq_align.output,
-        gff = rules.biocore_htseq_gff.output
+        # the pipeline's annotation with the RNAcentral and Ensembl layers (#503) where it is built, else the miRNA GFF
+        gff = BIOCORE_HTSEQ_ANNOTATION if BIOCORE_HTSEQ_CLASSES else rules.biocore_htseq_gff.output
     output:
         join(BIOCORE_HTSEQ_OUT, '{sample}', 'annotated.sam.gz')
     params:
         samout = join(BIOCORE_HTSEQ_OUT, '{sample}', 'annotated.sam')
     resources:
-        mem_mb = 1000
+        # htseq-count holds the annotation in memory: the RNAcentral layer has millions of features (#503)
+        mem_mb = BIOCORE_HTSEQ_ANNOTATE_MEM_MB if BIOCORE_HTSEQ_CLASSES else 1000
     log:
         join(BIOCORE_HTSEQ_OUT, '{sample}', 'htseq-count.log')
     benchmark:
@@ -217,7 +232,47 @@ rule biocore_htseq_counts:
         'python {params.script:q} join --samples {params.samples:q} --tables {input:q} > {output:q}'
 
 
+rule biocore_htseq_ncrna:
+    input:
+        rules.biocore_htseq_annotate.output
+    output:
+        types = join(BIOCORE_HTSEQ_OUT, '{sample}', 'ncrna_types.tsv'),
+        features = join(BIOCORE_HTSEQ_OUT, '{sample}', 'ncrna.tsv'),
+        stats = join(BIOCORE_HTSEQ_OUT, '{sample}', 'ncrna_stats.tsv')
+    params:
+        script = src_gcf('scripts/htseq_counts.py'),
+        species = MIR_ORG.get(ORG, '')
+    resources:
+        mem_mb = 2000
+    benchmark:
+        join(QUANT_BENCHMARKS, 'biocore_htseq_ncrna', '{sample}.tsv')
+    container:
+        'docker://' + config['docker']['default']
+    shell:
+        'python {params.script:q} ncrna --species {params.species:q} --annotated {input:q} --types {output.types:q} '
+        '--features {output.features:q} --stats {output.stats:q}'
+
+
+rule biocore_htseq_ncrna_types:
+    input:
+        expand(rules.biocore_htseq_ncrna.output.types, sample=SAMPLES)
+    output:
+        join(BIOCORE_HTSEQ_OUT, 'ncrna_types.tsv')
+    params:
+        script = src_gcf('scripts/htseq_counts.py'),
+        samples = SAMPLES
+    benchmark:
+        join(QUANT_BENCHMARKS, 'biocore_htseq_ncrna_types.tsv')
+    container:
+        'docker://' + config['docker']['default']
+    shell:
+        'python {params.script:q} join --key type --samples {params.samples:q} --tables {input:q} > {output:q}'
+
+
 rule biocore_htseq_all:
     input:
         rules.biocore_htseq_counts.output,
-        expand(rules.biocore_htseq_count.output, sample=SAMPLES)
+        expand(rules.biocore_htseq_count.output, sample=SAMPLES),
+        # the ncRNA tables (#503) where the annotation has the RNAcentral and Ensembl layers
+        rules.biocore_htseq_ncrna_types.output if BIOCORE_HTSEQ_CLASSES else [],
+        expand(rules.biocore_htseq_ncrna.output, sample=SAMPLES) if BIOCORE_HTSEQ_CLASSES else []

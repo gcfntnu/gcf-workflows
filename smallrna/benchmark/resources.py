@@ -18,14 +18,15 @@ that job's current output. After a partial rerun a method's jobs can therefore c
 different machines; a benchmark project quantified from scratch has them from one run.
 
 The shared reference builds under EXT_DIR (gcfdb/mirflowz.db's mirflowz_prepare and mirflowz_annotation, gcfdb/tesmall.db's tesmall_genome
-and tesmall_db, gcfdb/biocore_htseq.db's biocore_htseq_bowtie2_index, gcfdb/biocore_miraligner.db's biocore_miraligner_db) are not reported here: their
+and tesmall_db, gcfdb/biocore_htseq.db's biocore_htseq_bowtie2_index and biocore_htseq_annotation, gcfdb/biocore_miraligner.db's biocore_miraligner_db) are not reported here: their
 benchmark files are in the reference they built (`<reference>/benchmarks/<rule>.tsv`), whichever project built it.
 """
 import csv
 import math
 from pathlib import Path
 
-# method: [(rule, per sample, kind)]
+# method: [(rule, per sample, kind)]; kind `quant` is required and summed, `reference` (built in the project) and
+# `classes` (biocore_htseq's ncRNA tables, #503) are listed when present
 STEPS = {
     'unitas': [('unitas', True, 'quant'), ('unitas_mirtable', False, 'quant')],
     'mirge3': [('mirge3_project_library', False, 'reference'), ('mirge3_quant', False, 'quant'), ('mirge3_counts', False, 'quant')],
@@ -38,7 +39,9 @@ STEPS = {
                  ('smrnaseq_counts', False, 'quant')],
     'biocore_htseq': [('biocore_htseq_gff', False, 'reference'), ('biocore_htseq_collapse', True, 'quant'),
                       ('biocore_htseq_align', True, 'quant'), ('biocore_htseq_annotate', True, 'quant'),
-                      ('biocore_htseq_count', True, 'quant'), ('biocore_htseq_counts', False, 'quant')],
+                      ('biocore_htseq_count', True, 'quant'), ('biocore_htseq_counts', False, 'quant'),
+                      # the ncRNA tables (#503), where the route builds them: listed, not part of the quantification's totals
+                      ('biocore_htseq_ncrna', True, 'classes'), ('biocore_htseq_ncrna_types', False, 'classes')],
     'biocore_miraligner': [('biocore_miraligner_collapse', True, 'quant'), ('biocore_miraligner_align', True, 'quant'),
                            ('biocore_miraligner_count', True, 'quant'), ('biocore_miraligner_counts', False, 'quant')],
 }
