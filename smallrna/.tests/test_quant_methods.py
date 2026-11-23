@@ -358,8 +358,6 @@ def test_route_steps_write_the_benchmark_files_the_benchmark_reads(tmp_path):
             if kind == 'classes':  # biocore_htseq's ncRNA tables (#503): human only, this fixture is mouse
                 assert step not in declared
                 continue
-            if per_sample is None:  # per sample or per project (#503): here per sample, mouse has no ncRNA annotation
-                per_sample = True
             expected = {f'{base}{step}/{s}.tsv' for s in samples} if per_sample else {f'{base}{step}.tsv'}
             assert declared.get(step) == expected, (method, step)
     # shared builds: in the reference they built, so a file never describes another reference

@@ -211,22 +211,17 @@ def test_local_alignment_mode(tmp_path):
         assert returncode != 0 and message in output, output
 
 
-def test_human_route_annotates_the_project_in_one_call_and_writes_ncrna_tables(tmp_path):
+def test_human_route_annotates_with_the_pipelines_annotation_and_writes_ncrna_tables(tmp_path):
     """Human on the Ensembl reference (#503): the pipeline's annotation (miRBase GFF, RNAcentral 9.0 transcripts, the
-    reference's Ensembl genes) and one htseq-count call for every sample of the project, the annotation loaded once,
-    then the ncRNA tables per sample and their join."""
+    reference's Ensembl genes) for htseq-count, then the ncRNA tables per sample and their join."""
     returncode, output = dry_run(tmp_path, 'biocore_htseq', lambda s: s.update(organism='homo_sapiens'), printshell=True)
     assert returncode == 0, output
     out, ref = 'data/tmp/smallrna/quant/biocore_htseq', 'data/ext/biocore_htseq/mirbase-23.1_ensembl-116/homo_sapiens'
-    assert output.count('rule biocore_htseq_annotate:') == 1 and 'rule biocore_htseq_gff:' not in output
+    assert output.count('rule biocore_htseq_annotate:') == 4 and 'rule biocore_htseq_gff:' not in output
     annotate = rule_block(output, 'biocore_htseq_annotate')
     annotation = re.search(r'({}/gff-[0-9a-f]+/rnacentral-9\.0/annotation\.v1\.gff3)'.format(ref), annotate).group(1)
     assert ('htseq-count -f sam -a 0 -s yes -t miRNA -i Name --secondary-alignments score --supplementary-alignments score '
-            '-n 1 -o {0}/SR01/annotated.sam -o {0}/SR02/annotated.sam -o {0}/SR03/annotated.sam -o {0}/SR04/annotated.sam '
-            '{0}/SR01/alignments.sam.gz'.format(out)) in annotate
-    assert f'{out}/SR04/alignments.sam.gz {annotation} > {out}/htseq-count.log' in annotate
-    assert 'gzip -f {0}/SR01/annotated.sam {0}/SR02/annotated.sam'.format(out) in annotate
-    assert 'benchmark: data/tmp/smallrna/quant/benchmarks/biocore_htseq_annotate.tsv' in annotate
+            '--samout {}/SR0'.format(out)) in annotate and f' - {annotation} > ' in annotate
     build = rule_block(output, 'biocore_htseq_annotation')
     assert f'--rnacentral {ref}/sources/rnacentral-9.0/Homo_sapiens.GRCh38.gff.gz' in build
     assert '--fai data/ext/tesmall/mirbase-23.1_ensembl-116/homo_sapiens/genome/genome.fa.fai' in build and '--gtf ' in build
@@ -251,7 +246,6 @@ def test_custom_reference_keeps_the_mirna_annotation_and_writes_no_ncrna_tables(
                         s.setdefault('db', {}).setdefault('mirflowz', {}).update(custom=dict(name='reduced', **{k: str(v) for k, v in files.items()})))
     returncode, output = dry_run(tmp_path, 'biocore_htseq', custom, printshell=True)
     assert returncode == 0, output
-    assert output.count('rule biocore_htseq_annotate:') == 4  # per sample
     assert f' - {OUT}/mirna.gff3 > ' in rule_block(output, 'biocore_htseq_annotate')
     assert 'biocore_htseq_ncrna' not in output and 'biocore_htseq_rnacentral' not in output and 'biocore_htseq_annotation' not in output
 
