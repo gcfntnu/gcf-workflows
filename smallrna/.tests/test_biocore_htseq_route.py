@@ -37,32 +37,17 @@ def test_route_plans_reference_and_counting_and_delivery_stays_on_unitas(tmp_pat
     assert f'bowtie2 -p 1 -k 10 -f -x {REF}/genome -U - 2>' in align and '| gzip > ' in align
     assert 'mem_mb=5000' in align.replace(' ', '')  # the index in memory, so --resources caps parallel jobs
     annotate = rule_block(output, 'biocore_htseq_annotate')
-    # secondary alignments scored, as HTSeq 0.9.1 did by default (HTSeq 2 ignores them unless told); with the ncRNA
-    # annotation (#503) one call per project, one --samout per sample, the annotation loaded once
-    assert output.count('rule biocore_htseq_annotate:') == 1
+    # secondary alignments scored, as HTSeq 0.9.1 did by default (HTSeq 2 ignores them unless told)
     assert ('htseq-count -f sam -a 0 -s yes -t miRNA -i Name --secondary-alignments score --supplementary-alignments score '
-            '-n 1 -o {0}/SR01/annotated.sam -o {0}/SR02/annotated.sam -o {0}/SR03/annotated.sam -o {0}/SR04/annotated.sam '
-            '{0}/SR01/alignments.sam.gz'.format(OUT)) in annotate
-    assert 'gzip -f {0}/SR01/annotated.sam {0}/SR02/annotated.sam'.format(OUT) in annotate
-    # the pipeline's annotation with the RNAcentral and Ensembl layers (#503): mouse on the Ensembl reference has them
-    annotation = f'data/ext/biocore_htseq/mirbase-23.1_ensembl-116/mus_musculus/gff-{MIRBASE_GFF_ID}/rnacentral-28.0/annotation.v1.gff3'
-    assert f'{OUT}/SR04/alignments.sam.gz {annotation} > {OUT}/htseq-count.log' in annotate
-    assert 'mem_mb=16000' in annotate.replace(' ', '')
+            '--samout {0}/SR0'.format(OUT)) in annotate
+    assert f' - {OUT}/mirna.gff3 > ' in annotate  # tiny-count's renamed GFF without rows that have no strand
     assert '|| { rm -f ' in annotate  # a failed htseq-count leaves no uncompressed samout behind
-    assert 'rule biocore_htseq_gff:' not in output  # the miRNA-only GFF is for references without the layers
-    build = rule_block(output, 'biocore_htseq_annotation')
-    assert (f'--mirna-gff data/ext/tinyrna/mirbase-23.1_ensembl-116/mus_musculus/gff-{MIRBASE_GFF_ID}/mirna.v2.gff3 --rnacentral '
-            'data/ext/biocore_htseq/mirbase-23.1_ensembl-116/mus_musculus/sources/rnacentral-28.0/mus_musculus.GRCm39.gff3.gz') in build
-    assert '--fai data/ext/tesmall/mirbase-23.1_ensembl-116/mus_musculus/genome/genome.fa.fai' in build and '--gtf ' in build
-    download = rule_block(output, 'biocore_htseq_rnacentral')
-    assert ('https://ftp.ebi.ac.uk/pub/databases/RNAcentral/releases/28.0/genome_coordinates/gff3/mus_musculus.GRCm39.gff3.gz'
-            in download and 'gzip -t ' in download)
+    gff = f'gff --input data/ext/tinyrna/mirbase-23.1_ensembl-116/mus_musculus/gff-{MIRBASE_GFF_ID}/mirna.v2.gff3 > {OUT}/mirna.gff3'
+    assert gff in rule_block(output, 'biocore_htseq_gff')
     assert '--species mmu --collapsed' in rule_block(output, 'biocore_htseq_count')
     assert '--samples SR01 SR02 SR03 SR04' in rule_block(output, 'biocore_htseq_counts')
-    assert output.count('rule biocore_htseq_ncrna:') == 4
-    ncrna = rule_block(output, 'biocore_htseq_ncrna')
-    assert 'ncrna --species mmu --annotated ' in ncrna and '/ncrna_types.tsv --features ' in ncrna
-    assert f'join --key type --samples SR01 SR02 SR03 SR04 --tables {OUT}/SR01/ncrna_types.tsv' in rule_block(output, 'biocore_htseq_ncrna_types')
+    # mouse: no ncRNA tables (#503), RNAcentral 9.0 has mouse coordinates on GRCm38 only
+    assert 'biocore_htseq_ncrna' not in output and 'biocore_htseq_rnacentral' not in output
     returncode, output = dry_run(tmp_path, 'unitas,biocore_htseq', target='bfq_all')
     assert returncode == 0, output
     assert 'biocore_htseq' not in output
@@ -226,23 +211,48 @@ def test_local_alignment_mode(tmp_path):
         assert returncode != 0 and message in output, output
 
 
+def test_human_route_annotates_the_project_in_one_call_and_writes_ncrna_tables(tmp_path):
+    """Human on the Ensembl reference (#503): the pipeline's annotation (miRBase GFF, RNAcentral 9.0 transcripts, the
+    reference's Ensembl genes) and one htseq-count call for every sample of the project, the annotation loaded once,
+    then the ncRNA tables per sample and their join."""
+    returncode, output = dry_run(tmp_path, 'biocore_htseq', lambda s: s.update(organism='homo_sapiens'), printshell=True)
+    assert returncode == 0, output
+    out, ref = 'data/tmp/smallrna/quant/biocore_htseq', 'data/ext/biocore_htseq/mirbase-23.1_ensembl-116/homo_sapiens'
+    assert output.count('rule biocore_htseq_annotate:') == 1 and 'rule biocore_htseq_gff:' not in output
+    annotate = rule_block(output, 'biocore_htseq_annotate')
+    annotation = re.search(r'({}/gff-[0-9a-f]+/rnacentral-9\.0/annotation\.v1\.gff3)'.format(ref), annotate).group(1)
+    assert ('htseq-count -f sam -a 0 -s yes -t miRNA -i Name --secondary-alignments score --supplementary-alignments score '
+            '-n 1 -o {0}/SR01/annotated.sam -o {0}/SR02/annotated.sam -o {0}/SR03/annotated.sam -o {0}/SR04/annotated.sam '
+            '{0}/SR01/alignments.sam.gz'.format(out)) in annotate
+    assert f'{out}/SR04/alignments.sam.gz {annotation} > {out}/htseq-count.log' in annotate
+    assert 'gzip -f {0}/SR01/annotated.sam {0}/SR02/annotated.sam'.format(out) in annotate
+    assert 'benchmark: data/tmp/smallrna/quant/benchmarks/biocore_htseq_annotate.tsv' in annotate
+    build = rule_block(output, 'biocore_htseq_annotation')
+    assert f'--rnacentral {ref}/sources/rnacentral-9.0/Homo_sapiens.GRCh38.gff.gz' in build
+    assert '--fai data/ext/tesmall/mirbase-23.1_ensembl-116/homo_sapiens/genome/genome.fa.fai' in build and '--gtf ' in build
+    assert '/rnacentral-9.0/benchmarks/biocore_htseq_annotation.tsv' in build
+    download = rule_block(output, 'biocore_htseq_rnacentral')
+    assert ('https://ftp.ebi.ac.uk/pub/databases/RNAcentral/releases/9.0/genome_coordinates/Homo_sapiens.GRCh38.gff.gz'
+            in download and 'gzip -t ' in download)
+    assert output.count('rule biocore_htseq_ncrna:') == 4
+    ncrna = rule_block(output, 'biocore_htseq_ncrna')
+    assert 'ncrna --species hsa --annotated ' in ncrna and '/ncrna_types.tsv --features ' in ncrna
+    assert f'join --key type --samples SR01 SR02 SR03 SR04 --tables {out}/SR01/ncrna_types.tsv' in rule_block(output, 'biocore_htseq_ncrna_types')
+
+
 def test_custom_reference_keeps_the_mirna_annotation_and_writes_no_ncrna_tables(tmp_path):
-    """Without RNAcentral coordinates for the reference (here a db.mirflowz.custom one), the route annotates with the
-    miRNA GFF alone, as before #503, and plans no ncRNA tables."""
+    """A db.mirflowz.custom reference, also for human, annotates with the miRNA GFF alone, as before #503."""
     refs = tmp_path / 'refs'
     refs.mkdir()
     files = {key: refs / name for key, name in (('genome', 'genome.fa.gz'), ('gtf', 'genes.gtf.gz'), ('mirna_gff', 'mirna.gff3'))}
     for path in files.values():
         path.touch()
-    custom = lambda s: s.setdefault('db', {}).setdefault('mirflowz', {}).update(custom=dict(name='reduced', **{k: str(v) for k, v in files.items()}))
+    custom = lambda s: (s.update(organism='homo_sapiens'),
+                        s.setdefault('db', {}).setdefault('mirflowz', {}).update(custom=dict(name='reduced', **{k: str(v) for k, v in files.items()})))
     returncode, output = dry_run(tmp_path, 'biocore_htseq', custom, printshell=True)
     assert returncode == 0, output
-    assert output.count('rule biocore_htseq_annotate:') == 4  # per sample, as before #503
-    annotate = rule_block(output, 'biocore_htseq_annotate')
-    assert f' - {OUT}/mirna.gff3 > ' in annotate and 'mem_mb=1000' in annotate.replace(' ', '')
-    assert 'htseq-count -f sam -a 0 -s yes -t miRNA -i Name --secondary-alignments score --supplementary-alignments score --samout ' in annotate
-    gff = 'gff --input data/ext/tinyrna/custom-reduced/mus_musculus/gff-custom/mirna.v2.gff3 > {}/mirna.gff3'.format(OUT)
-    assert gff in rule_block(output, 'biocore_htseq_gff')
+    assert output.count('rule biocore_htseq_annotate:') == 4  # per sample
+    assert f' - {OUT}/mirna.gff3 > ' in rule_block(output, 'biocore_htseq_annotate')
     assert 'biocore_htseq_ncrna' not in output and 'biocore_htseq_rnacentral' not in output and 'biocore_htseq_annotation' not in output
 
 
@@ -317,7 +327,10 @@ def test_annotation_joins_mirnas_rnacentral_transcripts_and_ensembl_genes(tmp_pa
                  'chr2\tRNAcentral\ttranscript\t5\t30\t.\t-\t.\tName=URS00004219CE_9606;type=piRNA;ID=URS00004219CE_9606.0\n'
                  '1\tRNAcentral\tpredicted_gene\t5\t30\t.\t-\t.\tName=URS0000AAAAAA_9606;type=lncRNA\n'
                  'KI270999.1\tRNAcentral\ttranscript\t5\t30\t.\t+\t.\tName=URS0000BBBBBB_9606;type=rRNA;ID=x\n'
-                 '1\tRNAcentral\ttranscript\t200\t900\t.\t+\t.\tName=URS0000CCCCCC_9606;type=circRNA;ID=y\n')
+                 '1\tRNAcentral\ttranscript\t200\t900\t.\t+\t.\tName=URS0000CCCCCC_9606;type=circRNA;ID=y\n'
+                 # RNAcentral 9.0, the pipeline's release: attributes in quotes, IDs without a taxon suffix
+                 '2\tRNAcentral\ttranscript\t600\t690\t.\t+\t.\tID "LN847466.1:1..91:ncRNA";Name "URS000082BE65";type "snoRNA"\n'
+                 '2\tRNAcentral\tnoncoding_exon\t600\t690\t.\t+\t.\tID "LN847466.1:1..91:ncRNA_exon1";Name "URS000082BE65";type "snoRNA"\n')
     gtf = tmp_path / 'genes.gtf'
     gtf.write_text('#!genome-build GRCh38\n'
                    '1\thavana\tgene\t1\t500\t.\t+\t.\tgene_id "ENSG00000279493"; gene_version "1"; gene_source "havana"; gene_biotype "artifact";\n'
@@ -333,9 +346,10 @@ def test_annotation_joins_mirnas_rnacentral_transcripts_and_ensembl_genes(tmp_pa
         ('1', '.', 'miRNA', '-', 'ID=MIMAT1;Name=hsa-miR-1-5p'),
         ('1', 'RNAcentral', 'miRNA', '+', 'Name=URS000082BE64-snoRNA'),
         ('2', 'RNAcentral', 'miRNA', '-', 'Name=URS00004219CE-piRNA'),
+        ('2', 'RNAcentral', 'miRNA', '+', 'Name=URS000082BE65-snoRNA'),
         ('1', 'Ensembl', 'miRNA', '+', 'Name=ENSG00000279493-artifact'),
         ('2', 'Ensembl', 'miRNA', '-', 'Name=ENSG00000207445-snoRNA')]
-    assert '# rows: 1 miRNA, 2 RNAcentral, 2 Ensembl' in result.stdout
+    assert '# rows: 1 miRNA, 3 RNAcentral, 2 Ensembl' in result.stdout
     assert 'left out (1): hsa-miR-13168-5p' in result.stdout and '1 RNAcentral on a sequence the genome lacks' in result.stdout
     assert '1 RNAcentral circRNA' in result.stdout  # not in RNAcentral 9.0, the pipeline's release (#503)
 

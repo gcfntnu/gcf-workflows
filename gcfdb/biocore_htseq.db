@@ -13,23 +13,29 @@ this route does not use; the folder exists once for every route on the reference
 stop the workflow when this route is selected (`BIOCORE_HTSEQ_SELECTED`, set in smallrna/rules/quant.smk).
 
 The pipeline's ncRNA tables (#503) need its annotation: the miRBase GFF3, RNAcentral transcripts and Ensembl genes, all
-as feature type `miRNA` (scripts/biocore_htseq_annotation.py). RNAcentral's genome coordinates are downloaded at
-TEsmall's release (`TESMALL_RNACENTRAL_RELEASE`, #378) into `sources/rnacentral-<release>/`, and the annotation is
-written to `gff-<ID>/rnacentral-<release>/annotation.v<BIOCORE_HTSEQ_ANNOTATION_VERSION>.gff3`, named by the miRNA GFF's
-identity (MIRFLOWZ_GFF_ID, #440) and the RNAcentral release; the Ensembl genes come from the reference's GTF. Only for
-the organisms and assemblies of `TESMALL_RNACENTRAL_ASSEMBLY` on the Ensembl reference (`BIOCORE_HTSEQ_CLASSES`);
-elsewhere, and on a `db.mirflowz.custom` reference, the route counts miRNAs only.
+as feature type `miRNA` (scripts/biocore_htseq_annotation.py). RNAcentral is the pipeline's own release, 9.0
+(`BIOCORE_HTSEQ_RNACENTRAL_RELEASE`): about 80,000 human transcripts, against about 3.1 million in current releases,
+which add circRNAs and alignment-placed piRNAs and rRNAs (some 1,000 rRNA entries on each rDNA locus) that the pipeline
+never saw and that make htseq-count's annotation hours slower at full depth. Its genome coordinates are downloaded into
+`sources/rnacentral-9.0/`, and the annotation is written to
+`gff-<ID>/rnacentral-9.0/annotation.v<BIOCORE_HTSEQ_ANNOTATION_VERSION>.gff3`, named by the miRNA GFF's identity
+(MIRFLOWZ_GFF_ID, #440); the Ensembl genes come from the reference's GTF. Human only (`BIOCORE_HTSEQ_CLASSES`): 9.0's
+mouse coordinates are on GRCm38, the reference's on GRCm39. Elsewhere, and on a `db.mirflowz.custom` reference, the
+route counts miRNAs only.
 """
 
 BIOCORE_HTSEQ_REF = join(EXT_DIR, 'biocore_htseq', os.path.relpath(MIRFLOWZ_REF, join(EXT_DIR, 'mirflowz')))
 BIOCORE_HTSEQ_INDEX = join(BIOCORE_HTSEQ_REF, 'genome', 'bowtie2', 'genome')
 # Raise when biocore_htseq_annotation.py writes different rows from the same sources.
 BIOCORE_HTSEQ_ANNOTATION_VERSION = 1
-BIOCORE_HTSEQ_CLASSES = bool(not MIRFLOWZ_CUSTOM and ORG in TESMALL_RNACENTRAL_ASSEMBLY
-                             and MIRFLOWZ_ASSEMBLY == TESMALL_RNACENTRAL_ASSEMBLY[ORG])
-BIOCORE_HTSEQ_RNACENTRAL = join(BIOCORE_HTSEQ_REF, 'sources', 'rnacentral-{}'.format(TESMALL_RNACENTRAL_RELEASE),
-                                '{}.{}.gff3.gz'.format(ORG, TESMALL_RNACENTRAL_ASSEMBLY.get(ORG)))
-BIOCORE_HTSEQ_ANNOTATION = join(BIOCORE_HTSEQ_REF, 'gff-{}'.format(MIRFLOWZ_GFF_ID), 'rnacentral-{}'.format(TESMALL_RNACENTRAL_RELEASE),
+BIOCORE_HTSEQ_RNACENTRAL_RELEASE = '9.0'  # the pipeline's release
+BIOCORE_HTSEQ_RNACENTRAL_ASSEMBLY = {'homo_sapiens': 'GRCh38'}  # 9.0's mouse coordinates are on GRCm38
+BIOCORE_HTSEQ_CLASSES = bool(not MIRFLOWZ_CUSTOM and ORG in BIOCORE_HTSEQ_RNACENTRAL_ASSEMBLY
+                             and MIRFLOWZ_ASSEMBLY == BIOCORE_HTSEQ_RNACENTRAL_ASSEMBLY[ORG])
+BIOCORE_HTSEQ_RNACENTRAL_FILE = '{}.{}.gff.gz'.format(ORG.capitalize(), BIOCORE_HTSEQ_RNACENTRAL_ASSEMBLY.get(ORG))
+BIOCORE_HTSEQ_RNACENTRAL = join(BIOCORE_HTSEQ_REF, 'sources', 'rnacentral-{}'.format(BIOCORE_HTSEQ_RNACENTRAL_RELEASE),
+                                BIOCORE_HTSEQ_RNACENTRAL_FILE)
+BIOCORE_HTSEQ_ANNOTATION = join(BIOCORE_HTSEQ_REF, 'gff-{}'.format(MIRFLOWZ_GFF_ID), 'rnacentral-{}'.format(BIOCORE_HTSEQ_RNACENTRAL_RELEASE),
                                 'annotation.v{}.gff3'.format(BIOCORE_HTSEQ_ANNOTATION_VERSION))
 # A small index: the supported genomes are shorter than Bowtie 2's 4 Gbp limit for one.
 BIOCORE_HTSEQ_INDEX_SUFFIXES = ('1.bt2', '2.bt2', '3.bt2', '4.bt2', 'rev.1.bt2', 'rev.2.bt2')
@@ -61,14 +67,14 @@ if BIOCORE_HTSEQ_CLASSES:
         output:
             BIOCORE_HTSEQ_RNACENTRAL
         params:
-            url = 'https://ftp.ebi.ac.uk/pub/databases/RNAcentral/releases/{}/genome_coordinates/gff3/{}.{}.gff3.gz'.format(
-                TESMALL_RNACENTRAL_RELEASE, ORG, TESMALL_RNACENTRAL_ASSEMBLY.get(ORG)),
+            url = 'https://ftp.ebi.ac.uk/pub/databases/RNAcentral/releases/{}/genome_coordinates/{}'.format(
+                BIOCORE_HTSEQ_RNACENTRAL_RELEASE, BIOCORE_HTSEQ_RNACENTRAL_FILE),
             proxy = config.get('proxy', {}).get('wget', '')
         log:
-            join(BIOCORE_HTSEQ_REF, 'sources', 'rnacentral-{}'.format(TESMALL_RNACENTRAL_RELEASE), 'rnacentral.log')
+            join(BIOCORE_HTSEQ_REF, 'sources', 'rnacentral-{}'.format(BIOCORE_HTSEQ_RNACENTRAL_RELEASE), 'rnacentral.log')
         shell:
             'wget {params.proxy} -q -O {output}.part {params.url} && gzip -t {output}.part && mv {output}.part {output} && '
-            'echo "RNAcentral,{TESMALL_RNACENTRAL_RELEASE},{params.url},`date -I`" > {log}'
+            'echo "RNAcentral,{BIOCORE_HTSEQ_RNACENTRAL_RELEASE},{params.url},`date -I`" > {log}'
 
 
     rule biocore_htseq_annotation:

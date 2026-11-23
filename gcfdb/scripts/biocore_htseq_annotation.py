@@ -1,17 +1,17 @@
 #!/usr/bin/env python
-"""The annotation of the biocore_htseq route's ncRNA tables (#503): the earlier in-house pipeline's annotation, built from
-current sources, to standard output.
+"""The annotation of the biocore_htseq route's ncRNA tables (#503): the earlier in-house pipeline's annotation, rebuilt on the
+route's reference, to standard output.
 
 The pipeline joined three GFFs and relabelled every row as feature type `miRNA`, so one htseq-count pass (`-t miRNA
 -i Name`) annotated each alignment with miRNAs, RNAcentral transcripts and Ensembl genes alike:
 - the miRBase GFF3, here the route's renamed miRNA GFF without its rows that have no strand (htseq-count's stranded
   mode stops on them; htseq_counts.py `gff` leaves out the same rows);
-- RNAcentral's `transcript` rows, named `<URS id>-<type>` (the pipeline joined its 9.0 GFF's `Name` and `type`).
-  RNAcentral's IDs have since gained a taxon suffix (`URS…_9606`), which is dropped so the names read as in 9.0 and
-  the pipeline's class counting, which removes `URS…-` prefixes, still leaves the type. Other row types
-  (`noncoding_exon`, `predicted_gene`) are left out, as the pipeline's `transcript` filter left them out. So is type
-  `circRNA` (#503): RNAcentral 9.0 had no circRNAs, its current releases about 1.4 million human transcripts of them,
-  which would double htseq-count's annotation and give reads on ordinary exons a class the pipeline never had;
+- RNAcentral's `transcript` rows, named `<URS id>-<type>`: the pipeline joined its RNAcentral 9.0 GFF's `Name` and
+  `type` (`Name "URS…";type "…"`, attributes in quotes), and 9.0 is what the route uses (gcfdb/biocore_htseq.db). Rows
+  in the GFF3 style of later releases (`Name=URS…_9606;type=…`) are read too, without the taxon suffix their IDs gained,
+  so the pipeline's class counting, which removes `URS…-` prefixes, still leaves the type. Other row types
+  (`noncoding_exon`, `predicted_gene`) are left out, as the pipeline's `transcript` filter left them out, and so is
+  type `circRNA`, which later releases added by the million;
 - the Ensembl genes, named `<gene id>-<biotype>`. The pipeline renamed its Ensembl 92 GFF3's gene rows
   (`ID=gene:…;Name=…;biotype=…`) that way; every gene there had the `Name` its substitution needed, while later
   releases leave `Name` out for unnamed genes, so the name is built from the reference GTF's `gene_id` and
@@ -28,7 +28,7 @@ import re
 import sys
 
 RNACENTRAL_ID = re.compile(r'(URS[0-9A-F]+)(?:_[0-9]+)?$')
-LEFT_OUT_TYPES = ('circRNA',)  # not in RNAcentral 9.0, the pipeline's release (#503)
+LEFT_OUT_TYPES = ('circRNA',)  # not in RNAcentral 9.0, the pipeline's release; millions in later ones (#503)
 GTF_ATTRIBUTE = re.compile(r'\s*([^\s;]+)\s+"([^"]*)"')
 
 
@@ -42,7 +42,10 @@ def open_text(path):
     return gzip.open(path, 'rt') if gzipped else open(path)
 
 
-def gff3_attributes(field):
+def attributes_of(field):
+    """A GFF row's attributes: RNAcentral 9.0's `key "value";` style or GFF3's `key=value;`."""
+    if '"' in field:
+        return dict(GTF_ATTRIBUTE.findall(field))
     return dict(part.split('=', 1) for part in field.strip().strip(';').split(';') if '=' in part)
 
 
@@ -90,7 +93,7 @@ def rnacentral_rows(path, place, left):
             fields = line.rstrip('\n').split('\t')
             if line.startswith('#') or len(fields) < 9 or fields[1] != 'RNAcentral' or fields[2] != 'transcript':
                 continue
-            attributes = gff3_attributes(fields[8])
+            attributes = attributes_of(fields[8])
             match = RNACENTRAL_ID.match(attributes.get('Name', ''))
             if not match or not attributes.get('type'):
                 fail('{}: a transcript row without an RNAcentral Name or type: {!r}'.format(path, line[:200]))

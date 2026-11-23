@@ -31,7 +31,8 @@ have no strand, which htseq-count's stranded mode cannot place and stops on; the
 
 ncRNA tables (#503). The pipeline's annotation added RNAcentral transcripts and Ensembl genes to the miRNAs, all as
 feature type `miRNA`, and one htseq-count pass annotated the alignments with all three; where gcfdb/biocore_htseq.db
-builds that annotation (`BIOCORE_HTSEQ_CLASSES`: human and mouse on the Ensembl reference), step 3 uses it. In union
+builds that annotation (`BIOCORE_HTSEQ_CLASSES`: human on the Ensembl reference, with the pipeline's RNAcentral 9.0),
+step 3 uses it, one htseq-count call for every sample of the project. In union
 mode the extra features only turn a miRNA hit into `__ambiguous[...]`, which step 4 expands back, so the miRNA tables do
 not depend on them (#427 showed identical tables). From the same records htseq_counts.py `ncrna` writes the pipeline's
 ncRNA tables per sample: `ncrna_types.tsv` (RNAcentral types and Ensembl biotypes, each read divided evenly between its
@@ -108,7 +109,7 @@ def biocore_htseq_settings():
             ('bowtie2', BIOCORE_HTSEQ_BOWTIE2 + BIOCORE_HTSEQ_LOCAL, 'quant.biocore_htseq.alignment and fixed'),
             ('htseq_count', BIOCORE_HTSEQ_COUNT, 'fixed'),
             ('counting', 'perfect alignments only (MD tag); a read counts in full for every miRNA it overlaps (htseq_counts.py)', 'fixed'),
-            ('ncrna_annotation', 'RNAcentral {} transcripts and the reference\'s Ensembl genes (#503)'.format(TESMALL_RNACENTRAL_RELEASE)
+            ('ncrna_annotation', 'RNAcentral {} transcripts and the reference\'s Ensembl genes (#503)'.format(BIOCORE_HTSEQ_RNACENTRAL_RELEASE)
              if BIOCORE_HTSEQ_CLASSES else 'none (miRNA GFF only)', 'fixed per organism and reference')]
 
 
@@ -173,10 +174,9 @@ rule biocore_htseq_align:
 BIOCORE_HTSEQ_ANNOTATED = join(BIOCORE_HTSEQ_OUT, '{sample}', 'annotated.sam.gz')
 
 if BIOCORE_HTSEQ_CLASSES:
-    # With the pipeline's annotation (#503), millions of RNAcentral features take htseq-count minutes to load, so one
-    # call annotates every sample of the project: one SAM and one --samout per sample, the annotation loaded once. The
-    # records are those of a call per sample. One process: with -n above 1, htseq-count hands every worker a copy of
-    # the loaded annotation.
+    # With the pipeline's annotation (#503), one call annotates every sample of the project: one SAM and one --samout
+    # per sample, the annotation loaded once. The records are those of a call per sample. One process: with -n above
+    # 1, htseq-count hands every worker a copy of the loaded annotation.
     rule biocore_htseq_annotate:
         input:
             alignments = expand(rules.biocore_htseq_align.output, sample=SAMPLES),

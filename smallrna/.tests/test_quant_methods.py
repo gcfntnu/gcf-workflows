@@ -354,12 +354,12 @@ def test_route_steps_write_the_benchmark_files_the_benchmark_reads(tmp_path):
     samples = {Path(p).stem for p in declared['unitas']}
     assert len(samples) == 4
     for method, steps in resources.STEPS.items():
-        for step, per_sample, _ in steps:
-            if step == 'biocore_htseq_gff':  # the miRNA-only GFF: for references without the ncRNA annotation (#503)
+        for step, per_sample, kind in steps:
+            if kind == 'classes':  # biocore_htseq's ncRNA tables (#503): human only, this fixture is mouse
                 assert step not in declared
                 continue
-            if per_sample is None:  # per sample or per project: here per project, the ncRNA annotation's one call (#503)
-                per_sample = False
+            if per_sample is None:  # per sample or per project (#503): here per sample, mouse has no ncRNA annotation
+                per_sample = True
             expected = {f'{base}{step}/{s}.tsv' for s in samples} if per_sample else {f'{base}{step}.tsv'}
             assert declared.get(step) == expected, (method, step)
     # shared builds: in the reference they built, so a file never describes another reference
@@ -369,8 +369,6 @@ def test_route_steps_write_the_benchmark_files_the_benchmark_reads(tmp_path):
     assert declared['tesmall_genome'] == {reference.format('tesmall') + '/benchmarks/tesmall_genome.tsv'}
     assert declared['tesmall_db'] == {reference.format('tesmall') + f'/gff-{MIRBASE_GFF_ID}/unitas-20-11-2026/benchmarks/tesmall_db.tsv'}
     assert declared['biocore_htseq_bowtie2_index'] == {reference.format('biocore_htseq') + '/benchmarks/biocore_htseq_bowtie2_index.tsv'}
-    assert declared['biocore_htseq_annotation'] == {
-        reference.format('biocore_htseq') + f'/gff-{MIRBASE_GFF_ID}/rnacentral-28.0/benchmarks/biocore_htseq_annotation.tsv'}
     assert declared['biocore_miraligner_db'] == {
         f'data/ext/biocore_miraligner/mirbase-23.1/mus_musculus/gff-{MIRBASE_GFF_ID}/db.v1/benchmarks/biocore_miraligner_db.tsv'}
 
