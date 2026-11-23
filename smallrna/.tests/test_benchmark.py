@@ -1106,6 +1106,24 @@ def test_resources_per_method_from_the_benchmark_files(tmp_path):
             resources.summarize(quant, ['smrnaseq'], ['S1', 'S2'], None)
 
 
+
+def test_resources_list_biocore_htseqs_ncrna_tables_outside_the_totals(tmp_path):
+    """biocore_htseq's ncRNA tables (#503) are listed (kind classes) when present, not part of the quantification's
+    totals, and not missing where the route writes none."""
+    for with_classes in (False, True):
+        quant = tmp_path / str(with_classes)
+        for sample in ('S1', 'S2'):
+            for step in ('biocore_htseq_collapse', 'biocore_htseq_align', 'biocore_htseq_annotate', 'biocore_htseq_count'):
+                write_benchmark(quant / 'benchmarks' / step / '{}.tsv'.format(sample), 10, 10, 100)
+            if with_classes:
+                write_benchmark(quant / 'benchmarks/biocore_htseq_ncrna/{}.tsv'.format(sample), 5, 5, 50)
+        write_benchmark(quant / 'benchmarks/biocore_htseq_counts.tsv', 1, 1, 10)
+        found, missing = resources.jobs(quant, 'biocore_htseq', ['S1', 'S2'])
+        assert missing == []
+        assert sum(kind == 'classes' for kind, *_ in found) == (2 if with_classes else 0)
+        _, lines = resources.summarize(quant, ['biocore_htseq'], ['S1', 'S2'], None)
+        assert '| biocore_htseq | 9 | 81 |' in '\n'.join(lines)  # the ncRNA tables' 10 s not in the totals
+
 def biological_dataset(tmp_path, lanes=(1, 2)):
     ext = tmp_path / 'ext'
     data = ext / 'benchmark/smallrna/bio'

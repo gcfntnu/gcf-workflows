@@ -17,14 +17,30 @@ Writes the mature (miRNA, count) and isomiR (isomiR, count) tables, sorted, and 
 unique sequences in the collapsed reads, reads with at least one alignment, reads with a counted alignment, and the
 summed mature counts (more than the counted reads when reads count for several names).
 
-join: the samples' mature tables as one table, miRNA and one column per sample (0 where a sample lacks the miRNA).
+ncrna: one sample's ncRNA tables (#503), the pipeline's `.ncRNA_types`, `.ncRNA` and the ncRNA lines of its `.stats`,
+from the same annotated records (with the RNAcentral and Ensembl layers of gcfdb/scripts/biocore_htseq_annotation.py):
+- an alignment record goes to the ncRNA path when its feature does not contain the species code, does not start with
+  `__no` (`__no_feature`, `__not_aligned`) and passes the perfect-alignment test. The split is per alignment record,
+  as in the pipeline, so a read with one alignment on a miRNA and another on an ncRNA counts in both paths;
+- classes (`.ncRNA_types`, CountNoncodingClasses.pl): a feature's names lose their `URS…-` and `ENS…-` prefixes, which
+  leaves their RNAcentral types and Ensembl biotypes; each read's count is divided evenly between the distinct types of
+  all its ncRNA records, so class counts can be fractions;
+- features (`.ncRNA`): each (`<name>_<sequence>`, read) pair counts once for the names that start with `URS` or `ENS`,
+  ambiguous sets expanded, the read's sequence as sequenced;
+- statistics: `RNACentral`, the summed class counts (Ensembl biotypes included, as in the pipeline), and `tRNAs`,
+  `rRNAs`, `snoRNAs`, `snRNAs` and `lncRNAs`, each the summed counts of the classes whose name contains that word
+  (the pipeline's grep: `rRNA` also takes `Mt_rRNA` and `rRNA_pseudogene`).
+
+join: the samples' tables as one table, the key and one column per sample (0 where a sample lacks the key): the mature
+tables (`--key miRNA`, the default) or the class tables (`--key type`).
 
 gff: the miRNA GFF3 without its rows that have no strand (`.`), which htseq-count's stranded mode stops on, to standard
 output; a header comment names the rows left out.
 
 Usage:
   htseq_counts.py count --species CODE --collapsed FASTA --annotated SAM[.gz] --mature TSV --isomir TSV --stats TSV
-  htseq_counts.py join --samples S1 [S2 ...] --tables MATURE_TSV [MATURE_TSV ...]
+  htseq_counts.py ncrna --species CODE --annotated SAM[.gz] --types TSV --features TSV --stats TSV
+  htseq_counts.py join [--key miRNA|type] --samples S1 [S2 ...] --tables TSV [TSV ...]
   htseq_counts.py gff --input GFF3
 """
 import argparse
@@ -35,6 +51,10 @@ import sys
 PERFECT = re.compile(r'MD:Z:[1-9][0-9]?[^0-9ACGTU]')
 AMBIGUOUS = re.compile(r'(.*?)__ambiguous\[(.*?)\](.*)')
 COMPLEMENT = str.maketrans('ACGT', 'TGCA')
+# CountNoncodingClasses.pl: s/.*?\[(.*?)\]/$1/ (an ambiguous set's names), then s/URS[0-9A-Z]+-//g and s/ENS[0-9A-Z]+-//g
+FIRST_SET = re.compile(r'.*?\[(.*?)\]')
+NAME_PREFIX = re.compile(r'(?:URS|ENS)[0-9A-Z]+-')
+STAT_CLASSES = ('tRNA', 'rRNA', 'snoRNA', 'snRNA', 'lncRNA')  # the pipeline's .stats: "<class>s", by substring
 
 
 def fail(message):
@@ -109,6 +129,51 @@ def totals(pairs):
     return out
 
 
+def annotated_records(path):
+    """(record, fields) of htseq-count's annotated alignments, the header left out; stops on a record without XF last."""
+    with open_text(path) as fh:
+        for line in fh:
+            if line.startswith('@'):
+                continue
+            record = line.rstrip('\n')
+            fields = record.split('\t')
+            if len(fields) < 12 or not fields[-1].startswith('XF:Z:'):
+                fail('{}: an alignment record without htseq-count\'s XF tag last: {!r}'.format(path, record[:200]))
+            yield record, fields
+
+
+def ncrna(species, annotated):
+    """({class: count}, {name_sequence: count}) of the ncRNA path (#503), as the pipeline's .ncRNA_types and .ncRNA."""
+    joined, features = {}, set()
+    for record, fields in annotated_records(annotated):
+        read, flag, sequence, feature = fields[0], int(fields[1]), fields[9], fields[-1][5:]
+        # .ncRNA_filter: grep -v <species> | grep -v "XF:Z:__no" | the perfect-alignment test
+        if species in feature or feature.startswith('__no') or not PERFECT.search(record):
+            continue
+        # CountNoncodingClasses.pl: a read's records' types, joined with '+'
+        joined[read] = joined.get(read, '') + NAME_PREFIX.sub('', FIRST_SET.sub(r'\1', feature, count=1)) + '+'
+        if flag & 16:
+            sequence = sequence[::-1].translate(COMPLEMENT)
+        for name in expand(feature):
+            if name.startswith(('URS', 'ENS')):
+                features.add(('{}_{}'.format(name, sequence), read))
+    classes = {}
+    for read, types in joined.items():
+        parts = types.split('+')
+        while parts and parts[-1] == '':  # Perl's split leaves out trailing empty fields
+            parts.pop()
+        distinct = list(dict.fromkeys(parts))  # List::MoreUtils uniq: first occurrences, in order
+        share = read_count(read) / len(distinct)
+        for name in distinct:
+            classes[name] = classes.get(name, 0) + share
+    return classes, totals(features)
+
+
+def number(value):
+    """A count as text: whole numbers without a fraction, others with up to 10 significant digits."""
+    return str(int(value)) if float(value).is_integer() else '{:.10g}'.format(value)
+
+
 def write_table(path, header, table):
     with open(path, 'w') as fh:
         fh.write(header + '\tcount\n')
@@ -129,6 +194,21 @@ def run_count(args):
             fh.write('{}\t{}\n'.format(name, value))
 
 
+def run_ncrna(args):
+    if not args.species:
+        fail('--species is empty: the organism has no miRBase code')
+    classes, features = ncrna(args.species, args.annotated)
+    with open(args.types, 'w') as fh:
+        fh.write('type\tcount\n')
+        fh.writelines('{}\t{}\n'.format(name, number(classes[name])) for name in sorted(classes))
+    write_table(args.features, 'feature', features)
+    with open(args.stats, 'w') as fh:
+        fh.write('statistic\tvalue\n')
+        fh.write('RNACentral\t{}\n'.format(number(sum(classes.values()))))
+        for word in STAT_CLASSES:
+            fh.write('{}s\t{}\n'.format(word, number(sum(v for k, v in classes.items() if word in k))))
+
+
 def run_join(args):
     if len(args.samples) != len(args.tables) or len(set(args.samples)) != len(args.samples):
         fail('give one table per sample and unique sample names ({} samples, {} tables)'.format(len(args.samples), len(args.tables)))
@@ -136,21 +216,20 @@ def run_join(args):
     for sample, path in zip(args.samples, args.tables):
         with open(path) as fh:
             header = fh.readline().rstrip('\n').split('\t')
-            if header != ['miRNA', 'count']:
-                fail('{}: expected the header miRNA, count, got {}'.format(path, header))
+            if header != [args.key, 'count']:
+                fail('{}: expected the header {}, count, got {}'.format(path, args.key, header))
             for i, line in enumerate(fh, 2):
                 fields = line.rstrip('\n').split('\t')
                 if len(fields) != 2:
-                    fail('{}:{}: expected a miRNA and a count, got {!r}'.format(path, i, line[:100]))
+                    fail('{}:{}: expected a {} and a count, got {!r}'.format(path, i, args.key, line[:100]))
                 name, value = fields
                 if sample in counts.get(name, {}):
                     fail('{}:{}: {} twice'.format(path, i, name))
                 counts.setdefault(name, {})[sample] = value
     out = sys.stdout
-    out.write('\t'.join(['miRNA'] + args.samples) + '\n')
+    out.write('\t'.join([args.key] + args.samples) + '\n')
     for name in sorted(counts):
         out.write('\t'.join([name] + [counts[name].get(s, '0') for s in args.samples]) + '\n')
-
 
 def run_gff(args):
     kept, left = [], []
@@ -183,13 +262,20 @@ def main(argv=None):
     one.add_argument('--mature', required=True)
     one.add_argument('--isomir', required=True)
     one.add_argument('--stats', required=True)
+    nc = commands.add_parser('ncrna')
+    nc.add_argument('--species', required=True)
+    nc.add_argument('--annotated', required=True)
+    nc.add_argument('--types', required=True)
+    nc.add_argument('--features', required=True)
+    nc.add_argument('--stats', required=True)
     many = commands.add_parser('join')
+    many.add_argument('--key', default='miRNA', choices=('miRNA', 'type'))
     many.add_argument('--samples', nargs='+', required=True)
     many.add_argument('--tables', nargs='+', required=True)
     gff = commands.add_parser('gff')
     gff.add_argument('--input', required=True)
     args = parser.parse_args(argv)
-    {'count': run_count, 'join': run_join, 'gff': run_gff}[args.command](args)
+    {'count': run_count, 'ncrna': run_ncrna, 'join': run_join, 'gff': run_gff}[args.command](args)
 
 
 if __name__ == '__main__':

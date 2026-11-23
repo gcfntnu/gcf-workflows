@@ -11,10 +11,32 @@ genome and miRBase release with mirflowz, TEsmall, tiny-count and the benchmark.
 On a reference without TEsmall's genome folder, `tesmall_genome` also builds TEsmall's Bowtie 1 index of it, which
 this route does not use; the folder exists once for every route on the reference. Checks of the mirflowz reference
 stop the workflow when this route is selected (`BIOCORE_HTSEQ_SELECTED`, set in smallrna/rules/quant.smk).
+
+The pipeline's ncRNA tables (#503) need its annotation: the miRBase GFF3, RNAcentral transcripts and Ensembl genes, all
+as feature type `miRNA` (scripts/biocore_htseq_annotation.py). RNAcentral is the pipeline's own release, 9.0
+(`BIOCORE_HTSEQ_RNACENTRAL_RELEASE`): about 80,000 human transcripts, against about 3.1 million in current releases,
+which add circRNAs and alignment-placed piRNAs and rRNAs (some 1,000 rRNA entries on each rDNA locus) that the pipeline
+never saw and that make htseq-count's annotation hours slower at full depth. Its genome coordinates are downloaded into
+`sources/rnacentral-9.0/`, and the annotation is written to
+`gff-<ID>/rnacentral-9.0/annotation.v<BIOCORE_HTSEQ_ANNOTATION_VERSION>.gff3`, named by the miRNA GFF's identity
+(MIRFLOWZ_GFF_ID, #440); the Ensembl genes come from the reference's GTF. Human only (`BIOCORE_HTSEQ_CLASSES`): 9.0's
+mouse coordinates are on GRCm38, the reference's on GRCm39. Elsewhere, and on a `db.mirflowz.custom` reference, the
+route counts miRNAs only.
 """
 
 BIOCORE_HTSEQ_REF = join(EXT_DIR, 'biocore_htseq', os.path.relpath(MIRFLOWZ_REF, join(EXT_DIR, 'mirflowz')))
 BIOCORE_HTSEQ_INDEX = join(BIOCORE_HTSEQ_REF, 'genome', 'bowtie2', 'genome')
+# Raise when biocore_htseq_annotation.py writes different rows from the same sources.
+BIOCORE_HTSEQ_ANNOTATION_VERSION = 1
+BIOCORE_HTSEQ_RNACENTRAL_RELEASE = '9.0'  # the pipeline's release
+BIOCORE_HTSEQ_RNACENTRAL_ASSEMBLY = {'homo_sapiens': 'GRCh38'}  # 9.0's mouse coordinates are on GRCm38
+BIOCORE_HTSEQ_CLASSES = bool(not MIRFLOWZ_CUSTOM and ORG in BIOCORE_HTSEQ_RNACENTRAL_ASSEMBLY
+                             and MIRFLOWZ_ASSEMBLY == BIOCORE_HTSEQ_RNACENTRAL_ASSEMBLY[ORG])
+BIOCORE_HTSEQ_RNACENTRAL_FILE = '{}.{}.gff.gz'.format(ORG.capitalize(), BIOCORE_HTSEQ_RNACENTRAL_ASSEMBLY.get(ORG))
+BIOCORE_HTSEQ_RNACENTRAL = join(BIOCORE_HTSEQ_REF, 'sources', 'rnacentral-{}'.format(BIOCORE_HTSEQ_RNACENTRAL_RELEASE),
+                                BIOCORE_HTSEQ_RNACENTRAL_FILE)
+BIOCORE_HTSEQ_ANNOTATION = join(BIOCORE_HTSEQ_REF, 'gff-{}'.format(MIRFLOWZ_GFF_ID), 'rnacentral-{}'.format(BIOCORE_HTSEQ_RNACENTRAL_RELEASE),
+                                'annotation.v{}.gff3'.format(BIOCORE_HTSEQ_ANNOTATION_VERSION))
 # A small index: the supported genomes are shorter than Bowtie 2's 4 Gbp limit for one.
 BIOCORE_HTSEQ_INDEX_SUFFIXES = ('1.bt2', '2.bt2', '3.bt2', '4.bt2', 'rev.1.bt2', 'rev.2.bt2')
 
@@ -38,3 +60,42 @@ rule biocore_htseq_bowtie2_index:
         'docker://' + config['docker']['biocore_htseq_bowtie2']
     shell:
         'bowtie2-build --threads {threads} {input:q} {params.prefix:q} > {log:q} 2>&1'
+
+
+if BIOCORE_HTSEQ_CLASSES:
+    rule biocore_htseq_rnacentral:
+        output:
+            BIOCORE_HTSEQ_RNACENTRAL
+        params:
+            url = 'https://ftp.ebi.ac.uk/pub/databases/RNAcentral/releases/{}/genome_coordinates/{}'.format(
+                BIOCORE_HTSEQ_RNACENTRAL_RELEASE, BIOCORE_HTSEQ_RNACENTRAL_FILE),
+            proxy = config.get('proxy', {}).get('wget', '')
+        log:
+            join(BIOCORE_HTSEQ_REF, 'sources', 'rnacentral-{}'.format(BIOCORE_HTSEQ_RNACENTRAL_RELEASE), 'rnacentral.log')
+        shell:
+            # a temporary file of this job's own, renamed when complete: two projects building the same reference at
+            # once never publish a partial download; mktemp makes it owner-only, the store's files are group-writable
+            'tmp=$(mktemp {output}.XXXXXX) && wget {params.proxy} -q -O "$tmp" {params.url} && gzip -t "$tmp" && chmod 664 "$tmp" && mv "$tmp" {output} && '
+            'echo "RNAcentral,{BIOCORE_HTSEQ_RNACENTRAL_RELEASE},{params.url},`date -I`" > {log} || {{ rm -f "$tmp"; exit 1; }}'
+
+
+    rule biocore_htseq_annotation:
+        input:
+            mirna_gff = rules.tinyrna_gff.output.gff,
+            rnacentral = rules.biocore_htseq_rnacentral.output,
+            gtf = lambda wildcards: mirflowz_sources()['gtf'],
+            fai = rules.tesmall_genome.output.fai
+        output:
+            BIOCORE_HTSEQ_ANNOTATION
+        params:
+            script = src_gcf('scripts/biocore_htseq_annotation.py')
+        resources:
+            mem_mb = 2000
+        benchmark:
+            join(os.path.dirname(BIOCORE_HTSEQ_ANNOTATION), 'benchmarks', 'biocore_htseq_annotation.tsv')
+        container:
+            'docker://' + config['docker']['default']
+        shell:
+            # a temporary file of this job's own, renamed when complete (as the download)
+            'tmp=$(mktemp {output:q}.XXXXXX) && python {params.script:q} --mirna-gff {input.mirna_gff:q} --rnacentral {input.rnacentral:q} '
+            '--gtf {input.gtf:q} --fai {input.fai:q} > "$tmp" && chmod 664 "$tmp" && mv "$tmp" {output:q} || {{ rm -f "$tmp"; exit 1; }}'

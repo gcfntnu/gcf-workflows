@@ -354,7 +354,10 @@ def test_route_steps_write_the_benchmark_files_the_benchmark_reads(tmp_path):
     samples = {Path(p).stem for p in declared['unitas']}
     assert len(samples) == 4
     for method, steps in resources.STEPS.items():
-        for step, per_sample, _ in steps:
+        for step, per_sample, kind in steps:
+            if kind == 'classes':  # biocore_htseq's ncRNA tables (#503): human only, this fixture is mouse
+                assert step not in declared
+                continue
             expected = {f'{base}{step}/{s}.tsv' for s in samples} if per_sample else {f'{base}{step}.tsv'}
             assert declared.get(step) == expected, (method, step)
     # shared builds: in the reference they built, so a file never describes another reference

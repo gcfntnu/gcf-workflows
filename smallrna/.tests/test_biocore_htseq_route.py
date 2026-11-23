@@ -46,6 +46,12 @@ def test_route_plans_reference_and_counting_and_delivery_stays_on_unitas(tmp_pat
     assert gff in rule_block(output, 'biocore_htseq_gff')
     assert '--species mmu --collapsed' in rule_block(output, 'biocore_htseq_count')
     assert '--samples SR01 SR02 SR03 SR04' in rule_block(output, 'biocore_htseq_counts')
+    # mouse: no ncRNA tables (#503), RNAcentral 9.0 has mouse coordinates on GRCm38 only
+    assert 'biocore_htseq_ncrna' not in output and 'biocore_htseq_rnacentral' not in output
+    # nor as a direct target, which would count from records without ncRNA features (review of #505)
+    for target in (f'{OUT}/ncrna_types.tsv', f'{OUT}/SR01/ncrna_types.tsv'):
+        returncode, output = dry_run(tmp_path, 'unitas,biocore_htseq', target=target)
+        assert returncode != 0 and 'MissingRuleException' in output, output[-500:]
     returncode, output = dry_run(tmp_path, 'unitas,biocore_htseq', target='bfq_all')
     assert returncode == 0, output
     assert 'biocore_htseq' not in output
@@ -207,3 +213,146 @@ def test_local_alignment_mode(tmp_path):
                            (dict(local_max_5p_clip=-1), 'quant.biocore_htseq.local_max_5p_clip must be a whole number from 0 to 5')):
         returncode, output = dry_run(tmp_path / str(len(message)), 'biocore_htseq', local(**value))
         assert returncode != 0 and message in output, output
+
+
+def test_human_route_annotates_with_the_pipelines_annotation_and_writes_ncrna_tables(tmp_path):
+    """Human on the Ensembl reference (#503): the pipeline's annotation (miRBase GFF, RNAcentral 9.0 transcripts, the
+    reference's Ensembl genes) for htseq-count, then the ncRNA tables per sample and their join."""
+    returncode, output = dry_run(tmp_path, 'biocore_htseq', lambda s: s.update(organism='homo_sapiens'), printshell=True)
+    assert returncode == 0, output
+    out, ref = 'data/tmp/smallrna/quant/biocore_htseq', 'data/ext/biocore_htseq/mirbase-23.1_ensembl-116/homo_sapiens'
+    assert output.count('rule biocore_htseq_annotate:') == 4 and 'rule biocore_htseq_gff:' not in output
+    annotate = rule_block(output, 'biocore_htseq_annotate')
+    annotation = re.search(r'({}/gff-[0-9a-f]+/rnacentral-9\.0/annotation\.v1\.gff3)'.format(ref), annotate).group(1)
+    assert ('htseq-count -f sam -a 0 -s yes -t miRNA -i Name --secondary-alignments score --supplementary-alignments score '
+            '--samout {}/SR0'.format(out)) in annotate and f' - {annotation} > ' in annotate
+    build = rule_block(output, 'biocore_htseq_annotation')
+    assert f'--rnacentral {ref}/sources/rnacentral-9.0/Homo_sapiens.GRCh38.gff.gz' in build
+    assert '--fai data/ext/tesmall/mirbase-23.1_ensembl-116/homo_sapiens/genome/genome.fa.fai' in build and '--gtf ' in build
+    assert '/rnacentral-9.0/benchmarks/biocore_htseq_annotation.tsv' in build
+    download = rule_block(output, 'biocore_htseq_rnacentral')
+    assert ('https://ftp.ebi.ac.uk/pub/databases/RNAcentral/releases/9.0/genome_coordinates/Homo_sapiens.GRCh38.gff.gz'
+            in download and 'gzip -t "$tmp"' in download)
+    # each job writes a temporary file of its own and renames it when complete: two projects building the same
+    # reference at once never publish a partial file (review of #505)
+    for block in (download, build):
+        assert 'tmp=$(mktemp ' in block and 'mv "$tmp" ' in block and 'rm -f "$tmp"' in block
+        assert 'chmod 664 "$tmp" && mv "$tmp" ' in block  # mktemp's file is owner-only; the store's are not
+    assert output.count('rule biocore_htseq_ncrna:') == 4
+    ncrna = rule_block(output, 'biocore_htseq_ncrna')
+    assert 'ncrna --species hsa --annotated ' in ncrna and '/ncrna_types.tsv --features ' in ncrna
+    assert f'join --key type --samples SR01 SR02 SR03 SR04 --tables {out}/SR01/ncrna_types.tsv' in rule_block(output, 'biocore_htseq_ncrna_types')
+
+
+def test_custom_reference_keeps_the_mirna_annotation_and_writes_no_ncrna_tables(tmp_path):
+    """A db.mirflowz.custom reference, also for human, annotates with the miRNA GFF alone, as before #503."""
+    refs = tmp_path / 'refs'
+    refs.mkdir()
+    files = {key: refs / name for key, name in (('genome', 'genome.fa.gz'), ('gtf', 'genes.gtf.gz'), ('mirna_gff', 'mirna.gff3'))}
+    for path in files.values():
+        path.touch()
+    custom = lambda s: (s.update(organism='homo_sapiens'),
+                        s.setdefault('db', {}).setdefault('mirflowz', {}).update(custom=dict(name='reduced', **{k: str(v) for k, v in files.items()})))
+    returncode, output = dry_run(tmp_path, 'biocore_htseq', custom, printshell=True)
+    assert returncode == 0, output
+    assert f' - {OUT}/mirna.gff3 > ' in rule_block(output, 'biocore_htseq_annotate')
+    assert 'biocore_htseq_ncrna' not in output and 'biocore_htseq_rnacentral' not in output and 'biocore_htseq_annotation' not in output
+
+
+def test_ncrna_counts_classes_and_features_as_the_pipeline(tmp_path):
+    """The pipeline's ncRNA path: records without the species in their feature, a feature, and a perfect alignment; a read
+    divided evenly between its distinct types; each (name_sequence, read) pair once; stats by substring."""
+    snord = 'ATGATGATGATGATGATGATGA'
+    trf = 'TCCCTGGTGGTCTAGTGGTTAGGATTCG'
+    path = annotated(tmp_path, [
+        record('1-90', 0, snord, '22', 'URS000082BE64-snoRNA'),
+        record('1-90', 256, snord, '22', '__ambiguous[URS00004219CE-snoRNA+ENSG00000207445-snoRNA]', chrom='2'),
+        record('2-30', 0, trf, '28', '__ambiguous[URS0000A1B2C3-tRNA+ENSG00000276345-Mt_tRNA]'),
+        record('2-30', 256, trf, '28', 'ENSG00000123456-lncRNA', chrom='3'),
+        record('3-12', 0, MIR21, '22', '__ambiguous[mmu-miR-21a-5p+ENSG00000284190-miRNA]'),     # a miRNA: miRNA path only
+        record('3-12', 256, MIR21, '22', 'URS0000D5E6F7-rRNA', chrom='4'),                        # its other locus: ncRNA too
+        record('4-8', 0, snord, '20A1', 'URS000082BE64-snoRNA'),                                    # a mismatch: not counted
+        record('5-4', 0, 'ACGTACGTACGTACGTAC', '18', '__no_feature'),
+        record('6-2', 4, 'GGGGGGGGGGGGGGGGGG', '', '__not_aligned'),
+        record('7-6', 16, snord, '22', 'URS000082BE64-snoRNA'),                                     # minus strand
+    ])
+    classes, features = biocore_htseq_counts.ncrna('mmu', path)
+    # read 1 (90): snoRNA only; read 2 (30): tRNA, Mt_tRNA, lncRNA -> 10 each; read 3 (12): rRNA; read 7 (6): snoRNA
+    assert classes == {'snoRNA': 96, 'tRNA': 10, 'Mt_tRNA': 10, 'lncRNA': 10, 'rRNA': 12}
+    reverse = snord[::-1].translate(str.maketrans('ACGT', 'TGCA'))
+    assert features['URS000082BE64-snoRNA_' + snord] == 90 and features['URS000082BE64-snoRNA_' + reverse] == 6
+    assert features['URS00004219CE-snoRNA_' + snord] == 90 and features['ENSG00000207445-snoRNA_' + snord] == 90
+    assert features['URS0000D5E6F7-rRNA_' + MIR21] == 12 and not any(k.startswith('mmu') for k in features)
+    out = {name: tmp_path / '{}.tsv'.format(name) for name in ('types', 'features', 'stats')}
+    result = subprocess.run([sys.executable, str(SCRIPT), 'ncrna', '--species', 'mmu', '--annotated', str(path)] +
+                            ['--{}={}'.format(k, v) for k, v in out.items()], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert out['types'].read_text() == 'type\tcount\nMt_tRNA\t10\nlncRNA\t10\nrRNA\t12\nsnoRNA\t96\ntRNA\t10\n'
+    # by substring, as the pipeline's grep: tRNAs takes Mt_tRNA too
+    assert out['stats'].read_text() == ('statistic\tvalue\nRNACentral\t138\ntRNAs\t20\nrRNAs\t12\nsnoRNAs\t96\n'
+                                        'snRNAs\t0\nlncRNAs\t10\n')
+    assert out['features'].read_text().splitlines()[0] == 'feature\tcount'
+
+
+def test_ncrna_counts_can_be_fractions(tmp_path):
+    path = annotated(tmp_path, [record('1-10', 0, 'ACGTTGCAACGTTGCAACGT', '20', '__ambiguous[URSA1-piRNA+URSB2-snoRNA+ENSG1-lncRNA]')])
+    classes, _ = biocore_htseq_counts.ncrna('hsa', path)
+    assert classes == pytest.approx({'piRNA': 10 / 3, 'snoRNA': 10 / 3, 'lncRNA': 10 / 3})
+    assert biocore_htseq_counts.number(10 / 3) == '3.333333333' and biocore_htseq_counts.number(4.0) == '4'
+
+
+def test_join_takes_class_tables(tmp_path):
+    first, second = tmp_path / 'a.tsv', tmp_path / 'b.tsv'
+    first.write_text('type\tcount\nsnoRNA\t2.5\ntRNA\t1\n')
+    second.write_text('type\tcount\npiRNA\t3\n')
+    result = subprocess.run([sys.executable, str(SCRIPT), 'join', '--key', 'type', '--samples', 'S1', 'S2', '--tables', str(first), str(second)],
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == 'type\tS1\tS2\npiRNA\t0\t3\nsnoRNA\t2.5\t0\ntRNA\t1\t0\n'
+
+
+ANNOTATION = ROOT / 'gcfdb/scripts/biocore_htseq_annotation.py'
+
+
+def test_annotation_joins_mirnas_rnacentral_transcripts_and_ensembl_genes(tmp_path):
+    """The pipeline's annotation from current sources: RNAcentral transcripts named <URS>-<type> without the taxon suffix,
+    Ensembl genes <gene id>-<biotype> (also unnamed ones), every row of type miRNA; other RNAcentral rows, rows without a
+    strand and rows off the genome left out; chr prefixes stripped."""
+    mirna = tmp_path / 'mirna.gff3'
+    mirna.write_text('##gff-version 3\n'
+                     '1\t.\tmiRNA\t30\t51\t.\t-\t.\tID=MIMAT1;Name=hsa-miR-1-5p\n'
+                     '1\t.\tmiRNA\t100\t122\t.\t.\t.\tID=MIMAT2;Name=hsa-miR-13168-5p\n')
+    rnacentral = tmp_path / 'rnacentral.gff3.gz'
+    with gzip.open(rnacentral, 'wt') as fh:
+        fh.write('##gff-version 3\n'
+                 '1\tRNAcentral\ttranscript\t10\t40\t.\t+\t.\tName=URS000082BE64_9606;description=x;type=snoRNA;ID=URS000082BE64_9606.0\n'
+                 '1\tRNAcentral\tnoncoding_exon\t10\t40\t.\t+\t.\tName=URS000082BE64_9606;type=snoRNA;Parent=URS000082BE64_9606.0\n'
+                 'chr2\tRNAcentral\ttranscript\t5\t30\t.\t-\t.\tName=URS00004219CE_9606;type=piRNA;ID=URS00004219CE_9606.0\n'
+                 '1\tRNAcentral\tpredicted_gene\t5\t30\t.\t-\t.\tName=URS0000AAAAAA_9606;type=lncRNA\n'
+                 'KI270999.1\tRNAcentral\ttranscript\t5\t30\t.\t+\t.\tName=URS0000BBBBBB_9606;type=rRNA;ID=x\n'
+                 '1\tRNAcentral\ttranscript\t200\t900\t.\t+\t.\tName=URS0000CCCCCC_9606;type=circRNA;ID=y\n'
+                 # RNAcentral 9.0, the pipeline's release: attributes in quotes, IDs without a taxon suffix
+                 '2\tRNAcentral\ttranscript\t600\t690\t.\t+\t.\tID "LN847466.1:1..91:ncRNA";Name "URS000082BE65";type "snoRNA"\n'
+                 '2\tRNAcentral\tnoncoding_exon\t600\t690\t.\t+\t.\tID "LN847466.1:1..91:ncRNA_exon1";Name "URS000082BE65";type "snoRNA"\n')
+    gtf = tmp_path / 'genes.gtf'
+    gtf.write_text('#!genome-build GRCh38\n'
+                   '1\thavana\tgene\t1\t500\t.\t+\t.\tgene_id "ENSG00000279493"; gene_version "1"; gene_source "havana"; gene_biotype "artifact";\n'
+                   '1\thavana\ttranscript\t1\t500\t.\t+\t.\tgene_id "ENSG00000279493"; transcript_id "ENST1"; gene_biotype "artifact";\n'
+                   '2\tensembl\tgene\t50\t90\t.\t-\t.\tgene_id "ENSG00000207445"; gene_name "SNORD1"; gene_biotype "snoRNA";\n')
+    fai = tmp_path / 'genome.fa.fai'
+    fai.write_text('1\t1000\t3\t60\t61\n2\t1000\t1100\t60\t61\n')
+    result = subprocess.run([sys.executable, str(ANNOTATION), '--mirna-gff', str(mirna), '--rnacentral', str(rnacentral),
+                             '--gtf', str(gtf), '--fai', str(fai)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    rows = [line.split('\t') for line in result.stdout.splitlines() if not line.startswith('#')]
+    assert [(r[0], r[1], r[2], r[6], r[8]) for r in rows] == [
+        ('1', '.', 'miRNA', '-', 'ID=MIMAT1;Name=hsa-miR-1-5p'),
+        ('1', 'RNAcentral', 'miRNA', '+', 'Name=URS000082BE64-snoRNA'),
+        ('2', 'RNAcentral', 'miRNA', '-', 'Name=URS00004219CE-piRNA'),
+        ('2', 'RNAcentral', 'miRNA', '+', 'Name=URS000082BE65-snoRNA'),
+        ('1', 'Ensembl', 'miRNA', '+', 'Name=ENSG00000279493-artifact'),
+        ('2', 'Ensembl', 'miRNA', '-', 'Name=ENSG00000207445-snoRNA')]
+    assert '# rows: 1 miRNA, 3 RNAcentral, 2 Ensembl' in result.stdout
+    assert 'left out (1): hsa-miR-13168-5p' in result.stdout and '1 RNAcentral on a sequence the genome lacks' in result.stdout
+    assert '1 RNAcentral circRNA' in result.stdout  # not in RNAcentral 9.0, the pipeline's release (#503)
+
