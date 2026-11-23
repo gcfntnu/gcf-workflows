@@ -93,9 +93,9 @@ def mirge3_command(output):
     return next(line for line in output.splitlines() if 'miRge3.0 ' in line)
 
 
-@pytest.mark.parametrize('kit, min_length', [('Bioo Scientific NEXTflex Small RNA-Seq Kit v3', 15),
-                                             ('Bioo Scientific NEXTflex Small RNA-Seq Kit v4', 15),
-                                             ('TruSeq Small RNA Library Prep Kit', 15)])
+@pytest.mark.parametrize('kit, min_length', [('Bioo Scientific NEXTflex Small RNA-Seq Kit v3', 16),
+                                             ('Bioo Scientific NEXTflex Small RNA-Seq Kit v4', 16),
+                                             ('TruSeq Small RNA Library Prep Kit', 16)])
 def test_mirge3_reads_the_filtered_reads_without_its_own_preprocessing(tmp_path, kit, min_length):
     """Like UNITAS and mirflowz: no adapter trimming, NextSeq trimming or UMI collapsing; the kit's minimum length."""
     update = lambda s: s.update(libprepkit=kit, machine='NextSeq 500')

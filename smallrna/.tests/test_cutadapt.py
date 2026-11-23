@@ -55,8 +55,8 @@ def kit_config(kit, **cutadapt):
 
 def test_kit_presets():
     v3, v4, truseq = (policy.cutadapt_settings(kit_config(kit)) for kit in (V3, V4, TRUSEQ))
-    assert policy.filter_args(v3) == '-u 4 -u -4 --action=none --discard-trimmed -m 15 --max-n 5 --max-ee 1'
-    assert policy.filter_args(v4) == policy.filter_args(truseq) == '--action=none --discard-trimmed -m 15 --max-n 5 --max-ee 1'
+    assert policy.filter_args(v3) == '-u 4 -u -4 --action=none --discard-trimmed -m 16 --max-n 5 --max-ee 1'
+    assert policy.filter_args(v4) == policy.filter_args(truseq) == '--action=none --discard-trimmed -m 16 --max-n 5 --max-ee 1'
     assert (v3['five_prime_piece'], truseq['five_prime_piece'], v4['five_prime_piece']) == (14, 14, 15)
     assert policy.adapter_args(v3) == policy.adapter_args(v4) == "-a 'TGGAATTCTCGGGTGCCAAGG;min_overlap=5'"
     assert v3['adapter5'] == truseq['adapter5'] == ADAPTER5 and v4['adapter5'] == ADAPTER5_V4
@@ -101,7 +101,7 @@ def test_three_prime_adapter_must_be_a_sequence():
 
 def test_optional_expected_errors():
     assert policy.filter_args(policy.cutadapt_settings(kit_config(TRUSEQ, max_ee=1, max_n=None))) == \
-        '--action=none --discard-trimmed -m 15 --max-ee 1'
+        '--action=none --discard-trimmed -m 16 --max-ee 1'
 
 
 def test_five_prime_fasta_truncates_the_adapter_and_lists_its_pieces():
@@ -228,7 +228,7 @@ def test_route_filters_with_cutadapt_only(tmp_path):
     adapter = rule_block(output, 'smallrna_cutadapt_adapter')
     assert "-a 'TGGAATTCTCGGGTGCCAAGG;min_overlap=5'" in adapter
     filtered = rule_block(output, 'smallrna_cutadapt_filter')
-    assert '-g file:data/tmp/smallrna/filter/cutadapt/five_prime_adapters.fa -u 4 -u -4 --action=none --discard-trimmed -m 15 --max-n 5 --max-ee 1' in filtered
+    assert '-g file:data/tmp/smallrna/filter/cutadapt/five_prime_adapters.fa -u 4 -u -4 --action=none --discard-trimmed -m 16 --max-n 5 --max-ee 1' in filtered
     assert 'five-prime-fasta GTTCAGAGTTCTACAGTCCGACGATC 14 ' in rule_block(output, 'smallrna_five_prime_adapters')
     artefacts = rule_block(output, 'smallrna_cutadapt_artefacts')
     assert 'input: data/tmp/smallrna/filter/cutadapt_filtered/SR0' in artefacts
@@ -246,7 +246,7 @@ def test_route_filters_with_cutadapt_only(tmp_path):
 def test_route_sets_the_minimum_length_of_the_quantifiers(tmp_path):
     returncode, output = dry_run(tmp_path, 'mirge3', use_cutadapt(TRUSEQ), printshell=True)
     assert returncode == 0, output
-    assert '--minimum-length 15 ' in rule_block(output, 'mirge3_quant')
+    assert '--minimum-length 16 ' in rule_block(output, 'mirge3_quant')
     assert '-u 4' not in rule_block(output, 'smallrna_cutadapt_filter')
     assert 'artefact-fasta TGGAATTCTCGGGTGCCAAGG ' + STP + ' > ' in rule_block(output, 'smallrna_artefact_fasta')  # the Stop Oligo
 
