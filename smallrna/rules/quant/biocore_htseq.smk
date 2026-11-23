@@ -43,6 +43,8 @@ route annotates with the miRNA GFF alone (`mirna.gff3`) and writes no ncRNA tabl
 gcfdb/biocore_htseq.db.
 """
 
+import shlex
+
 include:
     join(GCFDB_DIR, 'biocore_htseq.db')
 
@@ -50,7 +52,7 @@ BIOCORE_HTSEQ_OUT = join(QUANT_INTERIM, 'biocore_htseq')
 BIOCORE_HTSEQ_MIN_LENGTH = 15  # collapsed sequences shorter than this are not aligned
 BIOCORE_HTSEQ_BOWTIE2 = '-k 10 -f'
 BIOCORE_HTSEQ_COUNT = '-f sam -a 0 -s yes -t miRNA -i Name --secondary-alignments score --supplementary-alignments score'
-BIOCORE_HTSEQ_ANNOTATE_MEM_MB = 16000  # htseq-count with the ncRNA annotation (#503); measured on full-size human data
+BIOCORE_HTSEQ_ANNOTATE_MEM_MB = 16000  # htseq-count with the pipeline's annotation (#503): set from the development run
 BIOCORE_HTSEQ_CONF = config['quant'].get('biocore_htseq') or {}
 if not isinstance(BIOCORE_HTSEQ_CONF, dict):
     raise ValueError('quant.biocore_htseq must be a mapping of settings, got {!r}'.format(BIOCORE_HTSEQ_CONF))
@@ -168,36 +170,65 @@ rule biocore_htseq_align:
         ' | gzip > {output:q}'
 
 
-rule biocore_htseq_annotate:
-    input:
-        alignments = rules.biocore_htseq_align.output,
-        # the pipeline's annotation with the RNAcentral and Ensembl layers (#503) where it is built, else the miRNA GFF
-        gff = BIOCORE_HTSEQ_ANNOTATION if BIOCORE_HTSEQ_CLASSES else rules.biocore_htseq_gff.output
-    output:
-        join(BIOCORE_HTSEQ_OUT, '{sample}', 'annotated.sam.gz')
-    params:
-        samout = join(BIOCORE_HTSEQ_OUT, '{sample}', 'annotated.sam')
-    resources:
-        # htseq-count holds the annotation in memory: the RNAcentral layer has millions of features (#503)
-        mem_mb = BIOCORE_HTSEQ_ANNOTATE_MEM_MB if BIOCORE_HTSEQ_CLASSES else 1000
-    log:
-        join(BIOCORE_HTSEQ_OUT, '{sample}', 'htseq-count.log')
-    benchmark:
-        join(QUANT_BENCHMARKS, 'biocore_htseq_annotate', '{sample}.tsv')
-    container:
-        'docker://' + config['docker']['htseq']
-    shell:
-        # The uncompressed samout is not a declared output: removed if htseq-count fails, compressed if it succeeds.
-        '(gzip -dc {input.alignments:q} | '
-        'htseq-count ' + BIOCORE_HTSEQ_COUNT + ' '
-        '--samout {params.samout:q} - {input.gff:q} > {log:q} 2>&1) || {{ rm -f {params.samout:q}; exit 1; }}; '
-        'gzip -f {params.samout:q}'
+BIOCORE_HTSEQ_ANNOTATED = join(BIOCORE_HTSEQ_OUT, '{sample}', 'annotated.sam.gz')
+
+if BIOCORE_HTSEQ_CLASSES:
+    # With the pipeline's annotation (#503), millions of RNAcentral features take htseq-count minutes to load, so one
+    # call annotates every sample of the project: one SAM and one --samout per sample, the annotation loaded once. The
+    # records are those of a call per sample. One process: with -n above 1, htseq-count hands every worker a copy of
+    # the loaded annotation.
+    rule biocore_htseq_annotate:
+        input:
+            alignments = expand(rules.biocore_htseq_align.output, sample=SAMPLES),
+            gff = BIOCORE_HTSEQ_ANNOTATION
+        output:
+            expand(BIOCORE_HTSEQ_ANNOTATED, sample=SAMPLES)
+        params:
+            samouts = ' '.join('-o ' + shlex.quote(join(BIOCORE_HTSEQ_OUT, s, 'annotated.sam')) for s in SAMPLES),
+            uncompressed = [join(BIOCORE_HTSEQ_OUT, s, 'annotated.sam') for s in SAMPLES]
+        resources:
+            # htseq-count holds the annotation in memory
+            mem_mb = BIOCORE_HTSEQ_ANNOTATE_MEM_MB
+        log:
+            join(BIOCORE_HTSEQ_OUT, 'htseq-count.log')
+        benchmark:
+            join(QUANT_BENCHMARKS, 'biocore_htseq_annotate.tsv')
+        container:
+            'docker://' + config['docker']['htseq']
+        shell:
+            # The uncompressed samouts are not declared outputs: removed if htseq-count fails, compressed if it succeeds.
+            '(htseq-count ' + BIOCORE_HTSEQ_COUNT + ' -n 1 {params.samouts} {input.alignments:q} {input.gff:q} > {log:q} 2>&1) '
+            '|| {{ rm -f {params.uncompressed:q}; exit 1; }}; '
+            'gzip -f {params.uncompressed:q}'
+else:
+    rule biocore_htseq_annotate:
+        input:
+            alignments = rules.biocore_htseq_align.output,
+            gff = rules.biocore_htseq_gff.output
+        output:
+            BIOCORE_HTSEQ_ANNOTATED
+        params:
+            samout = join(BIOCORE_HTSEQ_OUT, '{sample}', 'annotated.sam')
+        resources:
+            mem_mb = 1000
+        log:
+            join(BIOCORE_HTSEQ_OUT, '{sample}', 'htseq-count.log')
+        benchmark:
+            join(QUANT_BENCHMARKS, 'biocore_htseq_annotate', '{sample}.tsv')
+        container:
+            'docker://' + config['docker']['htseq']
+        shell:
+            # The uncompressed samout is not a declared output: removed if htseq-count fails, compressed if it succeeds.
+            '(gzip -dc {input.alignments:q} | '
+            'htseq-count ' + BIOCORE_HTSEQ_COUNT + ' '
+            '--samout {params.samout:q} - {input.gff:q} > {log:q} 2>&1) || {{ rm -f {params.samout:q}; exit 1; }}; '
+            'gzip -f {params.samout:q}'
 
 
 rule biocore_htseq_count:
     input:
         collapsed = rules.biocore_htseq_collapse.output,
-        annotated = rules.biocore_htseq_annotate.output
+        annotated = BIOCORE_HTSEQ_ANNOTATED
     output:
         mature = join(BIOCORE_HTSEQ_OUT, '{sample}', 'mature.tsv'),
         isomir = join(BIOCORE_HTSEQ_OUT, '{sample}', 'isomir.tsv'),
@@ -234,7 +265,7 @@ rule biocore_htseq_counts:
 
 rule biocore_htseq_ncrna:
     input:
-        rules.biocore_htseq_annotate.output
+        BIOCORE_HTSEQ_ANNOTATED
     output:
         types = join(BIOCORE_HTSEQ_OUT, '{sample}', 'ncrna_types.tsv'),
         features = join(BIOCORE_HTSEQ_OUT, '{sample}', 'ncrna.tsv'),

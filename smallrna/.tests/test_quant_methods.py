@@ -358,6 +358,8 @@ def test_route_steps_write_the_benchmark_files_the_benchmark_reads(tmp_path):
             if step == 'biocore_htseq_gff':  # the miRNA-only GFF: for references without the ncRNA annotation (#503)
                 assert step not in declared
                 continue
+            if per_sample is None:  # per sample or per project: here per project, the ncRNA annotation's one call (#503)
+                per_sample = False
             expected = {f'{base}{step}/{s}.tsv' for s in samples} if per_sample else {f'{base}{step}.tsv'}
             assert declared.get(step) == expected, (method, step)
     # shared builds: in the reference they built, so a file never describes another reference

@@ -9,7 +9,9 @@ The pipeline joined three GFFs and relabelled every row as feature type `miRNA`,
 - RNAcentral's `transcript` rows, named `<URS id>-<type>` (the pipeline joined its 9.0 GFF's `Name` and `type`).
   RNAcentral's IDs have since gained a taxon suffix (`URS…_9606`), which is dropped so the names read as in 9.0 and
   the pipeline's class counting, which removes `URS…-` prefixes, still leaves the type. Other row types
-  (`noncoding_exon`, `predicted_gene`) are left out, as the pipeline's `transcript` filter left them out;
+  (`noncoding_exon`, `predicted_gene`) are left out, as the pipeline's `transcript` filter left them out. So is type
+  `circRNA` (#503): RNAcentral 9.0 had no circRNAs, its current releases about 1.4 million human transcripts of them,
+  which would double htseq-count's annotation and give reads on ordinary exons a class the pipeline never had;
 - the Ensembl genes, named `<gene id>-<biotype>`. The pipeline renamed its Ensembl 92 GFF3's gene rows
   (`ID=gene:…;Name=…;biotype=…`) that way; every gene there had the `Name` its substitution needed, while later
   releases leave `Name` out for unnamed genes, so the name is built from the reference GTF's `gene_id` and
@@ -26,6 +28,7 @@ import re
 import sys
 
 RNACENTRAL_ID = re.compile(r'(URS[0-9A-F]+)(?:_[0-9]+)?$')
+LEFT_OUT_TYPES = ('circRNA',)  # not in RNAcentral 9.0, the pipeline's release (#503)
 GTF_ATTRIBUTE = re.compile(r'\s*([^\s;]+)\s+"([^"]*)"')
 
 
@@ -91,6 +94,9 @@ def rnacentral_rows(path, place, left):
             match = RNACENTRAL_ID.match(attributes.get('Name', ''))
             if not match or not attributes.get('type'):
                 fail('{}: a transcript row without an RNAcentral Name or type: {!r}'.format(path, line[:200]))
+            if attributes['type'] in LEFT_OUT_TYPES:
+                left['RNAcentral {}'.format(attributes['type'])] += 1
+                continue
             if fields[6] not in ('+', '-'):
                 left['RNAcentral without a strand'] += 1
                 continue
@@ -138,8 +144,8 @@ def main(argv=None):
     parser.add_argument('--fai', required=True)
     args = parser.parse_args(argv)
     place = placer(sequence_names(args.fai))
-    left = {key: 0 for key in ('RNAcentral without a strand', 'RNAcentral on a sequence the genome lacks',
-                               'Ensembl without a strand', 'Ensembl on a sequence the genome lacks')}
+    left = {key: 0 for key in ['RNAcentral ' + kind for kind in LEFT_OUT_TYPES] + ['RNAcentral without a strand', 'RNAcentral on a sequence the genome lacks',
+                               'Ensembl without a strand', 'Ensembl on a sequence the genome lacks']}
     mirna, mirna_left = mirna_rows(args.mirna_gff)
     rnacentral = rnacentral_rows(args.rnacentral, place, left)
     ensembl = ensembl_rows(args.gtf, place, left)

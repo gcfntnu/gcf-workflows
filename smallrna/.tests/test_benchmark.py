@@ -1106,6 +1106,35 @@ def test_resources_per_method_from_the_benchmark_files(tmp_path):
             resources.summarize(quant, ['smrnaseq'], ['S1', 'S2'], None)
 
 
+
+def test_resources_take_biocore_htseqs_annotation_per_sample_or_per_project(tmp_path):
+    """biocore_htseq_annotate is one job per sample, or one per project with the ncRNA annotation (#503); its ncRNA
+    tables are listed (kind classes) and stay out of the quantification's totals."""
+    for project, per_project in (('per_sample', False), ('per_project', True)):
+        quant = tmp_path / project
+        for sample in ('S1', 'S2'):
+            for step in ('biocore_htseq_collapse', 'biocore_htseq_align', 'biocore_htseq_count'):
+                write_benchmark(quant / 'benchmarks' / step / '{}.tsv'.format(sample), 10, 10, 100)
+            if not per_project:
+                write_benchmark(quant / 'benchmarks/biocore_htseq_annotate/{}.tsv'.format(sample), 10, 10, 100)
+            else:
+                write_benchmark(quant / 'benchmarks/biocore_htseq_ncrna/{}.tsv'.format(sample), 5, 5, 50)
+        write_benchmark(quant / 'benchmarks/biocore_htseq_counts.tsv', 1, 1, 10)
+        if per_project:
+            write_benchmark(quant / 'benchmarks/biocore_htseq_annotate.tsv', 900, 900, 4000)
+        found, missing = resources.jobs(quant, 'biocore_htseq', ['S1', 'S2'])
+        assert missing == []
+        annotate = [(sample, kind) for kind, step, sample, _ in found if step == 'biocore_htseq_annotate']
+        assert annotate == ([('', 'quant')] if per_project else [('S1', 'quant'), ('S2', 'quant')])
+        assert sum(kind == 'classes' for kind, *_ in found) == (2 if per_project else 0)
+        _, lines = resources.summarize(quant, ['biocore_htseq'], ['S1', 'S2'], None)
+        jobs, wall = (8, 961) if per_project else (9, 81)  # the ncRNA tables' 10 s not in the totals
+        assert '| biocore_htseq | {} | {} |'.format(jobs, wall) in '\n'.join(lines)
+    quant = tmp_path / 'none'
+    found, missing = resources.jobs(quant, 'biocore_htseq', ['S1'])
+    assert 'biocore_htseq_annotate.tsv' in missing  # neither form: missing, as one per project
+
+
 def biological_dataset(tmp_path, lanes=(1, 2)):
     ext = tmp_path / 'ext'
     data = ext / 'benchmark/smallrna/bio'
