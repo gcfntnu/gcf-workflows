@@ -74,8 +74,8 @@ if BIOCORE_HTSEQ_CLASSES:
             join(BIOCORE_HTSEQ_REF, 'sources', 'rnacentral-{}'.format(BIOCORE_HTSEQ_RNACENTRAL_RELEASE), 'rnacentral.log')
         shell:
             # a temporary file of this job's own, renamed when complete: two projects building the same reference at
-            # once never publish a partial download
-            'tmp=$(mktemp {output}.XXXXXX) && wget {params.proxy} -q -O "$tmp" {params.url} && gzip -t "$tmp" && mv "$tmp" {output} && '
+            # once never publish a partial download; mktemp makes it owner-only, the store's files are group-writable
+            'tmp=$(mktemp {output}.XXXXXX) && wget {params.proxy} -q -O "$tmp" {params.url} && gzip -t "$tmp" && chmod 664 "$tmp" && mv "$tmp" {output} && '
             'echo "RNAcentral,{BIOCORE_HTSEQ_RNACENTRAL_RELEASE},{params.url},`date -I`" > {log} || {{ rm -f "$tmp"; exit 1; }}'
 
 
@@ -98,4 +98,4 @@ if BIOCORE_HTSEQ_CLASSES:
         shell:
             # a temporary file of this job's own, renamed when complete (as the download)
             'tmp=$(mktemp {output:q}.XXXXXX) && python {params.script:q} --mirna-gff {input.mirna_gff:q} --rnacentral {input.rnacentral:q} '
-            '--gtf {input.gtf:q} --fai {input.fai:q} > "$tmp" && mv "$tmp" {output:q} || {{ rm -f "$tmp"; exit 1; }}'
+            '--gtf {input.gtf:q} --fai {input.fai:q} > "$tmp" && chmod 664 "$tmp" && mv "$tmp" {output:q} || {{ rm -f "$tmp"; exit 1; }}'

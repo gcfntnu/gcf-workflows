@@ -237,6 +237,7 @@ def test_human_route_annotates_with_the_pipelines_annotation_and_writes_ncrna_ta
     # reference at once never publish a partial file (review of #505)
     for block in (download, build):
         assert 'tmp=$(mktemp ' in block and 'mv "$tmp" ' in block and 'rm -f "$tmp"' in block
+        assert 'chmod 664 "$tmp" && mv "$tmp" ' in block  # mktemp's file is owner-only; the store's are not
     assert output.count('rule biocore_htseq_ncrna:') == 4
     ncrna = rule_block(output, 'biocore_htseq_ncrna')
     assert 'ncrna --species hsa --annotated ' in ncrna and '/ncrna_types.tsv --features ' in ncrna
