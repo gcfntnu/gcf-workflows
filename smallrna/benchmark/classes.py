@@ -380,6 +380,16 @@ def baseline(quant, samples, tables=None, fastq=None):
     return None, "neither miRge3's tables nor the filtered reads are there"
 
 
+def species_mirnas_only(quant):
+    """Whether UNITAS ran with -species_miR_only, as its counting settings record it (quant/unitas/settings.tsv, #417):
+    then it searched no other species' miRNAs, and that class is not reported."""
+    path = Path(quant) / 'unitas' / 'settings.tsv'
+    try:
+        return '-species_miR_only' in path.read_text()
+    except OSError:
+        return False
+
+
 def summarize(quant, methods, samples, fastq=None):
     """(rows of classes.tsv, rows of class_states.tsv, {method: Counts}, baseline, notes). A route whose files cannot
     be read is left out with a note; the evaluation goes on."""
@@ -409,6 +419,8 @@ def summarize(quant, methods, samples, fastq=None):
         known = STATES[method]
         if method == 'biocore_htseq' and not any(n not in ('miRBase miRNA',) for s in samples for n, _ in c.classes[s]):
             known = {'miRNA': 'reported'}  # no ncRNA tables (#503: human only)
+        if method == 'unitas' and species_mirnas_only(quant):
+            known = {**known, 'miRNA (other species)': 'not reported (-species_miR_only)'}
         for cls in CLASSES:
             if cls in c.unavailable:
                 state = c.unavailable[cls]

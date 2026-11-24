@@ -257,3 +257,14 @@ def test_tesmall_without_its_rrna_bam_is_not_scored_on_the_decoys(tmp_path):
     assert {v for _, _, _, v in summary} == {'n/a'}  # not 100% unassigned
     table = '\n'.join(classes.decoy_lines(summary, ['tesmall']))
     assert '| rRNA-refseq (rRNA) | n/a |' in table and 'Decoy reads put in another class, %:' in table
+
+
+def test_other_species_mirnas_are_not_reported_when_unitas_searched_only_the_species(tmp_path):
+    folder = tmp_path / 'unitas/unitas/S1'
+    write(folder / 'unitas.annotation_summary.txt', 'miRNA\t10\n')
+    write(folder / 'unitas.full_annotation_matrix.txt', f'sequence\treads\tannotation(s)\n{MIR21}\t10\tmiR-21-5p\t\n')
+    _, states, _, _, _ = classes.summarize(tmp_path, ['unitas'], ['S1'])
+    assert ('unitas', 'miRNA (other species)', 'reported') in states  # a run without the option (or before #417)
+    write(tmp_path / 'unitas/settings.tsv', "field\tvalue\tsource\noptions\t-species_miR_only (no other species' miRNA hairpins)\tfixed\n")
+    _, states, _, _, _ = classes.summarize(tmp_path, ['unitas'], ['S1'])
+    assert ('unitas', 'miRNA (other species)', 'not reported (-species_miR_only)') in states
