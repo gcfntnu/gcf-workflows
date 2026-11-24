@@ -962,9 +962,9 @@ def class_summary(project, bench, spec):
         if part:
             reads = parts.setdefault(source, {}).setdefault(part, {}).setdefault(r['sample'], collections.Counter())
             reads[r['sequence']] += float(r['count'])
-    try:
+    try:  # only a synthetic set's truth gives its probe samples a known content
         detail, decoys = classes.decoy_scores(project / 'data/tmp/smallrna/quant', rows, states, base, counts, shown, samples,
-                                              carriers, parts)
+                                              carriers, parts) if truth.is_file() else ([], [])
     except (OSError, ValueError, KeyError) as e:  # the class summary never stops the evaluation
         detail, decoys = [], []
         print('benchmark.py: class assignment against the truth not scored: {}: {}'.format(type(e).__name__, e), file=sys.stderr)

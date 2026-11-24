@@ -243,3 +243,15 @@ def test_a_decoy_source_is_also_scored_by_part_for_routes_with_sequences(tmp_pat
         'spacers', '5.8S', '28S', None]
     assert [classes.decoy_part('rRNA-ensembl', o) for o in ('RNA5SP12:fragment', '5_8S_rRNA:fragment', 'MT-RNR2:fragment')] == [
         '5S', '5.8S', 'mitochondrial']
+
+
+def test_tesmall_without_its_rrna_bam_is_not_scored_on_the_decoys(tmp_path):
+    for sample in ('P_control', 'P_decoy_rRNA-refseq_1'):
+        write(tmp_path / f'tesmall/{sample}/{sample}.anno.rlen.info', 'rlen\tmiRNA\n22\t10\n')
+    samples = ['P_control', 'P_decoy_rRNA-refseq_1']
+    base = {'P_control': {22: 10}, 'P_decoy_rRNA-refseq_1': {22: 10, 30: 5}}
+    rows, states, counts, _, _ = classes.summarize(tmp_path, ['tesmall'], samples)
+    _, summary = classes.decoy_scores(tmp_path, rows, states, base, counts, ['tesmall'], samples, set())
+    assert {v for _, _, _, v in summary} == {'n/a'}  # not 100% unassigned
+    table = '\n'.join(classes.decoy_lines(summary, ['tesmall']))
+    assert '| rRNA-refseq (rRNA) | n/a |' in table and 'Decoy reads put in another class, %:' in table

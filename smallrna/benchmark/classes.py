@@ -499,6 +499,9 @@ def decoy_scores(quant, rows, states, base, counts, methods, samples, carriers, 
     for method in methods:
         if method not in counts:
             continue
+        if method not in SEQUENCE_ROUTES and counts[method].unavailable:  # e.g. TEsmall's rRNA BAM missing: not scored
+            summary += [(method, source, name, 'n/a') for source in sorted(decoys) for name in OUTCOMES]
+            continue
         if method in SEQUENCE_ROUTES:
             parsed = (mirge3 if method == 'mirge3' else PARSERS[method])(quant, probes, skip=frozenset(carriers))
             got = {s: collections.Counter() for s in probes}
@@ -568,7 +571,7 @@ def decoy_lines(summary, methods):
              "The decoy probe samples each add the reads of one class and source to P_control's carriers; a route's class "
              "reads there minus P_control's give where it puts them, in % of the decoy reads that passed the filter "
              '(mean of the replicates). Right class: one of the classes in the first column; `lumped`, the route\'s coarser '
-             'class that holds it (miRge3\'s `ncrna others`, TEsmall\'s gene exons); `n/r`, the route has no such class. '
+             'class that holds it (miRge3\'s `ncrna others`, TEsmall\'s gene exons); `n/r`, the route has no such class; `n/a`, a file the route writes is missing. '
              "biocore_htseq counts a read in every class it touches, so its shares can sum to more than 100. The rRNA decoys "
              'are also scored by molecule, for the routes with outputs per sequence: RefSeq\'s 18S, 5.8S, 28S, 5S and the 45S '
              "pre-rRNA's spacers (ETS, ITS; rare in small RNA libraries), Ensembl's 5S, 5.8S and mitochondrial rRNA. The decoys "
@@ -581,7 +584,7 @@ def decoy_lines(summary, methods):
             right, lumped = cell(m, s, 'right class'), by.get((m, s, 'lumped'), 0)
             cells.append(right + (' (+{:.1f} lumped)'.format(lumped) if isinstance(lumped, float) and lumped >= 0.05 else ''))
         lines.append('| {} ({}) | {} |'.format(s, ', '.join(DECOY_CLASSES[s.split(' ')[0]]), ' | '.join(cells)))
-    for name, label in (('miRNA', 'counted as miRNA'), ('unassigned', 'left unassigned')):
+    for name, label in (('miRNA', 'counted as miRNA'), ('other class', 'put in another class'), ('unassigned', 'left unassigned')):
         lines += ['', 'Decoy reads {}, %:'.format(label), '', '| decoy source | ' + ' | '.join(shown) + ' |',
                   '|' + '---|' * (len(shown) + 1)]
         lines += ['| {} | {} |'.format(s, ' | '.join(cell(m, s, name) for m in shown)) for s in sources]
