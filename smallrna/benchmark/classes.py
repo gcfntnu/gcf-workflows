@@ -428,6 +428,9 @@ def summarize(quant, methods, samples, fastq=None):
 DECOY_CLASSES = {'tRNA-gtrnadb': ('tRNA',), 'tRNA-ensembl': ('tRNA',), 'rRNA-refseq': ('rRNA',), 'rRNA-ensembl': ('rRNA',),
                  'Y_RNA-ensembl': ('misc ncRNA',), 'snoRNA-ensembl': ('snoRNA',), 'other_ncRNA-ensembl': ('snRNA', 'misc ncRNA'),
                  'mRNA-ensembl': ('mRNA',), 'piRNA-pirnaclusterdb': ('piRNA',), 'precursor-mirbase': ('hairpin',)}
+# Sources scored also by part, from the truth's `origin` (`<part>:...`): RefSeq's rRNA holds the 45S pre-rRNA, whose
+# spacers small RNA libraries rarely capture and whose share among the decoys is far above that in real libraries.
+DECOY_PARTS = {'rRNA-refseq': {'mature': ('18S', '5.8S', '28S', '5S'), 'spacers': ('5ETS', 'ITS1', 'ITS2', '3ETS')}}
 DECOY_SAMPLE = re.compile(r'^P_decoy_(.+)_\d+$')
 CONTROL = 'P_control'
 OUTCOMES = ('right class', 'lumped', 'miRNA', 'other class', 'unassigned')
@@ -461,14 +464,16 @@ def outcome(cls, right, lumps):
 SEQUENCE_ROUTES = ('unitas', 'mirge3', 'smrnaseq', 'biocore_htseq', 'biocore_miraligner')  # outputs per read sequence
 
 
-def decoy_scores(quant, rows, states, base, counts, methods, samples, carriers):
+def decoy_scores(quant, rows, states, base, counts, methods, samples, carriers, parts=None):
     """([(method, source, class, reads, %)], [(method, source, outcome, %)]) of the decoy probe samples: where each route
     puts a decoy class's reads, in % of the decoy reads that passed the filter (a decoy sample's baseline minus
     P_control's). Routes with outputs per sequence are read again without the `carriers` (the truth's carrier
     sequences), since a route may place a carrier differently from sample to sample (biocore_htseq picks one of a
     read's loci); TEsmall and tiny-count, without sequences, by their classes minus P_control's. Unassigned: the decoy
     reads minus those the route assigned. `outcome`: the right class, a route's coarser class holding it (`lumped`),
-    miRNA, another class, unassigned. Empty without decoy samples or baseline."""
+    miRNA, another class, unassigned. `parts`: {source: {part: {sample: {sequence: reads}}}} of the truth (DECOY_PARTS),
+    scored as `<source> <part>` for the routes with sequences, each read without the other parts' sequences and with
+    the part's reads as the denominator (they all pass the filter). Empty without decoy samples or baseline."""
     decoys = collections.defaultdict(list)
     for sample in samples:
         match = DECOY_SAMPLE.match(sample)
@@ -499,14 +504,28 @@ def decoy_scores(quant, rows, states, base, counts, methods, samples, carriers):
                 mine.pop('unassigned', None)
                 got[s] = collections.Counter({c: mine.get(c, 0.0) - control.get(c, 0.0) for c in set(mine) | set(control)})
                 assigned[s] = sum(counts[method].assigned[s].values()) - sum(counts[method].assigned[CONTROL].values())
-        for source, replicates in sorted(decoys.items()):
-            right = DECOY_CLASSES[source]
+        jobs = [(source, replicates, got, assigned, {s: total[s] for s in replicates}) for source, replicates in sorted(decoys.items())]
+        if method in SEQUENCE_ROUTES:
+            for source, by_part in sorted((parts or {}).items()):
+                for part, reads_of in by_part.items():
+                    replicates = [s for s in decoys.get(source, []) if s in reads_of]
+                    others = {q for other, r in by_part.items() if other != part for s in replicates for q in r.get(s, {})}
+                    parsed = (mirge3 if method == 'mirge3' else PARSERS[method])(quant, replicates, skip=frozenset(carriers) | others)
+                    part_got = {s: collections.Counter() for s in replicates}
+                    for s in replicates:
+                        for (native, _), reads in parsed.classes[s].items():
+                            part_got[s][common(native)] += reads
+                    jobs.append(('{} {}'.format(source, part), replicates, part_got,
+                                 {s: sum(parsed.assigned[s].values()) for s in replicates},
+                                 {s: sum(reads_of[s].values()) for s in replicates}))
+        for source, replicates, got, assigned, decoy_reads in jobs:
+            right = DECOY_CLASSES[source.split(' ')[0]]
             lumps = {state.get((method, c), '')[len('lumped in '):] for c in right
                      if state.get((method, c), '').startswith('lumped in ')}
-            reads, denominator = collections.Counter(), sum(total[s] for s in replicates)
+            reads, denominator = collections.Counter(), sum(decoy_reads[s] for s in replicates)
             for s in replicates:
                 reads.update(got[s])
-                reads['unassigned'] += total[s] - assigned[s]
+                reads['unassigned'] += decoy_reads[s] - assigned[s]
             if denominator <= 0:
                 continue
             ends = collections.Counter()
@@ -526,7 +545,7 @@ def decoy_lines(summary, methods):
     if not summary:
         return []
     by = {(m, s, o): v for m, s, o, v in summary}
-    sources = sorted({s for _, s, _ in by}, key=list(DECOY_CLASSES).index)
+    sources = sorted({s for _, s, _ in by}, key=lambda s: (list(DECOY_CLASSES).index(s.split(' ')[0]), s))
     shown = [m for m in methods if any(k[0] == m for k in by)]
 
     def cell(m, s, o):
@@ -539,15 +558,16 @@ def decoy_lines(summary, methods):
              "reads there minus P_control's give where it puts them, in % of the decoy reads that passed the filter "
              '(mean of the replicates). Right class: one of the classes in the first column; `lumped`, the route\'s coarser '
              'class that holds it (miRge3\'s `ncrna others`, TEsmall\'s gene exons); `n/r`, the route has no such class. '
-             "biocore_htseq counts a read in every class it touches, so its shares can sum to more than 100. Every class "
-             'is in `class_truth.tsv`.', '',
+             "biocore_htseq counts a read in every class it touches, so its shares can sum to more than 100. RefSeq's rRNA "
+             "includes the 45S pre-rRNA: `mature` and `spacers` (ETS, ITS) score its parts apart, for the routes with outputs "
+             'per sequence; small RNA libraries hold mostly mature rRNA fragments. Every class is in `class_truth.tsv`.', '',
              '| decoy source (right class) | ' + ' | '.join(shown) + ' |', '|' + '---|' * (len(shown) + 1)]
     for s in sources:
         cells = []
         for m in shown:
             right, lumped = cell(m, s, 'right class'), by.get((m, s, 'lumped'), 0)
             cells.append(right + (' (+{:.1f} lumped)'.format(lumped) if isinstance(lumped, float) and lumped >= 0.05 else ''))
-        lines.append('| {} ({}) | {} |'.format(s, ', '.join(DECOY_CLASSES[s]), ' | '.join(cells)))
+        lines.append('| {} ({}) | {} |'.format(s, ', '.join(DECOY_CLASSES[s.split(' ')[0]]), ' | '.join(cells)))
     for name, label in (('miRNA', 'counted as miRNA'), ('unassigned', 'left unassigned')):
         lines += ['', 'Decoy reads {}, %:'.format(label), '', '| decoy source | ' + ' | '.join(shown) + ' |',
                   '|' + '---|' * (len(shown) + 1)]

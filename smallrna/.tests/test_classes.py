@@ -218,3 +218,24 @@ def test_lumped_decoy_reads_are_shown_beside_the_right_class():
     summary = [('mirge3', 'Y_RNA-ensembl', o, v) for o, v in
                (('right class', 0.0), ('lumped', 100.0), ('miRNA', 0.0), ('other class', 0.0), ('unassigned', 0.0))]
     assert '| Y_RNA-ensembl (misc ncRNA) | 0.0 (+100.0 lumped) |' in '\n'.join(classes.decoy_lines(summary, ['mirge3']))
+
+
+def test_a_decoy_source_is_also_scored_by_part_for_routes_with_sequences(tmp_path):
+    """RefSeq's rRNA decoys mix mature rRNA and pre-rRNA spacers; each part is scored without the other's sequences."""
+    carrier, mature, spacer = MIR21, 'TACCTGGTTGATCCTGCCAGTAGCAT', 'CGCGCCCCGCTTCTTCGGTCGCG'
+    for sample, matrix in (('P_control', f'{carrier}\t10\tmiR-21-5p\t\n'),
+                           ('P_decoy_rRNA-refseq_1', f'{carrier}\t10\tmiR-21-5p\t\n{mature}\t3\trRNA|18S (1-26)\t\n')):
+        folder = tmp_path / 'unitas/unitas' / sample
+        write(folder / 'unitas.annotation_summary.txt', 'miRNA\t10\nrRNA\t3\n')
+        write(folder / 'unitas.full_annotation_matrix.txt', 'sequence\treads\tannotation(s)\n' + matrix)
+    samples = ['P_control', 'P_decoy_rRNA-refseq_1']
+    base = {'P_control': {22: 10}, 'P_decoy_rRNA-refseq_1': {22: 10, 26: 3, 23: 2}}
+    parts = {'rRNA-refseq': {'mature': {'P_decoy_rRNA-refseq_1': {mature: 3}},
+                             'spacers': {'P_decoy_rRNA-refseq_1': {spacer: 2}}}}
+    rows, states, counts, _, _ = classes.summarize(tmp_path, ['unitas'], samples)
+    _, summary = classes.decoy_scores(tmp_path, rows, states, base, counts, ['unitas'], samples, {carrier}, parts)
+    score = {(s, o): v for _, s, o, v in summary}
+    assert score[('rRNA-refseq', 'right class')] == 60.0
+    assert score[('rRNA-refseq mature', 'right class')] == 100.0 and score[('rRNA-refseq spacers', 'unassigned')] == 100.0
+    table = '\n'.join(classes.decoy_lines(summary, ['unitas']))
+    assert table.index('| rRNA-refseq (rRNA) | 60.0 |') < table.index('| rRNA-refseq mature (rRNA) | 100.0 |')

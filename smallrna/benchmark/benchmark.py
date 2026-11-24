@@ -953,9 +953,18 @@ def class_summary(project, bench, spec):
     files = {'classes.tsv': classes.table_text(('method', 'sample', 'class', 'native', 'length', 'reads'), rows),
              'class_states.tsv': classes.table_text(('method', 'class', 'state'), states)}
     truth = bench / 'truth.tsv'  # a synthetic set: its decoy probe samples score the class assignment
-    carriers = {r.get('sequence') for r in read_tsv(truth) if r.get('class') == 'carrier'} if truth.is_file() else set()
+    truth_rows = read_tsv(truth) if truth.is_file() else []
+    carriers = {r.get('sequence') for r in truth_rows if r.get('class') == 'carrier'}
+    parts = {}  # {source: {part: {sample: {sequence: reads}}}} by the truth's origin (classes.DECOY_PARTS)
+    for r in truth_rows:
+        source = '{}-{}'.format(r.get('class'), r.get('source'))
+        for part, regions in classes.DECOY_PARTS.get(source, {}).items():
+            if (r.get('origin') or '').split(':')[0] in regions:
+                reads = parts.setdefault(source, {}).setdefault(part, {}).setdefault(r['sample'], collections.Counter())
+                reads[r['sequence']] += float(r['count'])
     try:
-        detail, decoys = classes.decoy_scores(project / 'data/tmp/smallrna/quant', rows, states, base, counts, shown, samples, carriers)
+        detail, decoys = classes.decoy_scores(project / 'data/tmp/smallrna/quant', rows, states, base, counts, shown, samples,
+                                              carriers, parts)
     except (OSError, ValueError, KeyError) as e:  # the class summary never stops the evaluation
         detail, decoys = [], []
         print('benchmark.py: class assignment against the truth not scored: {}: {}'.format(type(e).__name__, e), file=sys.stderr)

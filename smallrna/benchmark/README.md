@@ -85,7 +85,9 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    truth's carrier sequences (a route can place a carrier differently from sample to sample); TEsmall and tiny-count
    by their classes minus `P_control`'s. Right classes: tRNA for GtRNAdb and mitochondrial tRNA, rRNA, misc ncRNA for
    Y RNA, snoRNA, snRNA or misc ncRNA for `other_ncRNA` (snRNA, 7SK, 7SL, vault RNA), mRNA, piRNA, and hairpin for
-   miRNA precursors.
+   miRNA precursors. RefSeq's rRNA decoys include the 45S pre-rRNA, so they are also scored as `mature` and `spacers`
+   (ETS, ITS) from the truth's origin, for the routes with outputs per sequence; small RNA libraries hold mostly mature
+   rRNA fragments.
    Every metric gets a 95% bootstrap interval (#413), and so does every difference between two methods, paired
    because both are computed on the same resample. A resample draws the scoring units (truth miRNAs; the scored exact
    and shifted pool sequences) and, where there are several, the runs or samples, the ratiometric pools' runs within
