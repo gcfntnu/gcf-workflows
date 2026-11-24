@@ -515,8 +515,12 @@ With `other_rna` declared, the flagged miRNAs (inside another RNA class) are exp
 
 A biological dataset may declare `other_rna:` (#415), the sources of molecules of other RNA classes: `refseq_rrna`,
 `gtrnadb` and `ensembl_ncrna`, each with url and sha256, the same files as the synthetic decoys, filled into
-`<data>/other_rna/`. Its miRBase entries whose mature lies exactly inside such a molecule (rRNA, tRNA, Y RNA, snoRNA,
-other ncRNA) are flagged (`other_rna.tsv`); a fragment that overlaps a mature only partly is not. The report and
+`<data>/other_rna/`. Its miRBase entries whose mature lies inside such a molecule (rRNA, tRNA, Y RNA, snoRNA,
+other ncRNA) are flagged (`other_rna.tsv`, with the fewest `differences`): exactly, or for a named functional gene with
+one difference (a mismatch or a base past the molecule's end, such as a tRNA's added CCA) at 18-19 nt or two from 20 nt,
+since miRBase holds such fragments with an error or a modification read through. Pseudogenes and generic loci count only
+exactly: they overlap repeats that give whole miRBase families. A fragment that overlaps a mature only partly is not
+flagged. The report and
 metrics.tsv then give, per method:
 - `flagged_reads`: the median share of its miRNA reads on flagged entries;
 - `flagged_detected` and `detected_unflagged`: the median detected miRNAs among the flagged and without them, so

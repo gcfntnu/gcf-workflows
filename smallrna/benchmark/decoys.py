@@ -148,6 +148,66 @@ def embedded(molecules_by_unit, matures):
     return {cls: dict(keys) for cls, keys in out.items() if keys}
 
 
+def allowed_differences(length):
+    """Differences a mature of this length may have from a molecule and still be flagged as its fragment (#415): none
+    under 18 nt, one at 18-19 nt, two from 20 nt; a chance match in the classes' few megabases stays unlikely."""
+    return 0 if length < 18 else 1 if length < 20 else 2
+
+
+GENERIC_LOCUS = re.compile(r'ENST\d+.*|.*(\dP|P\d+)|U\d+(atac)?|Y_RNA|7SK|Metazoa_SRP|snoU\d+\w*')
+
+
+def functional(name):
+    """A named gene that is not a pseudogene or a generic Rfam locus (RNU6-346P, U4, Y_RNA, an unnamed ENST)."""
+    return not GENERIC_LOCUS.fullmatch(name)
+
+
+def near_embedded(molecules_by_unit, matures):
+    """{class: {key: [(molecule name, differences)]}}: the matures ({key: sequence}) that lie inside a molecule of an
+    EMBEDDING class exactly or with at most allowed_differences: mismatches, or bases beyond either end of the
+    molecule (a mature on a tRNA's added CCA end, an entry with an extra base). The biological evaluation's flag (#415):
+    miRBase holds entries from such molecules that differ from them by a base or two (sequencing errors, modifications,
+    another copy). Differences only against functional genes: pseudogenes and generic loci overlap repeats that give
+    miRBase families (miR-548 and RNU6 pseudogenes), so there only exact matches count. Candidates come from three
+    disjoint 5-mers of the mature, of which one is exact."""
+    out = collections.defaultdict(lambda: collections.defaultdict(dict))
+    for unit, mols in molecules_by_unit.items():
+        cls = unit_class(unit)
+        if cls not in EMBEDDING:
+            continue
+        index = collections.defaultdict(list)
+        for m, (_, seq, _) in enumerate(mols):
+            for i in range(len(seq) - 4):
+                index[seq[i:i + 5]].append((m, i))
+        for key, mature in matures.items():
+            length, limit = len(mature), allowed_differences(len(mature))
+            if length < 15:
+                continue
+            tried = set()
+            for start in (0, 5, 10):
+                for m, i in index.get(mature[start:start + 5], ()):
+                    offset = i - start
+                    if (m, offset) in tried:
+                        continue
+                    tried.add((m, offset))
+                    name, seq, _ = mols[m]
+                    if not functional(name):
+                        limit_here = 0
+                    else:
+                        limit_here = limit
+                    diff = 0
+                    for j, base in enumerate(mature):
+                        k = offset + j
+                        if not 0 <= k < len(seq) or seq[k] != base:
+                            diff += 1
+                            if diff > limit_here:
+                                break
+                    if diff <= limit_here and diff < out[cls][key].get(name, limit + 1):
+                        out[cls][key][name] = diff
+    return {cls: {key: sorted(names.items()) for key, names in keys.items() if names} for cls, keys in out.items()
+            if any(keys.values())}
+
+
 def contained(molecules_by_unit, sequences):
     """{sequence: [classes]}: the sequences (reads) that lie exactly inside a molecule of a unit of an EMBEDDING class
     (#415). One length at a time: the set of every substring of that length of a unit's molecules, built and dropped."""
