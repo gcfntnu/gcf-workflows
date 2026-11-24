@@ -138,7 +138,7 @@ def unitas_native(head, vocabulary):
     return head
 
 
-def unitas(quant, samples):
+def unitas(quant, samples, skip=frozenset()):
     out = Counts()
     for sample in samples:
         folder = Path(quant) / 'unitas' / 'unitas' / sample
@@ -152,7 +152,7 @@ def unitas(quant, samples):
             for line in fh:
                 fields = line.rstrip('\n').split('\t')
                 annotations = [a for a in fields[2:] if a]
-                if len(fields) < 3 or not annotations:
+                if len(fields) < 3 or not annotations or fields[0] in skip:
                     continue
                 reads, length = _float(fields[1]), len(fields[0])
                 out.assigned[sample][length] += reads
@@ -176,7 +176,7 @@ def mirge3_tables(quant):
     return tables
 
 
-def mirge3(quant, samples, tables=None):
+def mirge3(quant, samples, tables=None, skip=frozenset()):
     out = Counts()
     mapped, _ = tables or mirge3_tables(quant)
     if mapped is None:
@@ -186,7 +186,7 @@ def mirge3(quant, samples, tables=None):
     columns = {s: header.index(s) for s in samples if s in header}
     for row in rows:
         natives = [header[i] for i in classes if row[i]]
-        if not natives:
+        if not natives or row[0] in skip:
             continue
         length = len(row[0])
         for sample, i in columns.items():
@@ -253,7 +253,7 @@ def tesmall(quant, samples):
     return out
 
 
-def tinyrna(quant, samples):
+def tinyrna(quant, samples, skip=frozenset()):  # no sequences: `skip` cannot apply
     out = Counts()
     for sample in samples:
         with open(Path(quant) / 'tinyrna' / sample / 'assigned_nt_len_dist.csv', newline='') as fh:
@@ -267,13 +267,13 @@ def tinyrna(quant, samples):
 
 
 def isomir_route(method):
-    def parse(quant, samples):
+    def parse(quant, samples, skip=frozenset()):
         out = Counts()
         per_sequence = collections.defaultdict(float)
         for _, sample, _, _, sequence, _, count in adapters.ISOMIR_ADAPTERS[method](quant, {}):
             per_sequence[(sample, sequence)] += count  # smrnaseq: one row per read; miraligner: a read divided between names
         for (sample, sequence), reads in per_sequence.items():
-            if sample in samples:
+            if sample in samples and sequence not in skip:
                 out.add(sample, 'miRNA', len(sequence), reads)
                 out.assigned[sample][len(sequence)] += reads
         return out
@@ -295,16 +295,20 @@ def keyed_table(path):
     return out
 
 
-def biocore_htseq(quant, samples):
+def biocore_htseq(quant, samples, skip=frozenset()):
     out = Counts()
     for sample in samples:
         folder = Path(quant) / 'biocore_htseq' / sample
         assigned = {}
         for sequence, (_, reads) in keyed_table(folder / 'isomir.tsv').items():
+            if sequence in skip:
+                continue
             out.add(sample, 'miRBase miRNA', len(sequence), reads)
             assigned[sequence] = reads
         if (folder / 'ncrna.tsv').is_file():
             for sequence, (names, reads) in keyed_table(folder / 'ncrna.tsv').items():
+                if sequence in skip:
+                    continue
                 types = sorted({name.split('-', 1)[1] if '-' in name else name for name in names})
                 for kind in types:
                     out.add(sample, 'miRNA (RNAcentral/Ensembl)' if kind == 'miRNA' else kind, len(sequence), reads / len(types))
@@ -314,7 +318,7 @@ def biocore_htseq(quant, samples):
     return out
 
 
-def smrnaseq(quant, samples):
+def smrnaseq(quant, samples, skip=frozenset()):
     out = Counts()
     joined = Path(quant) / 'smrnaseq' / 'joined_samples_mirtop.tsv'
     paths = [joined] if joined.is_file() else [Path(quant) / 'smrnaseq' / 'mirtop' / s / 'counts' / 'mirtop.tsv' for s in samples]
@@ -330,6 +334,8 @@ def smrnaseq(quant, samples):
                 if not row or row[0] in seen:  # one collapsed read annotated twice: the route counts its first row only
                     continue
                 seen.add(row[0])
+                if row[1] in skip:
+                    continue
                 for sample, i in columns.items():
                     reads = _float(row[i])
                     if reads:
@@ -415,6 +421,181 @@ def summarize(quant, methods, samples, fastq=None):
             states.append((method, cls, state))
     notes.append('baseline: ' + source)
     return rows, states, counts, base, notes
+
+
+# The synthetic set's decoy probe samples (#412): each holds the carriers of P_control and the reads of one class and
+# source; the common classes that are right for it (decoys.py: other_ncRNA is snRNA, 7SK, 7SL and vault RNA).
+DECOY_CLASSES = {'tRNA-gtrnadb': ('tRNA',), 'tRNA-ensembl': ('tRNA',), 'rRNA-refseq': ('rRNA',), 'rRNA-ensembl': ('rRNA',),
+                 'Y_RNA-ensembl': ('misc ncRNA',), 'snoRNA-ensembl': ('snoRNA',), 'other_ncRNA-ensembl': ('snRNA', 'misc ncRNA'),
+                 'mRNA-ensembl': ('mRNA',), 'piRNA-pirnaclusterdb': ('piRNA',), 'precursor-mirbase': ('hairpin',)}
+# Sources scored also by molecule or fragment type, as such reads in real libraries are counted: a part's pattern is
+# searched in the truth's `origin` (rRNA: `<region or gene>:...`; tRNA: `<tRNA>:<fragment type>`). The decoys' mix of
+# parts differs from real libraries (e.g. the 45S spacers and tRNA halves are far more common among them).
+DECOY_PARTS = {'rRNA-refseq': {'18S': r'^18S:', '5.8S': r'^5\.8S:', '28S': r'^28S:', '5S': r'^5S:',
+                               'spacers': r'^(5ETS|ITS1|ITS2|3ETS):'},
+               'rRNA-ensembl': {'5S': r'^(RNA5S\d*|RNA5SP\d+|5S_rRNA):', '5.8S': r'^(RNA5-8SN?\d*|RNA5-8SP\d+|5_8S_rRNA):',
+                                'mitochondrial': r'^MT-RNR[12]:'},
+               **{source: {"5' tRF": r':5p_tRF$', "5' half": r':5p_half$', "3' tRF": r':3p_tRF$', "3' half": r':3p_half$',
+                           'i-tRF': r':i_tRF$', 'modified (m1G9, m1A58)': r':(m1G9|m1A58)$'}
+                  for source in ('tRNA-gtrnadb', 'tRNA-ensembl')}}
+
+
+def decoy_part(source, origin):
+    """The DECOY_PARTS part of a truth row's `origin`, or None."""
+    for part, pattern in DECOY_PARTS.get(source, {}).items():
+        if re.search(pattern, origin or ''):
+            return part
+    return None
+
+
+DECOY_SAMPLE = re.compile(r'^P_decoy_(.+)_\d+$')
+CONTROL = 'P_control'
+OUTCOMES = ('right class', 'lumped', 'miRNA', 'other class', 'unassigned')
+
+
+def sample_classes(rows, method, sample):
+    """{class: reads} of one route and sample; TEsmall's structural RNA lump divided by its totals by type."""
+    by, types = collections.Counter(), collections.Counter()
+    for m, s, cls, _, length, reads in rows:
+        if m == method and s == sample:
+            (types if length == '' else by)[cls] += reads
+    lump = by.pop(LUMP_TESMALL, 0)
+    if lump and sum(types.values()):
+        for cls, reads in types.items():
+            by[cls] += reads * lump / sum(types.values())
+    elif lump:
+        by[LUMP_TESMALL] = lump
+    return by
+
+
+def outcome(cls, right, lumps):
+    if cls in right:
+        return 'right class'
+    if cls in lumps:
+        return 'lumped'
+    if cls in ('miRNA', 'miRNA (other species)'):
+        return 'miRNA'
+    return 'unassigned' if cls == 'unassigned' else 'other class'
+
+
+SEQUENCE_ROUTES = ('unitas', 'mirge3', 'smrnaseq', 'biocore_htseq', 'biocore_miraligner')  # outputs per read sequence
+
+
+def decoy_scores(quant, rows, states, base, counts, methods, samples, carriers, parts=None):
+    """([(method, source, class, reads, %)], [(method, source, outcome, %)]) of the decoy probe samples: where each route
+    puts a decoy class's reads, in % of the decoy reads that passed the filter (a decoy sample's baseline minus
+    P_control's). Routes with outputs per sequence are read again without the `carriers` (the truth's carrier
+    sequences), since a route may place a carrier differently from sample to sample (biocore_htseq picks one of a
+    read's loci); TEsmall and tiny-count, without sequences, by their classes minus P_control's. Unassigned: the decoy
+    reads minus those the route assigned. `outcome`: the right class, a route's coarser class holding it (`lumped`),
+    miRNA, another class, unassigned. `parts`: {source: {part: {sample: {sequence: reads}}}} of the truth (decoy_part),
+    scored as `<source> <part>` for the routes with sequences, each read without the other parts' sequences and with
+    the part's reads as the denominator (they all pass the filter). Empty without decoy samples or baseline."""
+    decoys = collections.defaultdict(list)
+    for sample in samples:
+        match = DECOY_SAMPLE.match(sample)
+        if match and match.group(1) in DECOY_CLASSES:
+            decoys[match.group(1)].append(sample)
+    probes = [CONTROL, *sum(decoys.values(), [])]
+    if base is None or CONTROL not in samples or not decoys or any(s not in base for s in probes):
+        return [], []
+    state = {(m, c): s for m, c, s in states}
+    total = {s: sum(base[s].values()) - sum(base[CONTROL].values()) for s in probes}
+    detail, summary = [], []
+    for method in methods:
+        if method not in counts:
+            continue
+        if method not in SEQUENCE_ROUTES and counts[method].unavailable:  # e.g. TEsmall's rRNA BAM missing: not scored
+            summary += [(method, source, name, 'n/a') for source in sorted(decoys) for name in OUTCOMES]
+            continue
+        if method in SEQUENCE_ROUTES:
+            parsed = (mirge3 if method == 'mirge3' else PARSERS[method])(quant, probes, skip=frozenset(carriers))
+            got = {s: collections.Counter() for s in probes}
+            for s in probes:
+                for (native, _), reads in parsed.classes[s].items():
+                    got[s][common(native)] += reads
+            assigned = {s: sum(parsed.assigned[s].values()) for s in probes}
+        else:
+            control = sample_classes(rows, method, CONTROL)
+            control.pop('unassigned', None)
+            got, assigned = {}, {}
+            for s in probes:
+                mine = sample_classes(rows, method, s)
+                mine.pop('unassigned', None)
+                got[s] = collections.Counter({c: mine.get(c, 0.0) - control.get(c, 0.0) for c in set(mine) | set(control)})
+                assigned[s] = sum(counts[method].assigned[s].values()) - sum(counts[method].assigned[CONTROL].values())
+        jobs = [(source, replicates, got, assigned, {s: total[s] for s in replicates}) for source, replicates in sorted(decoys.items())]
+        if method in SEQUENCE_ROUTES:
+            for source, by_part in sorted((parts or {}).items()):
+                for part, reads_of in by_part.items():
+                    replicates = [s for s in decoys.get(source, []) if s in reads_of]
+                    others = {q for other, r in by_part.items() if other != part for s in replicates for q in r.get(s, {})}
+                    parsed = (mirge3 if method == 'mirge3' else PARSERS[method])(quant, replicates, skip=frozenset(carriers) | others)
+                    part_got = {s: collections.Counter() for s in replicates}
+                    for s in replicates:
+                        for (native, _), reads in parsed.classes[s].items():
+                            part_got[s][common(native)] += reads
+                    jobs.append(('{} {}'.format(source, part), replicates, part_got,
+                                 {s: sum(parsed.assigned[s].values()) for s in replicates},
+                                 {s: sum(reads_of[s].values()) for s in replicates}))
+        for source, replicates, got, assigned, decoy_reads in jobs:
+            right = DECOY_CLASSES[source.split(' ', 1)[0]]
+            lumps = {state.get((method, c), '')[len('lumped in '):] for c in right
+                     if state.get((method, c), '').startswith('lumped in ')}
+            reads, denominator = collections.Counter(), sum(decoy_reads[s] for s in replicates)
+            for s in replicates:
+                reads.update(got[s])
+                reads['unassigned'] += decoy_reads[s] - assigned[s]
+            if denominator <= 0:
+                continue
+            ends = collections.Counter()
+            for cls, value in sorted(reads.items()):
+                if abs(value) > 1e-9:
+                    detail.append((method, source, cls, round(value / len(replicates), 4), round(100 * value / denominator, 4)))
+                    ends[outcome(cls, right, lumps)] += value
+            reported = any(not state.get((method, c), 'not reported').startswith('not ') for c in right)
+            for name in OUTCOMES:
+                value = 'n/r' if name == 'right class' and not reported else round(100 * ends[name] / denominator, 2)
+                summary.append((method, source, name, value))
+    return detail, summary
+
+
+def decoy_lines(summary, methods):
+    """report.md's section on the decoy probe samples' class assignment."""
+    if not summary:
+        return []
+    by = {(m, s, o): v for m, s, o, v in summary}
+    sources = sorted({s for _, s, _ in by}, key=lambda s: (list(DECOY_CLASSES).index(s.split(' ', 1)[0]), s))
+    shown = [m for m in methods if any(k[0] == m for k in by)]
+
+    def cell(m, s, o):
+        v = by.get((m, s, o))
+        if v is None:
+            return ''
+        return v if isinstance(v, str) else '{:.1f}'.format(max(v, 0.0))
+    lines = ['', '### Class assignment against the truth (#504)', '',
+             "The decoy probe samples each add the reads of one class and source to P_control's carriers; a route's class "
+             "reads there minus P_control's give where it puts them, in % of the decoy reads that passed the filter "
+             '(mean of the replicates). Right class: one of the classes in the first column; `lumped`, the route\'s coarser '
+             'class that holds it (miRge3\'s `ncrna others`, TEsmall\'s gene exons); `n/r`, the route has no such class; `n/a`, a file the route writes is missing. '
+             "biocore_htseq counts a read in every class it touches, so its shares can sum to more than 100. For the routes with "
+             'outputs per sequence, the rRNA decoys are also scored by molecule (RefSeq\'s 18S, 5.8S, 28S, 5S and the 45S '
+             "pre-rRNA's spacers; Ensembl's 5S, 5.8S and mitochondrial rRNA) and the tRNA decoys by fragment type. The decoys' "
+             'mix of these parts differs from real libraries (spacers and tRNA halves are far more common among them), and '
+             'fragments beyond the annotated ends, such as the 5.8S long form\'s 5\' end, are not in the truth. Every class is '
+             'in `class_truth.tsv`.', '',
+             '| decoy source (right class) | ' + ' | '.join(shown) + ' |', '|' + '---|' * (len(shown) + 1)]
+    for s in sources:
+        cells = []
+        for m in shown:
+            right, lumped = cell(m, s, 'right class'), by.get((m, s, 'lumped'), 0)
+            cells.append(right + (' (+{:.1f} lumped)'.format(lumped) if isinstance(lumped, float) and lumped >= 0.05 else ''))
+        lines.append('| {} ({}) | {} |'.format(s, ', '.join(DECOY_CLASSES[s.split(' ', 1)[0]]), ' | '.join(cells)))
+    for name, label in (('miRNA', 'counted as miRNA'), ('other class', 'put in another class'), ('unassigned', 'left unassigned')):
+        lines += ['', 'Decoy reads {}, %:'.format(label), '', '| decoy source | ' + ' | '.join(shown) + ' |',
+                  '|' + '---|' * (len(shown) + 1)]
+        lines += ['| {} | {} |'.format(s, ' | '.join(cell(m, s, name) for m in shown)) for s in sources]
+    return lines
 
 
 def table_text(header, rows):

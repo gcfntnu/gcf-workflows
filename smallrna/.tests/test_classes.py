@@ -186,3 +186,74 @@ def test_both_plots_are_drawn_with_totals_only_rows_and_routes_without_a_class(t
     base = {'S1': {22: 10, 30: 2, 18: 3}}
     assert classes.plot(rows, base, ['mirge3', 'tesmall'], tmp_path / 'classes.png', tmp_path / 'class_lengths.png')
     assert (tmp_path / 'classes.png').stat().st_size > 1000 and (tmp_path / 'class_lengths.png').stat().st_size > 1000
+
+
+def test_decoy_samples_score_where_a_route_puts_one_class_without_the_carriers(tmp_path):
+    """P_control holds the carriers; a decoy sample adds reads of one class. A route with sequences is read without the
+    carriers, so a carrier it places differently in the decoy sample does not count; tiny-count, without sequences,
+    is scored by its classes minus P_control's, and leaves every decoy read unassigned."""
+    carrier, trna = MIR21, 'GCATTGGTGGTTCAGTGGTAGAATTCTCGC'
+    summary_text = 'miRNA\t10\nlncRNA\t1\ntRNA\t4\n'
+    for sample, matrix in (('P_control', f'{carrier}\t10\tmiR-21-5p\t\n'),
+                           ('P_decoy_tRNA-gtrnadb_1', f'{carrier}\t10\tlncRNA|ENST9 (1-22)\t\n{trna}\t4\ttRNA|tRNA-Gly (1-30)\t\n')):
+        folder = tmp_path / 'unitas/unitas' / sample
+        write(folder / 'unitas.annotation_summary.txt', summary_text)
+        write(folder / 'unitas.full_annotation_matrix.txt', 'sequence\treads\tannotation(s)\n' + matrix)
+        write(tmp_path / 'tinyrna' / sample / 'assigned_nt_len_dist.csv', 'Length,A,T,G,C\n22,0,10,0,0\n')
+    samples = ['P_control', 'P_decoy_tRNA-gtrnadb_1']
+    base = {'P_control': {22: 10}, 'P_decoy_tRNA-gtrnadb_1': {22: 10, 30: 5}}  # one decoy read no route annotates
+    rows, states, counts, _, _ = classes.summarize(tmp_path, ['unitas', 'tinyrna'], samples)
+    detail, summary = classes.decoy_scores(tmp_path, rows, states, base, counts, ['unitas', 'tinyrna'], samples, {carrier})
+    score = {(m, o): v for m, s, o, v in summary if s == 'tRNA-gtrnadb'}
+    assert score[('unitas', 'right class')] == 80.0 and score[('unitas', 'unassigned')] == 20.0
+    assert score[('unitas', 'other class')] == 0 and score[('unitas', 'miRNA')] == 0  # the carrier's lncRNA left out
+    assert score[('tinyrna', 'right class')] == 'n/r' and score[('tinyrna', 'unassigned')] == 100.0
+    assert ('unitas', 'tRNA-gtrnadb', 'tRNA', 4.0, 80.0) in detail
+    table = '\n'.join(classes.decoy_lines(summary, ['unitas', 'tinyrna']))
+    assert '| tRNA-gtrnadb (tRNA) | 80.0 | n/r |' in table
+    assert classes.decoy_scores(tmp_path, rows, states, base, counts, ['unitas'], ['P_control'], {carrier}) == ([], [])
+
+
+def test_lumped_decoy_reads_are_shown_beside_the_right_class():
+    summary = [('mirge3', 'Y_RNA-ensembl', o, v) for o, v in
+               (('right class', 0.0), ('lumped', 100.0), ('miRNA', 0.0), ('other class', 0.0), ('unassigned', 0.0))]
+    assert '| Y_RNA-ensembl (misc ncRNA) | 0.0 (+100.0 lumped) |' in '\n'.join(classes.decoy_lines(summary, ['mirge3']))
+
+
+def test_a_decoy_source_is_also_scored_by_part_for_routes_with_sequences(tmp_path):
+    """RefSeq's rRNA decoys mix mature rRNA and pre-rRNA spacers; each part is scored without the other's sequences."""
+    carrier, mature, spacer = MIR21, 'TACCTGGTTGATCCTGCCAGTAGCAT', 'CGCGCCCCGCTTCTTCGGTCGCG'
+    for sample, matrix in (('P_control', f'{carrier}\t10\tmiR-21-5p\t\n'),
+                           ('P_decoy_rRNA-refseq_1', f'{carrier}\t10\tmiR-21-5p\t\n{mature}\t3\trRNA|18S (1-26)\t\n')):
+        folder = tmp_path / 'unitas/unitas' / sample
+        write(folder / 'unitas.annotation_summary.txt', 'miRNA\t10\nrRNA\t3\n')
+        write(folder / 'unitas.full_annotation_matrix.txt', 'sequence\treads\tannotation(s)\n' + matrix)
+    samples = ['P_control', 'P_decoy_rRNA-refseq_1']
+    base = {'P_control': {22: 10}, 'P_decoy_rRNA-refseq_1': {22: 10, 26: 3, 23: 2}}
+    parts = {'rRNA-refseq': {'18S': {'P_decoy_rRNA-refseq_1': {mature: 3}},
+                             'spacers': {'P_decoy_rRNA-refseq_1': {spacer: 2}}}}
+    rows, states, counts, _, _ = classes.summarize(tmp_path, ['unitas'], samples)
+    _, summary = classes.decoy_scores(tmp_path, rows, states, base, counts, ['unitas'], samples, {carrier}, parts)
+    score = {(s, o): v for _, s, o, v in summary}
+    assert score[('rRNA-refseq', 'right class')] == 60.0
+    assert score[('rRNA-refseq 18S', 'right class')] == 100.0 and score[('rRNA-refseq spacers', 'unassigned')] == 100.0
+    table = '\n'.join(classes.decoy_lines(summary, ['unitas']))
+    assert table.index('| rRNA-refseq (rRNA) | 60.0 |') < table.index('| rRNA-refseq 18S (rRNA) | 100.0 |')
+    assert [classes.decoy_part('rRNA-refseq', o) for o in ('ITS1:fragment', '5.8S:fragment', '28S:x', 'other')] == [
+        'spacers', '5.8S', '28S', None]
+    assert [classes.decoy_part('tRNA-gtrnadb', o) for o in ('tRNA-Val-CAC-1-2:5p_tRF', 'tRNA-Gly-GCC-1-1:m1A58', 'x:3p_half')] == [
+        "5' tRF", 'modified (m1G9, m1A58)', "3' half"]
+    assert [classes.decoy_part('rRNA-ensembl', o) for o in ('RNA5SP12:fragment', '5_8S_rRNA:fragment', 'MT-RNR2:fragment')] == [
+        '5S', '5.8S', 'mitochondrial']
+
+
+def test_tesmall_without_its_rrna_bam_is_not_scored_on_the_decoys(tmp_path):
+    for sample in ('P_control', 'P_decoy_rRNA-refseq_1'):
+        write(tmp_path / f'tesmall/{sample}/{sample}.anno.rlen.info', 'rlen\tmiRNA\n22\t10\n')
+    samples = ['P_control', 'P_decoy_rRNA-refseq_1']
+    base = {'P_control': {22: 10}, 'P_decoy_rRNA-refseq_1': {22: 10, 30: 5}}
+    rows, states, counts, _, _ = classes.summarize(tmp_path, ['tesmall'], samples)
+    _, summary = classes.decoy_scores(tmp_path, rows, states, base, counts, ['tesmall'], samples, set())
+    assert {v for _, _, _, v in summary} == {'n/a'}  # not 100% unassigned
+    table = '\n'.join(classes.decoy_lines(summary, ['tesmall']))
+    assert '| rRNA-refseq (rRNA) | n/a |' in table and 'Decoy reads put in another class, %:' in table

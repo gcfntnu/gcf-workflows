@@ -952,12 +952,31 @@ def class_summary(project, bench, spec):
     shown = [m for m in methods if m in counts]
     files = {'classes.tsv': classes.table_text(('method', 'sample', 'class', 'native', 'length', 'reads'), rows),
              'class_states.tsv': classes.table_text(('method', 'class', 'state'), states)}
+    truth = bench / 'truth.tsv'  # a synthetic set: its decoy probe samples score the class assignment
+    truth_rows = read_tsv(truth) if truth.is_file() else []
+    carriers = {r.get('sequence') for r in truth_rows if r.get('class') == 'carrier'}
+    parts = {}  # {source: {part: {sample: {sequence: reads}}}} by the truth's origin (classes.decoy_part)
+    for r in truth_rows:
+        source = '{}-{}'.format(r.get('class'), r.get('source'))
+        part = classes.decoy_part(source, r.get('origin'))
+        if part:
+            reads = parts.setdefault(source, {}).setdefault(part, {}).setdefault(r['sample'], collections.Counter())
+            reads[r['sequence']] += float(r['count'])
+    try:  # only a synthetic set's truth gives its probe samples a known content
+        detail, decoys = classes.decoy_scores(project / 'data/tmp/smallrna/quant', rows, states, base, counts, shown, samples,
+                                              carriers, parts) if truth.is_file() else ([], [])
+    except (OSError, ValueError, KeyError) as e:  # the class summary never stops the evaluation
+        detail, decoys = [], []
+        print('benchmark.py: class assignment against the truth not scored: {}: {}'.format(type(e).__name__, e), file=sys.stderr)
+    if detail:
+        files['class_truth.tsv'] = classes.table_text(('method', 'source', 'class', 'reads', 'percent'), detail)
 
     def draw():  # into staging names; publish moves them into place after the tables, or removes earlier plots
         if base is not None and shown and not classes.plot(rows, base, shown, *(bench / stage for stage in CLASS_PLOTS.values())):
             return ['', 'No class plots: matplotlib is not installed where the evaluation ran.']
         return []
-    return files, classes.report_lines(rows, states, base, shown, samples, notes, tuple(CLASS_PLOTS) if base is not None and shown else None), draw
+    lines = classes.report_lines(rows, states, base, shown, samples, notes, tuple(CLASS_PLOTS) if base is not None and shown else None)
+    return files, lines + classes.decoy_lines(decoys, shown), draw
 
 
 def publish(project, bench, spec, header, rows, lines, extra, record):
