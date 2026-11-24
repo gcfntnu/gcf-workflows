@@ -3992,4 +3992,10 @@ def test_other_rna_flag_allows_a_difference_or_two_against_functional_genes():
     assert found['other_ncRNA']['exact_pseudo'] == [('RN7SL1', 1), ('RNU6-346P', 0)]
     assert found['other_ncRNA']['pseudo'] == [('RN7SL1', 1)]  # with a difference: not against the pseudogene
     assert all(decoys.functional(n) for n in ('RN7SL1', 'SNORD43', 'tRNA-His-GTG-1-1', 'RMRP', '28S'))
-    assert not any(decoys.functional(n) for n in ('RNU6-346P', 'U4', 'Y_RNA', 'ENST00000973306.1', 'RNA5SP12'))
+    assert not any(decoys.functional(n) for n in ('RNU6-346P', 'U4', 'Y_RNA', 'ENST00000973306.1', 'RNA5SP12', 'ENSMUST00000082908.1'))
+    gene = 'AAAAAAAAAA' + 'GCATTGGTGGTTCAGTGGTAGAATTCTCGC' + 'AAAAAAAAAA'
+    twenty, nineteen = gene[10:30], gene[10:29]
+    two = lambda s: ('T' if s[0] != 'T' else 'G') + ('T' if s[1] != 'T' else 'G') + s[2:]  # two 5' mismatches
+    near = decoys.near_embedded({'snoRNA-ensembl': [('SNORD1', gene, None)]}, {'20': two(twenty), '19': two(nineteen),
+                                                                                '14': gene[12:26]})
+    assert near['snoRNA'] == {'20': [('SNORD1', 2)], '14': [('SNORD1', 0)]}  # two differences: 20 nt, not 19; 14 nt exact

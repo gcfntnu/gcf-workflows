@@ -629,8 +629,8 @@ def other_rna_section(flag, iso_rows, methods, no_isomirs, summary, common, mole
              'method: `flagged_reads`, the median share of its miRNA reads on flagged entries; `flagged_detected` and '
              '`detected_unflagged`, the median detected miRNAs among and without them; `read_in_other_class`, the share of its '
              'miRNA reads (isomiR table, #454) whose read sequence lies exactly inside another class\'s molecule (empty for '
-             'methods without isomiR output: {}). Both are lower bounds: five classes (no mRNA, introns or repeats) and exact '
-             'matches only, so a read with a non-templated end or an error does not match.'.format(len(flag), ', '.join(no_isomirs) or 'none'), '']
+             'methods without isomiR output: {}). Both are lower bounds: five classes (no mRNA, introns or repeats); and '
+             '`read_in_other_class` takes exact matches only, so a read with a non-templated end or an error does not match.'.format(len(flag), ', '.join(no_isomirs) or 'none'), '']
     lines += md_table(['metric'] + methods, [[k] + [summary[m].get(k, '') for m in methods]
                                              for k in ('detected', 'flagged_detected', 'detected_unflagged', 'flagged_reads', 'read_in_other_class')])
     lines += [''] + ['- {}: {}.'.format(cls, '; '.join(sorted(entries))) for cls, entries in sorted(by_class.items())]

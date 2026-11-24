@@ -154,11 +154,12 @@ def allowed_differences(length):
     return 0 if length < 18 else 1 if length < 20 else 2
 
 
-GENERIC_LOCUS = re.compile(r'ENST\d+.*|.*(\dP|P\d+)|U\d+(atac)?|Y_RNA|7SK|Metazoa_SRP|snoU\d+\w*')
+GENERIC_LOCUS = re.compile(r'ENS[A-Z]*T\d+.*|.*(\dP|P\d+)|U\d+(atac)?|Y_RNA|7SK|Metazoa_SRP|snoU\d+\w*')
 
 
 def functional(name):
-    """A named gene that is not a pseudogene or a generic Rfam locus (RNU6-346P, U4, Y_RNA, an unnamed ENST)."""
+    """A named gene that is not a pseudogene or a generic Rfam locus (RNU6-346P, U4, Y_RNA, an unnamed Ensembl
+    transcript of any species: ENST, ENSMUST, ENSRNOT)."""
     return not GENERIC_LOCUS.fullmatch(name)
 
 
@@ -181,7 +182,10 @@ def near_embedded(molecules_by_unit, matures):
                 index[seq[i:i + 5]].append((m, i))
         for key, mature in matures.items():
             length, limit = len(mature), allowed_differences(len(mature))
-            if length < 15:
+            if length < 15:  # too short for the three seeds; exact only, as allowed_differences gives
+                for name, seq, _ in mols:
+                    if mature in seq:
+                        out[cls][key][name] = 0
                 continue
             tried = set()
             for start in (0, 5, 10):
