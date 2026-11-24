@@ -262,7 +262,7 @@ def test_invalid_mirge3_selection_fails_at_load(tmp_path, update, message):
 
 @pytest.mark.parametrize('mirna_db, feature_info', [
     ('mirbase', f'data/ext/mirbase/mus_musculus/release-23.1/anno/genes.{MIRBASE_GFF_ID}.tsv'),
-    ('mirgenedb', 'data/ext/unitas/20-11-2026-mirgenedb/anno/mirgenedb_genes_mus_musculus.tsv')])
+    ('mirgenedb', 'data/ext/unitas/24-11-2026-mirgenedb/anno/mirgenedb_genes_mus_musculus.tsv')])
 def test_unitas_mirna_feature_info_follows_the_dump(tmp_path, mirna_db, feature_info):
     """A MirGeneDB dump names miRNAs as MirGeneDB does, so the AnnData annotation comes from the dump's GFF."""
     def select(settings):
@@ -275,14 +275,14 @@ def test_unitas_mirna_feature_info_follows_the_dump(tmp_path, mirna_db, feature_
 
 @pytest.mark.parametrize('mirna_db, annotation', [
     ('mirbase', MIRBASE_GFF),
-    ('mirgenedb', 'data/ext/unitas/20-11-2026-mirgenedb/UNITAS_refdump_mus_musculus/gcf_mirgenedb.gff3')])
+    ('mirgenedb', 'data/ext/unitas/24-11-2026-mirgenedb/UNITAS_refdump_mus_musculus/gcf_mirgenedb.gff3')])
 def test_unitas_reference_is_checked_before_counts_meet_annotations(tmp_path, mirna_db, annotation):
     """The dump is verified once in EXT_DIR, then checked against the annotation the AnnData joins it to."""
     def select(settings):
         settings.setdefault('db', {}).setdefault('unitas', {})['mirna_db'] = mirna_db
     returncode, output = dry_run(tmp_path, 'unitas', update=select, target='unitas_mirna_anndata', printshell=True)
     assert returncode == 0, output
-    release = '20-11-2026-mirgenedb' if mirna_db == 'mirgenedb' else '20-11-2026'
+    release = '24-11-2026-mirgenedb' if mirna_db == 'mirgenedb' else '24-11-2026'
     assert f'--output data/ext/unitas/{release}/verify/UNITAS_refdump_mus_musculus.tsv' in output
     check = output.split('rule unitas_reference:', 1)[1].split('rule ', 1)[0]
     assert f'--mirna-db {mirna_db} --annotation {annotation} --release {release}' in check
@@ -365,7 +365,7 @@ def test_route_steps_write_the_benchmark_files_the_benchmark_reads(tmp_path):
     assert declared['mirflowz_prepare'] == {reference.format('mirflowz') + '/benchmarks/mirflowz_prepare.tsv'}
     assert declared['mirflowz_annotation'] == {reference.format('mirflowz') + f'/gff-{MIRBASE_GFF_ID}/benchmarks/mirflowz_annotation.tsv'}
     assert declared['tesmall_genome'] == {reference.format('tesmall') + '/benchmarks/tesmall_genome.tsv'}
-    assert declared['tesmall_db'] == {reference.format('tesmall') + f'/gff-{MIRBASE_GFF_ID}/unitas-20-11-2026/benchmarks/tesmall_db.tsv'}
+    assert declared['tesmall_db'] == {reference.format('tesmall') + f'/gff-{MIRBASE_GFF_ID}/unitas-24-11-2026/benchmarks/tesmall_db.tsv'}
     assert declared['biocore_htseq_bowtie2_index'] == {reference.format('biocore_htseq') + '/benchmarks/biocore_htseq_bowtie2_index.tsv'}
     assert declared['biocore_miraligner_db'] == {
         f'data/ext/biocore_miraligner/mirbase-23.1/mus_musculus/gff-{MIRBASE_GFF_ID}/db.v1/benchmarks/biocore_miraligner_db.tsv'}
