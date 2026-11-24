@@ -428,20 +428,26 @@ def summarize(quant, methods, samples, fastq=None):
 DECOY_CLASSES = {'tRNA-gtrnadb': ('tRNA',), 'tRNA-ensembl': ('tRNA',), 'rRNA-refseq': ('rRNA',), 'rRNA-ensembl': ('rRNA',),
                  'Y_RNA-ensembl': ('misc ncRNA',), 'snoRNA-ensembl': ('snoRNA',), 'other_ncRNA-ensembl': ('snRNA', 'misc ncRNA'),
                  'mRNA-ensembl': ('mRNA',), 'piRNA-pirnaclusterdb': ('piRNA',), 'precursor-mirbase': ('hairpin',)}
-# Sources scored also by molecule, as rRNA fragments in real libraries are counted: a part matches the truth's
-# `origin` (RefSeq: the region of the 45S pre-rRNA or the mature molecule; Ensembl: the gene symbol) up to its first
-# `:`. The 45S spacers (ETS, ITS) are far more common among the decoys than in small RNA libraries.
-DECOY_PARTS = {'rRNA-refseq': {'18S': r'18S', '5.8S': r'5\.8S', '28S': r'28S', '5S': r'5S', 'spacers': r'5ETS|ITS1|ITS2|3ETS'},
-               'rRNA-ensembl': {'5S': r'RNA5S\d*|RNA5SP\d+|5S_rRNA', '5.8S': r'RNA5-8SN?\d*|RNA5-8SP\d+|5_8S_rRNA',
-                                'mitochondrial': r'MT-RNR[12]'}}
+# Sources scored also by molecule or fragment type, as such reads in real libraries are counted: a part's pattern is
+# searched in the truth's `origin` (rRNA: `<region or gene>:...`; tRNA: `<tRNA>:<fragment type>`). The decoys' mix of
+# parts differs from real libraries (e.g. the 45S spacers and tRNA halves are far more common among them).
+DECOY_PARTS = {'rRNA-refseq': {'18S': r'^18S:', '5.8S': r'^5\.8S:', '28S': r'^28S:', '5S': r'^5S:',
+                               'spacers': r'^(5ETS|ITS1|ITS2|3ETS):'},
+               'rRNA-ensembl': {'5S': r'^(RNA5S\d*|RNA5SP\d+|5S_rRNA):', '5.8S': r'^(RNA5-8SN?\d*|RNA5-8SP\d+|5_8S_rRNA):',
+                                'mitochondrial': r'^MT-RNR[12]:'},
+               **{source: {"5' tRF": r':5p_tRF$', "5' half": r':5p_half$', "3' tRF": r':3p_tRF$', "3' half": r':3p_half$',
+                           'i-tRF': r':i_tRF$', 'modified (m1G9, m1A58)': r':(m1G9|m1A58)$'}
+                  for source in ('tRNA-gtrnadb', 'tRNA-ensembl')}}
 
 
 def decoy_part(source, origin):
     """The DECOY_PARTS part of a truth row's `origin`, or None."""
     for part, pattern in DECOY_PARTS.get(source, {}).items():
-        if re.fullmatch(pattern, (origin or '').split(':')[0]):
+        if re.search(pattern, origin or ''):
             return part
     return None
+
+
 DECOY_SAMPLE = re.compile(r'^P_decoy_(.+)_\d+$')
 CONTROL = 'P_control'
 OUTCOMES = ('right class', 'lumped', 'miRNA', 'other class', 'unassigned')
@@ -533,7 +539,7 @@ def decoy_scores(quant, rows, states, base, counts, methods, samples, carriers, 
                                  {s: sum(parsed.assigned[s].values()) for s in replicates},
                                  {s: sum(reads_of[s].values()) for s in replicates}))
         for source, replicates, got, assigned, decoy_reads in jobs:
-            right = DECOY_CLASSES[source.split(' ')[0]]
+            right = DECOY_CLASSES[source.split(' ', 1)[0]]
             lumps = {state.get((method, c), '')[len('lumped in '):] for c in right
                      if state.get((method, c), '').startswith('lumped in ')}
             reads, denominator = collections.Counter(), sum(decoy_reads[s] for s in replicates)
@@ -559,7 +565,7 @@ def decoy_lines(summary, methods):
     if not summary:
         return []
     by = {(m, s, o): v for m, s, o, v in summary}
-    sources = sorted({s for _, s, _ in by}, key=lambda s: (list(DECOY_CLASSES).index(s.split(' ')[0]), s))
+    sources = sorted({s for _, s, _ in by}, key=lambda s: (list(DECOY_CLASSES).index(s.split(' ', 1)[0]), s))
     shown = [m for m in methods if any(k[0] == m for k in by)]
 
     def cell(m, s, o):
@@ -572,18 +578,19 @@ def decoy_lines(summary, methods):
              "reads there minus P_control's give where it puts them, in % of the decoy reads that passed the filter "
              '(mean of the replicates). Right class: one of the classes in the first column; `lumped`, the route\'s coarser '
              'class that holds it (miRge3\'s `ncrna others`, TEsmall\'s gene exons); `n/r`, the route has no such class; `n/a`, a file the route writes is missing. '
-             "biocore_htseq counts a read in every class it touches, so its shares can sum to more than 100. The rRNA decoys "
-             'are also scored by molecule, for the routes with outputs per sequence: RefSeq\'s 18S, 5.8S, 28S, 5S and the 45S '
-             "pre-rRNA's spacers (ETS, ITS; rare in small RNA libraries), Ensembl's 5S, 5.8S and mitochondrial rRNA. The decoys "
-             'end at the annotated boundaries, so fragments such as the 5.8S long form\'s 5\' end are not in the truth. Every '
-             'class is in `class_truth.tsv`.', '',
+             "biocore_htseq counts a read in every class it touches, so its shares can sum to more than 100. For the routes with "
+             'outputs per sequence, the rRNA decoys are also scored by molecule (RefSeq\'s 18S, 5.8S, 28S, 5S and the 45S '
+             "pre-rRNA's spacers; Ensembl's 5S, 5.8S and mitochondrial rRNA) and the tRNA decoys by fragment type. The decoys' "
+             'mix of these parts differs from real libraries (spacers and tRNA halves are far more common among them), and '
+             'fragments beyond the annotated ends, such as the 5.8S long form\'s 5\' end, are not in the truth. Every class is '
+             'in `class_truth.tsv`.', '',
              '| decoy source (right class) | ' + ' | '.join(shown) + ' |', '|' + '---|' * (len(shown) + 1)]
     for s in sources:
         cells = []
         for m in shown:
             right, lumped = cell(m, s, 'right class'), by.get((m, s, 'lumped'), 0)
             cells.append(right + (' (+{:.1f} lumped)'.format(lumped) if isinstance(lumped, float) and lumped >= 0.05 else ''))
-        lines.append('| {} ({}) | {} |'.format(s, ', '.join(DECOY_CLASSES[s.split(' ')[0]]), ' | '.join(cells)))
+        lines.append('| {} ({}) | {} |'.format(s, ', '.join(DECOY_CLASSES[s.split(' ', 1)[0]]), ' | '.join(cells)))
     for name, label in (('miRNA', 'counted as miRNA'), ('other class', 'put in another class'), ('unassigned', 'left unassigned')):
         lines += ['', 'Decoy reads {}, %:'.format(label), '', '| decoy source | ' + ' | '.join(shown) + ' |',
                   '|' + '---|' * (len(shown) + 1)]

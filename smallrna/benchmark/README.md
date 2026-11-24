@@ -85,10 +85,11 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    truth's carrier sequences (a route can place a carrier differently from sample to sample); TEsmall and tiny-count
    by their classes minus `P_control`'s. Right classes: tRNA for GtRNAdb and mitochondrial tRNA, rRNA, misc ncRNA for
    Y RNA, snoRNA, snRNA or misc ncRNA for `other_ncRNA` (snRNA, 7SK, 7SL, vault RNA), mRNA, piRNA, and hairpin for
-   miRNA precursors. The rRNA decoys are also scored by molecule from the truth's origin, for the routes with outputs per
-   sequence: RefSeq's 18S, 5.8S, 28S, 5S and the 45S pre-rRNA's spacers (ETS, ITS; rare in small RNA libraries),
-   Ensembl's 5S, 5.8S and mitochondrial rRNA. The decoys end at the annotated boundaries, so fragments such as the 5.8S
-   long form's 5' end are not in the truth.
+   miRNA precursors. For the routes with outputs per sequence, the rRNA decoys are also scored by molecule (RefSeq's
+   18S, 5.8S, 28S, 5S and the 45S pre-rRNA's spacers; Ensembl's 5S, 5.8S and mitochondrial rRNA) and the tRNA decoys by
+   fragment type, from the truth's origin. The decoys' mix of these parts differs from real libraries (the spacers and
+   tRNA halves are far more common among them), and fragments beyond the annotated ends, such as the 5.8S long form's
+   5' end, are not in the truth.
    Every metric gets a 95% bootstrap interval (#413), and so does every difference between two methods, paired
    because both are computed on the same resample. A resample draws the scoring units (truth miRNAs; the scored exact
    and shifted pool sequences) and, where there are several, the runs or samples, the ratiometric pools' runs within

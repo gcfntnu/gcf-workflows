@@ -241,6 +241,8 @@ def test_a_decoy_source_is_also_scored_by_part_for_routes_with_sequences(tmp_pat
     assert table.index('| rRNA-refseq (rRNA) | 60.0 |') < table.index('| rRNA-refseq 18S (rRNA) | 100.0 |')
     assert [classes.decoy_part('rRNA-refseq', o) for o in ('ITS1:fragment', '5.8S:fragment', '28S:x', 'other')] == [
         'spacers', '5.8S', '28S', None]
+    assert [classes.decoy_part('tRNA-gtrnadb', o) for o in ('tRNA-Val-CAC-1-2:5p_tRF', 'tRNA-Gly-GCC-1-1:m1A58', 'x:3p_half')] == [
+        "5' tRF", 'modified (m1G9, m1A58)', "3' half"]
     assert [classes.decoy_part('rRNA-ensembl', o) for o in ('RNA5SP12:fragment', '5_8S_rRNA:fragment', 'MT-RNR2:fragment')] == [
         '5S', '5.8S', 'mitochondrial']
 
