@@ -469,13 +469,29 @@ def report_lines(rows, states, base, methods, samples, notes, plot_name=None):
         lines.append('| {} | {} |'.format(cls, ' | '.join(cells)))
     lines += ['', 'Notes: ' + '; '.join(notes) + '.']
     if plot_name:
-        lines += ['', 'Read lengths by class and route, pooled over samples, as shares of the filtered reads: `{}`.'.format(plot_name)]
+        lines += ['', 'Plots, pooled over samples as % of the filtered reads, with the classes grouped as in MultiQC\'s UNITAS section '
+                  '(`other`: miRNA of other species, hairpin, piRNA, intron, pseudogene, TE, low complexity, other, unmapped): '
+                  '`{}`, one bar per route by class; `{}`, reads by length per class, one line per route that reports '
+                  'it.'.format(*plot_name)]
     return lines
 
 
-def plot(rows, base, methods, path, max_length=45):
-    """A PNG of reads by length and class per route (pooled over samples, % of the filtered reads); False when
-    matplotlib is missing."""
+# The plots' classes, as MultiQC's UNITAS section shows them: few groups, the rest in `other`; the detail is in the tables.
+PLOT_GROUPS = (('miRNA', ('miRNA',)), ('tRNA', ('tRNA',)), ('rRNA', ('rRNA',)), ('snoRNA', ('snoRNA',)),
+               ('misc ncRNA (snRNA, Y RNA, 7SK, …)', ('snRNA', 'misc ncRNA')), ('lncRNA', ('lncRNA',)), ('mRNA', ('mRNA',)),
+               ('other', ('miRNA (other species)', 'hairpin', 'piRNA', 'intron', 'pseudogene', 'TE', 'low complexity', 'other',
+                          'unmapped')),
+               ('lumped (route-specific)', (LUMP_MIRGE3, LUMP_TESMALL, LUMP_EXONS)), ('unassigned', ('unassigned',)))
+GROUP_OF = {cls: group for group, members in PLOT_GROUPS for cls in members}
+SERIES = ('#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#6250d6', '#008300', '#e34948')  # a validated categorical order
+GREYS = {'other': '#7d7d78', 'lumped (route-specific)': '#b4b4ae', 'unassigned': '#dededa'}
+LENGTH_PANELS = ('miRNA', 'tRNA', 'rRNA', 'snoRNA', 'misc ncRNA (snRNA, Y RNA, 7SK, …)', 'unassigned')
+
+
+def plot(rows, base, methods, path, lengths_path, max_length=45):
+    """Two PNGs, pooled over samples as % of the filtered reads: `path` one bar per route stacked by class group, and
+    `lengths_path` reads by length per class group, one line per route (a route without the group is not drawn);
+    False when matplotlib is missing."""
     try:
         import matplotlib
         matplotlib.use('Agg')
@@ -483,31 +499,66 @@ def plot(rows, base, methods, path, max_length=45):
     except ImportError:
         return False
     total = sum(sum(c.values()) for c in base.values()) or 1.0
-    by = collections.defaultdict(float)
+    by_group, by_length = collections.defaultdict(float), collections.defaultdict(float)
     for method, _, cls, _, length, reads in rows:
-        if length != '':
-            by[(method, cls, min(int(length), max_length))] += reads
-    shown = [c for c in CLASSES if any(k[1] == c for k in by)]
-    colours = {c: plt.get_cmap('tab20')(i % 20) for i, c in enumerate(CLASSES)}
-    lengths = list(range(min([14] + [int(k[2]) for k in by]), max_length + 1))
-    fig, axes = plt.subplots(len(methods), 1, figsize=(9, 1.9 * len(methods) + 0.8), sharex=True, squeeze=False)
-    for ax, method in zip(axes[:, 0], methods):
-        bottom = [0.0] * len(lengths)
-        for cls in shown:
-            values = [100 * by.get((method, cls, n), 0.0) / total for n in lengths]
-            if any(values):
-                ax.bar(lengths, values, bottom=bottom, color=colours[cls], width=0.9, label=cls)
-                bottom = [b + v for b, v in zip(bottom, values)]
-        ax.set_ylabel(method, fontsize=8)
-        ax.tick_params(labelsize=7)
-    axes[-1, 0].set_xlabel('read length (nt; {} = {} or longer)'.format(max_length, max_length))
-    handles = {}
+        if length != '':  # TEsmall's totals by type are part of its lumped class
+            group = GROUP_OF[common(cls) if cls not in ALL else cls]
+            by_group[(method, group)] += 100 * reads / total
+            by_length[(method, group, min(int(length), max_length))] += 100 * reads / total
+    groups = [g for g, _ in PLOT_GROUPS if any(by_group.get((m, g)) for m in methods)]
+    colour = {g: GREYS.get(g) or SERIES[i] for i, (g, _) in enumerate(PLOT_GROUPS)}
+    plt.rcParams.update({'font.size': 8, 'axes.spines.top': False, 'axes.spines.right': False, 'axes.edgecolor': '#9a9a94',
+                         'xtick.color': '#55554f', 'ytick.color': '#55554f', 'axes.labelcolor': '#33332f'})
+
+    fig, ax = plt.subplots(figsize=(9, 0.42 * len(methods) + 1.5))
+    for y, method in enumerate(methods):
+        left = 0.0
+        for g in groups:
+            value = by_group.get((method, g), 0.0)
+            if value <= 0:
+                continue
+            ax.barh(y, value, left=left, height=0.62, color=colour[g], edgecolor='white', linewidth=1,
+                    hatch='///' if g.startswith('lumped') else None, label=g if y == 0 or g not in ax.get_legend_handles_labels()[1] else None)
+            if value >= 5:
+                dark = g in ('unassigned', 'lumped (route-specific)', 'tRNA', 'snoRNA', 'misc ncRNA (snRNA, Y RNA, 7SK, …)')
+                ax.text(left + value / 2, y, '{:.0f}'.format(value), ha='center', va='center', fontsize=7,
+                        color='#1f1f1c' if dark else 'white')
+            left += value
+    ax.set_yticks(range(len(methods)), methods)
+    ax.invert_yaxis()
+    ax.set_xlim(0, 100)
+    ax.set_xlabel('% of filtered reads (all samples pooled)')
+    ax.grid(axis='x', color='#e6e6e1', linewidth=0.6)
+    ax.set_axisbelow(True)
+    handles = dict(zip(*reversed(ax.get_legend_handles_labels())))
+    fig.legend([handles[g] for g in groups if g in handles], [g for g in groups if g in handles], loc='upper center',
+               ncol=5, frameon=False, fontsize=7.5)
+    fig.tight_layout(rect=(0, 0, 1, 1 - 0.55 / (0.42 * len(methods) + 1.5)))
+    fig.savefig(path, dpi=120)
+    plt.close(fig)
+
+    panels = [g for g in LENGTH_PANELS if g in groups]
+    lengths = list(range(min([16] + [k[2] for k in by_length]), max_length + 1))
+    ncol = 3
+    nrow = (len(panels) + ncol - 1) // ncol or 1
+    fig, axes = plt.subplots(nrow, ncol, figsize=(10, 2.6 * nrow + 0.7), squeeze=False)
+    for ax, g in zip(axes.flat, panels):
+        for i, method in enumerate(methods):
+            if by_group.get((method, g)):
+                ax.plot(lengths, [by_length.get((method, g, n), 0.0) for n in lengths], color=SERIES[i % len(SERIES)],
+                        linewidth=1.6, label=method)
+        ax.set_title(g, fontsize=8.5, loc='left', color='#33332f')
+        ax.grid(axis='y', color='#e6e6e1', linewidth=0.6)
+        ax.set_xlim(lengths[0], max_length)
+    for ax in axes.flat[len(panels):]:
+        ax.axis('off')
     for ax in axes[:, 0]:
-        for h, label in zip(*ax.get_legend_handles_labels()):
-            handles.setdefault(label, h)
-    fig.legend([handles[c] for c in shown if c in handles], [c for c in shown if c in handles], loc='upper center',
-               ncol=4, fontsize=7, frameon=False)
-    fig.tight_layout(rect=(0, 0, 1, 1 - 0.5 / (1.9 * len(methods) + 0.8)))
-    fig.savefig(path, dpi=110)
+        ax.set_ylabel('% of filtered reads')
+    for ax in axes[-1, :]:
+        ax.set_xlabel('read length (nt; {} = {} or longer)'.format(max_length, max_length))
+    fig.legend([plt.Line2D([], [], color=SERIES[i % len(SERIES)], linewidth=2) for i, _ in enumerate(methods)], methods,
+               loc='upper center', ncol=len(methods), frameon=False, fontsize=7.5)
+    fig.tight_layout(rect=(0, 0, 1, 1 - 0.45 / (2.6 * nrow + 0.7)))
+    fig.savefig(lengths_path, dpi=120)
     plt.close(fig)
     return True

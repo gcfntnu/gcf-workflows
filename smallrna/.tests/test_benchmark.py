@@ -270,12 +270,13 @@ def test_prepare_then_evaluate(tmp_path, ref):
                             capture_output=True, text=True, timeout=60)
     assert result.returncode != 0 and 'no UNITAS reference dump at' in result.stderr
     unitas_dump(tmp_path / 'ext', 'mus_musculus', 'Mouse', MMU_HAIRPINS)
-    write(project / 'benchmark/classes.png', 'an earlier evaluation\'s plot')
+    for name in ('classes.png', 'class_lengths.png'):
+        write(project / 'benchmark' / name, 'an earlier evaluation\'s plot')
     result = subprocess.run(cmd + ['evaluate', '--project', str(project), '--mirflowz-gff', str(gff)],
                             capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
     assert (project / 'benchmark/class_states.tsv').is_file()  # #504; no baseline here, so no plot, and the earlier one is gone
-    assert not (project / 'benchmark/classes.png').exists() and not (project / 'benchmark/.classes.new.png').exists()
+    assert not [f.name for f in (project / 'benchmark').glob('*.png')] + [f.name for f in (project / 'benchmark').glob('.*.png')]
     assert 'UNITAS names: 2 by name (135 reads), 1 by hairpin and arm (5 reads), 1 unplaced (1 reads)' in result.stdout
     assert (project / 'benchmark/unitas_names.tsv').read_text().splitlines()[1:3] == [
         'miR-192-5p\tname\tMIMAT0000517\t90', 'miR-194-2-3p\tunplaced\t\t1']

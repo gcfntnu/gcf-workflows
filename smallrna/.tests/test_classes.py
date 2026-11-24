@@ -176,3 +176,13 @@ def test_tesmall_without_its_rrna_bam_gives_neither_rrna_nor_unassigned(tmp_path
     assert state[('tesmall', 'mRNA')] == 'lumped in ' + classes.LUMP_EXONS
     table = '\n'.join(classes.report_lines(rows, states, base, ['tesmall'], ['S1', 'S2'], notes))
     assert '| rRNA | n/a |' in table and '| unassigned | n/a |' in table
+
+
+def test_both_plots_are_drawn_with_totals_only_rows_and_routes_without_a_class(tmp_path):
+    pytest.importorskip('matplotlib')
+    rows = [('mirge3', 'S1', 'miRNA', 'exact miRNA', 22, 10.0), ('mirge3', 'S1', classes.LUMP_MIRGE3, 'ncrna others', 30, 2.0),
+            ('mirge3', 'S1', 'unassigned', '', 18, 3.0), ('tesmall', 'S1', 'miRNA', 'miRNA', 22, 9.0),
+            ('tesmall', 'S1', 'tRNA', 'structural_RNA:tRNA', '', 1.0), ('tesmall', 'S1', 'unassigned', '', 50, 6.0)]
+    base = {'S1': {22: 10, 30: 2, 18: 3}}
+    assert classes.plot(rows, base, ['mirge3', 'tesmall'], tmp_path / 'classes.png', tmp_path / 'class_lengths.png')
+    assert (tmp_path / 'classes.png').stat().st_size > 1000 and (tmp_path / 'class_lengths.png').stat().st_size > 1000

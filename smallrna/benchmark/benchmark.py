@@ -934,11 +934,11 @@ def settings_lines(settings, variant=None):
     return lines, text
 
 
-CLASSES_PNG_STAGE = '.classes.new.png'
+CLASS_PLOTS = {'classes.png': '.classes.new.png', 'class_lengths.png': '.class_lengths.new.png'}  # final: staging name
 
 
 def class_summary(project, bench, spec):
-    """({classes.tsv, class_states.tsv}, report lines, a function writing classes.png) of the evaluated routes' RNA
+    """({classes.tsv, class_states.tsv}, report lines, a function drawing the class plots) of the evaluated routes' RNA
     classes and read lengths (#504, classes.py); the evaluation goes on when a route's files cannot be read."""
     methods = [route for route, state, _ in spec['route_states'] if state == 'evaluated']
     samples = list(yaml.safe_load((project / 'config.yaml').read_text())['samples'])  # every kind of project has them
@@ -953,17 +953,18 @@ def class_summary(project, bench, spec):
     files = {'classes.tsv': classes.table_text(('method', 'sample', 'class', 'native', 'length', 'reads'), rows),
              'class_states.tsv': classes.table_text(('method', 'class', 'state'), states)}
 
-    def draw():  # into a staging name; publish moves it into place after the tables, or removes an earlier plot
-        if base is not None and shown and not classes.plot(rows, base, shown, bench / CLASSES_PNG_STAGE):
-            return ['', 'No `classes.png`: matplotlib is not installed where the evaluation ran.']
+    def draw():  # into staging names; publish moves them into place after the tables, or removes earlier plots
+        if base is not None and shown and not classes.plot(rows, base, shown, *(bench / stage for stage in CLASS_PLOTS.values())):
+            return ['', 'No class plots: matplotlib is not installed where the evaluation ran.']
         return []
-    return files, classes.report_lines(rows, states, base, shown, samples, notes, 'classes.png' if base is not None and shown else None), draw
+    return files, classes.report_lines(rows, states, base, shown, samples, notes, tuple(CLASS_PLOTS) if base is not None and shown else None), draw
 
 
 def publish(project, bench, spec, header, rows, lines, extra, record):
     """evaluation.publish with the run's reads processed, the declared routes' states (#448), the routes' RNA classes and
     read lengths (#504) and the methods' runtime and memory as the last report sections, with routes.tsv,
-    classes.tsv, class_states.tsv and resources.tsv; classes.png beside them where matplotlib is installed."""
+    classes.tsv, class_states.tsv and resources.tsv; classes.png and class_lengths.png beside them where matplotlib
+    is installed."""
     reads = run_reads(project)
     text, resource_lines = run_resources(project, bench, spec, reads)
     class_files, class_lines, draw = class_summary(project, bench, spec)
@@ -977,10 +978,11 @@ def publish(project, bench, spec, header, rows, lines, extra, record):
     evaluation.publish(bench, header, rows, lines + route_lines + class_lines + setting_lines + resource_lines, reads,
                        {**extra, 'routes.tsv': routes, 'settings.tsv': settings, 'resources.tsv': text, **class_files}, record,
                        spec['synthetic'].get('seed') if spec['kind'] == 'synthetic' else None)  # the draw of a synthetic set (#455)
-    if (bench / CLASSES_PNG_STAGE).is_file():
-        (bench / CLASSES_PNG_STAGE).replace(bench / 'classes.png')
-    else:  # no plot this time: an earlier one would not match the new tables
-        (bench / 'classes.png').unlink(missing_ok=True)
+    for final, stage in CLASS_PLOTS.items():
+        if (bench / stage).is_file():
+            (bench / stage).replace(bench / final)
+        else:  # no plot this time: an earlier one would not match the new tables
+            (bench / final).unlink(missing_ok=True)
 
 
 def nonnegative(text):
