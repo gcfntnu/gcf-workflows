@@ -955,13 +955,13 @@ def class_summary(project, bench, spec):
     truth = bench / 'truth.tsv'  # a synthetic set: its decoy probe samples score the class assignment
     truth_rows = read_tsv(truth) if truth.is_file() else []
     carriers = {r.get('sequence') for r in truth_rows if r.get('class') == 'carrier'}
-    parts = {}  # {source: {part: {sample: {sequence: reads}}}} by the truth's origin (classes.DECOY_PARTS)
+    parts = {}  # {source: {part: {sample: {sequence: reads}}}} by the truth's origin (classes.decoy_part)
     for r in truth_rows:
         source = '{}-{}'.format(r.get('class'), r.get('source'))
-        for part, regions in classes.DECOY_PARTS.get(source, {}).items():
-            if (r.get('origin') or '').split(':')[0] in regions:
-                reads = parts.setdefault(source, {}).setdefault(part, {}).setdefault(r['sample'], collections.Counter())
-                reads[r['sequence']] += float(r['count'])
+        part = classes.decoy_part(source, r.get('origin'))
+        if part:
+            reads = parts.setdefault(source, {}).setdefault(part, {}).setdefault(r['sample'], collections.Counter())
+            reads[r['sequence']] += float(r['count'])
     try:
         detail, decoys = classes.decoy_scores(project / 'data/tmp/smallrna/quant', rows, states, base, counts, shown, samples,
                                               carriers, parts)

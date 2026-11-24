@@ -230,12 +230,16 @@ def test_a_decoy_source_is_also_scored_by_part_for_routes_with_sequences(tmp_pat
         write(folder / 'unitas.full_annotation_matrix.txt', 'sequence\treads\tannotation(s)\n' + matrix)
     samples = ['P_control', 'P_decoy_rRNA-refseq_1']
     base = {'P_control': {22: 10}, 'P_decoy_rRNA-refseq_1': {22: 10, 26: 3, 23: 2}}
-    parts = {'rRNA-refseq': {'mature': {'P_decoy_rRNA-refseq_1': {mature: 3}},
+    parts = {'rRNA-refseq': {'18S': {'P_decoy_rRNA-refseq_1': {mature: 3}},
                              'spacers': {'P_decoy_rRNA-refseq_1': {spacer: 2}}}}
     rows, states, counts, _, _ = classes.summarize(tmp_path, ['unitas'], samples)
     _, summary = classes.decoy_scores(tmp_path, rows, states, base, counts, ['unitas'], samples, {carrier}, parts)
     score = {(s, o): v for _, s, o, v in summary}
     assert score[('rRNA-refseq', 'right class')] == 60.0
-    assert score[('rRNA-refseq mature', 'right class')] == 100.0 and score[('rRNA-refseq spacers', 'unassigned')] == 100.0
+    assert score[('rRNA-refseq 18S', 'right class')] == 100.0 and score[('rRNA-refseq spacers', 'unassigned')] == 100.0
     table = '\n'.join(classes.decoy_lines(summary, ['unitas']))
-    assert table.index('| rRNA-refseq (rRNA) | 60.0 |') < table.index('| rRNA-refseq mature (rRNA) | 100.0 |')
+    assert table.index('| rRNA-refseq (rRNA) | 60.0 |') < table.index('| rRNA-refseq 18S (rRNA) | 100.0 |')
+    assert [classes.decoy_part('rRNA-refseq', o) for o in ('ITS1:fragment', '5.8S:fragment', '28S:x', 'other')] == [
+        'spacers', '5.8S', '28S', None]
+    assert [classes.decoy_part('rRNA-ensembl', o) for o in ('RNA5SP12:fragment', '5_8S_rRNA:fragment', 'MT-RNR2:fragment')] == [
+        '5S', '5.8S', 'mitochondrial']
