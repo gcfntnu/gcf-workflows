@@ -27,7 +27,7 @@ Routes and their sources (`quant/<route>/`):
 
 Common classes (CLASSES) and states per route (STATES): `reported`; `lumped` into a coarser class the route reports
 instead (miRge3's `ncrna others`, TEsmall's structural RNA and gene exons); `totals only` (TEsmall's structural RNA by
-type); `not reported`. A native class the mapping does not know becomes `unmapped`, with its name kept.
+type); `not reported`; `not available` (a route's file missing, e.g. TEsmall's rRNA BAM). A native class the mapping does not know becomes `unmapped`, with its name kept.
 
 Baseline: each sample's filtered reads by length, from miRge3's tables or else the filtered FASTQ; `unassigned` is the
 baseline minus the reads a route assigned. Shares are of the baseline's reads.
@@ -43,8 +43,8 @@ import adapters
 
 CLASSES = ('miRNA', 'miRNA (other species)', 'hairpin', 'tRNA', 'rRNA', 'snoRNA', 'snRNA', 'misc ncRNA', 'piRNA',
            'lncRNA', 'mRNA', 'intron', 'pseudogene', 'TE', 'low complexity', 'ncRNA (miRge3, lumped)',
-           'structural RNA (TEsmall, lumped)', 'other', 'unmapped', 'unassigned')
-LUMP_MIRGE3, LUMP_TESMALL = 'ncRNA (miRge3, lumped)', 'structural RNA (TEsmall, lumped)'
+           'structural RNA (TEsmall, lumped)', 'gene exons (TEsmall, lumped)', 'other', 'unmapped', 'unassigned')
+LUMP_MIRGE3, LUMP_TESMALL, LUMP_EXONS = 'ncRNA (miRge3, lumped)', 'structural RNA (TEsmall, lumped)', 'gene exons (TEsmall, lumped)'
 ROUTES = ('unitas', 'mirge3', 'tesmall', 'tinyrna', 'smrnaseq', 'biocore_htseq', 'biocore_miraligner')
 
 NATIVE = {
@@ -58,13 +58,13 @@ NATIVE = {
     'misc_RNA': 'misc ncRNA', 'Y_RNA': 'misc ncRNA', 'vault_RNA': 'misc ncRNA', 'scRNA': 'misc ncRNA',
     'SRP_RNA': 'misc ncRNA', 'RNase_P_RNA': 'misc ncRNA', 'RNase_MRP_RNA': 'misc ncRNA', 'ribozyme': 'misc ncRNA',
     'hammerhead_ribozyme': 'misc ncRNA', 'telomerase_RNA': 'misc ncRNA', 'sRNA': 'misc ncRNA', 'guide_RNA': 'misc ncRNA',
-    'autocatalytically_spliced_intron': 'misc ncRNA',
+    'autocatalytically_spliced_intron': 'misc ncRNA', '7SK': 'misc ncRNA', '7SK_RNA': 'misc ncRNA',
     'piRNA': 'piRNA', 'piRNA_cluster': 'piRNA', 'piRNA cluster': 'piRNA',
     'lncRNA': 'lncRNA', 'lincRNA': 'lncRNA', 'antisense': 'lncRNA', 'antisense_RNA': 'lncRNA',
     'processed_transcript': 'lncRNA', 'sense_intronic': 'lncRNA', 'sense_overlapping': 'lncRNA',
     '3prime_overlapping_ncRNA': 'lncRNA', 'bidirectional_promoter_lncRNA': 'lncRNA', 'macro_lncRNA': 'lncRNA',
     'non_coding': 'lncRNA', 'TEC': 'lncRNA',
-    'protein_coding': 'mRNA', 'mRNA': 'mRNA', 'exon': 'mRNA', 'nonsense_mediated_decay': 'mRNA',
+    'protein_coding': 'mRNA', 'mRNA': 'mRNA', 'exon': LUMP_EXONS, 'nonsense_mediated_decay': 'mRNA',
     'non_stop_decay': 'mRNA', 'retained_intron': 'mRNA', 'protein_coding_CDS_not_defined': 'mRNA',
     'protein_coding_LoF': 'mRNA',
     'intron': 'intron', 'sense_TE': 'TE', 'anti_TE': 'TE', 'low_complexity': 'low complexity',
@@ -82,9 +82,9 @@ STATES = {
                                         'piRNA', 'lncRNA', 'mRNA', 'pseudogene', 'low complexity', 'other')},
     'mirge3': {**{c: 'reported' for c in ('miRNA', 'hairpin', 'tRNA', 'rRNA', 'snoRNA', 'mRNA', LUMP_MIRGE3, 'other')},
                **{c: 'lumped in ' + LUMP_MIRGE3 for c in ('snRNA', 'misc ncRNA', 'lncRNA', 'pseudogene')}},
-    'tesmall': {**{c: 'reported' for c in ('miRNA', 'hairpin', 'rRNA', 'piRNA', 'mRNA', 'intron', 'TE', LUMP_TESMALL)},
+    'tesmall': {**{c: 'reported' for c in ('miRNA', 'hairpin', 'rRNA', 'piRNA', 'intron', 'TE', LUMP_TESMALL, LUMP_EXONS)},
                 **{c: 'totals only (in {})'.format(LUMP_TESMALL) for c in ('tRNA', 'snoRNA', 'snRNA', 'misc ncRNA')},
-                'lncRNA': 'lumped in mRNA (gene exons)'},
+                **{c: 'lumped in ' + LUMP_EXONS for c in ('mRNA', 'lncRNA', 'pseudogene')}},
     'tinyrna': {'miRNA': 'reported'}, 'smrnaseq': {'miRNA': 'reported'}, 'biocore_miraligner': {'miRNA': 'reported'},
     'biocore_htseq': {c: 'reported' for c in ('miRNA', 'hairpin', 'tRNA', 'rRNA', 'snoRNA', 'snRNA', 'misc ncRNA', 'lncRNA',
                                                'mRNA', 'pseudogene', 'other')},
@@ -115,6 +115,7 @@ class Counts:
     def __init__(self):
         self.classes = collections.defaultdict(collections.Counter)
         self.assigned = collections.defaultdict(collections.Counter)
+        self.unavailable = {}  # {class: reason}: a file the route writes is missing, so its reads would look unassigned
 
     def add(self, sample, native, length, reads):
         if reads:
@@ -165,13 +166,13 @@ def mirge3_tables(quant):
     tables = []
     for name in ('mapped.csv', 'unmapped.csv'):
         path = Path(quant) / 'mirge3' / name
-        if not path.is_file():
+        try:
+            with open(path, newline='') as fh:
+                reader = csv.reader(fh)
+                header = next(reader)
+                tables.append((header, list(reader)))
+        except (OSError, csv.Error, StopIteration):  # missing, empty or unreadable: each table on its own
             tables.append(None)
-            continue
-        with open(path, newline='') as fh:
-            reader = csv.reader(fh)
-            header = next(reader)
-            tables.append((header, list(reader)))
     return tables
 
 
@@ -239,6 +240,8 @@ def tesmall(quant, samples):
             for length, reads in bam_read_lengths(rrna).items():
                 out.add(sample, 'rRNA (pre-filter)', length, reads)
                 out.assigned[sample][length] += reads
+        else:  # the reads its rRNA filter removed are unknown: neither rRNA nor unassigned can be given
+            out.unavailable['rRNA'] = out.unavailable['unassigned'] = 'not available ({} missing)'.format(rrna.name)
         summary = folder / 'count_summary.txt'
         if summary.is_file():
             with open(summary, newline='') as fh:
@@ -346,15 +349,18 @@ def baseline(quant, samples, tables=None, fastq=None):
     exist, else from the filtered FASTQ (`fastq`: {sample: path}); (None, reason) when neither is there."""
     mapped, unmapped = tables or mirge3_tables(quant)
     if mapped and unmapped:
-        out = {s: collections.Counter() for s in samples}
-        for header, rows in (mapped, unmapped):
-            columns = {s: header.index(s) for s in samples if s in header}
-            for row in rows:
-                for sample, i in columns.items():
-                    reads = _float(row[i])
-                    if reads:
-                        out[sample][len(row[0])] += reads
-        return out, "miRge3's mapped.csv and unmapped.csv"
+        try:
+            out = {s: collections.Counter() for s in samples}
+            for header, rows in (mapped, unmapped):
+                columns = {s: header.index(s) for s in samples if s in header}
+                for row in rows:
+                    for sample, i in columns.items():
+                        reads = _float(row[i])
+                        if reads:
+                            out[sample][len(row[0])] += reads
+            return out, "miRge3's mapped.csv and unmapped.csv"
+        except (ValueError, IndexError):  # a malformed table: the filtered FASTQ instead
+            pass
     if fastq and all(Path(fastq.get(s, '')).is_file() for s in samples):
         out = {}
         for sample in samples:
@@ -371,7 +377,7 @@ def baseline(quant, samples, tables=None, fastq=None):
 def summarize(quant, methods, samples, fastq=None):
     """(rows of classes.tsv, rows of class_states.tsv, {method: Counts}, baseline, notes). A route whose files cannot
     be read is left out with a note; the evaluation goes on."""
-    tables = mirge3_tables(quant) if 'mirge3' in methods else (None, None)
+    tables = mirge3_tables(quant)  # the baseline too, also where miRge3 is not scored: its tables hold every filtered read
     counts, notes = {}, []
     for method in methods:
         if method not in ROUTES:
@@ -380,13 +386,16 @@ def summarize(quant, methods, samples, fastq=None):
             counts[method] = mirge3(quant, samples, tables) if method == 'mirge3' else PARSERS[method](quant, samples)
         except (OSError, ValueError, IndexError, KeyError, StopIteration, struct.error) as e:
             notes.append('{}: not read ({}: {})'.format(method, type(e).__name__, e))
-    base, source = baseline(quant, samples, tables, fastq)
+    try:
+        base, source = baseline(quant, samples, tables, fastq)
+    except (OSError, ValueError, IndexError) as e:
+        base, source = None, 'not read ({}: {})'.format(type(e).__name__, e)
     rows, states = [], []
     for method, c in counts.items():
         for sample in samples:
             for (native, length), reads in sorted(c.classes[sample].items(), key=lambda kv: (kv[0][0], kv[0][1] or 0)):
                 rows.append((method, sample, common(native), native, '' if length is None else length, reads))
-            if base is not None:
+            if base is not None and 'unassigned' not in c.unavailable:
                 for length, total in sorted(base[sample].items()):
                     left = total - c.assigned[sample].get(length, 0.0)
                     if left > 1e-9:
@@ -395,7 +404,9 @@ def summarize(quant, methods, samples, fastq=None):
         if method == 'biocore_htseq' and not any(n not in ('miRBase miRNA',) for s in samples for n, _ in c.classes[s]):
             known = {'miRNA': 'reported'}  # no ncRNA tables (#503: human only)
         for cls in CLASSES:
-            if cls == 'unassigned':
+            if cls in c.unavailable:
+                state = c.unavailable[cls]
+            elif cls == 'unassigned':
                 state = 'reported' if base is not None else 'not available (no baseline)'
             elif cls == 'unmapped':
                 state = 'reported' if any(common(n) == 'unmapped' for s in samples for n, _ in c.classes[s]) else 'not reported'
@@ -432,7 +443,8 @@ def report_lines(rows, states, base, methods, samples, notes, plot_name=None):
     lines = ['', '## RNA classes and read lengths (#504)', '',
              "Each route's own class assignment, from the files it writes per read sequence (classes.py), mapped to common "
              'classes: the median share of each sample\'s filtered reads, %. `n/r`: the route has no such class; `lumped`: '
-             'it counts these reads in a coarser class (miRge3\'s `ncrna others`, TEsmall\'s structural RNA and gene exons); '
+             'it counts these reads in a coarser class (miRge3\'s `ncrna others`, TEsmall\'s structural RNA and gene exons); `n/a`: '
+             'a file the route writes is missing; '
              '`†`: TEsmall\'s structural RNA by type, totals without lengths, part of its lumped class. Classes come from each '
              "route's own references and precedence, so shares partly reflect those. Every row by sample and length is in "
              '`classes.tsv`, the states in `class_states.tsv`.', '']
@@ -447,6 +459,8 @@ def report_lines(rows, states, base, methods, samples, notes, plot_name=None):
             s = state.get((m, cls), 'not reported')
             if s == 'not reported':
                 cells.append('n/r')
+            elif s.startswith('not available'):
+                cells.append('n/a')
             elif s.startswith('lumped'):
                 cells.append('lumped')
             else:
@@ -475,7 +489,7 @@ def plot(rows, base, methods, path, max_length=45):
             by[(method, cls, min(int(length), max_length))] += reads
     shown = [c for c in CLASSES if any(k[1] == c for k in by)]
     colours = {c: plt.get_cmap('tab20')(i % 20) for i, c in enumerate(CLASSES)}
-    lengths = list(range(14, max_length + 1))
+    lengths = list(range(min([14] + [int(k[2]) for k in by]), max_length + 1))
     fig, axes = plt.subplots(len(methods), 1, figsize=(9, 1.9 * len(methods) + 0.8), sharex=True, squeeze=False)
     for ax, method in zip(axes[:, 0], methods):
         bottom = [0.0] * len(lengths)

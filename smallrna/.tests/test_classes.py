@@ -45,6 +45,8 @@ def test_native_classes_map_to_the_common_set():
     assert classes.common('structural_RNA:tRNA') == 'tRNA'  # TEsmall's structural RNA by type
     assert classes.common('transcribed_unprocessed_pseudogene') == 'pseudogene' and classes.common('IG_V_gene') == 'mRNA'
     assert classes.common('something new') == 'unmapped'  # never silently into `other`
+    assert classes.common('exon') == classes.LUMP_EXONS  # TEsmall's gene exons include lncRNA and pseudogene exons
+    assert classes.common('structural_RNA:7SK') == 'misc ncRNA'
 
 
 @pytest.mark.parametrize('head, native', [
@@ -151,3 +153,26 @@ def test_summary_unassigned_states_and_a_route_that_cannot_be_read(tmp_path):
     table = '\n'.join(lines)
     assert '| miRNA | 56.35 | 56.35 | 56.35 |' in table  # 10 of 18 and 4 of 7 filtered reads: the median of 55.56 and 57.14
     assert '| snRNA | lumped | n/r | n/r |' in table and '| tRNA | 8.33 | n/r | n/r |' in table  # 3 of 18 and 0 of 7
+
+
+def test_a_broken_mirge3_table_falls_back_to_the_filtered_reads(tmp_path):
+    mirge3_tables(tmp_path)
+    write(tmp_path / 'mirge3/unmapped.csv', '')  # empty: the pair is incomplete
+    fastq = {s: write(tmp_path / f'{s}.fastq', '@r1\nACGTACGTACGTACGTAC\n+\nIIIIIIIIIIIIIIIIII\n') for s in ('S1', 'S2')}
+    rows, states, counts, base, notes = classes.summarize(tmp_path, ['mirge3'], ['S1', 'S2'], fastq)
+    assert base['S1'] == {18: 1} and 'mirge3' in counts  # mapped.csv still gives miRge3's classes
+    rows, states, counts, base, notes = classes.summarize(tmp_path, ['mirge3'], ['S1', 'S2'])  # no FASTQ either
+    assert base is None and 'mirge3' in counts
+
+
+def test_tesmall_without_its_rrna_bam_gives_neither_rrna_nor_unassigned(tmp_path):
+    mirge3_tables(tmp_path)
+    for s in ('S1', 'S2'):
+        write(tmp_path / f'tesmall/{s}/{s}.anno.rlen.info', 'rlen\tmiRNA\texon\n22\t5\t1\n')
+    rows, states, counts, base, notes = classes.summarize(tmp_path, ['tesmall'], ['S1', 'S2'])
+    assert not [r for r in rows if r[0] == 'tesmall' and r[2] == 'unassigned']
+    state = {(m, c): s for m, c, s in states}
+    assert state[('tesmall', 'rRNA')].startswith('not available') and state[('tesmall', 'unassigned')].startswith('not available')
+    assert state[('tesmall', 'mRNA')] == 'lumped in ' + classes.LUMP_EXONS
+    table = '\n'.join(classes.report_lines(rows, states, base, ['tesmall'], ['S1', 'S2'], notes))
+    assert '| rRNA | n/a |' in table and '| unassigned | n/a |' in table

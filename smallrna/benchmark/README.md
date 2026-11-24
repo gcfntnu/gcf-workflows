@@ -71,7 +71,8 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    `unmapped.csv`, which hold every filtered read, or else the filtered FASTQ; `unassigned` is the baseline minus the
    reads a route assigned (biocore_htseq: the sequences in neither of its tables). Per route and class
    `class_states.tsv` gives `reported`, `lumped` (miRge3's `ncrna others`, TEsmall's structural RNA and gene exons),
-   `totals only` or `not reported`; the report shows the median share of each sample's filtered reads per class and
+   `totals only`, `not reported` or `not available` (a file the route writes is missing, e.g. TEsmall's rRNA BAM:
+   its rRNA and unassigned reads are then not given); the report shows the median share of each sample's filtered reads per class and
    route, every row by sample and length is in `classes.tsv`, and `classes.png` (where matplotlib is installed) shows
    reads by length and class per route. Classes come from each route's own references and precedence, so their shares
    partly reflect those. A route whose files cannot be read is left out with a note; the evaluation goes on.
