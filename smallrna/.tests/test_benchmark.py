@@ -3669,7 +3669,8 @@ def test_other_rna_flags_the_mirnas_inside_other_classes(tmp_path):
     result = evaluate_cmd(project, '--bootstrap', '20')
     assert result.returncode == 0, result.stderr
     bench = project / 'benchmark'
-    assert (bench / 'other_rna.tsv').read_text() == 'mature_id\tmirna\tclass\tmolecules\nMIMAT0000076\thsa-miR-21-5p\ttRNA\ttRNA-Leu-TAA-1-1\n'
+    assert (bench / 'other_rna.tsv').read_text() == ('mature_id\tmirna\tclass\tmolecules\tdifferences\n'
+                                                     'MIMAT0000076\thsa-miR-21-5p\ttRNA\ttRNA-Leu-TAA-1-1\t0\n')
     metrics = {row.split('\t')[0]: row.split('\t')[1:] for row in (bench / 'metrics.tsv').read_text().splitlines()[1:]}
     # per sample, UNITAS: P 40 of 641 miRNA reads on miR-21-5p, K 20 of 24; detected P {16, 21}, K {21}
     assert metrics['flagged_reads'][0] == str(round(statistics.median([40 / 641, 40 / 641, 20 / 24, 20 / 24]), 4))
@@ -3694,6 +3695,7 @@ def test_other_rna_declaration_and_reads_inside_molecules(tmp_path):
     molecules = {'tRNA-gtrnadb': [('tRNA-1', 'AAAA' + MIR21 + 'CCCC', None)], 'mRNA-ensembl': [('GENE', 'GGGG' + MIR21, None)]}
     assert decoys.contained(molecules, {MIR21, MIR21[2:], 'ACGTACGTACGTACGTAC'}) == {MIR21: ['tRNA'], MIR21[2:]: ['tRNA']}  # not mRNA
     assert decoys.embedded(molecules, {'MIMAT0000076': MIR21, 'MIMAT0000069': 'TAGCAGCACGTAAATATTGGCG'}) == {'tRNA': {'MIMAT0000076': ['tRNA-1']}}
+
     spec = {'name': 'b', 'kind': 'biological', 'organism': 'homo_sapiens', 'libprepkit': 'k', 'methods': ['unitas'], 'data': 'd',
             'mirbase': {'release': '23.1', 'url': 'u', 'sha256': 's'},
             'samples': [{'sample': 'S1', 'group': 'g', 'runs': [{'run': 'R1', 'url': 'u', 'md5': 'm'}]}]}
@@ -3972,3 +3974,28 @@ def test_evaluate_with_mirgenedb_strata(tmp_path):
     pool = de_project(tmp_path / 'pool')
     result = evaluate_cmd(pool, '--mirgenedb', str(gff))
     assert result.returncode != 0 and '--mirgenedb (#493) is for biological and mixture datasets and the genome-wide synthetic set' in result.stderr
+
+
+def test_other_rna_flag_allows_a_difference_or_two_against_functional_genes():
+    """miRBase holds fragments of other classes with an error, a modification read through or a base past the end (a
+    tRNA's CCA): flagged with a difference at 18-19 nt and two from 20 nt, but only against named functional genes."""
+    trna = 'GGGGGGGGGG' + 'TCCGAGTCACGGCACCA'  # a 3' end with its added CCA
+    one = 'A' + trna[-17:]                       # 18 nt: one base before the molecule's start of this window differs
+    past = trna[-18:] + 'T'                      # 19 nt: one base past the molecule's end
+    two = 'CC' + trna[-20:-2] + 'CA'             # 22 nt, two mismatches at the 5' end... and on the molecule
+    molecules = {'tRNA-gtrnadb': [('tRNA-His-GTG-1-1', trna, None)],
+                 'other_ncRNA-ensembl': [('RNU6-346P', 'TTTTTTTTTT' + MIR21 + 'TTTT', None), ('RN7SL1', 'AAAAAAAAAA' + MIR21[:-1] + 'G', None)]}
+    found = decoys.near_embedded(molecules, {'one': one, 'past': past, 'short': 'A' + trna[-16:], 'pseudo': MIR21[:-1] + 'C',
+                                             'exact_pseudo': MIR21, 'functional': MIR21})
+    assert found['tRNA']['one'] == [('tRNA-His-GTG-1-1', 1)] and found['tRNA']['past'] == [('tRNA-His-GTG-1-1', 1)]
+    assert 'short' not in found['tRNA']  # 17 nt: exact only
+    assert found['other_ncRNA']['exact_pseudo'] == [('RN7SL1', 1), ('RNU6-346P', 0)]
+    assert found['other_ncRNA']['pseudo'] == [('RN7SL1', 1)]  # with a difference: not against the pseudogene
+    assert all(decoys.functional(n) for n in ('RN7SL1', 'SNORD43', 'tRNA-His-GTG-1-1', 'RMRP', '28S'))
+    assert not any(decoys.functional(n) for n in ('RNU6-346P', 'U4', 'Y_RNA', 'ENST00000973306.1', 'RNA5SP12', 'ENSMUST00000082908.1'))
+    gene = 'AAAAAAAAAA' + 'GCATTGGTGGTTCAGTGGTAGAATTCTCGC' + 'AAAAAAAAAA'
+    twenty, nineteen = gene[10:30], gene[10:29]
+    two = lambda s: ('T' if s[0] != 'T' else 'G') + ('T' if s[1] != 'T' else 'G') + s[2:]  # two 5' mismatches
+    near = decoys.near_embedded({'snoRNA-ensembl': [('SNORD1', gene, None)]}, {'20': two(twenty), '19': two(nineteen),
+                                                                                '14': gene[12:26]})
+    assert near['snoRNA'] == {'20': [('SNORD1', 2)], '14': [('SNORD1', 0)]}  # two differences: 20 nt, not 19; 14 nt exact

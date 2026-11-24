@@ -621,14 +621,16 @@ def other_rna_section(flag, iso_rows, methods, no_isomirs, summary, common, mole
         if accession in flag:
             on[m][accession] += float(count)
     lines = ['', '## miRNAs inside other RNA classes (#415)', '',
-             'miRBase entries whose mature sequence lies exactly inside a molecule of another RNA class (the declaration\'s '
+             'miRBase entries whose mature sequence lies inside a molecule of another RNA class (the declaration\'s '
              '`other_rna` sources: RefSeq and Ensembl rRNA, GtRNAdb and mitochondrial tRNAs, Ensembl Y RNA, snoRNA and other '
-             'ncRNA) are flagged ({} entries, in `other_rna.tsv`); fragments overlapping a mature only partly are not. Per '
+             'ncRNA) are flagged ({} entries, in `other_rna.tsv`): exactly, or for a named functional gene with a difference '
+             '(mismatch or base past its end) at 18-19 nt or two from 20 nt, as miRBase holds such fragments with an error or '
+             'a modification read through (`differences`); fragments overlapping a mature only partly are not. Per '
              'method: `flagged_reads`, the median share of its miRNA reads on flagged entries; `flagged_detected` and '
              '`detected_unflagged`, the median detected miRNAs among and without them; `read_in_other_class`, the share of its '
              'miRNA reads (isomiR table, #454) whose read sequence lies exactly inside another class\'s molecule (empty for '
-             'methods without isomiR output: {}). Both are lower bounds: five classes (no mRNA, introns or repeats) and exact '
-             'matches only, so a read with a non-templated end or an error does not match.'.format(len(flag), ', '.join(no_isomirs) or 'none'), '']
+             'methods without isomiR output: {}). Both are lower bounds: five classes (no mRNA, introns or repeats); and '
+             '`read_in_other_class` takes exact matches only, so a read with a non-templated end or an error does not match.'.format(len(flag), ', '.join(no_isomirs) or 'none'), '']
     lines += md_table(['metric'] + methods, [[k] + [summary[m].get(k, '') for m in methods]
                                              for k in ('detected', 'flagged_detected', 'detected_unflagged', 'flagged_reads', 'read_in_other_class')])
     lines += [''] + ['- {}: {}.'.format(cls, '; '.join(sorted(entries))) for cls, entries in sorted(by_class.items())]
@@ -2102,13 +2104,14 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
         representative = {}
         for accession, seq in sorted(id_to_seq.items()):
             representative.setdefault(seq, accession)  # the first sorted accession, as biological.collapse
-        found = decoys.embedded(molecules, {a: seq for seq, a in representative.items()})
-        flag = collections.defaultdict(list)
+        found = decoys.near_embedded(molecules, {a: seq for seq, a in representative.items()})
+        flag, differences = collections.defaultdict(list), {}
         for cls, keys in sorted(found.items()):
-            for accession, names in keys.items():
-                flag[accession].append((cls, names))
-        write_tsv(bench / 'other_rna.tsv', ['mature_id', 'mirna', 'class', 'molecules'],
-                  [[a, id_to_name.get(a, a), cls, ','.join(names)] for a in sorted(flag) for cls, names in flag[a]])
+            for accession, hits in keys.items():
+                flag[accession].append((cls, [name for name, _ in hits]))
+                differences[(accession, cls)] = min(d for _, d in hits)
+        write_tsv(bench / 'other_rna.tsv', ['mature_id', 'mirna', 'class', 'molecules', 'differences'],
+                  [[a, id_to_name.get(a, a), cls, ','.join(names), differences[(a, cls)]] for a in sorted(flag) for cls, names in flag[a]])
     summary = biological.method_summary(common, methods, samples, frozenset(flag) if flag is not None else None)
     for m in methods:
         summary[m]['unplaced'] = unplaced[m]['share']
