@@ -73,8 +73,10 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    `class_states.tsv` gives `reported`, `lumped` (miRge3's `ncrna others`, TEsmall's structural RNA and gene exons),
    `totals only`, `not reported` or `not available` (a file the route writes is missing, e.g. TEsmall's rRNA BAM:
    its rRNA and unassigned reads are then not given); the report shows the median share of each sample's filtered reads per class and
-   route, every row by sample and length is in `classes.tsv`, and `classes.png` (where matplotlib is installed) shows
-   reads by length and class per route. Classes come from each route's own references and precedence, so their shares
+   route, every row by sample and length is in `classes.tsv`. Where matplotlib is installed, two plots follow MultiQC's UNITAS section, pooled over samples as % of
+   the filtered reads, with the classes grouped (miRNA, tRNA, rRNA, snoRNA, misc ncRNA with snRNA, lncRNA, mRNA, other,
+   lumped, unassigned): `classes.png`, one stacked bar per route, and `class_lengths.png`, reads by length per class,
+   one line per route that reports the class. Classes come from each route's own references and precedence, so their shares
    partly reflect those. A route whose files cannot be read is left out with a note; the evaluation goes on.
    Every metric gets a 95% bootstrap interval (#413), and so does every difference between two methods, paired
    because both are computed on the same resample. A resample draws the scoring units (truth miRNAs; the scored exact
