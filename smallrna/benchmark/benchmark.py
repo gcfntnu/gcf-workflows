@@ -59,6 +59,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import adapters  # noqa: E402
 import biological  # noqa: E402
+import classes  # noqa: E402
 import decoys  # noqa: E402
 import depth as depth_series  # noqa: E402
 import de  # noqa: E402
@@ -933,19 +934,45 @@ def settings_lines(settings, variant=None):
     return lines, text
 
 
+def class_summary(project, bench, spec):
+    """({classes.tsv, class_states.tsv}, report lines, a function writing classes.png) of the evaluated routes' RNA
+    classes and read lengths (#504, classes.py); the evaluation goes on when a route's files cannot be read."""
+    methods = [route for route, state, _ in spec['route_states'] if state == 'evaluated']
+    samples = list(yaml.safe_load((project / 'config.yaml').read_text())['samples'])  # every kind of project has them
+    fastq = {}
+    for sample in samples:
+        try:
+            fastq[sample] = filtered_fastq(project, sample)
+        except SystemExit:  # no filtered reads where they are expected: the baseline comes from miRge3's tables or is left out
+            pass
+    rows, states, counts, base, notes = classes.summarize(project / 'data/tmp/smallrna/quant', methods, samples, fastq)
+    shown = [m for m in methods if m in counts]
+    files = {'classes.tsv': classes.table_text(('method', 'sample', 'class', 'native', 'length', 'reads'), rows),
+             'class_states.tsv': classes.table_text(('method', 'class', 'state'), states)}
+
+    def draw():
+        if base is not None and shown and not classes.plot(rows, base, shown, bench / 'classes.png'):
+            return ['', 'No `classes.png`: matplotlib is not installed where the evaluation ran.']
+        return []
+    return files, classes.report_lines(rows, states, base, shown, samples, notes, 'classes.png' if base is not None and shown else None), draw
+
+
 def publish(project, bench, spec, header, rows, lines, extra, record):
-    """evaluation.publish with the run's reads processed, the declared routes' states (#448) and the methods' runtime
-    and memory as the last report sections, with routes.tsv and resources.tsv."""
+    """evaluation.publish with the run's reads processed, the declared routes' states (#448), the routes' RNA classes and
+    read lengths (#504) and the methods' runtime and memory as the last report sections, with routes.tsv,
+    classes.tsv, class_states.tsv and resources.tsv; classes.png beside them where matplotlib is installed."""
     reads = run_reads(project)
     text, resource_lines = run_resources(project, bench, spec, reads)
+    class_files, class_lines, draw = class_summary(project, bench, spec)
+    class_lines = class_lines + draw()
     states = spec['route_states']
     route_lines = ['', '## Routes', '', 'Every declared route (#448): `evaluated`; `not run`, not selected at `prepare` or recorded in '
                    '`benchmark/not_run.tsv`; `stopped`, a check before scoring failed, and the other routes are scored without it.',
                    ''] + md_table(['route', 'state', 'reason'], [list(s) for s in states])
     routes = '\n'.join('\t'.join(row) for row in [('route', 'state', 'reason'), *states]) + '\n'
     setting_lines, settings = settings_lines(spec.get('route_settings') or {}, spec.get('variant'))
-    evaluation.publish(bench, header, rows, lines + route_lines + setting_lines + resource_lines, reads,
-                       {**extra, 'routes.tsv': routes, 'settings.tsv': settings, 'resources.tsv': text}, record,
+    evaluation.publish(bench, header, rows, lines + route_lines + class_lines + setting_lines + resource_lines, reads,
+                       {**extra, 'routes.tsv': routes, 'settings.tsv': settings, 'resources.tsv': text, **class_files}, record,
                        spec['synthetic'].get('seed') if spec['kind'] == 'synthetic' else None)  # the draw of a synthetic set (#455)
 
 
