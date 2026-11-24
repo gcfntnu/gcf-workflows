@@ -38,14 +38,20 @@ def get_unitas_refseq(wildcards):
     return rules.unitas_extra_reference.output[0] if get_unitas_refseq_fasta() else []
 
 def unitas_args(wildcards, input):
-    return '-refseq {}'.format(abspath(input.refseq)) if input.refseq else ''
+    # -species_miR_only: no other species' miRNA hairpins. UNITAS maps the reads left after the species' miRNAs to them
+    # before tRNA and the other classes, and many are tRNA fragments (3' ends), so tRNA reads were counted as
+    # "miRNA:other"; they now reach tRNA. The species' miRNA counts are unchanged.
+    args = ['-species_miR_only']
+    if input.refseq:
+        args.append('-refseq {}'.format(abspath(input.refseq)))
+    return ' '.join(args)
 
 
 def unitas_settings():
     """The settings that decide UNITAS's counting, recorded with its table (quant_settings, #417)."""
     refseq = [os.path.basename(str(f)) for f in get_unitas_refseq_fasta()]
     return [('refseq', ','.join(refseq) or 'none', 'filter.spikein, filter.contaminants'),
-            ('options', 'UNITAS defaults: no counting option is passed', 'fixed'),
+            ('options', '-species_miR_only (no other species\' miRNA hairpins); otherwise UNITAS defaults', 'fixed'),
             ('several_annotations', 'not split: the simplified miR table (unitas_mirtable.py)', 'fixed')]
 
 

@@ -202,10 +202,10 @@ def test_extra_unitas_reference_only_when_configured(tmp_path, spikein, contamin
     assert len(unitas) == 4
     if not (spikein or contaminants):
         assert 'rule unitas_extra_reference:' not in output
-        assert all(line.rstrip().endswith(' --') for line in unitas)
+        assert all(line.rstrip().endswith(' -- -species_miR_only') for line in unitas)  # no other species' miRNAs
         return
     refseq = str(tmp_path / 'data/tmp/smallrna/quant/unitas/refseq.fa')
-    assert all(line.endswith(f' -- -refseq {refseq}') for line in unitas)
+    assert all(line.endswith(f' -- -species_miR_only -refseq {refseq}') for line in unitas)
     concat = shell_lines(output, '> data/tmp/smallrna/quant/unitas/refseq.fa')
     assert len(concat) == 1
     assert ('_spikein_unitas_formatted.fa' in concat[0]) == spikein
