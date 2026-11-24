@@ -78,6 +78,14 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    lumped, unassigned): `classes.png`, one stacked bar per route, and `class_lengths.png`, reads by length per class,
    one line per route that reports the class. Classes come from each route's own references and precedence, so their shares
    partly reflect those. A route whose files cannot be read is left out with a note; the evaluation goes on.
+   On a synthetic set with decoy probe samples (#412), `class_truth.tsv` and a report table score the class
+   assignment against the truth: each `P_decoy_<class>-<source>` sample adds the reads of one class to `P_control`'s
+   carriers, and the share of those reads (that passed the filter) a route puts in the right class, in a coarser
+   class holding it, in miRNA, elsewhere or nowhere. Routes with outputs per sequence are read again without the
+   truth's carrier sequences (a route can place a carrier differently from sample to sample); TEsmall and tiny-count
+   by their classes minus `P_control`'s. Right classes: tRNA for GtRNAdb and mitochondrial tRNA, rRNA, misc ncRNA for
+   Y RNA, snoRNA, snRNA or misc ncRNA for `other_ncRNA` (snRNA, 7SK, 7SL, vault RNA), mRNA, piRNA, and hairpin for
+   miRNA precursors.
    Every metric gets a 95% bootstrap interval (#413), and so does every difference between two methods, paired
    because both are computed on the same resample. A resample draws the scoring units (truth miRNAs; the scored exact
    and shifted pool sequences) and, where there are several, the runs or samples, the ratiometric pools' runs within
