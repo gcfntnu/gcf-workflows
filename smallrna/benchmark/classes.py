@@ -165,6 +165,7 @@ COORDINATES = re.compile(r'\s*\(\d+-\d+\)$')       # ` (517-535)`: where the rea
 ENSEMBL_GENE = re.compile(r'ENS[A-Z]*G\d+')
 SILVA_SUBUNIT = re.compile(r'^(SSU|LSU):')          # SILVA records: one per genomic copy, counted by subunit
 PIRNA_CLUSTER = re.compile(r'^piR-cluster:([^:]+)')  # `piR-cluster:Hsap_0125_2:24815296..24831604(17A->C)`
+MISMATCH = re.compile(r'\((\d+[ACGTN]->[ACGTN],?)+\)$')  # `miR-21-5p(12C->A)`: a hit with a mismatch, the same feature
 UNASSIGNED = ('unassigned', 'unassigned')
 
 
@@ -172,7 +173,8 @@ def unitas_feature(annotation, vocabulary):
     """(common class, feature) of one UNITAS annotation of a read sequence (#409): the feature a class's detection
     counts. Ensembl records (`class|NAME-ENSG… (a-b)`) and tRNA fragments (`5p-tRF from MT-TS1-ENSG… (a-b)`) count
     by Ensembl gene where the record names one, else by record name without coordinates; SILVA rRNA copies by
-    subunit (SSU, LSU); piRNA clusters by cluster; miRNAs and the rest by name."""
+    subunit (SSU, LSU); piRNA clusters by cluster; miRNAs and the rest by name. A mismatch UNITAS notes after a name
+    (`miR-21-5p(12C->A)`) is the same feature."""
     annotation = annotation.strip()
     head, bar, record = annotation.partition('|')
     head = head.strip()
@@ -183,10 +185,10 @@ def unitas_feature(annotation, vocabulary):
         if subunit:
             return cls, subunit.group(1)
     elif ' from ' in head:
-        name = COORDINATES.sub('', head.split(' from ', 1)[1])
+        name = MISMATCH.sub('', COORDINATES.sub('', head.split(' from ', 1)[1]))
     else:
         cluster = PIRNA_CLUSTER.match(head)
-        return cls, cluster.group(1) if cluster else COORDINATES.sub('', head)
+        return cls, cluster.group(1) if cluster else MISMATCH.sub('', COORDINATES.sub('', head))
     gene = ENSEMBL_GENE.search(name)
     return cls, gene.group(0) if gene else name
 

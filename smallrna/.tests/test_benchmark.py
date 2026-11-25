@@ -3483,6 +3483,8 @@ def test_unitas_features_of_the_annotations():
         "3'tR-half from tRNA-Gly-GCC-2-1 (40-70)": ('tRNA', 'tRNA-Gly-GCC-2-1'),
         'piR-cluster:Hsap_0125_2:24815296..24831604(17A->C)': ('piRNA', 'Hsap_0125_2'),
         'miR-320a-3p': ('miRNA', 'miR-320a-3p'),
+        'miR-320a-3p(12C->A)': ('miRNA', 'miR-320a-3p'),
+        'let-7a-5p(3T->G,9A->C)': ('miRNA', 'let-7a-5p'),
         'low_complexity': ('low complexity', 'low_complexity'),
     }
     for annotation, expected in cases.items():
