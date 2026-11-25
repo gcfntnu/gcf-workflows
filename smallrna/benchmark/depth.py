@@ -40,7 +40,9 @@ SATURATION = (0.9, 0.95)       # shares of full-depth detection whose depth is r
 SATURATION_KEY = 'detected_10'
 CPM = 0.1                      # detection that scales with depth: reads per million, about 3-5 reads at 30-50M (#409)
 CPM_KEY = 'detected_cpm'
-SATURATION_KEYS = (SATURATION_KEY, CPM_KEY)  # the saturation table's two definitions of detected
+SEEN = 3                       # reads that count a full-depth miRNA (feature) as still seen at a depth
+SEEN_KEY = 'full_cpm_seen'     # share of the full depth's miRNAs at CPM or more seen with SEEN reads at a depth
+SATURATION_KEYS = (SATURATION_KEY, SEEN_KEY)  # the saturation table's two definitions of detected
 AGREEMENT_KEYS = ('spearman_either', 'median_abs_log2_ratio', 'top{}_overlap'.format(biological.TOP))
 FULL = 'full'
 BEYOND = 'beyond'  # a saturation share not reached by the last depth every sample was measured at
@@ -87,9 +89,32 @@ def cv_sets(common, methods, groups):
             for m in methods for g, members in replicate_groups(groups).items()}
 
 
-def metrics(common, methods, samples, groups, isomir_rows=None, fixed=None, with_isomirs=None, cpm=CPM):
+def cpm_sets(by, keys, cpm=CPM):
+    """{key: the features with at least `cpm` reads per million of the key's reads (and at least 1 read)}, for {key:
+    {feature: reads}} `by`: a full depth's reference set (SEEN_KEY)."""
+    out = {}
+    for key in keys:
+        counts = by.get(key, {})
+        total = sum(counts.values())
+        out[key] = {f for f, v in counts.items() if v >= 1 and v * 1e6 >= cpm * total}
+    return out
+
+
+def seen_share(counts, reference):
+    """The share of `reference` with at least SEEN reads in {feature: reads}; '' for an empty reference."""
+    return sum(1 for f in reference if counts.get(f, 0) >= SEEN) / len(reference) if reference else ''
+
+
+def median_of(values):
+    values = [v for v in values if v != '']
+    return round(statistics.median(values), 4) if values else ''
+
+
+def metrics(common, methods, samples, groups, isomir_rows=None, fixed=None, with_isomirs=None, cpm=CPM, reference=None):
     """Per method: median miRNA reads, median miRNAs with at least 1, 5 and 10 reads per sample, median miRNAs with
-    at least `cpm` reads per million of the sample's miRNA reads (detected_cpm: the same abundance at every depth),
+    at least `cpm` reads per million of the sample's miRNA reads (detected_cpm; at least 1 read, so below the depth
+    where `cpm` is a read it counts every miRNA with a read), with `reference` ({(method, sample): the full depth's
+    cpm_sets()}) the median share of a sample's reference miRNAs seen with at least SEEN reads (full_cpm_seen),
     miRNAs with at least 10 in every sample, the median over groups (two samples or more) of the median CPM coefficient of variation of
     the miRNAs in `fixed` (cv_sets(); by default those of these tables), and with `isomir_rows` the median distinct
     nonempty read sequences per sample ('' for a method not in `with_isomirs`, by default those with rows here)."""
@@ -106,7 +131,9 @@ def metrics(common, methods, samples, groups, isomir_rows=None, fixed=None, with
         values = {'mirna_reads': round(statistics.median(sum(c.values()) for c in per.values()))}
         for level in LEVELS:
             values['detected_{}'.format(level)] = statistics.median(sum(1 for v in c.values() if v >= level) for c in per.values())
-        values[CPM_KEY] = statistics.median(sum(1 for v in c.values() if v > 0 and v * 1e6 >= cpm * sum(c.values())) for c in per.values())
+        values[CPM_KEY] = statistics.median(sum(1 for v in c.values() if v >= 1 and v * 1e6 >= cpm * sum(c.values())) for c in per.values())
+        if reference is not None:
+            values[SEEN_KEY] = median_of(seen_share(per[s], reference.get((m, s), set())) for s in samples)
         detected = [{i for i, v in c.items() if v >= biological.MIN_READS} for c in per.values()]
         values['detected_all_samples'] = len(set.intersection(*detected)) if detected else 0
         cvs = []
@@ -163,7 +190,8 @@ def series_points(tables, usable, methods, samples, groups, isomir_rows=None, cp
                 fixed[key] = kept
     fixed = {key: fixed.get(key, set()) for key in cv_sets([], methods, groups)}
     with_isomirs = {row[0] for row in isomir_rows or [] if float(row[-1]) > 0 and row[4]}
-    return [(depth, metrics(tables[depth][0], methods, samples, groups, tables[depth][1], fixed, with_isomirs, cpm),
+    reference = cpm_sets(biological.counts_by(tables[FULL][0]), [(m, s) for m in methods for s in samples], cpm)
+    return [(depth, metrics(tables[depth][0], methods, samples, groups, tables[depth][1], fixed, with_isomirs, cpm, reference),
              biological.agreement(tables[depth][0], methods, samples)) for depth in order]
 
 
@@ -339,7 +367,8 @@ def saturation_cell(value, last):
 
 def detected_titles(cpm):
     """{saturation key: its column title}: the two definitions of detected."""
-    return {SATURATION_KEY: 'at least {} reads'.format(biological.MIN_READS), CPM_KEY: 'at least {:g} per million'.format(cpm)}
+    return {SATURATION_KEY: 'at least {} reads'.format(biological.MIN_READS),
+            SEEN_KEY: 'full depth\'s {:g} per million seen'.format(cpm)}
 
 
 def saturation_table(names, points, reached, rising, titles, md_table, first='method', extra=None):
@@ -378,14 +407,17 @@ def report(name, points, methods, skipped, reached, rising, reads_in, seed, md_t
         lines += ['', 'Left out, above the shallowest sample: {}.'.format(', '.join(label(d) for d in skipped))]
     lines += ['', '**Depth reaching {} of full-depth detection** (median per sample; reads sequenced per sample), with two '
               'definitions of detected: at least {} reads, a fixed count that keeps rising with depth as rarer reads (permissive '
-              'matches among them) pass it; and at least {:g} reads per million of the sample\'s miRNA reads (`detected_cpm`, at '
-              'least 1 read), the same abundance at every depth, which levels off once the miRNAs above it are seen ({:g} per '
-              'million is {:.1f} reads at this dataset\'s median miRNA reads). It is relative to this dataset\'s depth: '
+              'matches among them) pass it; and `full_cpm_seen`, the share of the miRNAs a sample has at {:g} reads per '
+              'million or more at its full depth (of its miRNA reads; {:g} per million is {:.1f} reads at this dataset\'s median '
+              'miRNA reads) that a depth still sees with at least {} reads, which rises to its full-depth value and so shows '
+              'where the miRNAs above that abundance are seen. `detected_cpm` counts the miRNAs at {:g} per million or more at '
+              'each depth itself; below the depth where that is a read it counts every miRNA with a read, so it overshoots '
+              'there. It is relative to this dataset\'s depth: '
               '`rise per doubling` is the share of full-depth detection gained per doubling of depth over the last step, near 0 '
               'when the curve has levelled off. With samples of different depths the full depth is no common measurement: a '
               'share the last common depth misses is `beyond` it.'.format(
                   ' and '.join('{:.0%}'.format(s) for s in SATURATION), biological.MIN_READS, cpm, cpm,
-                  cpm * statistics.median(points[-1][1][m]['mirna_reads'] for m in methods) / 1e6), '']
+                  cpm * statistics.median(points[-1][1][m]['mirna_reads'] for m in methods) / 1e6, SEEN, cpm), '']
     lines += saturation_table(methods, points, reached, rising, detected_titles(cpm), md_table)
     for key in keys:
         lines += ['', '**{}**'.format(key), ''] + md_table(['depth'] + methods, [[label(depth)] + [values[m][key] for m in methods]
@@ -408,7 +440,7 @@ def plot(points, methods, full_depth, path, cpm=CPM):
     import matplotlib.pyplot as plt
     x = [full_depth if depth == FULL else depth for depth, _, _ in points]
     fig, axes = plt.subplots(1, 3, figsize=(15, 4.2))
-    for ax, key, title in ((axes[0], CPM_KEY, 'miRNAs at {:g} per million or more'.format(cpm)),
+    for ax, key, title in ((axes[0], SEEN_KEY, 'full depth\'s miRNAs at {:g} per million, seen ({}+ reads)'.format(cpm, SEEN)),
                            (axes[1], SATURATION_KEY, 'miRNAs with at least {} reads'.format(biological.MIN_READS)),
                            (axes[2], 'replicate_cv', 'replicate CV (median)')):
         for m in methods:
@@ -428,10 +460,10 @@ def plot(points, methods, full_depth, path, cpm=CPM):
 # --- Other RNA classes by depth (#409): UNITAS's read sequences thinned, each sequence's reads split over its features
 # as UNITAS splits them (classes.unitas_sequences), so a depth is a real subsample of UNITAS's reads.
 
-CLASS_KEYS = ('reads', 'share', 'features_1', 'features_10', 'features_cpm', 'features_all_samples')
+CLASS_KEYS = ('reads', 'share', 'features_1', 'features_10', 'features_cpm', 'full_cpm_seen', 'features_all_samples')
 CLASS_SATURATION_KEY = 'features_10'
 CLASS_CPM_KEY = 'features_cpm'
-CLASS_SATURATION_KEYS = (CLASS_SATURATION_KEY, CLASS_CPM_KEY)
+CLASS_SATURATION_KEYS = (CLASS_SATURATION_KEY, SEEN_KEY)
 UNASSIGNED = 'unassigned'  # reads without annotation: a share, no features
 
 
@@ -467,14 +499,22 @@ def class_thinning(sequences, reads_in, depths, seed):
 def class_points(per_sample, usable, samples, cpm=CPM):
     """[(depth or FULL, {class: {CLASS_KEYS: value}})] from the lowest depth up, of each sample's class_thinning():
     per class the median over samples of its reads, its share of the sample's reads (unassigned included), its features
-    with at least 1 and 10 reads and with at least `cpm` reads per million of the sample's reads (at least 1 read), and
-    the features with at least 10 reads in every sample. `unassigned` has no features."""
+    with at least 1 and 10 reads and with at least `cpm` reads per million of the sample's reads (at least 1 read), the
+    share of the features the sample has at `cpm` per million or more at its full depth seen with at least SEEN reads
+    (full_cpm_seen), and the features with at least 10 reads in every sample. `unassigned` has no features."""
     classes = sorted({cls for s in samples for table in per_sample[s].values() for cls, _ in table})
+    reference = {}
+    for s in samples:
+        full_table = per_sample[s][FULL]
+        cutoff = cpm * sum(full_table.values()) / 1e6
+        for (c, feature), v in full_table.items():
+            if v >= 1 and v >= cutoff:
+                reference.setdefault((c, s), set()).add(feature)
     points = []
     for depth in usable + [FULL]:
         values = {}
         for cls in classes:
-            reads, shares, f1, f10, fcpm, everywhere = [], [], [], [], [], None
+            reads, shares, f1, f10, fcpm, seen, everywhere = [], [], [], [], [], [], None
             for s in samples:
                 table = per_sample[s][depth]
                 total = sum(table.values())
@@ -484,6 +524,7 @@ def class_points(per_sample, usable, samples, cpm=CPM):
                 f1.append(sum(1 for v in mine.values() if v >= 1))
                 f10.append(sum(1 for v in mine.values() if v >= biological.MIN_READS))
                 fcpm.append(sum(1 for v in mine.values() if v >= 1 and v * 1e6 >= cpm * total))
+                seen.append(seen_share(mine, reference.get((cls, s), set())))
                 level = {feature for feature, v in mine.items() if v >= biological.MIN_READS}
                 everywhere = level if everywhere is None else everywhere & level
             none = cls == UNASSIGNED
@@ -491,6 +532,7 @@ def class_points(per_sample, usable, samples, cpm=CPM):
                            'features_1': '' if none else whole(statistics.median(f1)),
                            'features_10': '' if none else whole(statistics.median(f10)),
                            'features_cpm': '' if none else whole(statistics.median(fcpm)),
+                           'full_cpm_seen': '' if none else median_of(seen),
                            'features_all_samples': '' if none else len(everywhere or ())}
         points.append((depth, values))
     return points
@@ -516,41 +558,46 @@ def class_lines(points, reached, rising, seed, md_table, cpm=CPM):
              '(records naming one), a tRNA gene (tRNA fragments), an rRNA subunit (SILVA copies) or a piRNA cluster; miRNAs by '
              'name. `share` is of the sample\'s reads UNITAS read, unassigned included. Medians per sample, except features in '
              'all samples.'.format(seed), '',
-             '**Depth reaching {} of full-depth detection** (features, median per sample), detected at least {} reads or at '
-             'least {:g} per million of the sample\'s reads (at least 1 read):'.format(
-                 ' and '.join('{:.0%}'.format(s) for s in SATURATION), biological.MIN_READS, cpm), '']
-    titles = {CLASS_SATURATION_KEY: 'at least {} reads'.format(biological.MIN_READS), CLASS_CPM_KEY: 'at least {:g} per million'.format(cpm)}
+             '**Depth reaching {} of full-depth detection** (features, median per sample): at least {} reads, or the share '
+             'of the features at {:g} per million of the sample\'s reads or more at full depth seen with at least {} reads '
+             '(`full_cpm_seen`):'.format(' and '.join('{:.0%}'.format(s) for s in SATURATION), biological.MIN_READS, cpm, SEEN), '']
+    titles = {CLASS_SATURATION_KEY: 'at least {} reads'.format(biological.MIN_READS), SEEN_KEY: 'full depth\'s {:g} per million seen'.format(cpm)}
     full = points[-1][1]
     extra = {'header': ['share at full depth', 'features at full depth ({:g} per million)'.format(cpm)]}
     extra.update({c: ['{:.2%}'.format(full[c]['share']), full[c][CLASS_CPM_KEY]] for c in classes})
     lines += saturation_table(classes, points, reached, rising, titles, md_table, first='class', extra=extra)
-    for key, title in (('share', 'Share of the reads'), (CLASS_CPM_KEY, 'Features at {:g} per million or more'.format(cpm)),
+    for key, title in (('share', 'Share of the reads'),
+                       (SEEN_KEY, 'Share of the full depth\'s features at {:g} per million seen with at least {} reads'.format(cpm, SEEN)),
+                       (CLASS_CPM_KEY, 'Features at {:g} per million or more'.format(cpm)),
                        ('features_10', 'Features with at least {} reads'.format(biological.MIN_READS))):
         lines += ['', '**{}**'.format(title), '', '| depth | ' + ' | '.join(classes) + ' |', '|---|' + '---|' * len(classes)]
         for depth, values in points:
             cells = [values[c][key] for c in classes]
             lines.append('| {} | {} |'.format(label(depth), ' | '.join(
-                '{:.2%}'.format(v) if key == 'share' else str(v) for v in cells)))
+                '{:.2%}'.format(v) if key == 'share' and v != '' else '{:.1%}'.format(v) if key == SEEN_KEY and v != '' else str(v)
+                for v in cells)))
     lines += ['', 'Reads, features with at least 1 read and features in all samples per depth are in `depth_classes.tsv`.']
     return lines
 
 
 def class_plot(points, full_depth, path, top=7, cpm=CPM):
-    """depth_classes.png: per class, features at `cpm` per million or more as a share of their full-depth number, and the
+    """depth_classes.png: per class, the share of the full depth's features at `cpm` per million or more seen with SEEN
+    reads, and the
     class's share of the reads, against depth (log scale); the `top` classes by reads at full depth (assigned ones)."""
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     import classes as class_names
     full = points[-1][1]
-    shown = [c for c in sorted(full, key=lambda c: -full[c]['reads']) if c != UNASSIGNED and full[c][CLASS_CPM_KEY]][:top]
+    shown = [c for c in sorted(full, key=lambda c: -full[c]['reads']) if c != UNASSIGNED and full[c][SEEN_KEY] != ''][:top]
     x = [full_depth if depth == FULL else depth for depth, _ in points]
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.2))
     for i, cls in enumerate(shown):
         colour = class_names.SERIES[i % len(class_names.SERIES)]
-        axes[0].plot(x, [values[cls][CLASS_CPM_KEY] / full[cls][CLASS_CPM_KEY] for _, values in points], marker='o', color=colour, label=cls)
+        axes[0].plot(x, [values[cls][SEEN_KEY] if values[cls][SEEN_KEY] != '' else float('nan') for _, values in points], marker='o',
+                     color=colour, label=cls)
         axes[1].plot(x, [values[cls]['share'] for _, values in points], marker='o', color=colour, label=cls)
-    axes[0].set_title('features at {:g} per million or more, of full depth'.format(cpm))
+    axes[0].set_title('full depth\'s features at {:g} per million, seen ({}+ reads)'.format(cpm, SEEN))
     axes[1].set_title('share of the reads (median)')
     for ax in axes:
         ax.set_xscale('log')

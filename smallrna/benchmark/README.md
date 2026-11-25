@@ -229,15 +229,18 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    - **Per method and depth** (`depth.tsv`, `depth.md`): median miRNA reads per sample; miRNAs with at least 1, 5 and
      10 reads (median per sample) and with at least 10 in every sample; `detected_cpm`, the miRNAs with at least
      `--cpm` reads per million of the sample's miRNA reads (default 0.1, about 3-5 reads at 30-50M miRNA reads; at
-     least 1 read), the same abundance at every depth; the replicate CV, the median over groups of
+     least 1 read), the same abundance at every depth; `full_cpm_seen`, the share of the miRNAs a sample has at
+     `--cpm` per million or more at its full depth that the depth sees with at least 3 reads; the replicate CV, the median over groups of
      the median CPM coefficient of variation of the miRNAs with at least 10 reads in every sample of the group; and
      the distinct read sequences of the isomiR output (median per sample).
    - **Per pair of methods** (`depth_agreement.tsv`): the biological report's agreement (Spearman over miRNAs either
      detects, median |log2 ratio|, top-100 overlap) at each depth.
    - **Saturation:** the depth at which detection reaches 90% and 95% of its full-depth value, interpolated on log
-     depth, for both definitions of detected. On deep data a fixed count (at least 10 reads) keeps rising, as rarer
-     reads, permissive matches among them, pass it; `detected_cpm` levels off once the miRNAs above its abundance
-     are seen, so it is the one that shows saturation.
+     depth, for both definitions of detected: at least 10 reads, and `full_cpm_seen`. On deep data a fixed count
+     keeps rising, as rarer reads, permissive matches among them, pass it; `full_cpm_seen` rises to its full-depth
+     value, so its 90% and 95% depths say how deep a dataset must be to see (with 3 reads) the miRNAs it has above
+     that abundance. `detected_cpm` levels off too, but below the depth where `--cpm` is a read it counts every miRNA
+     with a read and overshoots, so it is reported, not used for saturation.
    - **Plot** (`--plot`, needs matplotlib): `depth.png`, both detections and the replicate CV against depth.
    - **Other RNA classes** (`--classes`, a project that runs UNITAS and keeps its full annotation matrices). UNITAS's
      read sequences are thinned per sample (each sequence's reads as a whole, one generator per sample), then divided
@@ -245,8 +248,8 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
      Ensembl gene (records naming one), a tRNA gene (tRNA fragments), an rRNA subunit (SILVA copies), a piRNA cluster or
      a miRNA. Per class and depth (`depth_classes.tsv`, a section of `depth.md`): reads, share of the reads (unassigned
      included), features with at least 1 and 10 reads and at `--cpm` per million of the sample's reads or more,
-     features with at least 10 in every sample, and the depth at which features reach 90% and 95% of their
-     full-depth number, for both definitions. With `--plot`,
+     `full_cpm_seen` as for miRNAs, features with at least 10 in every sample, and the depth at which features reach
+     90% and 95% of their full-depth value, for both definitions. With `--plot`,
      `depth_classes.png`. The matrices are large at depth (about 5 GB per sample at 75M reads); `--jobs` reads that
      many samples at a time, each in its own process.
    - **Differential expression by depth** (#414), for a dataset that declares `de:`. The evaluation's DE sets (the
