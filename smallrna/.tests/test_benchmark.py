@@ -3412,6 +3412,9 @@ def test_depth_series_thins_every_method_alike_and_finds_saturation():
     detected = [values['a']['detected_10'] for _, values, _ in points]
     assert detected == sorted(detected) and detected[-1] == 12 and detected[0] < 6
     assert points[-1][1]['a']['replicate_cv'] == 0.0 and points[-1][2][('a', 'b')]['spearman_either'] == 1.0   # identical tables
+    # detected at a share of the sample's miRNA reads: 10% of 40,950 is 4,095 reads, which miRNAs 9 to 11 reach
+    assert depth.metrics(common, ['a'], samples, {}, cpm=1e5)['a']['detected_cpm'] == 3
+    assert points[-1][1]['a']['detected_cpm'] == 12   # 0.1 per million: every miRNA with a read
     reached = depth.saturation(points, ['a', 'b'], 1_000_000)
     assert 100_000 < reached['a'][0.9] < 1_000_000 and reached['a'][0.9] <= reached['a'][0.95]
     rising = depth.rise(points, ['a', 'b'], 1_000_000)   # the last step, 100k to 1M: (12 - detected at 100k) / 12 per doubling
@@ -3458,7 +3461,8 @@ def test_depth_of_an_evaluated_knockout_project(tmp_path):
     assert (out / 'depth.tsv').read_text().startswith('method\tdepth\tmetric\tvalue\n') and not (out / 'depth.png').exists()
     report = (out / 'depth.md').read_text()
     assert 'Left out, above the shallowest sample: 1k.' in report and '| full |' in report and '**sequences**' in report
-    assert 'under independent thinning' in report and '| method | 90% | 95% | rise per doubling |' in report
+    assert 'under independent thinning' in report and '| method | at least 10 reads: 90% | at least 10 reads: 95% |' in report
+    assert 'at least 0.1 per million: rise per doubling |' in report and '**detected_cpm**' in report
     write_cutadapt_reports(project / 'data/tmp/smallrna/filter/cutadapt_stages', 'P1', 200)   # the filtering changed since
     result = subprocess.run(command, capture_output=True, text=True, timeout=60)
     assert result.returncode != 0 and 'the cutadapt reports give 500 reads, the evaluation recorded 400' in result.stderr
@@ -3508,16 +3512,19 @@ def test_class_thinning_splits_each_sequences_reads_and_nests_the_depths():
     points = depth.class_points(per_sample, [300, 1500], ['S1', 'S2'])
     assert [d for d, _ in points] == [300, 1500, depth.FULL]
     full = points[-1][1]
-    assert full['miRNA'] == {'reads': 400, 'share': round(400 / 1503, 5), 'features_1': 1, 'features_10': 1, 'features_all_samples': 1}
-    assert full['tRNA']['features_10'] == 0 and full['tRNA']['features_1'] == 1
+    assert full['miRNA'] == {'reads': 400, 'share': round(400 / 1503, 5), 'features_1': 1, 'features_10': 1, 'features_cpm': 1,
+                             'features_all_samples': 1}
+    assert full['tRNA']['features_10'] == 0 and full['tRNA']['features_1'] == 1 and full['tRNA']['features_cpm'] == 1
+    assert depth.class_points(per_sample, [300, 1500], ['S1', 'S2'], cpm=1e5)[-1][1]['tRNA']['features_cpm'] == 0   # 3 of 1503 < 10%
     assert full['unassigned']['features_10'] == '' and full['unassigned']['reads'] == 100
     assert abs(sum(v['share'] for v in full.values()) - 1) < 1e-4
     assert ['miRNA', 'full', 'features_10', 1] in depth.class_rows(points)
     triples = [(d, v, None) for d, v in points]
-    reached = depth.saturation(triples, ['miRNA', 'rRNA'], 3000, key='features_10')
-    lines = depth.class_lines(points, reached, depth.rise(triples, ['miRNA', 'rRNA'], 3000, key='features_10'), 1)
-    text = '\n'.join(lines)
+    reached = {k: depth.saturation(triples, ['miRNA', 'rRNA'], 3000, key=k) for k in depth.CLASS_SATURATION_KEYS}
+    rising = {k: depth.rise(triples, ['miRNA', 'rRNA'], 3000, key=k) for k in depth.CLASS_SATURATION_KEYS}
+    text = '\n'.join(depth.class_lines(points, reached, rising, 1, benchmark.md_table))
     assert '## RNA classes by depth (UNITAS)' in text and '| rRNA | 33.27% | 1 |' in text and '**Share of the reads**' in text
+    assert 'at least 0.1 per million: 90%' in text and '**Features at 0.1 per million or more**' in text
     assert text.index('| rRNA |') < text.index('| miRNA |')   # by reads at full depth
 
 

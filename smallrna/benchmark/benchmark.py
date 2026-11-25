@@ -35,7 +35,7 @@ Usage: benchmark.py fill --dataset YAML --ext-dir DIR [--mirbase-release R]
                             [--set quant.ROUTE.SETTING=VALUE ...]
        benchmark.py evaluate --project DIR [--de] [--mirflowz-gff GFF3] [--unitas-ref DIR] [--bootstrap N] [--seed S]
        benchmark.py summary --projects DIR [DIR ...] --output FILE.md|FILE.html
-       benchmark.py depth --project DIR [--output DIR] [--depths 500k,1M,...] [--seed S] [--plot] [--classes [--jobs N]]
+       benchmark.py depth --project DIR [--output DIR] [--depths 500k,1M,...] [--seed S] [--cpm X] [--plot] [--classes [--jobs N]]
 """
 import argparse
 import collections
@@ -2798,10 +2798,11 @@ def depth(args):
         isomir_rows = [tuple(r[k] for k in adapters.ISOMIR_COLUMNS[:-1]) + (float(r['count']),) for r in read_tsv(bench / 'isomirs.tsv')]
     tables, usable = depth_series.thinned(common, samples, reads_in, depths, args.seed, isomir_rows)
     skipped = [d for d in depths if d not in usable]
-    points = depth_series.series_points(tables, usable, methods, samples, groups, isomir_rows)
+    points = depth_series.series_points(tables, usable, methods, samples, groups, isomir_rows, args.cpm)
     full = round(statistics.median(reads_in.values()))
     equal = len(set(reads_in.values())) == 1  # the full depth is a common measurement only then
-    reached, rising = depth_series.saturation(points, methods, full, equal=equal), depth_series.rise(points, methods, full)
+    reached = {key: depth_series.saturation(points, methods, full, key=key, equal=equal) for key in depth_series.SATURATION_KEYS}
+    rising = {key: depth_series.rise(points, methods, full, key=key) for key in depth_series.SATURATION_KEYS}
     de_lines, de_rows = depth_de(args, out, spec, table, methods, tables, usable) if 'de' in spec else ([], None)
     out.mkdir(parents=True, exist_ok=True)
     rows, pairs = depth_series.tables(points, methods)
@@ -2809,16 +2810,16 @@ def depth(args):
     write_tsv(out / 'depth_agreement.tsv', ['method_a', 'method_b', 'depth', 'metric', 'value'], pairs)
     if de_rows is not None:
         write_tsv(out / 'depth_de.tsv', ['method', 'depth', 'set', 'metric', 'value'], de_rows)
-    lines = depth_series.report(spec['name'], points, methods, skipped, reached, rising, reads_in, args.seed, md_table) + de_lines
+    lines = depth_series.report(spec['name'], points, methods, skipped, reached, rising, reads_in, args.seed, md_table, args.cpm) + de_lines
     if args.classes:
         class_points, class_reached, class_rising = depth_classes(args, project, spec, samples, reads_in, usable, full, equal)
         write_tsv(out / 'depth_classes.tsv', ['class', 'depth', 'metric', 'value'], depth_series.class_rows(class_points))
-        lines += depth_series.class_lines(class_points, class_reached, class_rising, args.seed)
+        lines += depth_series.class_lines(class_points, class_reached, class_rising, args.seed, md_table, args.cpm)
     (out / 'depth.md').write_text('\n'.join(lines) + '\n')
     if args.plot:
-        depth_series.plot(points, methods, full, out / 'depth.png')
+        depth_series.plot(points, methods, full, out / 'depth.png', args.cpm)
         if args.classes:
-            depth_series.class_plot(class_points, full, out / 'depth_classes.png')
+            depth_series.class_plot(class_points, full, out / 'depth_classes.png', cpm=args.cpm)
     print(out / 'depth.md')
 
 
@@ -2845,11 +2846,11 @@ def depth_classes(args, project, spec, samples, reads_in, usable, full, equal):
             per_sample = dict(workers.map(class_depth_sample, jobs, chunksize=1))
     else:
         per_sample = dict(map(class_depth_sample, jobs))
-    points = depth_series.class_points(per_sample, usable, samples)
+    points = depth_series.class_points(per_sample, usable, samples, args.cpm)
     names = [c for c in points[-1][1] if c != depth_series.UNASSIGNED]
     triples = [(depth, values, None) for depth, values in points]
-    reached = depth_series.saturation(triples, names, full, key=depth_series.CLASS_SATURATION_KEY, equal=equal)
-    rising = depth_series.rise(triples, names, full, key=depth_series.CLASS_SATURATION_KEY)
+    reached = {key: depth_series.saturation(triples, names, full, key=key, equal=equal) for key in depth_series.CLASS_SATURATION_KEYS}
+    rising = {key: depth_series.rise(triples, names, full, key=key) for key in depth_series.CLASS_SATURATION_KEYS}
     return points, reached, rising
 
 
@@ -3072,6 +3073,9 @@ def main():
                    '(its full annotation matrices, kept by the run): depth_classes.tsv, a section of depth.md and with --plot '
                    'depth_classes.png')
     d.add_argument('--jobs', type=int, default=1, help='--classes: samples read at a time (default %(default)s)')
+    d.add_argument('--cpm', type=float, default=depth_series.CPM, help='detection that scales with depth: at least this many reads '
+                   'per million of the sample\'s reads (miRNA reads for miRNAs; at least 1 read), next to the fixed counts '
+                   '(default %(default)s, about 3-5 reads at 30-50M miRNA reads)')
     m = sub.add_parser('imbalance', help='differential expression under controlled depth imbalance of an evaluated biological '
                        'project, by thinning its count tables unevenly (#488)')
     m.add_argument('--project', required=True)
