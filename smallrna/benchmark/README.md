@@ -218,7 +218,7 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    or mixture project, from its tables, without running the workflow again:
 
    ```bash
-   python smallrna/benchmark/benchmark.py depth --project <project> [--output <dir>] [--depths 500k,1M,2M,4M,8M,16M,32M] [--seed 1] [--plot]
+   python smallrna/benchmark/benchmark.py depth --project <project> [--output <dir>] [--depths 500k,1M,2M,4M,8M,16M,32M] [--seed 1] [--plot] [--classes [--jobs N]]
    ```
 
    Each method's common table (and isomiR output) is thinned binomially to each depth: every read is kept with
@@ -235,6 +235,15 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    - **Saturation:** the depth at which detection (at least 10 reads) reaches 90% and 95% of its full-depth value,
      interpolated on log depth.
    - **Plot** (`--plot`, needs matplotlib): `depth.png`, detection and replicate CV against depth.
+   - **Other RNA classes** (`--classes`, a project that runs UNITAS and keeps its full annotation matrices). UNITAS's
+     read sequences are thinned per sample (each sequence's reads as a whole, one generator per sample), then divided
+     over their features as UNITAS divides them, so a depth is a real subsample of UNITAS's reads. A feature is an
+     Ensembl gene (records naming one), a tRNA gene (tRNA fragments), an rRNA subunit (SILVA copies), a piRNA cluster or
+     a miRNA. Per class and depth (`depth_classes.tsv`, a section of `depth.md`): reads, share of the reads (unassigned
+     included), features with at least 1 and 10 reads, features with at least 10 in every sample, and the depth at
+     which features with at least 10 reads reach 90% and 95% of their full-depth number. With `--plot`,
+     `depth_classes.png`. The matrices are large at depth (about 5 GB per sample at 75M reads); `--jobs` reads that
+     many samples at a time, each in its own process.
    - **Differential expression by depth** (#414), for a dataset that declares `de:`. The evaluation's DE sets (the
      contrast, each level of `within`, the null comparisons of #449) are tested on each depth's thinned tables (the
      draw of the detection metrics) and on the full depth. The tests are de.R's, over the full depth's miRNAs, with

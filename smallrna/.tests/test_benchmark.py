@@ -3438,6 +3438,10 @@ def test_depth_plot(tmp_path):
     points, _ = depth.series(common, ['a'], samples, dict.fromkeys(samples, 100_000), {'A': samples}, [1000, 10_000], seed=1)
     depth.plot(points, ['a'], 100_000, tmp_path / 'depth.png')
     assert (tmp_path / 'depth.png').read_bytes()[:4] == b'\x89PNG'
+    sequences = [(1000, {('rRNA', 'SSU'): 1.0}), (400, {('miRNA', 'miR-1'): 1.0}), (100, {('unassigned', 'unassigned'): 1.0})]
+    per_sample = {s: depth.class_thinning(iter(sequences), 3000, [300], seed=[1, i]) for i, s in enumerate(samples)}
+    depth.class_plot(depth.class_points(per_sample, [300], samples), 3000, tmp_path / 'depth_classes.png')
+    assert (tmp_path / 'depth_classes.png').read_bytes()[:4] == b'\x89PNG'
 
 
 def test_depth_of_an_evaluated_knockout_project(tmp_path):
@@ -3462,6 +3466,83 @@ def test_depth_of_an_evaluated_knockout_project(tmp_path):
     assert not (project / 'benchmark/depth').exists() and not (out / 'de').exists()   # no `de:`, no DE by depth (#414)
     result = subprocess.run(command + ['--de'], capture_output=True, text=True, timeout=60)
     assert result.returncode != 0 and '--de: ko declares no `de:`' in result.stderr
+
+
+def test_unitas_features_of_the_annotations():
+    """#409: the feature a class's detection counts, from UNITAS's annotations of a read sequence."""
+    import classes
+    vocabulary = {'rRNA', 'lncRNA', 'protein_coding', 'Mt_rRNA', 'snoRNA', 'low_complexity'}
+    cases = {
+        'rRNA|SSU:CT476836.21467.23325 (517-535)': ('rRNA', 'SSU'),
+        'rRNA|LSU:LMBB01000097.459.3801': ('rRNA', 'LSU'),
+        'lncRNA|LINC01255-ENSG00000267252.7_(12) (290-306)': ('lncRNA', 'ENSG00000267252'),
+        'Mt_rRNA|MT-RNR2-ENSG00000210082.2 (786-804)': ('rRNA', 'ENSG00000210082'),
+        'protein_coding|RAB27A (2942-2959)': ('mRNA', 'RAB27A'),
+        "5p-tRF from MT-TS1-ENSG00000210151.2 (1-18)": ('tRNA', 'ENSG00000210151'),
+        'tRF-1 from MT-TW (34-53)': ('tRNA', 'MT-TW'),
+        "3'tR-half from tRNA-Gly-GCC-2-1 (40-70)": ('tRNA', 'tRNA-Gly-GCC-2-1'),
+        'piR-cluster:Hsap_0125_2:24815296..24831604(17A->C)': ('piRNA', 'Hsap_0125_2'),
+        'miR-320a-3p': ('miRNA', 'miR-320a-3p'),
+        'low_complexity': ('low complexity', 'low_complexity'),
+    }
+    for annotation, expected in cases.items():
+        assert classes.unitas_feature(annotation, vocabulary) == expected, annotation
+
+
+def test_class_thinning_splits_each_sequences_reads_and_nests_the_depths():
+    """#409: each read sequence's reads thinned as a whole, then divided over its features as UNITAS divides them;
+    each depth a subset of the one above; the class metrics per depth."""
+    import depth
+    sequences = [(1000, {('rRNA', 'SSU'): 0.5, ('lncRNA', 'G1'): 0.5}), (400, {('miRNA', 'miR-1'): 1.0}),
+                 (100, {('unassigned', 'unassigned'): 1.0}), (3, {('tRNA', 'T1'): 1.0})]
+    out = depth.class_thinning(iter(sequences), 3000, [300, 1500], seed=[1, 0])
+    assert out[depth.FULL] == {('rRNA', 'SSU'): 500.0, ('lncRNA', 'G1'): 500.0, ('miRNA', 'miR-1'): 400.0,
+                               ('unassigned', 'unassigned'): 100.0, ('tRNA', 'T1'): 3.0}
+    half = out[1500]
+    assert half[('rRNA', 'SSU')] == half[('lncRNA', 'G1')] and 200 < half[('rRNA', 'SSU')] < 300   # one sequence, split evenly
+    assert all(out[300].get(k, 0) <= half.get(k, 0) <= out[depth.FULL][k] for k in out[depth.FULL])
+    assert depth.class_thinning(iter(sequences), 3000, [300, 1500], seed=[1, 0]) == out   # the seed fixes the draw
+    per_sample = {'S1': out, 'S2': depth.class_thinning(iter(sequences), 3000, [300, 1500], seed=[1, 1])}
+    points = depth.class_points(per_sample, [300, 1500], ['S1', 'S2'])
+    assert [d for d, _ in points] == [300, 1500, depth.FULL]
+    full = points[-1][1]
+    assert full['miRNA'] == {'reads': 400, 'share': round(400 / 1503, 5), 'features_1': 1, 'features_10': 1, 'features_all_samples': 1}
+    assert full['tRNA']['features_10'] == 0 and full['tRNA']['features_1'] == 1
+    assert full['unassigned']['features_10'] == '' and full['unassigned']['reads'] == 100
+    assert abs(sum(v['share'] for v in full.values()) - 1) < 1e-4
+    assert ['miRNA', 'full', 'features_10', 1] in depth.class_rows(points)
+    triples = [(d, v, None) for d, v in points]
+    reached = depth.saturation(triples, ['miRNA', 'rRNA'], 3000, key='features_10')
+    lines = depth.class_lines(points, reached, depth.rise(triples, ['miRNA', 'rRNA'], 3000, key='features_10'), 1)
+    text = '\n'.join(lines)
+    assert '## RNA classes by depth (UNITAS)' in text and '| rRNA | 33.27% | 1 |' in text and '**Share of the reads**' in text
+    assert text.index('| rRNA |') < text.index('| miRNA |')   # by reads at full depth
+
+
+def test_depth_classes_of_an_evaluated_project(tmp_path):
+    """benchmark.py depth --classes end to end: UNITAS's full annotation matrices thinned per sample into
+    depth_classes.tsv and a section of depth.md; it needs the matrices."""
+    project = knockout_project(tmp_path)
+    assert evaluate_cmd(project).returncode == 0
+    samples = [row['sample'] for row in benchmark.read_tsv(project / 'benchmark/samples.tsv')]
+    out = tmp_path / 'depth'
+    command = [sys.executable, str(BENCH / 'benchmark.py'), 'depth', '--project', str(project), '--depths', '20,50', '--output', str(out),
+               '--classes', '--jobs', '2']
+    result = subprocess.run(command, capture_output=True, text=True, timeout=60)
+    assert result.returncode != 0 and '--classes: no UNITAS full annotation matrix' in result.stderr
+    for s in samples:
+        folder = project / 'data/tmp/smallrna/quant/unitas/unitas' / s
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / 'unitas.annotation_summary.txt').write_text('miRNA\t60\nrRNA\t20\n\tSSU\t20\n')
+        (folder / 'unitas.full_annotation_matrix.txt').write_text(
+            'sequence\treads\tannotation(s)\nTAGCAGCACGTAAATATTGGCG\t60\tmiR-16-5p\t\nGTACGTACGTAAAGCC\t20\trRNA|SSU:X1.1.9 (3-18)\t'
+            'rRNA|SSU:X2.1.9 (3-18)\nACGTTTGACCAGTACG\t5\t\n')
+    result = subprocess.run(command, capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    rows = (out / 'depth_classes.tsv').read_text()
+    assert rows.startswith('class\tdepth\tmetric\tvalue\n') and 'rRNA\tfull\tfeatures_10\t1\n' in rows and 'miRNA\tfull\treads\t60\n' in rows
+    assert 'unassigned\tfull\treads\t5\n' in rows
+    assert '## RNA classes by depth (UNITAS)' in (out / 'depth.md').read_text()
 
 
 def test_tesmall_rnacentral_is_a_settings_variant():

@@ -161,6 +161,65 @@ def unitas(quant, samples, skip=frozenset()):
     return out
 
 
+COORDINATES = re.compile(r'\s*\(\d+-\d+\)$')       # ` (517-535)`: where the read lies in the record
+ENSEMBL_GENE = re.compile(r'ENS[A-Z]*G\d+')
+SILVA_SUBUNIT = re.compile(r'^(SSU|LSU):')          # SILVA records: one per genomic copy, counted by subunit
+PIRNA_CLUSTER = re.compile(r'^piR-cluster:([^:]+)')  # `piR-cluster:Hsap_0125_2:24815296..24831604(17A->C)`
+UNASSIGNED = ('unassigned', 'unassigned')
+
+
+def unitas_feature(annotation, vocabulary):
+    """(common class, feature) of one UNITAS annotation of a read sequence (#409): the feature a class's detection
+    counts. Ensembl records (`class|NAME-ENSG… (a-b)`) and tRNA fragments (`5p-tRF from MT-TS1-ENSG… (a-b)`) count
+    by Ensembl gene where the record names one, else by record name without coordinates; SILVA rRNA copies by
+    subunit (SSU, LSU); piRNA clusters by cluster; miRNAs and the rest by name."""
+    annotation = annotation.strip()
+    head, bar, record = annotation.partition('|')
+    head = head.strip()
+    cls = common(unitas_native(head, vocabulary))
+    if bar:
+        name = COORDINATES.sub('', record.strip())
+        subunit = SILVA_SUBUNIT.match(name)
+        if subunit:
+            return cls, subunit.group(1)
+    elif ' from ' in head:
+        name = COORDINATES.sub('', head.split(' from ', 1)[1])
+    else:
+        cluster = PIRNA_CLUSTER.match(head)
+        return cls, cluster.group(1) if cluster else COORDINATES.sub('', head)
+    gene = ENSEMBL_GENE.search(name)
+    return cls, gene.group(0) if gene else name
+
+
+def unitas_sequences(quant, sample):
+    """Iterator of (reads, {(class, feature): share}) over a sample's UNITAS read sequences (#409), from its full
+    annotation matrix: each annotated sequence's reads with the share each feature gets under UNITAS's equal split over
+    its annotations (one feature's records together). A sequence without annotation is ('unassigned', 'unassigned'),
+    so the reads of all rows are UNITAS's input reads."""
+    folder = Path(quant) / 'unitas' / 'unitas' / sample
+    vocabulary = set()
+    with open(folder / 'unitas.annotation_summary.txt') as fh:
+        for line in fh:
+            if line.strip() and not line[0].isspace():
+                vocabulary.add(line.split('\t')[0])
+    cache = {}  # by the annotation without its coordinates, so one entry per record rather than per read position
+    with open(folder / 'unitas.full_annotation_matrix.txt') as fh:
+        next(fh, None)
+        for line in fh:
+            fields = line.rstrip('\n').split('\t')
+            if len(fields) < 2:
+                continue
+            annotations = [a for a in fields[2:] if a.strip()]
+            share = collections.Counter()
+            for a in annotations:
+                record = a.rsplit(' (', 1)[0] if a.endswith(')') and ' (' in a else a
+                key = cache.get(record)
+                if key is None:
+                    key = cache[record] = unitas_feature(record, vocabulary)
+                share[key] += 1 / len(annotations)
+            yield int(round(_float(fields[1]))), share or {UNASSIGNED: 1.0}
+
+
 def mirge3_tables(quant):
     """(mapped rows, unmapped rows, class columns, sample columns) of miRge3's mapped.csv and unmapped.csv."""
     tables = []

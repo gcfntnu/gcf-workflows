@@ -384,6 +384,143 @@ def plot(points, methods, full_depth, path):
         ax.set_xscale('log')
         ax.set_xlabel('reads sequenced per sample')
         ax.set_title(title)
+        ax.set_ylim(bottom=0)  # from 0: an autoscaled CV axis turns differences in the third decimal into a curve
+    axes[0].legend(fontsize=8)
+    fig.tight_layout()
+    fig.savefig(path, dpi=120)
+    plt.close(fig)
+
+
+# --- Other RNA classes by depth (#409): UNITAS's read sequences thinned, each sequence's reads split over its features
+# as UNITAS splits them (classes.unitas_sequences), so a depth is a real subsample of UNITAS's reads.
+
+CLASS_KEYS = ('reads', 'share', 'features_1', 'features_10', 'features_all_samples')
+CLASS_SATURATION_KEY = 'features_10'
+UNASSIGNED = 'unassigned'  # reads without annotation: a share, no features
+
+
+def class_thinning(sequences, reads_in, depths, seed):
+    """{depth or FULL: {(class, feature): reads}} of one sample: `sequences` (reads, {(class, feature): share}) thinned
+    binomially from the full depth down, each depth from the one above (probability depth / the depth above, the full
+    depth being the sample's sequenced reads `reads_in`), with a generator seeded with `seed`. Each sequence's whole
+    reads are thinned, then divided by its shares."""
+    counts, seq_of, feature_of, weight, keys = [], [], [], [], {}
+    for i, (reads, share) in enumerate(sequences):
+        counts.append(reads)
+        for key, w in share.items():
+            seq_of.append(i)
+            feature_of.append(keys.setdefault(key, len(keys)))
+            weight.append(w)
+    counts = np.array(counts, dtype=np.int64)
+    seq_of, feature_of, weight = np.array(seq_of, dtype=np.int64), np.array(feature_of, dtype=np.int64), np.array(weight)
+    names = list(keys)
+
+    def by_feature(kept):
+        totals = np.bincount(feature_of, weights=kept[seq_of] * weight, minlength=len(names)) if len(names) else np.zeros(0)
+        return {names[j]: float(v) for j in np.nonzero(totals > 1e-9)[0] for v in (totals[j],)}
+
+    rng = np.random.default_rng(seed)
+    out, kept, above = {FULL: by_feature(counts)}, counts, reads_in
+    for depth in sorted(depths, reverse=True):
+        kept = rng.binomial(kept, depth / above)
+        above = depth
+        out[depth] = by_feature(kept)
+    return out
+
+
+def class_points(per_sample, usable, samples):
+    """[(depth or FULL, {class: {CLASS_KEYS: value}})] from the lowest depth up, of each sample's class_thinning():
+    per class the median over samples of its reads, its share of the sample's reads (unassigned included), its features
+    with at least 1 and 10 reads, and the features with at least 10 reads in every sample. `unassigned` has no
+    features."""
+    classes = sorted({cls for s in samples for table in per_sample[s].values() for cls, _ in table})
+    points = []
+    for depth in usable + [FULL]:
+        values = {}
+        for cls in classes:
+            reads, shares, f1, f10, everywhere = [], [], [], [], None
+            for s in samples:
+                table = per_sample[s][depth]
+                total = sum(table.values())
+                mine = {feature: v for (c, feature), v in table.items() if c == cls}
+                reads.append(sum(mine.values()))
+                shares.append(sum(mine.values()) / total if total else 0.0)
+                f1.append(sum(1 for v in mine.values() if v >= 1))
+                f10.append(sum(1 for v in mine.values() if v >= biological.MIN_READS))
+                level = {feature for feature, v in mine.items() if v >= biological.MIN_READS}
+                everywhere = level if everywhere is None else everywhere & level
+            none = cls == UNASSIGNED
+            values[cls] = {'reads': round(statistics.median(reads)), 'share': round(statistics.median(shares), 5),
+                           'features_1': '' if none else whole(statistics.median(f1)),
+                           'features_10': '' if none else whole(statistics.median(f10)),
+                           'features_all_samples': '' if none else len(everywhere or ())}
+        points.append((depth, values))
+    return points
+
+
+def whole(value):
+    """A median as an int when it is whole (1, not 1.0), else as it is (1.5)."""
+    return int(value) if float(value).is_integer() else value
+
+
+def class_rows(points):
+    """depth_classes.tsv rows: class, depth, metric, value."""
+    return [[cls, label(depth), key, value] for depth, values in points for cls in values for key, value in values[cls].items()]
+
+
+def class_lines(points, reached, rising, seed):
+    """depth.md's section on the other RNA classes."""
+    classes = sorted(points[-1][1], key=lambda c: -points[-1][1][c]['reads'])
+    last = points[-2][0] if len(points) > 1 else FULL
+    lines = ['', '## RNA classes by depth (UNITAS)', '',
+             'UNITAS\'s read sequences (its full annotation matrix) thinned binomially per sample (seed {}, one generator per '
+             'sample, apart from the miRNA tables\' draw above), from the full depth down, each sequence\'s reads then divided '
+             'over its features as UNITAS divides them: a real subsample of UNITAS\'s reads. A feature is an Ensembl gene '
+             '(records naming one), a tRNA gene (tRNA fragments), an rRNA subunit (SILVA copies) or a piRNA cluster; miRNAs by '
+             'name. `share` is of the sample\'s reads UNITAS read, unassigned included. Medians per sample, except features in '
+             'all samples.'.format(seed), '',
+             '**Depth reaching {} of full-depth detection** (features with at least {} reads, median per sample):'.format(
+                 ' and '.join('{:.0%}'.format(s) for s in SATURATION), biological.MIN_READS), '']
+    lines += ['| class | share at full depth | features at full depth | {} | rise per doubling |'.format(
+        ' | '.join('{:.0%}'.format(s) for s in SATURATION)), '|---|---|---|' + '---|' * len(SATURATION) + '---|']
+    for cls in classes:
+        full = points[-1][1][cls]
+        cells = [saturation_cell(reached[cls][s], last) for s in SATURATION] if cls in reached else [''] * len(SATURATION)
+        rate = rising.get(cls, '')
+        lines.append('| {} | {:.2%} | {} | {} | {} |'.format(cls, full['share'], full['features_10'], ' | '.join(cells),
+                                                            '{:.1%}'.format(rate) if rate != '' else ''))
+    for key, title in (('share', 'Share of the reads'), ('features_10', 'Features with at least {} reads'.format(biological.MIN_READS))):
+        lines += ['', '**{}**'.format(title), '', '| depth | ' + ' | '.join(classes) + ' |', '|---|' + '---|' * len(classes)]
+        for depth, values in points:
+            cells = [values[c][key] for c in classes]
+            lines.append('| {} | {} |'.format(label(depth), ' | '.join(
+                '{:.2%}'.format(v) if key == 'share' else str(v) for v in cells)))
+    lines += ['', 'Reads, features with at least 1 read and features in all samples per depth are in `depth_classes.tsv`.']
+    return lines
+
+
+def class_plot(points, full_depth, path, top=7):
+    """depth_classes.png: per class, features with at least 10 reads as a share of their full-depth number, and the
+    class's share of the reads, against depth (log scale); the `top` classes by reads at full depth (assigned ones)."""
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    import classes as class_names
+    full = points[-1][1]
+    shown = [c for c in sorted(full, key=lambda c: -full[c]['reads']) if c != UNASSIGNED and full[c]['features_10']][:top]
+    x = [full_depth if depth == FULL else depth for depth, _ in points]
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4.2))
+    for i, cls in enumerate(shown):
+        colour = class_names.SERIES[i % len(class_names.SERIES)]
+        axes[0].plot(x, [values[cls]['features_10'] / full[cls]['features_10'] for _, values in points], marker='o', color=colour, label=cls)
+        axes[1].plot(x, [values[cls]['share'] for _, values in points], marker='o', color=colour, label=cls)
+    axes[0].set_title('features with at least {} reads, of full depth'.format(biological.MIN_READS))
+    axes[1].set_title('share of the reads (median)')
+    for ax in axes:
+        ax.set_xscale('log')
+        ax.set_xlabel('reads sequenced per sample')
+        ax.set_ylim(bottom=0)
+    axes[1].set_yscale('symlog', linthresh=0.01)
     axes[0].legend(fontsize=8)
     fig.tight_layout()
     fig.savefig(path, dpi=120)
