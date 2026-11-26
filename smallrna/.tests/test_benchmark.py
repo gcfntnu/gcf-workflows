@@ -1321,7 +1321,7 @@ def test_summary_across_kinds_and_method_sets(tmp_path):
     assert sorted((p, p.stat().st_mtime_ns) for project in projects for p in project.rglob('*')) == before   # nothing written into the projects
     text = output.read_text()
     assert [line for line in text.splitlines() if line.startswith('## ')] == [
-        '## Synthetic data', '## Equimolar pools', '## Ratiometric pools', '## Biological samples']
+        '## Overview', '## Synthetic data', '## Equimolar pools', '## Ratiometric pools', '## Biological samples']
     fixed = '| project | dataset | kit | samples | reads processed | methods |'
     # synthetic: a metric no project has (unplaced) is left out, one a method lacks is an empty cell
     assert fixed + ' recovered: unitas | recovered: tesmall | exact: unitas | misassigned: unitas | misassigned: tesmall |' in text
@@ -1334,6 +1334,29 @@ def test_summary_across_kinds_and_method_sets(tmp_path):
     assert '| ratio_pool | Kit A | 2 | 20 | unitas | 0.88 | 0.89 | 0.05 | 0.06 |' in text
     assert '| plasma | Kit A | 3 lanes of 2 samples | 300 | unitas, mirge3 | 742128 | 714978 |  | 349.0 | 373.5 |  |' in text
     assert '| plasma | Kit A | 2 | 300 | unitas, mirge3, mirflowz | 2966861 | 2858766 | 2861471 | 581.5 | 640.5 | 435.5 |' in text
+
+
+def test_overview_bins_values_by_fixed_cut_offs_and_takes_columns_from_what_projects_hold(tmp_path):
+    """#338: the summary's overview, one row per route and one column per criterion, each cell binned by fixed
+    cut-offs; good is inclusive and poor strict in both directions; a column only where a project holds its metric."""
+    import overview
+    import summary
+    assert [overview.bin_of(v, overview.UP, 0.95, 0.80) for v in (0.95, 0.9499, 0.80, 0.7999)] == ['good', 'intermediate', 'intermediate', 'poor']
+    assert [overview.bin_of(v, overview.DOWN, 1.05, 1.20) for v in (1.05, 1.0501, 1.20, 1.2001)] == ['good', 'intermediate', 'intermediate', 'poor']
+    assert overview.kit_label('Bioo Scientific NEXTflex Small RNA-Seq Kit v3') == 'NEXTflex v3'
+    projects = summary_projects(tmp_path)
+    routes, cols, cells, used = overview.build(projects)
+    # only the equimolar pools hold an overview metric here (within_2fold), one column per kit
+    assert [(c[0], c[1]) for c in cols] == [('Equimolar pools', 'within 2-fold Kit A'), ('Equimolar pools', 'within 2-fold Kit B')]
+    assert used == [['eq3'], ['eq2']]
+    assert routes[:3] == ['unitas', 'tesmall', 'mirge3'] and cells[('unitas', 0)] == ('0.77', 'poor') and cells[('mirge3', 1)] == ('0.85', 'intermediate')
+    assert cells[('tesmall', 0)] == ('n/a', None)   # a route the pool does not have
+    text = summary.markdown(summary.summarize(projects, tmp_path), (routes, cols, cells, used))
+    assert '## Overview' in text and '| unitas | 0.77 (poor) | 0.86 (intermediate) |' in text
+    assert 'Cut-offs (good / poor): Equimolar pools within 2-fold Kit A ≥0.95 / &lt;0.80' in text
+    page = summary.html_page(summary.summarize(projects, tmp_path), (routes, cols, cells, used))
+    assert '<td class="num poor">0.77</td>' in page and '<th colspan="2">Equimolar pools</th>' in page
+    assert overview.build(projects[3:4]) is None   # the ratiometric pool here has no median_abs_error: no overview
 
 
 def test_summary_html_is_self_contained_and_bad_inputs_fail(tmp_path):
@@ -1632,10 +1655,10 @@ def test_summary_follows_links_inside_link_targets_and_publishes_to_checked_pare
     alias.symlink_to(storage)
     render = summary.markdown
 
-    def render_after_alias_change(sections):
+    def render_after_alias_change(sections, view=None):
         alias.unlink()
         alias.symlink_to(project)
-        return render(sections)
+        return render(sections, view)
 
     monkeypatch.setattr(summary, 'markdown', render_after_alias_change)
     published = summary.write([project], alias / 'overview.md')
@@ -1745,10 +1768,10 @@ def test_write_rechecks_current_input_entries_before_publishing(tmp_path, monkey
     original = destination.read_bytes()
     render = summary.markdown
 
-    def render_after_report_relocation(sections):
+    def render_after_report_relocation(sections, view=None):
         report.unlink()
         report.symlink_to(destination)
-        return render(sections)
+        return render(sections, view)
 
     monkeypatch.setattr(summary, 'markdown', render_after_report_relocation)
     with pytest.raises(ValueError, match='aliases one of its inputs'):

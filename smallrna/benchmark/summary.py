@@ -20,6 +20,7 @@ import sys
 import urllib.parse
 
 import evaluation
+import overview as overview_table
 
 import yaml
 
@@ -333,8 +334,24 @@ def markdown_cell(value):
     return re.sub(r'(?<![a-zA-Z0-9])_|_(?![a-zA-Z0-9])', '&#95;', text)
 
 
-def markdown(sections):
-    lines = ['# Small-RNA benchmark summary', '', INTRO]
+def overview_markdown(view):
+    """The overview's lines (overview.build), or [] without one: each cell the value and its bin."""
+    if view is None:
+        return []
+    routes, cols, cells, _ = view
+    header = ['route'] + ['{}: {} {}'.format(c[0], c[1], overview_table.ARROW[c[2]]).strip() for c in cols]
+    lines = ['', '## Overview', '', overview_table.NOTE, '', '| ' + ' | '.join(map(markdown_cell, header)) + ' |', '|---' * len(header) + '|']
+    for r in routes:
+        texts = []
+        for j, c in enumerate(cols):
+            text, tag = cells[(r, j)]
+            texts.append(text if tag in (None, text) else '{} ({})'.format(text, tag))
+        lines.append('| ' + ' | '.join(map(markdown_cell, [r] + texts)) + ' |')
+    return lines + ['', 'Cut-offs (good / poor): ' + markdown_cell(overview_table.cutoffs(cols)) + '.']
+
+
+def markdown(sections, view=None):
+    lines = ['# Small-RNA benchmark summary', '', INTRO] + overview_markdown(view)
     for title, note, metrics, rows, seeds, variants in sections:
         header = FIXED + ['{}: {}'.format(k, m) for k, ms in metrics for m in ms]
         lines += ['', '## ' + title, '', note, '', '| ' + ' | '.join(map(markdown_cell, header)) + ' |', '|---' * len(header) + '|']
@@ -369,6 +386,16 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
 th, td { border: 1px solid var(--line); padding: 3px 8px; white-space: nowrap; }
 thead th { background: var(--head); }
 td.num { text-align: right; }
+:root { --good: #2a78d6; --good-fg: #ffffff; --mid: #c6dbf5; --mid-fg: #1f2328; --poor: #f6d8c8; --poor-fg: #1f2328; --na: #eeeeee; }
+@media (prefers-color-scheme: dark) {
+  :root { --good: #3987e5; --good-fg: #ffffff; --mid: #2b4a70; --mid-fg: #e6edf3; --poor: #6b3a26; --poor-fg: #f6e2d8; --na: #262c32; }
+}
+table.overview td.good, .key.good { background: var(--good); color: var(--good-fg); }
+table.overview td.intermediate, .key.intermediate { background: var(--mid); color: var(--mid-fg); }
+table.overview td.poor, .key.poor { background: var(--poor); color: var(--poor-fg); }
+table.overview td.na { background: var(--na); color: var(--muted); }
+table.overview th.route { text-align: left; }
+.key { display: inline-block; padding: 1px 8px; margin-right: 6px; border-radius: 3px; }
 '''
 
 
@@ -378,8 +405,36 @@ def inline_code(text):
     return ''.join('<code>{}</code>'.format(p) if i % 2 else p for i, p in enumerate(parts))
 
 
-def html_page(sections):
-    body = ['<h1>Small-RNA benchmark summary</h1>', '<p>{}</p>'.format(inline_code(INTRO))]
+def overview_html(view):
+    """The overview's HTML (overview.build), or [] without one: each cell coloured by its bin."""
+    if view is None:
+        return []
+    routes, cols, cells, _ = view
+    groups = []
+    for c in cols:
+        if groups and groups[-1][0] == c[0]:
+            groups[-1][1] += 1
+        else:
+            groups.append([c[0], 1])
+    top = '<th rowspan="2">route</th>' + ''.join('<th colspan="{}">{}</th>'.format(n, html.escape(g)) for g, n in groups)
+    sub = ''.join('<th>{} {}</th>'.format(html.escape(c[1]), overview_table.ARROW[c[2]]) for c in cols)
+    trs = []
+    for r in routes:
+        tds = []
+        for j in range(len(cols)):
+            text, tag = cells[(r, j)]
+            css = tag if tag in (overview_table.GOOD, overview_table.INTERMEDIATE, overview_table.POOR) else 'na' if tag or text == 'n/a' else ''
+            tds.append('<td class="num {}">{}</td>'.format(css, html.escape(text)))
+        trs.append('<tr><th class="route">{}</th>{}</tr>'.format(html.escape(r), ''.join(tds)))
+    legend = ''.join('<span class="key {}">{}</span>'.format(k, k) for k in (overview_table.GOOD, overview_table.INTERMEDIATE, overview_table.POOR))
+    return ['<h2>Overview</h2>', '<p>{}</p>'.format(inline_code(overview_table.NOTE)),
+            '<div class="scroll"><table class="overview"><thead><tr>{}</tr><tr>{}</tr></thead><tbody>'.format(top, sub)] + trs + [
+            '</tbody></table></div>', '<p class="legend">{}</p>'.format(legend),
+            '<p>Cut-offs (good / poor): {}.</p>'.format(html.escape(overview_table.cutoffs(cols)))]
+
+
+def html_page(sections, view=None):
+    body = ['<h1>Small-RNA benchmark summary</h1>', '<p>{}</p>'.format(inline_code(INTRO))] + overview_html(view)
     for title, note, metrics, rows, seeds, variants in sections:
         top = ''.join('<th rowspan="2">{}</th>'.format(k) for k in FIXED)
         top += ''.join('<th colspan="{}">{}</th>'.format(len(ms), html.escape(k)) for k, ms in metrics)
@@ -498,7 +553,7 @@ def write(projects, output):
         check_directory_identity(directory, requested_parent, follow_symlinks=True)
         validate_destination(projects, output, directory, links)
         sections = summarize(projects, output.parent)
-        text = render(sections)
+        text = render(sections, overview_table.build(projects))
         check_directory_identity(directory, output.parent)
         temporary = '.summary-' + secrets.token_hex(16)
         fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666, dir_fd=directory)

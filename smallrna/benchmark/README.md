@@ -189,7 +189,19 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    python smallrna/benchmark/benchmark.py summary --projects <project> [<project> ...] --output summary.html
    ```
 
-   It has a section per dataset kind (synthetic, equimolar pool, ratiometric pool, biological) with a row per project:
+   It opens with an **Overview** (`overview.py`, #338): one row per route and one column per criterion across the
+   projects, each cell the raw value binned as good, intermediate or poor by fixed cut-offs printed under the table
+   (good at or past the first, poor past the second; colours in HTML, the bin in brackets in Markdown). Columns, each
+   from the projects that declare and hold its metric (settings variants left out; a column without one is omitted):
+   the genome-wide synthetic sets with designed changes (recovered, precision, exact, DE sensitivity over the same test
+   on the true counts; averaged), the equimolar pools' within 2-fold and the ratiometric pools' median |log2 error|
+   over the oracle's, per kit; the mixture's linearity error and within 1.5-fold; the knockouts' unexpected survivors;
+   the null comparisons' share of miRNAs at p < 0.05 above 0.05 (edgeR's exact test); the decoy probes' share read
+   as miRNA and the mean share in the right class over the decoy sources whose class a route reports; and, not
+   binned, the runtime per sample and peak memory of the biological project with the most samples. There is no
+   overall score.
+
+   Then a section per dataset kind (synthetic, equimolar pool, ratiometric pool, biological) with a row per project:
    its dataset, kit, samples, reads processed, methods, a link to its
    `report.md`, and the kind's key metrics from its `metrics.tsv` per method (and the oracle, where it has values),
    each with its bootstrap interval in parentheses when the evaluation has one.
