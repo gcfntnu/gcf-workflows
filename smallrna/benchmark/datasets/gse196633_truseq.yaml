@@ -2,7 +2,7 @@
 # Small RNA, HiSeq 2500, 51-nt reads, 65-98M reads per library: the deep TruSeq set of the depth analysis (#409) and real
 # tissue with patient variance (#416). Reads as uploaded: raw, with the 3' adapter. `patient` pairs each tumour with its
 # normal tissue; the DE step tests tumour against normal with the patient as a covariate (#447). Nothing is scored there:
-# no change is known. `prepare --per-group 3` takes the first three patients' tumours and normals (the issue's subset).
+# no change is known. The null comparisons (#449) split each group's ten patients in two, so every call is false. `prepare --per-group 3` takes the first three patients' tumours and normals (the issue's subset).
 name: gse196633_truseq
 kind: biological
 organism: homo_sapiens
@@ -20,6 +20,7 @@ mirbase_releases:           # other releases a run can select: fill and prepare 
 de:                         # differential expression (#447): tumour against normal, paired by patient
   contrast: [tumour, normal]
   covariates: [patient]
+  'null': {splits: 50, seed: 1}   # each group's patients split in two (#449); the patient pairs across groups, so it is left out
 samples:
   - sample: GSM5897082       # B170406001GTV_T: Lung adenocarcinoma cells
     group: tumour
