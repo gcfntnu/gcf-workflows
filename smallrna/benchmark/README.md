@@ -189,7 +189,33 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    python smallrna/benchmark/benchmark.py summary --projects <project> [<project> ...] --output summary.html
    ```
 
-   It has a section per dataset kind (synthetic, equimolar pool, ratiometric pool, biological) with a row per project:
+   It opens with an **Overview** (`overview.py`, #338): one row per route and one column per criterion across the
+   projects, each cell the raw value binned as good, intermediate or poor by fixed cut-offs printed under the table
+   (good at or past the first, poor past the second; colours in HTML, the bin in brackets in Markdown). Its headers
+   and note are in plain words for readers who do not know these metrics' names. Columns, each
+   from the projects that declare and hold its metric (settings variants left out; a column without one is omitted):
+   the genome-wide synthetic sets with designed changes (`recovered`, `precision`, `exact`, DE sensitivity over the
+   same test on the true counts; averaged), the equimolar pools' `within_2fold` and the ratiometric pools'
+   `median_abs_error` over the oracle's, per kit; the mixture's `linearity_error` and `within_1_5fold`; the knockouts'
+   `knockout_surviving_unexpected`; the null comparisons' `edger_null_p05` above 0.05; the decoy probes'
+   `decoy_as_mirna` and the mean share in the right class over the decoy sources whose class a route reports; and, not
+   binned, the runtime per sample and peak memory of the biological project with the most samples. There is no
+   overall score.
+
+   In HTML, **Figures** follow (`figures.py`), embedded as PNG with a title and caption in plain words, each from the
+   projects that hold its data (settings variants left out; a figure without one is omitted):
+   - how sure the results are: per route the value and its bootstrap interval for the equimolar pools' `within_2fold`,
+     one genome-wide synthetic set's `recovered` (the lowest seed; intervals of different draws are not averaged) and
+     the mixture's `within_1_5fold`;
+   - changes called where there are none: per route and test the null comparisons' `<test>_null_p05` of the biological
+     projects in the overview's No change column, against the 5% chance gives;
+   - sequencing depth, per biological or mixture project with a `benchmark/depth/depth.tsv` (`depth`, its default
+     `--output`): the share of the full depth's miRNAs per abundance stratum still seen, and the new miRNAs per
+     doubling of depth, for the first declared route the series has.
+
+   Figures need matplotlib; without it the page says so. Markdown has no figures.
+
+   Then a section per dataset kind (synthetic, equimolar pool, ratiometric pool, biological) with a row per project:
    its dataset, kit, samples, reads processed, methods, a link to its
    `report.md`, and the kind's key metrics from its `metrics.tsv` per method (and the oracle, where it has values),
    each with its bootstrap interval in parentheses when the evaluation has one.
