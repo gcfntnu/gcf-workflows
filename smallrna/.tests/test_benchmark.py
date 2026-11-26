@@ -2,6 +2,7 @@
 on synthetic tables."""
 import collections
 import gzip
+import importlib.util
 import io
 import json
 import math
@@ -3638,6 +3639,22 @@ def test_depth_plot(tmp_path):
     per_sample = {s: depth.class_thinning(iter(sequences), 3000, [300], seed=[1, i]) for i, s in enumerate(samples)}
     depth.class_plot(depth.class_points(per_sample, [300], samples), 3000, tmp_path / 'depth_classes.png')
     assert (tmp_path / 'depth_classes.png').read_bytes()[:4] == b'\x89PNG'
+    # DE by depth (#414): a row per set, the null comparisons in their own figure; empty values and a mixture's
+    # between-fraction set are left out
+    scores = {'a': {'edger_calls': 5, 'edger_recall': 0.5, 'edger_precision': 0.9, 'edger_lfc_spearman': float('nan')}}
+    rows = depth.de_tables([('all', 'the contrast', [(1000, scores), (depth.FULL, {'a': {'edger_calls': 8}})]),
+                            ('lab.L1', 'L1', [(1000, scores)])],
+                           [(1000, {'a': {'edger_null_any': 0.1, 'edger_null_p05': 0.04, 'edger_null_called': 0.0}})], ['a'],
+                           between=[(1000, {'a': {'edger_called': 0.3}})])
+    assert depth.de_plot(rows, ['a'], 100_000, tmp_path / 'depth_de.png', tmp_path / 'depth_de_null.png') == [
+        tmp_path / 'depth_de.png', tmp_path / 'depth_de_null.png']
+    assert all((tmp_path / n).read_bytes()[:4] == b'\x89PNG' for n in ('depth_de.png', 'depth_de_null.png'))
+    assert depth.de_plot(rows[:2], ['a'], 100_000, tmp_path / 'contrast.png', tmp_path / 'none.png') == [tmp_path / 'contrast.png']
+    # a depth label with a fraction of a million (1.005M) and an undefined score inside the series (a gap) still plot
+    odd = [['a', depth.label(1_005_000), 'all', 'edger_recall', 0.4], ['a', depth.label(2000), 'all', 'edger_recall', float('nan')],
+           ['a', depth.label(1000), 'all', 'edger_recall', 0.2], ['a', '1M', 'all', 'edger_lfc_spearman', -0.3]]
+    assert depth.label(1_005_000) == '1.005M'
+    assert depth.de_plot(odd, ['a'], 2_000_000, tmp_path / 'odd.png') == [tmp_path / 'odd.png']
 
 
 def test_depth_of_an_evaluated_knockout_project(tmp_path):
@@ -3846,13 +3863,17 @@ def test_depth_de_of_an_evaluated_biological_project(tmp_path):
     assert 'log2 fold changes against the full depth' in report and '| 20 | - / - / - | - / - / - |' in report   # 2 miRNAs: no Spearman
     assert '**lab/L1 (2 case and 2 control samples)**, limma-voom' in report and '| 50 | 0.50 (1.00) | 0.50 (1.00) |' in report
     assert 'edgeR 4.10.7, limma 3.68.5' in report
+    plotted = importlib.util.find_spec('matplotlib') is not None
+    if plotted:   # --plot draws DE by depth; both figures, as this dataset has null comparisons
+        assert subprocess.run(command + ['--de', '--plot'], capture_output=True, text=True, timeout=120).returncode == 0
+        assert (out / 'depth_de.png').is_file() and (out / 'depth_de_null.png').is_file()
     before = {name: (out / name).read_text() for name in ('depth.md', 'depth.tsv', 'depth_de.tsv')}
     result = subprocess.run(command + ['--de', '--seed', '2'], capture_output=True, text=True, timeout=120)   # another draw
     assert result.returncode != 0 and 'de/20/all/results.tsv comes from other inputs' in result.stderr
     assert 'run `benchmark.py depth` without --de' in result.stderr
     assert {name: (out / name).read_text() for name in before} == before
     assert subprocess.run(command, capture_output=True, text=True, timeout=120).returncode == 0   # new inputs: old scores go
-    assert not (out / 'depth_de.tsv').exists()
+    assert not any((out / name).exists() for name in ('depth_de.tsv', 'depth_de.png', 'depth_de_null.png'))   # their figures too
     result = subprocess.run(command[:-2] + ['--output', str(bench)], capture_output=True, text=True, timeout=120)
     assert result.returncode != 0 and "its de/ would be the evaluation's benchmark/de" in result.stderr
 

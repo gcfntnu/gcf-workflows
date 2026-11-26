@@ -588,6 +588,81 @@ def plot(points, methods, full_depth, path, cpm=CPM, steps=None):
     plt.close(fig)
 
 
+DE_PANELS = (('recall', 'recall of the full depth\'s calls'), ('precision', 'precision against them'),
+             ('calls', 'calls'), ('lfc_spearman', 'log2 FC Spearman with full depth'))
+NULL_PANELS = (('null_any', 'splits with any call'), ('null_p05', 'tested p-values at most 0.05'), ('null_called', 'share called (median)'))
+TEST_LINES = {'edger': '-', 'edger_glm': '--', 'voom': ':'}
+DE_PLOT_FILES = ('depth_de.png', 'depth_de_null.png')
+
+
+def de_plot(rows, methods, full_depth, path, null_path=None):
+    """depth_de.png from depth_de.tsv's rows (de_tables()): one row of panels per DE set (the whole contrast first,
+    then the levels of `within`), its `recall`, `precision`, `calls` (the full depth's at its median depth) and
+    `lfc_spearman` against depth; a route's colour as in depth.png, a test's line style (solid edgeR exact, dashed
+    GLM, dotted limma-voom). With null comparisons and `null_path`, also depth_de_null.png: `null_any`, `null_p05`
+    (against 0.05) and `null_called`. A mixture's sets between fractions are left out (depth.md has them).
+    Returns the paths written."""
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    values = {}
+    for m, d, name, key, value in rows:
+        if isinstance(value, (int, float)) and not (isinstance(value, float) and math.isnan(value)):
+            values[(m, d, name, key)] = value
+    def x_of(d):  # a label's reads; label() may print a fraction of a million (1.005M), so no whole-read check
+        return full_depth if d == FULL else float(d[:-1]) * {'k': 1e3, 'M': 1e6}[d[-1]] if d[-1] in 'kM' else float(d)
+    depths = sorted({d for _, d, _, _ in values}, key=x_of)
+    names = list(dict.fromkeys(name for _, _, name, _ in values))
+    sets = sorted((n for n in names if n not in (de.NULL, BETWEEN)), key=lambda n: n != WHOLE)
+
+    def draw(ax, name, key):
+        for i, m in enumerate(methods):
+            for test in de.TESTS:
+                ys = [values.get((m, d, name, test + '_' + key), math.nan) for d in depths]
+                if any(not math.isnan(y) for y in ys):  # NaN at an undefined depth breaks the line there
+                    ax.plot([x_of(d) for d in depths], ys, marker='o', ms=3, color='C{}'.format(i), ls=TEST_LINES.get(test, '-'))
+        ax.set_xscale('log')
+        ax.set_xlabel('reads sequenced per sample')
+
+    def legend(ax):
+        handles = [plt.Line2D([], [], color='C{}'.format(i), label=m) for i, m in enumerate(methods)]
+        handles += [plt.Line2D([], [], color='grey', ls=TEST_LINES[t], label=de.TEST_NAMES[t]) for t in de.TESTS]
+        ax.legend(handles=handles, fontsize=7)
+
+    written = []
+    if sets:
+        fig, axes = plt.subplots(len(sets), len(DE_PANELS), figsize=(4.2 * len(DE_PANELS), 3.4 * len(sets)), squeeze=False)
+        for r, name in enumerate(sets):
+            for ax, (key, title) in zip(axes[r], DE_PANELS):
+                draw(ax, name, key)
+                if key == 'calls':
+                    ax.set_ylim(bottom=0)
+                elif key == 'lfc_spearman':  # a correlation may be negative
+                    ax.set_ylim(min(0, ax.get_ylim()[0]), 1.02)
+                else:
+                    ax.set_ylim(0, 1.02)
+                ax.set_title('{}: {}'.format(name, title), fontsize=9)
+        legend(axes[0][0])
+        fig.tight_layout()
+        fig.savefig(path, dpi=120)
+        plt.close(fig)
+        written.append(path)
+    if null_path is not None and de.NULL in names:
+        fig, axes = plt.subplots(1, len(NULL_PANELS), figsize=(4.2 * len(NULL_PANELS), 3.4), squeeze=False)
+        for ax, (key, title) in zip(axes[0], NULL_PANELS):
+            draw(ax, de.NULL, key)
+            if key == 'null_p05':
+                ax.axhline(0.05, color='black', linewidth=0.8)   # the share expected by chance, before the limits fix the axis
+            ax.set_ylim(bottom=0)
+            ax.set_title('null comparisons: {}'.format(title), fontsize=9)
+        legend(axes[0][0])
+        fig.tight_layout()
+        fig.savefig(null_path, dpi=120)
+        plt.close(fig)
+        written.append(null_path)
+    return written
+
+
 def strata_plot(points, methods, full_depth, path, cpm=CPM):
     """depth_strata.png: per abundance stratum of the full depth's miRNAs, the share still seen with SEEN reads against
     depth (median per sample), one line per method."""

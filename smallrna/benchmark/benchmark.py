@@ -2678,7 +2678,8 @@ def depth_de(args, out, spec, table, methods, tables, usable):
     scores, null_points, between_points, full_results, versions = {s.folder: [] for s in kit.contrasts}, [], [], None, ''
     folders = []
     if not args.de:
-        (out / 'depth_de.tsv').unlink(missing_ok=True)  # scores of an earlier draw, if any, before any input changes
+        for name in ('depth_de.tsv',) + depth_series.DE_PLOT_FILES:  # scores and plots of an earlier draw, before any input changes
+            (out / name).unlink(missing_ok=True)
     for depth in [depth_series.FULL] + usable:  # the full depth first: the other depths are scored against it
         at = {s.folder: s._replace(suffix=depth_series.de_folder(depth, s.folder), folder=depth_series.de_folder(depth, s.folder))
               for s in kit.sets}
@@ -2747,9 +2748,11 @@ def evaluated_common(bench, spec, id_to_seq):
 def depth(args):
     """`depth` (#409): the sequencing-depth series of an evaluated biological project (depth.py), from its common and
     isomiR tables and each sample's sequenced reads (the cutadapt route's reports), written to --output (default
-    benchmark/depth/ in the project): depth.tsv, depth_agreement.tsv, depth.md and, with --plot, depth.png. A dataset
+    benchmark/depth/ in the project): depth.tsv, depth_agreement.tsv, depth.md and, with --plot, depth.png and
+    depth_strata.png. A dataset
     that declares `de:` also gets differential expression by depth (#414, depth_de): the inputs of de.smk in de/, and
-    with --de depth_de.tsv and its section of depth.md."""
+    with --de depth_de.tsv and its section of depth.md (with --plot, depth_de.png and, with null comparisons,
+    depth_de_null.png)."""
     project = Path(args.project)
     bench = project / 'benchmark'
     spec = load_dataset(bench / 'dataset.yaml')
@@ -2825,6 +2828,11 @@ def depth(args):
     if args.plot:
         depth_series.plot(points, methods, full, out / 'depth.png', args.cpm, steps)
         depth_series.strata_plot(points, methods, full, out / 'depth_strata.png', args.cpm)
+        if de_rows is not None:
+            written = depth_series.de_plot(de_rows, methods, full, out / 'depth_de.png', out / 'depth_de_null.png')
+            for name in depth_series.DE_PLOT_FILES:  # a figure this draw has no data for must not stay from an earlier one
+                if out / name not in written:
+                    (out / name).unlink(missing_ok=True)
         if args.classes:
             depth_series.class_plot(class_points, full, out / 'depth_classes.png', cpm=args.cpm)
     print(out / 'depth.md')

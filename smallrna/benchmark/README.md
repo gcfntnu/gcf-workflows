@@ -304,6 +304,10 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
      most 0.01, fewer borderline calls a shallower depth cannot recall) and `lfc_spearman` (Spearman of the log2 fold
      changes with the full depth's over the miRNAs both test). For the null comparisons, `null_called`, `null_any` and `null_p05` per
      depth, as in the evaluation. Nothing is written when a result comes from other inputs (other depths or seed).
+     With `--plot`, `depth_de.png`: a row per DE set (the contrast, then each level), its recall, precision, calls and
+     log2 fold-change Spearman against depth, a colour per route and a line style per test; with null comparisons
+     also `depth_de_null.png` (`null_any`, `null_p05` against 0.05, `null_called`). A mixture's contrasts between
+     fractions are not plotted.
      These scores show how depth changes a route's calls, not whether the calls are right. They are optimistic: each
      depth is a subset of the full-depth reads, and the full depth is what the project holds (a read cap where one was
      set). de.smk fits each set at each depth, plus the full depth, one fit of a few seconds each. 50 null splits in
