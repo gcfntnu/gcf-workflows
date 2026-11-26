@@ -3474,6 +3474,27 @@ def test_depth_strata_gains_and_a_shared_denominator():
     assert ['a', 'full', 'gain_doubling_detected_10', steps[-1][2]['a']['detected_10'][0]] in rows and len(rows) == 3 * 3 * 2
 
 
+def test_depth_classes_without_features_at_the_cpm(tmp_path):
+    """#409: a class with no feature at --cpm at full depth has no full_cpm_seen (''); its saturation and rise per
+    doubling are '' instead of an error, and the report and plot still come out."""
+    import depth
+    sequences = [(1000, {('miRNA', 'miR-1'): 1.0}), (3, {('tRNA', 'T1'): 1.0})]
+    per_sample = {s: depth.class_thinning(iter(sequences), 3000, [300, 1500], seed=[1, i]) for i, s in enumerate(['S1', 'S2'])}
+    points = depth.class_points(per_sample, [300, 1500], ['S1', 'S2'], cpm=1e5)   # 10% of the reads: tRNA has none there
+    assert points[-1][1]['tRNA'][depth.SEEN_KEY] == '' and points[-1][1]['miRNA'][depth.SEEN_KEY] == 1.0
+    triples = [(d, v, None) for d, v in points]
+    names = ['miRNA', 'tRNA']
+    reached = {key: depth.saturation(triples, names, 3000, key=key) for key in depth.CLASS_SATURATION_KEYS}
+    rising = {key: depth.rise(triples, names, 3000, key=key) for key in depth.CLASS_SATURATION_KEYS}
+    assert reached[depth.SEEN_KEY]['tRNA'] == {0.9: '', 0.95: ''} and rising[depth.SEEN_KEY]['tRNA'] == ''
+    assert reached[depth.SEEN_KEY]['miRNA'][0.9] != ''
+    lines = depth.class_lines(points, reached, rising, 1, benchmark.md_table, cpm=1e5)
+    assert any(line.startswith('| tRNA |') for line in lines)
+    pytest.importorskip('matplotlib')
+    depth.class_plot(points, 3000, tmp_path / 'classes.png', cpm=1e5)
+    assert (tmp_path / 'classes.png').read_bytes()[:4] == b'\x89PNG'
+
+
 def test_depth_plot(tmp_path):
     """--plot's figure, where matplotlib is installed."""
     pytest.importorskip('matplotlib')
