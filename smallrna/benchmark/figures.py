@@ -20,6 +20,8 @@ import overview
 ROUTE_COLOR = {'unitas': '#2a78d6', 'mirge3': '#eb6834', 'tesmall': '#1baf7a', 'tinyrna': '#eda100', 'smrnaseq': '#e87ba4',
                'biocore_htseq': '#008300', 'biocore_miraligner': '#6250d6'}
 OTHER = '#8a9199'
+LABEL = {'unitas': 'UNITAS', 'mirge3': 'miRge3', 'tesmall': 'TEsmall', 'tinyrna': 'tiny-count', 'smrnaseq': 'nf-core smrnaseq',
+         'biocore_htseq': 'biocore HTSeq', 'biocore_miraligner': 'biocore miraligner', 'mirflowz': 'mirflowz'}
 INK, INK2, GRID = '#1d2125', '#5b6168', '#e3e6ea'
 STRATUM_SHADES = ['#164a8a', '#2a78d6', '#7fb0ea', '#b9d3f3']  # more to fewer reads per million; the lowest stratum is orange
 LOWEST = '#eb6834'
@@ -59,12 +61,17 @@ def routes_of(projects):
     return list(dict.fromkeys(c for p in projects for c in p.columns + list(p.status) if c not in ('oracle', 'truth')))
 
 
+def label(route):
+    return LABEL.get(route, route)
+
+
 def has_interval(project, metric):
     return any(m == metric for m, _ in project.intervals)
 
 
 def interval_panels(projects):
-    """[(project, metric, title, subtitle)] of the interval figure."""
+    """[(project, metric, title, subtitle)] of the interval figure. The synthetic panel is one draw (intervals of
+    different draws are not averaged): the lowest seed of the declaration with the most draws (one dataset name)."""
     panels = []
     pools = sorted((p for p in projects if p.kind == 'pool' and p.pool == 'equimolar' and has_interval(p, 'within_2fold')),
                    key=lambda p: (p.kit, p.path.name))
@@ -75,13 +82,18 @@ def interval_panels(projects):
                        '(1 = every miRNA counted right)' if i == 0 else 'The same measure for the {}\nlibrary'.format(kit)))
     synthetic = [p for p in projects if p.kind == 'synthetic' and p.genome and p.value('de_sensitivity', 'truth')]
     shown = [p for p in synthetic if has_interval(p, 'recovered')]
-    if shown:  # one draw: intervals of different draws are not averaged
-        p = min(shown, key=lambda p: (p.seed is None, p.seed if isinstance(p.seed, int) else 0, p.path.name))
-        panels.append((p, 'recovered', 'Synthetic reads ({})'.format('seed {}'.format(p.seed) if p.seed is not None else p.path.name),
+    if shown:
+        draws = {}
+        for q in shown:
+            draws.setdefault(q.spec['name'], []).append(q)
+        name = min(draws, key=lambda n: (-len(draws[n]), n))
+        p = min(draws[name], key=lambda q: (not isinstance(q.seed, int), q.seed if isinstance(q.seed, int) else 0, q.path.name))
+        panels.append((p, 'recovered', 'Synthetic reads' + (' (seed {})'.format(p.seed) if p.seed is not None else ''),
                        'Share of the true miRNA reads the route\ncounts on the right miRNA (1 = all of them);\n'
                        'one of the {} synthetic set{} the overview averages'.format(len(synthetic), '' if len(synthetic) == 1 else 's')))
-    for p in sorted((p for p in projects if p.kind == 'mixture' and has_interval(p, 'within_1_5fold')), key=lambda p: p.path.name):
-        panels.append((p, 'within_1_5fold', 'Mixture: {}'.format(p.spec['name']),
+    mixtures = sorted((p for p in projects if p.kind == 'mixture' and has_interval(p, 'within_1_5fold')), key=lambda p: p.path.name)
+    for i, p in enumerate(mixtures):
+        panels.append((p, 'within_1_5fold', 'Mixture of known proportions' + (' ({})'.format(i + 1) if len(mixtures) > 1 else ''),
                        'Share of miRNAs whose level in each mixture is\nwithin 1.5-fold of what the known mixing\nproportions predict (1 = all of them)'))
     return panels
 
@@ -111,17 +123,20 @@ def interval_figure(projects, routes):
         ax.grid(axis='x', color=GRID)
         ax.set_xlabel('better →', color=INK2, loc='right', fontsize=8.5)
         if len(drawn) > 1 and max(lo for _, lo, _ in drawn) <= min(hi for _, _, hi in drawn):
-            ax.text(0.5, -0.22, 'all intervals overlap: no route differs clearly', transform=ax.transAxes, ha='center',
+            ax.text(0.5, -0.22, 'all intervals overlap', transform=ax.transAxes, ha='center',
                     fontsize=8.3, color=INK, style='italic')
     for ax in list(axes.flat)[len(panels):]:
         ax.set_visible(False)
-    axes[0][0].set_yticks(range(len(routes)), routes)
+    axes[0][0].set_yticks(range(len(routes)), [label(r) for r in routes])
     axes[0][0].set_ylim(len(routes) - 0.5, -0.6)
     fig.tight_layout(h_pad=4)
     resamples = {(p.record.get('bootstrap') or {}).get('resamples') for p, *_ in panels}
     caption = ('Point: the measure; line: its 95% bootstrap interval{}, the range the value would likely take with another draw of '
-               'the same samples. Routes whose lines do not overlap differ clearly. The other synthetic sets and the set-ratio pools '
-               'are in the tables below.').format(' ({:,} resamples of the samples)'.format(resamples.pop()) if len(resamples) == 1 and None not in resamples else '')
+               'the same samples. Routes whose lines do not overlap differ clearly. Data: {}. The other synthetic sets and the '
+               'set-ratio pools are in the tables below.').format(
+        ' ({:,} resamples of the samples)'.format(resamples.pop()) if len(resamples) == 1 and None not in resamples else '',
+        ', '.join('`{}`{}'.format(p.spec['name'], ' seed {}'.format(p.seed) if p.kind == 'synthetic' and p.seed is not None else '')
+                  for p, *_ in panels))
     return ('How sure are the results?', encoded(fig), caption)
 
 
@@ -130,15 +145,15 @@ def null_figure(projects, routes):
     if not nulls:
         return None
     import matplotlib.pyplot as plt
-    tests = [(t, name) for t, name in NULL_TESTS if any(p.has(t + '_null_p05') for p in nulls)]
-    fig, axes = plt.subplots(1, len(nulls), figsize=(8.5 * len(nulls), 0.5 * len(routes) + 1.2), sharey=True, squeeze=False)
-    for ax, project in zip(axes[0], nulls):
+    tests = [(k, t, name) for k, (t, name) in enumerate(NULL_TESTS) if any(p.has(t + '_null_p05') for p in nulls)]
+    fig, axes = plt.subplots(1, len(nulls), figsize=(8.5 * len(nulls), 0.5 * len(routes) + 1.2), sharex=True, sharey=True, squeeze=False)
+    for n, (ax, project) in enumerate(zip(axes[0], nulls)):
         for i, route in enumerate(routes):
             shown = False
-            for k, (test, _) in enumerate(tests):
+            for k, test, _ in tests:  # a test keeps its marker and place when another is missing
                 v = project.value(test + '_null_p05', route)
                 if v is not None:
-                    ax.plot(v, i + (k - (len(tests) - 1) / 2) * 0.22, 'osD'[k], color=ROUTE_COLOR.get(route, OTHER), ms=6.5, mec='white', mew=1)
+                    ax.plot(v, i + (k - 1) * 0.22, 'osD'[k], color=ROUTE_COLOR.get(route, OTHER), ms=6.5, mec='white', mew=1)
                     shown = True
             if not shown:
                 ax.text(0.02, i, project.status.get(route, ''), transform=ax.get_yaxis_transform(), va='center', fontsize=8,
@@ -148,24 +163,26 @@ def null_figure(projects, routes):
         ax.set_xlim(left=0)
         ax.set_xlabel('share of tested miRNAs with p ≤ 0.05        better: at or left of the line ←', fontsize=8.5)
         splits = ((project.spec.get('de') or {}).get('null') or {}).get('splits')
-        headline(ax, 'Changes called where there are none: {}'.format(project.spec['name']),
+        headline(ax, 'Changes called where there are none' + (' ({})'.format(n + 1) if len(nulls) > 1 else ''),
                  'The samples of each group split into two random halves{}: no real differences,\n'
                  'so about 5% of miRNAs pass p ≤ 0.05 by chance'.format(', {} times'.format(splits) if splits else ''))
         ax.grid(axis='x', color=GRID)
-        handles = [plt.Line2D([], [], marker=m, ls='', color=INK2, label=name) for m, (_, name) in zip('osD', tests)]
+        handles = [plt.Line2D([], [], marker='osD'[k], ls='', color=INK2, label=name) for k, _, name in tests]
         ax.legend(handles=handles, fontsize=8, frameon=False, loc='lower right', title='test', title_fontsize=8)
-    axes[0][0].set_yticks(range(len(routes)), routes)
+    axes[0][0].set_yticks(range(len(routes)), [label(r) for r in routes])
     axes[0][0].set_ylim(len(routes) - 0.5, -1.0)
-    caption = ('Each mark: the share of the tested miRNAs with p at most 0.05, pooled over all splits, for three common tests of '
-               'differential expression. Right of the line: more changes called than chance gives.')
+    caption = ('Each mark: the share of the tested miRNAs with p at most 0.05, pooled over all splits, for {} of differential '
+               'expression. Right of the line: more changes called than chance gives. Data: {}.').format(
+        'one test' if len(tests) == 1 else '{} common tests'.format(len(tests)),
+        ', '.join('`{}`'.format(p.spec['name']) for p in nulls))
     return ('Changes called where there are none', encoded(fig), caption)
 
 
-def depth_value(label):
+def depth_value(text):
     """Reads of a depth label (500k, 8M), or None for the full data."""
-    if label == 'full':
+    if text == 'full':
         return None
-    return float(label[:-1]) * {'k': 1e3, 'M': 1e6}[label[-1]] if label[-1] in 'kM' else float(label)
+    return float(text[:-1]) * {'k': 1e3, 'M': 1e6}[text[-1]] if text[-1] in 'kM' else float(text)
 
 
 def stratum_label(name, prefix):
@@ -193,6 +210,9 @@ def depth_figure(project):
     prefix = depth_series.STRATUM_PREFIX
     strata = sorted({m for _, m in values if m.startswith(prefix)},
                     key=lambda m: -float(m[len(prefix):].partition('-')[0].rstrip('+')))
+    gains = [m for m in ('gain_doubling_detected_1', 'gain_doubling_detected_10') if any(k == m for _, k in values)]
+    if not strata or not gains:  # a series written before the strata and gains (#409): its depth.md has what it holds
+        return None
     fig, axes = plt.subplots(1, 2, figsize=(13, 3.9))
     ax = axes[0]
     shades = STRATUM_SHADES[:max(0, len(strata) - 1)] + [LOWEST]
@@ -207,6 +227,8 @@ def depth_figure(project):
     ax.set_ylabel('share still seen ({}+ reads)'.format(depth_series.SEEN))
     ax.set_ylim(0, 1.03)
     ax.grid(color=GRID)
+    ax.axhline(0.9, color=INK2, ls=':', lw=1)
+    ax.text(1.005, 0.9, '90%', transform=ax.get_yaxis_transform(), fontsize=7.5, color=INK2, va='center')
     if strata:
         ax.legend(frameon=False, fontsize=8.5, loc='lower right', title='abundance at full depth', title_fontsize=8.5)
     headline(ax, 'How deep to sequence to see a miRNA', 'MiRNAs found in the full data, grouped by abundance (reads per\n'
@@ -229,10 +251,10 @@ def depth_figure(project):
     headline(ax, 'What each doubling of depth adds', 'New miRNAs found each time the reads double, counted\nat 1+ and at 10+ reads; '
              'falling bars = saturating')
     fig.tight_layout()
-    caption = ('{} ({} samples), counted with {}; the other routes are in its depth.md. Fewer reads are simulated by dropping reads '
-               'at random from the full data. Full: each sample\'s own depth, which differs between samples, so the last step '
-               '(hatched) is approximate.').format(project.spec['name'], project.samples, route)
-    return ('Sequencing depth: {}'.format(project.spec['name']), encoded(fig), caption)
+    caption = ('Data: `{}` ({} samples), counted with {}; the other routes are in its depth.md. Fewer reads are simulated by '
+               'dropping reads at random from the full data. Full: each sample\'s whole data; where the samples differ in depth, the '
+               'last step (hatched) is approximate.').format(project.spec['name'], project.samples, label(route))
+    return ('Sequencing depth', encoded(fig), caption)
 
 
 def build(paths):
