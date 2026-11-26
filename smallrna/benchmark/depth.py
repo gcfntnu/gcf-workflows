@@ -281,14 +281,15 @@ def gain_rows(steps, methods):
 def rise(points, methods, full_depth, key=SATURATION_KEY):
     """{method: the rise of `key` per doubling of depth over the series' last step (the last thinned depth to the full
     depth), as a share of its full-depth value}: near 0 when the curve has levelled off; '' without a thinned depth,
-    a full depth no deeper than it, or a full-depth value of 0."""
+    a full depth no deeper than it, a full-depth value of 0, or a value missing ('', e.g. full_cpm_seen of a class with
+    no feature at --cpm at full depth)."""
     if len(points) < 2 or full_depth <= points[-2][0]:
         return dict.fromkeys(methods, '')
     doublings = math.log2(full_depth / points[-2][0])
     out = {}
     for m in methods:
         last, full = points[-2][1][m][key], points[-1][1][m][key]
-        out[m] = round((full - last) / doublings / full, 4) if full else ''
+        out[m] = round((full - last) / doublings / full, 4) if full not in ('', 0) and last != '' else ''
     return out
 
 
@@ -296,11 +297,15 @@ def saturation(points, methods, full_depth, key=SATURATION_KEY, shares=SATURATIO
     """{method: {share: reads}}: the depth at which `key` first reaches `share` of its full-depth value, interpolated
     on log depth between the depths around it. The full depth (`full_depth`) is a point of the curve only when every
     sample has it (`equal`); otherwise a share not reached by the last thinned depth is BEYOND. '' when the full-depth
-    value is 0, and the smallest depth when the first point already reaches it."""
+    value is 0 or missing ('', as rise()), and the smallest depth when the first point already reaches it."""
     out = {}
     for m in methods:
         top = points[-1][1][m][key]
-        curve = [(full_depth if depth == FULL else depth, values[m][key]) for depth, values, _ in points if depth != FULL or equal]
+        if top == '':
+            out[m] = dict.fromkeys(shares, '')
+            continue
+        curve = [(full_depth if depth == FULL else depth, values[m][key]) for depth, values, _ in points
+                 if (depth != FULL or equal) and values[m][key] != '']
         out[m] = {}
         for share in shares:
             target = share * top
