@@ -419,11 +419,20 @@ def folder_name(group):
     return name if LEVEL_NAME.fullmatch(name) else 'g' + name
 
 
+def unique_within(members, column):
+    """Whether every one of `members` ([(sample, fields)] or [(sample, group, fields)]) has a value of `column` of its
+    own: a pairing column (#449), which says nothing about a split within the group."""
+    values = [str(member[-1].get(column)) for member in members]
+    return len(values) > 1 and len(set(values)) == len(values)
+
+
 def null_splits(units, splits, seed, columns=()):
     """{group: [(x samples, y samples)]} of the null comparisons (#449): within each group of `units` ([(sample, group,
     {column: value})]) that has at least NULL_MIN samples, up to `splits` distinct random halvings drawn from
     random.Random(seed). Each stratum (the samples with the same values of `columns`, the design's columns) is halved, a
-    stratum's odd sample going to the halves in turn, so the halves are balanced on the design. A split and its mirror
+    stratum's odd sample going to the halves in turn, so the halves are balanced on the design. A column with a value of
+    its own for every sample of the group (a pairing such as the patient, whose partner is in the other group) leaves
+    out of the group's strata: it would make every stratum one sample and allow a single split. A split and its mirror
     are one split; when fewer distinct splits exist than asked for, the drawing stops after 100 draws per split asked
     for, with all or nearly all of them. Groups and samples are taken in sorted order, so the splits depend on the seed
     and the units only."""
@@ -436,9 +445,10 @@ def null_splits(units, splits, seed, columns=()):
         members = sorted(groups[group], key=lambda member: member[0])
         if len(members) < NULL_MIN:
             continue
+        used = [c for c in columns if not unique_within(members, c)]
         strata = collections.defaultdict(list)
         for sample, fields in members:
-            strata[tuple(str(fields.get(c)) for c in columns)].append(sample)
+            strata[tuple(str(fields.get(c)) for c in used)].append(sample)
         everyone, seen, found = [sample for sample, _ in members], set(), []
         for _ in range(100 * splits):
             x, odd = [], 0

@@ -178,7 +178,8 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    least 4 samples gets up to `splits` distinct splits drawn from the seed (a split and its mirror are one), each a DE
    set (`benchmark/de/null/<group>-<k>/`) with pseudo-groups `x` and `y`. A split halves each stratum of the declared
    covariates and `within`, so the halves are balanced on the design; a covariate the group's samples share is left out
-   of its splits. Per method and test, over all splits: `<test>_null_called` (the median share of tested miRNAs
+   of its splits, and so is a pairing covariate with a value of its own for every sample of the group (GSE196633's
+   patient, whose other sample is in the other group): it would make each stratum one sample and use up the design. Per method and test, over all splits: `<test>_null_called` (the median share of tested miRNAs
    called, the report adds its range), `<test>_null_any` (the share of splits with a call) and `<test>_null_p05` (the
    share of tested p-values of at most 0.05, 5% when they are uniform); the report also lists the miRNAs called in the
    most splits. Their spread over the splits is their uncertainty, so the sample bootstrap leaves them out.

@@ -304,8 +304,10 @@ def check_de(spec, path):
 
 def null_covariates(members, covariates):
     """The covariates of a group's null comparisons (#449): those that vary within the group; one the group's samples
-    share carries nothing about its halves, and would leave the design without full rank."""
-    return [c for c in covariates if len({str(fields.get(c)) for _, _, fields in members}) > 1]
+    share carries nothing about its halves, and would leave the design without full rank. A pairing covariate, with a
+    value of its own for every sample of the group (the patient of a tumour/normal pair), is left out too: it would use
+    up every degree of freedom."""
+    return [c for c in covariates if len({str(fields.get(c)) for _, _, fields in members}) > 1 and not de.unique_within(members, c)]
 
 
 def check_null(declared, units, covariates, strata, path):

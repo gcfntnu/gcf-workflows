@@ -3055,6 +3055,18 @@ def test_null_splits_halve_each_group_balanced_on_the_design():
     assert len(de.null_splits(units, 3, 1)['case']) == 3  # without columns: plain random halves
 
 
+def test_null_splits_leave_a_pairing_column_out():
+    """#449, GSE196633: a column with a value of its own for every sample of a group (the patient of a tumour/normal
+    pair) neither stratifies the group's splits nor enters their design; the others still do."""
+    import benchmark
+    units = [('{}{}'.format(g, i), g, {'patient': 'P{}'.format(i), 'lab': 'L{}'.format(i % 2)}) for g in ('T', 'N') for i in range(6)]
+    splits = de.null_splits(units, 50, 1, ['patient'])
+    assert len(splits['T']) == 10 and all(len(x) == len(y) == 3 for x, y in splits['T'])   # every 3 x 3 split, not one
+    assert de.null_splits(units, 50, 1, ['patient', 'lab']) == de.null_splits(units, 50, 1, ['lab'])
+    group = [u for u in units if u[1] == 'T']
+    assert benchmark.null_covariates(group, ['patient', 'lab']) == ['lab']
+
+
 def test_null_scores_count_every_call_as_false():
     features = ['F1', 'F2', 'F3']
 
@@ -3087,8 +3099,10 @@ def test_null_comparisons_in_a_declaration(tmp_path):
     spec = benchmark.load_dataset(biological_declaration(tmp_path, {'null': {'splits': 5, 'seed': 1}, 'within': 'patient'}, groups))
     (first, *_) = benchmark.de_sets(spec, benchmark.de_units(spec, rows))
     assert first.design[0][2] == {} and sorted(g for s, g, _ in first.design if s in ('S0', 'S2')) == ['x', 'y']  # within balances only
-    members = [('S0', 'case', {'site': 'A', 'patient': 'P0'}), ('S1', 'case', {'site': 'A', 'patient': 'P1'})]
+    members = [('S0', 'case', {'site': 'A', 'patient': 'P0'}), ('S1', 'case', {'site': 'A', 'patient': 'P0'}),
+               ('S2', 'case', {'site': 'A', 'patient': 'P1'})]
     assert benchmark.null_covariates(members, ['site', 'patient']) == ['patient']  # the group's samples share a site
+    assert benchmark.null_covariates(members[1:], ['site', 'patient']) == []  # one patient per sample: a pairing, left out
 
 
 def biological_de_project(tmp_path, declared):
