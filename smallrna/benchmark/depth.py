@@ -255,7 +255,7 @@ def series_points(tables, usable, methods, samples, groups, isomir_rows=None, cp
 
 def gains(points, methods, full_depth, keys=GAIN_KEYS):
     """[(from depth, to depth, {method: {key: (new per doubling of depth, new per extra million reads)}})] over each
-    step of the series, the full depth at `full_depth` (the median sample's; with unequal samples that last step is
+    step of the series, from the change in the per-sample medians (not the median of each sample's change), the full depth at `full_depth` (the median sample's; with unequal samples that last step is
     approximate): the marginal gain of detection, the published form of saturation."""
     xs = [full_depth if depth == FULL else depth for depth, _, _ in points]
     out = []
@@ -521,7 +521,7 @@ def report(name, points, methods, skipped, reached, rising, reads_in, seed, md_t
                   cpm * typical / 1e6, SEEN, cpm), '']
     lines += saturation_table(methods, points, reached, rising, detected_titles(cpm), md_table)
     if steps:
-        lines += ['', '**New miRNAs per step of depth** (median per sample): per doubling of depth, and in brackets per extra '
+        lines += ['', '**New miRNAs per step of depth** (the change in the median per sample): per doubling of depth, and in brackets per extra '
                   'million reads sequenced, at a ladder of read counts; the published measure of saturation, which does not '
                   'depend on how deep the dataset happens to be. The last step ends at the median sample\'s full depth{}.'.format(
                       '' if len(set(reads_in.values())) == 1 else ', approximate with samples of different depths')]
@@ -591,7 +591,8 @@ def strata_plot(points, methods, full_depth, path, cpm=CPM):
     import matplotlib.pyplot as plt
     names = stratum_names(cpm)
     x = [full_depth if depth == FULL else depth for depth, _, _ in points]
-    fig, axes = plt.subplots(1, len(names), figsize=(4 * len(names), 3.8), sharey=True)
+    fig, axes = plt.subplots(1, len(names), figsize=(4 * len(names), 3.8), sharey=True, squeeze=False)
+    axes = axes[0]  # one stratum (--cpm of 100 or more) gives one Axes otherwise
     for ax, name in zip(axes, names):
         for m in methods:
             ys = [values[m].get(name, '') for _, values, _ in points]

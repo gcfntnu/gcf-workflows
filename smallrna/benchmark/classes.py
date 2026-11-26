@@ -165,7 +165,8 @@ COORDINATES = re.compile(r'\s*\(\d+-\d+\)$')       # ` (517-535)`: where the rea
 ENSEMBL_GENE = re.compile(r'ENS[A-Z]*G\d+')
 SILVA_SUBUNIT = re.compile(r'^(SSU|LSU):')          # SILVA records: one per genomic copy, counted by subunit
 PIRNA_CLUSTER = re.compile(r'^piR-cluster:([^:]+)')  # `piR-cluster:Hsap_0125_2:24815296..24831604(17A->C)`
-MISMATCH = re.compile(r'\((\d+[ACGTN]->[ACGTN],?)+\)$')  # `miR-21-5p(12C->A)`: a hit with a mismatch, the same feature
+MISMATCH = re.compile(r'\((\d+[ACGTN]->[ACGTN],?)+\)$')
+TRANSCRIPT = re.compile(r'[-_]\(\d+\)$')  # a gene's further transcripts: '<symbol>-<gene>_(n)', in dumps before 20-11-2026 '<symbol>-(n)'  # `miR-21-5p(12C->A)`: a hit with a mismatch, the same feature
 UNASSIGNED = ('unassigned', 'unassigned')
 
 
@@ -190,7 +191,7 @@ def unitas_feature(annotation, vocabulary):
         cluster = PIRNA_CLUSTER.match(head)
         return cls, cluster.group(1) if cluster else MISMATCH.sub('', COORDINATES.sub('', head))
     gene = ENSEMBL_GENE.search(name)
-    return cls, gene.group(0) if gene else name
+    return cls, gene.group(0) if gene else TRANSCRIPT.sub('', name)
 
 
 def unitas_sequences(quant, sample):
@@ -206,20 +207,22 @@ def unitas_sequences(quant, sample):
                 vocabulary.add(line.split('\t')[0])
     cache = {}  # by the annotation without its coordinates, so one entry per record rather than per read position
     with open(folder / 'unitas.full_annotation_matrix.txt') as fh:
-        next(fh, None)
+        if 'annotation(s)' not in next(fh, ''):  # as the workflow's parser (unitas_feature_counts.py): empty or not a matrix
+            raise ValueError('{}: no UNITAS full annotation matrix header'.format(folder / 'unitas.full_annotation_matrix.txt'))
         for line in fh:
             fields = line.rstrip('\n').split('\t')
             if len(fields) < 2:
                 continue
             annotations = [a for a in fields[2:] if a.strip()]
-            share = collections.Counter()
+            hits = collections.Counter()
             for a in annotations:
                 record = a.rsplit(' (', 1)[0] if a.endswith(')') and ' (' in a else a
                 key = cache.get(record)
                 if key is None:
                     key = cache[record] = unitas_feature(record, vocabulary)
-                share[key] += 1 / len(annotations)
-            yield int(round(_float(fields[1]))), share or {UNASSIGNED: 1.0}
+                hits[key] += 1
+            # one division per feature: six annotations of one feature give it 1.0, not six sixths summed (0.999...)
+            yield int(round(_float(fields[1]))), {k: n / len(annotations) for k, n in hits.items()} or {UNASSIGNED: 1.0}
 
 
 def mirge3_tables(quant):

@@ -3485,6 +3485,8 @@ def test_depth_plot(tmp_path):
     assert (tmp_path / 'depth.png').read_bytes()[:4] == b'\x89PNG'
     depth.strata_plot(points, ['a'], 100_000, tmp_path / 'depth_strata.png')
     assert (tmp_path / 'depth_strata.png').read_bytes()[:4] == b'\x89PNG'
+    depth.strata_plot(points, ['a'], 100_000, tmp_path / 'one_stratum.png', cpm=100)   # one stratum: one Axes
+    assert (tmp_path / 'one_stratum.png').read_bytes()[:4] == b'\x89PNG'
     sequences = [(1000, {('rRNA', 'SSU'): 1.0}), (400, {('miRNA', 'miR-1'): 1.0}), (100, {('unassigned', 'unassigned'): 1.0})]
     per_sample = {s: depth.class_thinning(iter(sequences), 3000, [300], seed=[1, i]) for i, s in enumerate(samples)}
     depth.class_plot(depth.class_points(per_sample, [300], samples), 3000, tmp_path / 'depth_classes.png')
@@ -3534,9 +3536,25 @@ def test_unitas_features_of_the_annotations():
         'miR-320a-3p(12C->A)': ('miRNA', 'miR-320a-3p'),
         'let-7a-5p(3T->G,9A->C)': ('miRNA', 'let-7a-5p'),
         'low_complexity': ('low complexity', 'low_complexity'),
+        'lncRNA|LINC00001-(2) (5-24)': ('lncRNA', 'LINC00001'),   # a further transcript in a dump before 20-11-2026
     }
     for annotation, expected in cases.items():
         assert classes.unitas_feature(annotation, vocabulary) == expected, annotation
+
+
+def test_unitas_sequences_divide_once_per_feature_and_need_a_matrix(tmp_path):
+    """#409: six annotations of one feature give it the whole read (1.0, not six sixths summed); a file that is no UNITAS
+    matrix is an error, not a sample without reads."""
+    import classes
+    folder = tmp_path / 'unitas/unitas/S1'
+    folder.mkdir(parents=True)
+    (folder / 'unitas.annotation_summary.txt').write_text('rRNA\t1\n')
+    (folder / 'unitas.full_annotation_matrix.txt').write_text(
+        'sequence\treads\tannotation(s)\nACGT\t1\t' + '\t'.join('rRNA|SSU:X{}.1.9 (3-18)'.format(i) for i in range(6)) + '\n')
+    assert list(classes.unitas_sequences(tmp_path, 'S1')) == [(1, {('rRNA', 'SSU'): 1.0})]
+    (folder / 'unitas.full_annotation_matrix.txt').write_text('')
+    with pytest.raises(ValueError, match='no UNITAS full annotation matrix header'):
+        list(classes.unitas_sequences(tmp_path, 'S1'))
 
 
 def test_class_thinning_splits_each_sequences_reads_and_nests_the_depths():
@@ -3585,6 +3603,13 @@ def test_depth_classes_of_an_evaluated_project(tmp_path):
                '--classes', '--jobs', '2']
     result = subprocess.run(command, capture_output=True, text=True, timeout=60)
     assert result.returncode != 0 and '--classes: no UNITAS full annotation matrix' in result.stderr
+    for s in samples:   # empty matrices: an error before anything is written
+        folder = project / 'data/tmp/smallrna/quant/unitas/unitas' / s
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / 'unitas.annotation_summary.txt').write_text('miRNA\t60\n')
+        (folder / 'unitas.full_annotation_matrix.txt').write_text('')
+    result = subprocess.run(command, capture_output=True, text=True, timeout=60)
+    assert result.returncode != 0 and 'no UNITAS full annotation matrix header' in result.stderr and not out.exists()
     for s in samples:
         folder = project / 'data/tmp/smallrna/quant/unitas/unitas' / s
         folder.mkdir(parents=True, exist_ok=True)

@@ -2807,6 +2807,8 @@ def depth(args):
     equal = len(set(reads_in.values())) == 1  # the full depth is a common measurement only then
     reached = {key: depth_series.saturation(points, methods, full, key=key, equal=equal) for key in depth_series.SATURATION_KEYS}
     rising = {key: depth_series.rise(points, methods, full, key=key) for key in depth_series.SATURATION_KEYS}
+    if args.classes:  # before anything is written, so a failure leaves the outputs of the last run as they were
+        class_points, class_reached, class_rising = depth_classes(args, project, spec, samples, reads_in, usable, full, equal)
     de_lines, de_rows = depth_de(args, out, spec, table, methods, tables, usable) if 'de' in spec else ([], None)
     out.mkdir(parents=True, exist_ok=True)
     rows, pairs = depth_series.tables(points, methods)
@@ -2817,7 +2819,6 @@ def depth(args):
     lines = depth_series.report(spec['name'], points, methods, skipped, reached, rising, reads_in, args.seed, md_table, args.cpm,
                                 steps, sizes, library) + de_lines
     if args.classes:
-        class_points, class_reached, class_rising = depth_classes(args, project, spec, samples, reads_in, usable, full, equal)
         write_tsv(out / 'depth_classes.tsv', ['class', 'depth', 'metric', 'value'], depth_series.class_rows(class_points))
         lines += depth_series.class_lines(class_points, class_reached, class_rising, args.seed, md_table, args.cpm)
     (out / 'depth.md').write_text('\n'.join(lines) + '\n')
@@ -2830,7 +2831,8 @@ def depth(args):
 
 
 def class_depth_sample(job):
-    """(sample, depth.class_thinning()) of one sample's UNITAS read sequences: a worker of `depth --classes`."""
+    """(sample, depth.class_thinning()) of one sample's UNITAS read sequences: a worker of `depth --classes`; ValueError
+    for a file that is no UNITAS matrix."""
     quant, sample, reads_in, depths, seed = job
     return sample, depth_series.class_thinning(classes.unitas_sequences(quant, sample), reads_in, depths, seed)
 
@@ -2846,12 +2848,18 @@ def depth_classes(args, project, spec, samples, reads_in, usable, full, equal):
     if missing:
         fail('--classes: no UNITAS full annotation matrix for {} under {}'.format(', '.join(missing[:3]), quant / 'unitas/unitas'))
     jobs = [(str(quant), s, reads_in[s], usable, [args.seed, i]) for i, s in enumerate(samples)]
-    if args.jobs > 1:
-        import multiprocessing
-        with multiprocessing.Pool(min(args.jobs, len(jobs))) as workers:
-            per_sample = dict(workers.map(class_depth_sample, jobs, chunksize=1))
-    else:
-        per_sample = dict(map(class_depth_sample, jobs))
+    try:
+        if args.jobs > 1:
+            import multiprocessing
+            with multiprocessing.Pool(min(args.jobs, len(jobs))) as workers:
+                per_sample = dict(workers.map(class_depth_sample, jobs, chunksize=1))
+        else:
+            per_sample = dict(map(class_depth_sample, jobs))
+    except ValueError as error:
+        fail('--classes: {}'.format(error))
+    empty = [s for s in samples if not per_sample[s][depth_series.FULL]]
+    if empty:
+        fail('--classes: no reads in the UNITAS full annotation matrix of {}'.format(', '.join(empty[:3])))
     points = depth_series.class_points(per_sample, usable, samples, args.cpm)
     names = [c for c in points[-1][1] if c != depth_series.UNASSIGNED]
     triples = [(depth, values, None) for depth, values in points]
