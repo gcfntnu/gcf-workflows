@@ -2678,7 +2678,8 @@ def depth_de(args, out, spec, table, methods, tables, usable):
     scores, null_points, between_points, full_results, versions = {s.folder: [] for s in kit.contrasts}, [], [], None, ''
     folders = []
     if not args.de:
-        (out / 'depth_de.tsv').unlink(missing_ok=True)  # scores of an earlier draw, if any, before any input changes
+        for name in ('depth_de.tsv',) + depth_series.DE_PLOT_FILES:  # scores and plots of an earlier draw, before any input changes
+            (out / name).unlink(missing_ok=True)
     for depth in [depth_series.FULL] + usable:  # the full depth first: the other depths are scored against it
         at = {s.folder: s._replace(suffix=depth_series.de_folder(depth, s.folder), folder=depth_series.de_folder(depth, s.folder))
               for s in kit.sets}
@@ -2828,7 +2829,10 @@ def depth(args):
         depth_series.plot(points, methods, full, out / 'depth.png', args.cpm, steps)
         depth_series.strata_plot(points, methods, full, out / 'depth_strata.png', args.cpm)
         if de_rows is not None:
-            depth_series.de_plot(de_rows, methods, full, out / 'depth_de.png', out / 'depth_de_null.png')
+            written = depth_series.de_plot(de_rows, methods, full, out / 'depth_de.png', out / 'depth_de_null.png')
+            for name in depth_series.DE_PLOT_FILES:  # a figure this draw has no data for must not stay from an earlier one
+                if out / name not in written:
+                    (out / name).unlink(missing_ok=True)
         if args.classes:
             depth_series.class_plot(class_points, full, out / 'depth_classes.png', cpm=args.cpm)
     print(out / 'depth.md')
