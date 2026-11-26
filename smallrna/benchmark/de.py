@@ -421,8 +421,12 @@ def folder_name(group):
 
 def unique_within(members, column):
     """Whether every one of `members` ([(sample, fields)] or [(sample, group, fields)]) has a value of `column` of its
-    own: a pairing column (#449), which says nothing about a split within the group."""
-    values = [str(member[-1].get(column)) for member in members]
+    own: a pairing column (#449), which says nothing about a split within the group. A missing value never makes a
+    column unique: the design checks reject it."""
+    values = [member[-1].get(column) for member in members]
+    if any(v is None or str(v) == '' for v in values):
+        return False
+    values = [str(v) for v in values]
     return len(values) > 1 and len(set(values)) == len(values)
 
 

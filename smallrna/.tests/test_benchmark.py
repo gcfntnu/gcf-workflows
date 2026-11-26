@@ -3065,6 +3065,8 @@ def test_null_splits_leave_a_pairing_column_out():
     assert de.null_splits(units, 50, 1, ['patient', 'lab']) == de.null_splits(units, 50, 1, ['lab'])
     group = [u for u in units if u[1] == 'T']
     assert benchmark.null_covariates(group, ['patient', 'lab']) == ['lab']
+    gap = [(s, g, dict(f, patient=None if s == 'T5' else f['patient'])) for s, g, f in group]
+    assert not de.unique_within(gap, 'patient') and benchmark.null_covariates(gap, ['patient']) == ['patient']   # left to the checks
 
 
 def test_null_scores_count_every_call_as_false():
