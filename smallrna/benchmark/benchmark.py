@@ -2747,9 +2747,11 @@ def evaluated_common(bench, spec, id_to_seq):
 def depth(args):
     """`depth` (#409): the sequencing-depth series of an evaluated biological project (depth.py), from its common and
     isomiR tables and each sample's sequenced reads (the cutadapt route's reports), written to --output (default
-    benchmark/depth/ in the project): depth.tsv, depth_agreement.tsv, depth.md and, with --plot, depth.png. A dataset
+    benchmark/depth/ in the project): depth.tsv, depth_agreement.tsv, depth.md and, with --plot, depth.png and
+    depth_strata.png. A dataset
     that declares `de:` also gets differential expression by depth (#414, depth_de): the inputs of de.smk in de/, and
-    with --de depth_de.tsv and its section of depth.md."""
+    with --de depth_de.tsv and its section of depth.md (with --plot, depth_de.png and, with null comparisons,
+    depth_de_null.png)."""
     project = Path(args.project)
     bench = project / 'benchmark'
     spec = load_dataset(bench / 'dataset.yaml')
@@ -2825,6 +2827,8 @@ def depth(args):
     if args.plot:
         depth_series.plot(points, methods, full, out / 'depth.png', args.cpm, steps)
         depth_series.strata_plot(points, methods, full, out / 'depth_strata.png', args.cpm)
+        if de_rows is not None:
+            depth_series.de_plot(de_rows, methods, full, out / 'depth_de.png', out / 'depth_de_null.png')
         if args.classes:
             depth_series.class_plot(class_points, full, out / 'depth_classes.png', cpm=args.cpm)
     print(out / 'depth.md')

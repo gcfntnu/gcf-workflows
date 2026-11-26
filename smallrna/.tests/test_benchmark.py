@@ -3638,6 +3638,17 @@ def test_depth_plot(tmp_path):
     per_sample = {s: depth.class_thinning(iter(sequences), 3000, [300], seed=[1, i]) for i, s in enumerate(samples)}
     depth.class_plot(depth.class_points(per_sample, [300], samples), 3000, tmp_path / 'depth_classes.png')
     assert (tmp_path / 'depth_classes.png').read_bytes()[:4] == b'\x89PNG'
+    # DE by depth (#414): a row per set, the null comparisons in their own figure; empty values and a mixture's
+    # between-fraction set are left out
+    scores = {'a': {'edger_calls': 5, 'edger_recall': 0.5, 'edger_precision': 0.9, 'edger_lfc_spearman': float('nan')}}
+    rows = depth.de_tables([('all', 'the contrast', [(1000, scores), (depth.FULL, {'a': {'edger_calls': 8}})]),
+                            ('lab.L1', 'L1', [(1000, scores)])],
+                           [(1000, {'a': {'edger_null_any': 0.1, 'edger_null_p05': 0.04, 'edger_null_called': 0.0}})], ['a'],
+                           between=[(1000, {'a': {'edger_called': 0.3}})])
+    assert depth.de_plot(rows, ['a'], 100_000, tmp_path / 'depth_de.png', tmp_path / 'depth_de_null.png') == [
+        tmp_path / 'depth_de.png', tmp_path / 'depth_de_null.png']
+    assert all((tmp_path / n).read_bytes()[:4] == b'\x89PNG' for n in ('depth_de.png', 'depth_de_null.png'))
+    assert depth.de_plot(rows[:2], ['a'], 100_000, tmp_path / 'contrast.png', tmp_path / 'none.png') == [tmp_path / 'contrast.png']
 
 
 def test_depth_of_an_evaluated_knockout_project(tmp_path):
