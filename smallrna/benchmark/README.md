@@ -218,7 +218,7 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    or mixture project, from its tables, without running the workflow again:
 
    ```bash
-   python smallrna/benchmark/benchmark.py depth --project <project> [--output <dir>] [--depths 500k,1M,2M,4M,8M,16M,32M] [--seed 1] [--plot]
+   python smallrna/benchmark/benchmark.py depth --project <project> [--output <dir>] [--depths 500k,1M,2M,4M,8M,16M,32M] [--seed 1] [--cpm 0.1] [--per-million mirna|filtered] [--plot] [--classes [--jobs N]]
    ```
 
    Each method's common table (and isomiR output) is thinned binomially to each depth: every read is kept with
@@ -227,14 +227,39 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    for one miRNA; tiny-count's and mirflowz's fractional counts are rounded first, so it is approximate for them.
    Depths above the shallowest sample are left out, and each sample's full depth ends the series. Merged samples only.
    - **Per method and depth** (`depth.tsv`, `depth.md`): median miRNA reads per sample; miRNAs with at least 1, 5 and
-     10 reads (median per sample) and with at least 10 in every sample; the replicate CV, the median over groups of
+     10 reads (median per sample) and with at least 10 in every sample; `detected_cpm`, the miRNAs with at least
+     `--cpm` reads per million of the sample's miRNA reads (default 0.1, about 3-5 reads at 30-50M miRNA reads; at
+     least 1 read), the same abundance at every depth, or with `--per-million filtered` of the sample's filtered reads
+     (the cutadapt route's; scaled to each depth), a denominator the same for every route; `full_cpm_seen`, the share of the miRNAs a sample has at
+     `--cpm` per million or more at its full depth that the depth sees with at least 3 reads; the replicate CV, the median over groups of
      the median CPM coefficient of variation of the miRNAs with at least 10 reads in every sample of the group; and
      the distinct read sequences of the isomiR output (median per sample).
+   - **By abundance:** the full depth's miRNAs at `--cpm` per million or more split at 1, 10 and 100 per million, with
+     the share of each stratum a depth still sees with at least 3 reads (`seen_cpm_<low>-<high>`), and the miRNAs per
+     stratum at full depth.
+   - **New miRNAs per step of depth:** per doubling of depth and per extra million reads, for at least 1, 5 and 10
+     reads (`gain_doubling_<key>`, `gain_per_million_<key>` at each step's upper depth), the form of saturation that
+     does not depend on how deep the dataset is.
    - **Per pair of methods** (`depth_agreement.tsv`): the biological report's agreement (Spearman over miRNAs either
      detects, median |log2 ratio|, top-100 overlap) at each depth.
-   - **Saturation:** the depth at which detection (at least 10 reads) reaches 90% and 95% of its full-depth value,
-     interpolated on log depth.
-   - **Plot** (`--plot`, needs matplotlib): `depth.png`, detection and replicate CV against depth.
+   - **Saturation:** the depth at which detection reaches 90% and 95% of its full-depth value, interpolated on log
+     depth, for both definitions of detected: at least 10 reads, and `full_cpm_seen`. On deep data a fixed count
+     keeps rising, as rarer reads, permissive matches among them, pass it; `full_cpm_seen` rises to its full-depth
+     value, so its 90% and 95% depths say how deep a dataset must be to see (with 3 reads) the miRNAs it has above
+     that abundance. `detected_cpm` levels off too, but below the depth where `--cpm` is a read it counts every miRNA
+     with a read and overshoots, so it is reported, not used for saturation.
+   - **Plot** (`--plot`, needs matplotlib): `depth.png`, both detections, the replicate CV and the new miRNAs per
+     doubling against depth; `depth_strata.png`, the share seen per abundance stratum.
+   - **Other RNA classes** (`--classes`, a project that runs UNITAS and keeps its full annotation matrices). UNITAS's
+     read sequences are thinned per sample (each sequence's reads as a whole, one generator per sample), then divided
+     over their features as UNITAS divides them, so a depth is a real subsample of UNITAS's reads. A feature is an
+     Ensembl gene (records naming one), a tRNA gene (tRNA fragments), an rRNA subunit (SILVA copies), a piRNA cluster or
+     a miRNA. Per class and depth (`depth_classes.tsv`, a section of `depth.md`): reads, share of the reads (unassigned
+     included), features with at least 1 and 10 reads and at `--cpm` per million of the sample's reads or more,
+     `full_cpm_seen` as for miRNAs, features with at least 10 in every sample, and the depth at which features reach
+     90% and 95% of their full-depth value, for both definitions. With `--plot`,
+     `depth_classes.png`. The matrices are large at depth (about 5 GB per sample at 75M reads); `--jobs` reads that
+     many samples at a time, each in its own process.
    - **Differential expression by depth** (#414), for a dataset that declares `de:`. The evaluation's DE sets (the
      contrast, each level of `within`, the null comparisons of #449) are tested on each depth's thinned tables (the
      draw of the detection metrics) and on the full depth. The tests are de.R's, over the full depth's miRNAs, with
@@ -249,7 +274,9 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
 
      Per route, test and depth (`depth_de.tsv`, `depth.md`), against the route's own full-depth calls (BH-adjusted p
      of at most 0.05, in the same direction): `calls`, `recall` (share of the full-depth calls made) and `precision`
-     (share of the calls the full depth makes). For the null comparisons, `null_called`, `null_any` and `null_p05` per
+     (share of the calls the full depth makes), `recall_strict` (recall of the full-depth calls at a BH-adjusted p of at
+     most 0.01, fewer borderline calls a shallower depth cannot recall) and `lfc_spearman` (Spearman of the log2 fold
+     changes with the full depth's over the miRNAs both test). For the null comparisons, `null_called`, `null_any` and `null_p05` per
      depth, as in the evaluation. Nothing is written when a result comes from other inputs (other depths or seed).
      These scores show how depth changes a route's calls, not whether the calls are right. They are optimistic: each
      depth is a subset of the full-depth reads, and the full depth is what the project holds (a read cap where one was

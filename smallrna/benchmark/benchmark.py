@@ -35,7 +35,7 @@ Usage: benchmark.py fill --dataset YAML --ext-dir DIR [--mirbase-release R]
                             [--set quant.ROUTE.SETTING=VALUE ...]
        benchmark.py evaluate --project DIR [--de] [--mirflowz-gff GFF3] [--unitas-ref DIR] [--bootstrap N] [--seed S]
        benchmark.py summary --projects DIR [DIR ...] --output FILE.md|FILE.html
-       benchmark.py depth --project DIR [--output DIR] [--depths 500k,1M,...] [--seed S] [--plot]
+       benchmark.py depth --project DIR [--output DIR] [--depths 500k,1M,...] [--seed S] [--cpm X] [--plot] [--classes [--jobs N]]
 """
 import argparse
 import collections
@@ -2778,8 +2778,8 @@ def depth(args):
     groups = collections.defaultdict(list)
     for row in table:
         groups[row['group']].append(row['sample'])
-    reads_in = {s: f['reads_in'] for s, f in evaluated_filtering(project, bench, samples, 'the depth axis is the reads each sample '
-                                                                 'sequenced').items()}
+    filtering = evaluated_filtering(project, bench, samples, 'the depth axis is the reads each sample sequenced')
+    reads_in = {s: f['reads_in'] for s, f in filtering.items()}
     out = Path(args.output) if args.output else bench / 'depth'
     if 'de' in spec and (out / 'de').resolve() == (bench / 'de').resolve():
         fail('--output {}: its de/ would be the evaluation\'s benchmark/de; choose another folder (default benchmark/depth/)'.format(out))
@@ -2798,22 +2798,74 @@ def depth(args):
         isomir_rows = [tuple(r[k] for k in adapters.ISOMIR_COLUMNS[:-1]) + (float(r['count']),) for r in read_tsv(bench / 'isomirs.tsv')]
     tables, usable = depth_series.thinned(common, samples, reads_in, depths, args.seed, isomir_rows)
     skipped = [d for d in depths if d not in usable]
-    points = depth_series.series_points(tables, usable, methods, samples, groups, isomir_rows)
+    library = {s: f['kept'] for s, f in filtering.items()} if args.per_million == 'filtered' else None
+    at = depth_series.library_at(library, reads_in, usable) if library else None
+    points = depth_series.series_points(tables, usable, methods, samples, groups, isomir_rows, args.cpm, at)
     full = round(statistics.median(reads_in.values()))
+    steps = depth_series.gains(points, methods, full)
+    sizes = depth_series.strata_sizes(depth_series.full_strata(tables, methods, samples, args.cpm, at)[1], methods, samples, args.cpm)
     equal = len(set(reads_in.values())) == 1  # the full depth is a common measurement only then
-    reached, rising = depth_series.saturation(points, methods, full, equal=equal), depth_series.rise(points, methods, full)
+    reached = {key: depth_series.saturation(points, methods, full, key=key, equal=equal) for key in depth_series.SATURATION_KEYS}
+    rising = {key: depth_series.rise(points, methods, full, key=key) for key in depth_series.SATURATION_KEYS}
+    if args.classes:  # before anything is written, so a failure leaves the outputs of the last run as they were
+        class_points, class_reached, class_rising = depth_classes(args, project, spec, samples, reads_in, usable, full, equal)
     de_lines, de_rows = depth_de(args, out, spec, table, methods, tables, usable) if 'de' in spec else ([], None)
     out.mkdir(parents=True, exist_ok=True)
     rows, pairs = depth_series.tables(points, methods)
-    write_tsv(out / 'depth.tsv', ['method', 'depth', 'metric', 'value'], rows)
+    write_tsv(out / 'depth.tsv', ['method', 'depth', 'metric', 'value'], rows + depth_series.gain_rows(steps, methods))
     write_tsv(out / 'depth_agreement.tsv', ['method_a', 'method_b', 'depth', 'metric', 'value'], pairs)
     if de_rows is not None:
         write_tsv(out / 'depth_de.tsv', ['method', 'depth', 'set', 'metric', 'value'], de_rows)
-    lines = depth_series.report(spec['name'], points, methods, skipped, reached, rising, reads_in, args.seed, md_table) + de_lines
+    lines = depth_series.report(spec['name'], points, methods, skipped, reached, rising, reads_in, args.seed, md_table, args.cpm,
+                                steps, sizes, library) + de_lines
+    if args.classes:
+        write_tsv(out / 'depth_classes.tsv', ['class', 'depth', 'metric', 'value'], depth_series.class_rows(class_points))
+        lines += depth_series.class_lines(class_points, class_reached, class_rising, args.seed, md_table, args.cpm)
     (out / 'depth.md').write_text('\n'.join(lines) + '\n')
     if args.plot:
-        depth_series.plot(points, methods, full, out / 'depth.png')
+        depth_series.plot(points, methods, full, out / 'depth.png', args.cpm, steps)
+        depth_series.strata_plot(points, methods, full, out / 'depth_strata.png', args.cpm)
+        if args.classes:
+            depth_series.class_plot(class_points, full, out / 'depth_classes.png', cpm=args.cpm)
     print(out / 'depth.md')
+
+
+def class_depth_sample(job):
+    """(sample, depth.class_thinning()) of one sample's UNITAS read sequences: a worker of `depth --classes`; ValueError
+    for a file that is no UNITAS matrix."""
+    quant, sample, reads_in, depths, seed = job
+    return sample, depth_series.class_thinning(classes.unitas_sequences(quant, sample), reads_in, depths, seed)
+
+
+def depth_classes(args, project, spec, samples, reads_in, usable, full, equal):
+    """`depth --classes` (#409): the other RNA classes by depth from UNITAS's read sequences (depth.class_thinning, one
+    generator per sample seeded with [seed, the sample's index]), read --jobs samples at a time: (depth.class_points(),
+    {class: saturation}, {class: rise per doubling})."""
+    if 'unitas' not in spec['methods']:
+        fail('--classes reads UNITAS\'s read sequences; {} does not run UNITAS'.format(spec['name']))
+    quant = project / 'data/tmp/smallrna/quant'
+    missing = [s for s in samples if not (quant / 'unitas/unitas' / s / 'unitas.full_annotation_matrix.txt').is_file()]
+    if missing:
+        fail('--classes: no UNITAS full annotation matrix for {} under {}'.format(', '.join(missing[:3]), quant / 'unitas/unitas'))
+    jobs = [(str(quant), s, reads_in[s], usable, [args.seed, i]) for i, s in enumerate(samples)]
+    try:
+        if args.jobs > 1:
+            import multiprocessing
+            with multiprocessing.Pool(min(args.jobs, len(jobs))) as workers:
+                per_sample = dict(workers.map(class_depth_sample, jobs, chunksize=1))
+        else:
+            per_sample = dict(map(class_depth_sample, jobs))
+    except ValueError as error:
+        fail('--classes: {}'.format(error))
+    empty = [s for s in samples if not per_sample[s][depth_series.FULL]]
+    if empty:
+        fail('--classes: no reads in the UNITAS full annotation matrix of {}'.format(', '.join(empty[:3])))
+    points = depth_series.class_points(per_sample, usable, samples, args.cpm)
+    names = [c for c in points[-1][1] if c != depth_series.UNASSIGNED]
+    triples = [(depth, values, None) for depth, values in points]
+    reached = {key: depth_series.saturation(triples, names, full, key=key, equal=equal) for key in depth_series.CLASS_SATURATION_KEYS}
+    rising = {key: depth_series.rise(triples, names, full, key=key) for key in depth_series.CLASS_SATURATION_KEYS}
+    return points, reached, rising
 
 
 def imbalance(args):
@@ -3025,12 +3077,23 @@ def main():
     d = sub.add_parser('depth', help='sequencing-depth curves of an evaluated biological project, by thinning its count tables (#409)')
     d.add_argument('--project', required=True)
     d.add_argument('--output', help='directory for depth.tsv, depth_agreement.tsv and depth.md (default benchmark/depth/ in the project)')
-    d.add_argument('--plot', action='store_true', help='also depth.png, detection and replicate CV against depth (needs matplotlib)')
+    d.add_argument('--plot', action='store_true', help='also depth.png (detection, replicate CV and new miRNAs per doubling against '
+                   'depth) and depth_strata.png (the full depth\'s miRNAs still seen, by abundance) (needs matplotlib)')
     d.add_argument('--depths', default=depth_series.DEPTHS, help='reads per sample, k and M suffixes (default %(default)s); '
                    'those above the shallowest sample are left out, and the full depth ends the series')
     d.add_argument('--seed', type=int, default=1, help='seed of the thinning (default %(default)s)')
     d.add_argument('--de', action='store_true', help="datasets that declare `de:`: score de.smk's differential expression by "
                    "depth (#414), after `depth` without it wrote the inputs to de/ and de.smk ran on them")
+    d.add_argument('--classes', action='store_true', help="also the other RNA classes by depth from UNITAS's read sequences "
+                   '(its full annotation matrices, kept by the run): depth_classes.tsv, a section of depth.md and with --plot '
+                   'depth_classes.png')
+    d.add_argument('--jobs', type=int, default=1, help='--classes: samples read at a time (default %(default)s)')
+    d.add_argument('--per-million', choices=('mirna', 'filtered'), default='mirna', help="--cpm's denominator for the miRNAs: each "
+                   "route's miRNA reads in the sample (default), or the sample's filtered reads (the cutadapt route's), the same for "
+                   'every route')
+    d.add_argument('--cpm', type=float, default=depth_series.CPM, help='detection that scales with depth: at least this many reads '
+                   'per million of the sample\'s reads (miRNA reads for miRNAs; at least 1 read), next to the fixed counts '
+                   '(default %(default)s, about 3-5 reads at 30-50M miRNA reads)')
     m = sub.add_parser('imbalance', help='differential expression under controlled depth imbalance of an evaluated biological '
                        'project, by thinning its count tables unevenly (#488)')
     m.add_argument('--project', required=True)

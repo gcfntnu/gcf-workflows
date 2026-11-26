@@ -3412,6 +3412,12 @@ def test_depth_series_thins_every_method_alike_and_finds_saturation():
     detected = [values['a']['detected_10'] for _, values, _ in points]
     assert detected == sorted(detected) and detected[-1] == 12 and detected[0] < 6
     assert points[-1][1]['a']['replicate_cv'] == 0.0 and points[-1][2][('a', 'b')]['spearman_either'] == 1.0   # identical tables
+    # detected at a share of the sample's miRNA reads: 10% of 40,950 is 4,095 reads, which miRNAs 9 to 11 reach
+    assert depth.metrics(common, ['a'], samples, {}, cpm=1e5)['a']['detected_cpm'] == 3
+    assert points[-1][1]['a']['detected_cpm'] == 12   # 0.1 per million: every miRNA with a read
+    seen = [values['a']['full_cpm_seen'] for _, values, _ in points]   # the full depth's 12, seen with 3 reads or more
+    assert seen == sorted(seen) and seen[-1] == 1.0 and seen[0] < 0.5
+    assert depth.seen_share({'x': 3, 'y': 2}, {'x', 'y', 'z'}) == 1 / 3 and depth.seen_share({}, set()) == ''
     reached = depth.saturation(points, ['a', 'b'], 1_000_000)
     assert 100_000 < reached['a'][0.9] < 1_000_000 and reached['a'][0.9] <= reached['a'][0.95]
     rising = depth.rise(points, ['a', 'b'], 1_000_000)   # the last step, 100k to 1M: (12 - detected at 100k) / 12 per doubling
@@ -3429,6 +3435,45 @@ def test_depth_series_thins_every_method_alike_and_finds_saturation():
     assert ['a', 'full', 'detected_10', 12] in rows and ['a', 'b', '1k', 'spearman_either', points[0][2][('a', 'b')]['spearman_either']] in pairs
 
 
+def test_depth_strata_gains_and_a_shared_denominator():
+    """The review's forms (#409): the full depth's miRNAs split by abundance, each stratum's share still seen; new miRNAs
+    per step of depth; and a per-million denominator the same for every route (the filtered reads) instead of each
+    route's miRNA reads."""
+    import depth
+    samples = ['A1', 'A2']
+    common = [(m, s, 'n{}'.format(i), 'M{}'.format(i), 10.0 * 2 ** i) for m in ('a', 'b') for s in samples for i in range(12)]
+    by = {('a', 'A1'): {'x': 1, 'y': 10, 'z': 100, 'w': 1000}}   # of 1,111 reads: 900, 9,000, 90,000 and 900,000 per million
+    assert depth.stratum_names(0.1) == ['seen_cpm_0.1-1', 'seen_cpm_1-10', 'seen_cpm_10-100', 'seen_cpm_100+']
+    assert depth.stratum_names(5) == ['seen_cpm_5-10', 'seen_cpm_10-100', 'seen_cpm_100+']
+    assert depth.strata_sets(by, [('a', 'A1')], cpm=1e3)[('a', 'A1')] == {'seen_cpm_1000+': {'y', 'z', 'w'}}
+    # per million of 10M filtered reads instead: x at 0.1, y at 1, z at 10, w at 100
+    strata = depth.strata_sets(by, [('a', 'A1')], cpm=0.1, totals={('a', 'A1'): 10_000_000})[('a', 'A1')]
+    assert strata == {'seen_cpm_0.1-1': {'x'}, 'seen_cpm_1-10': {'y'}, 'seen_cpm_10-100': {'z'}, 'seen_cpm_100+': {'w'}}
+    assert depth.cpm_sets(by, [('a', 'A1')], 1.0, {('a', 'A1'): 10_000_000})[('a', 'A1')] == {'y', 'z', 'w'}
+    reads_in = dict.fromkeys(samples, 1_000_000)
+    tables, usable = depth.thinned(common, samples, reads_in, [1000, 10_000, 100_000], seed=1)
+    points = depth.series_points(tables, usable, ['a', 'b'], samples, {})
+    # per million of each route's 40,950 miRNA reads every miRNA is above 100; strata without miRNAs give ''
+    assert points[-1][1]['a']['seen_cpm_100+'] == 1.0 and points[-1][1]['a']['seen_cpm_0.1-1'] == ''
+    # a shared denominator: 100M filtered reads per sample (0.04% miRNA reads), so 10 reads are 0.1 per million and
+    # the strata hold 4, 3, 3 and 2 miRNAs; at 1 per million only the 8 with 100 reads or more pass
+    library = depth.library_at(dict.fromkeys(samples, 100_000_000), reads_in, usable)
+    assert library[1000] == dict.fromkeys(samples, 100_000.0)
+    shared = depth.series_points(tables, usable, ['a', 'b'], samples, {}, library=library)
+    assert all(shared[-1][1]['a'][n] == 1.0 for n in depth.stratum_names())
+    assert shared[0][1]['a']['seen_cpm_100+'] > shared[0][1]['a']['seen_cpm_0.1-1']   # abundant miRNAs are seen first
+    sizes = depth.strata_sizes(depth.full_strata(tables, ['a'], samples, library=library)[1], ['a'], samples)
+    assert list(sizes['a'].values()) == [4, 3, 3, 2]
+    assert depth.series_points(tables, usable, ['a'], samples, {}, cpm=1.0, library=library)[-1][1]['a']['detected_cpm'] == 8
+    assert depth.series_points(tables, usable, ['a'], samples, {}, cpm=1.0)[-1][1]['a']['detected_cpm'] == 12
+    steps = depth.gains(points, ['a', 'b'], 1_000_000)
+    assert [(low, high) for low, high, _ in steps] == [(1000, 10_000), (10_000, 100_000), (100_000, depth.FULL)]
+    new = points[-1][1]['a']['detected_10'] - points[-2][1]['a']['detected_10']
+    assert steps[-1][2]['a']['detected_10'] == (round(new / math.log2(10), 1), round(new / 0.9, 2))
+    rows = depth.gain_rows(steps, ['a'])
+    assert ['a', 'full', 'gain_doubling_detected_10', steps[-1][2]['a']['detected_10'][0]] in rows and len(rows) == 3 * 3 * 2
+
+
 def test_depth_plot(tmp_path):
     """--plot's figure, where matplotlib is installed."""
     pytest.importorskip('matplotlib')
@@ -3436,8 +3481,16 @@ def test_depth_plot(tmp_path):
     samples = ['A1', 'A2']
     common = [('a', s, 'n{}'.format(i), 'M{}'.format(i), 10.0 * 2 ** i) for s in samples for i in range(8)]
     points, _ = depth.series(common, ['a'], samples, dict.fromkeys(samples, 100_000), {'A': samples}, [1000, 10_000], seed=1)
-    depth.plot(points, ['a'], 100_000, tmp_path / 'depth.png')
+    depth.plot(points, ['a'], 100_000, tmp_path / 'depth.png', steps=depth.gains(points, ['a'], 100_000))
     assert (tmp_path / 'depth.png').read_bytes()[:4] == b'\x89PNG'
+    depth.strata_plot(points, ['a'], 100_000, tmp_path / 'depth_strata.png')
+    assert (tmp_path / 'depth_strata.png').read_bytes()[:4] == b'\x89PNG'
+    depth.strata_plot(points, ['a'], 100_000, tmp_path / 'one_stratum.png', cpm=100)   # one stratum: one Axes
+    assert (tmp_path / 'one_stratum.png').read_bytes()[:4] == b'\x89PNG'
+    sequences = [(1000, {('rRNA', 'SSU'): 1.0}), (400, {('miRNA', 'miR-1'): 1.0}), (100, {('unassigned', 'unassigned'): 1.0})]
+    per_sample = {s: depth.class_thinning(iter(sequences), 3000, [300], seed=[1, i]) for i, s in enumerate(samples)}
+    depth.class_plot(depth.class_points(per_sample, [300], samples), 3000, tmp_path / 'depth_classes.png')
+    assert (tmp_path / 'depth_classes.png').read_bytes()[:4] == b'\x89PNG'
 
 
 def test_depth_of_an_evaluated_knockout_project(tmp_path):
@@ -3454,7 +3507,8 @@ def test_depth_of_an_evaluated_knockout_project(tmp_path):
     assert (out / 'depth.tsv').read_text().startswith('method\tdepth\tmetric\tvalue\n') and not (out / 'depth.png').exists()
     report = (out / 'depth.md').read_text()
     assert 'Left out, above the shallowest sample: 1k.' in report and '| full |' in report and '**sequences**' in report
-    assert 'under independent thinning' in report and '| method | 90% | 95% | rise per doubling |' in report
+    assert 'under independent thinning' in report and '| method | at least 10 reads: 90% | at least 10 reads: 95% |' in report
+    assert "full depth's 0.1 per million seen: rise per doubling |" in report and '**full_cpm_seen**' in report
     write_cutadapt_reports(project / 'data/tmp/smallrna/filter/cutadapt_stages', 'P1', 200)   # the filtering changed since
     result = subprocess.run(command, capture_output=True, text=True, timeout=60)
     assert result.returncode != 0 and 'the cutadapt reports give 500 reads, the evaluation recorded 400' in result.stderr
@@ -3462,6 +3516,113 @@ def test_depth_of_an_evaluated_knockout_project(tmp_path):
     assert not (project / 'benchmark/depth').exists() and not (out / 'de').exists()   # no `de:`, no DE by depth (#414)
     result = subprocess.run(command + ['--de'], capture_output=True, text=True, timeout=60)
     assert result.returncode != 0 and '--de: ko declares no `de:`' in result.stderr
+
+
+def test_unitas_features_of_the_annotations():
+    """#409: the feature a class's detection counts, from UNITAS's annotations of a read sequence."""
+    import classes
+    vocabulary = {'rRNA', 'lncRNA', 'protein_coding', 'Mt_rRNA', 'snoRNA', 'low_complexity'}
+    cases = {
+        'rRNA|SSU:CT476836.21467.23325 (517-535)': ('rRNA', 'SSU'),
+        'rRNA|LSU:LMBB01000097.459.3801': ('rRNA', 'LSU'),
+        'lncRNA|LINC01255-ENSG00000267252.7_(12) (290-306)': ('lncRNA', 'ENSG00000267252'),
+        'Mt_rRNA|MT-RNR2-ENSG00000210082.2 (786-804)': ('rRNA', 'ENSG00000210082'),
+        'protein_coding|RAB27A (2942-2959)': ('mRNA', 'RAB27A'),
+        "5p-tRF from MT-TS1-ENSG00000210151.2 (1-18)": ('tRNA', 'ENSG00000210151'),
+        'tRF-1 from MT-TW (34-53)': ('tRNA', 'MT-TW'),
+        "3'tR-half from tRNA-Gly-GCC-2-1 (40-70)": ('tRNA', 'tRNA-Gly-GCC-2-1'),
+        'piR-cluster:Hsap_0125_2:24815296..24831604(17A->C)': ('piRNA', 'Hsap_0125_2'),
+        'miR-320a-3p': ('miRNA', 'miR-320a-3p'),
+        'miR-320a-3p(12C->A)': ('miRNA', 'miR-320a-3p'),
+        'let-7a-5p(3T->G,9A->C)': ('miRNA', 'let-7a-5p'),
+        'low_complexity': ('low complexity', 'low_complexity'),
+        'lncRNA|LINC00001-(2) (5-24)': ('lncRNA', 'LINC00001'),   # a further transcript in a dump before 20-11-2026
+    }
+    for annotation, expected in cases.items():
+        assert classes.unitas_feature(annotation, vocabulary) == expected, annotation
+
+
+def test_unitas_sequences_divide_once_per_feature_and_need_a_matrix(tmp_path):
+    """#409: six annotations of one feature give it the whole read (1.0, not six sixths summed); a file that is no UNITAS
+    matrix is an error, not a sample without reads."""
+    import classes
+    folder = tmp_path / 'unitas/unitas/S1'
+    folder.mkdir(parents=True)
+    (folder / 'unitas.annotation_summary.txt').write_text('rRNA\t1\n')
+    (folder / 'unitas.full_annotation_matrix.txt').write_text(
+        'sequence\treads\tannotation(s)\nACGT\t1\t' + '\t'.join('rRNA|SSU:X{}.1.9 (3-18)'.format(i) for i in range(6)) + '\n')
+    assert list(classes.unitas_sequences(tmp_path, 'S1')) == [(1, {('rRNA', 'SSU'): 1.0})]
+    (folder / 'unitas.full_annotation_matrix.txt').write_text('')
+    with pytest.raises(ValueError, match='no UNITAS full annotation matrix header'):
+        list(classes.unitas_sequences(tmp_path, 'S1'))
+
+
+def test_class_thinning_splits_each_sequences_reads_and_nests_the_depths():
+    """#409: each read sequence's reads thinned as a whole, then divided over its features as UNITAS divides them;
+    each depth a subset of the one above; the class metrics per depth."""
+    import depth
+    sequences = [(1000, {('rRNA', 'SSU'): 0.5, ('lncRNA', 'G1'): 0.5}), (400, {('miRNA', 'miR-1'): 1.0}),
+                 (100, {('unassigned', 'unassigned'): 1.0}), (3, {('tRNA', 'T1'): 1.0})]
+    out = depth.class_thinning(iter(sequences), 3000, [300, 1500], seed=[1, 0])
+    assert out[depth.FULL] == {('rRNA', 'SSU'): 500.0, ('lncRNA', 'G1'): 500.0, ('miRNA', 'miR-1'): 400.0,
+                               ('unassigned', 'unassigned'): 100.0, ('tRNA', 'T1'): 3.0}
+    half = out[1500]
+    assert half[('rRNA', 'SSU')] == half[('lncRNA', 'G1')] and 200 < half[('rRNA', 'SSU')] < 300   # one sequence, split evenly
+    assert all(out[300].get(k, 0) <= half.get(k, 0) <= out[depth.FULL][k] for k in out[depth.FULL])
+    assert depth.class_thinning(iter(sequences), 3000, [300, 1500], seed=[1, 0]) == out   # the seed fixes the draw
+    per_sample = {'S1': out, 'S2': depth.class_thinning(iter(sequences), 3000, [300, 1500], seed=[1, 1])}
+    points = depth.class_points(per_sample, [300, 1500], ['S1', 'S2'])
+    assert [d for d, _ in points] == [300, 1500, depth.FULL]
+    full = points[-1][1]
+    assert full['miRNA'] == {'reads': 400, 'share': round(400 / 1503, 5), 'features_1': 1, 'features_10': 1, 'features_cpm': 1,
+                             'full_cpm_seen': 1.0, 'features_all_samples': 1}
+    assert points[0][1]['tRNA']['full_cpm_seen'] <= full['tRNA']['full_cpm_seen'] == 1.0   # 3 reads: seen at full depth
+    assert full['tRNA']['features_10'] == 0 and full['tRNA']['features_1'] == 1 and full['tRNA']['features_cpm'] == 1
+    assert depth.class_points(per_sample, [300, 1500], ['S1', 'S2'], cpm=1e5)[-1][1]['tRNA']['features_cpm'] == 0   # 3 of 1503 < 10%
+    assert full['unassigned']['features_10'] == '' and full['unassigned']['reads'] == 100
+    assert abs(sum(v['share'] for v in full.values()) - 1) < 1e-4
+    assert ['miRNA', 'full', 'features_10', 1] in depth.class_rows(points)
+    triples = [(d, v, None) for d, v in points]
+    reached = {k: depth.saturation(triples, ['miRNA', 'rRNA'], 3000, key=k) for k in depth.CLASS_SATURATION_KEYS}
+    rising = {k: depth.rise(triples, ['miRNA', 'rRNA'], 3000, key=k) for k in depth.CLASS_SATURATION_KEYS}
+    text = '\n'.join(depth.class_lines(points, reached, rising, 1, benchmark.md_table))
+    assert '## RNA classes by depth (UNITAS)' in text and '| rRNA | 33.27% | 1 |' in text and '**Share of the reads**' in text
+    assert "full depth's 0.1 per million seen: 90%" in text and '**Features at 0.1 per million or more**' in text
+    assert "**Share of the full depth's features at 0.1 per million seen with at least 3 reads**" in text
+    assert text.index('| rRNA |') < text.index('| miRNA |')   # by reads at full depth
+
+
+def test_depth_classes_of_an_evaluated_project(tmp_path):
+    """benchmark.py depth --classes end to end: UNITAS's full annotation matrices thinned per sample into
+    depth_classes.tsv and a section of depth.md; it needs the matrices."""
+    project = knockout_project(tmp_path)
+    assert evaluate_cmd(project).returncode == 0
+    samples = [row['sample'] for row in benchmark.read_tsv(project / 'benchmark/samples.tsv')]
+    out = tmp_path / 'depth'
+    command = [sys.executable, str(BENCH / 'benchmark.py'), 'depth', '--project', str(project), '--depths', '20,50', '--output', str(out),
+               '--classes', '--jobs', '2']
+    result = subprocess.run(command, capture_output=True, text=True, timeout=60)
+    assert result.returncode != 0 and '--classes: no UNITAS full annotation matrix' in result.stderr
+    for s in samples:   # empty matrices: an error before anything is written
+        folder = project / 'data/tmp/smallrna/quant/unitas/unitas' / s
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / 'unitas.annotation_summary.txt').write_text('miRNA\t60\n')
+        (folder / 'unitas.full_annotation_matrix.txt').write_text('')
+    result = subprocess.run(command, capture_output=True, text=True, timeout=60)
+    assert result.returncode != 0 and 'no UNITAS full annotation matrix header' in result.stderr and not out.exists()
+    for s in samples:
+        folder = project / 'data/tmp/smallrna/quant/unitas/unitas' / s
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / 'unitas.annotation_summary.txt').write_text('miRNA\t60\nrRNA\t20\n\tSSU\t20\n')
+        (folder / 'unitas.full_annotation_matrix.txt').write_text(
+            'sequence\treads\tannotation(s)\nTAGCAGCACGTAAATATTGGCG\t60\tmiR-16-5p\t\nGTACGTACGTAAAGCC\t20\trRNA|SSU:X1.1.9 (3-18)\t'
+            'rRNA|SSU:X2.1.9 (3-18)\nACGTTTGACCAGTACG\t5\t\n')
+    result = subprocess.run(command, capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    rows = (out / 'depth_classes.tsv').read_text()
+    assert rows.startswith('class\tdepth\tmetric\tvalue\n') and 'rRNA\tfull\tfeatures_10\t1\n' in rows and 'miRNA\tfull\treads\t60\n' in rows
+    assert 'unassigned\tfull\treads\t5\n' in rows
+    assert '## RNA classes by depth (UNITAS)' in (out / 'depth.md').read_text()
 
 
 def test_tesmall_rnacentral_is_a_settings_variant():
@@ -3485,6 +3646,9 @@ def test_depth_de_scores_each_route_against_its_own_full_depth_calls():
     scores = depth.de_scores(at, full, features, ['a'])['a']
     assert scores['edger_calls'] == 2 and scores['voom_recall'] == 0.5 and scores['edger_glm_precision'] == 0.5
     assert depth.de_scores(full, None, features, ['a']) == {'a': {test + '_calls': 2 for test in de.TESTS}}   # the full depth itself
+    assert scores['edger_recall_strict'] == 1.0 and math.isnan(scores['edger_lfc_spearman'])   # F1 (p 0.01) recalled; 2 tested by both
+    moved = fits([(0.9, 0.01, 0.03), (-0.2, 0.5, 0.6), (0.3, 0.4, 0.5)])             # fold changes in the full depth's order
+    assert depth.de_scores(moved, full, features, ['a'])['a']['voom_lfc_spearman'] == 1.0
     flipped = {**at, ('a', 'edger', 'F1'): (-0.8, 0.01, 0.03)}                       # called, the other way
     assert depth.de_scores(flipped, full, features, ['a'])['a']['edger_recall'] == 0.0
     none = depth.de_scores(fits([(0.0, 0.9, 0.9)] * 3), full, features, ['a'])['a']
@@ -3531,7 +3695,8 @@ def test_depth_de_of_an_evaluated_biological_project(tmp_path):
     assert 'unitas\t50\tnull\tedger_null_called\t0.5' in tsv and 'mirge3\tfull\tnull\tvoom_null_called\t1.0' in tsv
     report = (out / 'depth.md').read_text()
     assert '## Differential expression by depth' in report and "**The contrast (4 case and 4 control samples)**, edgeR's exact test" in report
-    assert '| 20 | 0.50 / 1.00 (1) | 0.50 / 1.00 (1) |' in report and '| full | 2 | 2 |' in report
+    assert '| 20 | 0.50 [1.00] / 1.00 (1) | 0.50 [1.00] / 1.00 (1) |' in report and '| full | 2 | 2 |' in report
+    assert 'log2 fold changes against the full depth' in report and '| 20 | - / - / - | - / - / - |' in report   # 2 miRNAs: no Spearman
     assert '**lab/L1 (2 case and 2 control samples)**, limma-voom' in report and '| 50 | 0.50 (1.00) | 0.50 (1.00) |' in report
     assert 'edgeR 4.10.7, limma 3.68.5' in report
     before = {name: (out / name).read_text() for name in ('depth.md', 'depth.tsv', 'depth_de.tsv')}
