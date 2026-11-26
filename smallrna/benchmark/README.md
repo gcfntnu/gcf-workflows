@@ -202,6 +202,19 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    binned, the runtime per sample and peak memory of the biological project with the most samples. There is no
    overall score.
 
+   In HTML, **Figures** follow (`figures.py`), embedded as PNG with a title and caption in plain words, each from the
+   projects that hold its data (settings variants left out; a figure without one is omitted):
+   - how sure the results are: per route the value and its bootstrap interval for the equimolar pools' `within_2fold`,
+     one genome-wide synthetic set's `recovered` (the lowest seed; intervals of different draws are not averaged) and
+     the mixture's `within_1_5fold`;
+   - changes called where there are none: per route and test the null comparisons' `<test>_null_p05` of the biological
+     projects in the overview's No change column, against the 5% chance gives;
+   - sequencing depth, per biological or mixture project with a `benchmark/depth/depth.tsv` (`depth`, its default
+     `--output`): the share of the full depth's miRNAs per abundance stratum still seen, and the new miRNAs per
+     doubling of depth, for the first declared route the series has.
+
+   Figures need matplotlib; without it the page says so. Markdown has no figures.
+
    Then a section per dataset kind (synthetic, equimolar pool, ratiometric pool, biological) with a row per project:
    its dataset, kit, samples, reads processed, methods, a link to its
    `report.md`, and the kind's key metrics from its `metrics.tsv` per method (and the oracle, where it has values),

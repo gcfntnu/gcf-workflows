@@ -60,15 +60,19 @@ class Project:
         self.path = Path(path)
         bench = self.path / 'benchmark'
         self.spec = yaml.safe_load((bench / 'dataset.yaml').read_text())
-        table, _, _, routes = evaluation.read_evaluation(bench)
+        table, self.record, intervals, routes = evaluation.read_evaluation(bench)
         self.columns = table[0][1:]
         self.metrics = {(row[0], c): number(v) for row in table[1:] for c, v in zip(self.columns, row[1:])}
+        # bootstrap intervals (#413) as (value, low, high), those with both ends only
+        self.intervals = {(ci['metric'], ci['row']): (number(ci['value']), number(ci['low']), number(ci['high'])) for ci in intervals}
+        self.intervals = {k: v for k, v in self.intervals.items() if None not in v}
         self.status = {row['route']: row['state'] for row in routes if row['state'] != 'evaluated'}
         self.kind = self.spec.get('kind')
         self.pool = self.spec.get('pool')
         self.kit = self.spec.get('libprepkit', '')
         self.genome = (self.spec.get('synthetic') or {}).get('mode') == 'genome'
         self.variant = bool(self.spec.get('variant'))
+        self.seed = self.record.get('synthetic_seed', (self.spec.get('synthetic') or {}).get('seed'))
         samples = bench / 'samples.tsv'
         rows = read_tsv(samples) if samples.is_file() else []
         self.lanes = any(row.get('lane', 'merged') != 'merged' for row in rows)

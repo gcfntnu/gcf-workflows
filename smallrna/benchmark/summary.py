@@ -20,6 +20,7 @@ import sys
 import urllib.parse
 
 import evaluation
+import figures as summary_figures
 import overview as overview_table
 
 import yaml
@@ -396,6 +397,9 @@ table.overview td.poor, .key.poor { background: var(--poor); color: var(--poor-f
 table.overview td.na { background: var(--na); color: var(--muted); }
 table.overview th.route { text-align: left; }
 .key { display: inline-block; padding: 1px 8px; margin-right: 6px; border-radius: 3px; }
+figure { margin: 1.5em 0 2.5em; }
+figure img { max-width: 100%; height: auto; background: #ffffff; border-radius: 4px; }
+figcaption { color: var(--muted); max-width: 70em; margin-top: 0.5em; }
 '''
 
 
@@ -433,8 +437,24 @@ def overview_html(view):
             '<p>Cut-offs (good / poor): {}.</p>'.format(html.escape(overview_table.cutoffs(cols)))]
 
 
-def html_page(sections, view=None):
-    body = ['<h1>Small-RNA benchmark summary</h1>', '<p>{}</p>'.format(inline_code(INTRO))] + overview_html(view)
+FIGURES_NOTE = 'Figures need matplotlib, which is not installed where this summary was written.'
+
+
+def figures_html(figures):
+    """The figures' HTML (figures.build): each an embedded PNG with its caption; a note when matplotlib was missing (None)."""
+    if figures is None:
+        return ['<h2>Figures</h2>', '<p>{}</p>'.format(FIGURES_NOTE)]
+    if not figures:
+        return []
+    out = ['<h2>Figures</h2>']
+    for title, png, caption in figures:
+        out.append('<figure><img src="data:image/png;base64,{}" alt="{}"><figcaption>{}</figcaption></figure>'.format(
+            png, html.escape(title), inline_code(caption)))
+    return out
+
+
+def html_page(sections, view=None, figures=()):
+    body = ['<h1>Small-RNA benchmark summary</h1>', '<p>{}</p>'.format(inline_code(INTRO))] + overview_html(view) + figures_html(figures)
     for title, note, metrics, rows, seeds, variants in sections:
         top = ''.join('<th rowspan="2">{}</th>'.format(k) for k in FIXED)
         top += ''.join('<th colspan="{}">{}</th>'.format(len(ms), html.escape(k)) for k, ms in metrics)
@@ -553,7 +573,9 @@ def write(projects, output):
         check_directory_identity(directory, requested_parent, follow_symlinks=True)
         validate_destination(projects, output, directory, links)
         sections = summarize(projects, output.parent)
-        text = render(sections, overview_table.build(projects))
+        # the figures only in HTML: a Markdown summary stays one text file
+        extra = {'figures': summary_figures.build(projects)} if Path(name).suffix == '.html' else {}
+        text = render(sections, overview_table.build(projects), **extra)
         check_directory_identity(directory, output.parent)
         temporary = '.summary-' + secrets.token_hex(16)
         fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666, dir_fd=directory)

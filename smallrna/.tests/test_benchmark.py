@@ -1359,6 +1359,55 @@ def test_overview_bins_values_by_fixed_cut_offs_and_takes_columns_from_what_proj
     assert overview.build(projects[3:4]) is None   # the ratiometric pool here has no median_abs_error: no overview
 
 
+def test_summary_html_embeds_figures_of_what_projects_hold_and_markdown_has_none(tmp_path, monkeypatch):
+    """#338: the HTML summary's figures (intervals, null comparisons, depth), each taken by what a project declares and
+    holds, embedded as PNG; none in Markdown, a note without matplotlib, none at all without data for them."""
+    pytest.importorskip('matplotlib')
+    import evaluation
+    import figures
+    import summary
+    projects = summary_projects(tmp_path / 'projects')
+    syn, eq3, merged = projects[0], projects[1], projects[-1]
+    assert figures.build(projects) == []   # no intervals, null comparisons or depth series yet
+    out = tmp_path / 'out'
+    out.mkdir()
+    summary.write(projects, out / 'plain.html')
+    assert '<h2>Figures</h2>' not in (out / 'plain.html').read_text()
+    header = ['metric', 'oracle', 'unitas', 'mirge3', 'mirflowz']
+    evaluation.publish(eq3 / 'benchmark', header, [['within_2fold', '', '0.77', '0.76', '0.74']], ['# eq'], None,
+                       {'metrics_ci.tsv': 'metric\trow\tvalue\tlow\thigh\nwithin_2fold\tunitas\t0.77\t0.70\t0.80\n'
+                                          'within_2fold\tmirge3\t0.76\t0.72\t0.79\nwithin_2fold\tmirflowz\t0.74\t\t\n',
+                        'differences.tsv': 'metric\trow_a\trow_b\tdifference\tlow\thigh\n'}, {'resamples': 10, 'seed': 1, 'skipped': 0})
+    evaluation.publish(merged / 'benchmark', ['metric', 'unitas', 'mirge3', 'mirflowz'],
+                       [['edger_null_p05', '0.07', '0.04', ''], ['voom_null_p05', '0.05', '0.04', '']], ['# plasma'], 300)
+    depth = merged / 'benchmark' / 'depth'
+    depth.mkdir()
+    rows = ['method\tdepth\tmetric\tvalue']
+    for method in ('mirge3', 'unitas'):
+        for label, seen, gain in (('1M', 0.4, ''), ('2M', 0.7, 30), ('full', 1.0, 12)):
+            rows += ['{}\t{}\tseen_cpm_0.1-1\t{}'.format(method, label, seen), '{}\t{}\tseen_cpm_1+\t1.0'.format(method, label)]
+            if gain != '':
+                rows += ['{}\t{}\tgain_doubling_detected_1\t{}'.format(method, label, gain),
+                         '{}\t{}\tgain_doubling_detected_10\t'.format(method, label)]   # empty: no bar
+    (depth / 'depth.tsv').write_text('\n'.join(rows) + '\n')
+    assert [(p.path.name, metric, title) for p, metric, title, _ in figures.interval_panels([figures.overview.Project(x) for x in projects])] == [
+        ('eq3', 'within_2fold', 'Equal-amount pool, Kit A')]   # the synthetic set has no designed changes, so no panel
+    built = figures.build(projects)
+    assert [title for title, _, _ in built] == ['How sure are the results?', 'Changes called where there are none', 'Sequencing depth: plasma']
+    assert '(10 resamples of the samples)' in built[0][2]
+    assert 'counted with unitas' in built[2][2]   # the first declared route the depth series has
+    summary.write(projects, out / 'summary.html')
+    page = (out / 'summary.html').read_text()
+    assert page.count('<img src="data:image/png;base64,') == 3 and page.index('<h2>Overview</h2>') < page.index('<h2>Figures</h2>')
+    assert not any(token in page for token in ('http', '<link', '@import'))
+    summary.write(projects, out / 'summary.md')
+    assert 'Figures' not in (out / 'summary.md').read_text() and 'data:image' not in (out / 'summary.md').read_text()
+    monkeypatch.setattr(figures, 'available', lambda: False)
+    summary.write(projects, out / 'summary.html')
+    assert summary.FIGURES_NOTE in (out / 'summary.html').read_text() and 'data:image' not in (out / 'summary.html').read_text()
+    assert syn.is_dir()
+
+
 def test_summary_html_is_self_contained_and_bad_inputs_fail(tmp_path):
     import summary
     projects = summary_projects(tmp_path)
