@@ -268,3 +268,6 @@ def test_other_species_mirnas_are_not_reported_when_unitas_searched_only_the_spe
     write(tmp_path / 'unitas/settings.tsv', "field\tvalue\tsource\noptions\t-species_miR_only (no other species' miRNA hairpins)\tfixed\n")
     _, states, _, _, _ = classes.summarize(tmp_path, ['unitas'], ['S1'])
     assert ('unitas', 'miRNA (other species)', 'not reported (-species_miR_only)') in states
+    rows, states, _, base, notes = classes.summarize(tmp_path, ['unitas'], ['S1'])
+    lines = classes.report_lines(rows, states, {'S1': {22: 10}}, ['unitas'], ['S1'], notes)
+    assert '| miRNA (other species) | n/r |' in '\n'.join(lines)  # not 0.00

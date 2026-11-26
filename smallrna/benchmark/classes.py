@@ -650,7 +650,7 @@ def report_lines(rows, states, base, methods, samples, notes, plot_name=None):
         cells = []
         for m in methods:
             s = state.get((m, cls), 'not reported')
-            if s == 'not reported':
+            if s.startswith('not reported'):
                 cells.append('n/r')
             elif s.startswith('not available'):
                 cells.append('n/a')
