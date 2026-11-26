@@ -191,13 +191,14 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
 
    It opens with an **Overview** (`overview.py`, #338): one row per route and one column per criterion across the
    projects, each cell the raw value binned as good, intermediate or poor by fixed cut-offs printed under the table
-   (good at or past the first, poor past the second; colours in HTML, the bin in brackets in Markdown). Columns, each
+   (good at or past the first, poor past the second; colours in HTML, the bin in brackets in Markdown). Its headers
+   and note are in plain words for readers who do not know these metrics' names. Columns, each
    from the projects that declare and hold its metric (settings variants left out; a column without one is omitted):
-   the genome-wide synthetic sets with designed changes (recovered, precision, exact, DE sensitivity over the same test
-   on the true counts; averaged), the equimolar pools' within 2-fold and the ratiometric pools' median |log2 error|
-   over the oracle's, per kit; the mixture's linearity error and within 1.5-fold; the knockouts' unexpected survivors;
-   the null comparisons' share of miRNAs at p < 0.05 above 0.05 (edgeR's exact test); the decoy probes' share read
-   as miRNA and the mean share in the right class over the decoy sources whose class a route reports; and, not
+   the genome-wide synthetic sets with designed changes (`recovered`, `precision`, `exact`, DE sensitivity over the
+   same test on the true counts; averaged), the equimolar pools' `within_2fold` and the ratiometric pools'
+   `median_abs_error` over the oracle's, per kit; the mixture's `linearity_error` and `within_1_5fold`; the knockouts'
+   `knockout_surviving_unexpected`; the null comparisons' `edger_null_p05` above 0.05; the decoy probes'
+   `decoy_as_mirna` and the mean share in the right class over the decoy sources whose class a route reports; and, not
    binned, the runtime per sample and peak memory of the biological project with the most samples. There is no
    overall score.
 

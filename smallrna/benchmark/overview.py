@@ -141,13 +141,13 @@ def columns(projects):
     synthetic = [p for p in usable if p.kind == 'synthetic' and p.genome and p.value('de_sensitivity', 'truth')]
     if synthetic:
         group = 'Synthetic ({} sets)'.format(len(synthetic))
-        out += [(group, 'recovered', UP, 0.97, 0.90, '{:.3f}', mean_metric(synthetic, 'recovered'), synthetic),
-                (group, 'precision', UP, 0.99, 0.98, '{:.3f}', mean_metric(synthetic, 'precision'), synthetic),
-                (group, 'exact isomiR', UP, 0.5, 0.2, '{:.2f}', mean_metric(synthetic, 'exact'), synthetic),
-                (group, 'DE sensitivity / truth', UP, 0.95, 0.85, '{:.2f}', mean_metric(synthetic, 'de_sensitivity', True), synthetic)]
+        out += [(group, 'reads on the right miRNA', UP, 0.97, 0.90, '{:.3f}', mean_metric(synthetic, 'recovered'), synthetic),
+                (group, 'counted reads that are right', UP, 0.99, 0.98, '{:.3f}', mean_metric(synthetic, 'precision'), synthetic),
+                (group, 'counts exactly right', UP, 0.5, 0.2, '{:.2f}', mean_metric(synthetic, 'exact'), synthetic),
+                (group, 'real changes found vs truth', UP, 0.95, 0.85, '{:.2f}', mean_metric(synthetic, 'de_sensitivity', True), synthetic)]
     for pool, metric, label, direction, good, poor, fmt, relative in (
             ('equimolar', 'within_2fold', 'within 2-fold', UP, 0.95, 0.80, '{:.2f}', False),
-            ('ratiometric', 'median_abs_error', 'error / oracle', DOWN, 1.05, 1.20, '{:.2f}', True)):
+            ('ratiometric', 'median_abs_error', 'ratio error vs exact match', DOWN, 1.05, 1.20, '{:.2f}', True)):
         for kit in sorted({p.kit for p in usable if p.kind == 'pool' and p.pool == pool}):
             chosen = [p for p in usable if p.kind == 'pool' and p.pool == pool and p.kit == kit and p.has(metric)]
             if not chosen:
@@ -155,24 +155,24 @@ def columns(projects):
             get = (lambda ps, m: lambda routes: {r: mean(p.value(m, r) / p.value(m, 'oracle') if p.value(m, r) is not None
                                                           and p.value(m, 'oracle') else None for p in ps) for r in routes})(chosen, metric) \
                 if relative else mean_metric(chosen, metric)
-            out.append(('{} pools'.format(pool.capitalize()), '{} {}'.format(label, kit_label(kit)), direction, good, poor, fmt, get, chosen))
+            out.append(({'equimolar': 'Equal-amount pools', 'ratiometric': 'Set-ratio pools'}[pool], '{} {}'.format(label, kit_label(kit)), direction, good, poor, fmt, get, chosen))
     mixture = [p for p in usable if p.kind == 'mixture' and p.has('linearity_error')]
     if mixture:
-        out += [('Mixture', 'linearity error', DOWN, 0.25, 0.30, '{:.3f}', mean_metric(mixture, 'linearity_error'), mixture),
-                ('Mixture', 'within 1.5-fold', UP, 0.80, 0.70, '{:.2f}', mean_metric(mixture, 'within_1_5fold'), mixture)]
+        out += [('Mixture', 'off the mixing proportions', DOWN, 0.25, 0.30, '{:.3f}', mean_metric(mixture, 'linearity_error'), mixture),
+                ('Mixture', 'within 1.5-fold of predicted', UP, 0.80, 0.70, '{:.2f}', mean_metric(mixture, 'within_1_5fold'), mixture)]
     knockouts = [p for p in usable if p.kind == 'biological' and p.has('knockout_surviving_unexpected')]
     if knockouts:
-        out.append(('Knockouts', 'unexpected survivors', DOWN, 35, 80, '{:.0f}', mean_metric(knockouts, 'knockout_surviving_unexpected'), knockouts))
+        out.append(('Knockout', 'knocked-out miRNAs counted', DOWN, 35, 80, '{:.0f}', mean_metric(knockouts, 'knockout_surviving_unexpected'), knockouts))
     nulls = [p for p in usable if p.kind == 'biological' and not p.lanes and p.has('edger_null_p05')]
     if nulls:
         get = (lambda ps: lambda routes: {r: (lambda v: None if v is None else max(0.0, v - NULL_LEVEL))(mean(p.value('edger_null_p05', r) for p in ps))
                                           for r in routes})(nulls)
-        out.append(('Null comparisons', 'edgeR p<0.05 excess', DOWN, 0.01, 0.03, '{:.3f}', get, nulls))
+        out.append(('No change', 'false changes above 5%', DOWN, 0.01, 0.03, '{:.3f}', get, nulls))
     decoy = [p for p in usable if p.kind == 'synthetic' and p.has('decoy_as_mirna')
              and (p.path / 'benchmark' / 'class_truth.tsv').is_file() and (p.path / 'benchmark' / 'class_states.tsv').is_file()]
     if decoy:
-        out += [('Decoys', 'read as miRNA', DOWN, 0.005, 0.02, '{:.3f}', mean_metric(decoy, 'decoy_as_mirna'), decoy),
-                ('Decoys', 'right class (mean %)', UP, 90, 70, '{:.0f}', right_class(decoy), decoy)]
+        out += [('Other RNA (decoys)', 'counted as miRNA', DOWN, 0.005, 0.02, '{:.3f}', mean_metric(decoy, 'decoy_as_mirna'), decoy),
+                ('Other RNA (decoys)', 'right RNA type (%)', UP, 90, 70, '{:.0f}', right_class(decoy), decoy)]
     measured = [p for p in usable if p.kind == 'biological' and not p.lanes and (p.path / 'benchmark' / 'resources.tsv').is_file()]
     if measured:
         biggest = max(measured, key=lambda p: (p.samples, str(p.path)))
@@ -209,10 +209,14 @@ ARROW = {UP: '↑', DOWN: '↓', None: ''}
 
 NOTE = ('One row per route, one column per criterion; ↑ higher is better, ↓ lower is better. Each cell is the raw value, '
         'binned as good, intermediate or poor by the cut-offs below (good at or past the first, poor past the second). '
-        'Synthetic: the genome-wide sets with designed changes, averaged; DE sensitivity divided by the same test on the '
-        'true counts. Ratiometric pools: the median |log2 error| divided by the oracle\'s. Null comparisons: only the share of '
-        'miRNAs at p < 0.05 above 0.05 counts. Decoys: the synthetic set with decoy probes; right class over the decoy sources '
-        'whose class the route reports. Cost is not binned. There is no overall score.')
+        'Synthetic: reads simulated from known miRNAs, with changes designed between two groups, averaged over the sets; '
+        'real changes found are divided by the same test on the true counts. Equal-amount and set-ratio pools: synthetic miRNAs '
+        'mixed in equal amounts or at set ratios; the reads that exactly match a pool sequence are the reference a route should '
+        'reproduce, and the ratio error is divided by that reference\'s own. Mixture: two tissues mixed at known proportions. '
+        'Knockout: miRNAs counted in cells where they were knocked out. No change: samples of one group split in two halves, '
+        'where only about 5% of miRNAs should pass p < 0.05 by chance; only the share above 5% counts (edgeR\'s exact test). '
+        'Other RNA: reads from known non-miRNA RNAs added to the synthetic data; right RNA type over the types a route reports. '
+        'Cost is not binned. There is no overall score.')
 
 
 def cutoffs(cols):

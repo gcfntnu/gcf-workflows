@@ -1347,15 +1347,15 @@ def test_overview_bins_values_by_fixed_cut_offs_and_takes_columns_from_what_proj
     projects = summary_projects(tmp_path)
     routes, cols, cells, used = overview.build(projects)
     # only the equimolar pools hold an overview metric here (within_2fold), one column per kit
-    assert [(c[0], c[1]) for c in cols] == [('Equimolar pools', 'within 2-fold Kit A'), ('Equimolar pools', 'within 2-fold Kit B')]
+    assert [(c[0], c[1]) for c in cols] == [('Equal-amount pools', 'within 2-fold Kit A'), ('Equal-amount pools', 'within 2-fold Kit B')]
     assert used == [['eq3'], ['eq2']]
     assert routes[:3] == ['unitas', 'tesmall', 'mirge3'] and cells[('unitas', 0)] == ('0.77', 'poor') and cells[('mirge3', 1)] == ('0.85', 'intermediate')
     assert cells[('tesmall', 0)] == ('n/a', None)   # a route the pool does not have
     text = summary.markdown(summary.summarize(projects, tmp_path), (routes, cols, cells, used))
     assert '## Overview' in text and '| unitas | 0.77 (poor) | 0.86 (intermediate) |' in text
-    assert 'Cut-offs (good / poor): Equimolar pools within 2-fold Kit A ≥0.95 / &lt;0.80' in text
+    assert 'Cut-offs (good / poor): Equal-amount pools within 2-fold Kit A ≥0.95 / &lt;0.80' in text
     page = summary.html_page(summary.summarize(projects, tmp_path), (routes, cols, cells, used))
-    assert '<td class="num poor">0.77</td>' in page and '<th colspan="2">Equimolar pools</th>' in page
+    assert '<td class="num poor">0.77</td>' in page and '<th colspan="2">Equal-amount pools</th>' in page
     assert overview.build(projects[3:4]) is None   # the ratiometric pool here has no median_abs_error: no overview
 
 
