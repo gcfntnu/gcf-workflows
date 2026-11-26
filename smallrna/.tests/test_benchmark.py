@@ -1359,6 +1359,32 @@ def test_overview_bins_values_by_fixed_cut_offs_and_takes_columns_from_what_proj
     assert overview.build(projects[3:4]) is None   # the ratiometric pool here has no median_abs_error: no overview
 
 
+def test_overview_scores_only_what_was_measured(tmp_path):
+    """#338 review: the right class averages only sources a route was scored on; the decoy column needs no class tables;
+    cost leaves out a route with a quantification job missing and divides by the project's samples; a value printed at
+    a cut-off is binned at it; depth strata in scientific notation are read."""
+    from types import SimpleNamespace
+    import figures
+    import overview
+    bench = tmp_path / 'p' / 'benchmark'
+    bench.mkdir(parents=True)
+    (bench / 'class_states.tsv').write_text('method\tclass\tstate\nunitas\trRNA\treported\n')
+    (bench / 'class_truth.tsv').write_text('method\tsource\tclass\tpercent\nunitas\trRNA-refseq\trRNA\t100\n')
+    one = SimpleNamespace(path=tmp_path / 'p')
+    assert overview.right_class([one])(['unitas', 'mirge3']) == {'unitas': 100.0, 'mirge3': None}   # not 50: rRNA-ensembl was not scored
+    (bench / 'resources.tsv').write_text('method\tkind\tstep\tsample\twall_s\tcpu_s\tmax_rss_mb\n'
+                                         'unitas\tquant\tunitas\tS1\t60\t\t100\nunitas\tquant\tunitas_mirtable\t\t60\t\t100\n'
+                                         'mirge3\tquant\tmirge3_quant\t\t240\t\t\nmirge3\tquant\tmirge3_counts\t\t120\t\t\n')
+    minutes, gb = overview.cost(SimpleNamespace(path=tmp_path / 'p', samples=2, sample_names=['S1', 'S2']))
+    assert minutes == {'mirge3': 3.0} and gb == {}   # unitas lacks S2's job; mirge3's jobs are project-wide, over 2 samples
+    project = summary_project(tmp_path / 'projects', 'dec', dict(name='d', kind='synthetic', libprepkit='Kit A', methods=['unitas']),
+                              [['metric', 'unitas'], ['decoy_as_mirna', '0.0200000000001']], truth=[('S01', 10)])
+    routes, cols, cells, used = overview.build([project])
+    assert [c[1] for c in cols] == ['counted as miRNA'] and cells[('unitas', 0)] == ('0.020', 'intermediate')
+    assert figures.stratum_bounds('seen_cpm_1e-05-1', 'seen_cpm_') == ('1e-05', '1')
+    assert figures.stratum_label('seen_cpm_100+', 'seen_cpm_') == '≥100 CPM'
+
+
 def test_summary_figures_take_projects_by_what_they_declare_and_need_matplotlib(tmp_path, monkeypatch):
     """#338: the interval figure's panels by declaration (pools by kit, one synthetic draw: the lowest seed of the
     declaration with the most draws; mixtures numbered, not named); without matplotlib the HTML page says so and
@@ -1425,7 +1451,7 @@ def test_summary_html_embeds_figures_of_what_projects_hold(tmp_path):
     (depth / 'depth.tsv').write_text('\n'.join(rows) + '\n')
     built = figures.build(projects)
     assert [title for title, _, _ in built] == ['How sure are the results?', 'Changes called where there are none', 'Sequencing depth']
-    assert '(10 resamples of the samples)' in built[0][2] and 'Data: `eq_pool`' in built[0][2]
+    assert '(10 resamples)' in built[0][2] and 'Data: `eq_pool`' in built[0][2]
     assert '2 common tests' in built[1][2] and 'Data: `plasma`' in built[1][2]
     assert 'counted with UNITAS' in built[2][2]   # the first declared route the depth series has
     summary.write(projects, out / 'summary.html')

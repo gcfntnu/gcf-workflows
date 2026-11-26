@@ -17,6 +17,7 @@ import yaml
 
 import classes
 import evaluation
+import resources
 
 GOOD, INTERMEDIATE, POOR = 'good', 'intermediate', 'poor'
 UP, DOWN = 'up', 'down'
@@ -77,6 +78,7 @@ class Project:
         rows = read_tsv(samples) if samples.is_file() else []
         self.lanes = any(row.get('lane', 'merged') != 'merged' for row in rows)
         self.samples = len(rows)
+        self.sample_names = [row['sample'] for row in rows]
 
     def value(self, metric, route):
         return self.metrics.get((metric, route))
@@ -112,12 +114,13 @@ def right_class(projects):
             for p in projects:
                 bench = p.path / 'benchmark'
                 states = {(row['method'], row['class']): row['state'] for row in read_tsv(bench / 'class_states.tsv')}
-                percent = {}
+                percent, scored = {}, set()
                 for row in read_tsv(bench / 'class_truth.tsv'):
                     if row['method'] == r:
                         percent[(row['source'], row['class'])] = float(row['percent'])
-                for source, right in classes.DECOY_CLASSES.items():
-                    if any(states.get((r, c), '').startswith(('reported', 'totals only')) for c in right):
+                        scored.add(row['source'])
+                for source, right in classes.DECOY_CLASSES.items():  # a source the route was scored on; its right class reported
+                    if source in scored and any(states.get((r, c), '').startswith(('reported', 'totals only')) for c in right):
                         values.append(sum(percent.get((source, c), 0.0) for c in right))
             out[r] = mean(values)
         return out
@@ -126,16 +129,27 @@ def right_class(projects):
 
 def cost(project):
     """({route: wall minutes per sample}, {route: peak memory GB}) of a project's resources.tsv: every quantification
-    step's wall time, per sample or per project, summed and divided by the samples; the peak resident memory of any step."""
+    step's wall time, per sample or per project, summed and divided by the project's samples; the peak resident memory
+    of any step. A route is left out unless every quantification job resources.STEPS requires has a row, as its
+    report's runtime section requires (a partial rerun otherwise shows a partial cost)."""
     rows = read_tsv(project.path / 'benchmark' / 'resources.tsv')
-    samples = len({row['sample'] for row in rows if row['sample']}) or 1
-    wall, peak = {}, {}
+    samples = project.samples or len({row['sample'] for row in rows if row['sample']}) or 1
+    wall, peak, seen = {}, {}, {}
     for row in rows:
         if row['kind'] != 'quant':
             continue
+        seen.setdefault(row['method'], set()).add((row['step'], row['sample']))
         wall[row['method']] = wall.get(row['method'], 0.0) + (number(row['wall_s']) or 0.0)
-        peak[row['method']] = max(peak.get(row['method'], 0.0), number(row['max_rss_mb']) or 0.0)
-    return ({m: v / samples / 60 for m, v in wall.items()}, {m: v / 1024 for m, v in peak.items()})
+        rss = number(row['max_rss_mb'])
+        if rss is not None:
+            peak[row['method']] = max(peak.get(row['method'], 0.0), rss)
+
+    def complete(method):
+        steps = resources.STEPS.get(method)
+        return steps is None or all((step, sample) in seen[method] for step, per_sample, kind in steps if kind == 'quant'
+                                    for sample in (project.sample_names if per_sample else ['']))
+    measured = [m for m in wall if complete(m)]
+    return ({m: wall[m] / samples / 60 for m in measured}, {m: peak[m] / 1024 for m in measured if m in peak})
 
 
 def columns(projects):
@@ -172,11 +186,12 @@ def columns(projects):
         get = (lambda ps: lambda routes: {r: (lambda v: None if v is None else max(0.0, v - NULL_LEVEL))(mean(p.value('edger_null_p05', r) for p in ps))
                                           for r in routes})(nulls)
         out.append(('No change', 'false changes above 5%', DOWN, 0.01, 0.03, '{:.3f}', get, nulls))
-    decoy = [p for p in usable if p.kind == 'synthetic' and p.has('decoy_as_mirna')
-             and (p.path / 'benchmark' / 'class_truth.tsv').is_file() and (p.path / 'benchmark' / 'class_states.tsv').is_file()]
+    decoy = [p for p in usable if p.kind == 'synthetic' and p.has('decoy_as_mirna')]
+    typed = [p for p in decoy if (p.path / 'benchmark' / 'class_truth.tsv').is_file() and (p.path / 'benchmark' / 'class_states.tsv').is_file()]
     if decoy:
-        out += [('Other RNA (decoys)', 'counted as miRNA', DOWN, 0.005, 0.02, '{:.3f}', mean_metric(decoy, 'decoy_as_mirna'), decoy),
-                ('Other RNA (decoys)', 'right RNA type (%)', UP, 90, 70, '{:.0f}', right_class(decoy), decoy)]
+        out.append(('Other RNA (decoys)', 'counted as miRNA', DOWN, 0.005, 0.02, '{:.3f}', mean_metric(decoy, 'decoy_as_mirna'), decoy))
+    if typed:  # the right class needs the class tables, which an evaluation without class scoring lacks
+        out.append(('Other RNA (decoys)', 'right RNA type (%)', UP, 90, 70, '{:.0f}', right_class(typed), typed))
     measured = [p for p in usable if p.kind == 'biological' and not p.lanes and (p.path / 'benchmark' / 'resources.tsv').is_file()]
     if measured:
         biggest = max(measured, key=lambda p: (p.samples, str(p.path)))
@@ -204,7 +219,8 @@ def build(paths):
             if v is None:
                 cells[(r, j)] = (state or 'n/a', state)
             else:
-                cells[(r, j)] = (fmt.format(v), bin_of(v, direction, good, poor) if direction else None)
+                text = fmt.format(v)  # binned as shown, so a value printed at a cut-off is binned at it
+                cells[(r, j)] = (text, bin_of(float(text), direction, good, poor) if direction else None)
     used = [sorted(p.path.name for p in c[7]) for c in cols]
     return routes, [c[:6] for c in cols], cells, used
 

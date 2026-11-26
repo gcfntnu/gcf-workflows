@@ -13,6 +13,7 @@ A figure without a project is left out, and all of them without matplotlib.
 import base64
 import io
 import math
+import re
 
 import overview
 
@@ -110,15 +111,19 @@ def interval_figure(projects, routes):
         drawn = []
         for i, route in enumerate(routes):
             interval = project.intervals.get((metric, route))
-            if interval is None:
-                state = project.status.get(route) or ('no interval' if project.value(metric, route) is not None else '')
-                ax.text(0.02, i, state, transform=ax.get_yaxis_transform(), va='center', fontsize=8, color=INK2, style='italic')
+            value = interval[0] if interval else project.value(metric, route)
+            if value is None:
+                ax.text(0.02, i, project.status.get(route, ''), transform=ax.get_yaxis_transform(), va='center', fontsize=8,
+                        color=INK2, style='italic')
                 continue
-            value, low, high = interval
             color = ROUTE_COLOR.get(route, OTHER)
-            ax.plot([low, high], [i, i], color=color, lw=2.4, solid_capstyle='round')
+            if interval:
+                ax.plot(interval[1:], [i, i], color=color, lw=2.4, solid_capstyle='round')
+                drawn.append(interval)
+            else:
+                ax.annotate('no interval', (value, i), xytext=(8, 0), textcoords='offset points', va='center', fontsize=7.5,
+                            color=INK2, style='italic')
             ax.plot(value, i, 'o', color=color, ms=7.5, mec='white', mew=1.5, zorder=3)
-            drawn.append(interval)
         headline(ax, title, subtitle, max(p[3].count('\n') + 1 for p in panels))
         ax.grid(axis='x', color=GRID)
         ax.set_xlabel('better →', color=INK2, loc='right', fontsize=8.5)
@@ -132,9 +137,9 @@ def interval_figure(projects, routes):
     fig.tight_layout(h_pad=4)
     resamples = {(p.record.get('bootstrap') or {}).get('resamples') for p, *_ in panels}
     caption = ('Point: the measure; line: its 95% bootstrap interval{}, the range the value would likely take with another draw of '
-               'the same samples. Routes whose lines do not overlap differ clearly. Data: {}. The other synthetic sets and the '
+               'the data. Routes whose lines do not overlap differ clearly. Data: {}. The other synthetic sets and the '
                'set-ratio pools are in the tables below.').format(
-        ' ({:,} resamples of the samples)'.format(resamples.pop()) if len(resamples) == 1 and None not in resamples else '',
+        ' ({:,} resamples)'.format(resamples.pop()) if len(resamples) == 1 and None not in resamples else '',
         ', '.join('`{}`{}'.format(p.spec['name'], ' seed {}'.format(p.seed) if p.kind == 'synthetic' and p.seed is not None else '')
                   for p, *_ in panels))
     return ('How sure are the results?', encoded(fig), caption)
@@ -185,9 +190,18 @@ def depth_value(text):
     return float(text[:-1]) * {'k': 1e3, 'M': 1e6}[text[-1]] if text[-1] in 'kM' else float(text)
 
 
+def stratum_bounds(name, prefix):
+    """(low, high or None) of a stratum metric (seen_cpm_0.1-1, seen_cpm_1e-05-1, seen_cpm_100+) as text."""
+    text = name[len(prefix):]
+    if text.endswith('+'):
+        return text[:-1], None
+    low, high = re.split(r'(?<![eE])-', text, maxsplit=1)
+    return low, high
+
+
 def stratum_label(name, prefix):
-    low, _, high = name[len(prefix):].partition('-')
-    return '≥{} CPM'.format(low[:-1]) if low.endswith('+') else '{}–{} CPM'.format(low, high)
+    low, high = stratum_bounds(name, prefix)
+    return '≥{} CPM'.format(low) if high is None else '{}–{} CPM'.format(low, high)
 
 
 def depth_figure(project):
@@ -209,7 +223,7 @@ def depth_figure(project):
         x[depth_series.FULL] = x[depths[-1]] * 1.8
     prefix = depth_series.STRATUM_PREFIX
     strata = sorted({m for _, m in values if m.startswith(prefix)},
-                    key=lambda m: -float(m[len(prefix):].partition('-')[0].rstrip('+')))
+                    key=lambda m: -float(stratum_bounds(m, prefix)[0]))
     gains = [m for m in ('gain_doubling_detected_1', 'gain_doubling_detected_10') if any(k == m for _, k in values)]
     if not strata or not gains:  # a series written before the strata and gains (#409): its depth.md has what it holds
         return None
