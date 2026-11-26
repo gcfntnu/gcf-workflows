@@ -2778,8 +2778,8 @@ def depth(args):
     groups = collections.defaultdict(list)
     for row in table:
         groups[row['group']].append(row['sample'])
-    reads_in = {s: f['reads_in'] for s, f in evaluated_filtering(project, bench, samples, 'the depth axis is the reads each sample '
-                                                                 'sequenced').items()}
+    filtering = evaluated_filtering(project, bench, samples, 'the depth axis is the reads each sample sequenced')
+    reads_in = {s: f['reads_in'] for s, f in filtering.items()}
     out = Path(args.output) if args.output else bench / 'depth'
     if 'de' in spec and (out / 'de').resolve() == (bench / 'de').resolve():
         fail('--output {}: its de/ would be the evaluation\'s benchmark/de; choose another folder (default benchmark/depth/)'.format(out))
@@ -2798,26 +2798,32 @@ def depth(args):
         isomir_rows = [tuple(r[k] for k in adapters.ISOMIR_COLUMNS[:-1]) + (float(r['count']),) for r in read_tsv(bench / 'isomirs.tsv')]
     tables, usable = depth_series.thinned(common, samples, reads_in, depths, args.seed, isomir_rows)
     skipped = [d for d in depths if d not in usable]
-    points = depth_series.series_points(tables, usable, methods, samples, groups, isomir_rows, args.cpm)
+    library = {s: f['kept'] for s, f in filtering.items()} if args.per_million == 'filtered' else None
+    at = depth_series.library_at(library, reads_in, usable) if library else None
+    points = depth_series.series_points(tables, usable, methods, samples, groups, isomir_rows, args.cpm, at)
     full = round(statistics.median(reads_in.values()))
+    steps = depth_series.gains(points, methods, full)
+    sizes = depth_series.strata_sizes(depth_series.full_strata(tables, methods, samples, args.cpm, at)[1], methods, samples, args.cpm)
     equal = len(set(reads_in.values())) == 1  # the full depth is a common measurement only then
     reached = {key: depth_series.saturation(points, methods, full, key=key, equal=equal) for key in depth_series.SATURATION_KEYS}
     rising = {key: depth_series.rise(points, methods, full, key=key) for key in depth_series.SATURATION_KEYS}
     de_lines, de_rows = depth_de(args, out, spec, table, methods, tables, usable) if 'de' in spec else ([], None)
     out.mkdir(parents=True, exist_ok=True)
     rows, pairs = depth_series.tables(points, methods)
-    write_tsv(out / 'depth.tsv', ['method', 'depth', 'metric', 'value'], rows)
+    write_tsv(out / 'depth.tsv', ['method', 'depth', 'metric', 'value'], rows + depth_series.gain_rows(steps, methods))
     write_tsv(out / 'depth_agreement.tsv', ['method_a', 'method_b', 'depth', 'metric', 'value'], pairs)
     if de_rows is not None:
         write_tsv(out / 'depth_de.tsv', ['method', 'depth', 'set', 'metric', 'value'], de_rows)
-    lines = depth_series.report(spec['name'], points, methods, skipped, reached, rising, reads_in, args.seed, md_table, args.cpm) + de_lines
+    lines = depth_series.report(spec['name'], points, methods, skipped, reached, rising, reads_in, args.seed, md_table, args.cpm,
+                                steps, sizes, library) + de_lines
     if args.classes:
         class_points, class_reached, class_rising = depth_classes(args, project, spec, samples, reads_in, usable, full, equal)
         write_tsv(out / 'depth_classes.tsv', ['class', 'depth', 'metric', 'value'], depth_series.class_rows(class_points))
         lines += depth_series.class_lines(class_points, class_reached, class_rising, args.seed, md_table, args.cpm)
     (out / 'depth.md').write_text('\n'.join(lines) + '\n')
     if args.plot:
-        depth_series.plot(points, methods, full, out / 'depth.png', args.cpm)
+        depth_series.plot(points, methods, full, out / 'depth.png', args.cpm, steps)
+        depth_series.strata_plot(points, methods, full, out / 'depth_strata.png', args.cpm)
         if args.classes:
             depth_series.class_plot(class_points, full, out / 'depth_classes.png', cpm=args.cpm)
     print(out / 'depth.md')
@@ -3063,7 +3069,8 @@ def main():
     d = sub.add_parser('depth', help='sequencing-depth curves of an evaluated biological project, by thinning its count tables (#409)')
     d.add_argument('--project', required=True)
     d.add_argument('--output', help='directory for depth.tsv, depth_agreement.tsv and depth.md (default benchmark/depth/ in the project)')
-    d.add_argument('--plot', action='store_true', help='also depth.png, detection and replicate CV against depth (needs matplotlib)')
+    d.add_argument('--plot', action='store_true', help='also depth.png (detection, replicate CV and new miRNAs per doubling against '
+                   'depth) and depth_strata.png (the full depth\'s miRNAs still seen, by abundance) (needs matplotlib)')
     d.add_argument('--depths', default=depth_series.DEPTHS, help='reads per sample, k and M suffixes (default %(default)s); '
                    'those above the shallowest sample are left out, and the full depth ends the series')
     d.add_argument('--seed', type=int, default=1, help='seed of the thinning (default %(default)s)')
@@ -3073,6 +3080,9 @@ def main():
                    '(its full annotation matrices, kept by the run): depth_classes.tsv, a section of depth.md and with --plot '
                    'depth_classes.png')
     d.add_argument('--jobs', type=int, default=1, help='--classes: samples read at a time (default %(default)s)')
+    d.add_argument('--per-million', choices=('mirna', 'filtered'), default='mirna', help="--cpm's denominator for the miRNAs: each "
+                   "route's miRNA reads in the sample (default), or the sample's filtered reads (the cutadapt route's), the same for "
+                   'every route')
     d.add_argument('--cpm', type=float, default=depth_series.CPM, help='detection that scales with depth: at least this many reads '
                    'per million of the sample\'s reads (miRNA reads for miRNAs; at least 1 read), next to the fixed counts '
                    '(default %(default)s, about 3-5 reads at 30-50M miRNA reads)')

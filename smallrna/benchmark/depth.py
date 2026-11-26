@@ -33,6 +33,7 @@ import numpy as np
 
 import biological
 import de
+import pool
 
 DEPTHS = '500k,1M,2M,4M,8M,16M,32M'
 LEVELS = (1, 5, 10)            # miRNAs with at least this many reads in a sample
@@ -44,6 +45,10 @@ SEEN = 3                       # reads that count a full-depth miRNA (feature) a
 SEEN_KEY = 'full_cpm_seen'     # share of the full depth's miRNAs at CPM or more seen with SEEN reads at a depth
 SATURATION_KEYS = (SATURATION_KEY, SEEN_KEY)  # the saturation table's two definitions of detected
 AGREEMENT_KEYS = ('spearman_either', 'median_abs_log2_ratio', 'top{}_overlap'.format(biological.TOP))
+STRATA = (1, 10, 100)          # abundance strata of the full depth's miRNAs: per million from `cpm` up to 1, 10, 100, and above
+STRATUM_PREFIX = 'seen_cpm_'   # their metrics: the share of a stratum still seen with SEEN reads
+GAIN_KEYS = ('detected_1', 'detected_5', 'detected_10')   # new miRNAs per step of depth, at a ladder of read counts
+STRICT_FDR = 0.01              # depth DE: recall also of the full depth's calls at this BH-adjusted p (#414)
 FULL = 'full'
 BEYOND = 'beyond'  # a saturation share not reached by the last depth every sample was measured at
 
@@ -89,14 +94,35 @@ def cv_sets(common, methods, groups):
             for m in methods for g, members in replicate_groups(groups).items()}
 
 
-def cpm_sets(by, keys, cpm=CPM):
+def cpm_sets(by, keys, cpm=CPM, totals=None):
     """{key: the features with at least `cpm` reads per million of the key's reads (and at least 1 read)}, for {key:
-    {feature: reads}} `by`: a full depth's reference set (SEEN_KEY)."""
+    {feature: reads}} `by`: a full depth's reference set (SEEN_KEY). `totals` {key: reads}: the per-million denominator
+    instead of the key's own reads (e.g. the sample's filtered reads, the same for every route)."""
     out = {}
     for key in keys:
         counts = by.get(key, {})
-        total = sum(counts.values())
+        total = totals[key] if totals else sum(counts.values())
         out[key] = {f for f, v in counts.items() if v >= 1 and v * 1e6 >= cpm * total}
+    return out
+
+
+def stratum_names(cpm=CPM):
+    """The abundance strata's metric names, from `cpm` per million up: seen_cpm_0.1-1, seen_cpm_1-10, ..., seen_cpm_100+."""
+    edges = [cpm] + [e for e in STRATA if e > cpm]
+    return ['{}{:g}-{:g}'.format(STRATUM_PREFIX, a, b) for a, b in zip(edges, edges[1:])] + ['{}{:g}+'.format(STRATUM_PREFIX, edges[-1])]
+
+
+def strata_sets(by, keys, cpm=CPM, totals=None):
+    """{key: {stratum name: features}}: the cpm_sets() of `by` (a full depth's counts) split by reads per million at
+    the STRATA edges, each feature in the stratum its full-depth abundance falls in."""
+    edges, names = [e for e in STRATA if e > cpm], stratum_names(cpm)
+    out = {}
+    for key, kept in cpm_sets(by, keys, cpm, totals).items():
+        counts = by.get(key, {})
+        total = totals[key] if totals else sum(counts.values())
+        out[key] = {n: set() for n in names}
+        for f in kept:
+            out[key][names[sum(1 for e in edges if counts[f] * 1e6 >= e * total)]].add(f)
     return out
 
 
@@ -110,11 +136,14 @@ def median_of(values):
     return round(statistics.median(values), 4) if values else ''
 
 
-def metrics(common, methods, samples, groups, isomir_rows=None, fixed=None, with_isomirs=None, cpm=CPM, reference=None):
+def metrics(common, methods, samples, groups, isomir_rows=None, fixed=None, with_isomirs=None, cpm=CPM, reference=None,
+            strata=None, library=None):
     """Per method: median miRNA reads, median miRNAs with at least 1, 5 and 10 reads per sample, median miRNAs with
-    at least `cpm` reads per million of the sample's miRNA reads (detected_cpm; at least 1 read, so below the depth
+    at least `cpm` reads per million of the sample's miRNA reads, or of `library` {sample: reads} when given
+    (detected_cpm; at least 1 read, so below the depth
     where `cpm` is a read it counts every miRNA with a read), with `reference` ({(method, sample): the full depth's
-    cpm_sets()}) the median share of a sample's reference miRNAs seen with at least SEEN reads (full_cpm_seen),
+    cpm_sets()}) the median share of a sample's reference miRNAs seen with at least SEEN reads (full_cpm_seen), with
+    `strata` ({(method, sample): strata_sets()}) the same per abundance stratum (stratum_names()),
     miRNAs with at least 10 in every sample, the median over groups (two samples or more) of the median CPM coefficient of variation of
     the miRNAs in `fixed` (cv_sets(); by default those of these tables), and with `isomir_rows` the median distinct
     nonempty read sequences per sample ('' for a method not in `with_isomirs`, by default those with rows here)."""
@@ -131,9 +160,13 @@ def metrics(common, methods, samples, groups, isomir_rows=None, fixed=None, with
         values = {'mirna_reads': round(statistics.median(sum(c.values()) for c in per.values()))}
         for level in LEVELS:
             values['detected_{}'.format(level)] = statistics.median(sum(1 for v in c.values() if v >= level) for c in per.values())
-        values[CPM_KEY] = statistics.median(sum(1 for v in c.values() if v >= 1 and v * 1e6 >= cpm * sum(c.values())) for c in per.values())
+        total = (lambda s: library[s]) if library else (lambda s: sum(per[s].values()))
+        values[CPM_KEY] = statistics.median(sum(1 for v in per[s].values() if v >= 1 and v * 1e6 >= cpm * total(s)) for s in samples)
         if reference is not None:
             values[SEEN_KEY] = median_of(seen_share(per[s], reference.get((m, s), set())) for s in samples)
+        if strata is not None:
+            for name in stratum_names(cpm):
+                values[name] = median_of(seen_share(per[s], strata.get((m, s), {}).get(name, set())) for s in samples)
         detected = [{i for i, v in c.items() if v >= biological.MIN_READS} for c in per.values()]
         values['detected_all_samples'] = len(set.intersection(*detected)) if detected else 0
         cvs = []
@@ -179,9 +212,33 @@ def series(common, methods, samples, reads_in, groups, depths, seed, isomir_rows
     return series_points(tables, usable, methods, samples, groups, isomir_rows, cpm), [d for d in depths if d not in usable]
 
 
-def series_points(tables, usable, methods, samples, groups, isomir_rows=None, cpm=CPM):
+def full_strata(tables, methods, samples, cpm=CPM, library=None):
+    """(the full depth's cpm_sets() and strata_sets() per (method, sample)), per million of each route's miRNA reads in
+    the sample, or of `library` {FULL: {sample: reads}} when given."""
+    keys = [(m, s) for m in methods for s in samples]
+    totals = {(m, s): library[FULL][s] for m, s in keys} if library else None
+    by = biological.counts_by(tables[FULL][0])
+    return cpm_sets(by, keys, cpm, totals), strata_sets(by, keys, cpm, totals)
+
+
+def strata_sizes(strata, methods, samples, cpm=CPM):
+    """{method: {stratum name: median miRNAs per sample in it}} of full_strata()'s strata."""
+    return {m: {n: whole(statistics.median(len(strata[(m, s)][n]) for s in samples)) for n in stratum_names(cpm)} for m in methods}
+
+
+def library_at(library, reads_in, usable):
+    """{depth or FULL: {sample: reads}}: a per-million denominator (`library` {sample: reads at full depth}, e.g. the
+    filtered reads) at each thinned depth, scaled by depth / the sample's sequenced reads."""
+    out = {FULL: dict(library)}
+    for depth in usable:
+        out[depth] = {s: library[s] * depth / reads_in[s] for s in library}
+    return out
+
+
+def series_points(tables, usable, methods, samples, groups, isomir_rows=None, cpm=CPM, library=None):
     """[(depth or FULL, metrics(), biological.agreement())] of thinned() tables, from the lowest depth up; the replicate
-    CV of a method and group uses the miRNAs of the lowest depth where it has any (cv_sets()) all along."""
+    CV of a method and group uses the miRNAs of the lowest depth where it has any (cv_sets()) all along. `library`
+    (library_at()): the per-million denominator at each depth instead of each route's miRNA reads."""
     order = usable + [FULL]
     fixed = {}
     for depth in order:  # from the lowest depth up, the first where a method and group have any
@@ -190,9 +247,35 @@ def series_points(tables, usable, methods, samples, groups, isomir_rows=None, cp
                 fixed[key] = kept
     fixed = {key: fixed.get(key, set()) for key in cv_sets([], methods, groups)}
     with_isomirs = {row[0] for row in isomir_rows or [] if float(row[-1]) > 0 and row[4]}
-    reference = cpm_sets(biological.counts_by(tables[FULL][0]), [(m, s) for m in methods for s in samples], cpm)
-    return [(depth, metrics(tables[depth][0], methods, samples, groups, tables[depth][1], fixed, with_isomirs, cpm, reference),
+    reference, strata = full_strata(tables, methods, samples, cpm, library)
+    return [(depth, metrics(tables[depth][0], methods, samples, groups, tables[depth][1], fixed, with_isomirs, cpm, reference,
+                            strata, library[depth] if library else None),
              biological.agreement(tables[depth][0], methods, samples)) for depth in order]
+
+
+def gains(points, methods, full_depth, keys=GAIN_KEYS):
+    """[(from depth, to depth, {method: {key: (new per doubling of depth, new per extra million reads)}})] over each
+    step of the series, the full depth at `full_depth` (the median sample's; with unequal samples that last step is
+    approximate): the marginal gain of detection, the published form of saturation."""
+    xs = [full_depth if depth == FULL else depth for depth, _, _ in points]
+    out = []
+    for i in range(1, len(points)):
+        if xs[i] <= xs[i - 1]:
+            continue
+        doublings, millions = math.log2(xs[i] / xs[i - 1]), (xs[i] - xs[i - 1]) / 1e6
+        step = {m: {} for m in methods}
+        for m in methods:
+            for key in keys:
+                new = points[i][1][m][key] - points[i - 1][1][m][key]
+                step[m][key] = (round(new / doublings, 1), round(new / millions, 2))
+        out.append((points[i - 1][0], points[i][0], step))
+    return out
+
+
+def gain_rows(steps, methods):
+    """depth.tsv's rows of gains(): method, the step's upper depth, gain_doubling_<key> or gain_per_million_<key>, value."""
+    return [[m, label(high), '{}_{}'.format(kind, key), values[m][key][i]] for _, high, values in steps for m in methods
+            for key in values[m] for i, kind in enumerate(('gain_doubling', 'gain_per_million'))]
 
 
 def rise(points, methods, full_depth, key=SATURATION_KEY):
@@ -258,7 +341,9 @@ def de_scores(results, full, features, rows):
     the set's `features` (the same at every depth); `results` and `full` as de.read_results, `full` None for the full
     depth itself (`calls` only). `calls`: the features called (BH-adjusted p of at most de.FDR); `recall`: the share of
     the full-depth calls called in the same direction; `precision`: the share of the calls that the full depth makes
-    in the same direction; NaN without full-depth calls, or without calls."""
+    in the same direction; `recall_strict`: `recall` of the full-depth calls at a BH-adjusted p of at most STRICT_FDR, a
+    reference less made of borderline calls; `lfc_spearman`: Spearman of the log2 fold changes with the full depth's
+    over the features both test; NaN without full-depth calls, or without calls (or fewer than 3 features both test)."""
     out = {}
     for row in rows:
         out[row] = {}
@@ -266,9 +351,15 @@ def de_scores(results, full, features, rows):
             at = [de.call(results[(row, test, f)]) for f in features]
             out[row][test + '_calls'] = sum(1 for c in at if c)
             if full is not None:
-                pairs = list(zip(at, (de.call(full[(row, test, f)]) for f in features)))
+                fits = [full[(row, test, f)] for f in features]
+                pairs = list(zip(at, (de.call(fit) for fit in fits)))
+                strict = [fit[2] is not None and fit[2] <= STRICT_FDR for fit in fits]
+                both = [(results[(row, test, f)][0], fit[0]) for f, fit in zip(features, fits)
+                        if results[(row, test, f)][0] is not None and fit[0] is not None]
                 out[row].update({test + '_recall': de.share([c == top for c, top in pairs if top]),
-                                 test + '_precision': de.share([c == top for c, top in pairs if c])})
+                                 test + '_precision': de.share([c == top for c, top in pairs if c]),
+                                 test + '_recall_strict': de.share([c == top for (c, top), s in zip(pairs, strict) if s and top]),
+                                 test + '_lfc_spearman': round(pool.spearman(*zip(*both)), 4) if len(both) >= 3 else float('nan')})
     return out
 
 
@@ -323,14 +414,22 @@ def de_lines(contrasts, nulls, methods, versions, md_table, between=(), library=
              '`recall / precision (calls)`; `full` shows the calls. These measure how depth changes a route\'s calls, not '
              'whether the calls are right: the full-depth calls are no truth, and a route that calls more there has more to '
              'recall. They are optimistic twice over: each depth is a subset of the full-depth reads, so its calls share their '
-             'noise, and the full depth is what the project holds (a read cap where one was set), not what was sequenced.'.format(
-                 biological.MIN_READS, library, de.FDR)]
+             'noise, and the full depth is what the project holds (a read cap where one was set), not what was sequenced. '
+             'In brackets, the recall of the full-depth calls at a BH-adjusted p of at most {} (`recall_strict`): borderline '
+             'full-depth calls are partly noise a shallower depth cannot recall, so this is the fairer recall; precision stays '
+             'against the {} calls, and the null comparisons below measure false calls.'.format(
+                 biological.MIN_READS, library, de.FDR, STRICT_FDR, de.FDR)]
     for _, title, points in contrasts:
         for test in de.TESTS:
             lines += ['', '**{}**, {}'.format(title, de.TEST_NAMES[test]), '']
             lines += md_table(['depth'] + methods, [[label(depth)] + [
-                '{} / {} ({})'.format(share_cell(values[m][test + '_recall']), share_cell(values[m][test + '_precision']), values[m][test + '_calls'])
+                '{} [{}] / {} ({})'.format(share_cell(values[m][test + '_recall']), share_cell(values[m][test + '_recall_strict']),
+                                           share_cell(values[m][test + '_precision']), values[m][test + '_calls'])
                 if test + '_recall' in values[m] else str(values[m][test + '_calls']) for m in methods] for depth, values in points])
+        lines += ['', '**{}**, log2 fold changes against the full depth\'s (Spearman over the miRNAs both test; {})'.format(
+            title, ' / '.join(de.TEST_NAMES[t] for t in de.TESTS)), '']
+        lines += md_table(['depth'] + methods, [[label(depth)] + [' / '.join(share_cell(values[m][t + '_lfc_spearman']) for t in de.TESTS)
+                                                                  for m in methods] for depth, values in points if depth != FULL])
     if nulls:
         lines += ['', '**Null comparisons** (#449): the same splits of each group at every depth, so every call is false: the median '
                   'over the splits of the share of tested miRNAs called (`null_called`), and the share of splits with a call (`null_any`) '
@@ -390,8 +489,11 @@ def saturation_table(names, points, reached, rising, titles, md_table, first='me
     return md_table(header, rows)
 
 
-def report(name, points, methods, skipped, reached, rising, reads_in, seed, md_table, cpm=CPM):
-    """depth.md's lines; `reached` and `rising` by saturation key (SATURATION_KEYS)."""
+def report(name, points, methods, skipped, reached, rising, reads_in, seed, md_table, cpm=CPM, steps=None, sizes=None, library=None):
+    """depth.md's lines; `reached` and `rising` by saturation key (SATURATION_KEYS); `steps` gains(), `sizes`
+    strata_sizes(); `library` {sample: reads}: the per-million denominator when not each route's miRNA reads."""
+    of = 'of its filtered reads, the same for every route' if library else 'of its miRNA reads'
+    typical = statistics.median(library.values()) if library else statistics.median(points[-1][1][m]['mirna_reads'] for m in methods)
     keys = list(next(iter(points[0][1].values())))
     lines = ['# Sequencing depth: {}'.format(name), '',
              'Each method\'s count table thinned binomially to each depth (#409): every read kept with probability depth / the '
@@ -408,17 +510,30 @@ def report(name, points, methods, skipped, reached, rising, reads_in, seed, md_t
     lines += ['', '**Depth reaching {} of full-depth detection** (median per sample; reads sequenced per sample), with two '
               'definitions of detected: at least {} reads, a fixed count that keeps rising with depth as rarer reads (permissive '
               'matches among them) pass it; and `full_cpm_seen`, the share of the miRNAs a sample has at {:g} reads per '
-              'million or more at its full depth (of its miRNA reads; {:g} per million is {:.1f} reads at this dataset\'s median '
-              'miRNA reads) that a depth still sees with at least {} reads, which rises to its full-depth value and so shows '
-              'where the miRNAs above that abundance are seen. `detected_cpm` counts the miRNAs at {:g} per million or more at '
+              'million or more at its full depth ({}; {:g} per million is {:.1f} reads at this dataset\'s median) that a '
+              'depth still sees with at least {} reads, which rises to its full-depth value and so shows where the miRNAs above that abundance are seen. `detected_cpm` counts the miRNAs at {:g} per million or more at '
               'each depth itself; below the depth where that is a read it counts every miRNA with a read, so it overshoots '
               'there. It is relative to this dataset\'s depth: '
               '`rise per doubling` is the share of full-depth detection gained per doubling of depth over the last step, near 0 '
               'when the curve has levelled off. With samples of different depths the full depth is no common measurement: a '
               'share the last common depth misses is `beyond` it.'.format(
-                  ' and '.join('{:.0%}'.format(s) for s in SATURATION), biological.MIN_READS, cpm, cpm,
-                  cpm * statistics.median(points[-1][1][m]['mirna_reads'] for m in methods) / 1e6, SEEN, cpm), '']
+                  ' and '.join('{:.0%}'.format(s) for s in SATURATION), biological.MIN_READS, cpm, of, cpm,
+                  cpm * typical / 1e6, SEEN, cpm), '']
     lines += saturation_table(methods, points, reached, rising, detected_titles(cpm), md_table)
+    if steps:
+        lines += ['', '**New miRNAs per step of depth** (median per sample): per doubling of depth, and in brackets per extra '
+                  'million reads sequenced, at a ladder of read counts; the published measure of saturation, which does not '
+                  'depend on how deep the dataset happens to be. The last step ends at the median sample\'s full depth{}.'.format(
+                      '' if len(set(reads_in.values())) == 1 else ', approximate with samples of different depths')]
+        for key in GAIN_KEYS:
+            lines += ['', '`{}`'.format(key), ''] + md_table(['step'] + methods, [['{} to {}'.format(label(low), label(high))] + [
+                '{:+g} ({:+g})'.format(*values[m][key]) for m in methods] for low, high, values in steps])
+    if sizes:
+        names = stratum_names(cpm)
+        lines += ['', '**By abundance**: the full depth\'s miRNAs at {:g} per million or more ({}) split by their full-depth '
+                  'abundance; `seen_cpm_<low>-<high>` below is the share of a stratum a depth still sees with at least {} reads '
+                  '(median per sample). MiRNAs per stratum at full depth (median per sample):'.format(cpm, of, SEEN), '']
+        lines += md_table(['method'] + [n[len(STRATUM_PREFIX):] for n in names], [[m] + [sizes[m][n] for n in names] for m in methods])
     for key in keys:
         lines += ['', '**{}**'.format(key), ''] + md_table(['depth'] + methods, [[label(depth)] + [values[m][key] for m in methods]
                                                                                 for depth, values, _ in points])
@@ -432,26 +547,63 @@ def report(name, points, methods, skipped, reached, rising, reads_in, seed, md_t
     return lines
 
 
-def plot(points, methods, full_depth, path, cpm=CPM):
-    """depth.png: miRNAs detected (at `cpm` per million or more, and at least 10 reads; median per sample) and replicate
-    CV against depth, log scale."""
+def plot(points, methods, full_depth, path, cpm=CPM, steps=None):
+    """depth.png: miRNAs detected (the full depth's at `cpm` per million seen, and at least 10 reads; median per sample)
+    and replicate CV against depth, log scale; with `steps` (gains()) also the new miRNAs with at least 10 reads per
+    doubling of depth, at each step's upper depth."""
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     x = [full_depth if depth == FULL else depth for depth, _, _ in points]
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4.2))
-    for ax, key, title in ((axes[0], SEEN_KEY, 'full depth\'s miRNAs at {:g} per million, seen ({}+ reads)'.format(cpm, SEEN)),
-                           (axes[1], SATURATION_KEY, 'miRNAs with at least {} reads'.format(biological.MIN_READS)),
-                           (axes[2], 'replicate_cv', 'replicate CV (median)')):
+    panels = [(SEEN_KEY, 'full depth\'s miRNAs at {:g} per million, seen ({}+ reads)'.format(cpm, SEEN)),
+              (SATURATION_KEY, 'miRNAs with at least {} reads'.format(biological.MIN_READS)),
+              ('replicate_cv', 'replicate CV (median)')]
+    fig, axes = plt.subplots(1, len(panels) + bool(steps), figsize=(5 * (len(panels) + bool(steps)), 4.2))
+    for ax, (key, title) in zip(axes, panels):
         for m in methods:
             ys = [values[m][key] for _, values, _ in points]
             if all(y != '' for y in ys):
                 ax.plot(x, ys, marker='o', label=m)
+        ax.set_title(title)
+    if steps:
+        ax = axes[-1]
+        xs = [full_depth if high == FULL else high for _, high, _ in steps]
+        for m in methods:
+            ax.plot(xs, [values[m][SATURATION_KEY][0] for _, _, values in steps], marker='o', label=m)
+        ax.axhline(0, color='grey', linewidth=0.8)
+        ax.set_title('new miRNAs ({}+ reads) per doubling of depth'.format(biological.MIN_READS))
+    for i, ax in enumerate(axes):
         ax.set_xscale('log')
         ax.set_xlabel('reads sequenced per sample')
-        ax.set_title(title)
-        ax.set_ylim(bottom=0)  # from 0: an autoscaled CV axis turns differences in the third decimal into a curve
+        if i < len(panels):
+            ax.set_ylim(bottom=0)  # from 0: an autoscaled CV axis turns differences in the third decimal into a curve
     axes[0].legend(fontsize=8)
+    fig.tight_layout()
+    fig.savefig(path, dpi=120)
+    plt.close(fig)
+
+
+def strata_plot(points, methods, full_depth, path, cpm=CPM):
+    """depth_strata.png: per abundance stratum of the full depth's miRNAs, the share still seen with SEEN reads against
+    depth (median per sample), one line per method."""
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    names = stratum_names(cpm)
+    x = [full_depth if depth == FULL else depth for depth, _, _ in points]
+    fig, axes = plt.subplots(1, len(names), figsize=(4 * len(names), 3.8), sharey=True)
+    for ax, name in zip(axes, names):
+        for m in methods:
+            ys = [values[m].get(name, '') for _, values, _ in points]
+            if all(y != '' for y in ys):
+                ax.plot(x, ys, marker='o', label=m)
+        ax.set_xscale('log')
+        ax.set_ylim(0, 1.02)
+        ax.set_xlabel('reads sequenced per sample')
+        ax.set_title('{} per million at full depth'.format(name[len(STRATUM_PREFIX):]))
+    axes[0].set_ylabel('share seen ({}+ reads)'.format(SEEN))
+    if any(ax.get_lines() for ax in axes):
+        next(ax for ax in axes if ax.get_lines()).legend(fontsize=8)
     fig.tight_layout()
     fig.savefig(path, dpi=120)
     plt.close(fig)

@@ -3435,6 +3435,45 @@ def test_depth_series_thins_every_method_alike_and_finds_saturation():
     assert ['a', 'full', 'detected_10', 12] in rows and ['a', 'b', '1k', 'spearman_either', points[0][2][('a', 'b')]['spearman_either']] in pairs
 
 
+def test_depth_strata_gains_and_a_shared_denominator():
+    """The review's forms (#409): the full depth's miRNAs split by abundance, each stratum's share still seen; new miRNAs
+    per step of depth; and a per-million denominator the same for every route (the filtered reads) instead of each
+    route's miRNA reads."""
+    import depth
+    samples = ['A1', 'A2']
+    common = [(m, s, 'n{}'.format(i), 'M{}'.format(i), 10.0 * 2 ** i) for m in ('a', 'b') for s in samples for i in range(12)]
+    by = {('a', 'A1'): {'x': 1, 'y': 10, 'z': 100, 'w': 1000}}   # of 1,111 reads: 900, 9,000, 90,000 and 900,000 per million
+    assert depth.stratum_names(0.1) == ['seen_cpm_0.1-1', 'seen_cpm_1-10', 'seen_cpm_10-100', 'seen_cpm_100+']
+    assert depth.stratum_names(5) == ['seen_cpm_5-10', 'seen_cpm_10-100', 'seen_cpm_100+']
+    assert depth.strata_sets(by, [('a', 'A1')], cpm=1e3)[('a', 'A1')] == {'seen_cpm_1000+': {'y', 'z', 'w'}}
+    # per million of 10M filtered reads instead: x at 0.1, y at 1, z at 10, w at 100
+    strata = depth.strata_sets(by, [('a', 'A1')], cpm=0.1, totals={('a', 'A1'): 10_000_000})[('a', 'A1')]
+    assert strata == {'seen_cpm_0.1-1': {'x'}, 'seen_cpm_1-10': {'y'}, 'seen_cpm_10-100': {'z'}, 'seen_cpm_100+': {'w'}}
+    assert depth.cpm_sets(by, [('a', 'A1')], 1.0, {('a', 'A1'): 10_000_000})[('a', 'A1')] == {'y', 'z', 'w'}
+    reads_in = dict.fromkeys(samples, 1_000_000)
+    tables, usable = depth.thinned(common, samples, reads_in, [1000, 10_000, 100_000], seed=1)
+    points = depth.series_points(tables, usable, ['a', 'b'], samples, {})
+    # per million of each route's 40,950 miRNA reads every miRNA is above 100; strata without miRNAs give ''
+    assert points[-1][1]['a']['seen_cpm_100+'] == 1.0 and points[-1][1]['a']['seen_cpm_0.1-1'] == ''
+    # a shared denominator: 100M filtered reads per sample (0.04% miRNA reads), so 10 reads are 0.1 per million and
+    # the strata hold 4, 3, 3 and 2 miRNAs; at 1 per million only the 8 with 100 reads or more pass
+    library = depth.library_at(dict.fromkeys(samples, 100_000_000), reads_in, usable)
+    assert library[1000] == dict.fromkeys(samples, 100_000.0)
+    shared = depth.series_points(tables, usable, ['a', 'b'], samples, {}, library=library)
+    assert all(shared[-1][1]['a'][n] == 1.0 for n in depth.stratum_names())
+    assert shared[0][1]['a']['seen_cpm_100+'] > shared[0][1]['a']['seen_cpm_0.1-1']   # abundant miRNAs are seen first
+    sizes = depth.strata_sizes(depth.full_strata(tables, ['a'], samples, library=library)[1], ['a'], samples)
+    assert list(sizes['a'].values()) == [4, 3, 3, 2]
+    assert depth.series_points(tables, usable, ['a'], samples, {}, cpm=1.0, library=library)[-1][1]['a']['detected_cpm'] == 8
+    assert depth.series_points(tables, usable, ['a'], samples, {}, cpm=1.0)[-1][1]['a']['detected_cpm'] == 12
+    steps = depth.gains(points, ['a', 'b'], 1_000_000)
+    assert [(low, high) for low, high, _ in steps] == [(1000, 10_000), (10_000, 100_000), (100_000, depth.FULL)]
+    new = points[-1][1]['a']['detected_10'] - points[-2][1]['a']['detected_10']
+    assert steps[-1][2]['a']['detected_10'] == (round(new / math.log2(10), 1), round(new / 0.9, 2))
+    rows = depth.gain_rows(steps, ['a'])
+    assert ['a', 'full', 'gain_doubling_detected_10', steps[-1][2]['a']['detected_10'][0]] in rows and len(rows) == 3 * 3 * 2
+
+
 def test_depth_plot(tmp_path):
     """--plot's figure, where matplotlib is installed."""
     pytest.importorskip('matplotlib')
@@ -3442,8 +3481,10 @@ def test_depth_plot(tmp_path):
     samples = ['A1', 'A2']
     common = [('a', s, 'n{}'.format(i), 'M{}'.format(i), 10.0 * 2 ** i) for s in samples for i in range(8)]
     points, _ = depth.series(common, ['a'], samples, dict.fromkeys(samples, 100_000), {'A': samples}, [1000, 10_000], seed=1)
-    depth.plot(points, ['a'], 100_000, tmp_path / 'depth.png')
+    depth.plot(points, ['a'], 100_000, tmp_path / 'depth.png', steps=depth.gains(points, ['a'], 100_000))
     assert (tmp_path / 'depth.png').read_bytes()[:4] == b'\x89PNG'
+    depth.strata_plot(points, ['a'], 100_000, tmp_path / 'depth_strata.png')
+    assert (tmp_path / 'depth_strata.png').read_bytes()[:4] == b'\x89PNG'
     sequences = [(1000, {('rRNA', 'SSU'): 1.0}), (400, {('miRNA', 'miR-1'): 1.0}), (100, {('unassigned', 'unassigned'): 1.0})]
     per_sample = {s: depth.class_thinning(iter(sequences), 3000, [300], seed=[1, i]) for i, s in enumerate(samples)}
     depth.class_plot(depth.class_points(per_sample, [300], samples), 3000, tmp_path / 'depth_classes.png')
@@ -3580,6 +3621,9 @@ def test_depth_de_scores_each_route_against_its_own_full_depth_calls():
     scores = depth.de_scores(at, full, features, ['a'])['a']
     assert scores['edger_calls'] == 2 and scores['voom_recall'] == 0.5 and scores['edger_glm_precision'] == 0.5
     assert depth.de_scores(full, None, features, ['a']) == {'a': {test + '_calls': 2 for test in de.TESTS}}   # the full depth itself
+    assert scores['edger_recall_strict'] == 1.0 and math.isnan(scores['edger_lfc_spearman'])   # F1 (p 0.01) recalled; 2 tested by both
+    moved = fits([(0.9, 0.01, 0.03), (-0.2, 0.5, 0.6), (0.3, 0.4, 0.5)])             # fold changes in the full depth's order
+    assert depth.de_scores(moved, full, features, ['a'])['a']['voom_lfc_spearman'] == 1.0
     flipped = {**at, ('a', 'edger', 'F1'): (-0.8, 0.01, 0.03)}                       # called, the other way
     assert depth.de_scores(flipped, full, features, ['a'])['a']['edger_recall'] == 0.0
     none = depth.de_scores(fits([(0.0, 0.9, 0.9)] * 3), full, features, ['a'])['a']
@@ -3626,7 +3670,8 @@ def test_depth_de_of_an_evaluated_biological_project(tmp_path):
     assert 'unitas\t50\tnull\tedger_null_called\t0.5' in tsv and 'mirge3\tfull\tnull\tvoom_null_called\t1.0' in tsv
     report = (out / 'depth.md').read_text()
     assert '## Differential expression by depth' in report and "**The contrast (4 case and 4 control samples)**, edgeR's exact test" in report
-    assert '| 20 | 0.50 / 1.00 (1) | 0.50 / 1.00 (1) |' in report and '| full | 2 | 2 |' in report
+    assert '| 20 | 0.50 [1.00] / 1.00 (1) | 0.50 [1.00] / 1.00 (1) |' in report and '| full | 2 | 2 |' in report
+    assert 'log2 fold changes against the full depth' in report and '| 20 | - / - / - | - / - / - |' in report   # 2 miRNAs: no Spearman
     assert '**lab/L1 (2 case and 2 control samples)**, limma-voom' in report and '| 50 | 0.50 (1.00) | 0.50 (1.00) |' in report
     assert 'edgeR 4.10.7, limma 3.68.5' in report
     before = {name: (out / name).read_text() for name in ('depth.md', 'depth.tsv', 'depth_de.tsv')}
