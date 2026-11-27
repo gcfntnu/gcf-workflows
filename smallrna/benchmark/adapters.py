@@ -28,7 +28,8 @@ before scoring, benchmark.py checks that table's samples and the miRBase release
 
 isomiR table (#454): for the methods that report read sequences, one row per method, sample, reported miRNA and read
 sequence (ISOMIR_COLUMNS), counted by the method's own rule, so that a miRNA's rows add up to its count in the common
-table (check_isomirs). `label` is the method's own call, canonical or isomiR (empty for UNITAS, which has none):
+table (check_isomirs). `label` is the method's own call, canonical or isomiR (empty for UNITAS and biocore_htseq, which
+have none):
 
 - UNITAS: each sample's unitas.miR-table_<organism>.txt (not the non-<organism> one), whose sequence is the read without its non-templated 3' tail,
   with the reads split by tail (`+N0-3'` none, `A-tailed_reads`, `AA-tailed_reads`, ...): each read is rebuilt as the
@@ -46,9 +47,12 @@ table (check_isomirs). `label` is the method's own call, canonical or isomiR (em
   `Variant` NA is canonical;
 - biocore_miraligner: each sample's isomir.tsv (`<miRNA>_<sequence>_<mism;add;t5;t3>`, a sequence's reads already
   divided by its ambiguity), the rows without a substitution, as its mature table counts them; canonical when it has no
-  addition and no 5' or 3' trimming.
+  addition and no 5' or 3' trimming;
+- biocore_htseq: each sample's isomir.tsv (`<miRNA>_<sequence>`, the read in its own orientation), written from the
+  same records as its mature table: a sequence counts in full for every miRNA it overlaps, a row for each. No labels:
+  the route makes no canonical/isomiR call, and one derived here from the miRBase mature would score as always right.
 
-TEsmall, tiny-count and biocore_htseq report features only.
+TEsmall and tiny-count report features only.
 """
 import collections
 import csv
@@ -443,8 +447,25 @@ def biocore_miraligner_isomirs(quant_dir, name_to_id, **_):
     return rows
 
 
+def biocore_htseq_isomirs(quant_dir, name_to_id, **_):
+    rows = []
+    for sample in table_samples('biocore_htseq', quant_dir):
+        path = Path(quant_dir) / 'biocore_htseq' / sample / 'isomir.tsv'
+        with open(path) as fh:
+            header = fh.readline().rstrip('\n').split('\t')
+            if header != ['isomiR', 'count']:
+                raise ValueError('{}: expected the columns isomiR, count, got {}'.format(path, header))
+            for i, line in enumerate(fh, 2):
+                fields = line.rstrip('\n').split('\t')
+                name, _, sequence = fields[0].rpartition('_')
+                if len(fields) != 2 or not name or not sequence:
+                    raise ValueError('{}:{}: expected `<miRNA>_<sequence>` and a count, got {!r}'.format(path, i, line[:100]))
+                rows.append(('biocore_htseq', sample, name, name_to_id.get(name, ''), sequence, '', float(fields[1])))
+    return rows
+
+
 ISOMIR_ADAPTERS = {'unitas': unitas_isomirs, 'mirge3': mirge3_isomirs, 'mirflowz': mirflowz_isomirs, 'smrnaseq': smrnaseq_isomirs,
-                   'biocore_miraligner': biocore_miraligner_isomirs}
+                   'biocore_htseq': biocore_htseq_isomirs, 'biocore_miraligner': biocore_miraligner_isomirs}
 
 
 def isomir_table(methods, quant_dir, name_to_id, prefix, mirflowz_gff=None, unitas_hairpins=None, mature=None):

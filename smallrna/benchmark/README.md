@@ -646,9 +646,9 @@ places 4% of UNITAS's miRNA reads that had no accession and leaves 0.2% unplaced
 methods count on the same miRNAs (often a pool sequence one or two bases shorter).
 
 **isomiR table** (`isomirs.tsv`, #454). For the methods that report read sequences, one row per method, sample, reported
-miRNA and read sequence, with the method's own label (canonical or isomiR, none for UNITAS). Each reader counts as the
-method's own route does, so a miRNA's rows add up to its count in the common table; the evaluation stops when they do
-not.
+miRNA and read sequence, with the method's own label (canonical or isomiR, none for UNITAS and biocore_htseq). Each
+reader counts as the method's own route does, so a miRNA's rows add up to its count in the common table; the evaluation
+stops when they do not.
 - **UNITAS:** `isomir_counts.tsv`, the name without the modification UNITAS appends to a read with a substitution, as
   `mir_counts.tsv` counts it.
 - **miRge3:** `mapped.csv`, names folded by the project library's merge file, and only miRNAs with at least 2 exact
@@ -659,8 +659,10 @@ not.
   does not give their sequence, so they cannot be matched by sequence.
 - **nf-core/smrnaseq:** `joined_samples_mirtop.tsv`, the first row of each UID; `Variant` NA is canonical.
 - **biocore_miraligner:** each sample's `isomir.tsv`, the rows without a substitution, as its mature table.
+- **biocore_htseq:** each sample's `isomir.tsv` (miRNA and read sequence), from the same records as its mature table,
+  so a sequence counts in full for every miRNA it overlaps. No labels: the route makes no canonical/isomiR call.
 
-TEsmall, tiny-count and biocore_htseq report features only and have no isomiR metrics. `isomirs.py` describes a
+TEsmall and tiny-count report features only and have no isomiR metrics. `isomirs.py` describes a
 sequence relative to its mature miRNA (`variant`: 5' and 3' offsets up to 3 nt, up to 3 non-templated 3' bases, one
 substitution; a templated extension is told from an added base only on the hairpin, so pools and biological samples
 report `3p_longer`).
