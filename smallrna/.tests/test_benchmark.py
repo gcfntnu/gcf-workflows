@@ -3130,6 +3130,12 @@ def test_null_scores_count_every_call_as_false():
     assert called['edger'] == {('m', 'F1'): 1} and sorted(de.null_keys())[:3] == ['edger_glm_null_any', 'edger_glm_null_called', 'edger_glm_null_p05']
     lines = de.null_lines(values, spread, called, ['m'], [('case', 6, 2)], lambda f: 'name-' + f, lambda row, f: 12.0)
     assert '| null_called (range) | 0.25 (0.0–0.5) |' in lines and '| name-F1 | 1/1/1 (12) |' in lines and 'case (6 samples) 2' in lines[3]
+    # a split the row tested nothing in (e.g. a fit without normalisation factors) counts in none of the scores (#530 review)
+    untested = (results({'F1': (None, None, None), 'F2': (None, None, None), 'F3': (None, None, None)}), features)
+    with_untested, _, _ = de.null_scores(splits + [untested], ['m'])
+    assert with_untested == values
+    alone, _, _ = de.null_scores([untested], ['m'])
+    assert all(math.isnan(v) for v in alone['m'].values())
 
 
 def test_null_comparisons_in_a_declaration(tmp_path):
@@ -3948,6 +3954,12 @@ def test_imbalance_designs_thin_one_group_or_half_of_each():
     for bad in ('1', '0.5', 'x', '2,2', 'inf'):
         with pytest.raises(ValueError, match='ratios: '):
             imbalance.parse_ratios(bad)
+    assert imbalance.parse_ratios('none') == [] and [name for name, _, _ in imbalance.scenarios([])] == ['none']   # #527
+    assert imbalance.parse_arms(imbalance.ARMS) == ['workflow', 'fixed', 'tmm']
+    assert imbalance.parse_arms('tmmwsp,workflow,rle') == ['workflow', 'rle', 'tmmwsp']   # in ALL_ARMS' order
+    for bad, message in (('tmm,tmm', 'twice'), ('quantile', 'quantile not one of'), ('', 'not one of')):
+        with pytest.raises(ValueError, match='arms: .*' + message):
+            imbalance.parse_arms(bad)
     assert [name for name, _, _ in imbalance.scenarios([1.5, 4])] == ['none', 'independent-1.5', 'tied-1.5', 'independent-4', 'tied-4']
     members = [('A1', 'case'), ('A2', 'case'), ('A3', 'case'), ('B1', 'control'), ('B2', 'control')]
     assert imbalance.denominator(de.model_text('case', 'control', (), 10)) == 'control'
@@ -3964,6 +3976,18 @@ def test_imbalance_designs_thin_one_group_or_half_of_each():
     at = fits([(1.2, 0.01, 0.01), (-0.6, 0.01, 0.01), (0.5, 0.5, 0.5)])
     assert imbalance.shifts(at, reference, features, ['a'])['a']['edger_fc_shift'] == 0.3   # 0.2 and 0.4; F3 untested in the reference
     assert imbalance.null_offsets([(at, features), (reference, features)], ['a'])['a']['voom_offset'] == 0.25   # medians 0.5 and 0.0
+
+
+def test_imbalance_mixture_notes_follow_the_selected_arms():
+    """#530 review: the notes on a mixture's scales describe the arms run; the `fixed` shift table only with `fixed`."""
+    import imbalance
+    table = lambda head, rows: ['| ' + ' | '.join(head) + ' |'] + ['| ' + ' | '.join(r) + ' |' for r in rows]
+    shifts = [('B against A', [0.25])]
+    every = ' '.join(imbalance.between_notes(['workflow', 'fixed', 'tmm', 'rle'], shifts, ['m'], table))
+    assert 'The `fixed` arm divides by filtered reads' in every and '`tmm`, `rle` are scored on the workflow\'s scale' in every
+    assert '| B against A | +0.25 |' in every
+    rle = ' '.join(imbalance.between_notes(['workflow', 'rle'], shifts, ['m'], table))
+    assert '`fixed`' not in rle and '`rle` is scored on the workflow\'s scale: its factors rescale' in rle and '+0.25' not in rle
 
 
 def test_imbalance_of_an_evaluated_biological_project(tmp_path):
@@ -3996,7 +4020,7 @@ def test_imbalance_of_an_evaluated_biological_project(tmp_path):
             [line.split('\t')[0] for line in (out / 'de/none_workflow/all/input/design.tsv').read_text().splitlines()[1:] if '\tcase' in line]]
     assert [[row[i] for i in case] for row in counts('tied-2_workflow/all')] == [[row[i] for i in case] for row in counts('none_workflow/all')]
     assert (out / 'de/tied-2_tmm/all/input/model.tsv').read_text() == de.model_text('case', 'control', (), biological.MIN_READS, 'tmm')
-    assert 'then `benchmark.py imbalance --de` with the same ratios and seed' in (out / 'imbalance.md').read_text()
+    assert 'then `benchmark.py imbalance --de` with the same ratios, arms and seed' in (out / 'imbalance.md').read_text()
     depths = (out / 'imbalance_depths.tsv').read_text().splitlines()   # 87 filtered reads in every sample
     assert depths[0] == 'design\tset\tfirst\tsecond\tratio' and 'none\tall\t87.0\t87.0\t1.0' in depths
     assert 'tied-2\tall\t87.0\t43.5\t2.0' in depths and 'independent-2\tall\t65.2\t65.2\t1.0' in depths
@@ -4025,6 +4049,39 @@ def test_imbalance_of_an_evaluated_biological_project(tmp_path):
     assert subprocess.run(command, capture_output=True, text=True, timeout=120).returncode == 0 and not (out / 'imbalance.tsv').exists()
     result = subprocess.run(command[:-2] + ['--output', str(bench)], capture_output=True, text=True, timeout=60)
     assert result.returncode != 0 and "its de/ would be the evaluation's benchmark/de" in result.stderr
+
+
+def test_imbalance_runs_the_null_comparisons_in_every_arm_unthinned(tmp_path):
+    """#527: `--ratios none --arms ...` writes only the unthinned design, in the arms named (the factor arms with their
+    normalisation in the model), and `--de` scores the null comparisons per arm."""
+    project = biological_de_project(tmp_path, {'contrast': ['case', 'control'], 'null': {'splits': 2, 'seed': 1}})
+    assert evaluate_cmd(project).returncode == 0
+    out, bench = tmp_path / 'imbalance', project / 'benchmark'
+    command = [sys.executable, str(BENCH / 'benchmark.py'), 'imbalance', '--project', str(project), '--ratios', 'none',
+               '--arms', 'workflow,rle,tmmwsp', '--output', str(out)]
+    result = subprocess.run(command, capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    sets = ['all', 'null.case-1', 'null.case-2', 'null.control-1', 'null.control-2']
+    folders = ['none_{}/{}'.format(arm, name) for name in sets for arm in ('workflow', 'rle', 'tmmwsp')]
+    assert (out / 'de/levels.tsv').read_text() == de.levels_text([folder.split('/') for folder in folders])
+    for arm in ('rle', 'tmmwsp'):
+        assert (out / 'de/none_{}/all/input/model.tsv'.format(arm)).read_text() == de.model_text('case', 'control', (), biological.MIN_READS, arm)
+        assert (out / 'de/none_{}/all/input/library_sizes.tsv'.format(arm)).read_text() == (bench / 'de/input/library_sizes.tsv').read_text()
+    report = (out / 'imbalance.md').read_text()
+    assert '`rle` (edgeR\'s RLE factors, median of ratios, on the workflow\'s)' in report and 'Ratios: none.' in report
+    fits = {'MIMAT0000069': (0.4, 0.001, 0.01), 'MIMAT0000076': (-0.6, 0.01, 0.03), 'MIMAT0001631': (None, None, None)}
+    for folder in folders:
+        de_outputs(project, fits, folder=folder, root=out / 'de', formula='~group')
+    result = subprocess.run(command + ['--de'], capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    tsv = (out / 'imbalance.tsv').read_text().splitlines()
+    assert 'unitas\tnone\trle\tnull\tvoom_null_called\t1.0' in tsv and 'unitas\tnone\ttmmwsp\tnull\tvoom_offset\t-0.1' in tsv
+    assert not any('\tfixed\t' in line or '\ttmm\t' in line or 'independent' in line for line in tsv)
+    # fits of arms the current preparation does not list are not scored (#530 review)
+    result = subprocess.run(command[:-4] + ['--arms', 'workflow,fixed', '--output', str(out), '--de'], capture_output=True, text=True, timeout=120)
+    assert result.returncode != 0 and 'none_fixed/all, none_fixed/null.case-1, none_fixed/null.case-2 ... not in' in result.stderr
+    result = subprocess.run(command[:-4] + ['--arms', 'workflow,quantile', '--output', str(out)], capture_output=True, text=True, timeout=60)
+    assert result.returncode != 0 and 'arms: quantile not one of workflow, fixed, tmm, rle, tmmwsp' in result.stderr
 
 
 def test_de_snakefile_runs_the_sets_of_another_de_folder(tmp_path):

@@ -2903,6 +2903,7 @@ def imbalance(args):
         fail('{} missing: run `benchmark.py evaluate --project {}` first'.format(bench / 'common.tsv', project))
     try:
         ratios = imbalance_series.parse_ratios(args.ratios)
+        arms = imbalance_series.parse_arms(args.arms)
     except ValueError as error:
         fail(str(error))
     out = Path(args.output) if args.output else bench / 'imbalance'
@@ -2915,11 +2916,17 @@ def imbalance(args):
     scenarios = imbalance_series.scenarios(ratios)
     root = out / 'de'
     if args.de:  # before the thinning: every set in every scenario and arm needs de.smk's results
-        missing = [str(Path(folder) / name) for scenario, _, _ in scenarios for arm in imbalance_series.ARMS for s in sets
+        listed = {tuple(line.split('\t')) for line in (root / de.LEVELS).read_text().splitlines()[1:]} if (root / de.LEVELS).is_file() else set()
+        unlisted = [imbalance_series.folder(scenario, arm, s.folder) for scenario, _, _ in scenarios for arm in arms for s in sets
+                    if tuple(imbalance_series.folder(scenario, arm, s.folder).split('/')) not in listed]
+        if unlisted:  # fits left from an earlier preparation with other ratios or arms (#530 review)
+            fail('{} not in {}: prepare with the same --ratios and --arms (`benchmark.py imbalance` without --de) and run de.smk '
+                 'before --de'.format(', '.join(unlisted[:3]) + (' ...' if len(unlisted) > 3 else ''), root / de.LEVELS))
+        missing = [str(Path(folder) / name) for scenario, _, _ in scenarios for arm in arms for s in sets
                    for folder in [imbalance_series.folder(scenario, arm, s.folder)] for name in ('results.tsv', 'record.tsv')
                    if not (root / folder / name).is_file()]
         if missing:
-            fail('no {}{} in {}: run `benchmark.py imbalance` without --de (the same ratios and seed), then `snakemake -s {} -d {} '
+            fail('no {}{} in {}: run `benchmark.py imbalance` without --de (the same ratios, arms and seed), then `snakemake -s {} -d {} '
                  '--config de=de --use-apptainer`, then imbalance --de'.format(' or '.join(missing[:3]), ' ...' if len(missing) > 3 else '',
                                                                             root, Path(__file__).resolve().with_name('de.smk'), out))
     config = yaml.safe_load((project / 'config.yaml').read_text())
@@ -2944,7 +2951,8 @@ def imbalance(args):
                 rows = [row for row in rows if fraction[row[1]] == 1] + depth_series.thin([row for row in rows if fraction[row[1]] < 1], fraction, rng)
             for arm in arms:
                 folder = imbalance_series.folder(scenario, arm, s.folder)
-                at[(s.folder, arm)] = s._replace(suffix=folder, folder=folder, model=s.model + 'normalisation\ttmm\n' if arm == 'tmm' else s.model)
+                at[(s.folder, arm)] = s._replace(suffix=folder, folder=folder, model=s.model + 'normalisation\t{}\n'.format(arm)
+                                                 if arm in de.NORMALISATIONS else s.model)
                 sizes = {(m, sample): kept[sample] * fraction[sample] for m in methods for sample, _ in members} if arm == 'fixed' else None
                 texts.update(kit.texts({s.folder: at[(s.folder, arm)]}, rows, sizes))
         return texts, at
@@ -2956,14 +2964,14 @@ def imbalance(args):
             fraction = imbalance_series.fractions(design, ratio, members, second, imbalance_series.generator(args.seed, scenario, s.folder))
             reads = [statistics.median(kept[x] * fraction[x] for x, group in members if (group == second) == is_second) for is_second in (False, True)]
             realised.append((scenario, s.folder, *reads))
-    header = imbalance_series.lines(spec['name'], [], [], methods, ratios, args.seed, '', md_table, library=kit.library)[:3] + \
+    header = imbalance_series.lines(spec['name'], [], [], methods, ratios, args.seed, '', md_table, library=kit.library, arms=arms)[:3] + \
         imbalance_series.realised_lines(realised, md_table)
     if not args.de:
         for name in ('imbalance.tsv', 'imbalance.md'):  # scores of an earlier draw, if any, before any input changes
             (out / name).unlink(missing_ok=True)
         folders = []
         for scenario, design, ratio in scenarios:
-            texts, _ = scenario_texts(scenario, design, ratio, imbalance_series.ARMS)
+            texts, _ = scenario_texts(scenario, design, ratio, arms)
             for folder, inputs in texts.items():
                 de.write_inputs(root / folder / 'input', inputs)
             folders += list(texts)
@@ -2971,7 +2979,7 @@ def imbalance(args):
         write_tsv(out / 'imbalance_depths.tsv', ['design', 'set', 'first', 'second', 'ratio'], imbalance_series.realised_rows(realised))
         header += ['', 'The inputs of {} DE sets in {} designs and {} arms are in `de/`. Run de.smk on them (`snakemake -s '
                    '<repo>/smallrna/benchmark/de.smk -d {} --config de=de --use-apptainer`), then `benchmark.py imbalance --de` with the '
-                   'same ratios and seed.'.format(len(sets), len(scenarios), len(imbalance_series.ARMS), out)]
+                   'same ratios, arms and seed.'.format(len(sets), len(scenarios), len(arms), out)]
         (out / 'imbalance.md').write_text('\n'.join(header) + '\n')
         print(out / 'imbalance.md')
         return
@@ -2979,7 +2987,7 @@ def imbalance(args):
     points, null_points, between_points, versions = {s.folder: [] for s in contrasts}, [], [], ''
     fixed_shift = mixture_fixed_shift(kit.counts, kit.design, kit.between, kept, methods) if kit.between else {}
     expected = {'fixed': mixture_expected(kit.counts, kit.design, kit.between, methods, fixed_shift)} if kit.between else {}
-    for arm in imbalance_series.ARMS:
+    for arm in arms:
         reference = None
         for scenario, design, ratio in scenarios:  # `none` first: the others are scored against it
             texts, at = scenario_texts(scenario, design, ratio, [arm])
@@ -3007,7 +3015,7 @@ def imbalance(args):
                 null_points.append((scenario, arm, values))
             if kit.between:  # a mixture's contrasts between fractions, against the expected changes (#488)
                 between_points.append((scenario, arm, mixture_between_scores(result, kit.between, expected.get(arm, kit.expected), methods)))
-    order = {(scenario, arm): i for i, (scenario, arm) in enumerate((sc[0], a) for sc in scenarios for a in imbalance_series.ARMS)}
+    order = {(scenario, arm): i for i, (scenario, arm) in enumerate((sc[0], a) for sc in scenarios for a in arms)}
     ordered = lambda items: sorted(items, key=lambda item: order[(item[0], item[1])])
     titled = [(depth_series.de_set_name(s.folder), kit.title(s), ordered(points[s.folder])) for s in contrasts]
     null_points, between_points = ordered(null_points), ordered(between_points)
@@ -3015,11 +3023,11 @@ def imbalance(args):
     write_tsv(out / 'imbalance.tsv', ['method', 'design', 'arm', 'set', 'metric', 'value'],
               imbalance_series.rows(titled, null_points, methods, between_points))
     write_tsv(out / 'imbalance_depths.tsv', ['design', 'set', 'first', 'second', 'ratio'], imbalance_series.realised_rows(realised))
-    notes = [] if not kit.between else imbalance_series.between_notes(
+    notes = [] if not kit.between else imbalance_series.between_notes(arms, 
         [(s.suffix[1:].replace('_vs_', ' against '), [statistics.mean(fixed_shift[m][s.suffix].values()) if fixed_shift[m][s.suffix] else float('nan')
                                                          for m in methods]) for s, _, _ in kit.between], methods, md_table)
     body = imbalance_series.lines(spec['name'], titled, null_points, methods, ratios, args.seed, versions, md_table, between_points, notes,
-                                  kit.library)
+                                  kit.library, arms)
     (out / 'imbalance.md').write_text('\n'.join(header + body[3:]) + '\n')
     print(out / 'imbalance.md')
 
@@ -3113,7 +3121,9 @@ def main():
     m.add_argument('--project', required=True)
     m.add_argument('--output', help='directory for de/, imbalance.tsv and imbalance.md (default benchmark/imbalance/ in the project)')
     m.add_argument('--ratios', default=imbalance_series.RATIOS, help='depth ratios between the deeper and the thinned samples, each '
-                   'above 1 (default %(default)s)')
+                   'above 1 (default %(default)s); `none`: the unthinned design alone (#527)')
+    m.add_argument('--arms', default=imbalance_series.ARMS, help='normalisation arms, comma-separated, of {} (default %(default)s; '
+                   '#527)'.format(', '.join(imbalance_series.ALL_ARMS)))
     m.add_argument('--seed', type=int, default=1, help='seed of the draws (default %(default)s)')
     m.add_argument('--de', action='store_true', help="score de.smk's results, after `imbalance` without it wrote the inputs to de/ "
                    "and de.smk ran on them")

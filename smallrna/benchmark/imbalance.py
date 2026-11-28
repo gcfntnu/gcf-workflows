@@ -2,10 +2,12 @@
 
 Each DE set of an evaluated biological project (the contrast, each level of `within`, the null comparisons of #449) is
 thinned unevenly from the evaluation's count tables, binomially as the depth step thins (depth.thin), and tested again
-with de.R in three normalisation arms:
+with de.R in normalisation arms (`--arms`, default `workflow,fixed,tmm`):
 - `workflow`: a sample's library size is every miRNA read the route reported in it, as the workflow scales counts;
 - `fixed`: the sample's filtered reads (the cutadapt route's kept reads) times its thinning fraction, for every route;
-- `tmm`: edgeR's TMM factors on the workflow's library sizes.
+- `tmm`, `rle`, `tmmwsp` (#527): edgeR's TMM, RLE (median of ratios) or TMMwsp factors on the workflow's library sizes.
+`--ratios none` runs the `none` design alone: every arm on the unthinned sets, e.g. the null comparisons' false calls
+per normalisation on real data (#527).
 
 Designs, each at the given ratios r:
 - `independent-<r>`: in each of the set's two groups, half the samples (a seeded draw) thinned to 1/r, the others
@@ -43,7 +45,8 @@ import numpy as np
 import de
 import depth
 
-ARMS = ('workflow', 'fixed', 'tmm')  # of de.ARMS (#453); not #527's rle and tmmwsp: every arm multiplies the scenario fits
+ALL_ARMS = ('workflow',) + de.ARMS  # every arm `--arms` may name (#453, #527)
+ARMS = 'workflow,fixed,tmm'  # the default: every arm multiplies the scenario fits
 NONE = 'none'
 DESIGNS = ('independent', 'tied')
 RATIOS = '1.5,4'
@@ -51,8 +54,21 @@ CONTRAST_KEYS = depth.DE_KEYS + ('fc_shift',)
 NULL_KEYS = de.NULL_KEYS + ('offset',)
 
 
+def parse_arms(text):
+    """Arms from 'workflow,fixed,tmm': names of ALL_ARMS, none twice, in ALL_ARMS' order."""
+    arms = [part.strip() for part in str(text).split(',')]
+    unknown = [a for a in arms if a not in ALL_ARMS]
+    if unknown or not arms:
+        raise ValueError('arms: {} not one of {}'.format(', '.join(unknown) or 'none given', ', '.join(ALL_ARMS)))
+    if len(set(arms)) != len(arms):
+        raise ValueError('arms: {} lists an arm twice'.format(text))
+    return [a for a in ALL_ARMS if a in arms]
+
+
 def parse_ratios(text):
-    """Ratios from '1.5,4': numbers above 1, ascending, none twice."""
+    """Ratios from '1.5,4': numbers above 1, ascending, none twice; 'none': no thinning, the `none` design alone."""
+    if str(text).strip() == NONE:
+        return []
     ratios = []
     for part in str(text).split(','):
         try:
@@ -172,29 +188,45 @@ def rows(contrasts, nulls, methods, between=()):
 signed = depth.signed
 
 
-def between_notes(shifts, methods, md_table):
-    """imbalance.md's lines on the arms' scales between a mixture's fractions: `shifts` [(contrast, [the `fixed` arm's
-    shift per method])] (benchmark.mixture_fixed_shift)."""
-    return ['', 'The expected changes are on the scale of a route\'s miRNA reads, the `workflow` arm\'s. The `fixed` arm divides by '
-            'filtered reads instead, which adds each subject\'s log2 ratio of the route\'s miRNA share of filtered reads, higher '
-            'fraction over lower, to that subject\'s fold changes; it is scored against expected changes with that ratio added to '
-            'each subject\'s log ratios before their mean, from the unthinned data (below, the mean over the subjects). `tmm` is scored on the workflow\'s scale: TMM rescales towards most '
-            'miRNAs not changing, which does not hold between two fractions, so its `fc_bias` and calls include that shift, as on '
-            'the ratiometric pools.', ''] + md_table(['contrast'] + methods, [[name] + [signed(v) for v in values] for name, values in shifts])
+def between_notes(arms, shifts, methods, md_table):
+    """imbalance.md's lines on the scales the selected `arms` are scored on between a mixture's fractions: `shifts`
+    [(contrast, [the `fixed` arm's shift per method])] (benchmark.mixture_fixed_shift), shown when `fixed` is selected."""
+    text = ['The expected changes are on the scale of a route\'s miRNA reads, the `workflow` arm\'s.']
+    if 'fixed' in arms:
+        text.append('The `fixed` arm divides by filtered reads instead, which adds each subject\'s log2 ratio of the route\'s '
+                    'miRNA share of filtered reads, higher fraction over lower, to that subject\'s fold changes; it is scored against '
+                    'expected changes with that ratio added to each subject\'s log ratios before their mean, from the unthinned data '
+                    '(below, the mean over the subjects).')
+    factors = [a for a in arms if a in de.NORMALISATIONS]
+    if factors:
+        text.append('{} {} scored on the workflow\'s scale: {} rescale towards most miRNAs not changing, which does not hold '
+                    'between two fractions, so {} `fc_bias` and calls include that shift, as on the ratiometric pools.'.format(
+                        ', '.join('`{}`'.format(a) for a in factors), 'is' if len(factors) == 1 else 'are',
+                        'its factors' if len(factors) == 1 else 'their factors', 'its' if len(factors) == 1 else 'their'))
+    table = md_table(['contrast'] + methods, [[name] + [signed(v) for v in values] for name, values in shifts]) if 'fixed' in arms else []
+    return ['', ' '.join(text), ''] + table
 
 
-def lines(name, contrasts, nulls, methods, ratios, seed, versions, md_table, between=(), notes=(), library='every miRNA read the route reported'):
-    """imbalance.md's lines; `library`: what the `workflow` arm's library size counts (a mixture's differ)."""
+ARM_TEXT = {'workflow': '`workflow` ({library})', 'fixed': '`fixed` (the sample\'s filtered reads times its thinning fraction)',
+            'tmm': '`tmm` (edgeR\'s TMM factors on the workflow\'s)', 'rle': '`rle` (edgeR\'s RLE factors, median of ratios, on the workflow\'s)',
+            'tmmwsp': '`tmmwsp` (edgeR\'s TMMwsp factors on the workflow\'s)'}
+
+
+def lines(name, contrasts, nulls, methods, ratios, seed, versions, md_table, between=(), notes=(), library='every miRNA read the route reported',
+          arms=None):
+    """imbalance.md's lines; `library`: what the `workflow` arm's library size counts (a mixture's differ); `arms` the arms
+    run (default ARMS)."""
     share = depth.share_cell
+    arms = parse_arms(ARMS) if arms is None else arms
+    named = [ARM_TEXT[a].format(library=library) for a in arms]
     out = ['# Depth imbalance: {}'.format(name), '',
            'Each DE set thinned unevenly from the evaluation\'s count tables, binomially (seed {}), and tested again with de.R in '
-           'three normalisation arms (#488): `workflow` ({}), `fixed` (the sample\'s filtered '
-           'reads times its thinning fraction) and `tmm` (edgeR\'s TMM factors on the workflow\'s). `independent-<r>`: in each '
+           'normalisation arms (#488, #527): {}. `independent-<r>`: in each '
            'group of the set, half the samples thinned to 1/r; `tied-<r>`: the set\'s second group only thinned to 1/r, so a '
            'contrast is tested with the imbalance in one direction; `none`: unthinned. Ratios: {}. Thinning keeps each sample\'s composition and every arm\'s library sizes '
            'follow it, so the designs show what the imbalance costs (power, false calls from the shallower samples\' variance), '
            'not a bias from composition. Each set is tested over the miRNAs of its evaluation.'.format(
-               seed, library, ', '.join('{:g}'.format(r) for r in ratios))]
+               seed, ', '.join(named[:-1]) + (' and ' if len(named) > 1 else '') + named[-1], ', '.join('{:g}'.format(r) for r in ratios) or 'none')]
     if nulls:
         out += ['', '## Null comparisons (#449)', '',
                 'The splits of each group, every call false: `null_called` (the median share of tested miRNAs called), the share '
