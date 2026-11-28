@@ -327,9 +327,9 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    unevenly from the count tables, binomially as `depth` does, and tests the sets again with de.R:
 
    ```bash
-   python smallrna/benchmark/benchmark.py imbalance --project <project> [--output <dir>] [--ratios 1.5,4] [--seed 1]
+   python smallrna/benchmark/benchmark.py imbalance --project <project> [--output <dir>] [--ratios 1.5,4] [--arms workflow,fixed,tmm] [--seed 1]
    snakemake -s <repo>/smallrna/benchmark/de.smk -d <output> --config de=de --use-apptainer --cores 16
-   python smallrna/benchmark/benchmark.py imbalance --project <project> [--output <dir>] [--ratios 1.5,4] [--seed 1] --de
+   python smallrna/benchmark/benchmark.py imbalance --project <project> [--output <dir>] [--ratios 1.5,4] [--arms workflow,fixed,tmm] [--seed 1] --de
    ```
 
    - **Designs** per set (the contrast, each level of `within`, the #449 null splits), at each ratio r:
@@ -341,8 +341,11 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
      - `workflow`: every miRNA read the route reported, the evaluation's library size.
      - `fixed`: the sample's filtered reads times its thinning fraction.
      - `tmm`: edgeR's TMM factors on the workflow's.
+     - `rle` and `tmmwsp` (#527): edgeR's RLE (median of ratios) and TMMwsp factors on the workflow's.
 
-     Inputs go to `de/<design>_<arm>/<set>/`. `none` in the `workflow` arm equals the evaluation's inputs.
+     `--arms` picks them (default `workflow,fixed,tmm`; every arm multiplies the fits). `--ratios none` runs the `none`
+     design alone, so `--ratios none --arms workflow,fixed,tmm,rle,tmmwsp` gives each arm's false calls on the real
+     null comparisons, unthinned (#527). Inputs go to `de/<design>_<arm>/<set>/`. `none` in the `workflow` arm equals the evaluation's inputs.
    - **Scores** (`imbalance.tsv`, `imbalance.md`), per design, arm, route and test:
      - the null splits' `null_called`, `null_any` and `null_p05`, and `offset`, the median over the splits of the
        median log2 fold change (every change is null, so any shift comes from the normalisation);

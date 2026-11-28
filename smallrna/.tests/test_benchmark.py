@@ -3948,6 +3948,12 @@ def test_imbalance_designs_thin_one_group_or_half_of_each():
     for bad in ('1', '0.5', 'x', '2,2', 'inf'):
         with pytest.raises(ValueError, match='ratios: '):
             imbalance.parse_ratios(bad)
+    assert imbalance.parse_ratios('none') == [] and [name for name, _, _ in imbalance.scenarios([])] == ['none']   # #527
+    assert imbalance.parse_arms(imbalance.ARMS) == ['workflow', 'fixed', 'tmm']
+    assert imbalance.parse_arms('tmmwsp,workflow,rle') == ['workflow', 'rle', 'tmmwsp']   # in ALL_ARMS' order
+    for bad, message in (('tmm,tmm', 'twice'), ('quantile', 'quantile not one of'), ('', 'not one of')):
+        with pytest.raises(ValueError, match='arms: .*' + message):
+            imbalance.parse_arms(bad)
     assert [name for name, _, _ in imbalance.scenarios([1.5, 4])] == ['none', 'independent-1.5', 'tied-1.5', 'independent-4', 'tied-4']
     members = [('A1', 'case'), ('A2', 'case'), ('A3', 'case'), ('B1', 'control'), ('B2', 'control')]
     assert imbalance.denominator(de.model_text('case', 'control', (), 10)) == 'control'
@@ -3996,7 +4002,7 @@ def test_imbalance_of_an_evaluated_biological_project(tmp_path):
             [line.split('\t')[0] for line in (out / 'de/none_workflow/all/input/design.tsv').read_text().splitlines()[1:] if '\tcase' in line]]
     assert [[row[i] for i in case] for row in counts('tied-2_workflow/all')] == [[row[i] for i in case] for row in counts('none_workflow/all')]
     assert (out / 'de/tied-2_tmm/all/input/model.tsv').read_text() == de.model_text('case', 'control', (), biological.MIN_READS, 'tmm')
-    assert 'then `benchmark.py imbalance --de` with the same ratios and seed' in (out / 'imbalance.md').read_text()
+    assert 'then `benchmark.py imbalance --de` with the same ratios, arms and seed' in (out / 'imbalance.md').read_text()
     depths = (out / 'imbalance_depths.tsv').read_text().splitlines()   # 87 filtered reads in every sample
     assert depths[0] == 'design\tset\tfirst\tsecond\tratio' and 'none\tall\t87.0\t87.0\t1.0' in depths
     assert 'tied-2\tall\t87.0\t43.5\t2.0' in depths and 'independent-2\tall\t65.2\t65.2\t1.0' in depths
@@ -4025,6 +4031,36 @@ def test_imbalance_of_an_evaluated_biological_project(tmp_path):
     assert subprocess.run(command, capture_output=True, text=True, timeout=120).returncode == 0 and not (out / 'imbalance.tsv').exists()
     result = subprocess.run(command[:-2] + ['--output', str(bench)], capture_output=True, text=True, timeout=60)
     assert result.returncode != 0 and "its de/ would be the evaluation's benchmark/de" in result.stderr
+
+
+def test_imbalance_runs_the_null_comparisons_in_every_arm_unthinned(tmp_path):
+    """#527: `--ratios none --arms ...` writes only the unthinned design, in the arms named (the factor arms with their
+    normalisation in the model), and `--de` scores the null comparisons per arm."""
+    project = biological_de_project(tmp_path, {'contrast': ['case', 'control'], 'null': {'splits': 2, 'seed': 1}})
+    assert evaluate_cmd(project).returncode == 0
+    out, bench = tmp_path / 'imbalance', project / 'benchmark'
+    command = [sys.executable, str(BENCH / 'benchmark.py'), 'imbalance', '--project', str(project), '--ratios', 'none',
+               '--arms', 'workflow,rle,tmmwsp', '--output', str(out)]
+    result = subprocess.run(command, capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    sets = ['all', 'null.case-1', 'null.case-2', 'null.control-1', 'null.control-2']
+    folders = ['none_{}/{}'.format(arm, name) for name in sets for arm in ('workflow', 'rle', 'tmmwsp')]
+    assert (out / 'de/levels.tsv').read_text() == de.levels_text([folder.split('/') for folder in folders])
+    for arm in ('rle', 'tmmwsp'):
+        assert (out / 'de/none_{}/all/input/model.tsv'.format(arm)).read_text() == de.model_text('case', 'control', (), biological.MIN_READS, arm)
+        assert (out / 'de/none_{}/all/input/library_sizes.tsv'.format(arm)).read_text() == (bench / 'de/input/library_sizes.tsv').read_text()
+    report = (out / 'imbalance.md').read_text()
+    assert '`rle` (edgeR\'s RLE factors, median of ratios, on the workflow\'s)' in report and 'Ratios: none.' in report
+    fits = {'MIMAT0000069': (0.4, 0.001, 0.01), 'MIMAT0000076': (-0.6, 0.01, 0.03), 'MIMAT0001631': (None, None, None)}
+    for folder in folders:
+        de_outputs(project, fits, folder=folder, root=out / 'de', formula='~group')
+    result = subprocess.run(command + ['--de'], capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    tsv = (out / 'imbalance.tsv').read_text().splitlines()
+    assert 'unitas\tnone\trle\tnull\tvoom_null_called\t1.0' in tsv and 'unitas\tnone\ttmmwsp\tnull\tvoom_offset\t-0.1' in tsv
+    assert not any('\tfixed\t' in line or '\ttmm\t' in line or 'independent' in line for line in tsv)
+    result = subprocess.run(command[:-4] + ['--arms', 'workflow,quantile', '--output', str(out)], capture_output=True, text=True, timeout=60)
+    assert result.returncode != 0 and 'arms: quantile not one of workflow, fixed, tmm, rle, tmmwsp' in result.stderr
 
 
 def test_de_snakefile_runs_the_sets_of_another_de_folder(tmp_path):
