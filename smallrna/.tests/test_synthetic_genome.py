@@ -479,7 +479,7 @@ def test_differential_expression_uses_the_pools_tests_in_genome_mode(tmp_path):
     assert result.returncode == 0, result.stderr
     samples = {row['sample']: row for row in benchmark.read_tsv(bench / 'samples.tsv') if row['kind'] == 'mixed'}
     mirnas = {row['mature_id']: row for row in benchmark.read_tsv(bench / 'mirnas.tsv')}
-    assert (bench / 'de/levels.tsv').read_text() == 'column\tlevel\nadjusted\tnuisance\narm\tfixed\narm\ttmm\n'  # #453: the arms
+    assert (bench / 'de/levels.tsv').read_text() == 'column\tlevel\nadjusted\tnuisance\narm\tfixed\narm\ttmm\narm\trle\narm\ttmmwsp\n'  # #453, #527: the arms
     assert (bench / 'de/arm/tmm/input/model.tsv').read_text() == de.model_text('case', 'control', (), 10, 'tmm')
     assert (bench / 'de/input/model.tsv').read_text() == de.model_text('case', 'control', (), 10)
     assert (bench / 'de/adjusted/nuisance/input/model.tsv').read_text() == de.model_text('case', 'control', ['nuisance'], 10)

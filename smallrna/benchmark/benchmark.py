@@ -1571,8 +1571,8 @@ def de_sets(spec, units):
     - for the synthetic dataset, the one with the true nuisance scores as a numeric covariate (suffix `.adjusted`,
       folder `adjusted/nuisance`);
     - for pools and the synthetic dataset, the whole design again in each normalisation arm (#453, de.ARMS: suffix
-      `.<arm>`, folder `arm/<arm>`; `fixed` gets the samples' filtered reads as library sizes from the caller, `tmm`
-      a model with `normalisation: tmm`).
+      `.<arm>`, folder `arm/<arm>`; `fixed` gets the samples' filtered reads as library sizes from the caller, the
+      factor arms (de.NORMALISATIONS: `tmm`, `rle`, `tmmwsp`, #527) a model with `normalisation: <arm>`).
     design: [(sample, group, {covariate: value})]; model: de.model_text, with the least mean count a row tests (none for
     a pool's designed sequences; the synthetic and biological datasets' detection thresholds); samples: the set's
     samples per group, for the report."""
@@ -1596,7 +1596,7 @@ def de_sets(spec, units):
                  'two in each group: prepare the project again from its declaration'.format(
                      sizes[numerator], numerator, sizes[denominator], denominator, folder or 'of the whole dataset'))
         return DeSet(suffix, folder, [(sample, group, {c: fields[c] for c in names}) for sample, group, fields in members],
-                     de.model_text(numerator, denominator, numeric, min_mean, 'tmm' if arm == 'tmm' else None),
+                     de.model_text(numerator, denominator, numeric, min_mean, arm if arm in de.NORMALISATIONS else None),
                      '{} {} and {} {} {}'.format(sizes[numerator], numerator, sizes[denominator], denominator,
                                                  'runs' if kind == 'pool' else 'samples'), arm)
 

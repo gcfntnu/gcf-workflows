@@ -421,7 +421,7 @@ genome-wide synthetic set has two, with the same seed, data folder, decoys and p
   half the miRNA reads) always change (`structure.group.abundant: 5`, which makes the most abundant miRNAs change
   first; without it the draws are the base set's). The composition shifts, so library sizes made of all miRNA reads move
   the unchanged miRNAs the other way; `false_calls_against` counts the calls that makes, and the normalisation arms
-  show how much `fixed` and `tmm` remove.
+  show how much `fixed` and the factor arms (`tmm`, `rle`, `tmmwsp`) remove.
   - **Fragments:** each unit draws a fixed catalogue of fragments with lognormal weights.
   - **No look-alikes:** a fragment sharing 18 nt with a miRBase hairpin is drawn again, so these decoys measure reads
     unrelated to miRBase.
@@ -780,12 +780,15 @@ miRNA), `exact` (share of miRNAs counted exactly, to within 1e-6 for the fractio
   design residual degrees of freedom. The report gives the share called per designed fold change and the tools'
   versions and settings; `de/de.log` has each row's two common dispersions.
 
-  **Normalisation arms** (#453): the whole design is tested again in two other normalisations, for the pools and the
-  genome-wide synthetic set, and the report's Normalisation arms section shows them beside the workflow's:
+  **Normalisation arms** (#453, #527): the whole design is tested again in four other normalisations, for the pools and
+  the genome-wide synthetic set, and the report's Normalisation arms section shows them beside the workflow's:
   - `fixed` (folder `de/arm/fixed`, metrics `.fixed`): every row's library size is the sample's filtered reads, the
     cutadapt route's kept reads, the same for every method, so what a method counts as miRNA no longer changes it;
   - `tmm` (folder `de/arm/tmm`, metrics `.tmm`): edgeR's TMM factors (`calcNormFactors`) on the workflow's library
-    sizes, for all three tests (voom on the normalised sizes).
+    sizes, for all three tests (voom on the normalised sizes);
+  - `rle` and `tmmwsp` (#527; folders `de/arm/rle`, `de/arm/tmmwsp`, metrics `.rle`, `.tmmwsp`): the same with edgeR's
+    RLE factors (DESeq2's median of ratios) and TMMwsp factors (TMM with singleton pairing, for counts with many zeros).
+  The depth-imbalance stress test (`imbalance`, #488) keeps `workflow`, `fixed` and `tmm`: every arm multiplies its fits.
   `false_calls_against` (all DE sets, #453): the share of the unchanged features called in the direction opposite to
   the known changes, when at least two thirds of them go one way (empty otherwise, as in the pools and the balanced
   synthetic set).
