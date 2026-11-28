@@ -2321,7 +2321,11 @@ def test_de_model_names_the_contrast_numeric_covariates_and_the_least_mean_count
         'field\tvalue\nnumerator\tcase\ndenominator\tFertile control\nmin_mean\t10\nnumeric\tnuisance\n')
     script = (BENCH / 'de.R').read_text()
     known = re.search(r"unknown <- setdiff\(settings\$field, c\(([^)]*)\)\)", script)
-    assert known and known.group(1) == "'numerator', 'denominator', 'min_mean', 'numeric', 'normalisation'"  # the fields model_text writes
+    assert known and known.group(1) == "'numerator', 'denominator', 'min_mean', 'numeric', 'normalisation', 'filter', 'min_count'"  # the fields model_text writes
+    assert de.model_text('A', 'B', (), 0, 'tmmwsp', 10).endswith('normalisation\ttmmwsp\nfilter\tfilterByExpr\nmin_count\t10\n')   # #527's preset
+    assert 'filterByExpr(DGEList(counts = values, lib.size = size), design = model, min.count = min_count)' in script
+    with pytest.raises(ValueError, match='min_count must be a positive number'):
+        de.model_text('A', 'B', (), 0, None, 0)
     for arm, method in (('tmm', 'TMM'), ('rle', 'RLE'), ('tmmwsp', 'TMMwsp')):   # the factor arms (#453, #527), as de.R names them
         assert de.model_text('A', 'B', (), 0, arm).endswith('normalisation\t{}\n'.format(arm)) and "{} = '{}'".format(arm, method) in script
     assert de.NORMALISATIONS == {'tmm': 'TMM', 'rle': 'RLE', 'tmmwsp': 'TMMwsp'} and 'calcNormFactors(y, method = method)' in script

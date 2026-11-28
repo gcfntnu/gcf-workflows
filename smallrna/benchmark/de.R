@@ -6,8 +6,9 @@
 # change is more in the numerator), the covariates that are numbers (`numeric`; the others are factors) and the least
 # mean count of a feature a row tests (`min_mean`), and optionally `normalisation: tmm`, `rle` or `tmmwsp` (#453, #527):
 # edgeR's TMM, RLE or TMMwsp factors (calcNormFactors) on the given library sizes, used by all three tests (voom on the
-# normalised library sizes);
-# without it, the library sizes as given, no normalisation factors. The exact test runs
+# normalised library sizes; without it, the library sizes as given, no normalisation factors); and optionally
+# `filter: filterByExpr` with `min_count` (#527): a row tests only the features edgeR's filterByExpr keeps on its counts,
+# the given library sizes and the set's design (besides `min_mean`). The exact test runs
 # as in the McCall-lab benchmark's best configuration (common dispersion, exact test; two groups, no covariates). The
 # GLM test is its counterpart on the design with the covariates: a common dispersion estimated under the design and a
 # likelihood-ratio test of the group. Without covariates it calls nearly what the exact test calls, so the two differ
@@ -65,7 +66,12 @@ methods <- c(tmm = 'TMM', rle = 'RLE', tmmwsp = 'TMMwsp')  # de.py's NORMALISATI
 if (length(normalisation) > 1 || (length(normalisation) == 1 && !normalisation %in% names(methods)))
   stop(opt$model, ': normalisation must be tmm, rle or tmmwsp, or absent')
 method <- if (length(normalisation) == 1) methods[[normalisation]] else NA
-unknown <- setdiff(settings$field, c('numerator', 'denominator', 'min_mean', 'numeric', 'normalisation'))
+filter <- setting('filter')  # #527: filterByExpr on the row's counts, library sizes and the set's design, with min_count
+if (length(filter) > 1 || (length(filter) == 1 && filter != 'filterByExpr')) stop(opt$model, ': filter must be filterByExpr, or absent')
+min_count <- if (length(setting('min_count'))) suppressWarnings(as.numeric(setting('min_count'))) else NA
+if (length(filter) == 1 && (length(min_count) != 1 || is.na(min_count) || min_count <= 0)) stop(opt$model, ': filterByExpr needs one min_count above 0')
+if (length(filter) == 0 && !is.na(min_count)) stop(opt$model, ': min_count goes with filter: filterByExpr')
+unknown <- setdiff(settings$field, c('numerator', 'denominator', 'min_mean', 'numeric', 'normalisation', 'filter', 'min_count'))
 if (length(unknown)) stop(opt$model, ': unknown field ', paste(unknown, collapse = ', '))
 if (!identical(colnames(design)[1:2], c('sample', 'group'))) stop(opt$design, ': the first columns must be sample and group')
 if (any(!nzchar(design$sample)) || any(!nzchar(design$group))) stop(opt$design, ': every sample needs a name and a group')
@@ -101,6 +107,8 @@ for (row in unique(counts$row)) {
   size <- suppressWarnings(as.numeric(unlist(sizes[sizes$row == row, samples])))
   if (length(size) != length(samples) || anyNA(size) || any(size <= 0)) stop(opt$library_sizes, ': ', row, ' needs one positive library size per sample')
   keep <- rowSums(values) > 0 & rowMeans(values) >= min_mean
+  if (length(filter) == 1)  # on the counts as given, before any normalisation factors (#527)
+    keep <- keep & filterByExpr(DGEList(counts = values, lib.size = size), design = model, min.count = min_count)
   if (sum(keep) == 1) {  # one feature: no common dispersion and no mean-variance trend (voom needs two), so no test
     message(sprintf('%s: 1 feature to test (%s), at least 2 are needed; none tested', row, part$feature[keep]))
     keep[] <- FALSE
@@ -150,10 +158,11 @@ write.table(table, opt$results, sep = '\t', quote = FALSE, row.names = FALSE, na
 
 record <- data.frame(
   field = c('md5_counts', 'md5_library_sizes', 'md5_design', 'md5_model', 'md5_script', 'md5_results', 'R', 'edgeR', 'limma', 'formula',
-            'contrast', 'min_mean', 'normalisation', 'edger', 'edger_glm', 'voom'),
+            'contrast', 'min_mean', 'filter', 'normalisation', 'edger', 'edger_glm', 'voom'),
   value = c(md5(copies$counts), md5(copies$library_sizes), md5(copies$design), md5(copies$model), md5(copies$script), md5(opt$results),
             R.version.string, as.character(packageVersion('edgeR')), as.character(packageVersion('limma')), formula_text,
             paste(numerator, 'against', denominator), as.character(min_mean),
+            if (length(filter) == 1) sprintf('filterByExpr(design = model, min.count = %g) on the library sizes', min_count) else 'none',
             if (!is.na(method)) sprintf('%s factors (calcNormFactors) on the library sizes', method) else 'none: the library sizes as given',
             sprintf('DGEList with the library sizes and %s, estimateCommonDisp, exactTest of %s against %s',
                     if (!is.na(method)) sprintf('%s normalisation factors', method) else 'no normalisation factors', numerator, denominator),

@@ -87,16 +87,22 @@ def library_sizes(reads, oracle, entries, rows, samples):
             for row in rows for s in samples}
 
 
-def model_text(numerator, denominator, numeric=(), min_mean=0, normalisation=None):
+def model_text(numerator, denominator, numeric=(), min_mean=0, normalisation=None, min_count=None):
     """model.tsv: the contrast (a positive log2 fold change is more in `numerator`), the covariates that are numbers
     (the others are factors), the least mean count of a feature a row tests and, for a factor arm (#453, #527),
     `normalisation: <arm>` (NORMALISATIONS: edgeR's factors of that method on the library sizes; without the field,
-    none)."""
+    none). With `min_count` (#527's preset), `filter: filterByExpr` and `min_count`: a row tests the features edgeR's
+    filterByExpr keeps on its counts, library sizes and the set's design, with that `min.count` (its CPM cutoff is
+    `min_count` reads at the median library size), besides `min_mean`."""
     fields = [('numerator', numerator), ('denominator', denominator), ('min_mean', '{:g}'.format(min_mean))] + [('numeric', c) for c in numeric]
     if normalisation is not None:
         if normalisation not in NORMALISATIONS:
             raise ValueError('normalisation must be one of {} or None, got {!r}'.format(', '.join(NORMALISATIONS), normalisation))
         fields.append(('normalisation', normalisation))
+    if min_count is not None:
+        if not min_count > 0:
+            raise ValueError('min_count must be a positive number, got {!r}'.format(min_count))
+        fields += [('filter', 'filterByExpr'), ('min_count', '{:g}'.format(min_count))]
     return 'field\tvalue\n' + ''.join('{}\t{}\n'.format(*field) for field in fields)
 
 
