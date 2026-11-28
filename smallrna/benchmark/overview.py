@@ -237,7 +237,7 @@ NOTE = ('One row per route, one column per criterion; ↑ higher is better, ↓ 
         'mixed in equal amounts or at set ratios; the reads that exactly match a pool sequence are the reference a route should '
         'reproduce, and the ratio error is divided by that reference\'s own. Mixture: two tissues mixed at known proportions. '
         'Knockout: miRNAs counted in cells where they were knocked out. No change: samples of one group split in two halves, '
-        'where only about 5% of miRNAs should pass p < 0.05 by chance; only the share above 5% counts (edgeR\'s exact test). '
+        'where only about 5% of miRNAs should pass p < 0.05 by chance; only the share above 5% counts (the preset\'s limma-voom, #527). '
         'Other RNA: reads from known non-miRNA RNAs added to the synthetic data; right RNA type over the types a route reports. '
         'Cost is not binned. There is no overall score.')
 
