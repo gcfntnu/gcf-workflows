@@ -1395,8 +1395,9 @@ def test_summary_figures_take_projects_by_what_they_declare_and_need_matplotlib(
     import summary
 
     def made(name, kind, metric, **kw):
-        values = {('de_sensitivity', 'truth'): 1.0} if kind == 'synthetic' else {}
-        return SimpleNamespace(path=tmp_path / name, kind=kind, pool=kw.get('pool'), kit=kw.get('kit', ''), genome=kind == 'synthetic',
+        values = {('recovered', 'truth'): 1.0} if kind == 'synthetic' else {}
+        return SimpleNamespace(path=tmp_path / name, kind=kind, pool=kw.get('pool'), kit=kw.get('kit', ''), genome=kind == 'synthetic', designed=True,
+                               has=lambda m, v=values: any(k[0] == m for k in v),
                                seed=kw.get('seed'), spec={'name': kw.get('dataset', name)}, intervals={(metric, 'unitas'): (1, 0, 1)},
                                value=lambda m, r, v=values: v.get((m, r)))
     projects = [made('zz', 'pool', 'within_2fold', pool='equimolar', kit='Kit B'), made('aa', 'pool', 'within_2fold', pool='equimolar', kit='Kit A'),
@@ -2528,7 +2529,7 @@ def test_a_biological_declaration_names_its_contrast_and_covariates(tmp_path):
     (whole,) = benchmark.de_sets(spec, benchmark.de_units(spec, rows))
     assert whole.design == [('S0', 'case', {'patient': 'P0'}), ('S1', 'case', {'patient': 'P1'}), ('S2', 'control', {'patient': 'P0'}),
                             ('S3', 'control', {'patient': 'P1'})]  # the third group's samples are not in the set
-    assert whole.samples == '2 case and 2 control samples' and whole.model == de.model_text('case', 'control', (), 10)  # detected miRNAs
+    assert whole.samples == '2 case and 2 control samples' and whole.model == de.model_text('case', 'control', (), 0, de.PRESET, de.PRESET_MIN_COUNT)  # #527's preset
     for de_spec, message in (({}, 'needs a `contrast`, `null` comparisons (#449) or both'),
                              ({'contrast': ['case', 'absent']}, 'de.contrast must name two different groups of the samples'),
                              ({'contrast': ['case', 'case']}, 'de.contrast must name two different groups'),
@@ -2544,7 +2545,7 @@ def test_a_biological_declaration_names_its_contrast_and_covariates(tmp_path):
     rows = [{'sample': s['sample'], 'library': s['sample'], 'group': str(s['group']), 'lane': 'merged'} for s in spec['samples']]
     (whole,) = benchmark.de_sets(spec, benchmark.de_units(spec, rows))
     assert [(sample, group) for sample, group, _ in whole.design] == [('S0', '100'), ('S1', '100'), ('S2', '0'), ('S3', '0')]
-    assert whole.model == de.model_text('100', '0', (), 10) and whole.samples == '2 100 and 2 0 samples'
+    assert whole.model == de.model_text('100', '0', (), 0, de.PRESET, de.PRESET_MIN_COUNT) and whole.samples == '2 100 and 2 0 samples'
     with pytest.raises(SystemExit, match=re.escape('benchmark/samples.tsv has 1 100 and 2 0 sample(s) for the DE set of the whole dataset')):
         benchmark.de_sets(spec, benchmark.de_units(spec, rows[1:]))  # a project prepared from another declaration
     for contrast in ([100, None], ['', 0], [[100], 0]):
@@ -2714,7 +2715,7 @@ def test_evaluate_de_adds_metrics_intervals_and_report(tmp_path):
     result = subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'summary', '--projects', str(project), '--output', str(summary_md)],
                             capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
-    assert 'edger_called: unitas' in summary_md.read_text()
+    assert 'voom_called: unitas' in summary_md.read_text()   # the preset's test in the summary (#527)
 
 
 def test_evaluate_de_within_each_lab_scores_each_lab_and_against_the_oracle(tmp_path):
@@ -2763,7 +2764,7 @@ def test_evaluate_de_within_each_lab_scores_each_lab_and_against_the_oracle(tmp_
     result = subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'summary', '--projects', str(project), '--output', str(summary_md)],
                             capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
-    assert 'edger_fc_error_vs_oracle: unitas' in summary_md.read_text() and 'edger_fc_shift_vs_oracle: unitas' in summary_md.read_text()
+    assert 'voom_fc_error_vs_oracle: unitas' in summary_md.read_text() and 'voom_fc_shift_vs_oracle: unitas' in summary_md.read_text()
 
 
 @pytest.mark.parametrize('case, message', [
@@ -2878,7 +2879,7 @@ def test_a_biological_dataset_goes_through_the_de_step_without_scores(tmp_path):
     assert result.returncode == 0, result.stderr
     design = (bench / 'de/input/design.tsv').read_text().splitlines()
     assert design[:3] == ['sample\tgroup\tlab', 'GSM1\tcase\tL1', 'GSM2\tcase\tL1'] and len(design) == 9  # GSM9 is in neither group
-    assert (bench / 'de/input/model.tsv').read_text() == de.model_text('case', 'control', (), 10)
+    assert (bench / 'de/input/model.tsv').read_text() == de.model_text('case', 'control', (), 0, de.PRESET, de.PRESET_MIN_COUNT)
     assert (bench / 'de/levels.tsv').read_text() == 'column\tlevel\nlab\tL1\nlab\tL2\n'
     assert (bench / 'de/lab/L2/input/design.tsv').read_text() == 'sample\tgroup\nGSM3\tcase\nGSM4\tcase\nGSM7\tcontrol\nGSM8\tcontrol\n'
     counts = (bench / 'de/input/counts.tsv').read_text().splitlines()
@@ -3150,7 +3151,7 @@ def test_null_comparisons_in_a_declaration(tmp_path):
     sets = benchmark.de_sets(spec, benchmark.de_units(spec, rows))
     assert [s.folder for s in sets] == ['null/case-1', 'null/case-2', 'null/control-1', 'null/control-2']  # other: one sample
     assert sorted(g for _, g, _ in sets[0].design) == ['x', 'x', 'y', 'y'] and sets[0].samples == '2 x and 2 y samples of case'
-    assert sets[0].design[0][2] == {'patient': 'P0'} and sets[0].model == de.model_text('x', 'y', (), biological.MIN_READS)
+    assert sets[0].design[0][2] == {'patient': 'P0'} and sets[0].model == de.model_text('x', 'y', (), 0, de.PRESET, de.PRESET_MIN_COUNT)
     for declared, message in (({'null': {'splits': 0, 'seed': 1}}, 'de.null takes `splits`'), ({'null': {'splits': 5}}, 'de.null takes `splits`'),
                               ({'null': {'splits': 5, 'seed': 1}}, 'de.null needs a group with at least 4 samples')):
         with pytest.raises(SystemExit, match=re.escape(message)):
@@ -3215,7 +3216,7 @@ def test_evaluate_reports_null_comparisons(tmp_path):
     design = (bench / 'de/null/case-1/input/design.tsv').read_text().splitlines()
     assert design[0] == 'sample\tgroup\tlab' and sorted(line.split('\t')[1] for line in design[1:]) == ['x', 'x', 'y', 'y']
     assert {line.split('\t')[2] for line in design[1:] if line.split('\t')[1] == 'x'} == {'L1', 'L2'}  # one of each lab in a half
-    assert (bench / 'de/null/case-1/input/model.tsv').read_text() == de.model_text('x', 'y', (), biological.MIN_READS)
+    assert (bench / 'de/null/case-1/input/model.tsv').read_text() == de.model_text('x', 'y', (), 0, de.PRESET, de.PRESET_MIN_COUNT)
     assert (bench / 'de/input/design.tsv').read_text().splitlines()[:2] == ['sample\tgroup\tlab', 'GSM1\tcase\tL1']  # the contrast's, as before
     fits = {'MIMAT0000069': (0.4, 0.001, 0.01), 'MIMAT0000076': (-0.6, 0.3, 0.6), 'MIMAT0001631': (None, None, None)}
     for folder in ['', 'lab/L1', 'lab/L2'] + nulls[:-1]:
@@ -3244,7 +3245,7 @@ def test_evaluate_reports_null_comparisons(tmp_path):
     result = subprocess.run([sys.executable, str(BENCH / 'benchmark.py'), 'summary', '--projects', str(project), '--output', str(summary_md)],
                             capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
-    assert 'edger_null_called: unitas' in summary_md.read_text()
+    assert 'voom_null_called: unitas' in summary_md.read_text()
 
 
 def test_evaluate_null_comparisons_without_a_contrast(tmp_path):
@@ -3959,7 +3960,7 @@ def test_imbalance_designs_thin_one_group_or_half_of_each():
         with pytest.raises(ValueError, match='ratios: '):
             imbalance.parse_ratios(bad)
     assert imbalance.parse_ratios('none') == [] and [name for name, _, _ in imbalance.scenarios([])] == ['none']   # #527
-    assert imbalance.parse_arms(imbalance.ARMS) == ['workflow', 'fixed', 'tmm']
+    assert imbalance.parse_arms(imbalance.ARMS) == ['workflow', 'fixed', 'tmmwsp']   # the preset's normalisation (#527)
     assert imbalance.parse_arms('tmmwsp,workflow,rle') == ['workflow', 'rle', 'tmmwsp']   # in ALL_ARMS' order
     for bad, message in (('tmm,tmm', 'twice'), ('quantile', 'quantile not one of'), ('', 'not one of')):
         with pytest.raises(ValueError, match='arms: .*' + message):
@@ -4007,10 +4008,10 @@ def test_imbalance_of_an_evaluated_biological_project(tmp_path):
     assert result.returncode == 0, result.stderr
     sets = ['all', 'null.case-1', 'null.case-2', 'null.control-1', 'null.control-2']
     folders = ['{}_{}/{}'.format(scenario, arm, name) for scenario in ('none', 'independent-2', 'tied-2') for name in sets
-               for arm in ('workflow', 'fixed', 'tmm')]
+               for arm in ('workflow', 'fixed', 'tmmwsp')]
     assert (out / 'de/levels.tsv').read_text() == de.levels_text([folder.split('/') for folder in folders])
-    for name in de.INPUTS:   # unthinned, in the workflow's arm: the evaluation's
-        assert (out / 'de/none_workflow/all/input' / name).read_text() == (bench / 'de/input' / name).read_text()
+    for name in de.INPUTS:   # unthinned, in the preset's arm (#527): the evaluation's
+        assert (out / 'de/none_tmmwsp/all/input' / name).read_text() == (bench / 'de/input' / name).read_text()
     sizes = lambda folder: {line.split('\t')[0]: [float(v) for v in line.split('\t')[1:]]
                             for line in (out / 'de' / folder / 'input/library_sizes.tsv').read_text().splitlines()[1:]}
     groups = [line.split('\t')[1] for line in (out / 'de/none_workflow/all/input/design.tsv').read_text().splitlines()[1:]]
@@ -4023,7 +4024,8 @@ def test_imbalance_of_an_evaluated_biological_project(tmp_path):
     case = [i for i, column in enumerate(counts('none_workflow/all')[0]) if column in
             [line.split('\t')[0] for line in (out / 'de/none_workflow/all/input/design.tsv').read_text().splitlines()[1:] if '\tcase' in line]]
     assert [[row[i] for i in case] for row in counts('tied-2_workflow/all')] == [[row[i] for i in case] for row in counts('none_workflow/all')]
-    assert (out / 'de/tied-2_tmm/all/input/model.tsv').read_text() == de.model_text('case', 'control', (), biological.MIN_READS, 'tmm')
+    assert (out / 'de/tied-2_tmmwsp/all/input/model.tsv').read_text() == de.model_text('case', 'control', (), 0, de.PRESET, de.PRESET_MIN_COUNT)
+    assert (out / 'de/tied-2_workflow/all/input/model.tsv').read_text() == de.model_text('case', 'control', (), 0, None, de.PRESET_MIN_COUNT)
     assert 'then `benchmark.py imbalance --de` with the same ratios, arms and seed' in (out / 'imbalance.md').read_text()
     depths = (out / 'imbalance_depths.tsv').read_text().splitlines()   # 87 filtered reads in every sample
     assert depths[0] == 'design\tset\tfirst\tsecond\tratio' and 'none\tall\t87.0\t87.0\t1.0' in depths
@@ -4041,11 +4043,11 @@ def test_imbalance_of_an_evaluated_biological_project(tmp_path):
     tsv = (out / 'imbalance.tsv').read_text().splitlines()
     assert tsv[0] == 'method\tdesign\tarm\tset\tmetric\tvalue' and 'mirge3\tnone\tfixed\tall\tvoom_calls\t2' in tsv
     assert 'unitas\ttied-2\tworkflow\tall\tedger_recall\t0.5' in tsv and 'unitas\ttied-2\tworkflow\tall\tedger_fc_shift\t0.15' in tsv
-    assert 'unitas\ttied-2\ttmm\tnull\tedger_null_called\t0.5' in tsv and 'unitas\tnone\tworkflow\tnull\tvoom_offset\t-0.1' in tsv
+    assert 'unitas\ttied-2\ttmmwsp\tnull\tedger_null_called\t0.5' in tsv and 'unitas\tnone\tworkflow\tnull\tvoom_offset\t-0.1' in tsv
     report = (out / 'imbalance.md').read_text()
     assert '## Null comparisons (#449)' in report and '| tied-2 | fixed | 0.50 (1.00) +0.05 | 0.50 (1.00) +0.05 |' in report
     assert '## The contrast (4 case and 4 control samples)' in report and '| tied-2 | workflow | 0.50 / 1.00 (1) +0.15 |' in report
-    assert '| none | tmm | 2 | 2 |' in report and 'edgeR 4.10.7, limma 3.68.5' in report and '## Realised depths' in report
+    assert '| none | tmmwsp | 2 | 2 |' in report and 'edgeR 4.10.7, limma 3.68.5' in report and '## Realised depths' in report
     before = {name: (out / name).read_text() for name in ('imbalance.md', 'imbalance.tsv')}
     result = subprocess.run(command + ['--de', '--seed', '2'], capture_output=True, text=True, timeout=120)   # another draw
     assert result.returncode != 0 and 'de/independent-2_workflow/all/results.tsv comes from other inputs' in result.stderr
@@ -4069,7 +4071,7 @@ def test_imbalance_runs_the_null_comparisons_in_every_arm_unthinned(tmp_path):
     folders = ['none_{}/{}'.format(arm, name) for name in sets for arm in ('workflow', 'rle', 'tmmwsp')]
     assert (out / 'de/levels.tsv').read_text() == de.levels_text([folder.split('/') for folder in folders])
     for arm in ('rle', 'tmmwsp'):
-        assert (out / 'de/none_{}/all/input/model.tsv'.format(arm)).read_text() == de.model_text('case', 'control', (), biological.MIN_READS, arm)
+        assert (out / 'de/none_{}/all/input/model.tsv'.format(arm)).read_text() == de.model_text('case', 'control', (), 0, arm, de.PRESET_MIN_COUNT)
         assert (out / 'de/none_{}/all/input/library_sizes.tsv'.format(arm)).read_text() == (bench / 'de/input/library_sizes.tsv').read_text()
     report = (out / 'imbalance.md').read_text()
     assert '`rle` (edgeR\'s RLE factors, median of ratios, on the workflow\'s)' in report and 'Ratios: none.' in report

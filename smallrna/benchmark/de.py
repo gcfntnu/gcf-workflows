@@ -9,15 +9,18 @@ calls are scored against them, and each method's against the reference row's fit
 suffix (the pools' `de: {within: lab}` tests each lab's runs on their own, suffix `.<level>`, #444; the synthetic
 dataset adds the true nuisance scores as a covariate, suffix `.adjusted`).
 
-Normalisation is the workflow's: a sample's library size is every miRNA read the method reported in it (all its rows of
-common.tsv), as smallrna's report figures scale counts per million. There is no TMM and no centring, so an offset
-between the groups stays in the fold changes, and `offset` reports it. Normalisation arms (#453, #527) test the pools'
-and the synthetic dataset's whole design again, side by side: `fixed` (suffix `.fixed`, folder `arm/fixed`), each
-sample's filtered reads as its library size for every row, so a route's miRNA calls no longer change it; and three arms
-of edgeR's normalisation factors (calcNormFactors) on the workflow's library sizes, `tmm` (TMM), `rle` (DESeq2's
-median of ratios) and `tmmwsp` (TMM with singleton pairing, for counts with many zeros), each with suffix `.<arm>` and
-folder `arm/<arm>`. The main metrics stay the
-workflow's. The oracle's library size is its reads of the
+The library sizes are the workflow's: a sample's library size is every miRNA read the method reported in it (all its
+rows of common.tsv), as smallrna's report figures scale counts per million. The synthetic and biological datasets use
+#527's preset on them (PRESET: edgeR's TMMwsp factors, on the features edgeR's filterByExpr keeps with min.count
+PRESET_MIN_COUNT on the set's design; limma-voom is the main test). Pools and a mixture's contrasts, where most features
+change by design, keep the library sizes without factors and test every designed sequence (pools) or the miRNAs with at
+least 10 reads on average (mixtures); an offset between the groups stays in their fold changes, and `offset` reports it.
+Normalisation arms (#453, #527) test the pools' and the synthetic dataset's whole design again, side by side, suffix
+`.<arm>`, folder `arm/<arm>`: `fixed`, each sample's filtered reads as its library size for every row, so a route's
+miRNA calls no longer change it; `workflow` (synthetic only), the library sizes without factors; and edgeR's factors
+(calcNormFactors) on the workflow's library sizes, `tmm` (TMM), `rle` (DESeq2's median of ratios) and, for the pools,
+`tmmwsp` (the synthetic dataset's main set has it). The synthetic dataset's arms keep the preset's filtered features,
+so only the normalisation changes. The oracle's library size is its reads of the
 exact and shifted pool sequences, the truth's its miRNA reads: what a method counting every miRNA read exactly would
 report. The exact test runs as in the McCall-lab benchmark's best configuration (library sizes as given, a common
 dispersion; two groups, so no covariates). The GLM test and voom take the set's covariates. The GLM test keeps the exact
@@ -47,6 +50,12 @@ LEVELS = 'levels.tsv'  # benchmark/de/levels.tsv: the sets de.smk tests besides 
 INPUTS = ('counts.tsv', 'library_sizes.tsv', 'design.tsv', 'model.tsv')
 ARMS = ('fixed', 'tmm', 'rle', 'tmmwsp')  # normalisation arms besides the workflow's (#453, #527): the DE sets' `arm`, folder arm/<arm>, suffix .<arm>
 NORMALISATIONS = {'tmm': 'TMM', 'rle': 'RLE', 'tmmwsp': 'TMMwsp'}  # the factor arms: model.tsv's `normalisation`, edgeR's calcNormFactors method
+# #527's preset for the synthetic and biological datasets: limma-voom (the main test), edgeR's TMMwsp factors, on the
+# features edgeR's filterByExpr keeps with this min.count; their arms vary the normalisation on the same features.
+# Pools and a mixture's contrasts keep the workflow's library sizes (most of their features change by design).
+PRESET = 'tmmwsp'
+PRESET_MIN_COUNT = 10
+PRESET_ARMS = ('workflow', 'fixed', 'tmm', 'rle')  # the preset datasets' arms: `workflow` is the library sizes without factors
 RESULT_HEADER = ['row', 'test', 'feature', 'log2fc', 'pvalue', 'padj']
 SCRIPT = Path(__file__).resolve().with_name('de.R')
 
@@ -85,6 +94,18 @@ def library_sizes(reads, oracle, entries, rows, samples):
     sequences = [e['sequence'] for e in entries if e['group'] in ('exact', 'shifted')]
     return {(row, s): sum(oracle[s].get(q, 0) for q in sequences) if row == 'oracle' else reads.get((row, s), {}).get('all', 0)
             for row in rows for s in samples}
+
+
+def with_normalisation(model, normalisation):
+    """A model.tsv text (model_text) with its `normalisation` replaced: one of NORMALISATIONS, or None for no factors;
+    the other fields as they were, in model_text's order."""
+    rows = [line.split('\t', 1) for line in model.splitlines()[1:]]
+    fields = {}
+    for field, value in rows:
+        fields.setdefault(field, []).append(value)
+    min_mean = float(fields['min_mean'][0]) if 'min_mean' in fields else 0
+    min_count = float(fields['min_count'][0]) if 'min_count' in fields else None
+    return model_text(fields['numerator'][0], fields['denominator'][0], fields.get('numeric', []), min_mean, normalisation, min_count)
 
 
 def model_text(numerator, denominator, numeric=(), min_mean=0, normalisation=None, min_count=None):
@@ -279,8 +300,8 @@ def scores(results, features, rows, suffix='', reference='oracle', way=None):
 
 POOL_INTRO = (
     'Pool A against pool B over the {} scored `exact` sequences (#414). Library sizes are all the miRNA reads a method '
-    'reported in a sample, as the workflow scales counts per million (the oracle: its pool reads); no TMM, no '
-    'centring. A call is a BH-adjusted p of at most {}. Per designed fold change: the share called in the designed '
+    'reported in a sample, as the workflow scales counts per million (the oracle: its pool reads), without normalisation '
+    'factors (most pool sequences change by design: #527\'s exception); no centring. A call is a BH-adjusted p of at most {}. Per designed fold change: the share called in the designed '
     'direction, at 1:1 the share called at all; `tested`: the share of sequences with reads, so with a test. Against '
     'the oracle\'s fits on the same runs (the metrics table, #444): `own_false_calls`, the 1:1 sequences a method calls '
     'and the oracle does not; `discordant_vs_oracle`, the sequences whose call (up, down or none) differs from the '
@@ -291,10 +312,10 @@ POOL_INTRO = (
 SYNTHETIC_INTRO = (
     'The {numerator} samples against the {denominator} samples over {features} scored miRNAs (#447): the {changed} designed '
     'to change with at least {min_mean:g} truth reads on average, and every other miRNA of the truth or reported by a '
-    'method that is designed not to change. The tests are those of the ratiometric pools (de.R). Library sizes are all '
-    'the miRNA reads a method reported in a sample, as the workflow scales counts per million (the truth: its miRNA '
-    'reads); no TMM, no centring. Each row tests the miRNAs with at least {min_mean:g} reads on average in its own '
-    'counts, so reads spilled onto a relative of a changing miRNA can make a false call. A call is a BH-adjusted p of at '
+    'method that is designed not to change. With #527\'s preset (de.R): library sizes are all the miRNA reads a method '
+    'reported in a sample (the truth: its miRNA reads), with edgeR\'s TMMwsp factors; each row tests the miRNAs edgeR\'s '
+    'filterByExpr keeps on its own counts (min.count {min_count:g}), so reads spilled onto a relative of a changing miRNA '
+    'can make a false call; limma-voom is the main test. A call is a BH-adjusted p of at '
     'most {fdr}. Per designed fold change: the share called in the designed direction, at 1× the share called at all; '
     '`tested`: the share of the scored miRNAs a row tests. Against the truth\'s fits on the same samples (the metrics '
     'table): `own_false_calls`, the unchanged miRNAs a method calls and the truth does not; `discordant_vs_truth`, the '
@@ -392,9 +413,9 @@ def call_lines(sets, features, rows, numerator, denominator, library='all the mi
     is scored. `sets`: [(name, folder, samples, results, record, results_sha256)], the whole contrast's first (name
     ''), then each level of `within`."""
     lines = ['', '## Differential expression', '',
-             '{} against {} over the {} miRNAs any method reports (identical sequences as one), with the tests of the '
-             'ratiometric pools (de.R, #447). Library sizes are {}; no TMM. A '
-             'row tests the miRNAs with at least the mean count below in its own counts; a call is a BH-adjusted p of at most '
+             '{} against {} over the {} miRNAs any method reports (identical sequences as one), with the tests of '
+             'de.R (#447). Library sizes are {}, with the normalisation and filter below (#527\'s preset: TMMwsp factors, '
+             'the miRNAs filterByExpr keeps; limma-voom the main test); a call is a BH-adjusted p of at most '
              '{}. Nothing is known about the true changes, so the calls are not scored: `up` is more in {}.'.format(
                  numerator, denominator, len(features), library, FDR, numerator)]
     for name, _, samples, results, _, _ in sets:
@@ -406,8 +427,9 @@ def call_lines(sets, features, rows, numerator, denominator, library='all the mi
                                                   ('down', lambda f: call(f) < 0))):
                 lines.append('| {} | {} | '.format(TEST_NAMES[test] if i == 0 else '', label) +
                              ' | '.join(str(sum(1 for f in fits[row] if counted(f))) for row in rows) + ' |')
-    lines += [''] + ['{}: least mean count {}; design `{}`. edgeR {}, limma {}; {}. `de/{}results.tsv` SHA-256 `{}`.'.format(
-        name or 'All samples', record.get('min_mean', '?'), record.get('formula', '?'), record.get('edgeR', '?'), record.get('limma', '?'),
+    lines += [''] + ['{}: least mean count {}, filter {}, factors {}; design `{}`. edgeR {}, limma {}; {}. `de/{}results.tsv` SHA-256 `{}`.'.format(
+        name or 'All samples', record.get('min_mean', '?'), record.get('filter', 'none'), record.get('normalisation', '?').split(' (')[0],
+        record.get('formula', '?'), record.get('edgeR', '?'), record.get('limma', '?'),
         record.get('R', '?'), folder + '/' if folder else '', sha) for name, folder, _, _, record, sha in sets]
     return lines
 

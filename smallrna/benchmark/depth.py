@@ -414,8 +414,11 @@ def de_lines(contrasts, nulls, methods, versions, md_table, between=(), library=
     lines = ['', '## Differential expression by depth', '',
              "The evaluation's DE sets tested on each depth's thinned tables, the draw of the detection metrics above, and on the "
              "full depth (de.R: edgeR's exact test, its GLM test and limma-voom, #447), each over the same miRNAs at every depth: "
-             "those any route reports at the full depth in the set's samples. A row tests the miRNAs with at least {} reads on "
-             'average; library sizes are {} at that depth. Each route against its own calls at the full depth (BH-adjusted p of at most {}, in the same direction): '
+             "those any route reports at the full depth in the set's samples. A row tests the miRNAs its set's filter keeps at "
+             "that depth: with #527's preset (synthetic and biological sets), those edgeR's filterByExpr keeps on the thinned "
+             "counts (min.count {}), with TMMwsp factors, so fewer miRNAs are tested at lower depths, as an analysis at that depth "
+             "would; a mixture's sets, those with at least 10 reads on average, without factors. Library sizes are {} at that "
+             'depth. Each route against its own calls at the full depth (BH-adjusted p of at most {}, in the same direction): '
              '`recall / precision (calls)`; `full` shows the calls. These measure how depth changes a route\'s calls, not '
              'whether the calls are right: the full-depth calls are no truth, and a route that calls more there has more to '
              'recall. They are optimistic twice over: each depth is a subset of the full-depth reads, so its calls share their '
@@ -423,7 +426,7 @@ def de_lines(contrasts, nulls, methods, versions, md_table, between=(), library=
              'In brackets, the recall of the full-depth calls at a BH-adjusted p of at most {} (`recall_strict`): borderline '
              'full-depth calls are partly noise a shallower depth cannot recall, so this is the fairer recall; precision stays '
              'against the {} calls, and the null comparisons below measure false calls.'.format(
-                 biological.MIN_READS, library, de.FDR, STRICT_FDR, de.FDR)]
+                 de.PRESET_MIN_COUNT, library, de.FDR, STRICT_FDR, de.FDR)]
     for _, title, points in contrasts:
         for test in de.TESTS:
             lines += ['', '**{}**, {}'.format(title, de.TEST_NAMES[test]), '']

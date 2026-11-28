@@ -28,18 +28,18 @@ import yaml
 # (kind, title, key metrics, what they show); a pool's kind is its `pool`
 SECTIONS = [
     ('synthetic', 'Synthetic data',
-     ['recovered', 'precision', 'exact', 'misassigned', 'unplaced', 'near_spill', 'edger_called', 'edger_false_calls', 'edger_fdr',
+     ['recovered', 'precision', 'exact', 'misassigned', 'unplaced', 'near_spill', 'voom_called', 'voom_false_calls', 'voom_fdr',
       'isomir_recovered', 'decoy_as_mirna'],
      'Counts are compared per sample and miRBase accession. `recovered` sums the smaller of observed and true counts '
      'for each pair, divided by the total true count. `exact` is the fraction of positive-truth pairs with matching counts. '
      '`misassigned` and `unplaced` count reads on accessions absent from that sample’s truth and on names without a miRBase accession. '
      'The genome-wide dataset (#412) adds `precision` (the smaller counts over the observed ones), `near_spill` (reads above the truth '
      'on near-identical partners); there `misassigned` and `unplaced` are shares of the observed reads. Differential expression '
-     'between its two groups (#447, `evaluate --de`) uses the tests of the ratiometric pools, so the two can be compared: with '
-     'edgeR\'s exact test on the workflow\'s library sizes, `edger_called` (miRNAs designed at least 2-fold apart, BH-adjusted p at '
-     'most 0.05 in the designed direction), `edger_false_calls` (miRNAs designed not to change and called) and `edger_fdr` (the '
-     'share of calls on unchanged miRNAs or in the wrong direction). edgeR\'s GLM test, limma-voom, the tests adjusted for the '
-     'nuisance factor and the built-in check `de_*` are in each report. `isomir_recovered` (#454): the share of its true isomiR '
+     'between its two groups (#447, `evaluate --de`) with the preset analysis (#527: limma-voom, edgeR\'s TMMwsp factors, the '
+     'miRNAs edgeR\'s filterByExpr keeps): `voom_called` (miRNAs designed at least 2-fold apart, BH-adjusted p at most 0.05 in the '
+     'designed direction), `voom_false_calls` (miRNAs designed not to change and called) and `voom_fdr` (the share of calls on '
+     'unchanged miRNAs or in the wrong direction). edgeR\'s exact and GLM tests, the tests adjusted for the nuisance factor and '
+     'the other normalisations are in each report. `isomir_recovered` (#454): the share of its true isomiR '
      'reads (no substitutions) a method reports as their own sequence on their miRNA; empty for methods without isomiR output. '
      '`decoy_as_mirna` (#412 PR 2): in probe samples of reads of other RNA classes (tRNA, rRNA, Y RNA, snoRNA, other ncRNA, '
      'mRNA, piRNA, precursor), the share a method counts as miRNAs (control subtracted); each report has it per class and '
@@ -57,28 +57,30 @@ SECTIONS = [
      '`shifted_isomir_recovered` (#454): the share of the oracle\'s reads of the shifted sequences a method reports as that '
      'sequence on its miRNA; empty for methods without isomiR output.'),
     ('ratiometric', 'Ratiometric pools', ['median_abs_error', 'spearman_vs_design', 'called', 'false_calls', 'shifted_called',
-                                          'edger_called', 'edger_false_calls', 'edger_fdr', 'edger_fc_shift_vs_oracle',
-                                          'edger_fc_error_vs_oracle', 'shifted_isomir_recovered'],
+                                          'voom_called', 'voom_false_calls', 'voom_fdr', 'voom_fc_shift_vs_oracle',
+                                          'voom_fc_error_vs_oracle', 'shifted_isomir_recovered'],
      'Observed log2(A/B) against the design: `median_abs_error`, `spearman_vs_design`, `called` (designed at least 2-fold '
      'apart and observed at least 2-fold in the designed direction), `false_calls` (designed less than 2-fold apart, '
      'observed at least 2-fold); `shifted_called` applies the same direction requirement to shifted sequences. '
-     'Differential expression (#414, `evaluate --de`), with edgeR\'s exact test on the workflow\'s library sizes: `edger_called` '
-     '(designed at least 2-fold apart, BH-adjusted p at most 0.05 in the designed direction), `edger_false_calls` (designed '
-     '1:1 and called) and `edger_fdr` (the share of calls on 1:1 sequences or in the wrong direction); against the oracle\'s '
-     'fits on the same runs (#444), `edger_fc_shift_vs_oracle` (the median difference from its log2 fold changes, from the '
-     'library sizes) and `edger_fc_error_vs_oracle` (the median absolute deviation from that shift, from the counts). edgeR\'s '
-     'GLM test, limma-voom and the tests within each lab are in each report. `shifted_isomir_recovered` as for equimolar pools.'),
+     'Differential expression (#414, `evaluate --de`), with the preset\'s limma-voom (#527) on the workflow\'s library sizes, '
+     'without normalisation factors (most pool sequences change by design): `voom_called` '
+     '(designed at least 2-fold apart, BH-adjusted p at most 0.05 in the designed direction), `voom_false_calls` (designed '
+     '1:1 and called) and `voom_fdr` (the share of calls on 1:1 sequences or in the wrong direction); against the oracle\'s '
+     'fits on the same runs (#444), `voom_fc_shift_vs_oracle` (the median difference from its log2 fold changes, from the '
+     'library sizes) and `voom_fc_error_vs_oracle` (the median absolute deviation from that shift, from the counts). edgeR\'s '
+     'exact and GLM tests, the normalisation arms and the tests within each lab are in each report. `shifted_isomir_recovered` as for equimolar pools.'),
     ('biological', 'Biological samples', ['mirna_reads', 'unplaced', 'detected', 'detected_all_samples', 'top10_share', 'isomir_share',
-                                          'edger_null_called', 'voom_null_called', 'detected.mirgenedb', 'detected.star', 'detected.mirbase_only',
+                                          'voom_null_called', 'voom_null_p05', 'detected.mirgenedb', 'detected.star', 'detected.mirbase_only',
                                           'knockout_mirna_share', 'knockout_surviving', 'knockout_surviving_expected',
                                           'knockout_surviving_unexpected', 'detected_unflagged', 'read_in_other_class'],
      'No known composition: `mirna_reads` is the rounded median per sample of reads assigned to a miRBase accession. '
      'The other metrics describe the share on names without a miRBase accession, '
      'miRNAs detected (at least 10 reads; median over samples) and in every sample, and the share of the 10 most abundant. '
      'Agreement between methods is in each report. `isomir_share` (#454): the share of a method\'s miRNA reads that are not the '
-     'mature sequence; empty for methods without isomiR output. With null comparisons (#449, `evaluate --de`): '
-     '`edger_null_called` and `voom_null_called`, the median share of tested miRNAs that edgeR\'s exact test and limma-voom call '
-     'when one group\'s samples, split in two at random, are tested against each other (every call is false). With '
+     'mature sequence; empty for methods without isomiR output. With null comparisons (#449, `evaluate --de`), with the preset '
+     'analysis (#527: limma-voom, TMMwsp factors, filterByExpr): `voom_null_called`, the median share of tested miRNAs called '
+     'when one group\'s samples, split in two at random, are tested against each other (every call is false), and `voom_null_p05`, '
+     'the share of tested p-values of at most 0.05 (0.05 when calibrated). edgeR\'s tests are in each report. With '
      '`evaluate --mirgenedb` (#493): `detected.mirgenedb`, `detected.star` and `detected.mirbase_only`, the miRNAs detected per '
      'MirGeneDB stratum (listed, listed as a star arm, not listed); each report has the read shares and the disputed miRNAs. A dataset with '
      'knockout cells (#452): `knockout_mirna_share`, the miRNA reads per million filtered reads in the knockout that should '
@@ -90,16 +92,17 @@ SECTIONS = [
      'inside a tRNA, rRNA, Y RNA, snoRNA or other ncRNA, and `read_in_other_class`, the share of a method\'s miRNA reads (isomiR '
      'output) whose read lies inside such a molecule.'),
     ('mixture', 'Tissue mixtures', ['mirna_reads', 'detected', 'linearity_error', 'replicate_error', 'within_1_5fold', 'monotonic',
-                                    'edger_glm_called', 'edger_glm_wrong_direction', 'edger_glm_called_shared'],
+                                    'voom_called', 'voom_wrong_direction', 'voom_called_shared'],
      'Total RNA of two tissues of each subject mixed at known fractions (#451). No known composition: each mixture is predicted '
      'from the method\'s own counts of the subject\'s two pure samples, with a content ratio fitted per method and subject, so the scores '
      'show linear and consistent counting, not correct assignment. `linearity_error` is the median |log2(observed / predicted)| '
      'over miRNA-sample pairs with at least 10 predicted reads and `within_1_5fold` the share within 1.5-fold; '
      '`replicate_error`, the same error between technical replicates, is its floor. `monotonic`: tissue-specific miRNAs whose '
      'subject series never move against the trend. Differential expression between the mixtures\' fractions, paired by subject '
-     '(`evaluate --de`), with edgeR\'s GLM test: `edger_glm_called` (miRNAs the method expects at least 2-fold apart, called in '
-     'that direction), `edger_glm_wrong_direction` (the share of its calls against the expected direction) and '
-     '`edger_glm_called_shared` (`called` over the miRNAs every method expects at least 2-fold apart).'),
+     '(`evaluate --de`), with the preset\'s limma-voom (#527) on the workflow\'s library sizes, without normalisation factors (most '
+     'miRNAs change between fractions): `voom_called` (miRNAs the method expects at least 2-fold apart, called in that direction), '
+     '`voom_wrong_direction` (the share of its calls against the expected direction) and `voom_called_shared` (`called` over '
+     'the miRNAs every method expects at least 2-fold apart). edgeR\'s tests are in each report.'),
 ]
 FIXED = ['project', 'dataset', 'kit', 'samples', 'reads processed', 'methods']
 

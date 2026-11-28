@@ -2,7 +2,7 @@
 
 Each DE set of an evaluated biological project (the contrast, each level of `within`, the null comparisons of #449) is
 thinned unevenly from the evaluation's count tables, binomially as the depth step thins (depth.thin), and tested again
-with de.R in normalisation arms (`--arms`, default `workflow,fixed,tmm`):
+with de.R in normalisation arms (`--arms`, default `workflow,fixed,tmmwsp`):
 - `workflow`: a sample's library size is every miRNA read the route reported in it, as the workflow scales counts;
 - `fixed`: the sample's filtered reads (the cutadapt route's kept reads) times its thinning fraction, for every route;
 - `tmm`, `rle`, `tmmwsp` (#527): edgeR's TMM, RLE (median of ratios) or TMMwsp factors on the workflow's library sizes.
@@ -46,7 +46,7 @@ import de
 import depth
 
 ALL_ARMS = ('workflow',) + de.ARMS  # every arm `--arms` may name (#453, #527)
-ARMS = 'workflow,fixed,tmm'  # the default: every arm multiplies the scenario fits
+ARMS = 'workflow,fixed,tmmwsp'  # the default, with #527's preset (tmmwsp): every arm multiplies the scenario fits
 NONE = 'none'
 DESIGNS = ('independent', 'tied')
 RATIOS = '1.5,4'
@@ -225,7 +225,8 @@ def lines(name, contrasts, nulls, methods, ratios, seed, versions, md_table, bet
            'group of the set, half the samples thinned to 1/r; `tied-<r>`: the set\'s second group only thinned to 1/r, so a '
            'contrast is tested with the imbalance in one direction; `none`: unthinned. Ratios: {}. Thinning keeps each sample\'s composition and every arm\'s library sizes '
            'follow it, so the designs show what the imbalance costs (power, false calls from the shallower samples\' variance), '
-           'not a bias from composition. Each set is tested over the miRNAs of its evaluation.'.format(
+           'not a bias from composition. Each set is scored over the miRNAs of its evaluation; a row tests those its filter keeps in '
+           'the thinned counts (#527\'s preset: filterByExpr).'.format(
                seed, ', '.join(named[:-1]) + (' and ' if len(named) > 1 else '') + named[-1], ', '.join('{:g}'.format(r) for r in ratios) or 'none')]
     if nulls:
         out += ['', '## Null comparisons (#449)', '',
