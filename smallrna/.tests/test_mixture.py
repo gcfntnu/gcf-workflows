@@ -291,7 +291,7 @@ def test_prepare_and_evaluate_a_mixture(tmp_path):
     table = {line.split('\t')[0]: line.split('\t')[1:] for line in (bench / 'metrics.tsv').read_text().splitlines()}
     assert table['edger_glm_called'][0] == '1.0' and table['edger_glm_wrong_direction'][0] == '0.0'  # UNITAS: every expected change found
     assert table['voom_called_shared'][0] == '1.0' and float(table['edger_fc_bias'][0]) == pytest.approx(0, abs=0.2)
-    report = (bench / 'report.md').read_text()
+    report = (bench / 'report.md').read_text() + (bench / 'de.md').read_text()   # the DE sections are in de.md (#527)
     assert 'pure spleen (100) against pure liver (0) over the 6 miRNAs any method reports' in report
     assert "Library sizes are a method's reads on miRNAs with an accession" in report and 'the exact test takes no covariates' in report
     assert 'edger_unchanged_called' in table

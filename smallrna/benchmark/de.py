@@ -402,6 +402,33 @@ def set_lines(title, intro, label, sets, values, rows, reference='oracle', keys=
     return lines
 
 
+SHORT_KEYS = ('called', 'false_calls', 'fdr', 'fc_bias', 'offset', 'wrong_direction', 'called_shared', 'null_called', 'null_any',
+              'null_p05')  # report.md's DE in short (#527): limma-voom's metrics of the main set, where a dataset has them
+
+
+def short_lines(metric_rows, columns):
+    """report.md's DE section in short (#527, layer 1): limma-voom's metrics of the main set from `metric_rows`
+    ([metric, value per column], the report's metrics table rows) under `columns`; the rest is in de.md. [] without
+    DE metrics."""
+    by_metric = {row[0]: row[1:] for row in metric_rows}
+    keys = ['voom_' + key for key in SHORT_KEYS if 'voom_' + key in by_metric]
+    if not keys:
+        return ['', '## Differential expression', '', 'Every test, normalisation arm, level and null comparison is in `de.md` (#527).']
+    return (['', '## Differential expression in short', '',
+             'limma-voom on the main set: #527\'s preset for the synthetic and biological datasets (edgeR\'s TMMwsp factors, the '
+             'features filterByExpr keeps); the library sizes without factors for pools and mixtures. Every test, normalisation '
+             'arm, level and null comparison is in `de.md`; the metrics table and `metrics.tsv` hold them all.', '',
+             '| metric | ' + ' | '.join(columns) + ' |', '|---' * (len(columns) + 1) + '|'] +
+            ['| {} | {} |'.format(key, ' | '.join('' if v in ('', None) else str(v) for v in by_metric[key])) for key in keys])
+
+
+def de_document(name, de_lines):
+    """de.md (#527, layer 2): a dataset's DE sections, as report.md had them."""
+    return '\n'.join(['# Differential expression: {}'.format(name), '',
+                      'The downstream layer (#527): every test, normalisation arm, level and null comparison of the evaluation. '
+                      '`report.md` has the main set\'s limma-voom in short; the metrics are in `metrics.tsv` either way.'] + de_lines) + '\n'
+
+
 def arm_lines(sets, values, rows, reference='oracle', preset=False):
     """report.md's section on the normalisation arms (#453): the whole dataset's set and each arm, with DESIGN_KEYS and
     the reference keys. `sets` as for set_lines, the whole dataset's first; with `preset` (#527) the main set is the

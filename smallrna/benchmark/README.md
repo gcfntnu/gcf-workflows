@@ -6,6 +6,25 @@ dataset a small change ([#338](https://github.com/gcfntnu/gcf-workflows/issues/3
 It runs the workflow's own `quant_all` routes, never the tools directly, so it measures what a project would get.
 It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.py`.
 
+## Two layers (#527)
+
+The benchmark answers two questions, and keeps them apart:
+
+- **Quantification** (layer 1): how close are a route's counts to the truth, and to each other? Routes and route
+  settings vary; everything downstream is fixed. `report.md`, the summary's **Overview** (one row per route) and the
+  metrics without a test prefix: recovery, misassignment, oracle errors, linearity, knockouts, classes, isomiRs,
+  detection, agreement, detection by depth, runtime and memory.
+- **Downstream** (layer 2): given the count tables, how do analysis choices perform? The test and the normalisation
+  vary; routes are one factor. `de.md`, the summary's **Analysis overview** (one row per test and normalisation), the
+  metrics with a test prefix (`edger_*`, `edger_glm_*`, `voom_*`) and the normalisation arms (`.workflow`, `.fixed`,
+  `.tmm`, `.rle`, `.tmmwsp`), `imbalance` and `depth --de`.
+
+They meet in **the preset**: one fixed analysis (limma-voom on edgeR's TMMwsp factors, the miRNAs `filterByExpr`
+keeps; below) under which DE results measure the counts. Its main-set `voom_*` metrics are in both layers: in short in
+`report.md` and the Overview's "DE under the preset", in full in `de.md`. A DE anomaly in one route under the preset
+points to its counts; one shared by all routes, or that changes with the test or normalisation, to the data or the
+analysis.
+
 ## Steps
 
 1. **Reference** (synthetic datasets). A reduced reference (a few chromosomes) lets mirflowz run on a workstation. It goes to
@@ -34,8 +53,9 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    complete run without `--notemp`, rerun with `--notemp --forceall`.
 4. **Evaluate.** `benchmark.py evaluate --project <project>` writes `<project>/benchmark/`: `common.tsv` (every
    method's counts in one table), `isomirs.tsv` (the methods with isomiR output: their counts per read sequence, #454),
-   `per_mirna.tsv` (pools: `per_sequence.tsv` and `filter_stages.tsv`), `metrics.tsv`
-   and `report.md`; with UNITAS, `unitas_names.tsv` (how each UNITAS name was placed, below). UNITAS names are placed
+   `per_mirna.tsv` (pools: `per_sequence.tsv` and `filter_stages.tsv`), `metrics.tsv`,
+   `report.md` (the quantification layer, with the DE in short) and, with `evaluate --de`, `de.md` (every test,
+   normalisation arm, level and null comparison; #527); with UNITAS, `unitas_names.tsv` (how each UNITAS name was placed, below). UNITAS names are placed
    with the reference dump the project's UNITAS run recorded (`quant/unitas/reference.tsv`; read only; `--unitas-ref`
    names another).
    With `--mirgenedb GFF3` (#493; MirGeneDB's annotation of the organism, e.g. miRge3's library file
@@ -203,13 +223,20 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    (good at or past the first, poor past the second; colours in HTML, the bin in brackets in Markdown). Its headers
    and note are in plain words for readers who do not know these metrics' names. Columns, each
    from the projects that declare and hold its metric (settings variants left out; a column without one is omitted):
-   the genome-wide synthetic sets with designed changes (`recovered`, `precision`, `exact`, DE sensitivity over the
-   same test on the true counts, the preset's limma-voom; averaged), the equimolar pools' `within_2fold` and the ratiometric pools'
+   the genome-wide synthetic sets with designed changes (`recovered`, `precision`, `exact`; averaged), the equimolar pools' `within_2fold` and the ratiometric pools'
    `median_abs_error` over the oracle's, per kit; the mixture's `linearity_error` and `within_1_5fold`; the knockouts'
-   `knockout_surviving_unexpected`; the null comparisons' `voom_null_p05` (the preset) above 0.05; the decoy probes'
+   `knockout_surviving_unexpected`; **DE under the preset**, from projects whose DE records show it (`de.analysis`):
+   the synthetic sets' `voom_called` over the truth's and the biological null comparisons' `voom_null_p05` above 0.05;
+   the decoy probes'
    `decoy_as_mirna` and the mean share in the right class over the decoy sources whose class a route reports; and, not
    binned, the runtime per sample and peak memory of the biological project with the most samples. There is no
    overall score.
+
+   An **Analysis overview** follows (`overview.analysis`, #527): one row per test and normalisation (`workflow`,
+   `fixed`, `tmm`, `rle`, `tmmwsp`), not binned, each cell the median over the routes averaged over the projects that
+   hold it: the synthetic sets' changes called and FDR, the null scenario's false calls, the unbalanced scenario's calls
+   against the changes, the set-ratio pools' `offset`, and the biological null comparisons' `<test>_null_p05`, from each
+   project's `benchmark/imbalance/imbalance.tsv` (`imbalance --ratios none`) where it has one, else the preset alone.
 
    In HTML, **Figures** follow (`figures.py`), embedded as PNG with a title and caption in plain words, each from the
    projects that hold its data (settings variants left out; a figure without one is omitted):
@@ -217,7 +244,7 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
      one genome-wide synthetic set's `recovered` (the lowest seed; intervals of different draws are not averaged) and
      the mixture's `within_1_5fold`;
    - changes called where there are none: per route and test the null comparisons' `<test>_null_p05` of the biological
-     projects in the overview's No change column, against the 5% chance gives;
+     projects, against the 5% chance gives;
    - sequencing depth, per biological or mixture project with a `benchmark/depth/depth.tsv` (`depth`, its default
      `--output`): the share of the full depth's miRNAs per abundance stratum still seen, and the new miRNAs per
      doubling of depth, for the first declared route the series has.

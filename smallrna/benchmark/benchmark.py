@@ -1510,7 +1510,7 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
             ids = [e['pool_id'] for e in exact if (e['amount_a'], e['amount_b']) == (a, b)]
             lines.append('| {:g}:{:g} | {:.2f} | {} | '.format(a, b, math.log2(a / b), len(ids)) + ' | '.join(
                 '{:.2f}'.format(statistics.median(observed[r][i] for i in ids)) for r in rows if r in observed) + ' |')
-    lines += de_lines
+    lines += de.short_lines(metric_rows, rows) if de_lines else []
     lines += shifted_section(per_kind, {kind: len(group) for kind, group in by_kind.items()}, kind_keys,
                              [r for r in rows if any(r in v for v in per_kind.values())])
     lines += isomirs.pool_lines(iso, iso_kinds, with_isomirs, no_isomirs)
@@ -1547,6 +1547,8 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
         if de_results:
             units += '; the differential-expression metrics resample the sequences only, on the fixed fits'
     extra, record, ci_lines = bootstrap(args, summary, compute, draw, rows, keys, units, table_keys)
+    if de_lines:  # the downstream layer's own document (#527)
+        extra['de.md'] = de.de_document(spec['name'], de_lines)
     publish(project, bench, spec, ['metric'] + rows, metric_rows, lines + ci_lines, extra, record)
     print(bench / 'report.md')
 
@@ -1957,10 +1959,12 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
                 for i, v in decoy_scores[name][u][2].items():
                     total[i] += v
                     by[i][u] += v
-            top = [(i, v) for i, v in total.most_common(5) if v >= 1]
+            # ties by name, the reads rounded: summing control-subtracted floats in another order must not reorder them
+            ranked = lambda counter, n: sorted(counter.items(), key=lambda item: (-round(item[1], 6), item[0]))[:n]
+            top = [(i, v) for i, v in ranked(total, 5) if v >= 1]
             if top:
                 landed_lines.append('- {}: '.format(name) + '; '.join('{} {:.0f} ({})'.format(
-                    label(i), v, ', '.join('{} {:.0f}'.format(u, c) for u, c in by[i].most_common(3))) for i, v in top))
+                    label(i), v, ', '.join('{} {:.0f}'.format(u, c) for u, c in ranked(by[i], 3))) for i, v in top))
         if landed_lines:
             lines += ['', 'The miRNAs with the most decoy reads (control subtracted), by class and source:', ''] + landed_lines
     embedded = [c for c in classes if c.startswith('embedded_')]
@@ -1991,7 +1995,7 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
             absent.append('- {}: '.format(name) + ', '.join('{} ({:.0f})'.format(label(i), v) for v, i in top if v > 0))
     if absent:
         lines += ['', '## Reads on miRNAs absent from the truth (top 5, mixed samples)', ''] + absent
-    lines += de_lines
+    lines += de.short_lines(metric_rows, rows) if de_lines else []
 
     def compute(units, pairs, dev_units, scored):
         result = {name: ev.mixed_metrics(name, units, pairs, dev_units) for name in rows}
@@ -2011,6 +2015,8 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
         'coexpression and probes without an interval){}'.format(
             '; the metrics of the pools\' tests resample the scored miRNAs, on the fixed fits' if de_results else ''),
         GENOME_CI_KEYS + isomirs.synthetic_keys(iso_classes) + [k for k in de_keys if k in table_keys])
+    if de_lines:  # the downstream layer's own document (#527)
+        extra['de.md'] = de.de_document(spec['name'], de_lines)
     publish(project, bench, spec, ['metric'] + rows, metric_rows, lines + ci_lines, extra, record)
     print(bench / 'report.md')
 
@@ -2253,7 +2259,7 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
         if listed:
             lines += ['', 'Most often overdispersed: ' + '; '.join(listed)]
 
-    lines += de_lines
+    lines += de.short_lines(metric_rows, methods) if de_lines else []
     stats = biological.sample_stats(common, raw, methods, samples)
     # The unit is the library: the lanes of one library are technical replicates, so a drawn library brings all its
     # lanes (a merged sample is its own library). detected_all_samples has no interval: a resample repeating a sample
@@ -2274,6 +2280,8 @@ def evaluate_biological(args, project, bench, spec, ext_dir):
                                          tuple(k for k in OTHER_RNA_KEYS if k != 'detected_unflagged')],
                                         '{} (`detected_all_samples` and `isomirs_detected` without an interval: a resample repeating a '
                                         'sample has fewer distinct samples)'.format('the libraries, each with all its lanes' if lane_mode else 'the samples'))
+    if de_lines:  # the downstream layer's own document (#527)
+        extra['de.md'] = de.de_document(spec['name'], de_lines)
     publish(project, bench, spec, ['metric'] + methods, metric_rows, lines + ci_lines, extra, record)
     print(bench / 'report.md')
 
@@ -2660,7 +2668,7 @@ def evaluate_mixture(args, project, bench, spec, ext_dir):
                                        'predicted reads (the table by predicted reads above) and miRBase-only miRNAs are mostly low-count, '
                                        'so compare a stratum\'s error with the error at its abundance. ' + source,
                                        strata_values, mirgenedb.mixture_keys(), methods, md_table)
-    lines += de_lines
+    lines += de.short_lines(metric_rows, methods) if de_lines else []
     index = list(range(len(features)))
     subjects = sorted(design.series)
     extra, record, ci_lines = bootstrap(
@@ -2669,6 +2677,8 @@ def evaluate_mixture(args, project, bench, spec, ext_dir):
         lambda rng: (uncertainty.resample(rng, index), uncertainty.resample(rng, subjects)), methods, list(mixture.SCORE_KEYS),
         'the miRNAs and the subjects, on the fitted content ratios (`replicate_error` resamples the miRNAs only; the '
         'differential-expression metrics have no interval)')
+    if de_lines:  # the downstream layer's own document (#527)
+        extra['de.md'] = de.de_document(spec['name'], de_lines)
     publish(project, bench, spec, ['metric'] + methods, metric_rows, lines + ci_lines, extra, record)
     print(bench / 'report.md')
 
