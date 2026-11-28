@@ -1959,10 +1959,12 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
                 for i, v in decoy_scores[name][u][2].items():
                     total[i] += v
                     by[i][u] += v
-            top = [(i, v) for i, v in total.most_common(5) if v >= 1]
+            # ties by name, the reads rounded: summing control-subtracted floats in another order must not reorder them
+            ranked = lambda counter, n: sorted(counter.items(), key=lambda item: (-round(item[1], 6), item[0]))[:n]
+            top = [(i, v) for i, v in ranked(total, 5) if v >= 1]
             if top:
                 landed_lines.append('- {}: '.format(name) + '; '.join('{} {:.0f} ({})'.format(
-                    label(i), v, ', '.join('{} {:.0f}'.format(u, c) for u, c in by[i].most_common(3))) for i, v in top))
+                    label(i), v, ', '.join('{} {:.0f}'.format(u, c) for u, c in ranked(by[i], 3))) for i, v in top))
         if landed_lines:
             lines += ['', 'The miRNAs with the most decoy reads (control subtracted), by class and source:', ''] + landed_lines
     embedded = [c for c in classes if c.startswith('embedded_')]
