@@ -13,7 +13,9 @@ Per sample, on the shared filtered reads:
    16 nt, applies, as in the pipeline;
 3. miraligner_counts.py weights each annotation row `freq / ambiguity` (a sequence annotated to several mature miRNAs
    is divided equally between them) and sums, per mature miRNA, the rows without a substitution, as the pipeline's
-   reader did.
+   reader did. quant.biocore_miraligner.ties (#524): `split` (the pipeline's, the default) divides a sequence between
+   all its annotations; `best` keeps only its best ones first (exact, then a non-templated 3' addition alone, then a
+   substitution), so a read that matches one miRNA exactly is no longer shared with a near miss on another.
 
 Per sample the native `<sample>.mirna`, `mature.tsv`, `isomir.tsv` (every row, keyed
 `miRNA_sequence_mism;add;t5;t3` as in the pipeline) and `stats.tsv`; `mirna.tsv` joins the samples' mature counts.
@@ -24,12 +26,23 @@ include:
 
 BIOCORE_MIRALIGNER_OUT = join(QUANT_INTERIM, 'biocore_miraligner')
 BIOCORE_MIRALIGNER_ARGS = '-sub 1 -trim 3 -add 3'
+BIOCORE_MIRALIGNER_CONF = config['quant'].get('biocore_miraligner')
+if BIOCORE_MIRALIGNER_CONF is None:  # absent, or a key without settings
+    BIOCORE_MIRALIGNER_CONF = {}
+if not isinstance(BIOCORE_MIRALIGNER_CONF, dict):
+    raise ValueError('quant.biocore_miraligner must be a mapping of settings, got {!r}'.format(BIOCORE_MIRALIGNER_CONF))
+BIOCORE_MIRALIGNER_TIES = BIOCORE_MIRALIGNER_CONF.get('ties', 'split')
+if BIOCORE_MIRALIGNER_TIES not in ('split', 'best'):
+    raise ValueError('quant.biocore_miraligner.ties must be split or best, got {!r}'.format(BIOCORE_MIRALIGNER_TIES))
+# joined into the count rule's command only for `best`, so the default keeps the command as before
+BIOCORE_MIRALIGNER_TIES_ARG = ' --ties best' if BIOCORE_MIRALIGNER_TIES == 'best' else ''
 
 
 def biocore_miraligner_settings():
     """The settings that decide the biocore_miraligner route's counting, recorded with its table (quant_settings, #417)."""
     return [('miraligner', BIOCORE_MIRALIGNER_ARGS + ' -freq', 'fixed'),
-            ('counting', 'rows weighted freq / ambiguity, mismatches 0 only (miraligner_counts.py)', 'fixed')]
+            ('counting', 'rows weighted freq / ambiguity, mismatches 0 only (miraligner_counts.py)', 'fixed'),
+            ('ties', BIOCORE_MIRALIGNER_TIES, 'quant.biocore_miraligner.ties')]
 
 
 rule biocore_miraligner_collapse:
@@ -96,7 +109,7 @@ rule biocore_miraligner_count:
         'docker://' + config['docker']['default']
     shell:
         'python {params.script:q} count --reads {input.reads:q} --mirna {input.mirna:q} --mature {output.mature:q} '
-        '--isomir {output.isomir:q} --stats {output.stats:q}'
+        '--isomir {output.isomir:q} --stats {output.stats:q}' + BIOCORE_MIRALIGNER_TIES_ARG
 
 
 rule biocore_miraligner_counts:

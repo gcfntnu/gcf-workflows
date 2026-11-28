@@ -3,7 +3,14 @@
 earlier in-house small-RNA pipeline counted them.
 
 count: one sample. Each annotation row (a collapsed sequence annotated to a mature miRNA) is weighted
-`freq / ambiguity`, the sequence's reads divided equally between the mature miRNAs it was annotated to. The isomiR
+`freq / ambiguity`, the sequence's reads divided equally between the mature miRNAs it was annotated to. How a
+sequence's annotations of different quality share it (`--ties`, quant.biocore_miraligner.ties, #524):
+- `split` (the pipeline's, the default): all of them, as miraligner reports them; a read that matches one miRNA
+  exactly is also divided with a miRNA it matches only with a non-templated 3' addition or a substitution;
+- `best`: only its best annotations, ranked exact (no substitution, no addition) before an addition alone before a
+  substitution (with or without an addition); the others are left out of both tables, and the divisor is miraligner's
+  ambiguity less the annotations left out. Shifted ends (t5, t3) are templated and do not rank.
+The isomiR
 table has every row, keyed `<miRNA>_<sequence>_<mism>;<add>;<t5>;<t3>` as in the pipeline; the mature table sums, per
 miRNA, the rows without a substitution (`mism` 0), as the pipeline's reader did. Statistics: reads and unique sequences
 in miraligner's input, reads annotated to a mature miRNA, reads with an annotation without a substitution, and the
@@ -14,7 +21,7 @@ join: the samples' mature tables as one table, miRNA and one column per sample (
 Counts are written as integers where they are whole, else with Python's shortest round-trip representation.
 
 Usage:
-  miraligner_counts.py count --reads TAB --mirna MIRNA --mature TSV --isomir TSV --stats TSV
+  miraligner_counts.py count --reads TAB --mirna MIRNA --mature TSV --isomir TSV --stats TSV [--ties split|best]
   miraligner_counts.py join --samples S1 [S2 ...] --tables MATURE_TSV [MATURE_TSV ...]
 """
 import argparse
@@ -45,9 +52,28 @@ def read_input(path):
     return reads, sequences
 
 
-def count(mirna):
+TIES = ('split', 'best')
+
+
+def rank(mism, add):
+    """An annotation's rank under `--ties best`, lower is better: 0 exact, 1 a 3' addition alone, 2 a substitution (with
+    or without an addition)."""
+    return 2 if mism != '0' else 1 if add != '0' else 0
+
+
+def count(mirna, ties='split'):
     """({miRNA: count}, {isomiR key: count}, annotated reads, substitution-free reads) of a `.mirna` file."""
+    if ties not in TIES:
+        fail('--ties must be one of {}, got {!r}'.format(', '.join(TIES), ties))
     mature, isomir, annotated, perfect = {}, {}, {}, {}
+    sequences = {}  # best only: sequence: its annotation rows, (freq, mir, mism, add, t5, t3, ambiguity, line number)
+
+    def tally(seq, freq, mir, mism, add, t5, t3, share):
+        isomir.setdefault('{}_{}_{}'.format(mir, seq, ';'.join((mism, add, t5, t3))), []).append(share)
+        annotated[seq] = freq
+        if mism == '0':
+            mature.setdefault(mir, []).append(share)
+            perfect[seq] = freq
     with open(mirna) as fh:
         header = fh.readline().rstrip('\n').split('\t')
         missing = [c for c in COLUMNS if c not in header]
@@ -67,13 +93,21 @@ def count(mirna):
                 fail('{}:{}: freq {!r} or ambiguity {!r} is not a number'.format(mirna, i, fields[col['freq']], fields[col['ambiguity']]))
             if ambiguity < 1:
                 fail('{}:{}: ambiguity {}'.format(mirna, i, ambiguity))
-            share = freq / ambiguity
-            key = '{}_{}_{}'.format(mir, seq, ';'.join(fields[col[c]] for c in ('mism', 'add', 't5', 't3')))
-            isomir.setdefault(key, []).append(share)
-            annotated[seq] = freq
-            if mism == '0':
-                mature.setdefault(mir, []).append(share)
-                perfect[seq] = freq
+            add, t5, t3 = fields[col['add']], fields[col['t5']], fields[col['t3']]
+            if ties == 'split':  # row by row, as the pipeline counted
+                tally(seq, freq, mir, mism, add, t5, t3, freq / ambiguity)
+            else:  # a sequence's rows are compared before any counts
+                sequences.setdefault(seq, []).append((freq, mir, mism, add, t5, t3, ambiguity, i))
+    for seq, rows in sequences.items():
+        ambiguities = {r[6] for r in rows}
+        if len(ambiguities) > 1 or rows[0][6] < len(rows):
+            fail('{}:{}: {} has {} annotations with ambiguity {}; --ties best needs one ambiguity per sequence, at '
+                 'least its number of annotations'.format(mirna, rows[0][7], seq, len(rows), ', '.join(map(str, sorted(ambiguities)))))
+        best = min(rank(r[2], r[3]) for r in rows)
+        kept = [r for r in rows if rank(r[2], r[3]) == best]
+        divisor = rows[0][6] - (len(rows) - len(kept))
+        for freq, mir, mism, add, t5, t3, _, _ in kept:
+            tally(seq, freq, mir, mism, add, t5, t3, freq / divisor)
     return ({k: math.fsum(v) for k, v in mature.items()}, {k: math.fsum(v) for k, v in isomir.items()},
             math.fsum(annotated.values()), math.fsum(perfect.values()))
 
@@ -86,7 +120,7 @@ def write_table(path, header, table):
 
 def run_count(args):
     reads, sequences = read_input(args.reads)
-    mature, isomir, annotated, perfect = count(args.mirna)
+    mature, isomir, annotated, perfect = count(args.mirna, args.ties)
     write_table(args.mature, 'miRNA', mature)
     write_table(args.isomir, 'isomiR', isomir)
     with open(args.stats, 'w') as fh:
@@ -128,6 +162,7 @@ def main(argv=None):
     one.add_argument('--mature', required=True)
     one.add_argument('--isomir', required=True)
     one.add_argument('--stats', required=True)
+    one.add_argument('--ties', choices=TIES, default='split', help="a sequence's annotations that share it (#524)")
     many = commands.add_parser('join')
     many.add_argument('--samples', nargs='+', required=True)
     many.add_argument('--tables', nargs='+', required=True)
