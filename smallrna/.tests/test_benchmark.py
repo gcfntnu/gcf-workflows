@@ -1386,6 +1386,58 @@ def test_overview_scores_only_what_was_measured(tmp_path):
     assert figures.stratum_label('seen_cpm_100+', 'seen_cpm_') == '≥100 CPM'
 
 
+def test_overview_groups_the_preset_columns_and_takes_only_preset_projects(tmp_path):
+    """#527, #531 review: the synthetic set's real changes found and the real data's false changes form one group, from
+    projects whose DE records show the preset; a project evaluated with another analysis is left out."""
+    import overview
+    samples = [['sample', 'library', 'group', 'lane', 'runs', 'reads'], ['G1', 'G1', 'g', 'merged', 'SRR1', '100'],
+               ['G2', 'G2', 'g', 'merged', 'SRR2', '100']]
+    preset = ('field\tvalue\nnormalisation\tTMMwsp factors (calcNormFactors) on the library sizes\n'
+              'filter\tfilterByExpr(design = model, min.count = 10) on the library sizes\n')
+    older = 'field\tvalue\nnormalisation\tnone: the library sizes as given\nfilter\tnone\n'
+    made = []
+    for name, record in (('now', preset), ('before', older)):
+        project = summary_project(tmp_path / 'projects', name, dict(name='plasma_' + name, kind='biological', libprepkit='Kit A', methods=['unitas']),
+                                  [['metric', 'unitas'], ['voom_null_p05', '0.07' if name == 'now' else '0.30']], samples=samples)
+        write(project / 'benchmark/de/null/g-1/record.tsv', record)
+        made.append(project)
+    syn = summary_project(tmp_path / 'projects', 'syn', dict(name='s', kind='synthetic', libprepkit='Kit A', methods=['unitas'],
+                                                             synthetic={'mode': 'genome'}),
+                          [['metric', 'truth', 'unitas'], ['recovered', '1.0', '0.95'], ['voom_called', '0.8', '0.6']], truth=[('S01', 10)])
+    write(syn / 'benchmark/de/record.tsv', preset)
+    routes, cols, cells, used = overview.build(made + [syn])
+    assert [(c[0], c[1]) for c in cols][-2:] == [('DE under the preset', 'synthetic: real changes found vs truth'),
+                                                 ('DE under the preset', 'real data: false changes above 5%')]
+    assert cells[('unitas', len(cols) - 1)][0] == '0.020' and used[-1] == ['now']   # 0.07 above 5%; the older analysis left out
+    assert cells[('unitas', len(cols) - 2)][0] == '0.75'   # 0.6 of the truth's 0.8
+
+
+def test_analysis_overview_per_test_and_normalisation(tmp_path):
+    """#527: the analysis overview's rows are test × normalisation; a synthetic set's main metrics are the preset's
+    (tmmwsp) and its suffixed ones the arms; real data reads imbalance.tsv's unthinned null comparisons per arm."""
+    import overview
+    preset = ('field\tvalue\nnormalisation\tTMMwsp factors (calcNormFactors) on the library sizes\n'
+              'filter\tfilterByExpr(design = model, min.count = 10) on the library sizes\n')
+    syn = summary_project(tmp_path / 'projects', 'syn', dict(name='s', kind='synthetic', libprepkit='Kit A', methods=['unitas', 'mirge3'],
+                                                             synthetic={'mode': 'genome'}),
+                          [['metric', 'truth', 'unitas', 'mirge3'], ['recovered', '1.0', '0.9', '0.8'], ['voom_called', '0.8', '0.6', '0.7'],
+                           ['voom_called.workflow', '0.6', '0.4', '0.5'], ['voom_fdr', '0.0', '0.1', '0.3']], truth=[('S01', 10)])
+    write(syn / 'benchmark/de/record.tsv', preset)
+    samples = [['sample', 'library', 'group', 'lane', 'runs', 'reads'], ['G1', 'G1', 'g', 'merged', 'SRR1', '100'],
+               ['G2', 'G2', 'g', 'merged', 'SRR2', '100']]
+    bio = summary_project(tmp_path / 'projects', 'bio', dict(name='b', kind='biological', libprepkit='Kit A', methods=['unitas', 'mirge3']),
+                          [['metric', 'unitas', 'mirge3'], ['voom_null_p05', '0.04', '0.05']], samples=samples)
+    write(bio / 'benchmark/de/null/g-1/record.tsv', preset)
+    write(bio / 'benchmark/imbalance/imbalance.tsv', 'method\tdesign\tarm\tset\tmetric\tvalue\n' + ''.join(
+        '{}\tnone\t{}\tnull\tvoom_null_p05\t{}\n'.format(m, arm, v) for m, arm, v in
+        (('unitas', 'workflow', '0.06'), ('mirge3', 'workflow', '0.08'), ('unitas', 'tmmwsp', '0.04'), ('mirge3', 'tmmwsp', '0.05'))))
+    header, rows, sources = overview.analysis([syn, bio])
+    assert header == ['test', 'normalisation', 'synthetic: changes called', 'synthetic: FDR', 'real data: null p ≤ 0.05']
+    table = {(r[0], r[1]): r[2:] for r in rows}
+    assert table[('limma-voom', 'tmmwsp')] == ['0.650', '0.200', '0.045'] and table[('limma-voom', 'workflow')] == ['0.450', '', '0.070']
+    assert sources == ['syn', 'syn', 'bio'] and ('edgeR exact', 'tmmwsp') not in table   # rows without any value are left out
+
+
 def test_summary_figures_take_projects_by_what_they_declare_and_need_matplotlib(tmp_path, monkeypatch):
     """#338: the interval figure's panels by declaration (pools by kit, one synthetic draw: the lowest seed of the
     declaration with the most draws; mixtures numbered, not named); without matplotlib the HTML page says so and
@@ -1760,10 +1812,10 @@ def test_summary_follows_links_inside_link_targets_and_publishes_to_checked_pare
     alias.symlink_to(storage)
     render = summary.markdown
 
-    def render_after_alias_change(sections, view=None):
+    def render_after_alias_change(sections, view=None, **kwargs):
         alias.unlink()
         alias.symlink_to(project)
-        return render(sections, view)
+        return render(sections, view, **kwargs)
 
     monkeypatch.setattr(summary, 'markdown', render_after_alias_change)
     published = summary.write([project], alias / 'overview.md')
@@ -1873,10 +1925,10 @@ def test_write_rechecks_current_input_entries_before_publishing(tmp_path, monkey
     original = destination.read_bytes()
     render = summary.markdown
 
-    def render_after_report_relocation(sections, view=None):
+    def render_after_report_relocation(sections, view=None, **kwargs):
         report.unlink()
         report.symlink_to(destination)
-        return render(sections, view)
+        return render(sections, view, **kwargs)
 
     monkeypatch.setattr(summary, 'markdown', render_after_report_relocation)
     with pytest.raises(ValueError, match='aliases one of its inputs'):
@@ -2758,7 +2810,7 @@ def test_evaluate_de_adds_metrics_intervals_and_report(tmp_path):
     assert [line for line in ci if not line.startswith(('edger_', 'voom_'))] == plain_ci  # the existing intervals are unchanged
     assert json.loads((bench / 'evaluation.json').read_text())['bootstrap']['skipped'] == 0  # the DE scores use every draw
     assert any(line.startswith('edger_called\tunitas\t1.0\t') for line in ci)
-    report = (bench / 'report.md').read_text()
+    report = (bench / 'report.md').read_text() + (bench / 'de.md').read_text()   # the DE sections are in de.md (#527)
     assert '## Differential expression' in report and '| 4× | 1 | 1.00 | 1.00 | 1.00 |' in report and '| 1× | 1 | 0.00 |' in report
     assert 'design `~lab + group`' in report and hashlib.sha256((bench / 'de/results.tsv').read_bytes()).hexdigest() in report
     assert "**edgeR's GLM likelihood-ratio test**" in report and 'GLM test: GLM test, design `~lab + group`' in report
@@ -2801,13 +2853,13 @@ def test_evaluate_de_within_each_lab_scores_each_lab_and_against_the_oracle(tmp_
     ci = (bench / 'metrics_ci.tsv').read_text().splitlines()
     assert [line for line in ci if not line.startswith(('edger_', 'voom_'))] == plain_ci  # the existing intervals are unchanged
     assert any(line.startswith('edger_discordant_vs_oracle.L1\tunitas\t0.0\t') for line in ci)
-    report = (bench / 'report.md').read_text()
+    report = (bench / 'report.md').read_text() + (bench / 'de.md').read_text()   # the DE sections are in de.md (#527)
     main = report.split('## Differential expression')[0]
     assert '| edger_fc_error_vs_oracle |  | 0.0 | 0.0 |' in main and '.L1 |' not in main  # each lab's metrics have their own table
     assert '### Within each lab' in report and '| L2 | called | 1.0 | 1.0 | 1.0 |' in report and '|  | fc_error_vs_oracle |  | 0.0 | 0.0 |' in report
     assert 'L1: 2 A and 2 B runs, design `~group` (edgeR 4.10.7, limma 3.68.5); `de/lab/L1/results.tsv` SHA-256 `{}`.'.format(
         hashlib.sha256((bench / 'de/lab/L1/results.tsv').read_bytes()).hexdigest()) in report
-    assert '.L1' not in report.split('## Uncertainty')[1] and '\tunitas\tmirge3\t' in (bench / 'differences.tsv').read_text()
+    assert '.L1' not in (bench / 'report.md').read_text().split('## Uncertainty')[1] and '\tunitas\tmirge3\t' in (bench / 'differences.tsv').read_text()
     arms = report.split('### Normalisation arms')[1]   # the whole design side by side in the three normalisations (#453)
     assert '| workflow | called | 1.0 | 1.0 | 1.0 |' in arms and '| fixed | called |' in arms and '| tmm | called |' in arms and '|  | offset |' in arms
     assert table['voom_offset.fixed'] and '### Within each lab' in report.split('### Normalisation arms')[0]
@@ -2949,9 +3001,11 @@ def test_a_biological_dataset_goes_through_the_de_step_without_scores(tmp_path):
     de_outputs(project, dict(fits, MIMAT0000076=(-0.6, 0.2, 0.3)), folder='lab/L2')  # in L2, miR-21-5p is not called
     result = evaluate_cmd(project, '--de')
     assert result.returncode == 0, result.stderr
-    report = (bench / 'report.md').read_text()
+    report = (bench / 'report.md').read_text() + (bench / 'de.md').read_text()   # the DE sections are in de.md (#527)
+    assert 'case against control over the 3' not in (bench / 'report.md').read_text() and 'is in `de.md` (#527)' in (bench / 'report.md').read_text()
+    assert (bench / 'de.md').read_text().startswith('# Differential expression: ') and 'case against control over the 3' in (bench / 'de.md').read_text()
     assert '## Differential expression' in report and 'case against control over the 3 miRNAs any method reports' in report
-    whole, lab1, lab2 = report.split('## Differential expression')[1].split('\n**')[1:4]  # a table per DE set, each lab's too
+    whole, lab1, lab2 = (bench / 'de.md').read_text().split('## Differential expression')[1].split('\n**')[1:4]  # a table per DE set, each lab's too
     assert whole.startswith('All samples of the contrast** (4 case and 4 control samples)') and lab2.startswith('L2** (2 case and 2 control samples)')
     assert "| edgeR's exact test | tested | 2 | 2 |" in whole and '|  | up | 1 | 1 |' in whole and '|  | down | 1 | 1 |' in whole
     assert '|  | down | 1 | 1 |' in lab1 and '|  | down | 0 | 0 |' in lab2 and '|  | up | 1 | 1 |' in lab2
@@ -3289,7 +3343,7 @@ def test_evaluate_reports_null_comparisons(tmp_path):
     assert table['edger_null_called'] == ['0.5', '0.5'] and table['voom_null_any'] == ['1.0', '1.0']  # 1 of 2 tested, in every split
     assert table['edger_glm_null_p05'] == ['0.5', '0.5'] and not any(line.split('\t')[0].endswith(('_null_called', '_null_any'))
                                                                     for line in (bench / 'metrics_ci.tsv').read_text().splitlines())
-    report = (bench / 'report.md').read_text()
+    report = (bench / 'report.md').read_text() + (bench / 'de.md').read_text()   # the DE sections are in de.md (#527)
     assert '## Null comparisons' in report and 'case (4 samples) 2; control (4 samples) 2' in report
     assert '| null_called (range) | 0.5 (0.5–0.5) | 0.5 (0.5–0.5) |' in report and '| hsa-miR-16-5p | 4/4/4 (' in report
     assert '## Differential expression' in report  # the contrast is still described
@@ -3311,8 +3365,8 @@ def test_evaluate_null_comparisons_without_a_contrast(tmp_path):
         de_outputs(project, {'MIMAT0000069': (0.1, 0.5, 0.9), 'MIMAT0000076': (0.2, 0.04, 0.9), 'MIMAT0001631': (None, None, None)}, folder=folder)
     result = evaluate_cmd(project, '--de')
     assert result.returncode == 0, result.stderr
-    report = (bench / 'report.md').read_text()
-    assert '## Differential expression' not in report and 'No route called any miRNA in any split.' in report
+    report = (bench / 'report.md').read_text() + (bench / 'de.md').read_text()   # the DE sections are in de.md (#527)
+    assert '\n## Differential expression\n' not in report and 'No route called any miRNA in any split.' in report
     table = {line.split('\t')[0]: line.split('\t')[1:] for line in (bench / 'metrics.tsv').read_text().splitlines()}
     assert table['voom_null_called'] == ['0.0', '0.0'] and table['edger_null_p05'] == ['0.5', '0.5']
 

@@ -357,8 +357,29 @@ def overview_markdown(view):
     return lines + ['', 'Cut-offs (good / poor): ' + markdown_cell(overview_table.cutoffs(cols)) + '.']
 
 
-def markdown(sections, view=None):
-    lines = ['# Small-RNA benchmark summary', '', INTRO] + overview_markdown(view)
+def analysis_markdown(table):
+    """The analysis overview (#527): tests × normalisations, not binned."""
+    if not table:
+        return []
+    header, rows, sources = table
+    return (['', '## Analysis overview', '', overview_table.ANALYSIS_NOTE, '', '| ' + ' | '.join(map(markdown_cell, header)) + ' |',
+             '|---' * len(header) + '|'] + ['| ' + ' | '.join(map(markdown_cell, row)) + ' |' for row in rows] +
+            ['| projects | | ' + ' | '.join(map(markdown_cell, sources)) + ' |'])
+
+
+def analysis_html(table):
+    if not table:
+        return []
+    header, rows, sources = table
+    head = ''.join('<th>{}</th>'.format(html.escape(h)) for h in header)
+    trs = ['<tr>{}</tr>'.format(''.join('<td{}>{}</td>'.format(' class="num"' if i > 1 else '', html.escape(c)) for i, c in enumerate(row)))
+           for row in rows + [['projects', ''] + sources]]
+    return (['<h2>Analysis overview</h2>', '<p>{}</p>'.format(inline_code(overview_table.ANALYSIS_NOTE)),
+             '<div class="scroll"><table><thead><tr>{}</tr></thead><tbody>'.format(head)] + trs + ['</tbody></table></div>'])
+
+
+def markdown(sections, view=None, analysis=None):
+    lines = ['# Small-RNA benchmark summary', '', INTRO] + overview_markdown(view) + analysis_markdown(analysis)
     for title, note, metrics, rows, seeds, variants in sections:
         header = FIXED + ['{}: {}'.format(k, m) for k, ms in metrics for m in ms]
         lines += ['', '## ' + title, '', note, '', '| ' + ' | '.join(map(markdown_cell, header)) + ' |', '|---' * len(header) + '|']
@@ -459,8 +480,9 @@ def figures_html(figures):
     return out
 
 
-def html_page(sections, view=None, figures=()):
-    body = ['<h1>Small-RNA benchmark summary</h1>', '<p>{}</p>'.format(inline_code(INTRO))] + overview_html(view) + figures_html(figures)
+def html_page(sections, view=None, figures=(), analysis=None):
+    body = ['<h1>Small-RNA benchmark summary</h1>', '<p>{}</p>'.format(inline_code(INTRO))] + overview_html(view) + analysis_html(analysis) + \
+        figures_html(figures)
     for title, note, metrics, rows, seeds, variants in sections:
         top = ''.join('<th rowspan="2">{}</th>'.format(k) for k in FIXED)
         top += ''.join('<th colspan="{}">{}</th>'.format(len(ms), html.escape(k)) for k, ms in metrics)
@@ -581,7 +603,7 @@ def write(projects, output):
         sections = summarize(projects, output.parent)
         # the figures only in HTML: a Markdown summary stays one text file
         extra = {'figures': summary_figures.build(projects)} if Path(name).suffix == '.html' else {}
-        text = render(sections, overview_table.build(projects), **extra)
+        text = render(sections, overview_table.build(projects), analysis=overview_table.analysis(projects), **extra)
         check_directory_identity(directory, output.parent)
         temporary = '.summary-' + secrets.token_hex(16)
         fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666, dir_fd=directory)

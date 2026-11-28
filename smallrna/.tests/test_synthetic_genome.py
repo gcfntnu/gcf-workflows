@@ -518,14 +518,15 @@ def test_differential_expression_uses_the_pools_tests_in_genome_mode(tmp_path):
     ci = (bench / 'metrics_ci.tsv').read_text().splitlines()
     assert [line for line in ci if not line.startswith(('edger_', 'voom_'))] == plain_ci  # the existing intervals are unchanged
     assert any(line.startswith('voom_called.adjusted\ttinyrna\t1.0\t') for line in ci)
-    report = (bench / 'report.md').read_text()
+    report = (bench / 'report.md').read_text() + (bench / 'de.md').read_text()   # the DE sections are in de.md (#527)
     main = report.split('## Differential expression')[0]
     assert '| edger_called | 1.0 | 1.0 |' in main and '.adjusted |' not in main  # the adjusted set has its own table
     assert 'The case samples against the control samples over' in report and '| 4× |' in report and '| 1× |' in report
     assert '### Adjusted for the nuisance factor' in report and '| adjusted | called | 1.0 | 1.0 |' in report
     assert 'adjusted: 3 case and 3 control samples, design `~nuisance + group`, TMMwsp factors (edgeR 4.10.7, limma 3.68.5); `de/adjusted/nuisance/results.tsv`' in report
     assert 'share of its miRNAs with reads that have a fractional count: tinyrna 0.0.' in report
-    assert '.adjusted' not in report.split('## Uncertainty')[1] and '.fixed' not in report.split('## Uncertainty')[1]
+    uncertainty_section = (bench / 'report.md').read_text().split('## Uncertainty')[1]
+    assert '.adjusted' not in uncertainty_section and '.fixed' not in uncertainty_section
     assert '### Normalisation arms' in report and '| tmm | called | 1.0 | 1.0 |' in report and table['edger_offset.fixed'] == ['0.05', '0.05']
     out = tmp_path / 'summary.md'
     result = subprocess.run(cmd + ['summary', '--projects', str(project), '--output', str(out)], capture_output=True, text=True, timeout=120)
