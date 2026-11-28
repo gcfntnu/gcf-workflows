@@ -32,7 +32,8 @@ suppressPackageStartupMessages({
 tests <- c('edger', 'edger_glm', 'voom')  # as de.py's TESTS
 
 options <- list(make_option('--counts'), make_option('--library-sizes', dest = 'library_sizes'), make_option('--design'),
-                make_option('--model'), make_option('--results'), make_option('--record'))
+                make_option('--model'), make_option('--results'), make_option('--record'),
+                make_option('--filter-library-sizes', dest = 'filter_library_sizes'))  # optional: the sizes filterByExpr uses
 opt <- parse_args(OptionParser(option_list = options))
 for (name in c('counts', 'library_sizes', 'design', 'model', 'results', 'record')) {
   if (is.null(opt[[name]])) stop('--', gsub('_', '-', name), ' is required')
@@ -44,13 +45,15 @@ snapshot <- function(path) {
 }
 script <- normalizePath(sub('^--file=', '', grep('^--file=', commandArgs(FALSE), value = TRUE)))
 copies <- list(counts = snapshot(opt$counts), library_sizes = snapshot(opt$library_sizes), design = snapshot(opt$design),
-               model = snapshot(opt$model), script = snapshot(script))
+               model = snapshot(opt$model), script = snapshot(script),
+               filter_library_sizes = if (is.null(opt$filter_library_sizes)) NULL else snapshot(opt$filter_library_sizes))
 md5 <- function(path) unname(tools::md5sum(path))
 read <- function(path) read.delim(path, check.names = FALSE, quote = '', colClasses = 'character', na.strings = character())  # NA is text
 
 design <- read(copies$design)
 counts <- read(copies$counts)
 sizes <- read(copies$library_sizes)
+filter_sizes <- if (is.null(copies$filter_library_sizes)) sizes else read(copies$filter_library_sizes)
 settings <- read(copies$model)
 samples <- design$sample
 if (!identical(colnames(settings), c('field', 'value'))) stop(opt$model, ': columns must be field and value')
@@ -69,8 +72,8 @@ method <- if (length(normalisation) == 1) methods[[normalisation]] else NA
 filter <- setting('filter')  # #527: filterByExpr on the row's counts, library sizes and the set's design, with min_count
 if (length(filter) > 1 || (length(filter) == 1 && filter != 'filterByExpr')) stop(opt$model, ': filter must be filterByExpr, or absent')
 min_count <- if (length(setting('min_count'))) suppressWarnings(as.numeric(setting('min_count'))) else NA
-if (length(filter) == 1 && (length(min_count) != 1 || is.na(min_count) || min_count <= 0)) stop(opt$model, ': filterByExpr needs one min_count above 0')
-if (length(filter) == 0 && !is.na(min_count)) stop(opt$model, ': min_count goes with filter: filterByExpr')
+if (length(filter) == 1 && (length(min_count) != 1 || !is.finite(min_count) || min_count <= 0)) stop(opt$model, ': filterByExpr needs one finite min_count above 0')
+if (length(filter) == 0 && length(setting('min_count'))) stop(opt$model, ': min_count goes with filter: filterByExpr')
 unknown <- setdiff(settings$field, c('numerator', 'denominator', 'min_mean', 'numeric', 'normalisation', 'filter', 'min_count'))
 if (length(unknown)) stop(opt$model, ': unknown field ', paste(unknown, collapse = ', '))
 if (!identical(colnames(design)[1:2], c('sample', 'group'))) stop(opt$design, ': the first columns must be sample and group')
@@ -78,6 +81,8 @@ if (any(!nzchar(design$sample)) || any(!nzchar(design$group))) stop(opt$design, 
 if (!identical(sort(unique(design$group)), sort(c(numerator, denominator)))) stop(opt$design, ': groups must be ', numerator, ' and ', denominator)
 if (!identical(colnames(counts), c('row', 'feature', samples))) stop(opt$counts, ': columns must be row, feature and the design samples in order')
 if (!identical(colnames(sizes), c('row', samples))) stop(opt$library_sizes, ': columns must be row and the design samples in order')
+if (!identical(colnames(filter_sizes), c('row', samples))) stop(opt$filter_library_sizes, ': columns must be row and the design samples in order')
+if (!is.null(copies$filter_library_sizes) && length(filter) == 0) stop('--filter-library-sizes goes with filter: filterByExpr')
 
 covariates <- setdiff(colnames(design), c('sample', 'group'))
 if (length(setdiff(numeric, covariates))) stop(opt$model, ': numeric names ', paste(setdiff(numeric, covariates), collapse = ', '), ', not a covariate of the design')
@@ -107,8 +112,12 @@ for (row in unique(counts$row)) {
   size <- suppressWarnings(as.numeric(unlist(sizes[sizes$row == row, samples])))
   if (length(size) != length(samples) || anyNA(size) || any(size <= 0)) stop(opt$library_sizes, ': ', row, ' needs one positive library size per sample')
   keep <- rowSums(values) > 0 & rowMeans(values) >= min_mean
-  if (length(filter) == 1)  # on the counts as given, before any normalisation factors (#527)
-    keep <- keep & filterByExpr(DGEList(counts = values, lib.size = size), design = model, min.count = min_count)
+  if (length(filter) == 1) {  # on the counts as given, before any normalisation factors (#527)
+    # on the filter's library sizes: the fit's, or the workflow's for an arm with other sizes, so every arm tests the same features
+    filter_size <- suppressWarnings(as.numeric(unlist(filter_sizes[filter_sizes$row == row, samples])))
+    if (length(filter_size) != length(samples) || anyNA(filter_size) || any(filter_size <= 0)) stop('filter library sizes: ', row, ' needs one positive size per sample')
+    keep <- keep & filterByExpr(DGEList(counts = values, lib.size = filter_size), design = model, min.count = min_count)
+  }
   if (sum(keep) == 1) {  # one feature: no common dispersion and no mean-variance trend (voom needs two), so no test
     message(sprintf('%s: 1 feature to test (%s), at least 2 are needed; none tested', row, part$feature[keep]))
     keep[] <- FALSE
@@ -158,11 +167,13 @@ write.table(table, opt$results, sep = '\t', quote = FALSE, row.names = FALSE, na
 
 record <- data.frame(
   field = c('md5_counts', 'md5_library_sizes', 'md5_design', 'md5_model', 'md5_script', 'md5_results', 'R', 'edgeR', 'limma', 'formula',
-            'contrast', 'min_mean', 'filter', 'normalisation', 'edger', 'edger_glm', 'voom'),
+            'contrast', 'min_mean', 'filter', 'md5_filter_library_sizes', 'normalisation', 'edger', 'edger_glm', 'voom'),
   value = c(md5(copies$counts), md5(copies$library_sizes), md5(copies$design), md5(copies$model), md5(copies$script), md5(opt$results),
             R.version.string, as.character(packageVersion('edgeR')), as.character(packageVersion('limma')), formula_text,
             paste(numerator, 'against', denominator), as.character(min_mean),
-            if (length(filter) == 1) sprintf('filterByExpr(design = model, min.count = %g) on the library sizes', min_count) else 'none',
+            if (length(filter) == 1) sprintf('filterByExpr(design = model, min.count = %g) on the %s', min_count,
+                                             if (is.null(copies$filter_library_sizes)) 'library sizes' else 'filter library sizes') else 'none',
+            if (is.null(copies$filter_library_sizes)) 'none' else md5(copies$filter_library_sizes),
             if (!is.na(method)) sprintf('%s factors (calcNormFactors) on the library sizes', method) else 'none: the library sizes as given',
             sprintf('DGEList with the library sizes and %s, estimateCommonDisp, exactTest of %s against %s',
                     if (!is.na(method)) sprintf('%s normalisation factors', method) else 'no normalisation factors', numerator, denominator),

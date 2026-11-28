@@ -19,6 +19,7 @@ import statistics
 import sys
 import urllib.parse
 
+import de
 import evaluation
 import figures as summary_figures
 import overview as overview_table
@@ -126,6 +127,8 @@ def read_project(project, out_dir):
     table, record, intervals, routes = evaluation.read_evaluation(bench)
     columns = table[0][1:]
     values = {(row[0], c): v for row in table[1:] for c, v in zip(columns, row[1:]) if v != ''}
+    if kind in ('synthetic', 'biological') and de.analysis(bench) == 'other':  # DE metrics of an earlier analysis (#531 review)
+        values = {k: v for k, v in values.items() if not k[0].startswith(tuple(t + '_' for t in de.TESTS))}
     for ci in intervals:  # bootstrap intervals (#413): the value with its interval
         if (ci['metric'], ci['row']) in values and ci['low'] != '' and ci['high'] != '':
             values[(ci['metric'], ci['row'])] = '{} ({}–{})'.format(values[(ci['metric'], ci['row'])], ci['low'], ci['high'])

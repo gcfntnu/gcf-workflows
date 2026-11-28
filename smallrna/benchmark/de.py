@@ -48,6 +48,7 @@ NAME = re.compile(r'[A-Za-z][A-Za-z0-9_]*')  # a covariate: a column of the desi
 LEVEL_NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]*')  # a group, or a level of `within`: it names a folder and a metric suffix
 LEVELS = 'levels.tsv'  # benchmark/de/levels.tsv: the sets de.smk tests besides the whole dataset's, in <column>/<level>
 INPUTS = ('counts.tsv', 'library_sizes.tsv', 'design.tsv', 'model.tsv')
+FILTER_SIZES = 'filter_library_sizes.tsv'  # optional (#531 review): the library sizes filterByExpr uses, when the fit's differ
 ARMS = ('fixed', 'tmm', 'rle', 'tmmwsp')  # normalisation arms besides the workflow's (#453, #527): the DE sets' `arm`, folder arm/<arm>, suffix .<arm>
 NORMALISATIONS = {'tmm': 'TMM', 'rle': 'RLE', 'tmmwsp': 'TMMwsp'}  # the factor arms: model.tsv's `normalisation`, edgeR's calcNormFactors method
 # #527's preset for the synthetic and biological datasets: limma-voom (the main test), edgeR's TMMwsp factors, on the
@@ -96,6 +97,20 @@ def library_sizes(reads, oracle, entries, rows, samples):
             for row in rows for s in samples}
 
 
+def analysis(bench):
+    """Which DE analysis produced an evaluated project's DE metrics (#531 review), from de.R's record of its whole
+    dataset's set, or of its first null comparison when it has only those: 'preset' (#527: TMMwsp factors and
+    filterByExpr), 'other' (an earlier analysis, or a dataset kind outside the preset), or None without a record."""
+    folder = Path(bench) / 'de'
+    records = [folder / 'record.tsv'] + sorted((folder / NULL).glob('*/record.tsv'))
+    found = next((r for r in records if r.is_file()), None)
+    if found is None:
+        return None
+    record = read_record(found)
+    preset = record.get('normalisation', '').startswith(NORMALISATIONS[PRESET] + ' ') and record.get('filter', '').startswith('filterByExpr(')
+    return 'preset' if preset else 'other'
+
+
 def with_normalisation(model, normalisation):
     """A model.tsv text (model_text) with its `normalisation` replaced: one of NORMALISATIONS, or None for no factors;
     the other fields as they were, in model_text's order."""
@@ -121,15 +136,17 @@ def model_text(numerator, denominator, numeric=(), min_mean=0, normalisation=Non
             raise ValueError('normalisation must be one of {} or None, got {!r}'.format(', '.join(NORMALISATIONS), normalisation))
         fields.append(('normalisation', normalisation))
     if min_count is not None:
-        if not min_count > 0:
-            raise ValueError('min_count must be a positive number, got {!r}'.format(min_count))
+        if not (isinstance(min_count, (int, float)) and math.isfinite(min_count) and min_count > 0):
+            raise ValueError('min_count must be a finite positive number, got {!r}'.format(min_count))
         fields += [('filter', 'filterByExpr'), ('min_count', '{:g}'.format(min_count))]
     return 'field\tvalue\n' + ''.join('{}\t{}\n'.format(*field) for field in fields)
 
 
-def input_tables(count, rows, features, design, sizes, model):
+def input_tables(count, rows, features, design, sizes, model, filter_sizes=None):
     """{file name: text} of a DE set's inputs. `count(row, sample, feature)`: a row's count; `design`: [(sample, group,
-    {covariate: value})] in the order of samples.tsv; `sizes`: {(row, sample): library size}; `model`: model_text.
+    {covariate: value})] in the order of samples.tsv; `sizes`: {(row, sample): library size}; `model`: model_text;
+    `filter_sizes`: the library sizes the model's filter uses instead of `sizes` (FILTER_SIZES, the `fixed` arm's
+    workflow sizes, so that every arm tests the same features), or None.
 
     counts.tsv: row, feature, then one column per sample. Counts are rounded to whole numbers (half to even): a read a
     method splits between names gives fractional counts, which edgeR and voom do not model. library_sizes.tsv: row, then
@@ -144,7 +161,11 @@ def input_tables(count, rows, features, design, sizes, model):
     design_lines = ['\t'.join(['sample', 'group'] + covariates)] + ['\t'.join([s, g] + [str(c[k]) for k in covariates])
                                                                    for s, g, c in design]
     texts = ['\n'.join(lines) + '\n' for lines in (count_lines, size_lines, design_lines)] + [model]
-    return dict(zip(INPUTS, texts))
+    out = dict(zip(INPUTS, texts))
+    if filter_sizes is not None and '\nfilter\tfilterByExpr\n' in model:  # only a model with a filter reads them
+        out[FILTER_SIZES] = '\n'.join(['\t'.join(['row'] + samples)] + ['\t'.join([row] + [repr(filter_sizes[(row, s)]) for s in samples])
+                                                                       for row in rows]) + '\n'
+    return out
 
 
 def fractional_share(count, row, features, samples):
@@ -166,6 +187,8 @@ def write_inputs(folder, texts):
     folder.mkdir(parents=True, exist_ok=True)
     for name, text in texts.items():
         write_changed(folder / name, text)
+    if FILTER_SIZES not in texts:  # a set that had other filter sizes before
+        (folder / FILTER_SIZES).unlink(missing_ok=True)
 
 
 def levels_text(levels):
@@ -354,12 +377,12 @@ def text(value):
     return '' if value is None or (isinstance(value, float) and math.isnan(value)) else str(value)
 
 
-def set_lines(title, intro, label, sets, values, rows, reference='oracle', keys=LEVEL_KEYS):
+def set_lines(title, intro, label, sets, values, rows, reference='oracle', keys=LEVEL_KEYS, main='workflow'):
     """report.md's section on DE sets: for each test, `keys` (default LEVEL_KEYS) and the reference keys of every set
     and row from `values` ({row: {metric: value}}, the sets' metrics with their suffix), then each set's samples, the
     design and tool versions de.R recorded, and the SHA-256 of its results. `sets`: [(name, folder, samples,
     results_sha256, record)], `name` the metric suffix without its dot ('' for the whole dataset's set, shown as
-    `workflow`), `samples` describing the set's samples; `label` heads the table's first column."""
+    `main`), `samples` describing the set's samples; `label` heads the table's first column."""
     if not sets:
         return []
     keys = tuple(keys) + reference_keys(reference)
@@ -368,31 +391,35 @@ def set_lines(title, intro, label, sets, values, rows, reference='oracle', keys=
         lines += ['', '**{}**'.format(TEST_NAMES[test]), '', '| {} | metric | '.format(label) + ' | '.join(rows) + ' |',
                   '|---' * (len(rows) + 2) + '|']
         for name, _, _, _, _ in sets:
-            lines += ['| {} | {} | '.format((name or 'workflow') if i == 0 else '', key) +
+            lines += ['| {} | {} | '.format((name or main) if i == 0 else '', key) +
                       ' | '.join(text(values.get(row, {}).get('{}_{}{}'.format(test, key, '.' + name if name else ''))) for row in rows) + ' |'
                       for i, key in enumerate(keys)]
     lines += [''] + ['{}: {}, design `{}`{} (edgeR {}, limma {}); `{}` SHA-256 `{}`.'.format(
-        name or 'workflow', samples, record.get('formula', '?'),
+        name or main, samples, record.get('formula', '?'),
         ', ' + record['normalisation'].split(' (')[0] if (record.get('normalisation') or 'none').split(':')[0] != 'none' else '',
         record.get('edgeR', '?'), record.get('limma', '?'), '/'.join(p for p in ('de', folder, 'results.tsv') if p), sha)
         for name, folder, samples, sha, record in sets]
     return lines
 
 
-def arm_lines(sets, values, rows, reference='oracle'):
-    """report.md's section on the normalisation arms (#453): the whole dataset's set (`workflow`) and each arm, with
-    DESIGN_KEYS and the reference keys. `sets` as for set_lines, the whole dataset's first."""
+def arm_lines(sets, values, rows, reference='oracle', preset=False):
+    """report.md's section on the normalisation arms (#453): the whole dataset's set and each arm, with DESIGN_KEYS and
+    the reference keys. `sets` as for set_lines, the whole dataset's first; with `preset` (#527) the main set is the
+    preset's (`preset`, TMMwsp factors) and `workflow` an arm, else the main set is `workflow`."""
     if len(sets) < 2:
         return []
-    intro = ('The whole design tested again with other library sizes (#453): `workflow` is the main result above (a sample\'s '
-             'library size is every miRNA read the route reported); `fixed` gives every row the same library size, the sample\'s '
+    main = ('`preset` is the main result above (#527: edgeR\'s TMMwsp factors on the workflow\'s library sizes, the features '
+            'filterByExpr keeps; every arm tests those features); `workflow` takes the library sizes without factors (a '
+            'sample\'s library size is every miRNA read the route reported)' if preset else
+            '`workflow` is the main result above (a sample\'s library size is every miRNA read the route reported)')
+    intro = ('The whole design tested again with other library sizes (#453): ' + main + '; `fixed` gives every row the same library size, the sample\'s '
              'filtered reads (the cutadapt route\'s kept reads), so what a route counts as miRNA no longer changes it; `tmm`, '
              '`rle` and `tmmwsp` apply edgeR\'s normalisation factors (TMM; RLE, DESeq2\'s median of ratios; TMM with singleton '
              'pairing, #527) to the workflow\'s library sizes (all three tests, voom on the normalised sizes). '
              'A shift in the unchanged features (`offset`) that differs between arms is the normalisation\'s, not the route\'s. '
              'In metrics.tsv the metrics carry the arm\'s name (`.fixed`, `.tmm`, ...); their intervals and the differences between methods are in '
              'metrics_ci.tsv and differences.tsv. The metrics against the {} are empty for the {}.'.format(reference, reference))
-    return set_lines('Normalisation arms', intro, 'arm', sets, values, rows, reference, DESIGN_KEYS)
+    return set_lines('Normalisation arms', intro, 'arm', sets, values, rows, reference, DESIGN_KEYS, 'preset' if preset else 'workflow')
 
 
 def level_lines(column, levels, values, rows):

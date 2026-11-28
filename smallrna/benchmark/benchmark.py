@@ -297,10 +297,10 @@ def check_de(spec, path):
              '`_` or `-` (it names a folder and metrics), with at least two different ones'.format(path, within, unit))
     if len({value.lower() for value in values}) != len(set(values)):
         fail('{}: de.within {}: values that differ only in case would share a folder: {}'.format(path, within, ', '.join(sorted(set(values)))))
-    taken = sorted({v for v in values if v.lower() in ('workflow',) + de.ARMS})
+    taken = sorted({v for v in values if v.lower() in de.ARMS})   # the arms a pool generates; biological sets have none
     if taken:  # a level's metrics carry `.<level>`, a normalisation arm's `.<arm>` (#453, #527)
         fail('{}: de.within {}: {} also names a normalisation arm ({}), whose metrics would share its suffix'.format(
-            path, within, ', '.join(taken), ', '.join(('workflow',) + de.ARMS)))
+            path, within, ', '.join(taken), ', '.join(de.ARMS)))
     for level in sorted(set(values)):
         check_design([(group, fields) for group, fields in units if fields[within] == level], contrast, [c for c in covariates if c != within],
                      '{}: de.within {} {}'.format(path, within, level), unit)
@@ -1460,7 +1460,8 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
             de_ids = [feature for feature, _ in de_features]
             de_way = de.direction(de_features)  # the full design's, for every bootstrap draw (#453)
             set_sizes = filtered_sizes(project, sets, rows, sizes)
-            de_texts = {s.folder: de.input_tables(count, rows, de_ids, s.design, set_sizes[s.folder], s.model) for s in sets}
+            de_texts = {s.folder: de.input_tables(count, rows, de_ids, s.design, set_sizes[s.folder], s.model,
+                                                  sizes if s.arm == 'fixed' else None) for s in sets}
             de_results, de_reports = differential_expression(args, bench, sets, de_texts, rows, de_ids)
         if de_results:
             for suffix, results in de_results.items():
@@ -1720,11 +1721,12 @@ def biological_de_texts(sets, methods, common, features, sizes=None):
     sample): size}) replaces them (the `fixed` arm of #488)."""
     by = biological.counts_by(common)
     count = lambda row, sample, feature: by.get((row, sample), {}).get(feature, 0.0)
-    if sizes is None:
-        sizes = collections.Counter()
-        for method, sample, _, _, value in common:
-            sizes[(method, sample)] += float(value)
-    return count, {s.folder: de.input_tables(count, methods, features[s.folder], s.design, sizes, s.model) for s in sets}
+    workflow = collections.Counter()
+    for method, sample, _, _, value in common:
+        workflow[(method, sample)] += float(value)
+    # with other sizes (the `fixed` arm), the filter keeps the workflow's, so every arm tests the same features (#531 review)
+    return count, {s.folder: de.input_tables(count, methods, features[s.folder], s.design, workflow if sizes is None else sizes,
+                                             s.model, None if sizes is None else workflow) for s in sets}
 
 
 def write_de_inputs(bench, texts):
@@ -1868,7 +1870,8 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
         sizes = {(row, sample): float(ev.t[:, k].sum()) if row == 'truth' else ev.total[(row, sample)]
                  for row in rows for sample, k in column.items()}
         set_sizes = filtered_sizes(project, sets, rows, sizes)
-        de_texts = {s.folder: de.input_tables(count, rows, ev.units, s.design, set_sizes[s.folder], s.model) for s in sets}
+        de_texts = {s.folder: de.input_tables(count, rows, ev.units, s.design, set_sizes[s.folder], s.model,
+                                              sizes if s.arm == 'fixed' else None) for s in sets}
         de_results, de_reports = differential_expression(args, bench, sets, de_texts, rows, ev.units)
     if de_results:
         de_features = ev.de_features()
@@ -1888,14 +1891,15 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
         de_lines += ['', rounding_line(count, methods, ev.units, ev.mixed, 'miRNAs')]
         de_lines += de.set_lines(
             'Adjusted for the nuisance factor',
-            'The same samples with the nuisance factor\'s true sample scores as a covariate of the GLM test and voom (the exact test '
-            'takes no covariates, so its values equal those above), scored as above. In metrics.tsv the metrics carry `.adjusted`, '
+            'The same samples with the nuisance factor\'s true sample scores as a covariate of the GLM test and voom, scored as above. '
+            'The exact test takes no covariates, but the filter uses the set\'s full design (#527), so it can test other miRNAs, '
+            'with other TMMwsp factors, than above. In metrics.tsv the metrics carry `.adjusted`, '
             'e.g. `voom_called.adjusted`; their intervals and the differences between methods are in metrics_ci.tsv and '
             'differences.tsv, not in the uncertainty section below. The metrics against the truth are empty for the truth.',
             'set', [(s.suffix[1:], s.folder, de_reports[s.suffix][2], de_reports[s.suffix][1], de_reports[s.suffix][0])
                     for s in sets if s.suffix and s.arm is None], point, rows, 'truth')
         de_lines += de.arm_lines([(s.suffix[1:], s.folder, de_reports[s.suffix][2], de_reports[s.suffix][1], de_reports[s.suffix][0])
-                                  for s in sets if s.suffix == '' or s.arm], point, rows, 'truth')
+                                  for s in sets if s.suffix == '' or s.arm], point, rows, 'truth', preset=True)
     table_keys = keys + de.metric_keys(reference='truth') if de_results else keys  # the report's table: other sets have their section
     keys = keys + de_keys
     rnd = lambda v: round(v, 4) if isinstance(v, float) and not math.isnan(v) else ('' if isinstance(v, float) else v)
@@ -2464,9 +2468,9 @@ def mixture_de_texts(sets, methods, common, design, features, sizes=None):
     by = biological.counts_by(common)
     count = lambda row, sample, feature: by.get((row, sample), {}).get(feature, 0.0)
     counts = {m: mixture.Counts({s: by.get((m, s), {}) for s in design.samples}, design.samples, features) for m in methods}
-    if sizes is None:
-        sizes = {(m, sample): float(counts[m].total[counts[m].column[sample]]) for m in methods for sample in design.samples}
-    return count, counts, {s.folder: de.input_tables(count, methods, features, s.design, sizes, s.model) for s in sets}
+    workflow = {(m, sample): float(counts[m].total[counts[m].column[sample]]) for m in methods for sample in design.samples}
+    return count, counts, {s.folder: de.input_tables(count, methods, features, s.design, workflow if sizes is None else sizes, s.model,
+                                                     None if sizes is None else workflow) for s in sets}
 
 
 def mixture_expected(counts, design, between, methods, offsets=None):

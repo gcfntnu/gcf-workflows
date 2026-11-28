@@ -16,6 +16,7 @@ from pathlib import Path
 import yaml
 
 import classes
+import de
 import evaluation
 import resources
 
@@ -74,6 +75,7 @@ class Project:
         self.genome = (self.spec.get('synthetic') or {}).get('mode') == 'genome'
         # a synthetic set with designed changes: not a null scenario (#453), whose structure.group.fraction is 0
         self.designed = (((self.spec.get('synthetic') or {}).get('structure') or {}).get('group') or {}).get('fraction', 1) != 0
+        self.preset = de.analysis(bench) == 'preset'  # DE metrics from #527's preset, not an earlier analysis (#531 review)
         self.variant = bool(self.spec.get('variant'))
         self.seed = self.record.get('synthetic_seed', (self.spec.get('synthetic') or {}).get('seed'))
         samples = bench / 'samples.tsv'
@@ -164,8 +166,10 @@ def columns(projects):
         out += [(group, 'reads on the right miRNA', UP, 0.97, 0.90, '{:.3f}', mean_metric(synthetic, 'recovered'), synthetic),
                 (group, 'counted reads that are right', UP, 0.99, 0.98, '{:.3f}', mean_metric(synthetic, 'precision'), synthetic),
                 (group, 'counts exactly right', UP, 0.5, 0.2, '{:.2f}', mean_metric(synthetic, 'exact'), synthetic),
-                (group, 'real changes found vs truth', UP, 0.95, 0.85, '{:.2f}', mean_metric(synthetic, 'voom_called', True),
-                 [p for p in synthetic if p.has('voom_called')])]   # the preset's test (#527)
+                ]
+        called = [p for p in synthetic if p.preset and p.value('voom_called', 'truth')]   # the preset's test (#527), a usable truth
+        if called:
+            out.append((group, 'real changes found vs truth', UP, 0.95, 0.85, '{:.2f}', mean_metric(called, 'voom_called', True), called))
     for pool, metric, label, direction, good, poor, fmt, relative in (
             ('equimolar', 'within_2fold', 'within 2-fold', UP, 0.95, 0.80, '{:.2f}', False),
             ('ratiometric', 'median_abs_error', 'ratio error vs exact match', DOWN, 1.05, 1.20, '{:.2f}', True)):
@@ -184,7 +188,7 @@ def columns(projects):
     knockouts = [p for p in usable if p.kind == 'biological' and p.has('knockout_surviving_unexpected')]
     if knockouts:
         out.append(('Knockout', 'knocked-out miRNAs counted', DOWN, 35, 80, '{:.0f}', mean_metric(knockouts, 'knockout_surviving_unexpected'), knockouts))
-    nulls = [p for p in usable if p.kind == 'biological' and not p.lanes and p.has('voom_null_p05')]
+    nulls = [p for p in usable if p.kind == 'biological' and not p.lanes and p.preset and p.has('voom_null_p05')]
     if nulls:  # the preset's test (#527): limma-voom, TMMwsp factors, filterByExpr
         get = (lambda ps: lambda routes: {r: (lambda v: None if v is None else max(0.0, v - NULL_LEVEL))(mean(p.value('voom_null_p05', r) for p in ps))
                                           for r in routes})(nulls)

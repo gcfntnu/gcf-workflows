@@ -2317,6 +2317,45 @@ def test_de_r_leaves_a_row_untested_when_rle_has_no_factors(tmp_path):
     assert 'RLE factors (calcNormFactors) on the library sizes' in (tmp_path / 'record.tsv').read_text()
 
 
+def test_de_analysis_names_the_preset_from_the_records(tmp_path):
+    """#531 review: which analysis made a project's DE metrics, from de.R's record of its whole set or first null split."""
+    bench = tmp_path / 'benchmark'
+    assert de.analysis(bench) is None
+    write(bench / 'de/null/case-1/record.tsv', 'field\tvalue\nnormalisation\tnone: the library sizes as given\nfilter\tnone\n')
+    assert de.analysis(bench) == 'other'   # an earlier analysis
+    write(bench / 'de/record.tsv', 'field\tvalue\nnormalisation\tTMMwsp factors (calcNormFactors) on the library sizes\n'
+                                   'filter\tfilterByExpr(design = model, min.count = 10) on the library sizes\n')
+    assert de.analysis(bench) == 'preset'   # the whole set's record first
+    write(bench / 'de/record.tsv', 'field\tvalue\nnormalisation\tTMM factors (calcNormFactors) on the library sizes\n'
+                                   'filter\tfilterByExpr(design = model, min.count = 10) on the library sizes\n')
+    assert de.analysis(bench) == 'other'   # another normalisation
+
+
+@pytest.mark.skipif(not os.environ.get('DE_RSCRIPT'), reason='DE_RSCRIPT: an Rscript with edgeR, limma and optparse (de.smk runs the sartools image)')
+def test_de_r_filters_on_the_filter_library_sizes(tmp_path):
+    """#531 review: with --filter-library-sizes, filterByExpr uses them, not the fit's library sizes: a feature with reads
+    in one group only passes on equal sizes and fails when that group's fit sizes are four times larger."""
+    samples = ['a1', 'a2', 'a3', 'b1', 'b2', 'b3']
+    counts = {'f0': [12, 12, 12, 0, 0, 0], 'f1': [50, 60, 55, 52, 58, 54], 'f2': [80, 70, 75, 72, 78, 74]}
+    write(tmp_path / 'counts.tsv', '\t'.join(['row', 'feature'] + samples) + '\n' +
+          ''.join('\t'.join(['m', f] + [str(v) for v in values]) + '\n' for f, values in counts.items()))
+    write(tmp_path / 'design.tsv', 'sample\tgroup\n' + ''.join('{}\t{}\n'.format(s, s[0].upper()) for s in samples))
+    write(tmp_path / 'model.tsv', de.model_text('B', 'A', (), 0, None, 10))
+    write(tmp_path / 'fixed.tsv', '\t'.join(['row'] + samples) + '\nm\t' + '\t'.join(['4000'] * 3 + ['1000'] * 3) + '\n')
+    write(tmp_path / 'workflow.tsv', '\t'.join(['row'] + samples) + '\nm\t' + '\t'.join(['1000'] * 6) + '\n')
+
+    def tested(*extra):
+        result = subprocess.run([os.environ['DE_RSCRIPT'], str(BENCH / 'de.R'), '--counts={}'.format(tmp_path / 'counts.tsv'),
+                                 '--library-sizes={}'.format(tmp_path / 'fixed.tsv'), '--design={}'.format(tmp_path / 'design.tsv'),
+                                 '--model={}'.format(tmp_path / 'model.tsv'), '--results={}'.format(tmp_path / 'results.tsv'),
+                                 '--record={}'.format(tmp_path / 'record.tsv')] + list(extra), capture_output=True, text=True, timeout=300)
+        assert result.returncode == 0, result.stderr
+        return result.stderr   # de.R logs each row's tested features (voom gives no fit for a feature without reads in a group)
+    assert 'm: 2 features tested' in tested()   # filtered on the fixed sizes: f0's 12 reads of 4000 are under the cutoff
+    assert 'm: 3 features tested' in tested('--filter-library-sizes={}'.format(tmp_path / 'workflow.tsv'))   # on the workflow's: kept
+    assert 'on the filter library sizes' in (tmp_path / 'record.tsv').read_text()
+
+
 def test_de_model_names_the_contrast_numeric_covariates_and_the_least_mean_count():
     assert de.model_text('case', 'Fertile control', ['nuisance'], 10) == (
         'field\tvalue\nnumerator\tcase\ndenominator\tFertile control\nmin_mean\t10\nnumeric\tnuisance\n')
@@ -2324,8 +2363,10 @@ def test_de_model_names_the_contrast_numeric_covariates_and_the_least_mean_count
     known = re.search(r"unknown <- setdiff\(settings\$field, c\(([^)]*)\)\)", script)
     assert known and known.group(1) == "'numerator', 'denominator', 'min_mean', 'numeric', 'normalisation', 'filter', 'min_count'"  # the fields model_text writes
     assert de.model_text('A', 'B', (), 0, 'tmmwsp', 10).endswith('normalisation\ttmmwsp\nfilter\tfilterByExpr\nmin_count\t10\n')   # #527's preset
-    assert 'filterByExpr(DGEList(counts = values, lib.size = size), design = model, min.count = min_count)' in script
-    with pytest.raises(ValueError, match='min_count must be a positive number'):
+    assert 'filterByExpr(DGEList(counts = values, lib.size = filter_size), design = model, min.count = min_count)' in script
+    with pytest.raises(ValueError, match='min_count must be a finite positive number'):
+        de.model_text('A', 'B', (), 0, None, float('inf'))
+    with pytest.raises(ValueError, match='min_count must be a finite positive number'):
         de.model_text('A', 'B', (), 0, None, 0)
     for arm, method in (('tmm', 'TMM'), ('rle', 'RLE'), ('tmmwsp', 'TMMwsp')):   # the factor arms (#453, #527), as de.R names them
         assert de.model_text('A', 'B', (), 0, arm).endswith('normalisation\t{}\n'.format(arm)) and "{} = '{}'".format(arm, method) in script
@@ -2597,7 +2638,8 @@ def test_de_snakefile_passes_the_options_the_r_script_defines():
     import re
     defined = set(re.findall(r"make_option\('(--[a-z-]+)'", (BENCH / 'de.R').read_text()))
     passed = set(re.findall(r"(--[a-z-]+) \{", (BENCH / 'de.smk').read_text()))
-    assert defined == passed == {'--counts', '--library-sizes', '--design', '--model', '--results', '--record'}
+    assert passed == {'--counts', '--library-sizes', '--design', '--model', '--results', '--record'}
+    assert defined == passed | {'--filter-library-sizes'} and "' --filter-library-sizes '" in (BENCH / 'de.smk').read_text()   # optional (#531 review)
 
 
 def test_de_r_script_writes_the_tests_de_py_reads():
@@ -2661,7 +2703,7 @@ def de_outputs(project, fits, change=None, drop_last=False, folder='', formula=N
             if (project / 'benchmark/de/arm' / arm / 'input').is_dir():
                 de_outputs(project, fits, folder='arm/' + arm, formula='~lab + group')
     base = (project / 'benchmark/de' if root is None else root) / folder
-    texts = {name: (base / 'input' / name).read_text() for name in de.INPUTS}
+    texts = {name: (base / 'input' / name).read_text() for name in de.INPUTS + (de.FILTER_SIZES,) if (base / 'input' / name).is_file()}
     rows = list(dict.fromkeys(line.split('\t')[0] for line in texts['counts.tsv'].splitlines()[1:]))
     lines = ['\t'.join(de.RESULT_HEADER)] + ['\t'.join([row, test, pool_id] + ['NA' if v is None else str(v) for v in fit])
                                              for row in rows for test in de.TESTS for pool_id, fit in fits.items()]
@@ -2670,12 +2712,22 @@ def de_outputs(project, fits, change=None, drop_last=False, folder='', formula=N
     record = {'md5_' + Path(name).stem: de.md5(text) for name, text in texts.items()}
     record.update(md5_script=de.md5(de.SCRIPT.read_bytes()), md5_results=de.md5(results), R='R version 4.5.3', edgeR='4.10.7',
                   limma='3.68.5', formula=formula or ('~group' if folder else '~lab + group'), edger='exact test', edger_glm='GLM test', voom='voom')
+    record.update(de_record_settings(texts['model.tsv']))
     if change:
         change(record)
     write(base / 'record.tsv', 'field\tvalue\n' + ''.join('{}\t{}\n'.format(k, v) for k, v in record.items()))
 
 
 DE_FITS = {'hsa-miR-1-3p': (1.8, 0.001, 0.01), 'hsa-miR-199a-3p': (0.1, 0.4, 0.6), 'hsa-miR-21-5p': (-2.5, 0.001, 0.001)}
+
+
+def de_record_settings(model):
+    """The normalisation and filter fields de.R writes in its record for a model.tsv text."""
+    fields = dict(line.split('\t', 1) for line in model.splitlines()[1:])
+    normalisation = fields.get('normalisation')
+    return {'normalisation': '{} factors (calcNormFactors) on the library sizes'.format(de.NORMALISATIONS[normalisation]) if normalisation
+            else 'none: the library sizes as given',
+            'filter': 'filterByExpr(design = model, min.count = {}) on the library sizes'.format(fields['min_count']) if 'filter' in fields else 'none'}
 
 
 def evaluate_cmd(project, *args):

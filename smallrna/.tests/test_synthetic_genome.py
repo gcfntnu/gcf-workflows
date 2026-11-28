@@ -454,6 +454,10 @@ def test_differential_expression_uses_the_pools_tests_in_genome_mode(tmp_path):
     mirnas = {row['mature_id']: row for row in benchmark.read_tsv(bench / 'mirnas.tsv')}
     assert (bench / 'de/levels.tsv').read_text() == 'column\tlevel\nadjusted\tnuisance\narm\tworkflow\narm\tfixed\narm\ttmm\narm\trle\n'  # #453, #527: the arms beside the preset
     assert (bench / 'de/arm/tmm/input/model.tsv').read_text() == de.model_text('case', 'control', (), 0, 'tmm', de.PRESET_MIN_COUNT)
+    # the `fixed` arm filters on the workflow's library sizes, so every arm tests the same features (#531 review)
+    assert (bench / 'de/arm/fixed/input' / de.FILTER_SIZES).read_text() == (bench / 'de/input/library_sizes.tsv').read_text()
+    assert (bench / 'de/arm/fixed/input/library_sizes.tsv').read_text() != (bench / 'de/input/library_sizes.tsv').read_text()
+    assert not any((bench / 'de' / f / 'input' / de.FILTER_SIZES).exists() for f in ('', 'arm/tmm', 'arm/workflow', 'adjusted/nuisance'))
     assert (bench / 'de/input/model.tsv').read_text() == de.model_text('case', 'control', (), 0, de.PRESET, de.PRESET_MIN_COUNT)
     assert (bench / 'de/adjusted/nuisance/input/model.tsv').read_text() == de.model_text('case', 'control', ['nuisance'], 0, de.PRESET, de.PRESET_MIN_COUNT)
     design = (bench / 'de/input/design.tsv').read_text().splitlines()
@@ -479,7 +483,7 @@ def test_differential_expression_uses_the_pools_tests_in_genome_mode(tmp_path):
     def outputs(folder, formula):
         """de.smk's outputs for a set: every row calls the miRNAs designed to change, at their designed fold change."""
         base = bench / 'de' / folder
-        texts = {name: (base / 'input' / name).read_text() for name in de.INPUTS}
+        texts = {name: (base / 'input' / name).read_text() for name in de.INPUTS + (de.FILTER_SIZES,) if (base / 'input' / name).is_file()}
         features = list(by_row['truth'])
         fit = lambda i: (float(mirnas[i]['log2fc']), 0.001, 0.01) if mirnas.get(i, {}).get('de') == '1' else (0.05, 0.5, 0.9)
         table = '\n'.join(['\t'.join(de.RESULT_HEADER)] + ['\t'.join([row, test, i] + [str(v) for v in fit(i)])
@@ -488,6 +492,10 @@ def test_differential_expression_uses_the_pools_tests_in_genome_mode(tmp_path):
         record = {'md5_' + Path(name).stem: de.md5(text) for name, text in texts.items()}
         record.update(md5_script=de.md5(de.SCRIPT.read_bytes()), md5_results=de.md5(table), R='R version 4.5.3', edgeR='4.10.7',
                       limma='3.68.5', formula=formula, min_mean='10', edger='exact test', edger_glm='GLM test', voom='voom')
+        fields = dict(line.split('\t', 1) for line in texts['model.tsv'].splitlines()[1:])   # as de.R records the model's settings
+        record.update(normalisation='{} factors (calcNormFactors) on the library sizes'.format(de.NORMALISATIONS[fields['normalisation']])
+                      if 'normalisation' in fields else 'none: the library sizes as given',
+                      filter='filterByExpr(design = model, min.count = {}) on the library sizes'.format(fields['min_count']) if 'filter' in fields else 'none')
         (base / 'record.tsv').write_text('field\tvalue\n' + ''.join('{}\t{}\n'.format(k, v) for k, v in record.items()))
 
     outputs('', '~group')
@@ -515,7 +523,7 @@ def test_differential_expression_uses_the_pools_tests_in_genome_mode(tmp_path):
     assert '| edger_called | 1.0 | 1.0 |' in main and '.adjusted |' not in main  # the adjusted set has its own table
     assert 'The case samples against the control samples over' in report and '| 4× |' in report and '| 1× |' in report
     assert '### Adjusted for the nuisance factor' in report and '| adjusted | called | 1.0 | 1.0 |' in report
-    assert 'adjusted: 3 case and 3 control samples, design `~nuisance + group` (edgeR 4.10.7, limma 3.68.5); `de/adjusted/nuisance/results.tsv`' in report
+    assert 'adjusted: 3 case and 3 control samples, design `~nuisance + group`, TMMwsp factors (edgeR 4.10.7, limma 3.68.5); `de/adjusted/nuisance/results.tsv`' in report
     assert 'share of its miRNAs with reads that have a fractional count: tinyrna 0.0.' in report
     assert '.adjusted' not in report.split('## Uncertainty')[1] and '.fixed' not in report.split('## Uncertainty')[1]
     assert '### Normalisation arms' in report and '| tmm | called | 1.0 | 1.0 |' in report and table['edger_offset.fixed'] == ['0.05', '0.05']

@@ -16,6 +16,7 @@ then score the results with `benchmark.py evaluate --project <project> --de`.
 writes those of each depth to de/ in its output (#414), run with `-d <depth output> --config de=de`, then scored with
 `benchmark.py depth --de`.
 """
+import shlex
 from pathlib import Path
 
 import yaml
@@ -35,7 +36,14 @@ if not WHOLE and not LEVELS:
     raise WorkflowError('{} has no DE set: neither {} nor a level in {}; run `benchmark.py evaluate` in the project '
                         'first'.format(Path.cwd(), DE_INPUT, LEVELS_TABLE))
 COMMAND = ('Rscript {params.script:q} --counts {input.counts:q} --library-sizes {input.library_sizes:q} --design {input.design:q} '
-           '--model {input.model:q} --results {output.results:q} --record {output.record:q} > {log:q} 2>&1')
+           '--model {input.model:q}{params.filter_sizes} --results {output.results:q} --record {output.record:q} > {log:q} 2>&1')
+FILTER_SIZES = 'filter_library_sizes.tsv'  # de.py's FILTER_SIZES: optional, the `fixed` arm's (#531 review)
+
+
+def filter_sizes(folder):
+    """(input, option) of a set's optional filter library sizes: present only where evaluate wrote them."""
+    path = Path(folder, FILTER_SIZES)
+    return ([str(path)], ' --filter-library-sizes ' + shlex.quote(str(path))) if path.is_file() else ([], '')
 
 
 rule all:  # both outputs of every fit: Snakemake does not rerun a job for a missing output nobody requests
@@ -50,12 +58,14 @@ rule benchmark_de:
         library_sizes = DE_INPUT + '/library_sizes.tsv',
         design = DE_INPUT + '/design.tsv',
         model = DE_INPUT + '/model.tsv',
+        filter_sizes = filter_sizes(DE_INPUT)[0],
         script = str(HERE / 'de.R')  # an edit to de.R reruns the fits, as evaluate --de checks its MD5
     output:
         results = DE + '/results.tsv',
         record = DE + '/record.tsv'
     params:
-        script = str(HERE / 'de.R')
+        script = str(HERE / 'de.R'),
+        filter_sizes = filter_sizes(DE_INPUT)[1]
     threads:
         1
     resources:
@@ -74,12 +84,14 @@ rule benchmark_de_level:
         library_sizes = DE + '/{column}/{level}/input/library_sizes.tsv',
         design = DE + '/{column}/{level}/input/design.tsv',
         model = DE + '/{column}/{level}/input/model.tsv',
+        filter_sizes = lambda w: filter_sizes('{}/{}/{}/input'.format(DE, w.column, w.level))[0],
         script = str(HERE / 'de.R')
     output:
         results = DE + '/{column}/{level}/results.tsv',
         record = DE + '/{column}/{level}/record.tsv'
     params:
-        script = str(HERE / 'de.R')
+        script = str(HERE / 'de.R'),
+        filter_sizes = lambda w: filter_sizes('{}/{}/{}/input'.format(DE, w.column, w.level))[1]
     threads:
         1
     resources:

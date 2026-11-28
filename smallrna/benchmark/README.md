@@ -696,7 +696,8 @@ the best the design allows) as a column:
   `fc_bias` and `offset` against the designed changes, and against the truth's fits `own_false_calls`,
   `discordant_vs_truth`, `fc_shift_vs_truth` and `fc_error_vs_truth`. A second set adds the nuisance factor's true
   sample scores as a covariate of the GLM test and voom; its metrics end in `.adjusted` (the exact test takes no
-  covariates, so its values there equal the unadjusted ones). The report gives the share called per designed fold
+  covariates, but `filterByExpr` uses the set's full design, so its features and factors, and so its values, can differ
+  from the unadjusted ones). The report gives the share called per designed fold
   change, and the share of each method's miRNAs whose fractional counts were rounded for the tests.
 - **Structure:** `structure_group_r2` and `structure_nuisance_r2` (each true factor regressed on the top two principal
   components) and `coexpression` (agreement of the miRNA-miRNA correlations).
