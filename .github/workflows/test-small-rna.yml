@@ -33,7 +33,12 @@ jobs:
     - name: Prepare pinned fastp for synthetic regression
       run: |
         mkdir -p .dev/bin
-        curl -fsSL https://opengene.org/fastp/fastp.0.20.1 -o .dev/bin/fastp
+        # opengene.org first; the Internet Archive's copy of the same file when it fails (its certificate expired
+        # 2026-11-27). The checksum below pins the bytes either way.
+        for url in https://opengene.org/fastp/fastp.0.20.1 \
+                   https://web.archive.org/web/2024id_/https://opengene.org/fastp/fastp.0.20.1; do
+          curl -fsSL "$url" -o .dev/bin/fastp && break
+        done
         echo "7860c80dea92c42ee0583544aa66057a7ce1ad1c37b99a22557bdb7f4c9497e3  .dev/bin/fastp" | sha256sum -c -
         chmod +x .dev/bin/fastp
     - name: Test small-RNA stages on synthetic reads

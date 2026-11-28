@@ -88,7 +88,9 @@ Prepare the binary once (the same checksum is enforced in CI):
 
 ```bash
 mkdir -p .dev/bin
-curl -fsSL https://opengene.org/fastp/fastp.0.20.1 -o .dev/bin/fastp
+# opengene.org, or the Internet Archive's copy of the same file (the checksum pins the bytes either way)
+curl -fsSL https://opengene.org/fastp/fastp.0.20.1 -o .dev/bin/fastp ||
+  curl -fsSL https://web.archive.org/web/2024id_/https://opengene.org/fastp/fastp.0.20.1 -o .dev/bin/fastp
 echo "7860c80dea92c42ee0583544aa66057a7ce1ad1c37b99a22557bdb7f4c9497e3  .dev/bin/fastp" | sha256sum -c -
 chmod +x .dev/bin/fastp
 ```
