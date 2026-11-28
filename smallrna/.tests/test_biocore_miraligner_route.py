@@ -88,6 +88,79 @@ def test_counts_divide_by_ambiguity_and_keep_substitution_free_rows(tmp_path):
     assert (annotated, perfect) == (50.0, 43.0)
 
 
+def test_ties_best_keeps_a_sequences_best_annotations(tmp_path):
+    """quant.biocore_miraligner.ties (#524): `split` divides a sequence between all its annotations; `best` keeps only
+    its best: exact before a 3' addition alone before a substitution, the divisor being the ambiguity less the dropped."""
+    mirna = tmp_path / 'S1.mirna'
+    # miR-151a-5p's canonical read: exact on 151a, on 151b its first 20 bases plus an added T
+    mirna.write_text(HEADER + row('TCGAGG', 40, 'hsa-miR-151a-5p', ambiguity=2, n=1) + row('TCGAGG', 40, 'hsa-miR-151b', add='T', ambiguity=2, n=1)
+                     # exact on 27b, a substitution on 27a
+                     + row('TTCACA', 30, 'hsa-miR-27b-3p', ambiguity=2, n=2) + row('TTCACA', 30, 'hsa-miR-27a-3p', mism='19CT', ambiguity=2, n=2)
+                     # an addition on one, a substitution on two others: the addition wins
+                     + row('AGCAGC', 12, 'hsa-miR-103a-3p', add='A', ambiguity=3, n=3) + row('AGCAGC', 12, 'hsa-miR-107', mism='5GA', ambiguity=3, n=3)
+                     + row('AGCAGC', 12, 'hsa-miR-107b', mism='5GA', add='A', ambiguity=3, n=3)
+                     # two exact annotations (identical mature sequences) and a substitution: the two exact share it
+                     + row('GGGGGG', 10, 'hsa-miR-199a-3p', ambiguity=3, n=4) + row('GGGGGG', 10, 'hsa-miR-199b-3p', ambiguity=3, n=4)
+                     + row('GGGGGG', 10, 'hsa-miR-199c', mism='3AG', ambiguity=3, n=4)
+                     # end shifts do not rank: still divided
+                     + row('CCCCCC', 8, 'hsa-miR-1a', t3='g', ambiguity=2, n=5) + row('CCCCCC', 8, 'hsa-miR-1b', t5='a', ambiguity=2, n=5))
+    split = biocore_miraligner_counts.count(mirna)
+    assert split == biocore_miraligner_counts.count(mirna, 'split')
+    assert split[0] == {'hsa-miR-151a-5p': 20.0, 'hsa-miR-151b': 20.0, 'hsa-miR-27b-3p': 15.0, 'hsa-miR-103a-3p': 4.0,
+                        'hsa-miR-199a-3p': 10 / 3, 'hsa-miR-199b-3p': 10 / 3, 'hsa-miR-1a': 4.0, 'hsa-miR-1b': 4.0}
+    mature, isomir, annotated, perfect = biocore_miraligner_counts.count(mirna, 'best')
+    assert mature == {'hsa-miR-151a-5p': 40.0, 'hsa-miR-27b-3p': 30.0, 'hsa-miR-103a-3p': 12.0,
+                      'hsa-miR-199a-3p': 5.0, 'hsa-miR-199b-3p': 5.0, 'hsa-miR-1a': 4.0, 'hsa-miR-1b': 4.0}
+    assert isomir == {'hsa-miR-151a-5p_TCGAGG_0;0;0;0': 40.0, 'hsa-miR-27b-3p_TTCACA_0;0;0;0': 30.0, 'hsa-miR-103a-3p_AGCAGC_0;A;0;0': 12.0,
+                      'hsa-miR-199a-3p_GGGGGG_0;0;0;0': 5.0, 'hsa-miR-199b-3p_GGGGGG_0;0;0;0': 5.0,
+                      'hsa-miR-1a_CCCCCC_0;0;0;g': 4.0, 'hsa-miR-1b_CCCCCC_0;0;a;0': 4.0}
+    assert (annotated, perfect) == split[2:] == (100.0, 100.0)
+    # the isomiR table's substitution-free rows still add up to the mature table
+    assert sum(v for k, v in isomir.items() if k.rsplit('_', 1)[1].startswith('0;')) == sum(mature.values())
+    with pytest.raises(SystemExit, match="--ties must be one of split, best, got 'all'"):
+        biocore_miraligner_counts.count(mirna, 'all')
+
+
+@pytest.mark.parametrize('rows', [
+    [dict(ambiguity=1), dict(add='T', ambiguity=1)],     # fewer than its annotations
+    [dict(ambiguity=2), dict(add='T', ambiguity=3)],     # two ambiguities
+])
+def test_ties_best_stops_on_an_ambiguity_it_cannot_reduce(tmp_path, rows):
+    mirna = tmp_path / 'S1.mirna'
+    mirna.write_text(HEADER + ''.join(row('AAAA', 6, 'hsa-miR-{}'.format(i), **r) for i, r in enumerate(rows)))
+    with pytest.raises(SystemExit, match='--ties best needs one ambiguity per sequence'):
+        biocore_miraligner_counts.count(mirna, 'best')
+    biocore_miraligner_counts.count(mirna, 'split')   # split divides by miraligner's ambiguity as it is
+
+
+def test_ties_setting_reaches_the_count_rule_and_settings(tmp_path):
+    """The default keeps the count command as before; `best` adds --ties best; the choice is recorded with the table;
+    other values stop at load."""
+    returncode, output = dry_run(tmp_path, 'biocore_miraligner', printshell=True)
+    assert returncode == 0, output
+    assert '--ties' not in rule_block(output, 'biocore_miraligner_count')
+    best = lambda value: (lambda s: s['quant'].setdefault('biocore_miraligner', {}).update(ties=value))
+    returncode, output = dry_run(tmp_path / 'best', 'biocore_miraligner', best('best'), printshell=True)
+    assert returncode == 0, output
+    assert re.search(r'--stats \S+ --ties best', rule_block(output, 'biocore_miraligner_count'))
+    returncode, output = dry_run(tmp_path / 'bad', 'biocore_miraligner', best('all'))
+    assert returncode != 0 and "quant.biocore_miraligner.ties must be split or best, got 'all'" in output
+    returncode, output = dry_run(tmp_path / 'list', 'biocore_miraligner', lambda s: s['quant'].update(biocore_miraligner=['best']))
+    assert returncode != 0 and 'quant.biocore_miraligner must be a mapping of settings' in output
+
+
+def test_count_command_takes_ties(tmp_path):
+    reads, mirna = tmp_path / 'reads.tab', tmp_path / 'S1.mirna'
+    reads.write_text('AAAA\t30\n')
+    mirna.write_text(HEADER + row('AAAA', 30, 'mmu-miR-1a-3p', ambiguity=2) + row('AAAA', 30, 'mmu-miR-1b-3p', add='T', ambiguity=2))
+    out = {name: tmp_path / '{}.tsv'.format(name) for name in ('mature', 'isomir', 'stats')}
+    command = [sys.executable, str(SCRIPT), 'count', '--reads', str(reads), '--mirna', str(mirna)] + ['--{}={}'.format(k, v) for k, v in out.items()]
+    for ties, expected in (([], 'mmu-miR-1a-3p\t15\nmmu-miR-1b-3p\t15\n'), (['--ties', 'best'], 'mmu-miR-1a-3p\t30\n')):
+        result = subprocess.run(command + ties, capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+        assert out['mature'].read_text() == 'miRNA\tcount\n' + expected
+
+
 def test_count_command_writes_tables_and_stats(tmp_path):
     reads, mirna = tmp_path / 'reads.tab', tmp_path / 'S1.mirna'
     reads.write_text('AAAA\t30\nCCCC\t10\nTTTTTTTTTTTTTTTT\t1\n')

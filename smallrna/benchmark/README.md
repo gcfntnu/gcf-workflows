@@ -483,7 +483,7 @@ would test the same read handling again. `--set quant.ROUTE.SETTING=VALUE` (repe
 variant is recorded as `variant` in `benchmark/dataset.yaml` and named in the report; run it with only the varied route
 (`--methods`) and compare it with the project run with the defaults in `summary`. #417's variants: tiny-count
 `mismatch` 1 and `normalize_by_genomic_hits` false, TEsmall's own class `order`
-(`structural_RNA,miRNA,hairpin,exon,TE,intron,piRNA_cluster`). miRge3's `--crThreshold` is no variant: the scored
+(`structural_RNA,miRNA,hairpin,exon,TE,intron,piRNA_cluster`), biocore_miraligner's `ties` `best` (#524). miRge3's `--crThreshold` is no variant: the scored
 table is rebuilt from miRge3's alignments (exact and isomiR reads of miRNAs with 2 exact reads in the project), which
 the threshold does not reach; mirflowz's multimapper handling is not configurable. `evaluate` scores a variant only when
 its route's settings record (`quant/<route>/settings.tsv`) has the setting at the variant's value. Every declaration lists the
