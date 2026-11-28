@@ -9,15 +9,18 @@ calls are scored against them, and each method's against the reference row's fit
 suffix (the pools' `de: {within: lab}` tests each lab's runs on their own, suffix `.<level>`, #444; the synthetic
 dataset adds the true nuisance scores as a covariate, suffix `.adjusted`).
 
-Normalisation is the workflow's: a sample's library size is every miRNA read the method reported in it (all its rows of
-common.tsv), as smallrna's report figures scale counts per million. There is no TMM and no centring, so an offset
-between the groups stays in the fold changes, and `offset` reports it. Normalisation arms (#453, #527) test the pools'
-and the synthetic dataset's whole design again, side by side: `fixed` (suffix `.fixed`, folder `arm/fixed`), each
-sample's filtered reads as its library size for every row, so a route's miRNA calls no longer change it; and three arms
-of edgeR's normalisation factors (calcNormFactors) on the workflow's library sizes, `tmm` (TMM), `rle` (DESeq2's
-median of ratios) and `tmmwsp` (TMM with singleton pairing, for counts with many zeros), each with suffix `.<arm>` and
-folder `arm/<arm>`. The main metrics stay the
-workflow's. The oracle's library size is its reads of the
+The library sizes are the workflow's: a sample's library size is every miRNA read the method reported in it (all its
+rows of common.tsv), as smallrna's report figures scale counts per million. The synthetic and biological datasets use
+#527's preset on them (PRESET: edgeR's TMMwsp factors, on the features edgeR's filterByExpr keeps with min.count
+PRESET_MIN_COUNT on the set's design; limma-voom is the main test). Pools and a mixture's contrasts, where most features
+change by design, keep the library sizes without factors and test every designed sequence (pools) or the miRNAs with at
+least 10 reads on average (mixtures); an offset between the groups stays in their fold changes, and `offset` reports it.
+Normalisation arms (#453, #527) test the pools' and the synthetic dataset's whole design again, side by side, suffix
+`.<arm>`, folder `arm/<arm>`: `fixed`, each sample's filtered reads as its library size for every row, so a route's
+miRNA calls no longer change it; `workflow` (synthetic only), the library sizes without factors; and edgeR's factors
+(calcNormFactors) on the workflow's library sizes, `tmm` (TMM), `rle` (DESeq2's median of ratios) and, for the pools,
+`tmmwsp` (the synthetic dataset's main set has it). The synthetic dataset's arms keep the preset's filtered features,
+so only the normalisation changes. The oracle's library size is its reads of the
 exact and shifted pool sequences, the truth's its miRNA reads: what a method counting every miRNA read exactly would
 report. The exact test runs as in the McCall-lab benchmark's best configuration (library sizes as given, a common
 dispersion; two groups, so no covariates). The GLM test and voom take the set's covariates. The GLM test keeps the exact
@@ -45,8 +48,15 @@ NAME = re.compile(r'[A-Za-z][A-Za-z0-9_]*')  # a covariate: a column of the desi
 LEVEL_NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]*')  # a group, or a level of `within`: it names a folder and a metric suffix
 LEVELS = 'levels.tsv'  # benchmark/de/levels.tsv: the sets de.smk tests besides the whole dataset's, in <column>/<level>
 INPUTS = ('counts.tsv', 'library_sizes.tsv', 'design.tsv', 'model.tsv')
+FILTER_SIZES = 'filter_library_sizes.tsv'  # optional (#531 review): the library sizes filterByExpr uses, when the fit's differ
 ARMS = ('fixed', 'tmm', 'rle', 'tmmwsp')  # normalisation arms besides the workflow's (#453, #527): the DE sets' `arm`, folder arm/<arm>, suffix .<arm>
 NORMALISATIONS = {'tmm': 'TMM', 'rle': 'RLE', 'tmmwsp': 'TMMwsp'}  # the factor arms: model.tsv's `normalisation`, edgeR's calcNormFactors method
+# #527's preset for the synthetic and biological datasets: limma-voom (the main test), edgeR's TMMwsp factors, on the
+# features edgeR's filterByExpr keeps with this min.count; their arms vary the normalisation on the same features.
+# Pools and a mixture's contrasts keep the workflow's library sizes (most of their features change by design).
+PRESET = 'tmmwsp'
+PRESET_MIN_COUNT = 10
+PRESET_ARMS = ('workflow', 'fixed', 'tmm', 'rle')  # the preset datasets' arms: `workflow` is the library sizes without factors
 RESULT_HEADER = ['row', 'test', 'feature', 'log2fc', 'pvalue', 'padj']
 SCRIPT = Path(__file__).resolve().with_name('de.R')
 
@@ -87,22 +97,56 @@ def library_sizes(reads, oracle, entries, rows, samples):
             for row in rows for s in samples}
 
 
-def model_text(numerator, denominator, numeric=(), min_mean=0, normalisation=None):
+def analysis(bench):
+    """Which DE analysis produced an evaluated project's DE metrics (#531 review), from de.R's record of its whole
+    dataset's set, or of its first null comparison when it has only those: 'preset' (#527: TMMwsp factors and
+    filterByExpr), 'other' (an earlier analysis, or a dataset kind outside the preset), or None without a record."""
+    folder = Path(bench) / 'de'
+    records = [folder / 'record.tsv'] + sorted((folder / NULL).glob('*/record.tsv'))
+    found = next((r for r in records if r.is_file()), None)
+    if found is None:
+        return None
+    record = read_record(found)
+    preset = record.get('normalisation', '').startswith(NORMALISATIONS[PRESET] + ' ') and record.get('filter', '').startswith('filterByExpr(')
+    return 'preset' if preset else 'other'
+
+
+def with_normalisation(model, normalisation):
+    """A model.tsv text (model_text) with its `normalisation` replaced: one of NORMALISATIONS, or None for no factors;
+    the other fields as they were, in model_text's order."""
+    rows = [line.split('\t', 1) for line in model.splitlines()[1:]]
+    fields = {}
+    for field, value in rows:
+        fields.setdefault(field, []).append(value)
+    min_mean = float(fields['min_mean'][0]) if 'min_mean' in fields else 0
+    min_count = float(fields['min_count'][0]) if 'min_count' in fields else None
+    return model_text(fields['numerator'][0], fields['denominator'][0], fields.get('numeric', []), min_mean, normalisation, min_count)
+
+
+def model_text(numerator, denominator, numeric=(), min_mean=0, normalisation=None, min_count=None):
     """model.tsv: the contrast (a positive log2 fold change is more in `numerator`), the covariates that are numbers
     (the others are factors), the least mean count of a feature a row tests and, for a factor arm (#453, #527),
     `normalisation: <arm>` (NORMALISATIONS: edgeR's factors of that method on the library sizes; without the field,
-    none)."""
+    none). With `min_count` (#527's preset), `filter: filterByExpr` and `min_count`: a row tests the features edgeR's
+    filterByExpr keeps on its counts, library sizes and the set's design, with that `min.count` (its CPM cutoff is
+    `min_count` reads at the median library size), besides `min_mean`."""
     fields = [('numerator', numerator), ('denominator', denominator), ('min_mean', '{:g}'.format(min_mean))] + [('numeric', c) for c in numeric]
     if normalisation is not None:
         if normalisation not in NORMALISATIONS:
             raise ValueError('normalisation must be one of {} or None, got {!r}'.format(', '.join(NORMALISATIONS), normalisation))
         fields.append(('normalisation', normalisation))
+    if min_count is not None:
+        if not (isinstance(min_count, (int, float)) and math.isfinite(min_count) and min_count > 0):
+            raise ValueError('min_count must be a finite positive number, got {!r}'.format(min_count))
+        fields += [('filter', 'filterByExpr'), ('min_count', '{:g}'.format(min_count))]
     return 'field\tvalue\n' + ''.join('{}\t{}\n'.format(*field) for field in fields)
 
 
-def input_tables(count, rows, features, design, sizes, model):
+def input_tables(count, rows, features, design, sizes, model, filter_sizes=None):
     """{file name: text} of a DE set's inputs. `count(row, sample, feature)`: a row's count; `design`: [(sample, group,
-    {covariate: value})] in the order of samples.tsv; `sizes`: {(row, sample): library size}; `model`: model_text.
+    {covariate: value})] in the order of samples.tsv; `sizes`: {(row, sample): library size}; `model`: model_text;
+    `filter_sizes`: the library sizes the model's filter uses instead of `sizes` (FILTER_SIZES, the `fixed` arm's
+    workflow sizes, so that every arm tests the same features), or None.
 
     counts.tsv: row, feature, then one column per sample. Counts are rounded to whole numbers (half to even): a read a
     method splits between names gives fractional counts, which edgeR and voom do not model. library_sizes.tsv: row, then
@@ -117,7 +161,11 @@ def input_tables(count, rows, features, design, sizes, model):
     design_lines = ['\t'.join(['sample', 'group'] + covariates)] + ['\t'.join([s, g] + [str(c[k]) for k in covariates])
                                                                    for s, g, c in design]
     texts = ['\n'.join(lines) + '\n' for lines in (count_lines, size_lines, design_lines)] + [model]
-    return dict(zip(INPUTS, texts))
+    out = dict(zip(INPUTS, texts))
+    if filter_sizes is not None and '\nfilter\tfilterByExpr\n' in model:  # only a model with a filter reads them
+        out[FILTER_SIZES] = '\n'.join(['\t'.join(['row'] + samples)] + ['\t'.join([row] + [repr(filter_sizes[(row, s)]) for s in samples])
+                                                                       for row in rows]) + '\n'
+    return out
 
 
 def fractional_share(count, row, features, samples):
@@ -139,6 +187,8 @@ def write_inputs(folder, texts):
     folder.mkdir(parents=True, exist_ok=True)
     for name, text in texts.items():
         write_changed(folder / name, text)
+    if FILTER_SIZES not in texts:  # a set that had other filter sizes before
+        (folder / FILTER_SIZES).unlink(missing_ok=True)
 
 
 def levels_text(levels):
@@ -273,8 +323,8 @@ def scores(results, features, rows, suffix='', reference='oracle', way=None):
 
 POOL_INTRO = (
     'Pool A against pool B over the {} scored `exact` sequences (#414). Library sizes are all the miRNA reads a method '
-    'reported in a sample, as the workflow scales counts per million (the oracle: its pool reads); no TMM, no '
-    'centring. A call is a BH-adjusted p of at most {}. Per designed fold change: the share called in the designed '
+    'reported in a sample, as the workflow scales counts per million (the oracle: its pool reads), without normalisation '
+    'factors (most pool sequences change by design: #527\'s exception); no centring. A call is a BH-adjusted p of at most {}. Per designed fold change: the share called in the designed '
     'direction, at 1:1 the share called at all; `tested`: the share of sequences with reads, so with a test. Against '
     'the oracle\'s fits on the same runs (the metrics table, #444): `own_false_calls`, the 1:1 sequences a method calls '
     'and the oracle does not; `discordant_vs_oracle`, the sequences whose call (up, down or none) differs from the '
@@ -285,10 +335,10 @@ POOL_INTRO = (
 SYNTHETIC_INTRO = (
     'The {numerator} samples against the {denominator} samples over {features} scored miRNAs (#447): the {changed} designed '
     'to change with at least {min_mean:g} truth reads on average, and every other miRNA of the truth or reported by a '
-    'method that is designed not to change. The tests are those of the ratiometric pools (de.R). Library sizes are all '
-    'the miRNA reads a method reported in a sample, as the workflow scales counts per million (the truth: its miRNA '
-    'reads); no TMM, no centring. Each row tests the miRNAs with at least {min_mean:g} reads on average in its own '
-    'counts, so reads spilled onto a relative of a changing miRNA can make a false call. A call is a BH-adjusted p of at '
+    'method that is designed not to change. With #527\'s preset (de.R): library sizes are all the miRNA reads a method '
+    'reported in a sample (the truth: its miRNA reads), with edgeR\'s TMMwsp factors; each row tests the miRNAs edgeR\'s '
+    'filterByExpr keeps on its own counts (min.count {min_count:g}), so reads spilled onto a relative of a changing miRNA '
+    'can make a false call; limma-voom is the main test. A call is a BH-adjusted p of at '
     'most {fdr}. Per designed fold change: the share called in the designed direction, at 1× the share called at all; '
     '`tested`: the share of the scored miRNAs a row tests. Against the truth\'s fits on the same samples (the metrics '
     'table): `own_false_calls`, the unchanged miRNAs a method calls and the truth does not; `discordant_vs_truth`, the '
@@ -327,12 +377,12 @@ def text(value):
     return '' if value is None or (isinstance(value, float) and math.isnan(value)) else str(value)
 
 
-def set_lines(title, intro, label, sets, values, rows, reference='oracle', keys=LEVEL_KEYS):
+def set_lines(title, intro, label, sets, values, rows, reference='oracle', keys=LEVEL_KEYS, main='workflow'):
     """report.md's section on DE sets: for each test, `keys` (default LEVEL_KEYS) and the reference keys of every set
     and row from `values` ({row: {metric: value}}, the sets' metrics with their suffix), then each set's samples, the
     design and tool versions de.R recorded, and the SHA-256 of its results. `sets`: [(name, folder, samples,
     results_sha256, record)], `name` the metric suffix without its dot ('' for the whole dataset's set, shown as
-    `workflow`), `samples` describing the set's samples; `label` heads the table's first column."""
+    `main`), `samples` describing the set's samples; `label` heads the table's first column."""
     if not sets:
         return []
     keys = tuple(keys) + reference_keys(reference)
@@ -341,31 +391,35 @@ def set_lines(title, intro, label, sets, values, rows, reference='oracle', keys=
         lines += ['', '**{}**'.format(TEST_NAMES[test]), '', '| {} | metric | '.format(label) + ' | '.join(rows) + ' |',
                   '|---' * (len(rows) + 2) + '|']
         for name, _, _, _, _ in sets:
-            lines += ['| {} | {} | '.format((name or 'workflow') if i == 0 else '', key) +
+            lines += ['| {} | {} | '.format((name or main) if i == 0 else '', key) +
                       ' | '.join(text(values.get(row, {}).get('{}_{}{}'.format(test, key, '.' + name if name else ''))) for row in rows) + ' |'
                       for i, key in enumerate(keys)]
     lines += [''] + ['{}: {}, design `{}`{} (edgeR {}, limma {}); `{}` SHA-256 `{}`.'.format(
-        name or 'workflow', samples, record.get('formula', '?'),
+        name or main, samples, record.get('formula', '?'),
         ', ' + record['normalisation'].split(' (')[0] if (record.get('normalisation') or 'none').split(':')[0] != 'none' else '',
         record.get('edgeR', '?'), record.get('limma', '?'), '/'.join(p for p in ('de', folder, 'results.tsv') if p), sha)
         for name, folder, samples, sha, record in sets]
     return lines
 
 
-def arm_lines(sets, values, rows, reference='oracle'):
-    """report.md's section on the normalisation arms (#453): the whole dataset's set (`workflow`) and each arm, with
-    DESIGN_KEYS and the reference keys. `sets` as for set_lines, the whole dataset's first."""
+def arm_lines(sets, values, rows, reference='oracle', preset=False):
+    """report.md's section on the normalisation arms (#453): the whole dataset's set and each arm, with DESIGN_KEYS and
+    the reference keys. `sets` as for set_lines, the whole dataset's first; with `preset` (#527) the main set is the
+    preset's (`preset`, TMMwsp factors) and `workflow` an arm, else the main set is `workflow`."""
     if len(sets) < 2:
         return []
-    intro = ('The whole design tested again with other library sizes (#453): `workflow` is the main result above (a sample\'s '
-             'library size is every miRNA read the route reported); `fixed` gives every row the same library size, the sample\'s '
+    main = ('`preset` is the main result above (#527: edgeR\'s TMMwsp factors on the workflow\'s library sizes, the features '
+            'filterByExpr keeps; every arm tests those features); `workflow` takes the library sizes without factors (a '
+            'sample\'s library size is every miRNA read the route reported)' if preset else
+            '`workflow` is the main result above (a sample\'s library size is every miRNA read the route reported)')
+    intro = ('The whole design tested again with other library sizes (#453): ' + main + '; `fixed` gives every row the same library size, the sample\'s '
              'filtered reads (the cutadapt route\'s kept reads), so what a route counts as miRNA no longer changes it; `tmm`, '
              '`rle` and `tmmwsp` apply edgeR\'s normalisation factors (TMM; RLE, DESeq2\'s median of ratios; TMM with singleton '
              'pairing, #527) to the workflow\'s library sizes (all three tests, voom on the normalised sizes). '
              'A shift in the unchanged features (`offset`) that differs between arms is the normalisation\'s, not the route\'s. '
              'In metrics.tsv the metrics carry the arm\'s name (`.fixed`, `.tmm`, ...); their intervals and the differences between methods are in '
              'metrics_ci.tsv and differences.tsv. The metrics against the {} are empty for the {}.'.format(reference, reference))
-    return set_lines('Normalisation arms', intro, 'arm', sets, values, rows, reference, DESIGN_KEYS)
+    return set_lines('Normalisation arms', intro, 'arm', sets, values, rows, reference, DESIGN_KEYS, 'preset' if preset else 'workflow')
 
 
 def level_lines(column, levels, values, rows):
@@ -386,9 +440,9 @@ def call_lines(sets, features, rows, numerator, denominator, library='all the mi
     is scored. `sets`: [(name, folder, samples, results, record, results_sha256)], the whole contrast's first (name
     ''), then each level of `within`."""
     lines = ['', '## Differential expression', '',
-             '{} against {} over the {} miRNAs any method reports (identical sequences as one), with the tests of the '
-             'ratiometric pools (de.R, #447). Library sizes are {}; no TMM. A '
-             'row tests the miRNAs with at least the mean count below in its own counts; a call is a BH-adjusted p of at most '
+             '{} against {} over the {} miRNAs any method reports (identical sequences as one), with the tests of '
+             'de.R (#447). Library sizes are {}, with the normalisation and filter below (#527\'s preset: TMMwsp factors, '
+             'the miRNAs filterByExpr keeps; limma-voom the main test); a call is a BH-adjusted p of at most '
              '{}. Nothing is known about the true changes, so the calls are not scored: `up` is more in {}.'.format(
                  numerator, denominator, len(features), library, FDR, numerator)]
     for name, _, samples, results, _, _ in sets:
@@ -400,8 +454,9 @@ def call_lines(sets, features, rows, numerator, denominator, library='all the mi
                                                   ('down', lambda f: call(f) < 0))):
                 lines.append('| {} | {} | '.format(TEST_NAMES[test] if i == 0 else '', label) +
                              ' | '.join(str(sum(1 for f in fits[row] if counted(f))) for row in rows) + ' |')
-    lines += [''] + ['{}: least mean count {}; design `{}`. edgeR {}, limma {}; {}. `de/{}results.tsv` SHA-256 `{}`.'.format(
-        name or 'All samples', record.get('min_mean', '?'), record.get('formula', '?'), record.get('edgeR', '?'), record.get('limma', '?'),
+    lines += [''] + ['{}: least mean count {}, filter {}, factors {}; design `{}`. edgeR {}, limma {}; {}. `de/{}results.tsv` SHA-256 `{}`.'.format(
+        name or 'All samples', record.get('min_mean', '?'), record.get('filter', 'none'), record.get('normalisation', '?').split(' (')[0],
+        record.get('formula', '?'), record.get('edgeR', '?'), record.get('limma', '?'),
         record.get('R', '?'), folder + '/' if folder else '', sha) for name, folder, _, _, record, sha in sets]
     return lines
 

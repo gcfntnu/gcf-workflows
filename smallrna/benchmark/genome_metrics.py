@@ -9,16 +9,9 @@ Mixed samples (`kind` mixed in samples.tsv), per method, over units: every miRNA
   partner, relative to the high member's truth.
 - deviation_correlation: miRNAs with at least DETECT truth reads on average; each miRNA's log2(count + 1) minus its mean
   over the samples, observed against truth, as one Pearson correlation.
-- DE with de.R (#447, benchmark.py and de.py): the tests of the ratiometric pools on these counts, scored over
-  de_features; the metrics `<test>_*`.
-- DE, the built-in check that needs no container (`de_*`): counts normalised by median-of-ratios size factors, log2(normalised + 1), a linear model per miRNA with
-  the group (and, `_adjusted`, the nuisance factor's true sample scores), and a moderated t: the residual variance
-  shrunk towards the median with PRIOR_DF prior degrees of freedom. Each row tests the miRNAs with at least DE_MIN
-  reads on average in its own counts, as an analysis of them would (de_tested), so reads spilled onto a relative of a
-  DE miRNA can make a false call; Benjamini-Hochberg over them, called at FDR. The true DE miRNAs are those designed
-  DE with at least DE_MIN truth reads on average: sensitivity is the share of them called, fdr the share of calls on
-  any miRNA not designed DE (absent ones included); fc_error: median |observed - true log2 fold change| of the true
-  DE miRNAs the row tests. The `truth` row is the same analysis of the truth counts: the best this design allows.
+- DE with de.R (#447, benchmark.py and de.py): the benchmark's DE step on these counts, scored over de_features; the
+  metrics `<test>_*`. The true DE miRNAs are those designed DE with at least DE_MIN truth reads on average. (The
+  built-in moderated t-test check that needed no container, `de_*`, was retired for #527's preset.)
 - structure: the top two principal components of the centred log2 normalised counts (miRNAs with at least DETECT
   reads); r2 of each true factor (group, nuisance) regressed on them. coexpression: Spearman correlation between the
   method's and the truth's miRNA-miRNA correlations (miRNAs with at least COEXP reads).
@@ -27,7 +20,6 @@ Mixed samples (`kind` mixed in samples.tsv), per method, over units: every miRNA
 Probe samples: per read class, the probe miRNAs' observed reads (minus the control's) / their truth.
 """
 import collections
-import math
 
 import numpy as np
 
@@ -35,51 +27,13 @@ DETECT = 20
 DE_MIN = 10
 COEXP = 50
 LOW = 10
-FDR = 0.05
-PRIOR_DF = 4
 EXACT_TOLERANCE = 1e-6
 
 
-def betainc(a, b, x):
-    """Regularised incomplete beta I_x(a, b) (continued fraction, Lentz)."""
-    if x <= 0:
-        return 0.0
-    if x >= 1:
-        return 1.0
-    front = math.exp(math.lgamma(a + b) - math.lgamma(a) - math.lgamma(b) + a * math.log(x) + b * math.log(1 - x))
-    if x > (a + 1) / (a + b + 2):
-        return 1 - betainc(b, a, 1 - x)
-    tiny = 1e-300
-    c, d = 1.0, 1 - (a + b) * x / (a + 1)
-    d = 1 / (d if abs(d) > tiny else tiny)
-    f = d
-    for m in range(1, 300):
-        for numerator in (m * (b - m) * x / ((a + 2 * m - 1) * (a + 2 * m)),
-                          -(a + m) * (a + b + m) * x / ((a + 2 * m) * (a + 2 * m + 1))):
-            d = 1 + numerator * d
-            d = 1 / (d if abs(d) > tiny else tiny)
-            c = 1 + numerator / c
-            c = c if abs(c) > tiny else tiny
-            f *= c * d
-        if abs(c * d - 1) < 1e-14:
-            break
-    return front * f / a
 
 
-def t_two_sided(t, df):
-    """Two-sided p-value of Student's t."""
-    return betainc(df / 2, 0.5, df / (df + t * t))
 
 
-def bh(pvalues):
-    """Benjamini-Hochberg adjusted p-values."""
-    p = np.asarray(pvalues, dtype=float)
-    order = np.argsort(p)
-    ranked = p[order] * len(p) / np.arange(1, len(p) + 1)
-    adjusted = np.minimum.accumulate(ranked[::-1])[::-1]
-    out = np.empty_like(adjusted)
-    out[order] = np.minimum(adjusted, 1)
-    return out
 
 
 def size_factors(matrix):
@@ -91,18 +45,6 @@ def size_factors(matrix):
     return np.exp(np.median(log - log.mean(axis=1, keepdims=True), axis=0))
 
 
-def moderated_t(y, design, coefficient=1):
-    """(estimate, two-sided p) per row of y (miRNA x sample) for one design column, residual variances shrunk towards
-    their median with PRIOR_DF prior degrees of freedom."""
-    beta, *_ = np.linalg.lstsq(design, y.T, rcond=None)
-    residual = y.T - design @ beta
-    df = design.shape[0] - design.shape[1]
-    s2 = (residual ** 2).sum(axis=0) / df
-    s0 = float(np.median(s2)) if np.median(s2) > 0 else 1e-12
-    post = (PRIOR_DF * s0 + df * s2) / (PRIOR_DF + df)
-    unscaled = np.linalg.inv(design.T @ design)[coefficient, coefficient]
-    t = beta[coefficient] / np.sqrt(post * unscaled)
-    return beta[coefficient], np.array([t_two_sided(float(v), df + PRIOR_DF) for v in t])
 
 
 def spearman(x, y):
@@ -146,30 +88,9 @@ class Evaluation:
         self.pairs = [(i, m['near_identical'].split(',')) for i, m in self.mirnas.items() if m['near_role'] in ('high', 'alone')]
         self.dev_units = [i for i in self.units if self.t[self.index[i]].mean() >= DETECT]
         self.true_de = {i for i in self.units if self.mirnas.get(i, {}).get('de') == '1' and self.t[self.index[i]].mean() >= DE_MIN}
-        self.de = {name: self.de_tests(name) for name in ['truth'] + self.methods}
-        self.de_units = sorted({i for tests in self.de.values() for i in tests})
 
     def counts(self, name):
         return self.t if name == 'truth' else self.o[name]
-
-    def de_tests(self, name):
-        """{unit: (called, called adjusted, estimate, estimate adjusted)} for the miRNAs this row tests: at least DE_MIN
-        reads on average in its own counts."""
-        matrix = self.counts(name)
-        rows = np.flatnonzero(matrix.mean(axis=1) >= DE_MIN)
-        if not len(rows):
-            return {}
-        sf = size_factors(matrix[rows])
-        y = np.log2(matrix[rows] / sf + 1)
-        group = np.array([float(self.samples[s]['factor_group']) for s in self.mixed])
-        nuisance = np.array([float(self.samples[s]['factor_nuisance']) for s in self.mixed])
-        out = {}
-        plain = moderated_t(y, np.column_stack([np.ones_like(group), group]))
-        adjusted = moderated_t(y, np.column_stack([np.ones_like(group), group, nuisance]))
-        q, qa = bh(plain[1]), bh(adjusted[1])
-        for k, r in enumerate(rows):
-            out[self.units[r]] = (bool(q[k] <= FDR), bool(qa[k] <= FDR), float(plain[0][k]), float(adjusted[0][k]))
-        return out
 
     def de_features(self):
         """[(unit, designed log2 fold change)] that de.py scores (#447): the true DE miRNAs with their fold change, and
@@ -178,13 +99,7 @@ class Evaluation:
         return [(i, float(self.mirnas[i]['log2fc']) if i in self.true_de else 0.0) for i in self.units
                 if i in self.true_de or self.mirnas.get(i, {}).get('de') != '1']
 
-    def false_calls(self, name):
-        """[(unit, truth mean, observed mean, estimate)] of the row's DE calls on miRNAs not designed DE."""
-        o = self.counts(name)
-        return [(i, float(self.t[self.index[i]].mean()), float(o[self.index[i]].mean()), v[2])
-                for i, v in sorted(self.de[name].items()) if v[0] and self.mirnas.get(i, {}).get('de') != '1']
-
-    def mixed_metrics(self, name, units, pairs, de_units, dev_units):
+    def mixed_metrics(self, name, units, pairs, dev_units):
         o = self.counts(name)
         rows = [self.index[i] for i in units]
         t, oo = self.t[rows], o[rows]
@@ -207,16 +122,6 @@ class Evaluation:
             lt, lo = np.log2(self.t[dev] + 1), np.log2(o[dev] + 1)
             dt, do = lt - lt.mean(axis=1, keepdims=True), lo - lo.mean(axis=1, keepdims=True)
             out['deviation_correlation'] = float(np.corrcoef(dt.ravel(), do.ravel())[0, 1])
-        tests = self.de[name]
-        de = [i for i in de_units if i in self.true_de]
-        out['de_tested'] = sum(1 for i in de_units if i in tests)
-        for suffix, called_at, estimate_at in (('', 0, 2), ('_adjusted', 1, 3)):
-            called = [i for i in de_units if tests.get(i, (False,) * 4)[called_at]]
-            false = sum(1 for i in called if self.mirnas.get(i, {}).get('de') != '1')
-            out['de_sensitivity' + suffix] = sum(1 for i in de if tests.get(i, (False,) * 4)[called_at]) / len(de) if de else float('nan')
-            out['de_fdr' + suffix] = false / len(called) if called else 0.0
-            errors = [abs(tests[i][estimate_at] - float(self.mirnas[i]['log2fc'])) for i in de if i in tests]
-            out['de_fc_error' + suffix] = float(np.median(errors)) if errors else float('nan')
         return out
 
     def strata(self, name, extra=None):

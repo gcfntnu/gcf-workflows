@@ -247,10 +247,6 @@ def test_the_design_needs_two_groups(mirbase):
             sg.structure(['MIMAT9000011'], {'MIMAT9000011': 1.0}, u, SPEC, groups, np.random.default_rng(1))
 
 
-def test_t_distribution_and_bh():
-    assert abs(gm.t_two_sided(2.228139, 10) - 0.05) < 1e-4 and gm.t_two_sided(0.0, 5) == pytest.approx(1)
-    assert abs(gm.t_two_sided(-3.0, 4) - 0.0399420) < 1e-6   # scipy.stats.t: 2 * t.sf(3, 4)
-    assert list(np.round(gm.bh([0.01, 0.04, 0.03, 0.2]), 4)) == [0.04, 0.0533, 0.0533, 0.2]
 
 
 def test_metrics_on_perfect_spilling_and_isomir_dropping_methods(tmp_path, mirbase):
@@ -273,13 +269,12 @@ def test_metrics_on_perfect_spilling_and_isomir_dropping_methods(tmp_path, mirba
     common = [(m, s, '', i, c) for m, table in (('perfect', perfect), ('spill', spill), ('canonical', canonical)) for (s, i), c in table.items()]
     common.append(('perfect', 'M1', 'unknown-name', '', 3.0))
     ev = gm.Evaluation(common, T, S, M, ['perfect', 'spill', 'canonical'])
-    p = ev.mixed_metrics('perfect', ev.units, ev.pairs, ev.de_units, ev.dev_units)
+    p = ev.mixed_metrics('perfect', ev.units, ev.pairs, ev.dev_units)
     assert p['recovered'] == 1 and p['precision'] == 1 and p['exact'] == 1 and p['near_spill'] == 0 and p['misassigned'] == 0
-    assert p['de_sensitivity'] == ev.mixed_metrics('truth', ev.units, ev.pairs, ev.de_units, ev.dev_units)['de_sensitivity']
     assert 0 < ev.unplaced_share('perfect') < 0.01
-    s = ev.mixed_metrics('spill', ev.units, ev.pairs, ev.de_units, ev.dev_units)
+    s = ev.mixed_metrics('spill', ev.units, ev.pairs, ev.dev_units)
     assert 0.1 < s['near_spill'] < 0.3 and s['precision'] < 1
-    c = ev.mixed_metrics('canonical', ev.units, ev.pairs, ev.de_units, ev.dev_units)
+    c = ev.mixed_metrics('canonical', ev.units, ev.pairs, ev.dev_units)
     assert c['recovered'] < 0.9 and c['precision'] == 1
     probes = ev.probes('canonical')
     assert all(v[0] == 0 for k, v in probes.items() if k != 'errors') and probes['errors'][0] == 0
@@ -292,28 +287,6 @@ def test_metrics_on_perfect_spilling_and_isomir_dropping_methods(tmp_path, mirba
     assert math.isnan(gm.Evaluation(flat, T, S, M, ['flat']).structure('flat')[2])
 
 
-def test_spill_onto_an_absent_relative_of_a_de_mirna_is_a_false_call(tmp_path, mirbase):
-    # each row tests the miRNAs passing the count filter in its own counts, as an analysis would: a method that puts a
-    # share of a DE miRNA's reads on an absent relative tests that relative, finds the same fold change and calls it
-    files, _ = mirbase
-    truth, samples, mirnas, _ = generate(tmp_path, files)
-    T, S, M = tables(truth, samples, mirnas)
-    perfect = collections.defaultdict(float)
-    for r in T:
-        if r['mature_id']:
-            perfect[(r['sample'], r['mature_id'])] += r['count']
-    common = [('perfect', s, '', i, c) for (s, i), c in perfect.items()]
-    ev0 = gm.Evaluation(common, T, S, M, ['perfect'])
-    source = next(i for i, v in sorted(ev0.de['truth'].items()) if v[0] and i in ev0.true_de)
-    shadow = 'MIMAT0000001'   # a miRNA absent from the truth
-    common += [('shadow', s, '', i, c) for (s, i), c in perfect.items()]
-    common += [('shadow', s, '', shadow, 0.5 * c) for (s, i), c in perfect.items() if i == source]
-    ev = gm.Evaluation(common, T, S, M, ['perfect', 'shadow'])
-    assert shadow in ev.de_units and shadow not in ev.de['truth'] and ev.de['shadow'][shadow][0]
-    p, s = (ev.mixed_metrics(name, ev.units, ev.pairs, ev.de_units, ev.dev_units) for name in ('perfect', 'shadow'))
-    assert s['de_tested'] == p['de_tested'] + 1 and s['de_fdr'] > p['de_fdr'] and s['de_sensitivity'] == p['de_sensitivity']
-    calls = {c[0]: c for c in ev.false_calls('shadow')}
-    assert set(calls) == {c[0] for c in ev.false_calls('perfect')} | {shadow} and calls[shadow][1] == 0 and calls[shadow][2] > 0
 
 
 def test_loader_and_fill_for_genome_mode(tmp_path):
@@ -479,10 +452,14 @@ def test_differential_expression_uses_the_pools_tests_in_genome_mode(tmp_path):
     assert result.returncode == 0, result.stderr
     samples = {row['sample']: row for row in benchmark.read_tsv(bench / 'samples.tsv') if row['kind'] == 'mixed'}
     mirnas = {row['mature_id']: row for row in benchmark.read_tsv(bench / 'mirnas.tsv')}
-    assert (bench / 'de/levels.tsv').read_text() == 'column\tlevel\nadjusted\tnuisance\narm\tfixed\narm\ttmm\narm\trle\narm\ttmmwsp\n'  # #453, #527: the arms
-    assert (bench / 'de/arm/tmm/input/model.tsv').read_text() == de.model_text('case', 'control', (), 10, 'tmm')
-    assert (bench / 'de/input/model.tsv').read_text() == de.model_text('case', 'control', (), 10)
-    assert (bench / 'de/adjusted/nuisance/input/model.tsv').read_text() == de.model_text('case', 'control', ['nuisance'], 10)
+    assert (bench / 'de/levels.tsv').read_text() == 'column\tlevel\nadjusted\tnuisance\narm\tworkflow\narm\tfixed\narm\ttmm\narm\trle\n'  # #453, #527: the arms beside the preset
+    assert (bench / 'de/arm/tmm/input/model.tsv').read_text() == de.model_text('case', 'control', (), 0, 'tmm', de.PRESET_MIN_COUNT)
+    # the `fixed` arm filters on the workflow's library sizes, so every arm tests the same features (#531 review)
+    assert (bench / 'de/arm/fixed/input' / de.FILTER_SIZES).read_text() == (bench / 'de/input/library_sizes.tsv').read_text()
+    assert (bench / 'de/arm/fixed/input/library_sizes.tsv').read_text() != (bench / 'de/input/library_sizes.tsv').read_text()
+    assert not any((bench / 'de' / f / 'input' / de.FILTER_SIZES).exists() for f in ('', 'arm/tmm', 'arm/workflow', 'adjusted/nuisance'))
+    assert (bench / 'de/input/model.tsv').read_text() == de.model_text('case', 'control', (), 0, de.PRESET, de.PRESET_MIN_COUNT)
+    assert (bench / 'de/adjusted/nuisance/input/model.tsv').read_text() == de.model_text('case', 'control', ['nuisance'], 0, de.PRESET, de.PRESET_MIN_COUNT)
     design = (bench / 'de/input/design.tsv').read_text().splitlines()
     assert design[0] == 'sample\tgroup' and design[1:] == ['{}\t{}'.format(s, row['group']) for s, row in samples.items()]  # no probe sample
     adjusted = (bench / 'de/adjusted/nuisance/input/design.tsv').read_text().splitlines()
@@ -506,7 +483,7 @@ def test_differential_expression_uses_the_pools_tests_in_genome_mode(tmp_path):
     def outputs(folder, formula):
         """de.smk's outputs for a set: every row calls the miRNAs designed to change, at their designed fold change."""
         base = bench / 'de' / folder
-        texts = {name: (base / 'input' / name).read_text() for name in de.INPUTS}
+        texts = {name: (base / 'input' / name).read_text() for name in de.INPUTS + (de.FILTER_SIZES,) if (base / 'input' / name).is_file()}
         features = list(by_row['truth'])
         fit = lambda i: (float(mirnas[i]['log2fc']), 0.001, 0.01) if mirnas.get(i, {}).get('de') == '1' else (0.05, 0.5, 0.9)
         table = '\n'.join(['\t'.join(de.RESULT_HEADER)] + ['\t'.join([row, test, i] + [str(v) for v in fit(i)])
@@ -515,6 +492,10 @@ def test_differential_expression_uses_the_pools_tests_in_genome_mode(tmp_path):
         record = {'md5_' + Path(name).stem: de.md5(text) for name, text in texts.items()}
         record.update(md5_script=de.md5(de.SCRIPT.read_bytes()), md5_results=de.md5(table), R='R version 4.5.3', edgeR='4.10.7',
                       limma='3.68.5', formula=formula, min_mean='10', edger='exact test', edger_glm='GLM test', voom='voom')
+        fields = dict(line.split('\t', 1) for line in texts['model.tsv'].splitlines()[1:])   # as de.R records the model's settings
+        record.update(normalisation='{} factors (calcNormFactors) on the library sizes'.format(de.NORMALISATIONS[fields['normalisation']])
+                      if 'normalisation' in fields else 'none: the library sizes as given',
+                      filter='filterByExpr(design = model, min.count = {}) on the library sizes'.format(fields['min_count']) if 'filter' in fields else 'none')
         (base / 'record.tsv').write_text('field\tvalue\n' + ''.join('{}\t{}\n'.format(k, v) for k, v in record.items()))
 
     outputs('', '~group')
@@ -522,8 +503,8 @@ def test_differential_expression_uses_the_pools_tests_in_genome_mode(tmp_path):
     assert result.returncode != 0 and 'no adjusted/nuisance/results.tsv or adjusted/nuisance/record.tsv' in result.stderr
     outputs('adjusted/nuisance', '~nuisance + group')
     result = evaluate('--de')
-    assert result.returncode != 0 and 'no arm/fixed/results.tsv or arm/fixed/record.tsv' in result.stderr
-    for arm in de.ARMS:
+    assert result.returncode != 0 and 'no arm/workflow/results.tsv or arm/workflow/record.tsv' in result.stderr
+    for arm in de.PRESET_ARMS:
         outputs('arm/' + arm, '~group')
     result = evaluate('--de')
     assert result.returncode == 0, result.stderr
@@ -533,7 +514,7 @@ def test_differential_expression_uses_the_pools_tests_in_genome_mode(tmp_path):
         assert table[test + '_called'] == table[test + '_called.adjusted'] == ['1.0', '1.0']  # every designed 4-fold change, in its direction
         assert table[test + '_false_calls'] == table[test + '_fdr'] == ['0.0', '0.0'] and table[test + '_offset'] == ['0.05', '0.05']
         assert table[test + '_discordant_vs_truth'] == table[test + '_fc_error_vs_truth.adjusted'] == ['', '0.0']  # nothing for the truth
-    assert table['de_sensitivity'] and table['recovered'] == ['1.0', '1.0']  # the built-in check and the count metrics stay
+    assert 'de_sensitivity' not in table and table['recovered'] == ['1.0', '1.0']  # the built-in check retired (#527); the count metrics stay
     ci = (bench / 'metrics_ci.tsv').read_text().splitlines()
     assert [line for line in ci if not line.startswith(('edger_', 'voom_'))] == plain_ci  # the existing intervals are unchanged
     assert any(line.startswith('voom_called.adjusted\ttinyrna\t1.0\t') for line in ci)
@@ -542,14 +523,14 @@ def test_differential_expression_uses_the_pools_tests_in_genome_mode(tmp_path):
     assert '| edger_called | 1.0 | 1.0 |' in main and '.adjusted |' not in main  # the adjusted set has its own table
     assert 'The case samples against the control samples over' in report and '| 4× |' in report and '| 1× |' in report
     assert '### Adjusted for the nuisance factor' in report and '| adjusted | called | 1.0 | 1.0 |' in report
-    assert 'adjusted: 3 case and 3 control samples, design `~nuisance + group` (edgeR 4.10.7, limma 3.68.5); `de/adjusted/nuisance/results.tsv`' in report
+    assert 'adjusted: 3 case and 3 control samples, design `~nuisance + group`, TMMwsp factors (edgeR 4.10.7, limma 3.68.5); `de/adjusted/nuisance/results.tsv`' in report
     assert 'share of its miRNAs with reads that have a fractional count: tinyrna 0.0.' in report
     assert '.adjusted' not in report.split('## Uncertainty')[1] and '.fixed' not in report.split('## Uncertainty')[1]
     assert '### Normalisation arms' in report and '| tmm | called | 1.0 | 1.0 |' in report and table['edger_offset.fixed'] == ['0.05', '0.05']
     out = tmp_path / 'summary.md'
     result = subprocess.run(cmd + ['summary', '--projects', str(project), '--output', str(out)], capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stderr
-    assert 'edger_called: tinyrna' in out.read_text()
+    assert 'voom_called: tinyrna' in out.read_text()   # the preset's test in the summary (#527)
 
 
 # Decoys from other RNA classes (#412 PR 2)

@@ -81,7 +81,7 @@ def interval_panels(projects):
         panels.append((p, 'within_2fold', 'Equal-amount pool, {}'.format(kit),
                        'Share of the pool\'s miRNAs whose count is within\n2-fold of the exact-match count of the same reads\n'
                        '(1 = every miRNA counted right)' if i == 0 else 'The same measure for the {}\nlibrary'.format(kit)))
-    synthetic = [p for p in projects if p.kind == 'synthetic' and p.genome and p.value('de_sensitivity', 'truth')]
+    synthetic = [p for p in projects if p.kind == 'synthetic' and p.genome and p.designed and p.has('recovered')]
     shown = [p for p in synthetic if has_interval(p, 'recovered')]
     if shown:
         draws = {}

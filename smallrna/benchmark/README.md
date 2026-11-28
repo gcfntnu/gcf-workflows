@@ -157,13 +157,21 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    column `feature` in the counts and results), so a project evaluated earlier needs `evaluate` once more before
    `de.smk`. The DE files are not listed in `evaluation.json`; the report gives each set's results SHA-256.
 
+   **The preset** (#527) for the genome-wide synthetic and the biological datasets: limma-voom is the main test, on
+   edgeR's TMMwsp normalisation factors (`calcNormFactors(method = "TMMwsp")`) of the workflow's library sizes (all the
+   miRNA reads a method reported), over the features edgeR's `filterByExpr(design = ...)` keeps on each row's own counts
+   and the set's design (`min.count` 10: a CPM cutoff of 10 reads at the median library size). edgeR's exact and GLM
+   tests run on the same features and factors. The ratiometric pools and a mixture's contrasts keep the workflow's library
+   sizes without factors (most of their features change by design, which every factor normalisation assumes they do
+   not). The summary and the overview use the preset's limma-voom.
+
    What a declaration's `de:` takes:
 
    | Dataset | `de:` | Contrast | Rows test |
    |---|---|---|---|
    | ratiometric pool | `covariates`, `within` | pool A against pool B | every scored sequence with reads |
-   | genome-wide synthetic | nothing (`de: {}`) | the group the designed fold changes raise against the other | miRNAs with at least 10 reads on average |
-   | biological | `contrast: [numerator, denominator]`, `covariates`, `within`, `null` (#449) | two of the samples' groups; samples of other groups are left out | miRNAs with at least 10 reads on average |
+   | genome-wide synthetic | nothing (`de: {}`) | the group the designed fold changes raise against the other | the miRNAs edgeR's `filterByExpr` keeps (the preset, #527) |
+   | biological | `contrast: [numerator, denominator]`, `covariates`, `within`, `null` (#449) | two of the samples' groups; samples of other groups are left out | the miRNAs edgeR's `filterByExpr` keeps (the preset, #527) |
    | mixture | nothing (`de: {}`) | the pure samples against each other, and each pair of the mixtures' fractions, the higher against the lower; each paired by subject | miRNAs with at least 10 reads on average |
 
    A covariate is any field of the declaration's runs (pools) or samples (biological), e.g. `lab`, `patient` or
@@ -196,9 +204,9 @@ It is not run in CI; its own code is tested in `smallrna/.tests/test_benchmark.p
    and note are in plain words for readers who do not know these metrics' names. Columns, each
    from the projects that declare and hold its metric (settings variants left out; a column without one is omitted):
    the genome-wide synthetic sets with designed changes (`recovered`, `precision`, `exact`, DE sensitivity over the
-   same test on the true counts; averaged), the equimolar pools' `within_2fold` and the ratiometric pools'
+   same test on the true counts, the preset's limma-voom; averaged), the equimolar pools' `within_2fold` and the ratiometric pools'
    `median_abs_error` over the oracle's, per kit; the mixture's `linearity_error` and `within_1_5fold`; the knockouts'
-   `knockout_surviving_unexpected`; the null comparisons' `edger_null_p05` above 0.05; the decoy probes'
+   `knockout_surviving_unexpected`; the null comparisons' `voom_null_p05` (the preset) above 0.05; the decoy probes'
    `decoy_as_mirna` and the mean share in the right class over the decoy sources whose class a route reports; and, not
    binned, the runtime per sample and peak memory of the biological project with the most samples. There is no
    overall score.
@@ -678,25 +686,19 @@ the best the design allows) as a column:
   and reads on absent miRNAs lower it), `exact`, `misassigned` and `unplaced` (shares of the observed reads),
   `near_spill` (reads above the truth on near-identical partners, relative to the high member's truth) and
   `deviation_correlation` (each miRNA's log counts around its mean, observed against truth).
-- **Differential expression** (#447; `de: {}` and `evaluate --de`): the tests of the ratiometric pools (Pools below)
-  on the mixed samples, so the two datasets can be compared. The group the designed fold changes raise is tested
-  against the other, with the workflow's library sizes (all the miRNA reads a method reported; the truth: its miRNA
-  reads). Each row tests the miRNAs with at least 10 reads on average in its own counts, as an analysis of them would,
-  so reads spilled onto a relative of a changing miRNA can make a false call. The scored miRNAs are those designed to
+- **Differential expression** (#447; `de: {}` and `evaluate --de`): the preset (#527, above) on the mixed samples. The
+  group the designed fold changes raise is tested against the other, on the workflow's library sizes (all the miRNA
+  reads a method reported; the truth: its miRNA reads) with TMMwsp factors. Each row tests the miRNAs `filterByExpr`
+  keeps on its own counts, as an analysis of them would, so reads spilled onto a relative of a changing miRNA can make
+  a false call. The scored miRNAs are those designed to
   change with at least 10 truth reads on average, and every other miRNA of the truth or reported by a method that is
   designed not to change. The metrics are the pools', with the same prefixes: `called`, `false_calls`, `fdr`,
   `fc_bias` and `offset` against the designed changes, and against the truth's fits `own_false_calls`,
   `discordant_vs_truth`, `fc_shift_vs_truth` and `fc_error_vs_truth`. A second set adds the nuisance factor's true
   sample scores as a covariate of the GLM test and voom; its metrics end in `.adjusted` (the exact test takes no
-  covariates, so its values there equal the unadjusted ones). The report gives the share called per designed fold
+  covariates, but `filterByExpr` uses the set's full design, so its features and factors, and so its values, can differ
+  from the unadjusted ones). The report gives the share called per designed fold
   change, and the share of each method's miRNAs whose fractional counts were rounded for the tests.
-- **Differential expression, the built-in check** (`de_*`, without a container): median-of-ratios size factors,
-  log2(normalised + 1), a linear model per miRNA with the group (and, `_adjusted`, the true nuisance scores), a
-  moderated t (the residual variance shrunk towards the median, 4 prior degrees of freedom), Benjamini-Hochberg at 5%,
-  on the miRNAs with at least 10 reads on average in a row's own counts (`de_tested`). Reported as `de_sensitivity`,
-  `de_fdr` (calls on any miRNA not designed DE, absent ones included; the report lists them) and `de_fc_error` (median
-  |observed - true log2 fold change| of the true DE miRNAs). It differs from the tests above in normalisation, model
-  and scoring, so compare methods within it, not its values with the pools'.
 - **Structure:** `structure_group_r2` and `structure_nuisance_r2` (each true factor regressed on the top two principal
   components) and `coexpression` (agreement of the miRNA-miRNA correlations).
 - **Probe samples:** `probe_<class>`, the recovery of each read class, control subtracted. A generated read can still be
@@ -783,20 +785,25 @@ miRNA), `exact` (share of miRNAs counted exactly, to within 1e-6 for the fractio
   design residual degrees of freedom. The report gives the share called per designed fold change and the tools'
   versions and settings; `de/de.log` has each row's two common dispersions.
 
-  **Normalisation arms** (#453, #527): the whole design is tested again in four other normalisations, for the pools and
-  the genome-wide synthetic set, and the report's Normalisation arms section shows them beside the workflow's:
+  **Normalisation arms** (#453, #527): the whole design is tested again in other normalisations, for the pools and the
+  genome-wide synthetic set, and the report's Normalisation arms section shows them beside the main result (the pools:
+  the workflow's library sizes; the synthetic set: the preset). The synthetic set's arms are `workflow` (the library
+  sizes without factors), `fixed`, `tmm` and `rle`, on the preset's filtered features, so only the normalisation
+  changes; the pools' are `fixed`, `tmm`, `rle` and `tmmwsp`:
   - `fixed` (folder `de/arm/fixed`, metrics `.fixed`): every row's library size is the sample's filtered reads, the
     cutadapt route's kept reads, the same for every method, so what a method counts as miRNA no longer changes it;
   - `tmm` (folder `de/arm/tmm`, metrics `.tmm`): edgeR's TMM factors (`calcNormFactors`) on the workflow's library
     sizes, for all three tests (voom on the normalised sizes);
   - `rle` and `tmmwsp` (#527; folders `de/arm/rle`, `de/arm/tmmwsp`, metrics `.rle`, `.tmmwsp`): the same with edgeR's
     RLE factors (DESeq2's median of ratios) and TMMwsp factors (TMM with singleton pairing, for counts with many zeros).
-  The depth-imbalance stress test (`imbalance`, #488) keeps `workflow`, `fixed` and `tmm`: every arm multiplies its fits.
+  The depth-imbalance stress test (`imbalance`, #488) runs `workflow`, `fixed` and `tmmwsp` unless `--arms` says otherwise:
+  every arm multiplies its fits.
   `false_calls_against` (all DE sets, #453): the share of the unchanged features called in the direction opposite to
   the known changes, when at least two thirds of them go one way (empty otherwise, as in the pools and the balanced
   synthetic set).
-  The main metrics stay the workflow's. An `offset` that differs between the arms is the normalisation's, not the
-  method's. Biological datasets have no arms: no change is known to score them against. The `fixed` arm reads the
+  An `offset` that differs between the arms is the normalisation's, not the method's. Biological datasets have no arms
+  in `evaluate` (no change is known to score them against); `imbalance --ratios none --arms ...` scores every arm on
+  their null comparisons. The `fixed` arm reads the
   cutadapt route's reports (the kits' default), so `evaluate` of a pool or synthetic project that declares `de:` on
   another filter route stops and names the missing reports. On the pools `false_calls` is a share of their 25 1:1
   sequences and, with dispersions near 0.002, follows the offset, so read the arms by their `offset`.
@@ -825,8 +832,8 @@ miRNA), `exact` (share of miRNAs counted exactly, to within 1e-6 for the fractio
 **Biological samples** (`biological.py`; detected = at least 10 reads in a sample; CPM relative to each method's
 miRNA reads):
 
-- **Differential expression** (#447; `de:` and `evaluate --de`): the pools' tests between two groups of samples, each
-  method on the miRNAs with at least 10 reads on average in its own counts, identical sequences as one. The report
+- **Differential expression** (#447; `de:` and `evaluate --de`): the preset (#527) between two groups of samples, each
+  method on the miRNAs `filterByExpr` keeps on its own counts and the set's design, identical sequences as one. The report
   gives what each method tests and calls up and down per test. No change is known, so nothing is scored and
   `metrics.tsv` gets no DE metrics.
 

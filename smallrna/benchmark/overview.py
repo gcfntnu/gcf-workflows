@@ -16,6 +16,7 @@ from pathlib import Path
 import yaml
 
 import classes
+import de
 import evaluation
 import resources
 
@@ -72,6 +73,9 @@ class Project:
         self.pool = self.spec.get('pool')
         self.kit = self.spec.get('libprepkit', '')
         self.genome = (self.spec.get('synthetic') or {}).get('mode') == 'genome'
+        # a synthetic set with designed changes: not a null scenario (#453), whose structure.group.fraction is 0
+        self.designed = (((self.spec.get('synthetic') or {}).get('structure') or {}).get('group') or {}).get('fraction', 1) != 0
+        self.preset = de.analysis(bench) == 'preset'  # DE metrics from #527's preset, not an earlier analysis (#531 review)
         self.variant = bool(self.spec.get('variant'))
         self.seed = self.record.get('synthetic_seed', (self.spec.get('synthetic') or {}).get('seed'))
         samples = bench / 'samples.tsv'
@@ -156,13 +160,16 @@ def columns(projects):
     """[(group, label, direction, good, poor, format, {route: value}-getter, projects used)] for the projects at hand."""
     usable = [p for p in projects if not p.variant]
     out = []
-    synthetic = [p for p in usable if p.kind == 'synthetic' and p.genome and p.value('de_sensitivity', 'truth')]
+    synthetic = [p for p in usable if p.kind == 'synthetic' and p.genome and p.designed and p.has('recovered')]
     if synthetic:
         group = 'Synthetic ({} sets)'.format(len(synthetic))
         out += [(group, 'reads on the right miRNA', UP, 0.97, 0.90, '{:.3f}', mean_metric(synthetic, 'recovered'), synthetic),
                 (group, 'counted reads that are right', UP, 0.99, 0.98, '{:.3f}', mean_metric(synthetic, 'precision'), synthetic),
                 (group, 'counts exactly right', UP, 0.5, 0.2, '{:.2f}', mean_metric(synthetic, 'exact'), synthetic),
-                (group, 'real changes found vs truth', UP, 0.95, 0.85, '{:.2f}', mean_metric(synthetic, 'de_sensitivity', True), synthetic)]
+                ]
+        called = [p for p in synthetic if p.preset and p.value('voom_called', 'truth')]   # the preset's test (#527), a usable truth
+        if called:
+            out.append((group, 'real changes found vs truth', UP, 0.95, 0.85, '{:.2f}', mean_metric(called, 'voom_called', True), called))
     for pool, metric, label, direction, good, poor, fmt, relative in (
             ('equimolar', 'within_2fold', 'within 2-fold', UP, 0.95, 0.80, '{:.2f}', False),
             ('ratiometric', 'median_abs_error', 'ratio error vs exact match', DOWN, 1.05, 1.20, '{:.2f}', True)):
@@ -181,9 +188,9 @@ def columns(projects):
     knockouts = [p for p in usable if p.kind == 'biological' and p.has('knockout_surviving_unexpected')]
     if knockouts:
         out.append(('Knockout', 'knocked-out miRNAs counted', DOWN, 35, 80, '{:.0f}', mean_metric(knockouts, 'knockout_surviving_unexpected'), knockouts))
-    nulls = [p for p in usable if p.kind == 'biological' and not p.lanes and p.has('edger_null_p05')]
-    if nulls:
-        get = (lambda ps: lambda routes: {r: (lambda v: None if v is None else max(0.0, v - NULL_LEVEL))(mean(p.value('edger_null_p05', r) for p in ps))
+    nulls = [p for p in usable if p.kind == 'biological' and not p.lanes and p.preset and p.has('voom_null_p05')]
+    if nulls:  # the preset's test (#527): limma-voom, TMMwsp factors, filterByExpr
+        get = (lambda ps: lambda routes: {r: (lambda v: None if v is None else max(0.0, v - NULL_LEVEL))(mean(p.value('voom_null_p05', r) for p in ps))
                                           for r in routes})(nulls)
         out.append(('No change', 'false changes above 5%', DOWN, 0.01, 0.03, '{:.3f}', get, nulls))
     decoy = [p for p in usable if p.kind == 'synthetic' and p.has('decoy_as_mirna')]
@@ -234,7 +241,7 @@ NOTE = ('One row per route, one column per criterion; ↑ higher is better, ↓ 
         'mixed in equal amounts or at set ratios; the reads that exactly match a pool sequence are the reference a route should '
         'reproduce, and the ratio error is divided by that reference\'s own. Mixture: two tissues mixed at known proportions. '
         'Knockout: miRNAs counted in cells where they were knocked out. No change: samples of one group split in two halves, '
-        'where only about 5% of miRNAs should pass p < 0.05 by chance; only the share above 5% counts (edgeR\'s exact test). '
+        'where only about 5% of miRNAs should pass p < 0.05 by chance; only the share above 5% counts (the preset\'s limma-voom, #527). '
         'Other RNA: reads from known non-miRNA RNAs added to the synthetic data; right RNA type over the types a route reports. '
         'Cost is not binned. There is no overall score.')
 

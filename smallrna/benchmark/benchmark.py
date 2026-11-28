@@ -297,7 +297,7 @@ def check_de(spec, path):
              '`_` or `-` (it names a folder and metrics), with at least two different ones'.format(path, within, unit))
     if len({value.lower() for value in values}) != len(set(values)):
         fail('{}: de.within {}: values that differ only in case would share a folder: {}'.format(path, within, ', '.join(sorted(set(values)))))
-    taken = sorted({v for v in values if v.lower() in de.ARMS})
+    taken = sorted({v for v in values if v.lower() in de.ARMS})   # the arms a pool generates; biological sets have none
     if taken:  # a level's metrics carry `.<level>`, a normalisation arm's `.<arm>` (#453, #527)
         fail('{}: de.within {}: {} also names a normalisation arm ({}), whose metrics would share its suffix'.format(
             path, within, ', '.join(taken), ', '.join(de.ARMS)))
@@ -1460,7 +1460,8 @@ def evaluate_pool(args, project, bench, spec, ext_dir):
             de_ids = [feature for feature, _ in de_features]
             de_way = de.direction(de_features)  # the full design's, for every bootstrap draw (#453)
             set_sizes = filtered_sizes(project, sets, rows, sizes)
-            de_texts = {s.folder: de.input_tables(count, rows, de_ids, s.design, set_sizes[s.folder], s.model) for s in sets}
+            de_texts = {s.folder: de.input_tables(count, rows, de_ids, s.design, set_sizes[s.folder], s.model,
+                                                  sizes if s.arm == 'fixed' else None) for s in sets}
             de_results, de_reports = differential_expression(args, bench, sets, de_texts, rows, de_ids)
         if de_results:
             for suffix, results in de_results.items():
@@ -1574,19 +1575,26 @@ def de_sets(spec, units):
       other than `within`;
     - for the synthetic dataset, the one with the true nuisance scores as a numeric covariate (suffix `.adjusted`,
       folder `adjusted/nuisance`);
-    - for pools and the synthetic dataset, the whole design again in each normalisation arm (#453, de.ARMS: suffix
-      `.<arm>`, folder `arm/<arm>`; `fixed` gets the samples' filtered reads as library sizes from the caller, the
-      factor arms (de.NORMALISATIONS: `tmm`, `rle`, `tmmwsp`, #527) a model with `normalisation: <arm>`).
-    design: [(sample, group, {covariate: value})]; model: de.model_text, with the least mean count a row tests (none for
-    a pool's designed sequences; the synthetic and biological datasets' detection thresholds); samples: the set's
+    - for pools and the synthetic dataset, the whole design again in each normalisation arm (#453: suffix `.<arm>`,
+      folder `arm/<arm>`; `fixed` gets the samples' filtered reads as library sizes from the caller, the factor arms
+      (de.NORMALISATIONS) a model with `normalisation: <arm>`, `workflow` none): a pool's de.ARMS, the synthetic
+      dataset's de.PRESET_ARMS.
+    design: [(sample, group, {covariate: value})]; model: de.model_text. The synthetic and biological datasets' sets
+    use #527's preset (de.PRESET factors, filterByExpr with de.PRESET_MIN_COUNT; their arms change only the
+    normalisation); a pool's sets test every designed sequence on the workflow's library sizes; samples: the set's
     samples per group, for the report."""
     kind = de_kind(spec)
     declared = spec['de'] or {}
-    min_mean = {'pool': 0, 'synthetic': genome_metrics.DE_MIN, 'biological': biological.MIN_READS}[kind]
+    preset = kind in ('synthetic', 'biological')
+
+    def model(numerator, denominator, numeric=(), arm=None):
+        """The set's model.tsv: the preset's normalisation, or the arm's (`workflow` and `fixed`: none)."""
+        normalisation = arm if arm in de.NORMALISATIONS else de.PRESET if preset and arm is None else None
+        return de.model_text(numerator, denominator, numeric, 0, normalisation, de.PRESET_MIN_COUNT if preset else None)
     covariates = list(declared.get('covariates') or [])
     within = declared.get('within')
-    nulls = null_sets(declared['null'], units, covariates, covariates + ([within] if within and within not in covariates else []), min_mean) \
-        if kind == 'biological' and 'null' in declared else []
+    nulls = null_sets(declared['null'], units, covariates, covariates + ([within] if within and within not in covariates else []),
+                      model('x', 'y')) if kind == 'biological' and 'null' in declared else []
     contrast = de_contrast(spec, units)
     if contrast is None:
         return nulls
@@ -1600,12 +1608,12 @@ def de_sets(spec, units):
                  'two in each group: prepare the project again from its declaration'.format(
                      sizes[numerator], numerator, sizes[denominator], denominator, folder or 'of the whole dataset'))
         return DeSet(suffix, folder, [(sample, group, {c: fields[c] for c in names}) for sample, group, fields in members],
-                     de.model_text(numerator, denominator, numeric, min_mean, arm if arm in de.NORMALISATIONS else None),
+                     model(numerator, denominator, numeric, arm),
                      '{} {} and {} {} {}'.format(sizes[numerator], numerator, sizes[denominator], denominator,
                                                  'runs' if kind == 'pool' else 'samples'), arm)
 
     whole = [] if kind == 'synthetic' else covariates
-    arms = [de_set('.' + arm, 'arm/' + arm, units, whole, arm=arm) for arm in de.ARMS] if kind in ('pool', 'synthetic') else []
+    arms = [de_set('.' + arm, 'arm/' + arm, units, whole, arm=arm) for arm in {'pool': de.ARMS, 'synthetic': de.PRESET_ARMS}.get(kind, ())]
     if kind == 'synthetic':
         return [de_set('', '', units, []), de_set('.adjusted', 'adjusted/nuisance', units, ['nuisance'], ['nuisance'])] + arms
     sets = [de_set('', '', units, covariates)]
@@ -1616,11 +1624,11 @@ def de_sets(spec, units):
     return sets + arms + nulls
 
 
-def null_sets(declared, units, covariates, strata, min_mean):
+def null_sets(declared, units, covariates, strata, model):
     """The DE sets of a biological dataset's null comparisons (#449): each split of de.null_splits, within a group of
     `units`, balanced on the `strata` columns (the covariates and `within`), as pseudo-groups x and y with the
-    covariates that vary in the group; suffix `.null.<group>-<k>`, folder `null/<group>-<k>` (de.folder_name), k from 1,
-    zero-padded."""
+    covariates that vary in the group, tested with `model` (x against y); suffix `.null.<group>-<k>`, folder
+    `null/<group>-<k>` (de.folder_name), k from 1, zero-padded."""
     splits = de.null_splits(units, declared['splits'], declared['seed'], strata)
     names = {group: de.folder_name(group) for group in splits}
     if len(set(names.values())) != len(names):
@@ -1634,7 +1642,7 @@ def null_sets(declared, units, covariates, strata, min_mean):
         for k, (x, y) in enumerate(halves, 1):
             design = [(s, 'x' if s in x else 'y', {c: fields[s][c] for c in names_used}) for s, _, _ in in_group]
             level = '{}-{}'.format(names[group], str(k).zfill(width))
-            sets.append(DeSet('.null.' + level, '{}/{}'.format(de.NULL, level), design, de.model_text('x', 'y', (), min_mean),
+            sets.append(DeSet('.null.' + level, '{}/{}'.format(de.NULL, level), design, model,
                               '{} x and {} y samples of {}'.format(len(x), len(y), group)))
     return sets
 
@@ -1713,11 +1721,12 @@ def biological_de_texts(sets, methods, common, features, sizes=None):
     sample): size}) replaces them (the `fixed` arm of #488)."""
     by = biological.counts_by(common)
     count = lambda row, sample, feature: by.get((row, sample), {}).get(feature, 0.0)
-    if sizes is None:
-        sizes = collections.Counter()
-        for method, sample, _, _, value in common:
-            sizes[(method, sample)] += float(value)
-    return count, {s.folder: de.input_tables(count, methods, features[s.folder], s.design, sizes, s.model) for s in sets}
+    workflow = collections.Counter()
+    for method, sample, _, _, value in common:
+        workflow[(method, sample)] += float(value)
+    # with other sizes (the `fixed` arm), the filter keeps the workflow's, so every arm tests the same features (#531 review)
+    return count, {s.folder: de.input_tables(count, methods, features[s.folder], s.design, workflow if sizes is None else sizes,
+                                             s.model, None if sizes is None else workflow) for s in sets}
 
 
 def write_de_inputs(bench, texts):
@@ -1794,11 +1803,9 @@ def md_table(header, rows):
             ['| ' + ' | '.join(map(str, row)) + ' |' for row in rows])
 
 
-GENOME_KEYS = ['recovered', 'precision', 'exact', 'misassigned', 'unplaced', 'near_spill', 'deviation_correlation', 'de_tested',
-               'de_sensitivity', 'de_fdr', 'de_fc_error', 'de_sensitivity_adjusted', 'de_fdr_adjusted', 'de_fc_error_adjusted',
+GENOME_KEYS = ['recovered', 'precision', 'exact', 'misassigned', 'unplaced', 'near_spill', 'deviation_correlation',
                'structure_group_r2', 'structure_nuisance_r2', 'coexpression']
-GENOME_CI_KEYS = ['recovered', 'precision', 'exact', 'misassigned', 'near_spill', 'deviation_correlation', 'de_sensitivity', 'de_fdr',
-                  'de_fc_error', 'de_sensitivity_adjusted', 'de_fdr_adjusted', 'de_fc_error_adjusted']
+GENOME_CI_KEYS = ['recovered', 'precision', 'exact', 'misassigned', 'near_spill', 'deviation_correlation']
 
 
 def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
@@ -1821,7 +1828,7 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
     ev = genome_metrics.Evaluation(common, truth, samples, mirnas, methods)
     label = lambda i: id_to_name.get(i) or ev.mirnas.get(i, {}).get('mature_name') or i
     rows = ['truth'] + methods
-    point = {name: ev.mixed_metrics(name, ev.units, ev.pairs, ev.de_units, ev.dev_units) for name in rows}
+    point = {name: ev.mixed_metrics(name, ev.units, ev.pairs, ev.dev_units) for name in rows}
     probes = {name: ev.probes(name) for name in rows}
     classes = sorted({c for v in probes.values() for c in v})
     for name in rows:
@@ -1863,7 +1870,8 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
         sizes = {(row, sample): float(ev.t[:, k].sum()) if row == 'truth' else ev.total[(row, sample)]
                  for row in rows for sample, k in column.items()}
         set_sizes = filtered_sizes(project, sets, rows, sizes)
-        de_texts = {s.folder: de.input_tables(count, rows, ev.units, s.design, set_sizes[s.folder], s.model) for s in sets}
+        de_texts = {s.folder: de.input_tables(count, rows, ev.units, s.design, set_sizes[s.folder], s.model,
+                                              sizes if s.arm == 'fixed' else None) for s in sets}
         de_results, de_reports = differential_expression(args, bench, sets, de_texts, rows, ev.units)
     if de_results:
         de_features = ev.de_features()
@@ -1875,7 +1883,7 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
         numerator, denominator = de_contrast(spec, units)
         changed = sum(1 for _, d in de_features if d)
         intro = de.SYNTHETIC_INTRO.format(numerator=numerator, denominator=denominator, features=len(de_features), changed=changed,
-                                          min_mean=genome_metrics.DE_MIN, fdr=de.FDR)
+                                          min_mean=genome_metrics.DE_MIN, min_count=de.PRESET_MIN_COUNT, fdr=de.FDR)
         if not any(m.get('de') == '1' for m in ev.mirnas.values()):  # a null scenario (#453): the design, not only the scored
             intro += (' No miRNA is designed to change here, so every call is false: the false-call rate under the generator\'s '
                       'variance alone, not the workflow\'s on real samples (for that, the null comparisons of biological datasets, #449).')
@@ -1883,14 +1891,15 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
         de_lines += ['', rounding_line(count, methods, ev.units, ev.mixed, 'miRNAs')]
         de_lines += de.set_lines(
             'Adjusted for the nuisance factor',
-            'The same samples with the nuisance factor\'s true sample scores as a covariate of the GLM test and voom (the exact test '
-            'takes no covariates, so its values equal those above), scored as above. In metrics.tsv the metrics carry `.adjusted`, '
+            'The same samples with the nuisance factor\'s true sample scores as a covariate of the GLM test and voom, scored as above. '
+            'The exact test takes no covariates, but the filter uses the set\'s full design (#527), so it can test other miRNAs, '
+            'with other TMMwsp factors, than above. In metrics.tsv the metrics carry `.adjusted`, '
             'e.g. `voom_called.adjusted`; their intervals and the differences between methods are in metrics_ci.tsv and '
             'differences.tsv, not in the uncertainty section below. The metrics against the truth are empty for the truth.',
             'set', [(s.suffix[1:], s.folder, de_reports[s.suffix][2], de_reports[s.suffix][1], de_reports[s.suffix][0])
                     for s in sets if s.suffix and s.arm is None], point, rows, 'truth')
         de_lines += de.arm_lines([(s.suffix[1:], s.folder, de_reports[s.suffix][2], de_reports[s.suffix][1], de_reports[s.suffix][0])
-                                  for s in sets if s.suffix == '' or s.arm], point, rows, 'truth')
+                                  for s in sets if s.suffix == '' or s.arm], point, rows, 'truth', preset=True)
     table_keys = keys + de.metric_keys(reference='truth') if de_results else keys  # the report's table: other sets have their section
     keys = keys + de_keys
     rnd = lambda v: round(v, 4) if isinstance(v, float) and not math.isnan(v) else ('' if isinstance(v, float) else v)
@@ -1913,12 +1922,11 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
              'or overlap metrics here. The mixed samples\' reads are the ones the same seed gives with the probe samples; a route '
              'that applies a rule over the whole project (miRge3 keeps a miRNA with two exact reads in the project) can still count '
              'a rare miRNA differently without them.', ''] if no_probes(spec) else []) + [
-             '## Metrics', '', 'Mixed samples (definitions in genome_metrics.py). DE, the built-in check (`de_*`): each row tests '
-             'the miRNAs with at least {} reads on average in its own counts, as an analysis of them would (`de_tested`); {} miRNAs '
-             'are truly DE, and a call on any other miRNA is false. {} `probe_*`: probe samples, recovery per read class.'.format(
-                 genome_metrics.DE_MIN, len(ev.true_de),
-                 'DE with the tests of the ratiometric pools (`edger_*`, `edger_glm_*`, `voom_*`): the section below.' if de_results else
-                 'DE with the tests of the ratiometric pools: run de.smk, then `evaluate --de` (#447).' if 'de' in spec else ''), '']
+             '## Metrics', '', 'Mixed samples (definitions in genome_metrics.py); {} miRNAs are truly DE (designed, with at least {} '
+             'truth reads on average). {} `probe_*`: probe samples, recovery per read class.'.format(
+                 len(ev.true_de), genome_metrics.DE_MIN,
+                 'DE (`edger_*`, `edger_glm_*`, `voom_*`): the section below.' if de_results else
+                 'DE: run de.smk, then `evaluate --de` (#447).' if 'de' in spec else ''), '']
     lines += md_table(['metric'] + rows, [row for row in metric_rows if row[0] in table_keys])
     stratum, source = mirgenedb_strata(args, groups)
     extra_strata = {s: {i for i in ev.units if stratum(i) == s} for s in mirgenedb.STRATA} if stratum else None  # #493
@@ -1983,16 +1991,10 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
             absent.append('- {}: '.format(name) + ', '.join('{} ({:.0f})'.format(label(i), v) for v, i in top if v > 0))
     if absent:
         lines += ['', '## Reads on miRNAs absent from the truth (top 5, mixed samples)', ''] + absent
-    false = [(name, ev.false_calls(name)) for name in rows]
-    if any(calls for _, calls in false):
-        lines += ['', '## False DE calls', '', 'Calls on miRNAs not designed DE: reads per mixed sample in the truth and in the '
-                  'row\'s counts, and the estimated log2 fold change.', '']
-        lines += ['- {}: '.format(name) + ', '.join('{} ({:.1f} → {:.1f} reads, {:+.2f})'.format(label(i), tm, om, est)
-                                                    for i, tm, om, est in calls) for name, calls in false if calls]
     lines += de_lines
 
-    def compute(units, pairs, de_units, dev_units, scored):
-        result = {name: ev.mixed_metrics(name, units, pairs, de_units, dev_units) for name in rows}
+    def compute(units, pairs, dev_units, scored):
+        result = {name: ev.mixed_metrics(name, units, pairs, dev_units) for name in rows}
         for name, values in isomirs.synthetic_values(iso_tallies, iso_classes, units).items():  # the isomiR table's tallies (#459)
             result[name].update(values)
         for suffix, results in (de_results or {}).items():  # the DE fits stay fixed: their scores resample the scored miRNAs
@@ -2002,11 +2004,11 @@ def evaluate_synthetic_genome(args, project, bench, spec, ext_dir):
     de_rng = random.Random(args.seed)  # its own generator: the other metrics' resamples are the same with and without --de
     extra, record, ci_lines = bootstrap(
         args, {name: {k: rnd(v) for k, v in point[name].items()} for name in rows}, compute,
-        lambda rng: (uncertainty.resample(rng, ev.units), uncertainty.resample(rng, ev.pairs), uncertainty.resample(rng, ev.de_units),
+        lambda rng: (uncertainty.resample(rng, ev.units), uncertainty.resample(rng, ev.pairs),
                      uncertainty.resample(rng, ev.dev_units), uncertainty.resample(de_rng, de_features) if de_features else []),
         rows, GENOME_CI_KEYS + isomirs.synthetic_keys(iso_classes) + de_keys,
-        'the miRNAs (each with all mixed samples), the near-identical pairs, the miRNAs any row tests '
-        'for DE and the deviation miRNAs (DE calls made once; unplaced, structure, coexpression and probes without an interval){}'.format(
+        'the miRNAs (each with all mixed samples), the near-identical pairs and the deviation miRNAs (unplaced, structure, '
+        'coexpression and probes without an interval){}'.format(
             '; the metrics of the pools\' tests resample the scored miRNAs, on the fixed fits' if de_results else ''),
         GENOME_CI_KEYS + isomirs.synthetic_keys(iso_classes) + [k for k in de_keys if k in table_keys])
     publish(project, bench, spec, ['metric'] + rows, metric_rows, lines + ci_lines, extra, record)
@@ -2466,9 +2468,9 @@ def mixture_de_texts(sets, methods, common, design, features, sizes=None):
     by = biological.counts_by(common)
     count = lambda row, sample, feature: by.get((row, sample), {}).get(feature, 0.0)
     counts = {m: mixture.Counts({s: by.get((m, s), {}) for s in design.samples}, design.samples, features) for m in methods}
-    if sizes is None:
-        sizes = {(m, sample): float(counts[m].total[counts[m].column[sample]]) for m in methods for sample in design.samples}
-    return count, counts, {s.folder: de.input_tables(count, methods, features, s.design, sizes, s.model) for s in sets}
+    workflow = {(m, sample): float(counts[m].total[counts[m].column[sample]]) for m in methods for sample in design.samples}
+    return count, counts, {s.folder: de.input_tables(count, methods, features, s.design, workflow if sizes is None else sizes, s.model,
+                                                     None if sizes is None else workflow) for s in sets}
 
 
 def mixture_expected(counts, design, between, methods, offsets=None):
@@ -2951,8 +2953,8 @@ def imbalance(args):
                 rows = [row for row in rows if fraction[row[1]] == 1] + depth_series.thin([row for row in rows if fraction[row[1]] < 1], fraction, rng)
             for arm in arms:
                 folder = imbalance_series.folder(scenario, arm, s.folder)
-                at[(s.folder, arm)] = s._replace(suffix=folder, folder=folder, model=s.model + 'normalisation\t{}\n'.format(arm)
-                                                 if arm in de.NORMALISATIONS else s.model)
+                at[(s.folder, arm)] = s._replace(suffix=folder, folder=folder,
+                                                 model=de.with_normalisation(s.model, arm if arm in de.NORMALISATIONS else None))
                 sizes = {(m, sample): kept[sample] * fraction[sample] for m in methods for sample, _ in members} if arm == 'fixed' else None
                 texts.update(kit.texts({s.folder: at[(s.folder, arm)]}, rows, sizes))
         return texts, at

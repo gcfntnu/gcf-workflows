@@ -399,7 +399,7 @@ def test_depth_de_scores_a_mixture_against_its_expected_changes(tmp_path):
     report = (out / 'depth.md').read_text()
     assert '## Between the mixtures, against the expected changes' in report and '| full | 1.00 (1.00) / 0.00 / ' in report
     assert '**The pure samples (2 100 and 2 0 samples of 2 subjects)**' in report and '**scored**' in report
-    assert "library sizes are the route's reads on miRNAs with an accession at that depth" in report
+    assert "Library sizes are the route's reads on miRNAs with an accession at that depth" in report
 
 
 def test_imbalance_scores_a_mixture_against_its_expected_changes(tmp_path):
@@ -407,7 +407,7 @@ def test_imbalance_scores_a_mixture_against_its_expected_changes(tmp_path):
     design and arm against the expected changes."""
     project = evaluated_mixture(tmp_path)
     bench, out = project / 'benchmark', tmp_path / 'imbalance'
-    command = [sys.executable, str(BENCH / 'benchmark.py'), 'imbalance', '--project', str(project), '--ratios', '2', '--output', str(out)]
+    command = [sys.executable, str(BENCH / 'benchmark.py'), 'imbalance', '--project', str(project), '--ratios', '2', '--arms', 'workflow,fixed,tmm', '--output', str(out)]
     result = subprocess.run(command, capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stderr
     folders = ['{}_{}/{}'.format(scenario, arm, name) for scenario in ('none', 'independent-2', 'tied-2') for name in FRACTION
