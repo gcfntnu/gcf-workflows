@@ -297,6 +297,10 @@ def check_de(spec, path):
              '`_` or `-` (it names a folder and metrics), with at least two different ones'.format(path, within, unit))
     if len({value.lower() for value in values}) != len(set(values)):
         fail('{}: de.within {}: values that differ only in case would share a folder: {}'.format(path, within, ', '.join(sorted(set(values)))))
+    taken = sorted({v for v in values if v.lower() in de.ARMS})
+    if taken:  # a level's metrics carry `.<level>`, a normalisation arm's `.<arm>` (#453, #527)
+        fail('{}: de.within {}: {} also names a normalisation arm ({}), whose metrics would share its suffix'.format(
+            path, within, ', '.join(taken), ', '.join(de.ARMS)))
     for level in sorted(set(values)):
         check_design([(group, fields) for group, fields in units if fields[within] == level], contrast, [c for c in covariates if c != within],
                      '{}: de.within {} {}'.format(path, within, level), unit)

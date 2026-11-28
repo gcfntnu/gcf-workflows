@@ -2292,6 +2292,30 @@ def test_de_inputs_use_the_workflow_library_sizes_and_whole_counts():
     assert de.fractional_share(count, 'm', ['S0', 'S1'], ['A1', 'B1']) == 1.0  # both sequences have a count that is rounded
 
 
+@pytest.mark.skipif(not os.environ.get('DE_RSCRIPT'), reason='DE_RSCRIPT: an Rscript with edgeR, limma and optparse (de.smk runs the sartools image)')
+def test_de_r_leaves_a_row_untested_when_rle_has_no_factors(tmp_path):
+    """RLE needs a feature with reads in every sample (#528 review): a row without one is written as NA for every test,
+    and the other rows are still fitted."""
+    samples = ['a1', 'a2', 'a3', 'b1', 'b2', 'b3']
+    rows = {'sparse': [[0, 30, 40, 35, 20, 25], [30, 0, 35, 40, 25, 20], [25, 40, 0, 30, 35, 20]],   # each feature has a zero
+            'dense': [[30, 32, 40, 80, 75, 90], [50, 45, 55, 52, 48, 50], [20, 25, 22, 24, 21, 23]]}
+    write(tmp_path / 'counts.tsv', '\t'.join(['row', 'feature'] + samples) + '\n' + ''.join(
+        '\t'.join([row, 'f{}'.format(k)] + [str(v) for v in values]) + '\n' for row, table in rows.items() for k, values in enumerate(table)))
+    write(tmp_path / 'library_sizes.tsv', '\t'.join(['row'] + samples) + '\n' + ''.join(
+        '\t'.join([row] + ['1000'] * len(samples)) + '\n' for row in rows))
+    write(tmp_path / 'design.tsv', 'sample\tgroup\n' + ''.join('{}\t{}\n'.format(s, s[0].upper()) for s in samples))
+    write(tmp_path / 'model.tsv', de.model_text('B', 'A', (), 10, 'rle'))
+    result = subprocess.run([os.environ['DE_RSCRIPT'], str(BENCH / 'de.R')] + ['--{}={}'.format(k, tmp_path / v) for k, v in (
+        ('counts', 'counts.tsv'), ('library-sizes', 'library_sizes.tsv'), ('design', 'design.tsv'), ('model', 'model.tsv'),
+        ('results', 'results.tsv'), ('record', 'record.tsv'))], capture_output=True, text=True, timeout=300)
+    assert result.returncode == 0, result.stderr
+    assert 'sparse: no finite RLE factors' in result.stderr
+    table = benchmark.read_tsv(tmp_path / 'results.tsv')
+    assert {r['log2fc'] for r in table if r['row'] == 'sparse'} == {'NA'} and len([r for r in table if r['row'] == 'sparse']) == 9
+    assert all(r['log2fc'] != 'NA' for r in table if r['row'] == 'dense')
+    assert 'RLE factors (calcNormFactors) on the library sizes' in (tmp_path / 'record.tsv').read_text()
+
+
 def test_de_model_names_the_contrast_numeric_covariates_and_the_least_mean_count():
     assert de.model_text('case', 'Fertile control', ['nuisance'], 10) == (
         'field\tvalue\nnumerator\tcase\ndenominator\tFertile control\nmin_mean\t10\nnumeric\tnuisance\n')
@@ -2430,6 +2454,8 @@ def one_lab(spec):
     (lambda s: s['runs'][0].update(lab='..'), 'de.within lab: every run needs a value that starts with a letter or digit'),  # not a folder of its own
     (lambda s: s['runs'][0].update(lab='lab1'), 'values that differ only in case would share a folder: Lab1, Lab5, lab1'),
     (lambda s: s['runs'].pop(0), 'de.within lab Lab1: differential expression needs at least two runs in each group, got 1 A and 2 B'),
+    # a level named after a normalisation arm would share its metric suffix (#528 review)
+    (lambda s: [run.update(lab='rle') for run in s['runs'] if run['lab'] == 'Lab1'], 'de.within lab: rle also names a normalisation arm'),
 ])
 def test_de_within_needs_safe_level_names_and_replicates_in_each_level(tmp_path, change, message):
     with pytest.raises(SystemExit, match=re.escape(message)):

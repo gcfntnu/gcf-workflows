@@ -13,7 +13,8 @@
 # likelihood-ratio test of the group. Without covariates it calls nearly what the exact test calls, so the two differ
 # mainly by the covariates. voom takes the same design. A feature without reads in a row, or with a mean count under
 # `min_mean` there, is written as NA for every test, and so is every feature of a row with fewer than two features to
-# test: one feature gives no common dispersion and no mean-variance trend. Each row's two common dispersions go to
+# test: one feature gives no common dispersion and no mean-variance trend; so is every feature of a row whose factors
+# are not finite (RLE without a tested feature that has reads in every sample). Each row's two common dispersions go to
 # the log. Group labels, covariate values and names are read as text (a group may be called NA), and covariate names
 # are quoted in the formula (one may be an R keyword such as `repeat`).
 #
@@ -113,7 +114,16 @@ for (row in unique(counts$row)) {
   tested <- values[keep, , drop = FALSE]
 
   y <- DGEList(counts = tested, lib.size = size, group = frame$group)
-  if (!is.na(method)) y <- calcNormFactors(y, method = method)
+  if (!is.na(method)) {
+    y <- calcNormFactors(y, method = method)
+    if (!all(is.finite(y$samples$norm.factors) & y$samples$norm.factors > 0)) {
+      # RLE needs a feature with reads in every sample (#528 review): without one the row has no factors, so no test
+      message(sprintf('%s: no finite %s factors (no tested feature with reads in every sample); none tested', row, method))
+      all_na <- rep(NA_real_, nrow(part))
+      for (test in tests) add(row, test, data.frame(feature = part$feature, log2fc = all_na, pvalue = all_na, padj = all_na))
+      next
+    }
+  }
   y <- estimateCommonDisp(y)
   exact <- exactTest(y, pair = c(denominator, numerator), dispersion = 'common')$table
   edger <- data.frame(feature = rownames(exact), log2fc = exact$logFC, pvalue = exact$PValue, padj = p.adjust(exact$PValue, 'BH'))
