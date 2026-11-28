@@ -3130,6 +3130,12 @@ def test_null_scores_count_every_call_as_false():
     assert called['edger'] == {('m', 'F1'): 1} and sorted(de.null_keys())[:3] == ['edger_glm_null_any', 'edger_glm_null_called', 'edger_glm_null_p05']
     lines = de.null_lines(values, spread, called, ['m'], [('case', 6, 2)], lambda f: 'name-' + f, lambda row, f: 12.0)
     assert '| null_called (range) | 0.25 (0.0–0.5) |' in lines and '| name-F1 | 1/1/1 (12) |' in lines and 'case (6 samples) 2' in lines[3]
+    # a split the row tested nothing in (e.g. a fit without normalisation factors) counts in none of the scores (#530 review)
+    untested = (results({'F1': (None, None, None), 'F2': (None, None, None), 'F3': (None, None, None)}), features)
+    with_untested, _, _ = de.null_scores(splits + [untested], ['m'])
+    assert with_untested == values
+    alone, _, _ = de.null_scores([untested], ['m'])
+    assert all(math.isnan(v) for v in alone['m'].values())
 
 
 def test_null_comparisons_in_a_declaration(tmp_path):
@@ -3972,6 +3978,18 @@ def test_imbalance_designs_thin_one_group_or_half_of_each():
     assert imbalance.null_offsets([(at, features), (reference, features)], ['a'])['a']['voom_offset'] == 0.25   # medians 0.5 and 0.0
 
 
+def test_imbalance_mixture_notes_follow_the_selected_arms():
+    """#530 review: the notes on a mixture's scales describe the arms run; the `fixed` shift table only with `fixed`."""
+    import imbalance
+    table = lambda head, rows: ['| ' + ' | '.join(head) + ' |'] + ['| ' + ' | '.join(r) + ' |' for r in rows]
+    shifts = [('B against A', [0.25])]
+    every = ' '.join(imbalance.between_notes(['workflow', 'fixed', 'tmm', 'rle'], shifts, ['m'], table))
+    assert 'The `fixed` arm divides by filtered reads' in every and '`tmm`, `rle` are scored on the workflow\'s scale' in every
+    assert '| B against A | +0.25 |' in every
+    rle = ' '.join(imbalance.between_notes(['workflow', 'rle'], shifts, ['m'], table))
+    assert '`fixed`' not in rle and '`rle` is scored on the workflow\'s scale: its factors rescale' in rle and '+0.25' not in rle
+
+
 def test_imbalance_of_an_evaluated_biological_project(tmp_path):
     """`imbalance` (#488) end to end: every DE set under every design and arm in de/, `none` in the workflow arm equal
     to the evaluation's inputs; `tied` thins the second group's library sizes, `fixed` takes the filtered reads times
@@ -4059,6 +4077,9 @@ def test_imbalance_runs_the_null_comparisons_in_every_arm_unthinned(tmp_path):
     tsv = (out / 'imbalance.tsv').read_text().splitlines()
     assert 'unitas\tnone\trle\tnull\tvoom_null_called\t1.0' in tsv and 'unitas\tnone\ttmmwsp\tnull\tvoom_offset\t-0.1' in tsv
     assert not any('\tfixed\t' in line or '\ttmm\t' in line or 'independent' in line for line in tsv)
+    # fits of arms the current preparation does not list are not scored (#530 review)
+    result = subprocess.run(command[:-4] + ['--arms', 'workflow,fixed', '--output', str(out), '--de'], capture_output=True, text=True, timeout=120)
+    assert result.returncode != 0 and 'none_fixed/all, none_fixed/null.case-1, none_fixed/null.case-2 ... not in' in result.stderr
     result = subprocess.run(command[:-4] + ['--arms', 'workflow,quantile', '--output', str(out)], capture_output=True, text=True, timeout=60)
     assert result.returncode != 0 and 'arms: quantile not one of workflow, fixed, tmm, rle, tmmwsp' in result.stderr
 

@@ -188,15 +188,23 @@ def rows(contrasts, nulls, methods, between=()):
 signed = depth.signed
 
 
-def between_notes(shifts, methods, md_table):
-    """imbalance.md's lines on the arms' scales between a mixture's fractions: `shifts` [(contrast, [the `fixed` arm's
-    shift per method])] (benchmark.mixture_fixed_shift)."""
-    return ['', 'The expected changes are on the scale of a route\'s miRNA reads, the `workflow` arm\'s. The `fixed` arm divides by '
-            'filtered reads instead, which adds each subject\'s log2 ratio of the route\'s miRNA share of filtered reads, higher '
-            'fraction over lower, to that subject\'s fold changes; it is scored against expected changes with that ratio added to '
-            'each subject\'s log ratios before their mean, from the unthinned data (below, the mean over the subjects). `tmm` is scored on the workflow\'s scale: TMM rescales towards most '
-            'miRNAs not changing, which does not hold between two fractions, so its `fc_bias` and calls include that shift, as on '
-            'the ratiometric pools.', ''] + md_table(['contrast'] + methods, [[name] + [signed(v) for v in values] for name, values in shifts])
+def between_notes(arms, shifts, methods, md_table):
+    """imbalance.md's lines on the scales the selected `arms` are scored on between a mixture's fractions: `shifts`
+    [(contrast, [the `fixed` arm's shift per method])] (benchmark.mixture_fixed_shift), shown when `fixed` is selected."""
+    text = ['The expected changes are on the scale of a route\'s miRNA reads, the `workflow` arm\'s.']
+    if 'fixed' in arms:
+        text.append('The `fixed` arm divides by filtered reads instead, which adds each subject\'s log2 ratio of the route\'s '
+                    'miRNA share of filtered reads, higher fraction over lower, to that subject\'s fold changes; it is scored against '
+                    'expected changes with that ratio added to each subject\'s log ratios before their mean, from the unthinned data '
+                    '(below, the mean over the subjects).')
+    factors = [a for a in arms if a in de.NORMALISATIONS]
+    if factors:
+        text.append('{} {} scored on the workflow\'s scale: {} rescale towards most miRNAs not changing, which does not hold '
+                    'between two fractions, so {} `fc_bias` and calls include that shift, as on the ratiometric pools.'.format(
+                        ', '.join('`{}`'.format(a) for a in factors), 'is' if len(factors) == 1 else 'are',
+                        'its factors' if len(factors) == 1 else 'their factors', 'its' if len(factors) == 1 else 'their'))
+    table = md_table(['contrast'] + methods, [[name] + [signed(v) for v in values] for name, values in shifts]) if 'fixed' in arms else []
+    return ['', ' '.join(text), ''] + table
 
 
 ARM_TEXT = {'workflow': '`workflow` ({library})', 'fixed': '`fixed` (the sample\'s filtered reads times its thinning fraction)',

@@ -2916,6 +2916,12 @@ def imbalance(args):
     scenarios = imbalance_series.scenarios(ratios)
     root = out / 'de'
     if args.de:  # before the thinning: every set in every scenario and arm needs de.smk's results
+        listed = {tuple(line.split('\t')) for line in (root / de.LEVELS).read_text().splitlines()[1:]} if (root / de.LEVELS).is_file() else set()
+        unlisted = [imbalance_series.folder(scenario, arm, s.folder) for scenario, _, _ in scenarios for arm in arms for s in sets
+                    if tuple(imbalance_series.folder(scenario, arm, s.folder).split('/')) not in listed]
+        if unlisted:  # fits left from an earlier preparation with other ratios or arms (#530 review)
+            fail('{} not in {}: prepare with the same --ratios and --arms (`benchmark.py imbalance` without --de) and run de.smk '
+                 'before --de'.format(', '.join(unlisted[:3]) + (' ...' if len(unlisted) > 3 else ''), root / de.LEVELS))
         missing = [str(Path(folder) / name) for scenario, _, _ in scenarios for arm in arms for s in sets
                    for folder in [imbalance_series.folder(scenario, arm, s.folder)] for name in ('results.tsv', 'record.tsv')
                    if not (root / folder / name).is_file()]
@@ -3017,7 +3023,7 @@ def imbalance(args):
     write_tsv(out / 'imbalance.tsv', ['method', 'design', 'arm', 'set', 'metric', 'value'],
               imbalance_series.rows(titled, null_points, methods, between_points))
     write_tsv(out / 'imbalance_depths.tsv', ['design', 'set', 'first', 'second', 'ratio'], imbalance_series.realised_rows(realised))
-    notes = [] if not kit.between else imbalance_series.between_notes(
+    notes = [] if not kit.between else imbalance_series.between_notes(arms, 
         [(s.suffix[1:].replace('_vs_', ' against '), [statistics.mean(fixed_shift[m][s.suffix].values()) if fixed_shift[m][s.suffix] else float('nan')
                                                          for m in methods]) for s, _, _ in kit.between], methods, md_table)
     body = imbalance_series.lines(spec['name'], titled, null_points, methods, ratios, args.seed, versions, md_table, between_points, notes,

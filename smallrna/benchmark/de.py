@@ -482,7 +482,8 @@ def null_scores(splits, rows):
     called}}) of the null comparisons, `splits` [(results, features)] of every split of every group. Per row and test:
     `null_called`, the median over the splits of the share of tested features called (BH-adjusted p <= FDR), and its
     range; `null_any`, the share of splits with a call; `null_p05`, the share of tested p-values of at most 0.05, pooled
-    over the splits (0.05 if they are uniform)."""
+    over the splits (0.05 if they are uniform). A split where the row tested nothing (no feature passed, or its fit had no
+    normalisation factors, #530 review) counts in none of them; with no tested split they are NaN."""
     values, spread, called = {}, {}, {test: collections.Counter() for test in TESTS}
     for row in rows:
         values[row], spread[row] = {}, {}
@@ -494,7 +495,8 @@ def null_scores(splits, rows):
                 calls = [feature for feature, fit in fits if significant(fit)]
                 called[test].update((row, feature) for feature in calls)
                 shares.append(len(calls) / len(tested) if tested else float('nan'))
-                any_call.append(bool(calls))
+                if tested:
+                    any_call.append(bool(calls))
                 low_p += sum(1 for fit in tested if fit[1] <= 0.05)
                 tested_total += len(tested)
             finite = [v for v in shares if not math.isnan(v)]
