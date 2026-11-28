@@ -4,15 +4,17 @@
 # and limma-voom, on the counts, library sizes, design and model that `benchmark.py evaluate` writes
 # (benchmark/de/input/). The model names the contrast (`numerator` against `denominator`, so a positive log2 fold
 # change is more in the numerator), the covariates that are numbers (`numeric`; the others are factors) and the least
-# mean count of a feature a row tests (`min_mean`), and optionally `normalisation: tmm` (#453): edgeR's TMM factors
-# (calcNormFactors) on the given library sizes, used by all three tests (voom on the normalised library sizes);
+# mean count of a feature a row tests (`min_mean`), and optionally `normalisation: tmm`, `rle` or `tmmwsp` (#453, #527):
+# edgeR's TMM, RLE or TMMwsp factors (calcNormFactors) on the given library sizes, used by all three tests (voom on the
+# normalised library sizes);
 # without it, the library sizes as given, no normalisation factors. The exact test runs
 # as in the McCall-lab benchmark's best configuration (common dispersion, exact test; two groups, no covariates). The
 # GLM test is its counterpart on the design with the covariates: a common dispersion estimated under the design and a
 # likelihood-ratio test of the group. Without covariates it calls nearly what the exact test calls, so the two differ
 # mainly by the covariates. voom takes the same design. A feature without reads in a row, or with a mean count under
 # `min_mean` there, is written as NA for every test, and so is every feature of a row with fewer than two features to
-# test: one feature gives no common dispersion and no mean-variance trend. Each row's two common dispersions go to
+# test: one feature gives no common dispersion and no mean-variance trend; so is every feature of a row whose factors
+# are not finite (RLE without a tested feature that has reads in every sample). Each row's two common dispersions go to
 # the log. Group labels, covariate values and names are read as text (a group may be called NA), and covariate names
 # are quoted in the formula (one may be an R keyword such as `repeat`).
 #
@@ -59,8 +61,10 @@ min_mean <- if (length(setting('min_mean'))) suppressWarnings(as.numeric(setting
 if (length(min_mean) != 1 || is.na(min_mean) || min_mean < 0) stop(opt$model, ': min_mean must be one number of 0 or more')
 numeric <- setting('numeric')
 normalisation <- setting('normalisation')
-if (length(normalisation) > 1 || (length(normalisation) == 1 && normalisation != 'tmm')) stop(opt$model, ': normalisation must be tmm, or absent')
-tmm <- length(normalisation) == 1
+methods <- c(tmm = 'TMM', rle = 'RLE', tmmwsp = 'TMMwsp')  # de.py's NORMALISATIONS: edgeR's calcNormFactors methods
+if (length(normalisation) > 1 || (length(normalisation) == 1 && !normalisation %in% names(methods)))
+  stop(opt$model, ': normalisation must be tmm, rle or tmmwsp, or absent')
+method <- if (length(normalisation) == 1) methods[[normalisation]] else NA
 unknown <- setdiff(settings$field, c('numerator', 'denominator', 'min_mean', 'numeric', 'normalisation'))
 if (length(unknown)) stop(opt$model, ': unknown field ', paste(unknown, collapse = ', '))
 if (!identical(colnames(design)[1:2], c('sample', 'group'))) stop(opt$design, ': the first columns must be sample and group')
@@ -110,7 +114,16 @@ for (row in unique(counts$row)) {
   tested <- values[keep, , drop = FALSE]
 
   y <- DGEList(counts = tested, lib.size = size, group = frame$group)
-  if (tmm) y <- calcNormFactors(y, method = 'TMM')
+  if (!is.na(method)) {
+    y <- calcNormFactors(y, method = method)
+    if (!all(is.finite(y$samples$norm.factors) & y$samples$norm.factors > 0)) {
+      # RLE needs a feature with reads in every sample (#528 review): without one the row has no factors, so no test
+      message(sprintf('%s: no finite %s factors (no tested feature with reads in every sample); none tested', row, method))
+      all_na <- rep(NA_real_, nrow(part))
+      for (test in tests) add(row, test, data.frame(feature = part$feature, log2fc = all_na, pvalue = all_na, padj = all_na))
+      next
+    }
+  }
   y <- estimateCommonDisp(y)
   exact <- exactTest(y, pair = c(denominator, numerator), dispersion = 'common')$table
   edger <- data.frame(feature = rownames(exact), log2fc = exact$logFC, pvalue = exact$PValue, padj = p.adjust(exact$PValue, 'BH'))
@@ -121,7 +134,7 @@ for (row in unique(counts$row)) {
   message(sprintf('%s: %d features tested; common dispersion %.4g for the exact test, %.4g for the GLM test', row, nrow(tested),
                   y$common.dispersion, common))
 
-  fit <- eBayes(lmFit(voom(tested, model, lib.size = size * y$samples$norm.factors), model))  # factors are 1 without TMM
+  fit <- eBayes(lmFit(voom(tested, model, lib.size = size * y$samples$norm.factors), model))  # factors are 1 without a method
   top <- topTable(fit, coef = coefficient, number = Inf, sort.by = 'none', adjust.method = 'BH')
   voomed <- data.frame(feature = rownames(top), log2fc = top$logFC, pvalue = top$P.Value, padj = top$adj.P.Val)
 
@@ -141,11 +154,11 @@ record <- data.frame(
   value = c(md5(copies$counts), md5(copies$library_sizes), md5(copies$design), md5(copies$model), md5(copies$script), md5(opt$results),
             R.version.string, as.character(packageVersion('edgeR')), as.character(packageVersion('limma')), formula_text,
             paste(numerator, 'against', denominator), as.character(min_mean),
-            if (tmm) 'TMM factors (calcNormFactors) on the library sizes' else 'none: the library sizes as given',
+            if (!is.na(method)) sprintf('%s factors (calcNormFactors) on the library sizes', method) else 'none: the library sizes as given',
             sprintf('DGEList with the library sizes and %s, estimateCommonDisp, exactTest of %s against %s',
-                    if (tmm) 'TMM normalisation factors' else 'no normalisation factors', numerator, denominator),
+                    if (!is.na(method)) sprintf('%s normalisation factors', method) else 'no normalisation factors', numerator, denominator),
             sprintf('the same DGEList, estimateGLMCommonDisp under the design, glmFit with that common dispersion, glmLRT of coefficient %s',
                     colnames(model)[coefficient]),
-            sprintf('voom with the library sizes%s, lmFit, eBayes, coefficient %s', if (tmm) ' times the TMM factors' else '',
+            sprintf('voom with the library sizes%s, lmFit, eBayes, coefficient %s', if (!is.na(method)) sprintf(' times the %s factors', method) else '',
                     colnames(model)[coefficient])))
 write.table(record, opt$record, sep = '\t', quote = FALSE, row.names = FALSE)

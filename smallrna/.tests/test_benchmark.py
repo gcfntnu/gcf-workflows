@@ -2292,13 +2292,41 @@ def test_de_inputs_use_the_workflow_library_sizes_and_whole_counts():
     assert de.fractional_share(count, 'm', ['S0', 'S1'], ['A1', 'B1']) == 1.0  # both sequences have a count that is rounded
 
 
+@pytest.mark.skipif(not os.environ.get('DE_RSCRIPT'), reason='DE_RSCRIPT: an Rscript with edgeR, limma and optparse (de.smk runs the sartools image)')
+def test_de_r_leaves_a_row_untested_when_rle_has_no_factors(tmp_path):
+    """RLE needs a feature with reads in every sample (#528 review): a row without one is written as NA for every test,
+    and the other rows are still fitted."""
+    samples = ['a1', 'a2', 'a3', 'b1', 'b2', 'b3']
+    rows = {'sparse': [[0, 30, 40, 35, 20, 25], [30, 0, 35, 40, 25, 20], [25, 40, 0, 30, 35, 20]],   # each feature has a zero
+            'dense': [[30, 32, 40, 80, 75, 90], [50, 45, 55, 52, 48, 50], [20, 25, 22, 24, 21, 23]]}
+    write(tmp_path / 'counts.tsv', '\t'.join(['row', 'feature'] + samples) + '\n' + ''.join(
+        '\t'.join([row, 'f{}'.format(k)] + [str(v) for v in values]) + '\n' for row, table in rows.items() for k, values in enumerate(table)))
+    write(tmp_path / 'library_sizes.tsv', '\t'.join(['row'] + samples) + '\n' + ''.join(
+        '\t'.join([row] + ['1000'] * len(samples)) + '\n' for row in rows))
+    write(tmp_path / 'design.tsv', 'sample\tgroup\n' + ''.join('{}\t{}\n'.format(s, s[0].upper()) for s in samples))
+    write(tmp_path / 'model.tsv', de.model_text('B', 'A', (), 10, 'rle'))
+    result = subprocess.run([os.environ['DE_RSCRIPT'], str(BENCH / 'de.R')] + ['--{}={}'.format(k, tmp_path / v) for k, v in (
+        ('counts', 'counts.tsv'), ('library-sizes', 'library_sizes.tsv'), ('design', 'design.tsv'), ('model', 'model.tsv'),
+        ('results', 'results.tsv'), ('record', 'record.tsv'))], capture_output=True, text=True, timeout=300)
+    assert result.returncode == 0, result.stderr
+    assert 'sparse: no finite RLE factors' in result.stderr
+    table = benchmark.read_tsv(tmp_path / 'results.tsv')
+    assert {r['log2fc'] for r in table if r['row'] == 'sparse'} == {'NA'} and len([r for r in table if r['row'] == 'sparse']) == 9
+    assert all(r['log2fc'] != 'NA' for r in table if r['row'] == 'dense')
+    assert 'RLE factors (calcNormFactors) on the library sizes' in (tmp_path / 'record.tsv').read_text()
+
+
 def test_de_model_names_the_contrast_numeric_covariates_and_the_least_mean_count():
     assert de.model_text('case', 'Fertile control', ['nuisance'], 10) == (
         'field\tvalue\nnumerator\tcase\ndenominator\tFertile control\nmin_mean\t10\nnumeric\tnuisance\n')
     script = (BENCH / 'de.R').read_text()
     known = re.search(r"unknown <- setdiff\(settings\$field, c\(([^)]*)\)\)", script)
     assert known and known.group(1) == "'numerator', 'denominator', 'min_mean', 'numeric', 'normalisation'"  # the fields model_text writes
-    assert de.model_text('A', 'B', (), 0, 'tmm').endswith('normalisation\ttmm\n') and 'calcNormFactors(y, method = \'TMM\')' in script
+    for arm, method in (('tmm', 'TMM'), ('rle', 'RLE'), ('tmmwsp', 'TMMwsp')):   # the factor arms (#453, #527), as de.R names them
+        assert de.model_text('A', 'B', (), 0, arm).endswith('normalisation\t{}\n'.format(arm)) and "{} = '{}'".format(arm, method) in script
+    assert de.NORMALISATIONS == {'tmm': 'TMM', 'rle': 'RLE', 'tmmwsp': 'TMMwsp'} and 'calcNormFactors(y, method = method)' in script
+    with pytest.raises(ValueError, match='normalisation must be one of tmm, rle, tmmwsp'):
+        de.model_text('A', 'B', (), 0, 'quantile')
     assert 'lib.size = size * y$samples$norm.factors' in script  # voom on the TMM-normalised library sizes
     assert "levels = c(denominator, numerator)" in script and 'coefficient <- ncol(model)' in script  # log2(numerator / denominator)
     assert "deparse(formula, width.cutoff = 500L), collapse = ' ')" in script and script.count('deparse(') == 1  # one string in the record
@@ -2426,6 +2454,8 @@ def one_lab(spec):
     (lambda s: s['runs'][0].update(lab='..'), 'de.within lab: every run needs a value that starts with a letter or digit'),  # not a folder of its own
     (lambda s: s['runs'][0].update(lab='lab1'), 'values that differ only in case would share a folder: Lab1, Lab5, lab1'),
     (lambda s: s['runs'].pop(0), 'de.within lab Lab1: differential expression needs at least two runs in each group, got 1 A and 2 B'),
+    # a level named after a normalisation arm would share its metric suffix (#528 review)
+    (lambda s: [run.update(lab='rle') for run in s['runs'] if run['lab'] == 'Lab1'], 'de.within lab: rle also names a normalisation arm'),
 ])
 def test_de_within_needs_safe_level_names_and_replicates_in_each_level(tmp_path, change, message):
     with pytest.raises(SystemExit, match=re.escape(message)):
@@ -2461,16 +2491,19 @@ def test_de_sets_take_any_column_of_the_runs_as_a_covariate(tmp_path):
     """A covariate other than `lab` (#447): the instrument, from the declaration's runs, not from samples.tsv."""
     spec = benchmark.load_dataset(de_declaration(tmp_path, lambda s: s.update(de={'covariates': ['instrument']})))
     rows = [{'sample': run['run'], 'group': run['group'], 'lab': run['lab'], 'reads': ''} for run in spec['runs']]
-    whole, fixed, tmm = benchmark.de_sets(spec, benchmark.de_units(spec, rows))
+    whole, fixed, tmm, rle, tmmwsp = benchmark.de_sets(spec, benchmark.de_units(spec, rows))
     assert whole.design[0] == ('SRR5234383', 'A', {'instrument': 'HiSeq 4000'}) and whole.design[-1][2] == {'instrument': 'HiSeq 2500'}
     assert (whole.suffix, whole.folder, whole.samples, whole.arm) == ('', '', '4 A and 4 B runs', None) and whole.model == de.model_text('A', 'B')
     # the normalisation arms (#453): the whole design again; tmm says so in its model, fixed gets other library sizes
     assert (fixed.suffix, fixed.folder, fixed.arm, tmm.suffix, tmm.folder, tmm.arm) == ('.fixed', 'arm/fixed', 'fixed', '.tmm', 'arm/tmm', 'tmm')
     assert fixed.design == tmm.design == whole.design and fixed.model == whole.model and tmm.model == de.model_text('A', 'B', (), 0, 'tmm')
+    assert [(s.folder, s.model) for s in (rle, tmmwsp)] == [('arm/rle', de.model_text('A', 'B', (), 0, 'rle')),
+                                                            ('arm/tmmwsp', de.model_text('A', 'B', (), 0, 'tmmwsp'))]  # #527
     sets = benchmark.de_sets(benchmark.load_dataset(BENCH / 'datasets/giraldez2018_ratiometric_truseq.yaml'), benchmark.de_units(spec, rows))
     assert [(s.suffix, s.folder, s.samples, list(s.design[0][2])) for s in sets] == [
         ('', '', '4 A and 4 B runs', ['lab']), ('.Lab1', 'lab/Lab1', '2 A and 2 B runs', []), ('.Lab5', 'lab/Lab5', '2 A and 2 B runs', []),
-        ('.fixed', 'arm/fixed', '4 A and 4 B runs', ['lab']), ('.tmm', 'arm/tmm', '4 A and 4 B runs', ['lab'])]
+        ('.fixed', 'arm/fixed', '4 A and 4 B runs', ['lab']), ('.tmm', 'arm/tmm', '4 A and 4 B runs', ['lab']),
+        ('.rle', 'arm/rle', '4 A and 4 B runs', ['lab']), ('.tmmwsp', 'arm/tmmwsp', '4 A and 4 B runs', ['lab'])]
 
 
 def biological_declaration(tmp_path, de_spec, groups=('case', 'case', 'control', 'control', 'other', 'other')):
@@ -2685,7 +2718,7 @@ def test_evaluate_de_within_each_lab_scores_each_lab_and_against_the_oracle(tmp_
     bench = project / 'benchmark'
     result = evaluate_cmd(project)
     assert result.returncode == 0, result.stderr
-    assert (bench / 'de/levels.tsv').read_text() == 'column\tlevel\nlab\tL1\nlab\tL2\narm\tfixed\narm\ttmm\n'
+    assert (bench / 'de/levels.tsv').read_text() == 'column\tlevel\nlab\tL1\nlab\tL2\narm\tfixed\narm\ttmm\narm\trle\narm\ttmmwsp\n'
     # #453: the fixed arm gives every row each run's filtered reads (the reports' kept reads); tmm keeps the workflow's sizes
     fixed = [line.split('\t') for line in (bench / 'de/arm/fixed/input/library_sizes.tsv').read_text().splitlines()]
     assert fixed[0] == ['row', 'A1', 'A2', 'A3', 'A4', 'B1', 'B2', 'B3', 'B4'] and fixed[1][1:] == fixed[2][1:] == fixed[3][1:]

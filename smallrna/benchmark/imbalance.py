@@ -43,7 +43,7 @@ import numpy as np
 import de
 import depth
 
-ARMS = ('workflow',) + de.ARMS  # de.ARMS: fixed, tmm (#453)
+ARMS = ('workflow', 'fixed', 'tmm')  # of de.ARMS (#453); not #527's rle and tmmwsp: every arm multiplies the scenario fits
 NONE = 'none'
 DESIGNS = ('independent', 'tied')
 RATIOS = '1.5,4'
