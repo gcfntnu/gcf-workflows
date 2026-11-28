@@ -102,6 +102,8 @@ def test_ties_best_keeps_a_sequences_best_annotations(tmp_path):
                      # two exact annotations (identical mature sequences) and a substitution: the two exact share it
                      + row('GGGGGG', 10, 'hsa-miR-199a-3p', ambiguity=3, n=4) + row('GGGGGG', 10, 'hsa-miR-199b-3p', ambiguity=3, n=4)
                      + row('GGGGGG', 10, 'hsa-miR-199c', mism='3AG', ambiguity=3, n=4)
+                     # substitutions only, one with an addition: the same rank, still divided (mature table: none)
+                     + row('ACACAC', 12, 'hsa-miR-9a', mism='4TC', ambiguity=2, n=6) + row('ACACAC', 12, 'hsa-miR-9b', mism='4TC', add='T', ambiguity=2, n=6)
                      # end shifts do not rank: still divided
                      + row('CCCCCC', 8, 'hsa-miR-1a', t3='g', ambiguity=2, n=5) + row('CCCCCC', 8, 'hsa-miR-1b', t5='a', ambiguity=2, n=5))
     split = biocore_miraligner_counts.count(mirna)
@@ -113,8 +115,10 @@ def test_ties_best_keeps_a_sequences_best_annotations(tmp_path):
                       'hsa-miR-199a-3p': 5.0, 'hsa-miR-199b-3p': 5.0, 'hsa-miR-1a': 4.0, 'hsa-miR-1b': 4.0}
     assert isomir == {'hsa-miR-151a-5p_TCGAGG_0;0;0;0': 40.0, 'hsa-miR-27b-3p_TTCACA_0;0;0;0': 30.0, 'hsa-miR-103a-3p_AGCAGC_0;A;0;0': 12.0,
                       'hsa-miR-199a-3p_GGGGGG_0;0;0;0': 5.0, 'hsa-miR-199b-3p_GGGGGG_0;0;0;0': 5.0,
-                      'hsa-miR-1a_CCCCCC_0;0;0;g': 4.0, 'hsa-miR-1b_CCCCCC_0;0;a;0': 4.0}
-    assert (annotated, perfect) == split[2:] == (100.0, 100.0)
+                      'hsa-miR-1a_CCCCCC_0;0;0;g': 4.0, 'hsa-miR-1b_CCCCCC_0;0;a;0': 4.0,
+                      'hsa-miR-9a_ACACAC_4TC;0;0;0': 6.0, 'hsa-miR-9b_ACACAC_4TC;T;0;0': 6.0}
+    assert {k: v for k, v in split[1].items() if 'ACACAC' in k} == {'hsa-miR-9a_ACACAC_4TC;0;0;0': 6.0, 'hsa-miR-9b_ACACAC_4TC;T;0;0': 6.0}
+    assert (annotated, perfect) == split[2:] == (112.0, 100.0)
     # the isomiR table's substitution-free rows still add up to the mature table
     assert sum(v for k, v in isomir.items() if k.rsplit('_', 1)[1].startswith('0;')) == sum(mature.values())
     with pytest.raises(SystemExit, match="--ties must be one of split, best, got 'all'"):
@@ -145,8 +149,9 @@ def test_ties_setting_reaches_the_count_rule_and_settings(tmp_path):
     assert re.search(r'--stats \S+ --ties best', rule_block(output, 'biocore_miraligner_count'))
     returncode, output = dry_run(tmp_path / 'bad', 'biocore_miraligner', best('all'))
     assert returncode != 0 and "quant.biocore_miraligner.ties must be split or best, got 'all'" in output
-    returncode, output = dry_run(tmp_path / 'list', 'biocore_miraligner', lambda s: s['quant'].update(biocore_miraligner=['best']))
-    assert returncode != 0 and 'quant.biocore_miraligner must be a mapping of settings' in output
+    for value in (['best'], []):   # an empty list too, not taken for the defaults
+        returncode, output = dry_run(tmp_path / 'list{}'.format(len(value)), 'biocore_miraligner', lambda s: s['quant'].update(biocore_miraligner=value))
+        assert returncode != 0 and 'quant.biocore_miraligner must be a mapping of settings' in output, output
 
 
 def test_count_command_takes_ties(tmp_path):

@@ -56,8 +56,9 @@ TIES = ('split', 'best')
 
 
 def rank(mism, add):
-    """An annotation's rank under `--ties best`, lower is better: exact, then a 3' addition alone, then a substitution."""
-    return (mism != '0', add != '0')
+    """An annotation's rank under `--ties best`, lower is better: 0 exact, 1 a 3' addition alone, 2 a substitution (with
+    or without an addition)."""
+    return 2 if mism != '0' else 1 if add != '0' else 0
 
 
 def count(mirna, ties='split'):
@@ -65,7 +66,14 @@ def count(mirna, ties='split'):
     if ties not in TIES:
         fail('--ties must be one of {}, got {!r}'.format(', '.join(TIES), ties))
     mature, isomir, annotated, perfect = {}, {}, {}, {}
-    sequences = {}  # sequence: its annotation rows, (freq, mir, mism, add, t5, t3, ambiguity, line number)
+    sequences = {}  # best only: sequence: its annotation rows, (freq, mir, mism, add, t5, t3, ambiguity, line number)
+
+    def tally(seq, freq, mir, mism, add, t5, t3, share):
+        isomir.setdefault('{}_{}_{}'.format(mir, seq, ';'.join((mism, add, t5, t3))), []).append(share)
+        annotated[seq] = freq
+        if mism == '0':
+            mature.setdefault(mir, []).append(share)
+            perfect[seq] = freq
     with open(mirna) as fh:
         header = fh.readline().rstrip('\n').split('\t')
         missing = [c for c in COLUMNS if c not in header]
@@ -85,26 +93,21 @@ def count(mirna, ties='split'):
                 fail('{}:{}: freq {!r} or ambiguity {!r} is not a number'.format(mirna, i, fields[col['freq']], fields[col['ambiguity']]))
             if ambiguity < 1:
                 fail('{}:{}: ambiguity {}'.format(mirna, i, ambiguity))
-            sequences.setdefault(seq, []).append((freq, mir, mism, fields[col['add']], fields[col['t5']], fields[col['t3']], ambiguity, i))
+            add, t5, t3 = fields[col['add']], fields[col['t5']], fields[col['t3']]
+            if ties == 'split':  # row by row, as the pipeline counted
+                tally(seq, freq, mir, mism, add, t5, t3, freq / ambiguity)
+            else:  # a sequence's rows are compared before any counts
+                sequences.setdefault(seq, []).append((freq, mir, mism, add, t5, t3, ambiguity, i))
     for seq, rows in sequences.items():
-        divisor = None
-        if ties == 'best':
-            best = min(rank(r[2], r[3]) for r in rows)
-            kept = [r for r in rows if rank(r[2], r[3]) == best]
-            ambiguities = {r[6] for r in rows}
-            if len(ambiguities) > 1 or rows[0][6] < len(rows):
-                fail('{}:{}: {} has {} annotations with ambiguity {}; --ties best needs one ambiguity per sequence, at '
-                     'least its number of annotations'.format(mirna, rows[0][7], seq, len(rows), ', '.join(map(str, sorted(ambiguities)))))
-            divisor = rows[0][6] - (len(rows) - len(kept))
-            rows = kept
-        for freq, mir, mism, add, t5, t3, ambiguity, _ in rows:
-            share = freq / (divisor or ambiguity)
-            key = '{}_{}_{}'.format(mir, seq, ';'.join((mism, add, t5, t3)))
-            isomir.setdefault(key, []).append(share)
-            annotated[seq] = freq
-            if mism == '0':
-                mature.setdefault(mir, []).append(share)
-                perfect[seq] = freq
+        ambiguities = {r[6] for r in rows}
+        if len(ambiguities) > 1 or rows[0][6] < len(rows):
+            fail('{}:{}: {} has {} annotations with ambiguity {}; --ties best needs one ambiguity per sequence, at '
+                 'least its number of annotations'.format(mirna, rows[0][7], seq, len(rows), ', '.join(map(str, sorted(ambiguities)))))
+        best = min(rank(r[2], r[3]) for r in rows)
+        kept = [r for r in rows if rank(r[2], r[3]) == best]
+        divisor = rows[0][6] - (len(rows) - len(kept))
+        for freq, mir, mism, add, t5, t3, _, _ in kept:
+            tally(seq, freq, mir, mism, add, t5, t3, freq / divisor)
     return ({k: math.fsum(v) for k, v in mature.items()}, {k: math.fsum(v) for k, v in isomir.items()},
             math.fsum(annotated.values()), math.fsum(perfect.values()))
 

@@ -26,7 +26,9 @@ include:
 
 BIOCORE_MIRALIGNER_OUT = join(QUANT_INTERIM, 'biocore_miraligner')
 BIOCORE_MIRALIGNER_ARGS = '-sub 1 -trim 3 -add 3'
-BIOCORE_MIRALIGNER_CONF = config['quant'].get('biocore_miraligner') or {}
+BIOCORE_MIRALIGNER_CONF = config['quant'].get('biocore_miraligner')
+if BIOCORE_MIRALIGNER_CONF is None:  # absent, or a key without settings
+    BIOCORE_MIRALIGNER_CONF = {}
 if not isinstance(BIOCORE_MIRALIGNER_CONF, dict):
     raise ValueError('quant.biocore_miraligner must be a mapping of settings, got {!r}'.format(BIOCORE_MIRALIGNER_CONF))
 BIOCORE_MIRALIGNER_TIES = BIOCORE_MIRALIGNER_CONF.get('ties', 'split')
