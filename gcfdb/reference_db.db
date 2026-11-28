@@ -1,134 +1,91 @@
 #-*- mode: snakemake -*-
-"""Genome and annotation reference databases
+"""Select the genome and annotation directory shared by quantification and reporting."""
 
-Lookups are based on organism . Organism name is named by genus and
-species seperated by underscore and all lower case
-(genus_species). e.g homo_sapiens. *
+REF_DIR = config.get('ref_dir')
+requested_provider = config['db']['reference_db']
+ref = requested_provider
+TENX_ASSEMBLIES = {
+    'homo_sapiens': 'GRCh38',
+    'mus_musculus': 'GRCm38',
+    'homo_sapiens__mus_musculus': 'GRCh38_GRCm38',
+}
 
-The main files from a reference db is the genome in fasta format
-(genome.fa) and annotations in gene transfer format (genes.gtf)
-Supported databases are ensembl/ensemblgenomes, refseq and
-10xgenomics.
+if not REF_DIR and ref == '10xgenomics' and ORG not in TENX_ASSEMBLIES:
+    if not config['db']['ensembl'].get('assembly'):
+        raise ValueError(f"No 10xgenomics prebuilt or matching Ensembl assembly for {ORG}. "
+                         "Select a project ref_dir or configure a custom reference.")
+    ref = config['db']['reference_db'] = 'ensembl'
 
-A custom reference dir may be setup by building a directory with the
-following conventions:
-
-[name_of_reference_db]/
-  [release_number]/
-    [organism_name]/
-      [assembly_name]/
-        fasta/
-          genome.fa
-        anno/
-          genes.gtf
-
-for example:
-ensembl/
-  release-104/
-    mus_musculus/
-      GRCm39/
-        fasta/
-          genome.fa
-        anno/
-          genes.gtf
-
-* Custom reference dir is activated by adding 'ref_dir':[path_to_custom_ref_dir] in config.yaml or using the GCF_REFDIR env variable
-* Multiorganism genomes are represented by double underscores in organism name (e.g homo_sapiens__mus_musculus)
-* Multiassembly genomes (within one organism) are represented by assembly=='merged_assemblies'
-* A specific strain is specified by using three underscores (genus_species_strain)
-
-
-The variable REF_DIR is the path to the reference db and is used
-extensively in downstream code. This path is on the form:
-/any_path/[name_of reference_db]/[release_number]/[assembly_name]
-
-
-Custom reference II: config file key-val insertion
---------------------------------------------------
-
-use db config:
-
-ex:
-organism: [organism name]
-'db':
-  [name of reference db]:
-    release: [release number] (optional)
-    assembly: [assembly name] (optional)
-    dna: 
-      file: [local path to fasta dna]
-      url: [url to fasta dna]
-    gtf: '[path to gtf annotations] (optional)'
-
-
-
-"""
-import tempfile
-
-
-def is_url(x):
-    from urllib.parse import urlparse
-    try:
-        result = urlparse(x)
-        return all([result.scheme, result.netloc])
-    except:
-        return False
-
-def is_local_path(x):
-    return os.path.exists(x)
-
-def validate_ref_dir(x):
-    pass
-
-
-REF_DIR = config.get('ref_dir') or environ.get('GCF_REFDIR') or None
-# 1) custom reference config
-if 'reference_db' in config['db']:
-    ref = config['db']['reference_db']
-    if config['db'].get(ref,{}).get('dna') is not None:
-        pass
-elif REF_DIR is not None:
-    # 2) custom reference dir
-    if not is_local_path(REF_DIR):
-        raise OSError("`REF_DIR` is not a valid directory {}".format(REF_DIR))
-    ref = os.path.dirname(REF_DIR)
-    config['db']['reference_db'] = ref
-elif 'reference_db' in config['db']:
-    # 3) supported reference db
-    ref = config['db']['reference_db']
-else:
-    logger.error('Reference dir missing. Check config or other ways for ref dir setup')
-    raise ValueError
-
-
-# supported references
-if ref in ['refseq', 'custom_reference', '10xgenomics', 'gencode']:
+USE_10X_PREBUILT = not REF_DIR and ref == '10xgenomics'
+if not REF_DIR and ref in ('refseq', 'custom_reference', '10xgenomics', 'gencode'):
     include: '{}.db'.format(ref)
 
-if (ref == '10xgenomics') and (ORG not in ['homo_sapiens', 'mus_musculus', 'homo_sapiens__mus_musculus']):
-    #Case: use ensembl reference as input reference, but store under 10x reference
-    config['db'][ref] = DB_CONF = config['db'].get('ensembl', {})
-else:
-    config['db'][ref] = DB_CONF = config['db'].get(ref, {})
+DB_CONF = config['db'].setdefault(ref, {})
+source = 'ref_dir' if REF_DIR else ref
+source_release = DB_CONF.get('release')
+if not REF_DIR:
+    if ref == 'ensembl':
+        REF_DIR = ENSEMBL_DIR
+        if ENS_DIVISION and ENS_DIVISION != 'vertebrates':
+            source, source_release = 'ensemblgenomes', ENSEMBL_ARCHIVE_RELEASE
+    else:
+        release_dir = f'release-{source_release}' if source_release is not None else ''
+        REF_DIR = join(EXT_DIR, ref, release_dir, ORG, str(DB_CONF.get('assembly') or ''))
 
-if REF_DIR is None:
-    assembly = DB_CONF.get('assembly')
-    release = DB_CONF.get('release')
-    release_str = 'release-{}'.format(release) if release is not None else ''
-    assembly_str = str(assembly) if assembly is not None else ''
-    REF_DIR = join(EXT_DIR, ref, release_str, ORG, assembly_str)
+if 'workdir_reference_links' not in globals():
+    include: 'protect_cellranger_outputs.smk'
+
+frozen_generation = frozen_cellranger_generation(REF_DIR) if config.get('ref_dir') else None
+build_10x_reference = config['workflow'] == 'singlecell' and (config.get('libprepkit') or '').startswith('10X Genomics') and not USE_10X_PREBUILT
+selected_source = str(frozen_generation / 'gcf-source') if frozen_generation else REF_DIR
+REFERENCE_SOURCE_DIGEST = REFERENCE_SOURCE_CHECKSUMS = None
+if frozen_generation:
+    REFERENCE_SOURCE_CHECKSUMS = verify_frozen_reference_inputs(frozen_generation)
+elif build_10x_reference and (config.get('ref_dir') or all(os.path.isfile(join(selected_source, member)) for member in CELLRANGER_SOURCES)):
+    REFERENCE_SOURCE_CHECKSUMS = reference_checksums(selected_source)
+if REFERENCE_SOURCE_CHECKSUMS is not None:
+    REFERENCE_SOURCE_DIGEST = reference_digest(REFERENCE_SOURCE_CHECKSUMS)
+
+if frozen_generation:
+    # Published generations are immutable. All genome consumers use a workdir copy,
+    # including quantifiers that derive indexes or annotation beside their input FASTA.
+    source_key = hashlib.sha256(os.fsencode(selected_source)).hexdigest()
+    import_root = join(QUANT_INTERIM, 'reference', 'imported', source_key, REFERENCE_SOURCE_DIGEST)
+    REF_DIR = staged_reference_directory(import_root, REFERENCE_SOURCE_CHECKSUMS)
+    workdir_reference_roots[frozen_generation] = Path(REF_DIR)
+
+    rule stage_frozen_reference:
+        input:
+            fasta = join(selected_source, 'fasta', 'genome.fa'),
+            gtf = join(selected_source, 'anno', 'genes.gtf')
+        output:
+            fasta = join(REF_DIR, 'fasta', 'genome.fa'),
+            gtf = join(REF_DIR, 'anno', 'genes.gtf')
+        params:
+            script = join(GCFDB_DIR, 'scripts', 'stage_project_annotation.sh'),
+            root = REF_DIR,
+            checksums = REFERENCE_SOURCE_CHECKSUMS
+        container:
+            'docker://' + config['docker']['default']
+        shell:
+            'bash {params.script:q} {input.fasta:q} {input.gtf:q} {params.root:q} {params.checksums:q}'
+
 config['base_ref_dir'] = REF_DIR
+reference_message = "Reference for {}: source={} release={} assembly={} directory={}".format(
+    ORG, source, source_release or 'unspecified', DB_CONF.get('assembly') or 'unspecified', REF_DIR)
+if frozen_generation:
+    reference_message += f' frozen_source={selected_source}'
+if source == 'ensemblgenomes':
+    reference_message += f' division={ENS_DIVISION}'
+if ref != requested_provider:
+    logger.warning(f"No {requested_provider} prebuilt for {ORG}. {reference_message}")
+else:
+    logger.info(reference_message)
 
 
 def get_genome(*args, **kw):
-    """
-    Possible additions to genome: eppstein-barr virus, ercc/sirv spike-ins, decoys
-    """ 
     return join(REF_DIR, 'fasta', 'genome.fa')
 
+
 def get_gtf(*args, **kw):
-    """
-    """
     return join(REF_DIR, 'anno', 'genes.gtf')
-
-        
-

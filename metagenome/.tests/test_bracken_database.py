@@ -50,7 +50,7 @@ class BrackenDatabaseTests(unittest.TestCase):
                 "def get_filtered_fastq(wildcards):\n"
                 "    return {'R1': 'unused_R1.fastq.gz', 'R2': 'unused_R2.fastq.gz'}\n"
                 f"def src_gcf(path):\n    return join({str(ROOT)!r}, path)\n"
-                f"include: {str(ROOT / 'gcfdb' / (reference + '.db'))!r}\n"
+                f"include: {str(ROOT / 'metagenome/rules/reference_db.smk')!r}\n"
                 f"include: {str(ROOT / 'metagenome/rules/quant/kraken2.smk')!r}\n"
             )
             result = subprocess.run(

@@ -153,10 +153,21 @@ For the first three, a **nonempty** project value wins, then the environment var
 An empty project value falls through to the environment variable.
 The directories are created when the workflow loads. Relative paths are relative to the Snakemake working directory.
 
-**Custom reference directory (`ref_dir` / `GCF_REFDIR`).** All reader families use a nonempty project `ref_dir`, then a nonempty `GCF_REFDIR`, then their configured getter-managed database.
-Empty strings and YAML null values do not suppress an environment default.
-This applies to `gcfdb/reference_db.db` (rnaseq, singlecell, smallrna and wgs) and the metagenome/microbiome `rules/reference_db.smk` readers.
-An already resolved `REF_DIR` remains available when reference rules are included by another rule file.
+### Project reference directory
+
+Set the top-level `ref_dir` in the project's `config.yaml` to select a prepared reference directory.
+Relative paths start at the Snakemake working directory. The workflow uses the configured provider and annotation settings regardless of the directory name.
+If `ref_dir` is omitted, an empty string or YAML `null`, the configured provider supplies the reference under `EXT_DIR`.
+Downstream rules use the resolved path as `REF_DIR`. The project FASTA and GTF remain authoritative even when the directory is also an Ensembl cache directory.
+FastQ Screen uses the project FASTA for its nonhuman genomic index and the shared human GRCh38 index for its human screen. With a project directory and an empty Ensembl release, the human screening index uses the configured default Ensembl release.
+On first use per release, FastQ Screen retrieves the Ensembl GRCh38 primary assembly and builds its own shared Bowtie2 index under `EXT_DIR/fastq_screen/ensembl/release-<release>/homo_sapiens/GRCh38/`.
+The stock FASTA and index use the upstream basename `Homo_sapiens.GRCh38.dna.primary_assembly`, so generic indexes and augmented project genomes in the ordinary Ensembl cache cannot supply the Human control.
+If the project selects the screening cache itself as `ref_dir`, the control uses the same layout under `QC_INTERIM/fastq_screen/` for that project.
+For an explicit nonhuman genomic reference, FastQ Screen hashes `<ref_dir>/fasta/genome.fa` and builds all six Bowtie2 index files from a private copy verified against that SHA-256 digest.
+It reuses these files under `QC_INTERIM/fastq_screen/indexes/<SHA-256>/` across screening jobs. Changes to FASTA content select a new index even with a preserved modification time. The FASTA size determines the small (`.bt2`) or large (`.bt2l`) format.
+
+The directory contents depend on the workflow. See the [augmented-genome example for Cell Ranger](../gcfdb/README.md#project-reference-for-cell-ranger)
+and the [metagenome classification database settings](../metagenome/README.md#key-configuration).
 
 ## Shared configuration files
 

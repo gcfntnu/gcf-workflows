@@ -1,11 +1,10 @@
 # -*- mode:snakemake -*-
 
-if 'REF_DIR' in locals() and REF_DIR is not None:
-    pass
-elif config.get('ref_dir') or environ.get('GCF_REFDIR'):
-    REF_DIR = config.get('ref_dir') or environ.get('GCF_REFDIR')
-elif 'reference_db' in config['db']:
-    ref = config['db']['reference_db']
+ref = config['db']['reference_db']
+DB_CONF = config['db'][ref]
+if 'REF_DIR' not in locals() or not REF_DIR:
+    REF_DIR = config.get('ref_dir')
+if not REF_DIR:
     if ref == 'silva':
         include: join(GCFDB_DIR, 'silva.db')
     if ref == 'greegenes' or ref.lower() == 'gg':
@@ -13,20 +12,5 @@ elif 'reference_db' in config['db']:
     if ref == 'unite':
         include: join(GCFDB_DIR, 'unite.db')
 
-    DB_CONF = config['db'][ref]
     REF_DIR = join(EXT_DIR, ref, DB_CONF['release'])
-else:
-    logger.error('Reference dir missing. Check config or other ways for ref dir setup')
-    raise ValueError
-
-if not 'ref' in locals():
-    ref = os.path.dirname(REF_DIR)
-    config['db']['reference_db'] = ref
-    config['db'][ref] = {}
-
-#include:
-#    join(GCFDB_DIR, 'silva.db')
-#include:
-#   join(GCFDB_DIR,  'greengenes.db')
-include:
-    join(GCFDB_DIR,  'qiime2_classifiers.smk')
+    include: join(GCFDB_DIR, 'qiime2_classifiers.smk')

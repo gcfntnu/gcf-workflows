@@ -9,22 +9,6 @@ ORG = config.get('organism', 'homo_sapiens')
 CR_CONF = config['quant']['cellranger']
 
 
-if 'txgenomics_org_prebuild' in workflow._rules:
-    ruleorder: txgenomics_org_prebuild > cellranger_symlink_gtf
-    ruleorder: txgenomics_org_prebuild > cellranger_mkref
-
-if not '10xgenomics' in REF_DIR:
-    CR_REF_DIR = join(REF_DIR, 'cellranger')
-else:
-    if ORG not in ['homo_sapiens', 'mus_musculus', 'homo_sapiens__mus_musculus']:
-        if 'txgenomics_org_prebuild' in workflow._rules:
-            ruleorder: cellranger_symlink_gtf > txgenomics_org_prebuild
-            ruleorder: cellranger_mkref > txgenomics_org_prebuild
-        CR_REF_DIR = join(REF_DIR, 'cellranger')
-    else:
-        CR_REF_DIR = REF_DIR
-
-
 def input_fastq_path(wildcards, input):
     pths = set()
     if isinstance(input.R1, six.string_types):
@@ -48,45 +32,37 @@ rule cellranger_gtf:
     shell:
         'cellranger mkgtf {input} {output} {params}'
 
-rule cellranger_mkref:
-    input:
-         fasta = rules.ensembl_genome.output,
-         gtf = rules.ensembl_gtf.output,
-    params:
-        out_name = ENS_ASSEMBLY,
-        out_dir = CR_REF_DIR,
-    output:
-        join(CR_REF_DIR, 'reference.json'),
-        join(CR_REF_DIR, 'fasta', 'genome.fa'),
-        join(CR_REF_DIR, 'genes', 'genes.gtf.gz')
-    threads:
-        48
-    container:
-        'docker://' + config['docker']['cellranger']
-    shell:
-        'cellranger mkref '
-        '--fasta {input.fasta} '
-        '--genes {input.gtf} '
-        '--nthreads {threads} '
-        '--genome {params.out_name} '
-        '&& cp -r {params.out_name}/* {params.out_dir}/ '
-        '&& rm -rf {params.out_name} '
+if not USE_10X_PREBUILT:
+    # A completed cold build gains a known source digest on restart. This guards execution
+    # without changing the published recipe or triggering a params-based rebuild.
+    CR_SOURCE_GUARD = ['--expected-source', REFERENCE_SOURCE_DIGEST] if REFERENCE_SOURCE_DIGEST else []
 
-rule cellranger_symlink_gtf:
-    input:
-        join(CR_REF_DIR, 'genes', 'genes.gtf.gz')
-    output:
-        join(CR_REF_DIR, 'anno', 'genes.gtf')
-    params:
-        gtf = join(CR_REF_DIR, 'genes', 'genes.gtf')
-    shell:
-        'gunzip -k {input} && mv {params.gtf} {output}'
+    rule cellranger_mkref:
+        input:
+            fasta = join(CR_SOURCE, 'fasta', 'genome.fa'),
+            gtf = join(CR_SOURCE, 'anno', 'genes.gtf')
+        output:
+            CR_RECEIPT
+        params:
+            script = join(GCFDB_DIR, 'scripts', 'build_cellranger_reference.py'),
+            source = CR_SOURCE,
+            cache = CR_CACHE,
+            name = CR_GENOME,
+            image = CR_IMAGE
+        threads:
+            48
+        container:
+            'docker://' + CR_IMAGE
+        shell:
+            'python3 {params.script:q} --source-dir {params.source:q} --cache {params.cache:q} '
+            '--receipt {output:q} {CR_SOURCE_GUARD:q} --image {params.image:q} '
+            '-- cellranger mkref --fasta {input.fasta:q} --genes {input.gtf:q} --genome {params.name:q} --nthreads {threads}'
+
 
 rule cellranger_quant_:
     input:
         unpack(get_raw_fastq),
-        genome = join(CR_REF_DIR, 'fasta', 'genome.fa'),
-        gtf = join(CR_REF_DIR, 'anno', 'genes.gtf')
+        reference = CR_REFERENCE_INPUTS
     params:
         input = input_fastq_path,
         id = '_tmp_{sample}',
@@ -122,7 +98,7 @@ rule cellranger_quant_:
         '--fastqs {params.input} '
         '--id {params.id} '
         '--sample {params.sample} '
-        '--transcriptome {params.genome_dir} '
+        '--transcriptome {params.genome_dir:q} '
         '--chemistry {params.chemistry} '
         '{params.extra_args} '
 

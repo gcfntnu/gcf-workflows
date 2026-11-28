@@ -118,6 +118,7 @@ rule refseq_genome:
     input:
         REFSEQ_DB
     params:
+        publisher = join(GCFDB_DIR, 'scripts', 'publish_reference.sh'),
         release = config['db']['refseq']['release'],
         proxy = config.get('proxy', {}).get('wget', ''),
         url = config['db']['refseq'].get('ftp_genome','').split(',')[:2]
@@ -127,10 +128,9 @@ rule refseq_genome:
         24
     log:
         join(EXT_DIR, 'refseq', 'release-{release}', '{organism}', '{assembly}', 'logs', 'genome.log')
-    run:
-        for url in params.url:
-            shell("wget {params.proxy} -O- {url} | gunzip -c >> {output.genome}")
-            shell("echo 'Refseq DNA,release-{params.release},{params.url},`date -I`' >> {log}")
+    shell:
+        'bash {params.publisher:q} {output.genome:q} gzip {params.proxy} -- {params.url:q} && '
+        'echo "Refseq DNA,release-{params.release},{params.url},$(date -I)" > {log:q}'
 
 rule refseq_gff:
     input:
@@ -154,6 +154,7 @@ rule refseq_gtf:
     input:
         table = REFSEQ_DB
     params:
+        publisher = join(GCFDB_DIR, 'scripts', 'publish_reference.sh'),
         release = DB_CONF['release'],
         proxy = config.get('proxy', {}).get('wget', ''),
         url = config['db']['refseq'].get('ftp_gtf', '').split(',')[:2]
@@ -163,10 +164,9 @@ rule refseq_gtf:
         24
     log:
         join(EXT_DIR, 'refseq', 'release-{release}', '{organism}', '{assembly}', 'logs', 'gtf.log')
-    run: 
-        for url in params.url:
-            shell("wget {params.proxy} -O- {params.url} | gunzip -c  | grep -v '^#' >> {output}")
-            shell("echo 'Refseq GTF,release-{params.release},{params.url},`date -I`' > {log}")
+    shell:
+        'bash {params.publisher:q} {output:q} refseq-gtf {params.proxy} -- {params.url:q} && '
+        'echo "Refseq GTF,release-{params.release},{params.url},$(date -I)" > {log:q}'
 
 if config['db']['refseq']['division'] == 'bacteria':
     ruleorder: refseq_gtf_noneukaryot > refseq_symlink_genes
@@ -177,9 +177,10 @@ rule refseq_gtf_noneukaryot:
     output:
         join(EXT_DIR, 'refseq', 'release-{release}', '{organism}', '{assembly}', 'anno', 'genes.gtf')
     params:
+        publisher = join(GCFDB_DIR, 'scripts', 'publish_reference.sh'),
         script = src_gcf('scripts/refseq_gtf.py')
     shell:
-        'python {params.script} {input} {output}'
+        'bash {params.publisher:q} {output:q} command python {params.script:q} {input:q}'
 
 rule refseq_symlink_genes:
     params:
@@ -191,4 +192,4 @@ rule refseq_symlink_genes:
     wildcard_constraints:
         ext = 'g.+f$'
     shell:
-        'ln -sr {input} {output}'
+        'ln -srT -- {input:q} {output:q} || test {input:q} -ef {output:q}'

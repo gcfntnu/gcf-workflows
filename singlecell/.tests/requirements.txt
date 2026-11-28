@@ -5,5 +5,7 @@ rich
 pulp==2.7.0
 pytest
 scanpy
+biopython
+gtfparse==2.9.1
 polars==2.1.0
 -r ../../.tests/requirements-config.txt

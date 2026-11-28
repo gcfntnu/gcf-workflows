@@ -86,7 +86,7 @@ def _qc_prepare_inputs(wc):
 
     result = {
         'counts': counts,
-        'feature_info': [join(REF_DIR, 'anno', 'genes.tsv')],
+        'feature_info': [gene_table_for_quantifier(wc)],
         'barcode_info': _qc_barcode_info_list(wc),
     }
 
@@ -139,7 +139,7 @@ rule autoqc_prepare:
         '--input-format {params.input_format} '
         '--barcode-rename {params.barcode_rename} '
         '{params.aggr_csv}'
-        '--feature-info {input.feature_info} '
+        '--feature-info {input.feature_info:q} '
         '--barcode-info {input.barcode_info} '
         '--output-metrics {output.metrics} '
         '--qc-sample {params.qc_sample} '

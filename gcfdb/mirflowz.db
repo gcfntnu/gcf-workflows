@@ -87,7 +87,8 @@ MIRFLOWZ_ANNO = join(MIRFLOWZ_REF, 'gff-{}'.format(MIRFLOWZ_GFF_ID))
 # The project's Ensembl genome and GTF are reused when they are mirflowz's release and assembly.
 MIRFLOWZ_REUSE_ENSEMBL = (not MIRFLOWZ_CUSTOM and config['db'].get('reference_db') == 'ensembl'
                           and str(config['db']['ensembl']['release']) == MIRFLOWZ_RELEASE
-                          and globals().get('ENS_ASSEMBLY') == MIRFLOWZ_ASSEMBLY)
+                          and globals().get('ENS_ASSEMBLY') == MIRFLOWZ_ASSEMBLY
+                          and 'ensembl_genome' in workflow._rules)
 MIRFLOWZ_URL = 'https://ftp.ensembl.org/pub/release-{}'.format(MIRFLOWZ_RELEASE)
 MIRFLOWZ_DNA = 'primary_assembly' if ORG in ('homo_sapiens', 'mus_musculus') else 'toplevel'
 

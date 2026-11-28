@@ -270,7 +270,7 @@ rule souporcell_noref:
         bam = get_singlecell_bam,
         barcodes = get_singlecell_barcodes,
         vcf = join(REF_DIR, 'anno', 'common_variants.vcf'),
-        genome = join(REF_DIR, 'fasta', 'genome.fa')
+        genome = join(QUANT_SOURCE_DIR, 'fasta', 'genome.fa')
     output:
         vcf = join(DEMUX_DIR,  'souporcell_noref', 'cluster_genotypes.vcf'),
         donor_ids = join(DEMUX_DIR, 'souporcell_noref', 'clusters.tsv')
@@ -287,7 +287,7 @@ rule souporcell_noref:
         'souporcell_pipeline.py '
         '-i {input.bam} '
         '-b {input.barcodes} '
-        '-f {input.genome} '
+        '-f {input.genome:q} '
         '--common_variants {input.vcf} '
         '-t {threads} '
         '-o {params.souporcell_dir} '
@@ -300,7 +300,7 @@ rule souporcell_ref:
         bam = get_singlecell_bam,
         barcodes = get_singlecell_barcodes,
         donor_vcf = get_donor_vcf,
-        genome = join(REF_DIR, "fasta", "genome.fa")
+        genome = join(QUANT_SOURCE_DIR, 'fasta', 'genome.fa')
     output:
         vcf = join(DEMUX_DIR, "souporcell_ref", "cluster_genotypes.vcf"),
         donor_ids = join(DEMUX_DIR, "souporcell_ref", "clusters.tsv")
@@ -317,7 +317,7 @@ rule souporcell_ref:
         'souporcell_pipeline.py '
         '-i {input.bam} '
         '-b {input.barcodes} '
-        '-f {input.genome} '
+        '-f {input.genome:q} '
         '--known_genotypes {input.donor_vcf} '
         '-t {threads} '
         '-o {params.souporcell_dir} '

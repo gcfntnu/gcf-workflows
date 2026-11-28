@@ -1,0 +1,21 @@
+#!/usr/bin/env python3
+"""Exercise getfasta wiring for the retained annotation test's single four-base exon."""
+from pathlib import Path
+import sys
+
+assert sys.argv[1] == 'getfasta'
+
+
+def argument(flag):
+    return Path(sys.argv[sys.argv.index(flag) + 1])
+
+
+genome = argument('-fi')
+header, sequence = genome.read_text().splitlines()
+chrom, start, end, *_ = argument('-bed').read_text().split()
+assert header == '>' + chrom
+index = genome.with_suffix('.fa.fai')
+if index.exists():
+    assert index.read_text() == 'synthetic index'
+index.write_text('synthetic index')
+argument('-fo').write_text(f'>{chrom}:{start}-{end}\n{sequence[int(start):int(end)]}\n')

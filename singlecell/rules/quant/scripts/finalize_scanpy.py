@@ -265,7 +265,7 @@ def main() -> int:
     data.var = conv.drop_ci_identical_same_name(data.var)
     data.var = conv.anndata_friendly_dtypes(
         data.var,
-        protect_cols=("gene_id", "feature_id", "id"),
+        protect_cols=conv._FEATURE_IDENTIFIER_COLUMNS,
         allow_string_dtype=False,
     )
 

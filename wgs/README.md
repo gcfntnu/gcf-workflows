@@ -49,7 +49,7 @@ The QC delivery contract (one sample-specific job, copied reports, validation of
 | --- | --- | --- |
 | `db.reference_db` | `ensembl` | Kit entry; project for custom references |
 | `db.<reference>.release` / `assembly` | Releases in `main.config` | [main.config](../main.config), project |
-| `ref_dir` / `GCF_REFDIR` | Not set; custom reference directory | Project / environment ([#240](https://github.com/gcfntnu/gcf-workflows/issues/240)) |
+| `ref_dir` | Configured provider | Optional project directory containing `fasta/genome.fa` ([configuration guide](../docs/configuration.md#project-reference-directory)) |
 
 There is no `wgs.config`; defaults come from `main.config` and the kit entry. Precedence is described in [docs/configuration.md](../docs/configuration.md#effective-precedence).
 

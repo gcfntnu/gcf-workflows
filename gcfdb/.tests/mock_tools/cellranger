@@ -1,0 +1,20 @@
+#!/usr/bin/env python3
+"""Stand in for mkref in publisher/retained-workdir tests. Produces only tiny text fixtures."""
+import json
+from pathlib import Path
+import sys
+
+assert sys.argv[1] == "mkref"
+root = Path(sys.argv[sys.argv.index("--output-dir") + 1])
+for name in (
+    "reference.json", "fasta/genome.fa", "fasta/genome.fa.fai", "genes/genes.gtf.gz",
+    "star/Genome", "star/SA", "star/SAindex", "star/genomeParameters.txt",
+    "star/chrLength.txt", "star/chrNameLength.txt", "star/chrName.txt", "star/chrStart.txt",
+    "star/transcriptInfo.tab", "star/exonInfo.tab", "star/sjdbInfo.txt",
+):
+    path = root / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if name == "reference.json":
+        path.write_text(json.dumps({"genomes": [sys.argv[sys.argv.index("--genome") + 1]], "mem_gb": 1}))
+    else:
+        path.write_bytes(b"processed mkref output")
