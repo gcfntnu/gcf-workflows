@@ -88,11 +88,15 @@ Prepare the binary once (the same checksum is enforced in CI):
 
 ```bash
 mkdir -p .dev/bin
-# opengene.org, or the Internet Archive's copy of the same file (the checksum pins the bytes either way)
-curl -fsSL https://opengene.org/fastp/fastp.0.20.1 -o .dev/bin/fastp ||
-  curl -fsSL https://web.archive.org/web/2024id_/https://opengene.org/fastp/fastp.0.20.1 -o .dev/bin/fastp
-echo "7860c80dea92c42ee0583544aa66057a7ce1ad1c37b99a22557bdb7f4c9497e3  .dev/bin/fastp" | sha256sum -c -
-chmod +x .dev/bin/fastp
+# opengene.org, else the Internet Archive's copy of the same file; installed only when it passes the pinned checksum
+sum=7860c80dea92c42ee0583544aa66057a7ce1ad1c37b99a22557bdb7f4c9497e3
+for url in https://opengene.org/fastp/fastp.0.20.1 \
+           https://web.archive.org/web/2024id_/https://opengene.org/fastp/fastp.0.20.1; do
+  curl -fsSL "$url" -o .dev/bin/fastp.part && echo "$sum  .dev/bin/fastp.part" | sha256sum -c --status - &&
+    mv .dev/bin/fastp.part .dev/bin/fastp && chmod +x .dev/bin/fastp && break
+done
+rm -f .dev/bin/fastp.part
+echo "$sum  .dev/bin/fastp" | sha256sum -c -
 ```
 
 Set `FASTP_0201` as shown in the check table. Without it, read-outcome cases skip explicitly;

@@ -33,14 +33,18 @@ jobs:
     - name: Prepare pinned fastp for synthetic regression
       run: |
         mkdir -p .dev/bin
-        # opengene.org first; the Internet Archive's copy of the same file when it fails (its certificate expired
-        # 2026-11-27). The checksum below pins the bytes either way.
+        # opengene.org first, then the Internet Archive's copy of the same file (opengene.org's certificate expired
+        # 2026-11-27). Each candidate must pass the pinned SHA-256 before it is installed; the next is tried otherwise.
+        sum=7860c80dea92c42ee0583544aa66057a7ce1ad1c37b99a22557bdb7f4c9497e3
         for url in https://opengene.org/fastp/fastp.0.20.1 \
                    https://web.archive.org/web/2024id_/https://opengene.org/fastp/fastp.0.20.1; do
-          curl -fsSL "$url" -o .dev/bin/fastp && break
+          if curl -fsSL "$url" -o .dev/bin/fastp.part && echo "$sum  .dev/bin/fastp.part" | sha256sum -c --status -; then
+            mv .dev/bin/fastp.part .dev/bin/fastp && chmod +x .dev/bin/fastp && break
+          fi
+          echo "fastp from $url: download or checksum failed" >&2
         done
-        echo "7860c80dea92c42ee0583544aa66057a7ce1ad1c37b99a22557bdb7f4c9497e3  .dev/bin/fastp" | sha256sum -c -
-        chmod +x .dev/bin/fastp
+        rm -f .dev/bin/fastp.part
+        echo "$sum  .dev/bin/fastp" | sha256sum -c -
     - name: Test small-RNA stages on synthetic reads
       run: FASTP_0201="$PWD/.dev/bin/fastp" python -m pytest -q smallrna/.tests/test_fastp.py
     - name: Test the small-RNA cutadapt route on synthetic reads
